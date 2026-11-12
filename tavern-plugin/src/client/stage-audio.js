@@ -113,6 +113,7 @@ const forkStageAudio = (function () {
         const Constructor = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
         if (!Constructor) return null;
         try {
+            if (typeof navigator !== "undefined" && navigator.audioSession) navigator.audioSession.type = "playback";
             context = new Constructor(); master = context.createGain(); master.gain.value = volume("master"); const foregroundGain = context.createGain(); master.connect(foregroundGain); foregroundGain.connect(context.destination);
             output = foregroundGain;
             if (typeof forkForeground !== "undefined") forkForeground.context(context, foregroundGain);
@@ -329,7 +330,7 @@ const forkStageAudio = (function () {
             trace('start', { node: null, layer: 'voice', url: '', gainDb: 0, trim: 1, trace: meta });
             return { context: ctx, input };
         },
-        // The measured level of a streamed voice (dsh-tts loudness: the line's own, or its voice's estimate while it
+        // The measured level of a streamed voice (dsh-tavern-tts loudness: the line's own, or its voice's estimate while it
         // streams): the handle's gain glides to it.
         voiceLevel(handle, loudness) {
             const record = nodes.get(handle);

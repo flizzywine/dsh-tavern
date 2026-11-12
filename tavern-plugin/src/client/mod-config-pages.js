@@ -63,16 +63,15 @@ function CfgList({ rpc, config, keys, state, help = {} }) {
         !config.data ? config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : h(Spinner, { label: '正在载入' }) :
             config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : null);
 }
-// A mod whose settings need no preview (文字演出: 强度): the 设置 section with one row per setting, above the mod's own
-// packs when it has any, then its entry sections.
-function ModConfigList({ rpc, cardId, cardName, sessionId, modId, manifest, data, entries }) {
+// The page generated from a mod's config schema (docs/mod-authoring.md: a mod does not draw its settings page): the
+// 设置 section with one row per player-adjustable setting, then its entry sections. Every mod without its own page.
+function ModConfigList({ rpc, cardId, cardName, sessionId, modId, manifest, entries }) {
     const h = React.createElement, config = useModConfig({ call: rpc, modId, cardId, sessionId, cardName });
-    const packs = !!(manifest && manifest.assetKinds && manifest.assetKinds.length), keys = config.data ? cfgUserKeys(config, Array.from(config.fields.keys())) : [];
+    const keys = config.data ? cfgUserKeys(config, Array.from(config.fields.keys())) : [];
     // Nothing the player adjusts (every option is the skin's or the preset's): no 设置 section.
-    return h('div', { className: 'fork-cfg-page', 'data-mod': modId, 'data-compact': packs ? undefined : true },
+    return h('div', { className: 'fork-cfg-page', 'data-mod': modId, 'data-compact': true },
         config.data && !keys.length ? null : h(ModSettings, { modId, config },
             h(CfgList, { rpc, config, keys, help: modFieldHelp(modId, manifest) })),
-        packs ? h(ModAssets, { rpc, cardId, modId, data, title: '素材包' }) : null,
         entries || null);
 }
 // ---------- 物品 (items core) ----------

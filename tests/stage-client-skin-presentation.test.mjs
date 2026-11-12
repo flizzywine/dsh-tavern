@@ -17,7 +17,7 @@ test('skin selection waits for pages, withdraws immediately and unload restores 
  const pendingFonts=[];let provided=0
  const listeners=new Set(),fonts={subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)},getSnapshot:()=>0,resolve:()=>({family:'serif'}),ensure:async()=>{},provide:async()=>{provided++}}
  const skin=createStageSkinAdapter({contract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()})
- const module=createStageSkinPresentation({React,Event:dom.window.Event,fonts,skin:{...skin,stageSkinFontFaces:()=>[{id:'bundled',load:()=>new Promise(resolve=>pendingFonts.push(resolve))}]},appearance:contract.stageSkinAppearance,files:()=>({})})
+ const module=createStageSkinPresentation({React,Event:dom.window.Event,fonts,skin:{...skin,stageSkinFontFaces:()=>[{id:'bundled',load:()=>new Promise(resolve=>pendingFonts.push(resolve))}]},appearance:contract.stageSkinAppearance,forDevice:contract.stageSkinForDevice,files:()=>({})})
  let active;const shown={current:null}
  function View({candidate,page='one',film=false}){const ref=React.useRef();active=module.useSkin(ref,candidate,page,film,'classic',{shown});return React.createElement('section',{ref})}
  const root=createRoot(dom.window.document.getElementById('root'))

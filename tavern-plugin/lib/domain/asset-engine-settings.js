@@ -1,7 +1,7 @@
 import {defaultJudgeConfig,validateJudgeConfig} from './engine-judge.js'
 import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
-import { validateAssetRef, validateUuid, validateShortId } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import { normalizeBubbleEmotions } from './dialogue-bubbles.js'
 import { normalizeBubbleInjection } from './dialogue-bubble-presets.js'
 import { createHash } from 'node:crypto'
@@ -30,17 +30,10 @@ export function defaultAssetEngineSettings() {
     judge:defaultJudgeConfig() }
 }
 // 旁白配音's card layer (stage.narrator) sets only what it overrides; the global layer is the tts plugin's tts.reading.narrator.
-// voice = a figure whose voice speaks the narration ({packId, figureId}) or a browser system voice ({browser}); null = none.
+// Its voice is not a setting: this card's own 旁白 is the library's reading voice narrator:<cardId>.
 export function validateNarratorSettings(value, path) {
-  shape(value, ['enabled', 'voice'], [], path)
+  shape(value, ['enabled'], [], path)
   if (value.enabled !== undefined) bool(value.enabled, path + '.enabled')
-  const voice = value.voice
-  if (voice === undefined || voice === null) return value
-  if (Object.hasOwn(voice, 'browser')) { shape(voice, ['browser'], ['browser'], path + '.voice'); text(voice.browser, path + '.voice.browser', 256) }
-  else if (voice.templateId !== undefined) { shape(voice,['templateId'],['templateId'],path + '.voice'); validateUuid(voice.templateId) }
-  else if (voice.voiceId !== undefined) { shape(voice,['packId','voiceId'],['packId','voiceId'],path + '.voice'); validateUuid(voice.packId); validateShortId(voice.voiceId) }
-  else if (voice.serviceId !== undefined) { shape(voice,['serviceId','voice'],['serviceId','voice'],path + '.voice'); check(/^[a-z][a-z0-9-]{0,23}$/.test(voice.serviceId),path + '.voice.serviceId'); text(voice.voice,path + '.voice.voice',200) }
-  else { shape(voice, ['packId', 'figureId'], ['packId', 'figureId'], path + '.voice'); text(voice.packId, path + '.voice.packId', 160); text(voice.figureId, path + '.voice.figureId', 160) }
   return value
 }
 export function validateEnginePreset(value) {
@@ -84,7 +77,8 @@ export function validateAssetEngineSettings(value) {
   for (const key of STAGE_TOGGLES) bool(value.stageToggles[key], '$.stageToggles.' + key)
   value.judge = validateJudgeConfig(value.judge ?? defaultJudgeConfig())
   // Retired dimensions have no current command or UI; leave their persisted source untouched.
-  if (value.dimensions && typeof value.dimensions === 'object' && !Array.isArray(value.dimensions)) value.dimensions = Object.fromEntries(Object.entries(value.dimensions).filter(([key]) => ENGINE_DIMENSIONS.includes(key)))
+  // the CG switch is newer than stored settings; default it on without rewriting the native document.
+  if (value.dimensions && typeof value.dimensions === 'object' && !Array.isArray(value.dimensions)) value.dimensions = {cg:true, ...Object.fromEntries(Object.entries(value.dimensions).filter(([key]) => ENGINE_DIMENSIONS.includes(key)))}
   const keys = Object.keys(defaultAssetEngineSettings())
   value = Object.fromEntries(Object.entries(value).filter(([key]) => keys.includes(key)))
   shape(value, keys, keys, '$'); check(value.schemaVersion === 1, '$.schemaVersion')
@@ -94,7 +88,7 @@ export function validateAssetEngineSettings(value) {
   }
   // The dialogue switch is stageToggles.dialogue with the card's stage.enabled, not the retired dialogue.enabled.
   if (value.dialogue && typeof value.dialogue === 'object' && !Array.isArray(value.dialogue)) delete value.dialogue.enabled
-  // Retired dialogue.textLanguage is migrated offline, never read.
+  // no dialogue.textLanguage (正文语言); stored values are migrated offline, never read.
   shape(value.dialogue, ['emotions','injection'], ['emotions','injection'], '$.dialogue')
   normalizeBubbleEmotions(value.dialogue.emotions); normalizeBubbleInjection(value.dialogue.injection)
   // the global default skin (舞台设置 › 舞台模式 › 皮肤「默认皮肤」) may also be a pack skin.
@@ -124,5 +118,6 @@ export function patchAssetEngineSettings(current, patch) {
   }
   return validateAssetEngineSettings(next)
 }
-export const engineSettingsRevision = value => createHash('sha256').update(canonicalJson(validateAssetEngineSettings(value))).digest('hex')
+// The value is the output of validateAssetEngineSettings (the settings source); it is not validated twice.
+export const engineSettingsRevision = value => createHash('sha256').update(canonicalJson(value)).digest('hex')
 export const parseEnginePreset = text => validateEnginePreset(parseJson(text))

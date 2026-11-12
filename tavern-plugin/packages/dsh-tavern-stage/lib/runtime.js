@@ -45,7 +45,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     async start(bindings) {
       assert('assets');phase = 'starting'
       try {
-        module = await factories.start({...bindings,...assets,ctx:scope.ctx,cardsActive:() => scope.active() && bindings.cardsActive()})
+        module = await factories.start({...bindings,...assets,ctx:scope.ctx,settingsOwner:core.settingsOwner,cardsActive:() => scope.active() && bindings.cardsActive()})
         assert('starting');phase = 'running'
         return module
       } catch(error) {phase = scope.active() ? 'failed' : phase;await scope.dispose();throw error}

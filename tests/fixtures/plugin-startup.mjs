@@ -3,6 +3,7 @@ import { createPluginHost } from './plugin-host.mjs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
+import { registerRunningUserPlugin } from '../../tavern-plugin/lib/domain/user-plugins.js'
 import { resolveTavernDataRoot } from '../../tavern-plugin/lib/domain/tavern-data.js'
 
 const root = resolveTavernDataRoot()
@@ -15,6 +16,9 @@ await createChatJournalStore({ dataRoot: root }).update('stage-chat', () => ({
   timeline: { branchId: 'test-branch', revision: 0 },
   messages: [{ role: 'assistant', turn: 1, text: 'A quiet room.', sourceText: 'A quiet room.' }]
 }))
+// The fake callers below stand in for managed plugins: a Tavern guard registers each one as a trusted global
+// identity (user-plugins.js guardSource). An unregistered caller is refused by the access check (plugin-api.js accessScope).
+const releaseIdentities = ['mode-smoke', 'identity-test-plugin'].map(name => registerRunningUserPlugin(name, { folder: name, sha256: '', bound: false, origin: 'global', cardIds: [], runtimeName: name }))
 const host = await createPluginHost({ withTools: true })
 try {
   const imported = await host.rpc('importCard', { payload: { name: 'stage-test.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: card }) } })
@@ -48,6 +52,10 @@ try {
   unregister()
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
   assert.deepEqual((await host.rpc('pluginMediaForTurn', { sessionId: 'missing-game', turn: 1 })).items, [])
+  // Fork RPCs share the extracted dispatcher, including former switch fallthrough aliases.
+  assert.deepEqual((await host.rpc('getAssetVoiceServices', {})).services, [])
+  assert.equal(typeof (await host.rpc('getDeploymentActivity', {})).work.busy, 'boolean')
+  assert.ok(await host.rpc('getJudgeConfig', {}))
   assert.equal((await host.rpc('getLive2dRuntime', {})).installed, false, 'the stage registers the Live2D runtime; a fresh data directory has none')
   assert.ok((await host.rpc('getTavernSettings', {})).settings)
   assert.deepEqual((await host.rpc('bodyGenerationProviders', {})).providers, [])
@@ -84,11 +92,12 @@ try {
   assert.equal(typeof direction.status, 'string')
   const modRpc = (method, args) => host.rpc(method, args, { origin: 'http://localhost:3081' })
   const mods = await modRpc('managedModsList', {})
-  assert.equal(mods.mods.length, 4)
+  // the five first-party mods (dice, phone, redaction, textcard, timer)
+  assert.equal(mods.mods.length, 5)
   assert.ok(mods.mods.every(mod => mod.switches.global === false && mod.switches.effective === false))
   const plan = await modRpc('managedModSwitchPlan', { revision: mods.revision, kind: 'mod', scope: 'global', id: 'dsh.dice', value: true })
   await modRpc('managedModApply', { token: plan.token, revision: plan.revision, answers: {} })
   const enabled = await modRpc('managedModsList', {})
   assert.deepEqual(enabled.mods.filter(mod => mod.switches.effective).map(mod => mod.id), ['dsh.dice'])
   console.log('plugin apply completed')
-} finally { await host.dispose() }
+} finally { releaseIdentities.forEach(release => release()); await host.dispose() }

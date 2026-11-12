@@ -4,10 +4,11 @@ const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall
     dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},
     figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
     modClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus,playEvents}=services;
+const packStillMedia=services.figures.still;
 // galVisitCount: navigation.visit, read here because GalStage's own `navigation` (its paging ref) shadows the parameter.
 const {galActive,galMenuRequest,visit:galVisitCount,getEntryPage:galEntryPage}=navigation;
 const galCurrentEntry=()=>navigation.getEntry(),galHoldLeave=hold=>navigation.holdLeave(hold);
-const voicePlayer=options.speech?.player,bubbleCharacter=options.speaker?.character,galQuoted=options.backlogView?.galQuoted;
+const voicePlayer=options.speech?.player,bubbleCharacter=options.speaker?.character,figureLatin=options.speaker?.latin,galQuoted=options.backlogView?.galQuoted;
 const forkForeground=options.sceneServices?.foreground,forkLipSync=options.sceneServices?.lipSync,forkStageAudio=options.mixer?.audio,forkUiSfx=options.widgets?.sounds;
 const stageSfx=stageViews.sfx,stageEntries=options.widgets?.entries,stageEntryContextType=legacy.entryContext,createStageEntryStore=legacy.entryStore;
 const {StageWaitLines,StageWaitStop,waitLines:STAGE_WAIT_LINES,episode:stageWaitLinesEpisode,Icon}=options.choices || {};
@@ -102,6 +103,7 @@ const stageSkinMenuTint=(...args)=>stageViews.skin.stageSkinMenuTint(...args);
 const stageSkinMode=(...args)=>stageViews.skin.stageSkinMode(...args);
 const stageSkinMotionKeyframes=(...args)=>stageViews.skin.stageSkinMotionKeyframes(...args);
 const stageSkinTint=(...args)=>stageViews.skin.stageSkinTint(...args);
+const stageSkinVoiceBox=(...args)=>stageViews.skin.stageSkinVoiceBox(...args);
 function CgGallery(props){return React.createElement(stageViews.gallery.Gallery,props);}
 function GalBoxFrame(props){return React.createElement(stageViews.BoxFrame,props);}
 function GalConfigScreen(props){return React.createElement(stageViews.configScreen.Screen,props);}
@@ -557,12 +559,14 @@ function GalStage(props) {
     // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
     // stage's CONFIG over the page, which stays up behind it; fillInput(text) has handed the text to the 自由输入 draft
     // (choices.cjs fill), which waits at the latest round's end - the page closes and the reader goes there (跳到最新).
-    // openGallery() opens 回想 over the page (which stays up behind it); exit() (and newGame() into a 游戏准备) is 返回主页面; continueGame() (and newGame() on an unsaved chat with nothing to prepare)
-    // closes the page (an entry page too: the stage is entered).
+    // openGallery() opens 回想 and openBacklog() 履历 over the page (which stays up behind it; a 履历 jump closes it and the
+    // stage is entered at that line); exit() (and newGame() into a 游戏准备) is 返回主页面; continueGame() (and newGame() on an unsaved chat with nothing to prepare) closes the page (an entry page
+    // too: the stage is entered).
     function cardPageAction(kind, arg) {
         if (kind === 'continue') { closeCardPage(); return; }
         if (kind === 'settings') { openConfig(); return; }
         if (kind === 'gallery') { forkUiSfx.play("open"); openGallery(); return; }
+        if (kind === 'backlog') { openBacklog(); return; }
         if (kind === 'exit') { props.onExit(); return; }
         // (a page an entry page opens stands in for the entry in its place)
         if (kind === 'open') { if (arg !== openPage && pageList.some(declared => declared.id === arg)) { backlogClosedAt.current = Date.now(); setOpenPage(arg); if (entryOpen) setEntryCardPage(arg); } return; }
@@ -605,10 +609,11 @@ function GalStage(props) {
         // (the items' leave and the device's own frameOut: the longer of the two)
         // (and the skin's menu transition, transitions.menu.leave, at every width)
         const motion = activeSkin?.art?.menu?.motion, leave = motion?.leave, frameOut = activeSkin?.art?.menu?.frame ? motion?.frameOut : null;
-        const drawn = (leave || frameOut) && !narrow, tx = skinTxLeaveMs(activeSkin, "menu", reading.reducedMotion === true);
+        // (a phone draws the menu only with art.menu.narrow, and no frame there)
+        const drawn = narrow ? Boolean(leave && activeSkin.art.menu.narrow) : Boolean(leave || frameOut), tx = skinTxLeaveMs(activeSkin, "menu", reading.reducedMotion === true);
         if ((drawn || tx) && !reading.reducedMotion && menuOpen) {
             setMenuLeaving(true);
-            foregroundTimeout(() => setMenuLeaving(false), Math.max(drawn && leave ? leave.ms + (leave.stagger || 0) * 10 : 0, drawn ? frameOut?.ms || 0 : 0, tx));
+            foregroundTimeout(() => setMenuLeaving(false), Math.max(drawn && leave ? leave.ms + (leave.stagger || 0) * 10 : 0, drawn && !narrow ? frameOut?.ms || 0 : 0, tx));
         }
         if (!menuFullscreen.current) return;
         menuFullscreen.current = false;
@@ -678,7 +683,9 @@ function GalStage(props) {
     const defaultKey=projectedKey===configKey ? configKey : configSkin.defaultKey;
     const projectedSkin=projectedKey && projectedKey!==defaultKey ? configSkin.skin : pack.scene?.skin;
     const shownSkin = React.useRef(null);
-    const drawnSkin = useStageSkin(rootRef, performanceLayer.skin || projectedSkin || configSkin.skin, sessionId + ':' + turn + ':' + page, film, stageConfig.theme || 'classic', {shown:shownSkin,defaultKey,fallback:configSkin.skin,controls:projectedSkin || configSkin.skin,deferFonts:!entryGate.visible,ready:Boolean(accepted.provenanceByChannel?.background),snap:runtime.cursor.mode === 'history' || skipping || !!(performanceLayer.skin && performanceLayer.snap)});
+    // the device profile (device.cjs): the stage projects its state and picks the skin's device side by it; a profile change re-renders.
+    const device = stageViews.device.useProfile();
+    const drawnSkin = useStageSkin(rootRef, performanceLayer.skin || projectedSkin || configSkin.skin, sessionId + ':' + turn + ':' + page, film, stageConfig.theme || 'classic', {side:stageViews.device.skinSide(device),shown:shownSkin,defaultKey,fallback:configSkin.skin,controls:projectedSkin || configSkin.skin,deferFonts:!entryGate.visible,ready:Boolean(accepted.provenanceByChannel?.background),snap:runtime.cursor.mode === 'history' || skipping || !!(performanceLayer.skin && performanceLayer.snap)});
     // a display mode changes only chrome - film mode's letterbox,
     // subtitles and controls replace the skin's box, art and buttons (activeSkin) - while the skin's stage projection
     // (skinFigures) and the director's camera apply in every mode.
@@ -686,6 +693,7 @@ function GalStage(props) {
     const waitLines = activeSkin?.waitLines || STAGE_WAIT_LINES; // the skin's wait lines (wait-lines.js), else the default ones
     const skinMotionKeyframes = React.useMemo(() => activeSkin ? stageSkinMotionKeyframes(activeSkin) : '', [activeSkin]);
     const backlogLooks = React.useMemo(() => activeSkin ? stageSkinBacklog(activeSkin) : null, [activeSkin]);
+    const voiceBox = stageSkinVoiceBox(activeSkin); // the box's replay control: the skin's opt-in (skin-adapter.cjs)
     // a closed backlog / CONFIG stays mounted (inert) while the skin's leave plays.
     const backlogLeaving = useSkinLeave(backlog, activeSkin, "backlog", reading.reducedMotion === true);
     const configLeaving = useSkinLeave(configOpen, activeSkin, "config", reading.reducedMotion === true);
@@ -722,9 +730,13 @@ function GalStage(props) {
     const ransom = activeSkin?.nameplate?.shape === 'ransom';
     // art.nameplate.initials sets the name by part (galNameParts).
     const nameInitials = Boolean(activeSkin?.art?.nameplate?.initials);
+    // art.nameplate.latin (bauhaus C01): the speaker's Latin-letter alias as the plate's second layer (figureLatinAlias).
+    const nameLatin = Boolean(activeSkin?.art?.nameplate?.latin);
     // where each reading action lives on this stage (stageViews.controls.actionHomes) - the control row or the
     // folded menu control, the skin's drawn buttons, and the Esc menu rows for what has no home on screen.
     const homes = stageViews.controls.actionHomes(activeSkin, narrow), menuFold = homes.fold;
+    // the box's own control row (none under a folded menu); its count sizes a control column's gutter (theme.css, 641-1024 px band)
+    const boxControls = menuFold ? [] : stageViews.controls.ids(narrow).filter(id => stageViews.controls.drawn(id, activeSkin));
     // art.decor clipped to the stage and off the menu control, the box's control row and the key strip (galClipStageDecor):
     // again when the stage or the box resizes (a phone box grows with its lines), the skin changes or the strip toggles.
     const decorPrints = activeSkin?.resolvedArt?.decor?.length || 0;
@@ -980,7 +992,6 @@ function GalStage(props) {
     function characterOf(alias) { return stageActorCharacter(config, pack.characters, alias); }
     function colorOf(alias) { const character = characterOf(alias); return character?.color || (alias ? bubbleColor(character) : ''); }
     // the accepted state as this device shows it (stage plugin device profile); a profile change re-renders.
-    const device = stageViews.device.useProfile();
     const state = React.useMemo(() => stageViews.device.state(pack.state, device), [pack.state, device]);
     const [shot, setShot] = React.useState({key:'',n:0,acts:{},effects:[],emotes:[]});
     const [debugEmote, setDebugEmote] = React.useState(null);
@@ -1145,7 +1156,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:sourceWidget.covered && !callView,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:leasing ? {shot:'',target:''} : {shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:leasing ? null : state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
@@ -1190,7 +1201,11 @@ function GalStage(props) {
     // speaker drawn on stage shows no face - the figure is the speaker - so the page is faceless (no column, as narration; the
     // face side stays mounted, so the last face clears as it does before narration); phones keep it.
     const faceOffStage = !narrow && activeSkin?.resolvedArt?.marks?.['data-fk-skin-portrait-when'] === 'off-stage' && Boolean(boxSpeaker) && speakerDrawn(boxSpeaker);
-    const faceMode = film || accepted.cg || cg.visible ? 'off' : advLayout && !activeSkin?.resolvedArt?.marks['data-fk-skin-portrait'] ? (narrow ? 'chip' : 'off') : 'always';
+    // a phone portrait shows a box face only where the skin places one for it (data-fk-skin-phone-face: its phone side on
+    // the box, or the chip it opts into; skin-fix r4) - the classic stage, a skin without art and a wide stage's face
+    // window or bust show none there (owner 10-31: an engine default for every skin).
+    const artMarks = activeSkin?.resolvedArt?.marks;
+    const faceMode = film || accepted.cg || cg.visible || narrow && !(artMarks && 'data-fk-skin-phone-face' in artMarks) ? 'off' : advLayout && !artMarks?.['data-fk-skin-portrait'] ? (narrow && artMarks?.['data-fk-skin-face-chip'] === '' ? 'chip' : 'off') : 'always';
     // the gutter is latched per page (useGalFaceColumn); every theme only shows a face in a page
     // that reserved its column (narration and faceless pages start at the
     // box padding in every theme, not only classic).
@@ -1223,8 +1238,19 @@ function GalStage(props) {
     const face = !faceOffStage && (facing || faceMode === "chip") ? standIn || boxFace : null; // a chip takes no column: it shows whenever the speaker has a face
     // a bust portrait is the box speaker's own stage figure, drawn by the
     // scene; the face window keeps the avatar only for a speaker without a figure on stage.
-    const bustAlias = activeSkin?.resolvedArt?.bust && faceMode !== 'off' && !faceOffStage && boxSpeaker && members.some(member => member.id === boxSpeaker) ? boxSpeaker : '';
-    scene.bust = bustAlias && !stageShot ? {...activeSkin.resolvedArt.bust,alias:bustAlias} : null;
+    // a framed portrait (art.portrait.bust) walks the skin's source order
+    // (stageSkinPortraitOrder) for the box speaker and takes the first they have: sprite = their static 差分 picture whatever their
+    // stage form and whether they stand on stage (their face record's still, packStillMedia), avatar = the face window, bust =
+    // their own stage figure cut live (on stage only). The scene
+    // draws a sprite or bust; the face window steps aside while it does (data-fk-portrait-bust).
+    const bustSpec = activeSkin?.resolvedArt?.bust || null;
+    let bustAlias = '', portraitStill = null;
+    if (bustSpec && faceMode !== 'off' && !faceOffStage && boxSpeaker) for (const source of bustSpec.order) {
+        if (source === 'sprite' && (portraitStill = packStillMedia(pack.avatars.find(figure => figure.alias === boxSpeaker)))) { bustAlias = boxSpeaker; break; }
+        if (source === 'avatar' && boxFace?.src) break;
+        if (source === 'bust' && members.some(member => member.id === boxSpeaker)) { bustAlias = boxSpeaker; break; }
+    }
+    scene.bust = bustAlias && !stageShot ? {...bustSpec,alias:bustAlias,still:portraitStill} : null;
     scene.shot = stageShot ? { alias: stageShot.alias, head: stageShot.head, roll: stageShot.roll } : null;
     // face → no-face pages clear the face before writing (useGalFaceHandoff). Every theme's text
     // column follows the gutter. Skip and backward reading show the final state at once.
@@ -1271,6 +1297,11 @@ function GalStage(props) {
     // art.nameplate.tint (skin-interface.md §2.5): the name's glyphs in the speaker's hue at the plate ink's luminance.
     // art.textbox.height fit lines (skin-interface.md §2.3): the shown card's lines and block set the box's height.
     const boxFit = (transitioning ? inputSubtitles : subtitles).fit;
+    // A card's lines stand centred in the box's reading room (theme.css「A fixed box, its lines centred」); a card shown while
+    // its page still streams keeps a full card's place until it is left, so arriving lines never move the typed ones.
+    const openCard = React.useRef(null), cardKey = sessionId + ":" + turn + ":" + page + ":" + card;
+    if (!transitioning && !phoneLine && current && current.pending && lastCard) openCard.current = cardKey;
+    const openBlock = openCard.current === cardKey && !transitioning && !phoneLine ? subtitles.block : 0;
     const nameTint = speakerTint && activeSkin?.resolvedArt?.marks?.["data-fk-skin-art-name-tint"] !== undefined ? stageSkinTint(activeSkin.nameplate.paint.fg, speakerTint) : "";
     const cueCursor = React.useMemo(() => activeSkin?.cursor && activeSkin.resolvedArt?.tintCue && speakerTint
         ? { ...activeSkin.cursor, ...Object.fromEntries(["color", "accent"].filter(key => activeSkin.cursor[key]).map(key => [key, stageSkinTint(activeSkin.cursor[key], speakerTint)])) } : activeSkin?.cursor, [activeSkin, speakerTint]);
@@ -1340,7 +1371,9 @@ function GalStage(props) {
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
         letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
-    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
+    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
+        // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
+        "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
@@ -1407,7 +1440,7 @@ function GalStage(props) {
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
         // A skin mode's own buttons (modes.<id>.buttons: the debate's fast-forward) while the mode is on and no title holds the box.
         skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(stageViews.SkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
-            onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false) }) : null,
+            onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false), onKeys: firstRun.toggleKeys }) : null,
 
         awaiting ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
             activeSkin ? h(StageSkinFrame,{skin:activeSkin,page:'awaiting'}) : h(GalBoxFrame),
@@ -1422,17 +1455,18 @@ function GalStage(props) {
             h("div", { className: "fork-gal-progress", "aria-hidden": true })) :
         // is-speaking = the page's line is still being delivered -
         // its words typing, or its voice playing (a skin's art.portrait.frame.speaking frame shows then).
-        h("div", { className: "fork-gal-box" + (sourceWidget.claim ? " is-source-widget-line" : "") + (transitioning ? " fork-gal-transition" : "") + (boxLine && boxLine.kind === "narration" ? " is-narration" : "") + (hidden ? " is-hidden" : "") + (skipping ? " is-skipping" : "") + (menuFold && auto ? " is-auto" : "") + (boxLine && boxLine.thought ? " is-thought" : "") + (phoneLine ? " is-phone-held" : "") + (faceMode !== "off" ? " has-face" : "") + (facing ? " is-facing" : "") + (current && !current.pending && !phoneLine && (!typed || voiceState === "playing") ? " is-speaking" : ""), style: { "--bubble-color": boxColor || "var(--fork-accent)", "--speaker-tint": speakerTint || undefined, "--art-np-tint": nameTint || undefined, "--art-fit-block": boxFit ? boxFit.block + "px" : undefined, ...boxCast?.style, ...(speakerAnchor ? { "--speaker-x": speakerAnchor.x + "px", "--stage-w": speakerAnchor.width + "px", "--speaker-u": String(speakerAnchor.u) } : null) }, 'data-speaker-side': speakerAnchor ? speakerAnchor.side : undefined, 'data-speaker-tint': speakerTint ? "" : undefined, 'data-fit-lines': boxFit ? boxFit.lines : undefined, 'data-art-cast': boxCast ? (boxCast.fill ? 'fill' : '') : undefined, 'data-figure-skip-color':boxColor, role: "region", "aria-label": "舞台文本", "aria-hidden": sourceWidget.claim || undefined },
+        h("div", { className: "fork-gal-box" + (sourceWidget.claim ? " is-source-widget-line" : "") + (transitioning ? " fork-gal-transition" : "") + (boxLine && boxLine.kind === "narration" ? " is-narration" : "") + (hidden ? " is-hidden" : "") + (skipping ? " is-skipping" : "") + (menuFold && auto ? " is-auto" : "") + (boxLine && boxLine.thought ? " is-thought" : "") + (phoneLine ? " is-phone-held" : "") + (faceMode !== "off" ? " has-face" : "") + (facing ? " is-facing" : "") + (current && !current.pending && !phoneLine && (!typed || voiceState === "playing") ? " is-speaking" : ""), style: { "--bubble-color": boxColor || "var(--fork-accent)", "--speaker-tint": speakerTint || undefined, "--art-np-tint": nameTint || undefined, "--art-fit-block": boxFit ? boxFit.block + "px" : undefined, "--art-qc-n": boxControls.length, ...boxCast?.style, ...(speakerAnchor ? { "--speaker-x": speakerAnchor.x + "px", "--stage-w": speakerAnchor.width + "px", "--speaker-u": String(speakerAnchor.u) } : null) }, 'data-speaker-side': speakerAnchor ? speakerAnchor.side : undefined, 'data-speaker-tint': speakerTint ? "" : undefined, 'data-fit-lines': boxFit ? boxFit.lines : undefined, 'data-art-cast': boxCast ? (boxCast.fill ? 'fill' : '') : undefined, 'data-figure-skip-color':boxColor, role: "region", "aria-label": "舞台文本", "aria-hidden": sourceWidget.claim || undefined },
             // textbox.motion (§18 E4): the frame remounts on each page, so its motion plays once per page.
-            activeSkin ? h(StageSkinFrame,{key:activeSkin.textbox.motion ? 'frame:' + boxPageKey : 'frame',skin:activeSkin,page:boxPageKey,narration:boxLine?.kind === 'narration'}) : h(GalBoxFrame),
+            // (art.shape.thought, §18 N25: an inner thought drawn in the narration box - Persona 5's thought cloud)
+            activeSkin ? h(StageSkinFrame,{key:activeSkin.textbox.motion ? 'frame:' + boxPageKey : 'frame',skin:activeSkin,page:boxPageKey,narration:boxLine?.kind === 'narration' || Boolean(boxLine?.thought && activeSkin.art?.shape?.thought)}) : h(GalBoxFrame),
             // every theme shares the bottom-aligned sprite face window.
             faceMode !== "off" ? h(GalSide, { face, emote: faceEmote, snap: faceSnap || handoff.cut, calm: calmMotion, clearMs: galFaceClearMs(calmMotion),
                 name: boxName, nameArc: activeSkin?.resolvedArt?.faceName || null, tint: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-tint'] === '',
                 moodOf: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-mood'] === '' ? stateId => bubbleMoodBadge(stateId, boxMoodList, config, boxSpeaker)?.label : null }) : null,
             phoneLine ? (boxName ? h(GalNamePlate, { key: boxName, name: boxName, mood: bubbleMoodBadge(boxLine.mood, boxMoodList, config, boxSpeaker)?.label, classic, film, ransom, voiceState: "", voiceError: null, onReplay: replay }) : null) :
-            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState, voiceError, onReplay: replay }) : null,
+            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay }) : null,
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
-            h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite" },
+            h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
                 current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
@@ -1446,14 +1480,14 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
                 h("span", null, pages.length ? (page + 1) + " / " + pages.length + (streaming ? "+" : "") : "")),
             // phones show only stageViews.controls.ids(true); the rest is in the menu.
             menuFold ? null : h("div", { className: "fork-gal-controls", role: "toolbar", "aria-label": "舞台控制", "data-compact": narrow || undefined },
-                stageViews.controls.ids(narrow).filter(id => stageViews.controls.drawn(id, activeSkin)).map(id =>
+                boxControls.map(id =>
                     id === "auto" ? control("auto", auto ? "停止自动（A）" : "自动翻页（A）", () => { setSkipping(false); setAuto(!auto); }, auto) :
                     id === "skip" ? control("skip", skipLatch ? "停止跳过" : "跳过（按住 Ctrl 快进）", toggleSkip, skipping, atEnd) :
                     id === "eye-off" ? control("eye-off", "隐藏文本框（H / 右键）", () => setHidden(true)) :
@@ -1487,16 +1521,17 @@ function GalStage(props) {
         galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:closeGallery,
             // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
-        // CONFIG or 回想 opened from a page (openSettings / openGallery) stands over it: Esc, which the page takes first, closes that then.
+        // CONFIG, 回想 or 履历 opened from a page (openSettings / openGallery / openBacklog) stands over it: Esc, which the page takes
+        // first, closes that then.
         pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
-            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
+            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen || backlog, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : backlog ? closeBacklog : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,
         // a running / finished clip export, while the reader keeps playing.
         !backlog && ClipStatus ? h(ClipStatus, { sessionId, hidden: hidden || film }) : null,
         // A lease's log is its own lines (lease: no rounds, inputs or performances around them).
-        backlog || backlogLeaving ? h(GalBacklog, { leaving: backlogLeaving, sessionId, config, lease: leasing, direction:leasing ? null : receivedDirection, readDirection:leasing ? null : args=>rpc('getStageDirection',args,sessionId), textIndex:leasing ? STAGE_LEASE_NO_ROUNDS : runtime.textIndex, voiceOf:descriptor => stageVoiceHandle(sessionId,descriptor,config,descriptor.paragraphId), turn, pages, page, useChat: props.choiceProps && props.choiceProps.useChat, colorOf, avatarOf, nameOf, quote: classic && !film, onJump: jumpBack, onClose: closeBacklog,
+        backlog || backlogLeaving ? h(GalBacklog, { leaving: backlogLeaving, sessionId, config, lease: leasing, direction:leasing ? null : receivedDirection, readDirection:leasing ? null : args=>rpc('getStageDirection',args,sessionId), textIndex:leasing ? STAGE_LEASE_NO_ROUNDS : runtime.textIndex, voiceOf:descriptor => stageVoiceHandle(sessionId,descriptor,config,descriptor.paragraphId), turn, pages, page, useChat: props.choiceProps && props.choiceProps.useChat, colorOf, avatarOf, nameOf, quote: classic && !film, onJump: pageOpen ? (...target) => { setOpenPage(null); jumpBack(...target); } : jumpBack, onClose: closeBacklog,
             // the skin's per-role looks; a bubble's side is the speaker's slot in the
             // stage's figure layout (galFigureLayout x, the side rule galShotSubject reads), null when not standing.
             looks: backlogLooks, sideOf: alias => figureLayout?.x && alias in figureLayout.x ? (figureLayout.x[alias] > 0.5 ? "right" : "left") : null,
@@ -1505,7 +1540,9 @@ function GalStage(props) {
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
     function entryDock(group) {
-        const ctx = { sessionId, turn, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
+        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
+            // the page's round, whether the latest page is shown, whether a reply is under way, AUTO's stop.
+            turn, atEnd, busy: running, stopAuto: () => setAuto(false),
             openConfig: (tab, opener) => { stageViews.configScreen.select(tab); openConfig(opener); } };
         const list = stageEntries.list(group), node = entry => h("span", { key: entry.id, className: "fork-stage-entry", "data-stage-entry": entry.id,
             "data-attention": entryStates[entry.id]?.badge ? "" : undefined }, entry.render(ctx));

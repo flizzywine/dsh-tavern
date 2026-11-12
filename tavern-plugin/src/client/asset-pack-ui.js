@@ -128,7 +128,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     useOverlay(true,()=>[ref.current],()=>{if(!busy)onClose();});
     React.useEffect(()=>{const previous=typeof document==='undefined'?null:document.activeElement;(initialFocus==='dialog'?ref.current:ref.current?.querySelector('[data-autofocus]')||ref.current?.querySelector('button,input,select,textarea'))?.focus?.({preventScroll:true});return()=>previous?.focus?.();},[]);
     function key(event){frame?.onKeyDown?.(event);if(event.key==='Escape'){if(!overlayEscape(event)){event.preventDefault();event.stopPropagation();if(!busy)onClose();}}if(event.key==='Tab'){const nodes=[...(ref.current?.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')||[])];if(!nodes.length)return;const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===ref.current)){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}
-    return h(TopLayer,null,h('div',{className:'ap-modal-scrim'},h('section',{className:('ap-modal '+className).trim(),role:'dialog','aria-modal':true,'aria-label':title,ref,...(initialFocus==='dialog'?{tabIndex:-1}:{}),...frame,onKeyDown:key},head||(headless?null:h('header',null,h('h2',null,title),closable&&h(Button,{'aria-label':'关闭',disabled:busy,onClick:onClose},'关闭'))),head?h('div',{className:'ap-modal-body'},children):children,foot)));
+    // The empty first child is a stopgap for the phone-access plugin dsh-pocket 2.12: its phone stylesheet takes every
+    // [aria-modal] whose first child's last child holds a <button> for DSH's settings dialog (height auto, title hidden), which
+    // collapsed the pack window to its ‹ row on phones. Delete it once pocket scopes that rule.
+    return h(TopLayer,null,h('div',{className:'ap-modal-scrim'},h('section',{className:('ap-modal '+className).trim(),role:'dialog','aria-modal':true,'aria-label':title,ref,...(initialFocus==='dialog'?{tabIndex:-1}:{}),...frame,onKeyDown:key},h('i',{className:'ap-modal-guard',hidden:true}),head||(headless?null:h('header',null,h('h2',null,title),closable&&h(Button,{'aria-label':'关闭',disabled:busy,onClick:onClose},'关闭'))),head?h('div',{className:'ap-modal-body'},children):children,foot)));
   }
   // a single pack (a download or a local ZIP) is installed
   // through PackInstallSheet — its 封面, what is inside in words, plain consequences. The chosen button is the decision; the
@@ -143,11 +146,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     async function onClose(){if(work.busy)return;await work.task(cancel);close();}
     // import is already committed if sampling fails; retry only the remaining colour fill.
     const publication=React.useRef(null);
-    async function publish(decision){
+    async function publish(decision,adoptLooks=[]){
       const result=await work.task(async()=>{
         if(!publication.current){
           let saved;
-          try{saved=await binding.service.applyImport({inspectionId:preview.inspectionId,expectedRevision:preview.expectedRevision,decision,acceptScriptRisk:decision!=='noop'&&(preview.scriptRisk||[]).length>0});}
+          try{saved=await binding.service.applyImport({inspectionId:preview.inspectionId,expectedRevision:preview.expectedRevision,decision,acceptScriptRisk:decision!=='noop'&&(preview.scriptRisk||[]).length>0,...(adoptLooks.length?{adoptLooks}:{})});}
           catch(error){if(error?.code==='REVISION_CONFLICT'&&onRetry){setStale(true);return undefined;}throw error;}
           publication.current={saved,packs:decision==='noop'?[]:[saved.snapshot?.manifest.id||preview.packId]};
         }
@@ -463,7 +466,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     React.useEffect(()=>{if(!visible||!hash||!binding.previewMedia||need===null||attempt===0&&tier)return;let active=true,release=null;holdMedia(binding,packId,hash).then(media=>{if(!active)media.release();else{release=media.release;setLease({key,url:media.url});}}).catch(()=>{if(active)setFailed(true);});return()=>{active=false;release?.();setFailed(false);};},[visible,binding,packId,hash,attempt,need===null,tier]);
     const loading=visible&&!!hash&&!!binding.previewMedia&&!failed&&(!url||reveal.phase==='loading');
     const onError=()=>{if(attempt>0||!tier)dropMedia(binding,packId,hash);setLease(null);if(attempt<2)setAttempt(attempt+1);else setFailed(true);};
-    return h('span',{ref,className,style,'data-empty':url?undefined:true,'data-failed':failed||undefined,'data-ap-media':url?reveal.phase:undefined,onLoad:reveal.onLoad,title:failed?'图片载入失败':undefined},loading?h(Spinner,{key,fill:true}):null,url?(crop&&AvatarImage?h(AvatarImage,{key:url,identity:packId+':'+hash,src:url,crop,alt:'',decoding:'async',onError,style:{width:'100%',height:'100%'}}):h('img',{src:url,alt:'',decoding:'async',onError})):null);
+    return h('span',{ref,className,style,'data-empty':url?undefined:true,'data-failed':failed||undefined,'data-ap-media':url?reveal.phase:undefined,title:failed?'图片载入失败':undefined},loading?h(Spinner,{key,fill:true}):null,url?(crop&&AvatarImage?h(AvatarImage,{key:url,identity:packId+':'+hash,src:url,crop,alt:'',decoding:'async',onError,onLoad:reveal.onLoad,style:{width:'100%',height:'100%'}}):h('img',{src:url,alt:'',decoding:'async',onError,onLoad:reveal.onLoad})):null);
   }
   // Reveal phase of an element's image: 'loading' (kept hidden, its box reserved) → 'in' (fades in once, on decode) or
   // 'shown' (already decoded when mounted: no animation). A later src change keeps showing the previous picture until
@@ -686,6 +689,25 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // check, 导出, 可更新) keep their own action.
   const packRowClick=open=>e=>{const target=e.target;
     if(!e.currentTarget.contains(target)||target.closest?.('button,a,input,label,[role=menu],[role=checkbox]'))return;open();};
+  function AutomaticWriteReview({binding,packId,figureId,onClose,onChanged}) {
+    const [page,setPage]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false),[undo,setUndo]=React.useState(null);
+    const load=()=>binding.service.listAutomaticWrites({packId}).then(setPage);
+    React.useEffect(()=>{let active=true;binding.service.listAutomaticWrites({packId}).then(value=>{if(active)setPage(value);},e=>{if(active)setError(errorText(e));});return()=>{active=false;};},[binding,packId]);
+    const write=async(method,entry)=>{setBusy(true);setError('');try{await binding.service[method]({packId,expectedRevision:page.revision,writeId:entry.writeId});await load();onChanged?.();}catch(e){setError(e.code==='AUTOMATIC_WRITE_CHANGED'?'这些内容后来已被修改，不能自动撤销。':errorText(e));}finally{setBusy(false);setUndo(null);}};
+    const entries=(page?.entries||[]).filter(entry=>!figureId||entry.changes.some(change=>change.ref.figureId===figureId));
+    return h(React.Fragment,null,h(Modal,{title:'自动变更',onClose,busy},
+      h('p',{className:'ap-notice'},'撤销只影响素材，不改变聊天、历史演出或素材包绑定。'),
+      !page?h(Loading):entries.length?entries.map(entry=>h('section',{key:entry.writeId,className:'ap-section'},
+        h('h3',null,'正文说话人 · 第 '+entry.source.turn+' 轮'),
+        h('p',null,new Date(entry.at).toLocaleString()+' · '+({pending:'待审阅',reviewed:'已阅',undone:'已撤销'}[entry.status])),
+        entry.changes.map(change=>h('div',{key:change.ref.figureId},h('strong',null,change.after.name||'人物'),
+          h('p',null,change.before===null?'新增人物：'+change.after.name+'；声音未配置。':Object.keys({...change.before,...change.after}).map(key=>key+': '+JSON.stringify(change.before[key]??null)+' → '+JSON.stringify(change.after[key]??null)).join('；')))),
+        entry.status==='pending'&&h(Button,{disabled:busy,onClick:()=>write('reviewAutomaticWrite',entry)},'标为已阅'),
+        entry.status!=='undone'&&h(Button,{disabled:busy,onClick:()=>setUndo(entry)},'撤销…'))):h(EmptyState,{text:'没有可审阅的本地变更记录'}),
+      page?.nextCursor!==null&&page?.nextCursor!==undefined&&h(Button,{disabled:busy,onClick:async()=>{setBusy(true);try{const next=await binding.service.listAutomaticWrites({packId,cursor:page.nextCursor});setPage({...next,entries:[...page.entries,...next.entries]});}catch(e){setError(errorText(e));}finally{setBusy(false);}}},'更多'),
+      h(ErrorBox,{error})),
+      undo&&h(ConfirmDialog,{title:'撤销自动变更',body:'只撤销这次自动写入；后续手动修改会被保留，遇到冲突不会删除人物。',confirmLabel:'撤销',danger:true,onClose:()=>setUndo(null),onConfirm:()=>write('undoAutomaticWrite',undo)}));
+  }
   function PackRow({id,pack,scope,kind,onOpen,control,badge,lead,aside,tail,previews}) {
     // identify an uninstalled binding instead of hiding its identity behind a generic warning.
     // UI standard R2: never the raw id as a name — an unknown, uninstalled pack reads 「未知素材包」, its id only in the tooltip.
@@ -697,6 +719,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('span',{className:'ap-pack-title'},
         pack?h('button',{type:'button',className:'ap-pack-name','aria-label':'打开 '+name,title:name,onClick:e=>{e?.stopPropagation?.();open();}},name):h('span',{className:'ap-pack-name is-missing',title:name==='未知素材包'?id:name},h(Glyph,{name:'warning'}),name),
         pack?.diagnostics?.length>0&&h('span',{className:'ap-hint-mark',role:'status',title:'有模组不可用；其它素材不受影响'},h(Glyph,{name:'warning'})),
+        pack?.automatic&&h('span',{className:'ap-state-tag','aria-label':'自动素材包'},'自动'),
         badge||null,
         previews&&pack&&h(PackPreviews,{binding:scope.ctx?.binding,pack,detail:scope.ctx?.writer?.pack?.(id)}),
         users.length>0&&h('span',{className:'ap-pack-users','data-count':faces.length,title:userNames(scope.ctx,users)},faces.map(a=>h(StageAvatar,{key:a,ctx:scope.ctx,alias:a,className:'ap-avatar is-mini'})),h('span',{className:'ap-pack-user-names'},userNames(scope.ctx,users)))),
@@ -847,19 +870,37 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       packs.length>8&&h(PackSearchBox,{label:'搜索素材包',value:query,onChange:setQuery,className:'is-compact'}),
       list.length>0&&h('div',{className:'ap-target-list'},list.map(p=>h('button',{key:p.manifest.id,type:'button',role:'menuitem',className:'ap-menu-item',onClick:()=>{close();onPick({packId:p.manifest.id,name:p.manifest.name});}},p.manifest.name))));
   }
-  const ADD_KINDS=[['backgrounds','image/png,image/webp,image/jpeg'],['cg','image/png,image/webp,image/jpeg'],['props','image/png,image/webp,image/jpeg'],['music','audio/*,.mp3,.ogg,.wav,.m4a,.flac'],['sfx','audio/*,.mp3,.ogg,.wav,.m4a,.flac'],['ambience','audio/*,.mp3,.ogg,.wav,.m4a,.flac'],['figures','image/png,image/webp,image/jpeg']];
-  // 「添加文件」: one item per kind, each a styled multi-file picker (one file → one entry, named after the file).
-  // after a hairline, 「生成背景」 opens the background sheet (the description comes first).
-  // 「演出风格」 has no file — its item (`onStyle`) starts a new entry in place.
-  // `onModel` opens the Live2D / Spine import sheet (a folder or ZIP, not single files).
-  function AddFilesMenu({onFiles,onGenerate,onStyle,onModel,label,disabled}) {
-    return h(Popover,{label:'添加文件',className:'ap-add-files',trigger:({toggle,open})=>label?h(Button,{className:'ap-solid-pill is-large','aria-expanded':open,disabled,onClick:toggle},h(Glyph,{name:'upload'}),label):
-        h(IconButton,{icon:'upload',label:'添加文件','aria-expanded':open,disabled,onClick:toggle}),
-      content:close=>h(React.Fragment,null,ADD_KINDS.map(([kind,accept])=>h('label',{key:kind,className:'ap-menu-item ap-file-item','data-kind':kind},h(KindIcon,{kind}),h('span',null,kinds[kind]),
-        h('input',{type:'file',multiple:true,accept,'aria-label':'添加'+kinds[kind],onChange:e=>{const files=[...(e.target.files||[])];e.target.value='';close();if(files.length)onFiles(kind,files);}}))),
-        onModel&&h('button',{type:'button',role:'menuitem',className:'ap-menu-item ap-file-item','data-kind':'model',onClick:()=>{close();onModel();}},h(KindIcon,{kind:'figures'}),h('span',null,'导入模型…')),
-        onStyle&&h('button',{type:'button',role:'menuitem',className:'ap-menu-item ap-file-item','data-kind':'directions',onClick:()=>{close();onStyle();}},h(KindIcon,{kind:'directions'}),h('span',null,kinds.directions)),
-        onGenerate&&h('button',{type:'button',role:'menuitem',className:'ap-menu-item ap-file-item ap-gen-menu-item',onClick:()=>{close();onGenerate();}},h(Glyph,{name:'spark'}),h('span',null,'生成背景')))});
+  // Every still-image picker: explicit extensions, so the system file dialog lists them all; prepareImage decodes any of
+  // them and re-encodes what the pack does not store (PNG / WebP) — a GIF becomes its first frame.
+  const IMAGE_ACCEPT='.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif';
+  // Audio: exactly the formats prepareAudio reads (audio/* would also list .aac / .wma, which it refuses).
+  const AUDIO_ACCEPT='.mp3,.ogg,.wav,.m4a,.flac';
+  // 新建条目 (owner 11-08, 解耦): creating an entry is only creating it — a blank entry of the chosen kind with a default
+  // name; its picture / audio / text, generation and model import are actions on its own page. The kinds a player can
+  // create here, in KIND_ORDER, and their default names (a second one gets 「 2」, see newEntryName).
+  const NEW_NAMES={figures:'新人物',backgrounds:'新背景',cg:'新 CG',props:'新物品',music:'新音乐',sfx:'新音效',ambience:'新环境音',directions:'新演出风格'};
+  const NEW_KINDS=KIND_ORDER.filter(k=>NEW_NAMES[k]);
+  const newKindLabel=k=>'新建'+(/^[A-Za-z]/.test(kinds[k])?' ':'')+kinds[k];
+  // A dropped file becomes an entry of the open tab's kind when that kind takes the file, else 背景 (pictures) / 音乐 (audio).
+  const extOf=name=>(/\.([^.]+)$/.exec(String(name||''))?.[1]||'').toLowerCase();
+  const dropKind=(file,current)=>{const ext='.'+extOf(file.name);
+    if(IMAGE_ACCEPT.split(',').includes(ext))return ['backgrounds','cg','props','figures'].includes(current)?current:'backgrounds';
+    if(AUDIO_ACCEPT.split(',').includes(ext))return AUDIO_KINDS.includes(current)?current:'music';
+    return null;};
+  // The pack window's 「＋ 新建」 after the kind tabs: a short kind menu (the open tab's kind first). It floats, so on a
+  // phone it opens upwards or scrolls instead of being cut off by the window.
+  function NewEntryMenu({current,onPick,disabled}) {
+    const list=[...NEW_KINDS.filter(k=>k===current),...NEW_KINDS.filter(k=>k!==current)];
+    return h(Popover,{label:'新建条目',className:'ap-kind-new-anchor',float:true,limit:420,
+      trigger:({toggle,open})=>h('button',{type:'button',className:'ap-kind-new','aria-haspopup':'menu','aria-expanded':open,disabled,onClick:toggle},h(Glyph,{name:'plus'}),'新建'),
+      content:close=>h(KindMenu,{list,label:newKindLabel,icons:true,onPick:k=>{close();onPick(k);}})});
+  }
+  // An empty pack: the same kinds as big buttons in the middle of the window (one per kind).
+  function NewEntryChoices({onPick,disabled}) {
+    return h('div',{className:'ap-new-kinds',role:'group','aria-label':'新建条目'},
+      h('p',{className:'ap-new-kinds-title'},'新建'),
+      h('div',{className:'ap-new-kinds-grid'},NEW_KINDS.map(k=>h('button',{key:k,type:'button',className:'ap-new-kind','data-kind':k,'aria-label':newKindLabel(k),disabled,onClick:()=>onPick(k)},
+        h(KindIcon,{kind:k}),h('span',null,kinds[k])))));
   }
   const AUDIO_MIME={mp3:'audio/mpeg',ogg:'audio/ogg',wav:'audio/wav',m4a:'audio/mp4',flac:'audio/flac'};
   // Same signatures the pack service checks (media.js audioKind); the descriptor must match the bytes exactly.
@@ -880,6 +921,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
   }
   const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
+  // The default name of a new entry, unique within its kind (新背景, 新背景 2, …).
+  const newEntryName=(pack,kind,base=NEW_NAMES[kind])=>{const taken=new Set(packItems(pack,kind).map(a=>a.name));let name=base,n=1;while(taken.has(name))name=base+' '+(++n);return name;};
   let entrySerial=0;
   // An added file starts 关闭 with no words; the player adds words (optional — the name alone is matched) in the opened entry.
   const newFileEntry=(kind,id,name,content)=>({kind,id,name,enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',...content});
@@ -910,10 +953,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const [selecting,setSelecting]=React.useState(false),[picked,setPicked]=React.useState(()=>new Set()),[notice,setNotice]=React.useState(null),changed=React.useRef(false);
     // the figure page's tab (编辑 / 生图) stays put while the user walks the figure list.
     const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'?'gen':'edit');
-    // a new 演出风格 is a local draft until its text is written (a style needs text).
-    const [styleDraft,setStyleDraft]=React.useState(false);
-    // the entry just added by addFiles — its detail opens on the 触发词 field with the hint (cleared by the next pick).
+    // the entry just made from a dropped file — its detail opens on the 触发词 field with the hint (cleared by the next pick).
     const [fresh,setFresh]=React.useState(null);
+    // the blank entry just made by 新建 — its page opens with the name field focused and selected (once).
+    const [naming,setNaming]=React.useState(null);
     React.useEffect(()=>{if(!notice)return;const t=setTimeout(()=>setNotice(null),8000);return()=>clearTimeout(t);},[notice]);
     const latest=React.useRef(null),queue=React.useRef(Promise.resolve());
     const seen=React.useRef(null);if(pack!==seen.current){seen.current=pack;latest.current=pack;}
@@ -959,10 +1002,12 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         c=(await svc.putBundle({packId,expectedRevision:c.revision,bundleKey,descriptor:prepared.descriptor,files:prepared.files})).snapshot;
         if(!figure)return await svc.createFigure({packId,expectedRevision:c.revision,figure:{schemaVersion:1,name:target.name,enabled:true,appearance:kind,recall:{mode:'keyword'},
           emotions:target.emotions,outfits:[{key:'default',label:target.outfitLabel,enabled:true,defaultEmotion:target.defaultEmotion,[kind]:block}]}});
-        const known=(figure.emotions||[]).some(e=>e.id===target.defaultEmotion);
+        // a figure with nothing yet (新建条目) takes the model's 差分 and look (默认外观), as a figure made from the model would.
+        const bare=modelBareFigure(figure)&&!!target.emotions;
+        const known=(bare?target.emotions:figure.emotions||[]).some(e=>e.id===target.defaultEmotion);
         const outfits=outfit?figure.outfits.map(o=>{if(o!==outfit)return o;const next={...o,[kind]:block};delete next[kind==='spine'?'live2d':'spine'];return next;}):
           [...figure.outfits,{key:newResourceKey('outfit'),label:target.outfitLabel,enabled:true,...(known?{defaultEmotion:target.defaultEmotion}:{}),[kind]:block}];
-        return {...await svc.patchFigure({packId,expectedRevision:c.revision,figureId:figure.id,patch:{outfits}}),figureId:figure.id};
+        return {...await svc.patchFigure({packId,expectedRevision:c.revision,figureId:figure.id,patch:{outfits,...(bare?{appearance:kind,emotions:target.emotions}:{})}}),figureId:figure.id};
       } catch(error) { latest.current=c;state.setValue(c);throw error; }
     });
     // the Spine dialog's result — a new bundle when files were picked (the
@@ -1037,7 +1082,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     };
     // the pack's 标签图标 (manifest.tagIcons, tag path → an image of this pack). An upload binds
     // its image and the row in one CAS patchPack; rename / delete rewrite the list (patchPack trims an image nobody uses).
-    const [tagSheet,setTagSheet]=React.useState(false);
+    const [tagSheet,setTagSheet]=React.useState(false),[automaticReview,setAutomaticReview]=React.useState(false);
     const saveTagIcons=make=>enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,patch:{tagIcons:make(snapshot.manifest.tagIcons||[])}}));
     const uploadTagIcon=async(tag,file)=>{
       const closure=await imageClosure(await prepareImage(file,'background'));
@@ -1049,25 +1094,22 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const gen=useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged});
     // the generation dialog's 「设为本包默认」 — the pack's default style preset.
     const saveStyle=style=>enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{genStyle:style}}));
-    const generateBackground=()=>{stopSelect();setKind('backgrounds');setQuery('');setFilter('all');gen.openSheet({packId,kind:'background'});};
-    // the sheet from 「添加文件」 (null pending) or a folder / ZIP dropped on the pack window.
+    // a model folder / ZIP dropped on the pack window: a new figure (named after the folder) whose 默认 outfit the import
+    // sheet fills — the figure stays when the sheet is closed, like any other new entry.
     const [modelImport,setModelImport]=React.useState(null);
-    const openModelImport=()=>{stopSelect();setModelImport({pending:null});};
-    const packDrop=modelDropFrame(work.busy,(entries,name)=>{const read=entries();read.catch(()=>{});stopSelect();setModelImport({pending:{entries:read,name}});},'pack');
     const importModelHere=async result=>{const made=await importModel(result);
       setKind('figures');setQuery('');setFilter('all');setSel(made.figureId);setFigureTab('edit');if(narrow)setDetail(true);setNotice({text:'已导入模型'});onPacksChanged?.();};
     const close=()=>{audio.stop();onClose(changed.current);};
-    // A page in the window that opens a sidebar tab (the voice page's 「配音后端 ›」) closes the window first, so the tab it
+    // A page in the window that opens a sidebar tab (the voice page's 「语音后端 ›」) closes the window first, so the tab it
     // opens is in front and takes the focus instead of opening behind the window.
     const tabNav=nav?.openTab?{...nav,openTab:type=>{close();return nav.openTab(type);}}:nav;
     // 演出风格 is the one kind added in place (no file), so its tab also shows while it is empty and asked for.
-    const name=pack?.manifest.name||'素材包',present=pack?KIND_ORDER.filter(k=>kindCount(pack.manifest,k)>0||(k==='directions'&&kind==='directions')):[];
+    const name=pack?.manifest.name||'素材包',present=pack?KIND_ORDER.filter(k=>kindCount(pack.manifest,k)>0):[];
     const current=kind&&present.includes(kind)?kind:present[0]||null;
     // while a drop is being written the list already shows the new order.
     const [figureOrder,setFigureOrder]=React.useState(null),moving=React.useRef(0);
     const stored=pack&&current?packItems(pack,current):[],needle=query.trim().toLowerCase();
     const all=current==='figures'&&figureOrder?figureOrder.map(id=>stored.find(f=>f.id===id)).filter(Boolean):stored;
-    const drafting=current==='directions'&&(styleDraft||!all.length);
     // the filter is the lamp model itself — 蓝灯 / 绿灯 / 关闭 (启用 / 关闭 for 演出风格),
     // read with the rows' own entryLamp, so a 关闭 entry never also counts as 蓝灯. (The old 已启用 / 已停用 were 蓝灯+绿灯 / 关闭.)
     // A stage skin has no state, so no filter.
@@ -1094,15 +1136,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const rightRef=React.useRef(null);React.useEffect(()=>{if(rightRef.current)rightRef.current.scrollTop=0;},[current,selected?.id]);
     const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
     const stopSelect=()=>{setSelecting(false);setPicked(new Set());};
-    const switchKind=k=>{audio.stop();setFresh(null);setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());setStyleDraft(false);};
-    // 新建 (the dashed ＋, or 「演出风格」 in the add menu) opens a draft; the first write adds
-    // the entry (启用, 蓝灯 recall as the contract requires). 删除 removes it in one CAS write.
-    const addStyle=()=>{audio.stop();stopSelect();setKind('directions');setQuery('');setFilter('all');setCategory('');setStyleDraft(true);setDetail(true);};
-    const createStyle=async({name:styleName,text,enabled})=>{
-      const asset={kind:'directions',id:newEntryId(latest.current,'directions'),name:styleName,enabled,recall:{mode:'constant',keywords:[]},directorNote:'',text};
-      await enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,asset]}}));
-      setStyleDraft(false);setSel(asset.id);onPacksChanged?.();
-    };
+    const switchKind=k=>{audio.stop();setFresh(null);setNaming(null);setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());};
+    // 删除 of a 演出风格 removes it in one CAS write.
     const removeStyle=id=>work.task(async()=>{
       await enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{assets:c.manifest.assets.filter(a=>!(a.kind==='directions'&&a.id===id))}}));
       setSel(null);setDetail(false);setNotice({text:'已删除'});onPacksChanged?.();
@@ -1119,36 +1154,59 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       });
       setSel(null);setDetail(false);setNotice({text:'已删除'});onPacksChanged?.();
     });
-    // images and their complete owning figure/background publish atomically.
-    const addFiles=(k,files)=>work.task(async()=>{
-      const svc=binding.service,added=[],figures=[];
-      if(k==='cg') {
-        const revision=latest.current.revision,prepared=await prepareCgFiles(files);
-        const asset=newFileEntry('cg',newEntryId(latest.current,'cg'),fileStem(files[0].name),{variants:{default:prepared.variants[0].id,entries:prepared.variants}});
-        await enqueue(c=>svc.patchPack({packId,expectedRevision:revision,fileUpdates:prepared.updates,patch:{assets:[...c.manifest.assets,asset],blobs:{...c.manifest.blobs,...prepared.blobs}}}));
-        stopSelect();setKind(k);setQuery('');setFilter('all');setSel(asset.id);setFresh(asset.id);if(narrow)setDetail(true);onPacksChanged?.();return;
+    // 新建条目 — the one way an entry comes into the pack (the strip's 「＋ 新建」, a tab's 「＋ 新建<种类>」, the empty pack's
+    // buttons and a dropped file). A blank entry is written first, whatever is missing (library contract: media kinds
+    // `media: null, pendingMedia: true` and 关闭; a 演出风格 with empty text, 关闭; a figure with one empty 默认 outfit, its
+    // usual 启用). A `file` is then attached through the entry page's own upload (uploadBackground / uploadVariant /
+    // the CG pictures / importFigureImage), so a refused file leaves the blank entry in place with the error shown.
+    const attachCg=(id,files)=>prepareCgFiles(files).then(prepared=>enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,fileUpdates:prepared.updates,
+      patch:{blobs:{...c.manifest.blobs,...prepared.blobs},assets:c.manifest.assets.map(a=>{if(a.kind!=='cg'||a.id!==id)return a;
+        const next={...a,variants:{default:prepared.variants[0].id,entries:prepared.variants}};delete next.media;delete next.pendingMedia;return next;})}})));
+    const attachFile=(k,id,file)=>k==='figures'?importFigureImage(id,'default','calm',file,'sprite'):k==='backgrounds'?uploadBackground(id,file):k==='cg'?attachCg(id,[file]):uploadVariant(k,id,undefined,file);
+    async function makeEntry(k,{name,file}={}){
+      const svc=binding.service,title=name||newEntryName(latest.current,k);let id;
+      if(k==='figures'){
+        const made=await enqueue(c=>svc.createFigure({packId,expectedRevision:c.revision,figure:{schemaVersion:1,name:title,enabled:true,appearance:'sprite',recall:{mode:'keyword'},
+          emotions:[{id:'calm'}],outfits:[{key:'default',label:'默认',enabled:true,defaultEmotion:'calm'}]}}));
+        id=made.figureId;
+      } else {
+        const blank=k==='directions'?{text:''}:{media:null,pendingMedia:true},asset=newFileEntry(k,newEntryId(latest.current,k),title,blank);
+        if(k==='directions')asset.recall={mode:'constant',keywords:[]};
+        await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,asset]}}));
+        id=asset.id;
       }
-      for(const file of files){
-        const stem=fileStem(file.name),media=AUDIO_KINDS.includes(k)?await prepareAudio(file):await prepareImage(file,k==='figures'?'sprite':'background');
-        if(AUDIO_KINDS.includes(k)){
-          const blob=await enqueue(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash,loudness:media.loudness}));continue;
-        }
-        const closure=await imageClosure(media);
-        if(k==='figures'){
-          const figureId=crypto.randomUUID(),spriteKey=newResourceKey('sprite'),spriteFile='sprites/'+spriteKey+'/manifest.json',made=ownSpriteDefinition({calm:{hash:closure.hash,width:media.width,height:media.height}},stem);
-          const figure={schemaVersion:1,id:figureId,name:stem,enabled:true,appearance:'live2d',recall:{mode:'keyword'},autoColor:media.autoColor,emotions:[{id:'calm'}],outfits:[{key:'default',label:'默认',enabled:true,sprite:{manifestKey:spriteKey,assets:made.assets}}]};
-          closure.files.set(spriteFile,jsonBytes(made.manifest));closure.files.set('figures/'+figureId+'.json',jsonBytes(figure));
-          await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{figures:[...c.manifest.figures,figureId],sprites:{...c.manifest.sprites,[spriteKey]:spriteFile},blobs:{...c.manifest.blobs,...closure.blobs}},fileUpdates:closure.files}));figures.push(figureId);
-        }else{
-          const asset=newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:closure.hash});
-          await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,asset],blobs:{...c.manifest.blobs,...closure.blobs}},fileUpdates:closure.files}));added.push(asset);
-        }
-      }
-      if(added.length&&AUDIO_KINDS.includes(k))await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,...added]}}));
-      stopSelect();setKind(k);setQuery('');setFilter('all');setSel(added[0]?.id||figures[0]||null);if(added.length){setFresh(added[0].id);if(narrow)setDetail(true);}
-      setNotice({text:'已添加 '+files.length+' 项'});onPacksChanged?.();
+      return {kind:k,id,attach:file?()=>attachFile(k,id,file):null};
+    }
+    const showEntry=({kind:k,id},{name:focusName=false,trigger=false}={})=>{
+      audio.stop();stopSelect();setKind(k);setQuery('');setFilter('all');setCategory('');setSel(id);setFresh(trigger?id:null);setNaming(focusName?id:null);
+      if(k==='figures')setFigureTab('edit');if(narrow)setDetail(true);onPacksChanged?.();
+    };
+    const createBlankEntry=(k,{name,file}={})=>work.task(async()=>{
+      const made=await makeEntry(k,{name,file});showEntry(made,{name:!file,trigger:!!file&&k!=='figures'&&k!=='directions'});
+      if(made.attach)await made.attach();return made;
     });
+    // Dropped files: one entry per file, named after the file; the first one opens.
+    const dropFiles=files=>work.task(async()=>{
+      const list=files.map(file=>({file,kind:dropKind(file,current)})).filter(row=>row.kind);
+      if(!list.length)throw new Error('请拖入图片、音频，或模型文件夹 / ZIP');
+      let first=null,failure=null;
+      for(const {file,kind:k} of list){
+        const made=await makeEntry(k,{name:fileStem(file.name),file});if(!first){first=made;showEntry(made,{trigger:k!=='figures'});}
+        try{await made.attach();}catch(error){failure=failure||error;}
+      }
+      if(list.length>1)setNotice({text:'已新建 '+list.length+' 项'});
+      if(failure)throw failure;
+    });
+    const dropModel=(read,name)=>work.task(async()=>{
+      const made=await makeEntry('figures',{name:name||undefined});showEntry(made);
+      setModelImport({pending:{entries:read,name},fixed:{figureId:made.id,outfitKey:'default'}});
+    });
+    // A folder or ZIP is a model (the import sheet reads it); single pictures and audio become entries.
+    const modelDrop=modelDropFrame(work.busy,(entries,name)=>{const read=entries();read.catch(()=>{});stopSelect();dropModel(read,name);},'pack');
+    const packDrop={...modelDrop,onDrop:e=>{
+      const transfer=e.dataTransfer,files=[...(transfer?.files||[])],items=[...(transfer?.items||[])];
+      if(!files.length||files.some(f=>extOf(f.name)==='zip')||items.some(item=>item.webkitGetAsEntry?.()?.isDirectory))return modelDrop.onDrop(e);
+      if(!modelDragHasFiles(e))return;e.stopPropagation();if(e.defaultPrevented)return;e.preventDefault();if(!work.busy)dropFiles(files);}};
     // 复制到…: copyItems (one publication with the same-pack closure); 新建素材包 creates the target in the same write.
     // `only`: one item (the figure page's ⋯ → 复制到…) instead of the multi-selection.
     const copyTo=(target,only)=>work.task(async()=>{
@@ -1184,9 +1242,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         } catch(error) { latest.current=c;state.setValue(c);throw error; }
       }),
       remove:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
+    const automaticChanged=()=>{changed.current=true;setSel(null);setDetail(false);state.reload();onPacksChanged?.();};
     const actions=usePackActions(binding,{onRemoved:()=>{changed.current=true;close();},onChanged:()=>onPacksChanged?.()});
     const menu=pack&&h(Popover,{label:name+' 操作',trigger:({toggle:t,open})=>h(IconButton,{icon:'more',label:'更多操作 '+name,'aria-expanded':open,disabled:actions.work.busy,onClick:t}),content:closeMenu=>h(React.Fragment,null,
       h(MenuItem,{onClick:()=>{closeMenu();audio.stop();setTagSheet(true);}},'标签图标'),
+      pack.automatic&&h(MenuItem,{onClick:()=>{closeMenu();setAutomaticReview(true);}},'自动变更…'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.exportPack(pack);}},'导出'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.copyPack(pack);}},'复制'),
       h(MenuItem,{danger:true,onClick:()=>{closeMenu();actions.askRemove(pack);}},'删除'))});
@@ -1201,7 +1261,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // in 多选 a click toggles the row; Shift+click sets the rows between the
     // last clicked one and this one (in the shown order) to that row's state.
     const pickAnchor=React.useRef(null);
-    const pick=(id,e)=>{setStyleDraft(false);
+    const pick=(id,e)=>{setNaming(null);
       if(selecting){const ids=shown.map(a=>a.id),from=pickAnchor.current,a=ids.indexOf(from),b=ids.indexOf(id);
         if(e?.shiftKey&&from!==id&&a>=0&&b>=0){const range=ids.slice(Math.min(a,b),Math.max(a,b)+1),on=picked.has(from);
           setPicked(p=>{const n=new Set(p);for(const r of range)on?n.add(r):n.delete(r);return n;});}
@@ -1234,34 +1294,37 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h(Popover,{label:'复制到',className:'ap-copy-anchor',float:true,trigger:({toggle:t,open})=>h(Button,{className:'ap-manage is-done','aria-expanded':open,disabled:!picked.size||work.busy,onClick:t},'复制到…'),
         content:closeMenu=>h(PackTargetMenu,{packs:packs||[],exclude:packId,close:closeMenu,onPick:copyTo})}));
     const left=pack&&h('aside',{ref:leftRef,className:'ap-pack-left','data-selecting':selecting||undefined},
-      h(PackKindNav,{manifest:pack.manifest,present,current,onSwitch:switchKind}),
+      h(PackKindNav,{manifest:pack.manifest,present,current,onSwitch:switchKind,newMenu:h(NewEntryMenu,{current,disabled:work.busy,onPick:k=>createBlankEntry(k)})}),
       selbar||h('div',{className:'ap-pack-tools'},h(PackSearchBox,{label:'搜索条目',placeholder:'搜索',value:query,onChange:setQuery}),filterMenu,
         category&&h('span',{className:'ap-category-filter',role:'status'},h('span',null,'标签：'+category),h('button',{type:'button','aria-label':'清除标签筛选 '+category,title:'清除标签筛选',onClick:()=>setCategory('')},h(Glyph,{name:'close'}))),
-        h(Button,{className:'ap-icon-button ap-select-toggle','aria-label':'多选',title:'多选',onClick:()=>setSelecting(true)},h(Glyph,{name:'select'})),
-        h(AddFilesMenu,{onFiles:addFiles,onGenerate:generateBackground,onStyle:addStyle,onModel:openModelImport,disabled:work.busy})),
-      // 演出风格 ends its list with the dashed ＋ (no label), the same row height as an entry.
+        h(Button,{className:'ap-icon-button ap-select-toggle','aria-label':'多选',title:'多选',onClick:()=>setSelecting(true)},h(Glyph,{name:'select'}))),
+      // the list starts with a centred ＋ (新建<种类>: a blank entry of this tab's kind; owner r1 q1), the same row height as an entry.
       // a long list mounts only what is near view (WindowedItems, shared with 设置向导).
       // the list and the opened entry each fail alone (PanelBoundary, §三.38).
       h(PanelBoundary,{name:'entry-list',resetKey:current+'@'+pack.revision},
-      shown.length||current==='directions'?h(WindowedItems,{className:'ap-items',blockClassName:'ap-items-block',multi:selecting,label:kinds[current],items:shown,
-          render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:!drafting&&selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),
+      shown.length?h(WindowedItems,{className:'ap-items',blockClassName:'ap-items-block',multi:selecting,label:kinds[current],items:shown,
+          render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),
             onLamp:mode=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,mode)))}),
-          tail:current==='directions'&&!selecting&&h('li',{key:'@add',role:'none',className:'ap-item-add-row'},h('button',{type:'button',className:'ap-item-add','aria-label':'新建演出风格',title:'新建演出风格','aria-pressed':drafting,disabled:work.busy,onClick:addStyle},h('span',{className:'ap-item-add-mark'},h(Glyph,{name:'plus'}))))}):
+          head:NEW_NAMES[current]&&!selecting&&h('li',{key:'@new',role:'none',className:'ap-item-add-row'},h('button',{type:'button',className:'ap-item-add ap-item-new','aria-label':newKindLabel(current),title:newKindLabel(current),disabled:work.busy,onClick:()=>createBlankEntry(current)},
+            h('span',{className:'ap-item-add-mark'},h(Glyph,{name:'plus'}))))}):
         h(EmptyState,{noun:kinds[current],query,filter:lampFilter!=='all'?ENTRY_LAMPS[lampFilter]:category,onClear:()=>{setQuery('');setFilter('all');setCategory('');}})));
     const narrowBack=narrow?{parent:kinds[current],onBack:()=>setDetail(false)}:null;
     const right=pack&&h('section',{ref:rightRef,className:'ap-pack-right','aria-label':selected?.name||'条目'},
       // on a phone a figure carries its own top bar (‹ + its name + 启用) instead of this row.
       // on a phone the opened entry starts with the shared sub-page ‹ 「返回<kind>」 —
       // in the name row of an entry / style / CG (its name is the page title; cg-editor redesign: a CG has a name row now).
-      h(PanelBoundary,{name:'entry-detail',lead:narrowBack&&h('div',{className:'ap-detail-title ap-subhead'},h(SubpageBack,narrowBack)),resetKey:current+'/'+(drafting?'@new':selected?.id||'')+'@'+pack.revision},
-      current==='directions'&&(drafting||selected)?h(StyleDetail,{key:drafting?'@new':'directions/'+selected.id,pack,asset:drafting?null:selected,commit,create:createStyle,remove:removeStyle,busy:work.busy,back:narrowBack}):
-      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
+      h(PanelBoundary,{name:'entry-detail',lead:narrowBack&&h('div',{className:'ap-detail-title ap-subhead'},h(SubpageBack,narrowBack)),resetKey:current+'/'+(selected?.id||'')+'@'+pack.revision},
+      current==='directions'&&selected?h(StyleDetail,{key:'directions/'+selected.id,pack,asset:selected,commit,remove:removeStyle,busy:work.busy,back:narrowBack}):
+      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,onChanged:automaticChanged,backLabel:kinds[current],
           gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
         current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
           onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
           onOpenPack:onOpenPack&&((id,k,item)=>{audio.stop();onPacksChanged?.();onOpenPack(id,k,item);})})));
-    const empty=pack&&!present.length&&h(EmptyState,{text:'还没有内容',action:h(AddFilesMenu,{onFiles:addFiles,onGenerate:generateBackground,onStyle:addStyle,onModel:openModelImport,label:'添加文件',disabled:work.busy})});
+    const empty=pack&&!present.length&&h(NewEntryChoices,{disabled:work.busy,onPick:k=>createBlankEntry(k)});
+    // 新建 opens the entry with its name field focused and selected, ready to be renamed.
+    React.useEffect(()=>{if(!naming||selected?.id!==naming)return;const input=rightRef.current?.querySelector?.('.ap-title-input');if(!input)return;
+      setNaming(null);input.focus?.({preventScroll:true});input.select?.();},[naming,selected?.id,current,detail]);
     const busy=work.busy&&h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在处理…');
     const foot=(notice||work.error||lampWork.error||busy||actions.work.error||scope?.error||pack?.diagnostics?.length)&&h('div',{className:'ap-pack-foot'},busy,
       pack?.diagnostics?.map(row=>h('p',{key:JSON.stringify(row.ref),className:'ap-hint-line',role:'status'},h(Glyph,{name:'warning'}),'模组「'+(row.name||row.ref.assetId)+'」不可用：'+row.message+'。请安装新格式发行包；其它素材继续可用。')),
@@ -1272,7 +1335,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       actions.dialogs,
       pack&&gen.sheet&&h(GenSheet,{key:gen.sheet.id,gen,binding,pack,importSettei}),
       pack&&gen.dialog&&h(GenDialog,{key:gen.dialog.id,gen,binding,pack,commitFigure,importSettei,saveStyle}),gen.dialogs,
-      pack&&modelImport&&h(ModelImportSheet,{binding,pack,pending:modelImport.pending,onClose:()=>setModelImport(null),onImport:importModelHere}),
+      pack&&modelImport&&h(ModelImportSheet,{binding,pack,pending:modelImport.pending,fixed:modelImport.fixed,onClose:()=>setModelImport(null),onImport:importModelHere}),
+      pack&&automaticReview&&h(AutomaticWriteReview,{binding,packId,onClose:()=>setAutomaticReview(false),onChanged:automaticChanged}),
       pack&&tagSheet&&h(TagIconsSheet,{binding,pack,save:saveTagIcons,upload:uploadTagIcon,onClose:()=>setTagSheet(false)}));
   }
   // 素材包 ⋯ › 标签图标. An 物品 without its own picture shows the icon of its deepest
@@ -1312,7 +1376,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         h(InlineRow,{label:'图标'},h(Button,{className:'ap-inline-link',disabled:busy,onClick:()=>choose(row.tag)},h(Glyph,{name:'upload'}),'换图'))):null,
       busy?h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在保存…'):null,
       h(ErrorBox,{error}),
-      h('input',{ref:input,type:'file',hidden:true,tabIndex:-1,accept:'image/png,image/webp,image/jpeg',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);else target.current=null;}}),
+      h('input',{ref:input,type:'file',hidden:true,tabIndex:-1,accept:IMAGE_ACCEPT,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);else target.current=null;}}),
       confirm?h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}):null);
   }
   // the kinds present in the pack as one underline tab strip. (figure-editor
@@ -1326,32 +1390,34 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     for(const k of present){if(k===current)continue;if(used+w(k)>box.avail)break;keep.add(k);used+=w(k);}
     return present.filter(k=>keep.has(k));
   };
-  function PackKindNav({manifest,present,current,onSwitch}) {
+  // `newMenu`: the strip ends with 「＋ 新建」 (NewEntryMenu); its width is kept free before the tabs are fitted.
+  function PackKindNav({manifest,present,current,onSwitch,newMenu=null}) {
     const ref=React.useRef(null),refocus=React.useRef(false),[box,setBox]=React.useState(null),label=k=>kinds[k];
     (React.useLayoutEffect||React.useEffect)(()=>{const el=ref.current;if(!el||typeof ResizeObserver==='undefined')return;
       const measure=()=>{const widths={};for(const t of el.querySelectorAll('[data-kind]'))widths[t.dataset.kind]=t.offsetWidth;
-        const next={avail:el.clientWidth,more:el.querySelector('.ap-kind-more')?.offsetWidth||60,widths};setBox(b=>JSON.stringify(b)===JSON.stringify(next)?b:next);};
+        const next={avail:el.clientWidth-(el.querySelector('.ap-kind-new-anchor')?.offsetWidth||0),more:el.querySelector('.ap-kind-more')?.offsetWidth||60,widths};setBox(b=>JSON.stringify(b)===JSON.stringify(next)?b:next);};
       measure();const ro=new ResizeObserver(measure);ro.observe(el);return()=>ro.disconnect();},[present.join()]);
     React.useEffect(()=>{if(refocus.current){refocus.current=false;ref.current?.querySelector('[role=tab][aria-selected=true]')?.focus();}},[current]);
     const go=k=>{refocus.current=true;onSwitch(k);};
     const keys=e=>{const i=present.indexOf(current),n=present.length,step={ArrowRight:1,ArrowLeft:-1,Home:-i,End:n-1-i}[e.key];if(step===undefined)return;e.preventDefault();go(present[(i+step+n)%n]);};
     const shown=fitKinds(present,current,box),hidden=present.filter(k=>!shown.includes(k));
-    // a window with one tab has nothing to switch — no tab row, no divider;
-    // the content starts right under the header.
-    if(present.length<2)return null;
+    // (新建条目) the strip shows from one kind on: it also holds 「＋ 新建」. An empty pack has none (its page is the kinds).
+    if(!present.length)return null;
     return h('div',{ref,className:'ap-pack-kinds'},
       h('div',{role:'tablist','aria-label':'素材分类',className:'ap-kind-tabs-line',onKeyDown:keys},present.map(k=>h('button',{key:k,type:'button',role:'tab','data-kind':k,
         'data-overflow':hidden.includes(k)||undefined,'aria-selected':k===current,tabIndex:k===current?0:-1,'aria-label':label(k),onClick:()=>onSwitch(k)},h('span',null,kinds[k])))),
       h(Popover,{label:'更多分类',className:'ap-kind-more-anchor'+(hidden.length?'':' is-idle'),
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-kind-more','aria-haspopup':'menu','aria-expanded':open,tabIndex:hidden.length?0:-1,onClick:toggle},'更多',h(Glyph,{name:'chevDown'})),
-        content:close=>h(KindMenu,{list:hidden,label,onPick:k=>{close();go(k);}})}));
+        content:close=>h(KindMenu,{list:hidden,label,onPick:k=>{close();go(k);}})}),
+      newMenu);
   }
-  function KindMenu({list,label,onPick}) {
+  // `icons`: each item leads with its kind's glyph and reads its `label` (the 新建 menu: 「新建背景」).
+  function KindMenu({list,label,onPick,icons=false}) {
     const ref=React.useRef(null);
     React.useEffect(()=>{ref.current?.querySelector('button')?.focus();},[]);
     const move=e=>{const items=[...ref.current.querySelectorAll('button')],i=items.indexOf(document.activeElement),n=items.length,next={ArrowDown:i+1,ArrowUp:i-1,Home:0,End:n-1}[e.key];if(next===undefined)return;e.preventDefault();items[(next+n)%n].focus();};
     return h('div',{ref,className:'ap-kind-menu',onKeyDown:move},list.map(k=>h('button',{key:k,type:'button',role:'menuitem','aria-label':label(k),className:'ap-menu-item ap-kind-option',onClick:()=>onPick(k)},
-      h('span',null,kinds[k]))));
+      icons&&h(KindIcon,{kind:k}),h('span',null,icons?label(k):kinds[k]))));
   }
   // Category glyphs for the pack navigation (the old 素材库 rail had one per kind).
   const kindGlyphs={timers:'M8 14a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM6.5 1.5h3M8 4V2M8 9V6.5M12 4.5l1-1',backgrounds:'M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3',music:'M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',sfx:'M3 8h1.5M6 5v6M8.5 3v10M11 5.5v5M13.5 7v2',ambience:'M2 6.5c2-1.5 4-1.5 6 0s4 1.5 6 0M2 10c2-1.5 4-1.5 6 0s4 1.5 6 0',looks:'M8 2.5l1.4 3.6 3.6 1.4-3.6 1.4L8 12.5l-1.4-3.6L3 7.5l3.6-1.4z',widgets:'M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z',figures:'M8 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3.5 13.5c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4',
@@ -1362,8 +1428,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // 入场演出: a point of light inside the rings of a tunnel.
     entrances:'M8 9.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM8 12.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1',
     // 视频: a film frame with a play triangle.
-    videos:'M2 3.5h12v9H2zM2 5.5h12M2 10.5h12M6.8 6.6v2.8L9.2 8z'};
-  function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[['cg','props'].includes(kind)?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
+    videos:'M2 3.5h12v9H2zM2 5.5h12M2 10.5h12M6.8 6.6v2.8L9.2 8z',
+    // 物品: a parcel (owner r1: not the picture glyph 背景 and CG share).
+    props:'M2.5 5 8 2.5 13.5 5v6.5L8 14l-5.5-2.5zM2.5 5 8 7.5 13.5 5M8 7.5V14M5.2 3.8l5.5 2.5'};
+  function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[kind==='cg'?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
   // @include asset-pack-widgets.js
   // @include voice-catalogue-picker.js
   // @include widget-settings-ui.js
@@ -1380,18 +1448,18 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // @include asset-pack-character-ui.js
   const prepareImage = prepareImageOverride || browserPrepareImage;
   // @include mod-library.js
-  // The stage package's pages (asset-pack-{gen,card,engine}-ui.js and mod-manager.js of dsh-tavern-stage) are not in this
-  // bundle. When the stage client mounts (gal-stage.js bindStageViews -> entry.js createStageAssetPackViews) it builds them
-  // over this closure's names (stageScope.names) and binds its own here (stageScope.bind): the core pages below reach them
-  // by name once bound. The asset library, the stage tab and the Settings rows hold the stage client first (galStageHold)
-  // and wait on stageScope.use(); a card without the stage never loads them.
+  // The stage package's pages — asset-pack-{gen,card,engine}-ui.js and mod-manager.js of dsh-tavern-stage — are not in this
+  // bundle (the stage is a plugin of its own). When the stage client mounts (gal-stage.js bindStageViews → entry.js
+  // createStageAssetPackViews) it builds them over this closure's names (stageScope.names) and binds its own here (stageScope.bind):
+  // the core pages below reach them by name once bound. 素材库, the 舞台 tab, the 设置 rows and the DSH card export hold the stage
+  // client first (galStageHold) and wait on stageScope.use(); a card without the stage never loads them.
   let CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter;
   const stageScope=(()=>{
     const listeners=new Set();let views=null;
     const notify=()=>{for(const fn of [...listeners])fn();};
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-    const names={CastVoiceList, useReadingPointers, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+    const names={useFigureLook, CastVoiceList, useReadingPointers, VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
@@ -1414,7 +1482,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
       h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
   }
-  return stageExposed({VoiceCataloguePicker,voiceKey,voiceFromKey,App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  const api=stageExposed({VoiceCataloguePicker,voiceKey,voiceFromKey,App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.
@@ -1424,7 +1492,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // entering 舞台模式 opens 设置向导 once per card (stageSetupGate).
     stageSetup,
     stage:stageExposed({openingPatch,openingPreview,stageMissing,simpleSpriteImages,replaceOutfitSprite,emotionSlot,get RETURN_KEY(){return stageScope.views?.STAGE_RETURN_KEY;}},
-      ['directorPromptRows','directorWire','directorPieceName','directorPromptRow','promptToolDefs','PromptOps','PromptPieces','PromptCatalogue','catalogueEntries','commandInfo','PromptTools','PromptAt','promptHeadClick','promptJson','promptJsonText','judgePromptRows','judgeWithProvider','judgeDraftProblem','promptTokenEstimate','storyPromptRows','promptSources','promptPackScope','stagePrefs','stageActive','stagePatch','stageEnable','unbindPatch','writeStageReturn'])},
+      ['directorPromptRows','directorWire','directorPieceName','directorPromptRow','promptToolDefs','PromptOps','PromptPieces','PromptCatalogue','catalogueEntries','commandInfo','PromptTools','PromptAt','promptHeadClick','promptJson','promptJsonText','judgePromptRows','judgeWithProvider','judgeDraftProblem','promptTokenEstimate','storyPromptRows','promptSources','promptPackScope','stagePrefs','stageActive','stagePatch','stageSwitchPatch','stageEnable','unbindPatch','writeStageReturn'])},
     // 设置 → 舞台 → 素材生图 (GenPromptSettings), the 舞台 tab (StagePanel / StagePage / EnginePage), 读音词典 and the DSH card export sheet.
     ['ModManagerEntry','StagePanel','StagePage','EnginePage','ReadingsEditor','DshCardExportSheet','GenPromptSettings']);
+  return api;
 }

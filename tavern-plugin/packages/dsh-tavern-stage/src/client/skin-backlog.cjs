@@ -42,13 +42,17 @@ function stageSkinBacklog(document) {
     // anchor end (§18 N9): the list as tall as its rows, standing on the sheet's bottom (the latest line by the box)
     // voice: whether a spoken row shows its replay control (art.voice.backlog false: the original's log has none; R replays).
     return {layout,close:declared?.close?.place || defaults.close,metrics:own ? (document.art?.screenWidth ? 'art' : '') : '',roles,style,bubble:m,anchor:declared?.anchor || '',
-        badge:stageSkinBacklogBadge(declared?.badge),voice:document?.art?.voice?.backlog !== false};
+        badge:stageSkinBacklogBadge(declared?.badge,document?.art?.backlog?.badges),voice:document?.art?.voice?.backlog !== false};
 }
 // A mod-declared line kind's badge: the skin's look, place and paint (as --bl-badge-*), else a
 // pill after the name in the panel's muted ink (theme.css .fork-gal-backlog-badge).
-function stageSkinBacklogBadge(declared) {
+// art (§18 N26): the kinds the skin draws as its own image (art.backlog.badges), each to the token that holds its image -
+// the line kind's dotted id (dsh.phone.message) with its dots as underscores, a custom property name var() can read.
+const stageSkinBadgeToken = kind => '--art-bl-badge-' + kind.replace(/\./g, '_');
+function stageSkinBacklogBadge(declared, drawn) {
     const paint=declared?.paint;
     return {look:declared?.look || 'pill',place:declared?.place || 'name',...(declared?.show === false ? {show:false} : {}),...(declared?.icon === 'bold' ? {icon:'bold'} : {}),
+        ...(drawn ? {art:Object.fromEntries(Object.keys(drawn).map(kind => [kind,stageSkinBadgeToken(kind)]))} : {}),
         style:paint ? Object.fromEntries([['fg',paint.fg],['bg',paint.bg],['border',paint.border]].filter(([,value]) => value).map(([key,value]) => ['--bl-badge-'+key,value])) : undefined};
 }
 // A look's outline as a clockwise polygon (screen y down) in design px: the w x h rect with its corners and, for a bubble on
@@ -120,6 +124,6 @@ function stageSkinBacklogClose(paint) {
     return 'url("data:image/svg+xml,' + encodeURIComponent(body) + '")';
 }
 
-return {STAGE_BACKLOG_DEFAULTS,STAGE_BACKLOG_OPACITY,STAGE_BACKLOG_METRICS,stageSkinBacklog,stageSkinBacklogBadge,stageSkinBacklogOutline,stageSkinChamfer,stageSkinInset,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogClose};
+return {STAGE_BACKLOG_DEFAULTS,STAGE_BACKLOG_OPACITY,STAGE_BACKLOG_METRICS,stageSkinBacklog,stageSkinBacklogBadge,stageSkinBadgeToken,stageSkinBacklogOutline,stageSkinChamfer,stageSkinInset,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogClose};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSkinBacklog};

@@ -1,4 +1,4 @@
-function createStageConfigScreen({React:react, window, document, matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, Sound:GalConfigSound, Text:GalConfigText, Appearance:GalConfigScreenTab}) {
+function createStageConfigScreen({React:react, window, document, matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, Sound:GalConfigSound, Text:GalConfigText, Appearance:GalConfigScreenTab, Looks:GalConfigLooks}) {
 let disposed=false;
 const cleanups=new Set();
 const React={...react,useEffect(setup,deps){react.useEffect(()=>{
@@ -28,6 +28,25 @@ function useStageMods(sessionId) {
 }
 const GAL_CONFIG_TABS = [["sound", "声音"], ["text", "文字"], ["screen", "画面"]];
 const GAL_CONFIG_MODS_TAB = ["mods", "模组"];
+// nav.lead line (§18 N32): what each tab holds, one line under the tabs; the 模组 tab of one mod says the mod's own (its
+// section's desc).
+const GAL_CONFIG_LEADS = { sound: "音量与配音。", text: "阅读节奏与字体。", screen: "外观与效果。", mods: "已启用模组的舞台设置。" };
+// The surface's drawn control looks, read from the stage's marks (stageSkinConfigSurface writes them) and followed while open.
+const GAL_CONFIG_LOOK_MARKS = { segmented: "data-fk-cs-control-segmented", toggle: "data-fk-cs-control-toggle" };
+function useGalConfigLooks(root) {
+    const [looks, setLooks] = React.useState(null);
+    React.useLayoutEffect(() => {
+        const stage = root.current && root.current.parentElement;
+        if (!stage) return undefined;
+        const read = () => { if (disposed) return; const next = Object.fromEntries(Object.entries(GAL_CONFIG_LOOK_MARKS).map(([type, mark]) => [type, stage.getAttribute(mark) || ""]));
+            setLooks(was => was && Object.keys(next).every(type => was[type] === next[type]) ? was : next); };
+        read();
+        const watch = new window.MutationObserver(read);
+        watch.observe(stage, { attributes: true, attributeFilter: Object.values(GAL_CONFIG_LOOK_MARKS) });
+        return () => watch.disconnect();
+    }, []);
+    return looks;
+}
 // The last tab stays selected while the page lives (reopening returns to it; the top bar's 声音 sets it to sound).
 let galConfigLastTab = "sound";
 
@@ -62,6 +81,7 @@ function GalConfigScreen(props) {
     const tab = tabs.some(([id]) => id === selected) ? selected : 'sound';
     const root = React.useRef(null);
     const tabRefs = React.useRef({});
+    const looks = useGalConfigLooks(root);
     // galgame UI cues (ui-sfx.js) for tabs, switches and slider releases; the stage cues open / close.
     useForkUiSfxControls(root);
     function choose(id, focus) { galConfigLastTab = id; setTab(id); if (focus && tabRefs.current[id]) tabRefs.current[id].focus(); }
@@ -82,6 +102,11 @@ function GalConfigScreen(props) {
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);
     }, []);
+    // The 模组 tab arrives with the mod list after the screen opened on it: the focus the opening gave the first tab moves to it.
+    React.useEffect(function () {
+        const active = tabRefs.current[tab], at = document.activeElement;
+        if (active && at && at !== active && at.getAttribute?.("role") === "tab" && root.current?.contains(at)) active.focus({ preventScroll: true });
+    }, [tab]);
     // Tab cycles inside the screen; the stage never sees keys typed here.
     function onKeyDown(event) {
         event.stopPropagation();
@@ -102,6 +127,7 @@ function GalConfigScreen(props) {
     }
     // Mount only the active tab: hidden font pickers/previews would still load fonts and run effects.
     const page = tab === "mods" ? sections.map(section => h(section.Component, { key: section.label, rpc, sessionId: props.sessionId, compact })) : tab === "sound" ? h(GalConfigSound, props) : tab === "text" ? h(GalConfigText, props) : h(GalConfigScreenTab, props);
+    const lead = tab === "mods" && sections.length === 1 && sections[0].desc || GAL_CONFIG_LEADS[tab];
     // one small, quiet ✕ at the end of the header row, inside the sheet, in both layouts.
     const close = h("button", { type: "button", className: "fork-gal-config-close", title: "关闭（Esc / 右键）", "aria-label": "关闭设置", onClick: props.onClose }, h(Icon, { name: "close", size: compact ? 22 : 20 }));
     return h("div", { ref: root, className: "fork-gal-config", "data-leaving": props.leaving || undefined, inert: props.leaving || undefined, "data-layout": compact ? "compact" : "wide", role: "dialog", "aria-modal": "true", "aria-labelledby": "fork-gal-config-title",
@@ -119,7 +145,12 @@ function GalConfigScreen(props) {
                     "aria-selected": tab === id, "aria-controls": "fork-gal-config-page", tabIndex: tab === id ? 0 : -1, className: "fork-gal-config-tab" + (tab === id ? " is-on" : ""),
                     onClick: () => choose(id), onKeyDown: onTabKey },
                     h("i", { className: "fork-gal-config-gem", "aria-hidden": true }), h("b", null, label)))),
-            h("section", { id: "fork-gal-config-page", className: "fork-gal-config-page", role: "tabpanel", "aria-labelledby": "fork-gal-config-tab-" + tab, "data-tab": tab }, page)));
+            // nav.lead (§18 N32): shown only by a surface that asks for it (theme.css); the tab panel's description.
+            h("p", { id: "fork-gal-config-lead", className: "fork-gal-config-lead" }, lead),
+            h("section", { id: "fork-gal-config-page", className: "fork-gal-config-page", role: "tabpanel", "aria-labelledby": "fork-gal-config-tab-" + tab, "aria-describedby": "fork-gal-config-lead", "data-tab": tab },
+                h(GalConfigLooks.Provider, { value: looks }, page))),
+        // hints (§18 N32): the key guide as stickers beside the frame, drawn only by a surface that asks for it (theme.css).
+        h("div", { className: "fork-gal-config-hints", "aria-hidden": true }, h("span", null, h("kbd", null, "Esc"), " 返回"), h("span", null, h("kbd", null, "Enter"), " 决定")));
 }
 
 return {Screen:GalConfigScreen, select(tab){if(!disposed)galConfigLastTab=tab;},dispose(){

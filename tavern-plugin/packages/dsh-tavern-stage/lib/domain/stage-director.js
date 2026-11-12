@@ -31,15 +31,16 @@ const messageIndex = (chat, turn) => chat.messages.findIndex(m => m.role === 'as
 const expired = () => Object.assign(new Error('Director task expired; retry explicitly'), {code:'REVISION_CONFLICT'})
 // The log names why a director stopped; the player UI shows only debug text for it.
 const sourceChanged = () => Object.assign(new Error('舞台导演已停止：本轮正文已变化'), {code:'REVISION_CONFLICT'})
-// The card's assets, the engine settings or speech changed under a running director (a pack install, say).
-const assetsChanged = () => Object.assign(new Error('舞台导演已停止：素材已更新'), {code:'ASSETS_CHANGED'})
 const FAILURE = 'stageDirectionAssetPacksFailure'
 // A director at work on its round: written when it starts, cleared with its record or failure.
 // One left by an earlier run of Tavern means a restart cut it off (DIRECTOR_INTERRUPTED).
 const RUNNING = 'stageDirectionRunning'
 const BOOT = randomUUID()
 // The director depends on its round's prose (proseFence), never on the whole-game revision:
-// choices, bookkeeping, character design or settlement must not void it.
+// choices, bookkeeping, character design or settlement must not void it. Nor do asset changes: a
+// director directs its round from the asset snapshot it started with; a pack written meanwhile (a CG,
+// an auto-cast figure, a library edit, engine settings) is seen from the next round on, and a record
+// naming an asset removed since degrades in projection like any history.
 const withoutRevision = ({revision, ...target}) => target
 
 function playerInputBefore(chat, index, raw) {
@@ -70,11 +71,9 @@ export function createStageDirector(deps) {
     if (version?.signature !== signature) {version = {signature,revision:++revision};versions.set(id,version)}
     return options.sinceRevision === version.revision ? {unchanged:true,revision:version.revision} : {...body,revision:version.revision}
   }
-  function invalidate(cardPath) {
-    if (cardPath) openingAssets.delete(cardPath); else openingAssets.clear()
-    for (const job of [...jobs.values(), ...streams.values()]) if (!cardPath || job.cardPath === cardPath) {
-      stop(job, disposed ? undefined : assetsChanged())
-      // A stream still reading the body is dropped: the round's directing read after the body directs it afresh.
+  function stopAll() {
+    for (const job of [...jobs.values(), ...streams.values()]) {
+      stop(job)
       if (!job.finishing && streams.get(key({id:job.chatId},job.turn)) === job) dropStream(job)
     }
   }
@@ -89,23 +88,19 @@ export function createStageDirector(deps) {
     return job ? {operationId:job.stopId, busy:true, phase:'running', role:'stage-director'} : null
   }
   // A stopped director is silent (as upstream): the round keeps what was saved, records no
-  // failure, and is not started again by itself. Only a director's own error is recorded, and
-  // so is a change of assets under it: nobody stopped that round, and its observers (voice, the
-  // phone) must not wait for a direction that no longer comes.
+  // failure, and is not started again by itself. Only a director's own error is recorded.
   function stop(job, reason) {
     if (job.stopped) return
     job.stopped = true
-    job.stopReason = reason
     job.controller?.abort(reason)
     job.pack?.kernel.cancel()
     publish(job)
   }
-  const quiet = job => job.stopped && job.stopReason?.code !== 'ASSETS_CHANGED'
   // The next turn (no turn) or an interrupted or discarded turn stops its directors.
   function cancel(chat, turn) {
     for (const job of [...jobs.values(), ...streams.values()]) if (job.sessionId === chat.sessionId && (turn === undefined || job.turn === Number(turn))) stop(job)
   }
-  const off = deps.assets.subscribe(invalidate)
+  const live = () => !disposed
   function observe(chat, {metadataOnly = false} = {}) {
     deps.mods?.observe(chat,{metadataOnly})
     for (const job of streams.values()) if (job.sessionId === chat.sessionId) {
@@ -223,7 +218,7 @@ export function createStageDirector(deps) {
         const pending = (async () => {
           // A greeting has no prose fence: its own source key guards the write.
           const basis = await deps.readTaskChat(chat.id)
-          if (!basis || disposed || !assets.current() || targetAt(basis,index).sourceKey !== target.sourceKey) throw expired()
+          if (!basis || disposed || targetAt(basis,index).sourceKey !== target.sourceKey) throw expired()
           const existing = recordAt(basis,index)
           if (existing) return existing
           const candidate = basis.messages[index][DRAFT]?.imageReplay
@@ -231,7 +226,7 @@ export function createStageDirector(deps) {
           const saved = makeRecord(initializeStateImages(opening.state,context,Math.random,replay,opening.emotions))
           let committed = false
           await deps.updateChat(basis.id, draft => {
-            if (disposed || !assets.current() || targetAt(draft,index).sourceKey !== target.sourceKey) throw expired()
+            if (disposed || targetAt(draft,index).sourceKey !== target.sourceKey) throw expired()
             draft.messages[index][RECORD] = saved
             delete draft.messages[index][DRAFT]
             delete draft.messages[index][FAILURE]
@@ -252,8 +247,9 @@ export function createStageDirector(deps) {
   async function directorSelection(choice, chat) {
     return deps.selection ? deps.selection(chat) : choice && typeof choice === 'object' ? choice : await deps.foreground(chat)
   }
-  async function prepare(chat, turn, {signal, preview = true, authorityOnly = false, retryPreparation, capturePreparation, streamingBaseline, hostOnly = false, display} = {}) {
-    const assets = await deps.assets.snapshot(chat.cardPath)
+  // snapshot: the assets a streaming director started with, so its final window directs from the same ones.
+  async function prepare(chat, turn, {signal, preview = true, authorityOnly = false, retryPreparation, capturePreparation, streamingBaseline, hostOnly = false, display, snapshot} = {}) {
+    const assets = snapshot || await deps.assets.snapshot(chat.cardPath)
     if (!assets) return null
     const index = messageIndex(chat, turn), target = targetAt(chat, index)
     const {units, displayUnits, pageIndex} = display || await frozenDisplay(chat, turn)
@@ -264,7 +260,7 @@ export function createStageDirector(deps) {
     if (!hostOnly && !engine.directorModel) throw new Error('No director model selected')
     const info = hostOnly ? null : await deps.modelInfo?.(engine.directorModel)
     const judgeConfigured = !hostOnly && judgeEnabled(engine.judge)
-    let mods=hostOnly ? undefined : await deps.mods?.prepare(chat,turn,{target,preview:true,isCurrent:assets.current})
+    let mods=hostOnly ? undefined : await deps.mods?.prepare(chat,turn,{target,preview:true,isCurrent:live})
     const input = {...assets,activeStageSkin:deps.activeStageSkin, modTurn:modStageTurn(chat,turn), playerName:chat.macroState?.userName, playerInput:playerInputBefore(chat,index,assets.raw), stateSource:await deps.stateSource?.(chat,assets.raw), ...(mods ? {mods,modPrompts:mods.fragments} : {}), items:prepareStageItems(assets.raw,chat,index), engine, target, units, imageUnits:displayUnits, pageIndex, generation:chat.messages[index].stageDirectionGeneration || 0, predecessor:recordsThrough(chat,index - 1).records, modelInfo:info, record:streamingBaseline ? undefined : record, ...(streamingBaseline ? {baseline:streamingBaseline,continuation:true} : {}), opening:greeting ? openingOf(assets, greeting).state : undefined}
     let prepared = prepareAssetPackDirector(input), judge, judgeResult, judgeRecall
     // Retry keeps decisions, not authority: rebuild bindings/proofs against the current source and assets.
@@ -293,12 +289,12 @@ export function createStageDirector(deps) {
     const preparation = {scope,...(judgeResult ? {judgeResult} : {}),judgeRecall:[...(judgeRecall || [])]}
     capturePreparation?.(preparation)
     // The mods read only the recalled catalogue here; the full preparation follows with their result.
-    if (mods) mods=await deps.mods.prepare(chat,turn,{target,preview:preview || authorityOnly,isCurrent:assets.current,
+    if (mods) mods=await deps.mods.prepare(chat,turn,{target,preview:preview || authorityOnly,isCurrent:live,
       assetCatalogue:judgeRecall ? assetPackDirectorCatalogue({...input,judgeRecall}) : prepared.context.catalogue,stageState:prepared.baseline.modState})
     if (mods?.selection) preparation.modSelection = mods.selection
     capturePreparation?.(preparation)
     if (mods || judgeRecall) prepared=prepareAssetPackDirector({...input,mods,modPrompts:mods?.fragments || [],judgeRecall})
-    return {prepared, mods, judge, judgeResult, current:assets.current, index, target, hostOnly}
+    return {prepared, mods, judge, judgeResult, current:live, index, target, hostOnly}
   }
   // stream identity is admitted only from a running host body operation.
   async function beginStream(chat, turn) {
@@ -332,11 +328,11 @@ export function createStageDirector(deps) {
       const record = predecessor(chat,chat.messages.length,history), greeting = !record && chat.messages.findLast(m => m.role === 'assistant' && m.greeting)
       const target = {sessionId:chat.sessionId,chatId:chat.id,turn,branchId:chat.timeline.branchId,revision:chat.timeline.revision,
         sourceKey:assetPackDigest([chat.id,operation.id]),sourceDigest:assetPackDigest([]),predecessorDigest:record?.digest || null}
-      job = {chatId:chat.id,sessionId:chat.sessionId,cardPath:chat.cardPath,branchId:chat.timeline.branchId,operationId:operation.id,turn,target, stopId:'director:' + (++revision), serial:0,current:assets.current}
+      job = {chatId:chat.id,sessionId:chat.sessionId,cardPath:chat.cardPath,branchId:chat.timeline.branchId,operationId:operation.id,turn,target, stopId:'director:' + (++revision), serial:0,assets}
       if (disposed) return null
       streams.set(id,job)
       const streamSource = text => ({operationId:operation.id,text})
-      const current = () => !disposed && streams.get(id) === job && assets.current() && !['cancelled','failed'].includes(job.pack?.kernel.snapshot().phase)
+      const current = () => !disposed && streams.get(id) === job && !['cancelled','failed'].includes(job.pack?.kernel.snapshot().phase)
       // Mod settings and variable bindings read this same pre-stream chat in every window; read them once.
       const modMemo = new Map()
       try {
@@ -423,14 +419,14 @@ export function createStageDirector(deps) {
         const frozen = await frozenDisplay(chat,turn)
         // Final-body hooks and judge run under the ordinary persisted source proof.
         await job.pack.kernel.drain()
-        job.finalInput = await prepare(chat,turn,{preview:false,streamingBaseline:job.pack.kernel.snapshot().state,display:frozen})
+        job.finalInput = await prepare(chat,turn,{preview:false,streamingBaseline:job.pack.kernel.snapshot().state,display:frozen,snapshot:job.assets})
         job.pack.kernel.commit(frozen.displayUnits)
         await job.pack.kernel.drain()
         task = await admission
         const snapshot = job.pack.kernel.snapshot()
         if (snapshot.phase !== 'settled') throw new Error(snapshot.failure?.message || 'Streaming director cancelled')
         const prepared = job.finalInput, index = messageIndex(task.chat,turn)
-        if (!prepared || prepared.target.predecessorDigest !== job.target.predecessorDigest || !job.current()) throw expired()
+        if (!prepared || prepared.target.predecessorDigest !== job.target.predecessorDigest || disposed) throw expired()
         // The final binding must describe the display actually reconciled, not a later template projection.
         const finalDisplay = await frozenDisplay(task.chat,turn)
         if (prepared.prepared.binding.unitsDigest !== assetPackDigest(frozen.units) || prepared.prepared.binding.pageDigest !== assetPackDigest(frozen.pageIndex) ||
@@ -438,7 +434,7 @@ export function createStageDirector(deps) {
         const binding = {...prepared.prepared.binding,...(job.pack.binding.items ? {items:job.pack.binding.items} : {}),generation:snapshot.epoch,stream:{version:1,operationId:job.operationId,epoch:snapshot.epoch,committed:true}}
         const effect = job.pack.complete(binding,frozen.units.length)
         const result = await task.commit({apply(draft) {
-          if (disposed || streams.get(key(chat,turn)) !== job || job.pack.kernel.snapshot().phase !== 'settled' || !job.current() || canonicalJson(withoutRevision(targetAt(draft,index))) !== canonicalJson(withoutRevision(prepared.target))) throw expired()
+          if (disposed || streams.get(key(chat,turn)) !== job || job.pack.kernel.snapshot().phase !== 'settled' || canonicalJson(withoutRevision(targetAt(draft,index))) !== canonicalJson(withoutRevision(prepared.target))) throw expired()
           draft.messages[index][RECORD] = effect
           if (prepared.judgeResult) draft.messages[index][RECORD].stats.judge = prepared.judgeResult
           if (prepared.mods?.selection) draft.messages[index][RECORD].stats.modSelection = prepared.mods.selection
@@ -452,8 +448,7 @@ export function createStageDirector(deps) {
       } catch (error) {
         // A failure before admission settled still records through its writer.
         task ||= await admission?.catch(() => undefined)
-        const cause = job.stopped && !quiet(job) ? job.stopReason : error
-        const failure = {status:'error',sourceKey:captureStageTarget(chat,messageIndex(chat,turn)).sourceKey,...(cause === error ? {} : {code:cause.code}),error:String(cause.message),retryable:true}
+        const failure = {status:'error',sourceKey:captureStageTarget(chat,messageIndex(chat,turn)).sourceKey,error:String(error.message),retryable:true}
         const snapshot = job.pack.kernel.snapshot(), prepared = job.finalInput?.prepared
         if (snapshot.through && prepared && snapshot.committed && snapshot.phase === 'failed' && error.code !== 'REVISION_CONFLICT' && !job.stopped) {
           const binding = {...prepared.binding,generation:snapshot.epoch,stream:{version:1,operationId:job.operationId,epoch:snapshot.epoch,committed:true}}
@@ -462,7 +457,7 @@ export function createStageDirector(deps) {
           failure.preview = readAssetPackPreview({...body,prefixDigest:assetPackDigest(body)})
         }
         const current = () => !disposed && streams.get(key(chat,turn)) === job
-        if (current() && !quiet(job)) failures.set(key(chat,turn),failure)
+        if (current() && !job.stopped) failures.set(key(chat,turn),failure)
         job.error = String(error.message)
         job.pack.kernel.fail(error)
         const saved = await saveFailure(task,job,failure,message => {
@@ -497,7 +492,7 @@ export function createStageDirector(deps) {
     return saved
   }
   async function saveFailure(task, job, failure, apply = () => {}) {
-    if (quiet(job)) {
+    if (job.stopped) {
       deps.log?.({kind:'director-stopped',sessionId:job.sessionId,turn:job.turn,error:failure.error})
       // Stopped is silent: the round keeps what was saved, only its running mark goes. A shutdown
       // keeps the mark, so the next run of Tavern reads the round as interrupted (DIRECTOR_INTERRUPTED).
@@ -615,7 +610,7 @@ export function createStageDirector(deps) {
         const reason = job.controller.signal.reason, error = typeof reason?.code === 'string' ? reason : thrown
         const failure = {status:'error', sourceKey:job.target.sourceKey, code:error.code || 'DIRECTION_FAILED', error:String(error.message), retryable:true, ...(job.value.preview ? {preview:job.value.preview} : {}), ...(job.preparation ? {preparation:job.preparation} : {})}
         logMods('failed')
-        if (!quiet(job)) failures.set(id,failure)
+        if (!job.stopped) failures.set(id,failure)
         await saveFailure(task,job,failure)
       }
     })().finally(() => { if (jobs.get(id) === job) jobs.delete(id); tasks.delete(promise); publish(job) })
@@ -738,5 +733,5 @@ export function createStageDirector(deps) {
     async prepareSnapshot(chat,turn,{authorityOnly = false} = {}) { return (await prepare(chat,turn,{authorityOnly}))?.prepared },
     subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn)},
     async generate(chat,turn,config) {const reset = await retry(chat,turn,{regenerate:true}); return get(reset.chat,turn,config,{generate:true})},
-    dispose() {disposed = true; off(); invalidate(); listeners.clear(); versions.clear(); judgeResults.clear(); retryPreparations.clear(); historyCache.clear(); return drain()}}
+    dispose() {disposed = true; openingAssets.clear(); stopAll(); listeners.clear(); versions.clear(); judgeResults.clear(); retryPreparations.clear(); historyCache.clear(); return drain()}}
 }

@@ -10,8 +10,8 @@ test('independent stage plugin follows real Cordis load, unload and reload',asyn
   const require=createRequire(pathToFileURL(process.env.DSH_BOOT_MODULE))
   const {Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
   const ctx=new Context(),seen=[]
-  ctx.provide('tavernStageControl',{install:async()=>seen.push('enable'),uninstall:async()=>seen.push('disable')})
   ctx.provide('llm',{})
+  ctx.provide('tavernStageControl',{install:async()=>seen.push('enable'),uninstall:async()=>seen.push('disable')})
   const first=ctx.plugin(stage);await first.await()
   assert.deepEqual(seen,['enable'])
   await first.dispose();assert.deepEqual(seen,['enable','disable'])
@@ -42,6 +42,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       const React = {
         useState:value => [typeof value === 'function' ? value() : value,()=>{}],
         useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
+        createContext:value => ({Provider:'provider',_currentValue:value}),
         createElement:(type,props,...children) => ({type,props,children}),
       }
       const views = input.createViews({React,GalStage:forbidden,skinResources:{getSession:forbidden,getResourceOwner:forbidden},backlogPaging:{hydrateText:forbidden,hasOlder:forbidden,loadOlder:forbidden},sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
@@ -60,7 +61,8 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       const session=views.sessionRuntime.createSessionOwner({sessions:{list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>stopped++}}})
       session.start();session.dispose();assert.equal(stopped,1)
       for (const name of ['Host','Toggle','Typewriter','NarrationLines','HudLabels','NamePlate']) assert.equal(typeof views[name],'function')
-      assert.equal(views.Typewriter({text:'完整文字',instant:true}).children[0][0].children[0],'完整文字')
+      // an instant page is one shown run (GalTypewriter runs()), passed as one children array
+      assert.equal(views.Typewriter({text:'完整文字',instant:true}).children.flat()[0].children[0],'完整文字')
       views.progress.store.begin('s',1)
       assert.equal(views.progress.store.get('s').id,1)
       seen.push('tab')

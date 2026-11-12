@@ -150,7 +150,7 @@ export function callRequest({library, contact, persona, language, playerName, ch
  * A call its page stopped answering for (`aliveMs` without any request: a reload, a closed window) ends by itself, so
  * neither the lease nor the deployment busy signal outlive it.
  */
-export function createPhoneCalls({library, store, model, serviceState = async () => ({state:'unsupported'}), hold = async () => null, context = async () => ({}), now = Date.now, clock = () => performance.now(), id = () => Math.random().toString(36).slice(2),
+export function createPhoneCalls({library, store, model, ended = async () => {}, serviceState = async () => ({state:'unsupported'}), hold = async () => null, context = async () => ({}), now = Date.now, clock = () => performance.now(), id = () => Math.random().toString(36).slice(2),
   aliveMs = 75000, timer = {set:(fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t }, clear:t => clearTimeout(t)}}) {
   const calls = new Map(), {projectVoiceCues, promptSection} = library
   function touch(call) { timer.clear(call.expiry); call.expiry = timer.set(() => { if (calls.get(call.id) === call) void hangUp(call).catch(() => {}) }, aliveMs) }
@@ -159,7 +159,8 @@ export function createPhoneCalls({library, store, model, serviceState = async ()
     stopTurn(call); timer.clear(call.expiry); calls.delete(call.id)
     void call.lease.then(release => release?.())
   }
-  async function hangUp(call) { close(call); call.endedAt = now(); await persist(call) }
+  // ended: told once the record is stored (the summary relay's event), never awaited by the caller.
+  async function hangUp(call) { close(call); call.endedAt = now(); await persist(call); void ended({sessionId:call.sessionId, call}).catch(() => {}) }
   const clientFields = ['origin','speechEndMs','endpointMs','endpoint','asrFinalMs','rpcSentMs','hostStartMs','clockErrorMs','ttsRequestMs','ringToFirstPcmMs','firstPcmMs','scheduledMs','audibleMs','outputLatencyMs','interruptions','stalls','backchannels','outcome']
   function readTiming(value) {
     if (value === undefined) return {}
@@ -293,7 +294,7 @@ export function createPhoneCalls({library, store, model, serviceState = async ()
       const parser = createCallReplyParser({library, language:call.language, moods:call.contact.moods, defaultEmotion:call.contact.defaultEmotion, contact:call.contact, voiceTranslates:call.contact.voiceRules?.voiceTranslates})
       let whole = ''
       timing.requestMs = since()
-      void model({sessionId:call.sessionId,selection:call.selection,system:request.system,messages:request.messages,signal:controller.signal,onText:chunk => {
+      void model({sessionId:call.sessionId,anchor:call.anchor,contactId:call.contact.id,selection:call.selection,system:request.system,messages:request.messages,signal:controller.signal,onText:chunk => {
         if (controller.signal.aborted) return
         timing.textMs ??= since(); timing.deltas++
         whole += chunk

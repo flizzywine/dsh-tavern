@@ -292,6 +292,9 @@ function ModelTargetFields({pack,target,setTarget,kind}) {
       (!figure||target.outfit===NEW_TARGET)&&h(InlineField,{key:'outfit-name',kind:'text',label:'服装名',controlLabel:'新服装名称',value:target.outfitLabel,maxLength:40,validate:v=>named(v,40),onCommit:v=>setTarget(t=>({...t,outfitLabel:v.trim(),outfitEdited:true}))})),
     modelReplaceNote(outfit,kind));
 }
+// A figure just made by 新建条目 (no picture or model in any outfit, no 差分 but the first): a model imported into it
+// brings the model figure's 差分 and look, as a figure made from the model would (PackModal importModel).
+const modelBareFigure=figure=>!!figure&&(figure.emotions||[]).length<=1&&figure.outfits.every(o=>!o.sprite&&!o.live2d&&!o.spine&&!Object.keys(o.avatars||{}).length);
 // The sheet. `fixed` ({figureId, outfitKey}): import into that outfit (from the figure editor); else the target fields
 // show. `pending`: entries already being read (a drop on the pack window). onImport({kind, prepared, config, target}).
 function ModelImportSheet({binding,pack,fixed=null,pending=null,onClose,onImport}) {
@@ -299,7 +302,7 @@ function ModelImportSheet({binding,pack,fixed=null,pending=null,onClose,onImport
   const [target,setTarget]=React.useState({figure:NEW_TARGET,name:'',outfit:NEW_TARGET,outfitLabel:'默认'});
   const figureId=fixed?fixed.figureId:target.figure===NEW_TARGET?null:target.figure,figure=figureId?pack.figures[figureId]:null;
   const outfitKey=fixed?fixed.outfitKey:target.outfit===NEW_TARGET?null:target.outfit,outfit=figure?.outfits.find(o=>o.key===outfitKey)||null;
-  const rows=figure?figureEditorEmotions(figure):MODEL_FIGURE_EMOTIONS;
+  const bare=modelBareFigure(figure),rows=figure&&!bare?figureEditorEmotions(figure):MODEL_FIGURE_EMOTIONS;
   const defaultEmotion=outfit?.defaultEmotion||(figure?figure.outfits.find(o=>o.defaultEmotion)?.defaultEmotion||(rows.some(r=>r.id==='calm')?'calm':rows[0]?.id):'calm')||'';
   const [shown,setShown]=React.useState(defaultEmotion);
   // Live2D choices; Spine keeps the Spine dialog's block.
@@ -329,7 +332,7 @@ function ModelImportSheet({binding,pack,fixed=null,pending=null,onClose,onImport
     try{
       const prepared=kind==='live2d'?{...picked,files:result.changed?new Map([...picked.files,[picked.entry,new TextEncoder().encode(JSON.stringify(result.document,null,2))]]):picked.files}:picked;
       await onImport({kind,prepared,config:kind==='live2d'?{emotionMap:result.emotionMap}:block,
-        target:{figureId,outfitKey,name:target.name.trim(),outfitLabel:target.outfitLabel.trim()||'默认',emotions:figure?null:MODEL_FIGURE_EMOTIONS,defaultEmotion}});
+        target:{figureId,outfitKey,name:target.name.trim(),outfitLabel:target.outfitLabel.trim()||'默认',emotions:figure&&!bare?null:MODEL_FIGURE_EMOTIONS,defaultEmotion}});
       onClose();
     }catch(e){setError(modelImportError(e));}finally{setSaving(false);}};
   const entry=kind==='live2d'?choice.map[shown]||choice.map[defaultEmotion]||{}:null;

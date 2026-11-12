@@ -83,11 +83,12 @@ test('a fresh entry opens on its 触发词 field with the hint (BGM and backgrou
       await page.waitForFunction(() => window.writes.length === 1)
       assert.deepEqual(await page.evaluate(() => window.writes[0].recall.keywords), ['离别', '毕业', '远行'])
       await page.evaluate(() => window.hide())
-      // a stored entry, or one already on: no hint, the empty field folds into its chip.
+      // a stored entry, or one already on: no hint; the empty field still stands open (owner r1 11-08), not a chip.
       for (const [enabled, fresh] of [[false, false], [true, true]]) {
         await page.evaluate(([a, f]) => { window.hide = window.show(a, f) }, [asset(kind, enabled), fresh])
         assert.equal(await page.getByText(HINT).count(), 0)
-        assert.equal(await page.locator('[data-add-chip]', { hasText: '触发词' }).count(), 1)
+        assert.equal(await page.locator('[data-add-chip]', { hasText: '触发词' }).count(), 0)
+        await field.waitFor()
         await page.evaluate(() => window.hide())
       }
     }

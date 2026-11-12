@@ -105,7 +105,8 @@ const phoneModCall = (function () {
     // Before any of her voice is scheduled, a turn goes on as text when no PCM came this long after its first synthesis
     // request, a clause streams slower than this real-time factor, the synthesis failed, or no voice is scheduled this
     // long after her first words (or the held reply's release). A healthy voice (first PCM 0.3-1 s, RTF 0.75-1) never does.
-    const FIRST_PCM_LATE_MS = 1500, SLOW_RTF = 1.5, VOICE_LATE_MS = 6000, WATCH_MS = 250;
+    // SLOW_RTF sits between the normal local voice on a busy machine (RTF 1.6-1.7, still speaking) and the 3.5x case above.
+    const FIRST_PCM_LATE_MS = 1500, SLOW_RTF = 2.5, VOICE_LATE_MS = 6000, WATCH_MS = 250;
     // The dial cue (hidden, never the player's words): she picks up and speaks first; with her cached greeting (「喂？」,
     // played the moment she picks up) she has already said it and goes on from there.
     const CUE = '（电话接通了。你接起电话，先开口。）', GREETED_CUE = said => '（电话接通了。你接起电话，已经说了「' + said + '」，接着往下说。）';
@@ -277,7 +278,7 @@ const phoneModCall = (function () {
     function partialOpen(c) {
         partialClose(c, false);
         const p = c.partial = {id:null, sequence:0, sent:0, revision:-1, closed:false, timer:null};
-        p.chain = rpc('startSpeechRecognition', {}, c.sessionId).then(snapshot => { p.id = snapshot.id; }, error => partialFail(c, p, error));
+        p.chain = rpc('startSpeechRecognition', {serviceId:c.recognition}, c.sessionId).then(snapshot => { p.id = snapshot.id; }, error => partialFail(c, p, error));
     }
     function partialAppend(c) {
         const p = c.partial, frames = c.vad.frames.slice(p.sent);
@@ -814,7 +815,7 @@ const phoneModCall = (function () {
         try {
             const opened = await rpc('phoneCallStart', {contactId, ...(at ? {at} : {})}, sessionId);
             if (call !== c) return;
-            c.id = opened.callId; c.language = opened.language;
+            c.id = opened.callId; c.language = opened.language; c.recognition = opened.recognition;
             // The host ends a call its page stopped answering for (a reload): this heartbeat says the line is still open.
             c.alive = setInterval(() => void rpc('phoneCallAlive', {callId:c.id}, c.sessionId).catch(() => {}), CALL_ALIVE_MS);
             if (opened.contact?.name) set({name:opened.contact.name});

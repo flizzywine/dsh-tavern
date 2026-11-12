@@ -357,7 +357,7 @@ for (const roundCount of [0, 12]) test(`production dial context and call start a
     stagePhoneDirectory:async () => ({threads:[]}), PHONE_FIGURES:Symbol(), phonePeople:() => [],
     pluginApi:{promptSections:async () => [], turnContext:async () => []}, resolveSlot:async () => ({}),
     storyRoundMessages, phoneMarkRounds:(await import('../tavern-plugin/mods/phone/call-context.js')).phoneMarkRounds,
-    roundPhoneMessages, callStorySection, callPhoneRecords,
+    roundPhoneMessages, callStorySection, callPhoneRecords, relay:null,
     callRecognitionContext,
   }, {filename:'tavern-plugin/mods/phone/host/extension.js', lineOffset:source.slice(0,start).split('\n').length - 1})
   const sections = await context({sessionId:empty.sessionId, contact:callee, anchor:storyAnchor(empty), phase:'start', calls:[], playerName:'Player'})

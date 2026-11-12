@@ -20,7 +20,6 @@ const exists = file => stat(file).then(() => true, () => false)
 // mods/ imports a mod file), names-mod (code outside mods/ names a first-party mod id), names-part (code outside mods/
 // names a client part a mod registers in client/core.js).
 const PENDING = new Set([
-  'skill:dice', 'skill:phone', 'skill:textcard', 'skill:timer',
   'names-mod:tavern-plugin/lib/domain/user-plugin-install.js',
 ])
 

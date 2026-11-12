@@ -1,11 +1,11 @@
 import {createFigureRuntimes} from './figure-runtimes.js'
 import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../../../lib/domain/tavern-runtime-assets.js'
-import {createCardStage, watchFigureBubbleBooks} from './card-stage.js'
+import {createCardStage, watchFigureBubbleBooks, cardLorePieces} from './card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
 import {createVoiceBackfill} from './voice-backfill.js'
 import {createStageRequests} from './requests.js'
-import {createStageStoryObserver} from './story-observer.js'
+import {createStageStoryObserver, registerAutoFigureObserver} from './story-observer.js'
 // 舞台、导演与 mod 的组装。index.js 只用这里导出的三个工厂和它们的返回值。
 //
 // 舞台、导演与 mod：托管 mod 的安装与配置、mod 服务、舞台导演。它们由核心创建一次，
@@ -21,7 +21,7 @@ import {createStageDirector} from './domain/stage-director.js'
 import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
 import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
 import directorCommands from '../../dsh-presentation-protocol/src/director-commands.cjs'
-import {createAssetEngineSettings} from './asset-engine.js'
+import {createAssetEngineSettings, createAutoCastSettings} from './asset-engine.js'
 import {createEngineJudge} from '../../../lib/domain/engine-judge.js'
 import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
@@ -36,15 +36,18 @@ import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
-import {effectiveCardStage} from '../../../lib/domain/card-stage-settings.js'
+import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
 import {registerStageWorkbench} from './workbench/index.js'
+import {createAutoCast} from './auto-cast.js'
+import {createAutoCastLibrary} from './auto-cast-library.js'
+import {runCastingAssistant} from './auto-cast-assistant.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
-  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
+  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch, getTts} = core
   // Pack-driven writer updates belong to the stage lifetime, including rollback.
   ctx.inject(['assetLibrary'], child => {
     const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
@@ -67,7 +70,7 @@ export async function createStageModule(core) {
       await syncCardName(cardPath,cardPreparation.project(workspace).name)
     }}
   const readModStage=createModConfigStageReader({readChat:sessionId=>readStageChat.view(sessionId,{stateOnly:true}),readRevision:chatPersistence.readRevision})
-  const managedModManagement=createManagedModProduction({ctx,cardPlugins,...modCardStorage,
+  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,...modCardStorage,
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),
     async readSkin(cardPath,{sessionId}={}) {
       const base=(await cardStage.bubbles.read(cardPath)).stage.skin
@@ -193,6 +196,8 @@ export async function createStageModule(core) {
     deploymentWork.push(work)
     return () => {const index = deploymentWork.indexOf(work);if (index >= 0) deploymentWork.splice(index,1)}
   }, 'dsh-tavern: director deployment activity')
+  // The work reported to deployment, for local plugins (the GPU schedule reads live calls).
+  ctx.provide('tavernDeploymentActivity', Object.freeze({read:() => deploymentWork.map(read => structuredClone(read()))}))
   // The director brings its own model, never searches the web, and reads the context frozen for it, never the card's.
   ctx.effect(() => {
     const policy = {ownModel:true, webSearch:false, cardContext:false, frozenContext:frozenStageBackground}
@@ -218,15 +223,47 @@ export async function createStageModule(core) {
     closed:finalizeItems,
     retrying:message => {if (message.stageItems) invalidateStageItems(message)}
   }), 'dsh-tavern: stage settlement participant')
+  // The CG gallery (createStageServices) registers its own card-removal observer.
   const stageWorkflow = createStageWorkflow({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession,
     dialogueBubbles:core.dialogueBubbles,chatForSession,chatPersistence,stageDirector})
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
+  // 自动选角's global layer (asset-engine.js createAutoCastSettings); a card's layer is in its stage extension. Its runtime needs the image
+  // plugin's channel, so it is built with the requests (below); a round counts once its automatic figures are written.
+  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
+  let autoCast = null
+  const roundBody = async (chat,turn) => (await replyDisplayForChat(chat,await readChatCard(chat),true)).projections.find(row => row.turn === turn)?.body
+  ctx.effect(() => registerAutoFigureObserver({storyEvents, chatHeaderForSession:core.chatHeaderForSession,
+    dialogueBubbles:core.dialogueBubbles, readStageChat, getLibrary:() => ctx.get('assetLibrary'),
+    bodyForTurn:roundBody,
+    deferred:async chat => !!autoCast && await autoCast.handles(chat.cardPath),
+    async afterRound(chat) {
+      const message = autoCast && chat.messages?.findLast(row => row.role === 'assistant')
+      if (!message || message.greeting) return
+      const body = await roundBody(chat, Number(message.turn))
+      if (body?.paragraphs) await autoCast.round(chat.cardPath, body, chat)
+    },
+    onError:error => ctx.logger.warn('AUTO_FIGURE_FAILED %s',error.message)
+  }), 'dsh-tavern: automatic figure writer')
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage', createStageStoryObserver({
     settlementQueued:stageWorkflow.settlementQueued, modService, stageDirector, chatPersistence, readStageChat,
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
     readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies
   })), 'dsh-tavern: stage story observations')
+  // Keep the opening hook independent of the shared story observer's commit/stream hooks.
+  ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-opening', {
+    async presenting(chat) {
+      const latest = chat.messages?.findLast(message => message.role === 'assistant')
+      if (!latest?.greeting || !['story','script'].includes(chat.mode)) return
+      await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath))
+      // 自动选角 (积极 / 全部): the opening's speakers are cast and drawn at once, apart from the opening's director.
+      if (autoCast) void (async () => {
+        const body = await roundBody(chat, Number(latest.turn || 1))
+        if (body?.paragraphs) await autoCast.round(chat.cardPath, body, chat, {opening:true})
+      })().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
+    }
+  }), 'dsh-tavern: stage opening observations')
   return {modService, managedModManagement, modConfigHost, stageDirector,
+    presentationObservers:core.presentationObservers,
     requests(deps, registry) {
       // The mods' stage services build their requests from these bindings (stage-extensions.js bind) and report their
       // in-flight work to deployment; hostLibrary is the core helpers a mod may use (lib/mod-library.js).
@@ -246,7 +283,29 @@ export async function createStageModule(core) {
       const sceneCg = createSceneCg({library:() => ctx.get('assetLibrary'), attachments:() => ctx.get('attachments'), chatForSession:deps.chatForSession,
         cardAssetBindings:deps.cardAssetBindings, resolveCard:cardStorage.resolve, cgGallery:deps.cgGallery, removePicture:deps.removePluginPicture})
       ctx.effect(() => deps.pluginApi.onPictureReady(event => sceneCg.sync(event)), 'dsh-tavern: scene CG sync')
-      const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport})
+      // 自动选角 (auto-cast.js): draws on the image plugin's channel through the asset pictures' entry (four in flight at most)
+      // and lands while no director runs. In effect per card: effectiveAutoCast (needs 对话气泡). It never holds a deployment: its
+      // record survives a restart and resume() continues it.
+      const castSettings = async cardPath => {
+        const raw = (await deps.readCardWorkspace(cardPath))?.raw, extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
+        return effectiveAutoCast(extension, autoCastSettings.read().values, effectiveCardStage(extension, core.assetEngineSettings.read().values).dialogue)
+      }
+      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary'), getTts:() => getTts()})
+      autoCast = createAutoCast({store:deps.profileData, settings:castSettings,
+        library:autoCastLibrary,
+
+        images:{prompt:input => deps.assetGeneration.autoPrompt(input), generate:input => deps.assetGeneration.image(input), check:(data, kind) => deps.assetGeneration.autoCheck(data, kind),
+          status:async () => (await deps.pluginApi.imageProviders()[0]?.status()) || null},
+        // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
+        cast:async ({chat, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
+          selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
+          speakers, rows:cast.rows, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), spoken:cast.spoken,
+          backend:getTts() ? {voices:() => autoCastLibrary.backendVoices(), spec:(voiceId, language) => autoCastLibrary.backendVoiceSpec(voiceId, language)} : null}),
+        onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
+      ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
+      void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
+      const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport,autoCastSettings,
+        autoCastStatus:async path => path && autoCast ? autoCast.status(path) : null})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       ctx.effect(() => registerStageWorkbench({ctx, deps, call:(method, args) => requests.call(method, args, workbenchAuthority)}), 'dsh-tavern: stage workbench tools')
@@ -279,7 +338,7 @@ export function createStageAssets(core) {
   ctx.provide('stageExtensions', stageExtensions)
   // stage: the read helpers a mod's stage service folds and scopes its state with (core.stageReads plus the record fold).
   const stageModReads = Object.freeze({fold:foldAssetPackEntries,...core.stageReads})
-  const assetEngineSettings = createAssetEngineSettings(ctx)
+  const assetEngineSettings = createAssetEngineSettings(ctx, core.settingsOwner)
   const getTts = () => ctx.get('tts')
   // A card's stage switch in effect (effectiveCardStage: the card's own setting over the global stageToggles), for the
   // readers that have a chat or card path, not a stage snapshot.
@@ -301,7 +360,7 @@ export function createStageAssets(core) {
   }), 'dsh-tavern: stage model slots')
   const engineJudge = createEngineJudge({resolveConfig:input => resolveSlot('dsh.stage','judge',input?.sessionId),getConfig:() => assetEngineSettings.read().values.judge,credentials:() => ctx.get('credentials'),log:event => console.info('dsh-tavern:',JSON.stringify(event))})
   const judgeRpc = createJudgeRpc(assetEngineSettings,engineJudge)
-  const directorProbeRpc = createDirectorProbeRpc({store:createDirectorProbeStore(ctx),
+  const directorProbeRpc = createDirectorProbeRpc({store:createDirectorProbeStore(ctx, core.settingsOwner),
     stream:request => ctx.llm.stream(request),
     resolveSelection:async args => {
       return Object.hasOwn(args,'selection') ? args.selection : resolveSlot('dsh.stage','director',args.sessionId)
@@ -316,7 +375,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime, getTts}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

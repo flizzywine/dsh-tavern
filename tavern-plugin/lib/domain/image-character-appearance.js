@@ -132,6 +132,13 @@ export function linkPatchFromFigure(character, figure, packId) {
     ...(outfits.length ? { outfits } : {}) }
 }
 
+/** 设定图→参考图: the one way a pack picture becomes a 人物库 参考图 (the 人物 page's button and the follow). The 配图 plugin stores it
+ * (`putReferenceImage`); the caller patches it onto the record or outfit. */
+export async function putPackReference(api, library, { providerId, packId, revision, hash, name }) {
+  const { bytes, descriptor } = await library.readMedia({ packId, expectedRevision: revision, hash })
+  return (await api.imageCharacters('putReferenceImage', { providerId, data: new Uint8Array(bytes), mediaType: descriptor.mime, name })).referenceImage
+}
+
 /** A figure UUID can appear in copied packs. Look up the pair, across explicit writable sources. */
 export async function findFigureImageCharacter(api, { packId, figureId }) {
   const libraries = await api.imageCharacterLibraries()

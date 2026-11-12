@@ -1,4 +1,4 @@
-function createStageSkinPresentation({React,Event,fonts:tavernFonts,files:getStageBundleFiles,appearance:stageSkinAppearance,skin}) {
+function createStageSkinPresentation({React,Event,fonts:tavernFonts,files:getStageBundleFiles,appearance:stageSkinAppearance,forDevice:stageSkinForDevice,skin}) {
 const {stageSkinControlIcons,stageSkinArt,stageSkinConfigArt,stageSkinFontFaces,stageSkinPanelTokens,applyStageSkin,stageSkinEffects,stageSkinSfx}=skin;
 let disposed=false;const cleanups=new Set();
 function own(cleanup) {
@@ -24,7 +24,7 @@ function stageSkinPerformed(skin, defaultKey) {
 // barrier) that draws no buttons of its own (no art.buttons), the on-stage controls stay the stage skin's - its drawn buttons
 // and decor, its folded menu control (quickMenu) and its top bar reveal (hud). A mode changes the box and the scene, never the
 // control set, unless its skin declares one. The root then carries data-fk-skin-controls = the owning skin's id.
-const STAGE_SKIN_CONTROL_MARKS = ['data-fk-skin-buttons','data-fk-skin-menu','data-fk-skin-decor'];
+const STAGE_SKIN_CONTROL_MARKS = ['data-fk-skin-buttons','data-fk-skin-menu','data-fk-skin-decor','data-fk-skin-decor-side'];
 // The drawn buttons' placement tokens (stageSkinArt): the menu control's and the notices' place, wide and on phones, and the phone unit's floor.
 const STAGE_SKIN_HUD_TOKENS = ['--art-hud-top','--art-hud-right','--art-hud-ntop','--art-hud-nright','--art-btn-min','--art-bar-l','--art-bar-r'];
 // A stage skin whose controls are only its folded menu control (quickMenu orb / capsule, no art.buttons) lends that control's
@@ -49,7 +49,7 @@ function stageSkinControls(appearance, source, controls) {
     // which draws none of them.
     return {id:own.id,quickMenu:own.quickMenu,icons:stageSkinControlIcons(own,files,controls.entry || ''),hud:Object.keys(hud).length ? hud : undefined,declared:Object.keys(own.art.buttons),buttons:art.buttons,decor:art.decor,timerHide:art.timerHide,marks,tokens};
 }
-function useStageSkin(rootRef, candidate, pageKey, film, theme, {ready = true, snap = false, defaultKey = '', fallback = null, shown = null, deferFonts = false, controls = null} = {}) {
+function useStageSkin(rootRef, candidate, pageKey, film, theme, {ready = true, snap = false, defaultKey = '', fallback = null, shown = null, deferFonts = false, controls = null, side = 'pc'} = {}) {
     const selected = React.useRef({page:null,value:null,hydrated:false});
     const previousDefault=React.useRef(defaultKey);
     if(previousDefault.current!==defaultKey) {selected.current={page:null,value:null,hydrated:false};previousDefault.current=defaultKey;}
@@ -67,16 +67,19 @@ function useStageSkin(rootRef, candidate, pageKey, film, theme, {ready = true, s
     const skin = selected.current.value;
     // source: the skin whose appearance is drawn - the selected one, or the fallback when there is none or its level keeps the
     // stage's look (look "theme"); its bundle supplies the art, faces and effects of that appearance.
+    // side: the device's skin side (device.cjs skinSide) - the skin's own per-device override (devices.mobile / devices.pc,
+    // skin-interface.md §13.2) is drawn for it; a skin without one is drawn as it is (the same object).
     const chosen = React.useMemo(() => {
-        const own=skin?.document ? stageSkinAppearance(skin.document,skin.level) : null;
+        const look=(document,level) => stageSkinForDevice(stageSkinAppearance(document,level),side);
+        const own=skin?.document ? look(skin.document,skin.level) : null;
         const source=own ? skin : fallback?.document ? fallback : null;
-        const drawn=own || (source ? stageSkinAppearance(source.document,source.level) : null);
+        const drawn=own || (source ? look(source.document,source.level) : null);
         const borrowed=drawn && source?.builtin!==true ? stageSkinControls(drawn,source,controls) : null;
         if (!borrowed) return {appearance:drawn,builtin:source?.builtin===true,source,borrowed:null};
         const appearance={...drawn};
         for (const key of ['quickMenu','hud']) if (borrowed[key]) appearance[key]=borrowed[key]; else delete appearance[key];
         return {appearance,builtin:false,source,borrowed};
-    },[skin,fallback,controls]);
+    },[skin,fallback,controls,side]);
     const {appearance,builtin,source,borrowed}=chosen, lead=stageSkinPerformed(skin,defaultKey);
     if (shown) shown.current = appearance && !builtin ? {id:appearance.id,label:appearance.label || appearance.id} : {id:theme,label:null};
     // the art images are decoded files of the prepared skin bundle (stage-resources.cjs).

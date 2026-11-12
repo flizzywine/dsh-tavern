@@ -11,7 +11,7 @@ export function validateCardAssetExtension(value, path = '$.dsh_tavern') {
   check(!Object.hasOwn(value, 'emotions'), path + '.emotions', 'Emotions belong to figures', 'UNKNOWN_FIELD')
   // Other Card Preparation fields are opaque and must survive export unchanged.
   check(!Object.hasOwn(value, 'characters'), path + '.characters', 'Card cast is removed; migrate explicitly', 'UNKNOWN_FIELD')
-  // the per-card 读音词典 is removed; readings are global presets (dsh-tts).
+  // the per-card 读音词典 is removed; readings are global presets (dsh-tavern-tts).
   check(!Object.hasOwn(value, 'readings'), path + '.readings', 'Card readings are removed; migrate explicitly', 'UNKNOWN_FIELD')
   const bindings = value.assetBindings
   shape(bindings, ['boundPackIds'], ['boundPackIds'], path + '.assetBindings')

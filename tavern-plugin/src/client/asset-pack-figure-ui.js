@@ -258,7 +258,7 @@ function outfitEmotionRows(figure,outfit,manifest) {
 // keyboard stop of its own next to the slot's button.
 function SlotUpload({label,disabled,onFile}) {
   return h('label',{className:'ap-slot-upload','data-disabled':disabled||undefined,title:label},h(Glyph,{name:'upload'}),
-    h('input',{type:'file',accept:'image/png,image/webp,image/jpeg','aria-label':label,disabled,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);}}));
+    h('input',{type:'file',accept:IMAGE_ACCEPT,'aria-label':label,disabled,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);}}));
 }
 // each outfit's 触发策略 is the lamp dot on its tile's top-right corner: 蓝灯 /
 // 绿灯 / 关闭; 关闭 greys the tile and the dot. the dot is the one
@@ -364,12 +364,16 @@ function FigureBasics({figure,write,voice}) {
       validate:v=>v>0&&v<=400?'':'身高需为 1–400 的数字',onCommit:v=>write(()=>({heightCm:v}))}),
     h(InlineField,{kind:'color',label:'形象色',className:'ap-color',auto:automatic,value:figure.imageColor||'',onCommit:v=>write(()=>({imageColor:v||null}))}),
     voice,
-    h(InlineField,{kind:'chips',label:'触发词',controlLabel:'人物触发词',className:'is-aliases',wide:true,hideEmpty:true,help:h(Help,{text:ALIAS_HELP,label:'人物触发词 说明'}),value:figureNames(figure),split:splitAliases,validate:aliasProblem,onCommit:names=>write(f=>namesPatch(f,names))}),
-    // figure.description is the line the story model reads for this figure in
-    // <speaker_roster> (card-stage.js → dialogue-bubbles.js). A paragraph under 触发词; line breaks kept (Shift+Enter),
-    // Enter / blur saves, Esc reverts; empty removes the field. The pack validates it (string ≤ 1000) on write.
+    h(InlineField,{kind:'chips',label:'触发词',controlLabel:'人物触发词',className:'is-aliases',wide:true,help:h(Help,{text:ALIAS_HELP,label:'人物触发词 说明'}),value:figureNames(figure),split:splitAliases,validate:aliasProblem,onCommit:names=>write(f=>namesPatch(f,names))}),
+    // 使用情景 (figure.guidance, owner 11-08) stands open like every entry's: the line the story model reads for this figure in
+    // <speaker_roster> (card-stage.js → dialogue-bubbles.js) and the background judge's text for it. A paragraph under 触发词;
+    // line breaks kept (Shift+Enter), Enter / blur saves, Esc reverts; empty removes the field. The pack validates it (string ≤ 1000) on write.
+    h(InlineField,{kind:'text',multiline:true,lines:true,count:true,maxLength:FIGURE_DESCRIPTION_MAX,label:'使用情景',controlLabel:'人物使用情景',className:'is-description is-guidance',wide:true,
+      help:h(Help,{text:'正文 AI 在说话人名单里看到的这个人物，也用来判断这一幕要不要让她/他出场',label:'人物使用情景 说明'}),placeholder:'这个人是谁、什么时候出场',value:figure.guidance||'',
+      validate:v=>v.length<=FIGURE_DESCRIPTION_MAX?'':'使用情景最多 '+FIGURE_DESCRIPTION_MAX+' 字',onCommit:v=>write(()=>({guidance:v||null}))}),
+    // figure.description (人物介绍) is now only what 生成形象 draws from.
     h(InlineField,{kind:'text',multiline:true,lines:true,count:true,maxLength:FIGURE_DESCRIPTION_MAX,label:'人物介绍',className:'is-description',wide:true,hideEmpty:true,
-      help:h(Help,{text:'正文模型在说话人名单里看到的这个人物的介绍',label:'人物介绍 说明'}),value:figure.description||'',
+      help:h(Help,{text:'生成形象时参考的人物介绍',label:'人物介绍 说明'}),value:figure.description||'',
       validate:v=>v.length<=FIGURE_DESCRIPTION_MAX?'':'人物介绍最多 '+FIGURE_DESCRIPTION_MAX+' 字',onCommit:v=>write(()=>({description:v||null}))}),
     // the owner's 备注 (`remark`, never sent) under 人物介绍; patchFigure merges top-level keys.
     remarkField({value:figure.remark,controlLabel:'人物备注',className:'is-remark',wide:true,onCommit:v=>write(()=>({remark:v}))}));
@@ -462,7 +466,7 @@ function EmotionMedia({kind,binding,pack,figure,outfit,manifest,row,writeOutfit,
 function PreviewFileTool({action,disabled}) {
   const input=React.useRef(null),onFiles=files=>{if(files.length)action.file.onFiles(files);};
   return h(React.Fragment,null,h('button',{type:'button',className:'ap-view-tool','aria-label':action.label,title:action.label,disabled,onClick:()=>input.current?.click?.()},h(Glyph,{name:action.icon})),
-    h('input',{ref:input,type:'file',tabIndex:-1,'aria-hidden':true,'data-for':action.label,disabled,...(action.file.folder?{multiple:true,webkitdirectory:''}:{accept:'image/png,image/webp,image/jpeg'}),
+    h('input',{ref:input,type:'file',tabIndex:-1,'aria-hidden':true,'data-for':action.label,disabled,...(action.file.folder?{multiple:true,webkitdirectory:''}:{accept:IMAGE_ACCEPT}),
       onChange:e=>{const files=[...(e.target.files||[])];e.target.value='';onFiles(action.file.folder?files:files.slice(0,1));}}));
 }
 function PreviewActions({actions,disabled}) {
@@ -629,9 +633,9 @@ function FigureStateImages({binding,pack,figure,outfit,manifest,state,writeOutfi
         uploadAvatar&&h(Button,{onClick:()=>{avatarImage.current=id;avatarInput.current?.click();}},'上传头像'),
         h(Button,{disabled:pool.imageIds.length<2,onClick:()=>confirmRetirement({title:'让这张图片退出候选？',body:'历史聊天和逐图头像、嘴型及校准保留；今后重入差分不再选这张图。',confirmLabel:'退出候选',onConfirm:()=>update(p=>{const imageIds=p.imageIds.filter(value=>value!==id);if(!imageIds.length)throw new Error('至少保留一张候选图');return {imageIds,defaultImageId:p.defaultImageId===id?imageIds[0]:p.defaultImageId};})})},'退出候选'));
     })),
-    uploadAvatar&&h('input',{ref:avatarInput,type:'file',accept:'image/png,image/webp,image/jpeg',hidden:true,onChange:event=>{const file=event.target.files?.[0];event.target.value='';if(file)uploadAvatar(file,avatarImage.current);}}),
+    uploadAvatar&&h('input',{ref:avatarInput,type:'file',accept:IMAGE_ACCEPT,hidden:true,onChange:event=>{const file=event.target.files?.[0];event.target.value='';if(file)uploadAvatar(file,avatarImage.current);}}),
     upload&&h(Button,{onClick:()=>input.current?.click()},'添加同义图片'),
-    upload&&h('input',{ref:input,type:'file',accept:'image/png,image/webp,image/jpeg',hidden:true,onChange:event=>{const file=event.target.files?.[0];event.target.value='';if(file)upload(file);}}));
+    upload&&h('input',{ref:input,type:'file',accept:IMAGE_ACCEPT,hidden:true,onChange:event=>{const file=event.target.files?.[0];event.target.value='';if(file)upload(file);}}));
 }
 function FigureEmotions({binding,pack,figure,outfit,manifest,rows,faces,selected,onSelect,write,writeOutfit,upload,pick,layered=false,onGen,kind,setKind,kindMenu,genTools=null,notices=null,menuFor=null,statusFor=null,createCustom,addExisting,aimNew,onFallback=null}) {
   const [open,setOpen]=React.useState(null),[name,setName]=React.useState(''),[error,setError]=React.useState(''),[customFile,setCustomFile]=React.useState(null),[menuPage,setMenuPage]=React.useState('');
@@ -712,7 +716,7 @@ function FigureEmotions({binding,pack,figure,outfit,manifest,rows,faces,selected
         h('div',{className:'ap-fe-value'},
           // InlineAdd's box (opened by the ＋ tile); Enter adds, Esc cancels.
           h(InlineAdd,{open:true,bare:true,inputClassName:'ap-emotion-new-name',label:'新差分名称',value:name,maxLength:4,invalid:!!error,onChange:v=>{setName(v);setError('');},onConfirm:()=>{add();},onCancel:()=>{reset();setOpen(null);}}),
-          h('input',{type:'file',accept:'image/png,image/webp,image/jpeg','aria-label':'新差分立绘',onChange:e=>setCustomFile(e.target.files?.[0]||null)}),
+          h('input',{type:'file',accept:IMAGE_ACCEPT,'aria-label':'新差分立绘',onChange:e=>setCustomFile(e.target.files?.[0]||null)}),
           h(Button,{className:'ap-emotion-add',onClick:add},'添加差分'), // a quiet text button
           onGen?.dialog&&aimNew&&h(IconButton,{icon:'spark',label:'生成这个差分的立绘',onClick:aim}),h(IconButton,{icon:'close',label:'取消添加',onClick:()=>{reset();setOpen(null);}}))),
       error&&h('p',{className:'ap-field-error',role:'alert'},error)),
@@ -871,7 +875,38 @@ function FigureMoreMenu({figure,actions,onRemove}) {
       actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'))});
 }
 const BASIC_HELP='人物本身的资料，所有服装共用。';
-function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions,nav,narrow=false,onBack,onClose,backLabel='人物',gen,importSettei,removeFigureImage,identityBoard,tab:tabChoice,setTab,voiceOpen:voiceFirst=false}) {
+// 方案甲: a deleted figure's 配图 外貌 either stays as an ordinary 人物库 record (the host ends the link) or goes with it.
+// `choice.current` is the record to delete, or null to keep it.
+// 方案甲: a figure's 外貌 and each outfit's 服装描述 live in its 配图 人物库 record (traits.face, outfit upper), the one store the
+// 配图 page edits too; the stage's generation panel reads and writes them here. Writing to a figure without a record first
+// creates it (the host's 新建记录); without the 配图 plugin the text cannot be written and the write says so.
+function useFigureLook(binding,packId,figureId){
+  const [state,setState]=React.useState(null),seq=React.useRef(0);
+  React.useEffect(()=>{const at=++seq.current;setState(null);if(!figureId)return;
+    binding.rpc('getFigureImageCharacter',{packId,figureId}).then(s=>{if(at===seq.current)setState(s);},()=>{if(at===seq.current)setState({status:'unavailable'});});},[binding,packId,figureId]);
+  const record=state?.status==='linked'?state.character:null;
+  const write=async patch=>{
+    if(!state||state.status==='unavailable')throw new Error('启用配图后可编辑外貌');
+    const s=state.status==='linked'?state:await binding.rpc('linkFigureImageCharacter',{packId,figureId,...(state.libraries?.length===1?{providerId:state.libraries[0].providerId}:{})});
+    const next=await binding.rpc('patchImageCharacter',{packId,figureId,providerId:s.providerId,characterId:s.character.id,expected:s.character,patch});
+    setState({...s,status:'linked',character:next.character});
+  };
+  return {face:record?.traits?.face||'',upper:key=>record?.outfits?.find(o=>o.id===key)?.upper||'',
+    writeFace:v=>write({traits:{face:v}}),
+    writeUpper:(outfit,v)=>write({outfits:[{id:outfit.key,...(record?.outfits?.some(o=>o.id===outfit.key)?{}:{name:outfit.label}),upper:v}]})};
+}
+
+function FigureImageRemoval({binding,target,choice}) {
+  const [state,setState]=React.useState(null),[value,setValue]=React.useState('keep');
+  React.useEffect(()=>{let live=true;binding.rpc('getFigureImageCharacter',target).then(s=>{if(live)setState(s);},()=>{});return()=>{live=false;};},[]);
+  const linked=state?.status==='linked';
+  choice.current=linked&&state.deletes&&value==='delete'?state:null;
+  if(!linked)return null;
+  if(!state.deletes)return h('p',{className:'ap-confirm-extra'},'它的生图外貌会留在配图人物库，可到配图页删除。');
+  return h(Segmented,{label:'生图外貌',value,onChange:setValue,options:[['keep','保留生图外貌'],['delete','一起删除']]});
+}
+
+function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions,nav,narrow=false,onBack,onClose,onChanged,backLabel='人物',gen,importSettei,removeFigureImage,identityBoard,tab:tabChoice,setTab,voiceOpen:voiceFirst=false}) {
   // the figure's default outfit is its first enabled one (asset-packs.md: no
   // defaultOutfit field, order is the default) — what the stage starts with and what an opening scene without its own
   // outfit uses. Figure select: the editor no longer shows or sets it (the opening outfit is chosen in
@@ -1031,12 +1066,12 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // own 立绘 is there, batched like 立绘. Never a crop of the 立绘. Nothing missing: no button. 模型: 「导入模型」 (modelTools below). Replacing
   // avatars that exist stays the tile's explicit 重画… / 改图…. While a batch runs the heading says 「生成中 a/b · 停止」;
   // candidates waiting add 「N 张待采用 · 全部采用」.
-  const viewNoun=kind==='avatar'?'头像':'立绘',genView=!!onGen&&(kind==='sprite'||kind==='avatar'),basis=genView?genBasis(figure,outfit):'';
+  const viewNoun=kind==='avatar'?'头像':'立绘',genView=!!onGen&&(kind==='sprite'||kind==='avatar'),figureLook=useFigureLook(binding,pack.manifest.id,onGen?figure.id:null),basis=genView?genBasis(figure,outfit,figureLook):'';
   // The tiles show requests of this pack (a reopened modal finds its 待采用 again): the controller's list is read once a
   // 立绘 / 头像 view is on show — a local read, nothing is requested.
   React.useEffect(()=>{if(genView)gen.open();},[genView]);
   React.useEffect(()=>{setGenNotice('');},[kind,outfit?.key]);
-  const cellGate=(k,id)=>k==='sprite'?(!takes(id)?LAYERED_TIP:!genBasis(figure,outfit)?GEN_REASONS.basis:''):!genOwnSprite(outfit,manifest,id)?GEN_REASONS.avatar:'';
+  const cellGate=(k,id)=>k==='sprite'?(!takes(id)?LAYERED_TIP:!genBasis(figure,outfit,figureLook)?GEN_REASONS.basis:''):!genOwnSprite(outfit,manifest,id)?GEN_REASONS.avatar:'';
   const missing=genView?rows.filter(r=>{const c=faces[r.id]?.cell;return !faces[r.id]?.mapped&&(c?.state==='idle'||c?.state==='failed')&&!outfit.fallbackEmotions?.includes(r.id)&&(kind!=='sprite'||takes(r.id));}):[];
   const fillable=kind==='sprite'?missing:missing.filter(r=>!cellGate(kind,r.id));
   // The eight base faces, resolved by key first, then by name (a figure set up with its own ids keeps the shared names).
@@ -1079,7 +1114,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const bigView=big&&(big.jobId?h(CandidateImageView,{gen,jobId:big.jobId,label:big.label,actions:big.actions,onClose:()=>setBig(null)}):
     h(PackImageView,{binding,packId,hash:big.hash,label:big.label,onClose:()=>setBig(null)}));
   const pickTile=aim=>{tileAim.current=aim;tileFile.current?.click?.();};
-  const tileInput=!!outfit&&h('input',{ref:tileFile,type:'file',tabIndex:-1,'aria-hidden':true,hidden:true,accept:'image/png,image/webp,image/jpeg','aria-label':'选择图片',
+  const tileInput=!!outfit&&h('input',{ref:tileFile,type:'file',tabIndex:-1,'aria-hidden':true,hidden:true,accept:IMAGE_ACCEPT,'aria-label':'选择图片',
     onChange:e=>{const file=e.target.files?.[0],aim=tileAim.current;e.target.value='';if(!file||!aim||!outfit)return;
       if(aim.k==='settei')upload.run('正在上传…',()=>importSettei(figure.id,outfit.key,file));else pick(aim.k,aim.id,file,outfit,{newState:aim.k==='sprite'&&!!outfit.sprite,replace:!!aim.replace});}});
   const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
@@ -1188,13 +1223,17 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // one lamp replaces the figure's independent enabled switch.
   // the one LampMenu, read as 「● 绿灯 ⌄」 (was the segmented LampSwitch).
   const enable=h('span',{className:'ap-figure-lamp-slot'},h(LampMenu,{label:'人物灯',named:true,mode:outfitLamp(figure),onChange:mode=>write(f=>mode==='off'?{enabled:false}:{enabled:true,recall:{...f.recall,mode}})}));
-  const paneRef=React.useRef(null);
-  const removeFigure=()=>setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,onConfirm:()=>figureActions.remove()});
+  const paneRef=React.useRef(null),[automaticReview,setAutomaticReview]=React.useState(false);
+  const imageChoice=React.useRef(null);
+  const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
+    children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice}),
+    onConfirm:async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();}});};
   const more=(figureActions?.copy||figureActions?.remove)&&h(FigureMoreMenu,{figure,actions:figureActions,onRemove:removeFigure});
   return h('div',{ref:paneRef,className:'ap-detail-pane ap-figure-pane ap-figure-editor','data-narrow':narrow||undefined,'data-tab':tab,'data-voice':voiceOpen||undefined,'data-disabled':figure.enabled===false||undefined,style:{'--figure-color':figureColor(figure)}},
     // Phone: one header only (r4) — ‹ · the name · lamp slot · × replaces the drawer's own title bar.
     narrow&&h('div',{className:'ap-fe-topbar'},onBack&&h(IconButton,{icon:'back',label:'返回'+backLabel+'列表',onClick:onBack}),nameInput,enable,more,onClose&&h(IconButton,{icon:'close',label:'关闭',onClick:onClose})),
     narrow&&!voiceOpen&&tabs,
+    automaticReview&&h(AutomaticWriteReview,{binding,packId:pack.manifest.id,figureId:figure.id,onClose:()=>setAutomaticReview(false),onChanged}),
     h('div',{className:'ap-figure-stage'},
       h('div',{className:'ap-stand-wrap','data-form':kind,'data-empty':previewEmpty||undefined,'data-stand-in':standStill?true:undefined,'data-speaking':speaking||undefined},
         // While a voice plays the 差分 label stays shown; a picture without a mouth only gets this small waveform (no fake mouth).
@@ -1209,6 +1248,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
           candidatePreview||(previewEmpty?still:h(FigureStillPreview,{key:(outfit?.key||'')+kind},still)),
         outfit&&tab==='edit'&&!voiceOpen&&tool)),
     h('div',{className:'ap-figure-main'},
+      figure.extensions?.['dsh.automatic-write']&&h(Button,{className:'ap-inline-link',onClick:()=>setAutomaticReview(true)},'自动变更…'),
       voiceOpen?h(VoicePage,{binding,pack,figure,rows:figureDeclaredRows(figure,pack),status:voiceStatus,preview:voicePreview,speech,commitVoice,assignFigureVoice,nav,onClose:closeVoice}):h(React.Fragment,null,
       h(ErrorBox,{error}),
       !narrow&&h('div',{className:'ap-detail-title'},nameInput,h('span',{className:'ap-title-tools'},enable,more)),
@@ -1247,11 +1287,11 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
           h(InlineField,{key:'name:'+outfit.key,kind:'text',label:'服装名',controlLabel:'服装名称',className:'is-outfit-name',controlRef:outfitNameRef,value:outfit.label||'',placeholder:'未命名',
             validate:v=>v.trim()?'':'请填写服装名称',onCommit:v=>writeOutfit(o=>({...o,label:v.trim()}))}),
           // 「使用情景」 before 触发词 — when the director should switch to this outfit.
-          h(InlineField,{key:'usage:'+outfit.key,kind:'text',multiline:true,label:'使用情景',controlLabel:'服装使用情景',help:h(Help,{text:OUTFIT_USAGE_HELP,label:'服装使用情景 说明'}),className:'is-usage',hideEmpty:true,
+          h(InlineField,{key:'usage:'+outfit.key,kind:'text',multiline:true,label:'使用情景',controlLabel:'服装使用情景',help:h(Help,{text:OUTFIT_USAGE_HELP,label:'服装使用情景 说明'}),className:'is-usage',
             value:outfit.guidance||'',placeholder:'例：在中转站工作时',maxLength:80,validate:v=>[...v].length<=80?'':'使用情景最多 80 字',
             onCommit:v=>writeOutfit(o=>{const next={...o};if(v)next.guidance=v;else delete next.guidance;return next;})}),
           remarkField({key:'remark:'+outfit.key,value:outfit.remark,controlLabel:'服装备注',className:'is-remark',onCommit:v=>writeOutfit(o=>withRemark(o,v))}),
-          h(InlineField,{key:'words:'+outfit.key,kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'is-words',hideEmpty:true,value:(recall.keywords||[]).filter(w=>!outfitWordHidden(outfit,w,figure)),split:splitKeywords,validate:keywordProblem,
+          h(InlineField,{key:'words:'+outfit.key,kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'is-words',value:(recall.keywords||[]).filter(w=>!outfitWordHidden(outfit,w,figure)),split:splitKeywords,validate:keywordProblem,
             // the candidates are the outfit trigger words already used in this pack.
             suggest:entryWordCandidates(pack,'figures',a=>(a.outfits||[]).flatMap(o=>o.recall?.keywords||[])),
             onCommit:shown=>writeOutfit(o=>{const base=o.recall||{mode:'keyword',keywords:[]},keywords=[...hidden,...shown.filter(w=>!hidden.includes(w))],synonyms=Object.fromEntries(Object.entries(base.synonyms||{}).filter(([k])=>keywords.includes(k)));const next={...base,keywords};if(Object.keys(synonyms).length)next.synonyms=synonyms;else delete next.synonyms;return {...o,recall:next};})}))),

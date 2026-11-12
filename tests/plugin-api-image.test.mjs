@@ -22,7 +22,9 @@ test('generateImage uses the explicitly resolved provider under the same validat
   await assert.rejects(service.image({ ...input, quality: 'invalid' }, selected), { code: 'INVALID_ARGUMENT' })
   assert.deepEqual(dispatched, [])
   for (const quality of [undefined, 'xhigh', 'max']) {
-    assert.deepEqual(await service.image({ ...input, quality }, selected), { data: png, mediaType: 'image/png' })
+    const reply = await service.image({ ...input, quality }, selected)
+    assert.deepEqual({ data: reply.data, mediaType: reply.mediaType }, { data: png, mediaType: 'image/png' })
+    assert.equal(reply.cost.estimated, true)
   }
   assert.deepEqual(dispatched, ['auto', 'xhigh', 'max'])
 })

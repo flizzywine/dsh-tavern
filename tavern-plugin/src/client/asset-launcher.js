@@ -73,7 +73,7 @@ function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'li
         onUnavailable:fn => transport.onUnavailable(fn)
     }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:result=>transport.download(result),tts}, [transport,service,sessionId,tts]);
     const nav = React.useMemo(() => stageNav(sessionId), [sessionId]);
-    // the library's deep links (packNav) plus the sidebar tabs its pages open (the voice page's 「配音后端 ›」).
+    // the library's deep links (packNav) plus the sidebar tabs its pages open (the voice page's 「语音后端 ›」).
     const libraryNav = React.useMemo(() => ({ take: packNav.take, subscribe: packNav.subscribe, openTab: nav.openTab }), [nav]);
     React.useEffect(() => () => binding?.dispose?.(),[binding]);
     // the Tavern 舞台 tab is one card-centric page.
@@ -125,7 +125,7 @@ function installTavernAssetLaunchers(ctx, slots) {
             // also made the 配音 ⚠ blink.
             if (event?.type === 'modelValidationChanged') return;
             // another reading preset (or an edit to it) changes each line's
-            // identity in dsh-tts; drop decoded clips so a replay asks again (re-synthesised there only when replayed).
+            // identity in dsh-tavern-tts; drop decoded clips so a replay asks again (re-synthesised there only when replayed).
             if (event?.type === 'readingsChanged') { voicePlayer.invalidate(); return; }
             notifyPackChange(event);
         });
@@ -140,6 +140,8 @@ function installTavernAssetLaunchers(ctx, slots) {
     });
     ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
     // the global 读音词典 drawn with the shared panel components; the 配音
-    // page (dsh-tts) places it and supplies its control RPC.
+    // page (dsh-tavern-tts) places it and supplies its control RPC.
     ctx.provide('ttsReadingsEditor',{render:props=>React.createElement(StagePackView,{view:ui=>ui.ReadingsEditor,...props})});
+    // 语音后端 › 语音识别 (speech-recognition-ui.js), drawn with the page's own parts.
+    ctx.inject(['ttsPanelSections'], child => child.effect(() => child.get('ttsPanelSections').register('tavern:speech-recognition', RecognitionSection)));
 }

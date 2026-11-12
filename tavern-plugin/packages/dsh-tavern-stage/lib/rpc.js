@@ -1,5 +1,6 @@
 import { stageEntranceChoices } from './domain/stage-entrance.js'
 import { widgetSourceRounds } from './domain/widget-window-projection.js'
+import { transcriptOutfitSpans } from './domain/transcript-outfits.js'
 import {projectStageLease} from './domain/stage-lease-projection.js'
 import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
@@ -9,6 +10,7 @@ import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-sp
 // binds its view and marks one.
 export function createStageHandlers(deps) {
   const { ctx } = deps
+  let resyncBubbles = Promise.resolve()
   return {
     async readWidgetVariables(args, method, serverTemplate, authority) {
       const { widgetVariables } = deps
@@ -362,10 +364,14 @@ return assetEngineSettings.read()
       const { assetEngineSettings, dialogueBubbles, fileResources, hasCardAssetBindings, readCardWorkspace, worldBooks } = deps
 
         const result = await assetEngineSettings.save(args || {})
-        // P6 dialogue settings are global; refresh every opted-in card, not just the open chat.
-        for (const path of await fileResources.list('card')) {
-          if (hasCardAssetBindings((await readCardWorkspace(path))?.raw)) await dialogueBubbles.sync(worldBooks, path)
-        }
+        // P6 dialogue settings are global: every opted-in card's bubble entry is refreshed, one card at a time behind the
+        // save (reading each card and its packs takes seconds on a big library; the switch must not wait for it).
+        resyncBubbles = resyncBubbles.then(async () => {
+          for (const path of await fileResources.list('card')) {
+            try { if (hasCardAssetBindings((await readCardWorkspace(path))?.raw)) await dialogueBubbles.sync(worldBooks, path) }
+            catch (error) { ctx.logger.warn('BUBBLE_RESYNC_FAILED %s %s', path, error.message) }
+          }
+        })
         return result
 
     },
@@ -405,6 +411,16 @@ return assetEngineSettings.exportPreset(args || {})
         if (!chat) return args?.readOnly === true ? {status:'off',phase:'off',revision:0,token:null,generation:0} : {status:'off'}
         // The director owns its frozen binding; its unused config argument must not hydrate today's catalogue.
         return await requestPerformance.stage('direction.get', () => stageDirector.get(chat, Number(args && args.turn), null, args?.readOnly === true ? {readOnly:true, sinceRevision:args.sinceRevision} : {}))
+
+    },
+    // Transcript bubbles wear the round's stage outfits: per display unit, figure ref → outfit key (transcript-outfits.js).
+    async getTranscriptOutfits(args, method, serverTemplate, authority) {
+      const { readRoundView, stageDirector } = deps
+
+        const chat = await readRoundView(args?.sessionId,args?.turn)
+        if (!chat) return {spans:[]}
+        const direction = await stageDirector.get(chat, Number(args.turn), null, {readOnly:true})
+        return {spans:transcriptOutfitSpans(direction.record || direction.preview)}
 
     },
     async generateStageDirection(args, method, serverTemplate, authority) {

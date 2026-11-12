@@ -1,6 +1,6 @@
 # 示例
 
-两张示例卡，分别为不同的内置皮肤设计，页面的颜色都取自 `DshCardPage.data().theme`，换皮肤后跟着变。每页的 HTML 写成一个 JSON 字符串放进 `html`，下面为了好读分开写；每段 HTML 第一行的注释标出它属于哪一页。
+两张示例卡，分别为不同的内置皮肤设计，页面的颜色都取自 `DshCardPage.data().theme`，换皮肤后重新打开页面就跟着变。每页的 HTML 写成一个 JSON 字符串放进 `html`，下面为了好读分开写；每段 HTML 第一行的注释标出它属于哪一页。
 
 ## 示例 A：标题页 + 开场页（本卡皮肤 `crt`）
 
@@ -17,15 +17,14 @@
 
 - 新聊天（还没有玩家消息）：打开 `prologue`，玩家开了「跳过标题页」也打开。
 - 之后每次从文字模式进入：打开 `title`；玩家开了「跳过标题页」就直接续读。
-- 两页都没有快捷键和菜单行，只在进入舞台时出现；Esc 或关闭按钮等于「继续」。
+- 两页都没有快捷键和菜单行，只在进入舞台时出现。页面里的「继续」调用 `continueGame()` 进入舞台；Esc 或关闭按钮是回到文字模式。
 
 ### title
 
 ```html
 <!-- page: title -->
 <style>
-  html, body { height: 100%; }
-  .screen { position: relative; min-height: 100%; display: grid; place-items: center; overflow: hidden;
+  .screen { position: relative; min-height: 100vh; display: grid; place-items: center; overflow: hidden;
     background: var(--surface); color: var(--ink); font-family: var(--font, monospace); }
   .screen::after { content: ''; position: absolute; inset: 0; pointer-events: none;
     background: repeating-linear-gradient(transparent 0 2px, rgb(0 0 0 / .25) 2px 4px); }
@@ -62,7 +61,7 @@
   }
   render(page.data())
   page.onData(render)
-  document.getElementById('continue').onclick = () => page.close()
+  document.getElementById('continue').onclick = () => page.continueGame()
   document.getElementById('settings').onclick = () => page.openSettings()
   document.getElementById('continue').focus()
 </script>
@@ -75,8 +74,7 @@
 ```html
 <!-- page: prologue -->
 <style>
-  html, body { height: 100%; }
-  .screen { min-height: 100%; box-sizing: border-box; display: grid; align-content: center; gap: 20px;
+  .screen { min-height: 100vh; box-sizing: border-box; display: grid; align-content: center; gap: 20px;
     max-width: 760px; margin: 0 auto; padding: 32px 24px;
     background: var(--surface); color: var(--ink); font: 17px/1.8 var(--font, monospace); }
   h1 { margin: 0; color: var(--accent); font: 700 28px/1.3 var(--heading, var(--font)); }
@@ -124,14 +122,14 @@
     $('send').disabled = true
     try {
       await triggerSlash('/send ' + line().replaceAll('|', '｜') + '|/trigger')
-      page.close()
+      page.continueGame()
     } catch (error) {
       $('error').textContent = error.message
       $('send').disabled = false
     }
   }
   $('fill').onclick = () => page.fillInput(line())
-  $('skip').onclick = () => page.close()
+  $('skip').onclick = () => page.continueGame()
   $('line').focus()
 </script>
 ```

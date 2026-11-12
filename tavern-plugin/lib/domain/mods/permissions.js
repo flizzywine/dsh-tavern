@@ -12,9 +12,6 @@ export async function modBoundary(work) {
   try { return modFreeze({ok:true, value:await work()}) }
   catch (error) { return modFreeze(modResultError(error)) }
 }
-export function modScope(globalEnabled, cardEnabled) {
-  return globalEnabled ? 'global' : cardEnabled ? 'card' : 'off'
-}
 export function modVersionMatches(version, range) {
   const [,min,max] = /^>=(\d+\.\d+\.\d+) <(\d+\.\d+\.\d+)$/.exec(range) || []
   if (!min) return false

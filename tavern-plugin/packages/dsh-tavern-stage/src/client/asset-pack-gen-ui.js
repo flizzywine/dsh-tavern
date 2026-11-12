@@ -40,7 +40,7 @@
   const genSaid=v=>!!String(v||'').trim();
   // What a generation draws from: a picture (the outfit 设定图 or the figure's identity board), else the 设定文字 (外貌 /
   // 服装描述), else nothing yet — then 生成 waits for one (the tile menu offers the ways to make it).
-  function genBasis(figure,outfit){return outfit?.settei||figure?.identitySettei?'image':genSaid(figure?.identityAppearance)||genSaid(outfit?.outfitAppearance)?'text':'';}
+  function genBasis(figure,outfit,look){return outfit?.settei||figure?.identitySettei?'image':genSaid(look?.face)||genSaid(outfit&&look?.upper(outfit.key))?'text':'';}
   // The prompt a 差分 starts from: its name and 使用情景; a cell's 「存为默认」 (outfit.genPrompts, owner U4) replaces it for
   // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 舞台 → 素材生图 (GenPromptSettings).
   const genBuiltPrompt=row=>row?row.label+'的表情'+(genSaid(row.guidance)?'，'+row.guidance.trim():'')+'。':'';
@@ -427,7 +427,7 @@
     const [name,setNameState]=React.useState(''),[wear,setWearState]=React.useState(''),[lamp,setLamp]=React.useState('keyword');
     const [words,setWords]=React.useState(()=>{const short=String(figure?.name||'').split(/[·・]/)[0].trim();return adding&&short?[short]:[];});
     const [sheetFile,setSheetFile]=React.useState(null),[genSheet,setGenSheet]=React.useState(true),[genFirst,setGenFirst]=React.useState(true);
-    const refInput=React.useRef(null),sheetInput=React.useRef(null),made=React.useRef(null),submitRef=React.useRef(null);
+    const refInput=React.useRef(null),sheetInput=React.useRef(null),made=React.useRef(null),submitRef=React.useRef(null),look=useFigureLook(binding,packId,figure?.id);
     const setPrompt=v=>{texts.current.prompt=v;setPromptState(v);setSaved(false);};
     const setName=v=>{texts.current.name=v;setNameState(v);},setWear=v=>{texts.current.wear=v;setWearState(v);};
     const close=()=>{if(!busy)gen.closeDialog();};
@@ -442,7 +442,7 @@
     const room=GEN_REF_LIMIT-defaults.length-(fixed?1:0)-(current?1:0)-uploads.length;
     const reason=cellMode&&kind==='sprite'&&!takes?GEN_REASONS.layered:cellMode&&kind==='avatar'&&!ownSprite?GEN_REASONS.avatar:
       mode==='edit'&&!prompt.trim()?GEN_REASONS.edit:redo&&!base?'这一格还没有图':['running','queued'].includes(cell.state)?GEN_REASONS.busy:
-      adding&&!name.trim()?'请填写服装名':settei&&!prompt.trim()&&!defaults.length&&!uploads.length&&!genSaid(figure.identityAppearance)&&!genSaid(outfit?.outfitAppearance)?GEN_REASONS.basis:'';
+      adding&&!name.trim()?'请填写服装名':settei&&!prompt.trim()&&!defaults.length&&!uploads.length&&!genSaid(look.face)&&!genSaid(outfit&&look.upper(outfit.key))?GEN_REASONS.basis:'';
     const upload=file=>genReadUpload(file).then(u=>setUploads(list=>[...list,u])).catch(e=>setError(errorText(e)));
     // One request's input — the 画风 seam: this dialog's preset (an 改图 keeps the pack's), its references and omissions.
     const inputNow=async()=>{
@@ -460,8 +460,8 @@
       const t=texts.current;
       if(!made.current){
         const key=newResourceKey('outfit'),label=t.name.trim(),wearText=t.wear.trim();
-        await commitFigure(figure.id,f=>({outfits:[...f.outfits,{key,label,enabled:lamp!=='off',...(first?{defaultEmotion:first}:{}),recall:{mode:lamp==='off'?'keyword':lamp,keywords:words},...(wearText?{outfitAppearance:wearText}:{})}]}));
-        made.current=key;if(sheetFile)await importSettei(figure.id,key,sheetFile.file);d.onOutfit?.(key);
+        await commitFigure(figure.id,f=>({outfits:[...f.outfits,{key,label,enabled:lamp!=='off',...(first?{defaultEmotion:first}:{}),recall:{mode:lamp==='off'?'keyword':lamp,keywords:words}}]}));
+        made.current=key;if(wearText)await look.writeUpper({key,label},wearText);if(sheetFile)await importSettei(figure.id,key,sheetFile.file);d.onOutfit?.(key);
       }
       const key=made.current,at=(k,extra={})=>({packId,figureId:figure.id,outfitKey:key,kind:k,...extra}),input=await inputNow();
       const firstText=firstRow?genBuiltPrompt(firstRow):'',firstFollow=first?[{kind:'avatar',emotionId:first,...(firstText?{userPrompt:firstText}:{}),style}]:[];
@@ -487,8 +487,8 @@
         if(!text||text===genBuiltPrompt(row))delete map[row.id];else map[row.id]=text;
         if(Object.keys(map).length)all[k]=map;else delete all[k];
         const next={...o};if(Object.keys(all).length)next.genPrompts=all;else delete next.genPrompts;return next;})})).then(()=>setSaved(true),e=>setError(errorText(e)));};
-    const writeLook=v=>commitFigure(figure.id,()=>({identityAppearance:v||null})).catch(e=>setError(errorText(e)));
-    const writeWear=v=>commitFigure(figure.id,f=>({outfits:f.outfits.map(o=>{if(o.key!==outfit.key)return o;const n={...o};if(v)n.outfitAppearance=v;else delete n.outfitAppearance;return n;})})).catch(e=>setError(errorText(e)));
+    const writeLook=v=>look.writeFace(v).catch(e=>setError(errorText(e)));
+    const writeWear=v=>look.writeUpper(outfit,v).catch(e=>setError(errorText(e)));
     const changeOut=next=>{const was=texts.current.prompt.trim();if(was===defaultPrompt.trim()&&row)setPrompt(genPromptFor(outfit,next==='avatar'?'avatar':'sprite',row));setOut(next);};
     const row_=(key,label,body,extra={})=>h(InlineRow,{key,label,help:extra.help,multiline:extra.multiline,wide:extra.multiline,className:'ap-gen-row ap-gd-row'+(extra.className?' '+extra.className:'')},body);
     const textField=(key,label,value,onCommit,placeholder,extra={})=>h(InlineField,{key,kind:'text',multiline:true,label,className:'ap-gen-row ap-gd-row ap-gd-text'+(extra.className?' '+extra.className:''),
@@ -501,7 +501,7 @@
       uploads.map(u=>chip(u.id,{url:u.url,name:'上传的图'},()=>setUploads(x=>x.filter(y=>y!==u)))),
       room>0&&h(CatAddTile,{label:'上传参考图',className:'ap-gd-ref-add',onClick:()=>refInput.current?.click?.()}),genFileInput(refInput,'上传参考图',upload)),{multiline:true,className:'is-refs'});
     const said=list=>row_('said','',h('div',{className:'ap-gd-said-list'},list.map(([k,v,save])=>h(GenSaid,{key:k,name:k,value:v,onSave:save}))),{multiline:true,className:'is-said'});
-    const lookSaid=['外貌',figure.identityAppearance||'',writeLook],wearSaid=outfit&&['服装描述',outfit.outfitAppearance||'',writeWear];
+    const lookSaid=['外貌',look.face,writeLook],wearSaid=outfit&&['服装描述',look.upper(outfit.key),writeWear];
     const changed=cellMode&&mode!=='edit'&&prompt.trim()!==defaultPrompt.trim();
     const promptTrail=changed?h('span',{className:'ap-gd-prompt-acts'},h(IconButton,{icon:'reset',label:'恢复默认',onClick:()=>setPrompt(defaultPrompt)}),
         h('button',{type:'button',className:'ap-inline-link ap-gd-save-default',title:'存为「'+(row?.label||'')+'」的默认描述',onClick:saveDefault},'存为默认')):
@@ -523,7 +523,7 @@
       row_('first','生成',h('span',{className:'ap-gd-checks'},!sheetFile&&genCheck(genSheet,setGenSheet,'同时生成服装设定图'),firstLabel&&genCheck(genFirst,setGenFirst,'生成「'+firstLabel+'」立绘＋头像')),
         {help:!sheetFile&&firstLabel&&h(Help,{text:GEN_HELP.first(firstLabel),label:'生成 说明'})}),
       anyGen&&refsRow,styleRow];
-    else if(settei)fields=[fig?textField('face','外貌',figure.identityAppearance||'',writeLook,'发色、瞳色、身材…'):textField('wear','服装描述',outfit.outfitAppearance||'',writeWear,'款式、颜色、材质…'),
+    else if(settei)fields=[fig?textField('face','外貌',look.face,writeLook,'发色、瞳色、身材…'):textField('wear','服装描述',look.upper(outfit.key),writeWear,'款式、颜色、材质…'),
       refsRow,!fig&&said([lookSaid]),extra,styleRow];
     else fields=[outs.length>1&&row_('out','输出',h(Segmented,{className:'ap-gen-views',label:'输出',value:out,onChange:changeOut,options:outs})),refsRow,said([lookSaid,wearSaid]),extra,styleRow];
     const startKey=target?genKey(target):made.current?genKey(sheetNow?{kind:'settei',figureId:figure.id,outfitKey:made.current}:{kind:'sprite',figureId:figure.id,outfitKey:made.current,emotionId:first}):'';
@@ -703,9 +703,9 @@
   function GenSettei({c,level}) {
     const fig=level==='figure';
     return h('div',{className:'ap-gw-settei',role:'group','aria-label':fig?'人物设定':'服装设定'},h(GenSetteiSlot,{c,level}),
-      fig?h(InlineField,{kind:'text',label:'外貌',hideLabel:true,className:'ap-gw-line',placeholder:'外貌：发色、瞳色、身材…',maxLength:1000,value:c.figure.identityAppearance||'',onCommit:v=>c.write(()=>({identityAppearance:v||null}))}):
-        h(InlineField,{key:c.outfit.key,kind:'text',label:'服装描述',hideLabel:true,className:'ap-gw-line',placeholder:'服装描述：款式、颜色、材质…',maxLength:1000,value:c.outfit.outfitAppearance||'',
-          onCommit:v=>c.writeOutfit(o=>{const n={...o};if(v)n.outfitAppearance=v;else delete n.outfitAppearance;return n;})}));
+      fig?h(InlineField,{kind:'text',label:'外貌',hideLabel:true,className:'ap-gw-line',placeholder:'外貌：发色、瞳色、身材…',maxLength:1000,value:c.look.face,onCommit:v=>c.run(()=>c.look.writeFace(v))}):
+        h(InlineField,{key:c.outfit.key,kind:'text',label:'服装描述',hideLabel:true,className:'ap-gw-line',placeholder:'服装描述：款式、颜色、材质…',maxLength:1000,value:c.look.upper(c.outfit.key),
+          onCommit:v=>c.run(()=>c.look.writeUpper(c.outfit,v))}));
   }
   // ↩ 使用回退 (owner U3) in a missing tile's corner: which 差分 stands in while it has none (setFigureEmotionFallback).
   function GenFallback({c,row,use}) {
@@ -768,8 +768,8 @@
     const accept=job=>run(()=>gen.accept(job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code)){gen.openSheet(job.target);return;}throw e;}));
     const endCoach=()=>{if(coach){genCoachDone();setCoach(false);}};
     const open=(target,extra={})=>{endCoach();gen.openDialog(target,{...extra,onOutfit});};
-    const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[];
-    const c={gen,binding,pack,packId,figure,outfit,rows,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,
+    const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[],look=useFigureLook(binding,packId,figure.id);
+    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,
       acceptAll:list=>{setAccepting(true);return gen.acceptAll(list).finally(()=>setAccepting(false));},
       at:(kind,emotionId)=>({packId,figureId:figure.id,outfitKey:outfit.key,kind,emotionId}),
       sprite:id=>genOwnSprite(outfit,manifest,id),avatar:id=>outfit?.avatars?.[outfitImageId(outfit,id)]||null,hasSprite:id=>!!outfit&&emotionMapped('sprite',outfit,manifest,id),
@@ -817,6 +817,8 @@
   const GEN_PROMPT_KINDS={sprite:'立绘',avatar:'头像','avatar-sheet':'八个表情',settei:'服装设定图','identity-settei':'人物设定图',background:'背景'};
   const GEN_PROMPT_USE={sprite:'生成立绘',avatar:'生成单个头像','avatar-sheet':'一次生成八个表情',settei:'生成服装设定图','identity-settei':'生成人物设定图',background:'生成背景'};
   const genSlots=text=>[...new Set([...String(text).matchAll(/\{\{(\w+)\}\}/g)].map(m=>m[1]))];
+  // What the pictures drawn so far cost (asset-generation-cost.js): exact when the channel returned usage, else estimated from the request.
+  const genCostText=c=>'已生成 '+c.images+' 张图，约花费 '+c.usd.toFixed(2)+' 美元'+(c.estimated?'（其中 '+c.estimated+' 张按请求估算）':'')+(c.unpriced?'；'+c.unpriced+' 张所用模型没有价目，未计入':'')+'。';
   function GenPromptSettings({call}) {
     const [data,setData]=React.useState(null),[error,setError]=React.useState(''),[alert,setAlert]=React.useState(''),[saving,setSaving]=React.useState(''),[confirm,setConfirm]=React.useState(null),[epoch,setEpoch]=React.useState(0);
     const current=React.useRef(null),queue=React.useRef(Promise.resolve());
@@ -842,6 +844,7 @@
           value:k.text.trimEnd(),maxLength:12000,validate:problem(k),onCommit:text=>write(k.kind,text)}));};
     return h('div',{className:'ap-ui ap-gen-prompts'},
       h('p',{className:'ap-save-state',role:'status'},saving==='saving'?'正在保存…':saving==='saved'?'已保存':''),
+      data?.cost&&h('p',{className:'ap-gen-cost'},genCostText(data.cost)),
       !data&&!error&&h(Loading,{shape:'fields',count:4}),
       h(ErrorBox,{error,reload:load}),
       alert&&h('p',{className:'ap-alert',role:'alert'},h(Glyph,{name:'warning'}),alert),

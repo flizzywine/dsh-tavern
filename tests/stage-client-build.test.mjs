@@ -5,19 +5,15 @@ import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
+import {copyStageBuildSiblings} from './helpers/stage-build-siblings.mjs'
 
 test('stage overlay builds and imports with only its own package files, the shared protocol contracts and the mod stage clients it bundles', async t => {
   const plugin = await mkdtemp(path.join(tmpdir(), 'stage-client-build-')), packages = path.join(plugin, 'packages')
   t.after(() => rm(plugin, {recursive:true,force:true}))
-  // The mods' stage clients (mods/<folder>/client/stage.cjs and the own-folder files they require).
-  await cp(new URL('../tavern-plugin/mods/', import.meta.url), path.join(plugin, 'mods'), {recursive:true})
+  // The mods' stage clients and the sibling protocol sources the stage build inlines (real folders, see the helper).
+  await copyStageBuildSiblings(plugin)
   const root = path.join(packages, 'dsh-tavern-stage')
   const pkg = new URL('../tavern-plugin/packages/dsh-tavern-stage/', import.meta.url)
-  // The sibling protocol package: build.mjs inlines the stage-only contracts (stage-entrance.cjs, and card-stage-mode.cjs for
-  // the asset-pack card page) into the stage client.
-  await mkdir(path.join(packages, 'dsh-presentation-protocol/src'), {recursive:true})
-  for (const name of ['stage-entrance.cjs', 'card-stage-mode.cjs', 'text-marks.cjs'])
-    await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/' + name, import.meta.url), path.join(packages, 'dsh-presentation-protocol/src', name))
   await cp(new URL('src/',pkg), path.join(root,'src'), {recursive:true})
   await copyFile(new URL('build.mjs',pkg),path.join(root,'build.mjs'))
   await mkdir(path.join(root,'lib/client'),{recursive:true})

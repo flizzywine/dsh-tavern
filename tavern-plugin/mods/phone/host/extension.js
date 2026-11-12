@@ -1,6 +1,6 @@
 import {createPhoneCalls} from '../call.js'
 import {callGreeting, createCallGreetings} from '../call-greeting.js'
-import {callDesignPersona, storyRoundMessages, phoneMarkRounds, roundPhoneMessages, createCallSections} from '../call-context.js'
+import {callDesignPersona, storyRoundMessages, phoneMarkRounds, roundPhoneMessages, createCallSections, createPhoneRelayHost} from '../call-context.js'
 import {phoneThreadDirectory, phonePeople} from '../threads.js'
 import figureResolution from '../../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
 const {figureSpeakerHandle} = figureResolution
@@ -14,7 +14,7 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
   speechRecognition, readStageChat, readRoundView, worldbookRecallLog, dialogueBubbles, figureRuntimes,
   hostLibrary}) {
   const {recognitionAudio, figureCatalogue, bubbleCharacter, bubbleVoiceSwitches, effectiveBubbleMoods, projectAgentMessageText} = hostLibrary
-  const {callRoundWorldbook, callRecognitionContext, callStorySection, callPhoneRecords} = createCallSections(hostLibrary)
+  const {callRoundWorldbook, callRecognitionContext, callStorySection, callPhoneRecords, callRelayTools, callRelaySummary} = createCallSections(hostLibrary)
   async function stagePhoneDirectory(chat) {
     if(!await managedModManagement.enabled({modId:'dsh.phone',cardPath:chat.cardPath}))return {enabled:false,contacts:[],threads:[]}
     const raw=(await readCardWorkspace(chat.cardPath))?.raw,bindings=(raw?.data || raw)?.extensions?.dsh_tavern?.assetBindings
@@ -33,6 +33,12 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
     return {enabled:true,...phoneThreadDirectory(characters,state,{playerName:chat.macroState?.userName}),[PHONE_FIGURES]:characters}
   }
   const PHONE_FIGURES = Symbol('phone figures')
+  // The experimental summary relay (off unless switched on for a card); only where the host provides the shared context.
+  // A host without the shared-context service (upstream today) has no relay: the phone works as before.
+  const contextHost = ctx.get('tavernContextHost')
+  const relay = contextHost ? createPhoneRelayHost({library:hostLibrary, estimate:contextHost.estimate, chatForSession, profileData, managedModManagement, modConfigHost, readModCard,
+    contextHost, service:ctx.get('tavern')}) : null
+  if (relay) ctx.effect(() => () => relay.dispose())
 
   // calls with one phone contact. Each contact's calls are
   // its own context window, stored beside the chat (phone-calls/<chatId>.json), anchored to the story position; the
@@ -50,14 +56,22 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
       return consumer ? consumer.speech.hold(contact.id) : null
     },
     store:{read:chatId => profileData.readJson('phone-calls/' + chatId + '.json'), update:(chatId, fn) => profileData.updateJson('phone-calls/' + chatId + '.json', fn)},
-    model:async ({sessionId, selection, system, messages, signal, onText, onChunk}) => callModel({sessionId, selection, system, messages, signal, onText, onChunk, maxTokens:800, temperature:0.8}),
+    model:async ({sessionId, anchor, contactId, selection, system, messages, signal, onText, onChunk}) => {
+      // Relay on: the same request, with the read-only source tools bound to this contact and the call's page.
+      if (!await relay?.active(sessionId)) return callModel({sessionId, selection, system, messages, signal, onText, onChunk, maxTokens:800, temperature:0.8})
+      const bound = await relay.bindCall({sessionId, anchor, contactId})
+      try { return await bound.callWithTools({selection, system, messages, signal, onText, onChunk, maxTokens:800, temperature:0.8}) }
+      finally { bound.release() }
+    },
+    ended:async input => relay?.callEnded(input),
     context:async ({sessionId, contact, input, anchor, phase, calls, playerName}) => {
       const shared = {gameId:sessionId, turn:anchor.turn, target:'call', subject:contact}
       if (phase === 'start') {
         // One chain view through the dial's round names the rounds read in full: the latest four and every round that
         // marks a phone message (their beat ops come first, as the phone's own view reads them).
         const marks = await readRoundOps(sessionId, anchor.turn, Infinity), base = await marks.view([])
-        const turns = storyRoundMessages(base.messages, anchor.turn).map(row => row.turn)
+        const relayStory = await relay?.callStory(sessionId, anchor.turn)
+        const turns = storyRoundMessages(base.messages, anchor.turn, relayStory?.rounds).map(row => row.turn)
         const view = await marks.view([...new Set([...turns, ...phoneMarkRounds(marks.records)])].filter(turn => turn !== anchor.turn))
         const card = await readChatCard(view)
         const workspace = await readModCard(view.cardPath)
@@ -65,7 +79,7 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
         const photos = ['card', 'global'].flatMap(layer => photoConfig[layer].photos?.fixed || [])
         const display = await replyDisplayForChat(view, card, true), body = turn => display.projections.find(row => row.turn === turn)?.body
         const agentText = row => projectAgentMessageText(row, {charName:view.cardName, macroState:view.macroState})
-        const rounds = storyRoundMessages(view.messages, anchor.turn).map(({turn, input, replies}) => ({turn, input:input.map(agentText).join('\n'),
+        const rounds = storyRoundMessages(view.messages, anchor.turn, relayStory?.rounds).map(({turn, input, replies}) => ({turn, input:input.map(agentText).join('\n'),
           // The dial's own round stops at the page the reader was on: the pages after it have not happened yet.
           text:turn === anchor.turn && anchor.para ? (body(turn)?.displayUnits || []).slice(0, anchor.para).map(unit => unit.text).join('\n\n') : replies.map(agentText).join('\n\n')}))
         const current = view.messages.findLast(row => row.role === 'assistant' && Number(row.turn || (row.greeting ? 1 : 0)) === anchor.turn)?.stageDirectionAssetPacks
@@ -74,8 +88,9 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
           .flatMap(([turn, record]) => roundPhoneMessages(turn, record, body(turn)?.paragraphs || [], turn === anchor.turn ? anchor.para : undefined))
         const directory = await stagePhoneDirectory(base), people = phonePeople(directory[PHONE_FIGURES] || [])
         const names = new Map([...people.map(row => [row.id, row.name]), ...directory.threads.filter(row => row.kind === 'group').map(row => [row.id, row.name]), ...(directory.playerId ? [[directory.playerId, playerName]] : [])])
-        return {promptSections:[...await pluginApi.promptSections(shared), {name:'call-speech-recognition', text:callRecognitionContext(contact, people)},
-          {name:'recent-story', text:callStorySection(rounds)}, {name:'phone-records', text:callPhoneRecords({calls, messages, photos, chatId:view.id, anchor, names, contact:contact.name, player:playerName})}],
+        return {promptSections:[...(relayStory ? [{name:'relay-tools', text:callRelayTools()}] : []), ...await pluginApi.promptSections(shared), {name:'call-speech-recognition', text:callRecognitionContext(contact, people)},
+          ...(relayStory ? [{name:'relay-summary', text:callRelaySummary(relayStory.summary)}] : []),
+          {name:'recent-story', text:callStorySection(rounds)}, {name:'phone-records', text:callPhoneRecords({calls:relayStory ? calls.filter(row => row.contactId === contact.id) : calls, messages, photos, chatId:view.id, anchor, names, contact:contact.name, player:playerName})}],
         selection:await resolveSlot('dsh.phone','call',sessionId)}
       }
       return {turnSections:await pluginApi.turnContext({...shared,input})}
@@ -109,11 +124,11 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
       if (!chat) throw new Error('会话不存在')
       const contact = await phoneCallHost.contact(sessionId, chat, contactId, origin)
       if (!contact.voiceAvailable) throw new Error(contact.voiceProblem === 'voice-unbound' ? '这位联系人还没有配音，打不了电话' : '她的声音暂时打不开，请再拨一次')
-      await phoneCallHost.listening()
+      const recognition = await phoneCallHost.listening()
       const {voiceProblem, consumer, ...callee} = contact
       const greeting = await phoneCallHost.greeting({sessionId, contactId, origin, consumer, language:callee.language, mood:callee.contact.defaultEmotion})
       const {audio, loudness, ...line} = greeting || {}
-      return {...await phoneCalls.start({sessionId, chat, ...callee, at, origin, greeting:greeting ? line : null}), voiceAvailable:true, ...(greeting ? {greeting} : {})}
+      return {...await phoneCalls.start({sessionId, chat, ...callee, at, origin, greeting:greeting ? line : null}), voiceAvailable:true, recognition, ...(greeting ? {greeting} : {})}
     },
     // Her pick-up line (call-greeting.js), read from the voice cache only: a hit plays the moment she picks up; a miss is
     // queued for idle time and never synthesized now - live synthesis on a busy machine is what kept the call silent.
@@ -204,21 +219,27 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
         : await presentation.character(alias, {emotion, live2d, spine, figureRows})
       return ['live2d','spine','sprite'].includes(character.form) ? {character, presentation} : null
     },
-    readiness:() => speechRecognition.readiness(),
-    async listening() {
-      if (!(await speechRecognition.readiness()).available) throw new Error('语音识别尚未就绪，请检查识别服务设置')
+    // The phone hears with the 语音后端's recognition (its first service); it has no recognition setting of its own.
+    async readiness() {
+      const recognition = speechRecognition.current()
+      return {...await speechRecognition.readiness(recognition), recognition}
     },
-    async hear({audio, language}) {
+    async listening() {
+      const {available, recognition} = await phoneCallHost.readiness()
+      if (!available) throw new Error('语音识别尚未就绪，请在语音后端检查识别服务')
+      return recognition
+    },
+    async hear({chat, audio, language}) {
       try {
-        const pcm = recognitionAudio(audio)
+        const pcm = recognitionAudio(audio), serviceId = speechRecognition.current()
         const [result,endpoint] = await Promise.all([
-          // The snapshot's words become the player's line: a server's declared final model reads them.
-          speechRecognition.service.recognize({audio:pcm,language,final:true}),
-          speechRecognition.service.endpoint({audio:pcm}),
+          // The snapshot's words become the player's line: the service's 定稿用 service reads them.
+          speechRecognition.service.recognize({serviceId,audio:pcm,language,final:true}),
+          speechRecognition.service.endpoint({serviceId,audio:pcm}),
         ])
         // No turn detector (endpoint null): the call judges the end by the pause alone.
         return {...result, endpoint, ending:endpoint?.probability >= 0.95 ? 'complete' : 'open', asrMs:result.modelMs}
-      } catch (error) { throw Object.assign(new Error('语音识别暂时不可用，请检查识别服务设置'), {code:error.code}) }
+      } catch (error) { throw Object.assign(new Error('语音识别暂时不可用，请在语音后端检查识别服务'), {code:error.code}) }
     },
   }
 
@@ -244,8 +265,8 @@ export function createPhoneExtension(core) {
       return deps.phoneCallHost.startByContact({sessionId:args.sessionId, contactId:String(args.contactId || ''), origin:authority?.origin, at:args.at})
     },
     async phoneCallHear(args) {
-      const { phoneCallHost } = deps
-      return phoneCallHost.hear({audio:args.audio, language:args.language})
+      const { phoneCallHost, readStageChat } = deps
+      return phoneCallHost.hear({chat:await readStageChat.view(args.sessionId,{configOnly:true}), audio:args.audio, language:args.language})
     },
     async phoneCallTurn(args) {
       const { phoneCallHost, readStageChat } = deps

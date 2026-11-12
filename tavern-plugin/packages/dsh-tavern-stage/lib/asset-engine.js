@@ -61,7 +61,7 @@ export function createAssetEngineSettings(ctx, owner = ctx) {
 // like the engine's. New installs start off. A card's layer is its stage.switches.autoCast / stage.autoCast
 // (card-stage-settings.js effectiveAutoCast decides; its defaults and layer check come in as defaults / validateLayer).
 export const AUTO_CAST_SECTION = 'tavern-auto-cast'
-export const AUTO_CAST_METHODS = Object.freeze(['getAutoCastSettings', 'saveAutoCastSettings'])
+export const AUTO_CAST_METHODS = Object.freeze(['getAutoCastSettings', 'saveAutoCastSettings', 'getAutoCastStatus'])
 const AUTO_CAST_KEYS = ['enabled', 'level']
 export function createAutoCastSettings(ctx, owner, {defaults, validateLayer}) {
   const validate = value => ({...defaults, ...validateLayer(structuredClone(value), '$', AUTO_CAST_KEYS)})

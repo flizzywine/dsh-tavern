@@ -3,10 +3,11 @@ function createStageBust({ease:galEase,clamp:galClamp01,framedHead}) {
     // where a skin's bust portrait stands on a W x H stage.
     // The design screen (bust.screen tall, bust.width wide) is centred and stands on the stage's bottom edge, one design px
     // u = min(H / screen, W / fit) as the art's --art-u. head = the head box's centre x, top and height (stage px); clip = the
-    // crop (head heights above the crown, to each side, below the chin), cut to the design screen and the stage.
+    // crop (head heights above the crown, to each side, below the chin), cut to the design screen and the stage; without a crop (a
+    // sprite source: the whole picture) the design screen and the stage alone.
     function galBustFrame(bust, W, H) {
         const u = Math.min(H / bust.screen, W / bust.fit), left = W / 2 - bust.width * u / 2, top = H - bust.screen * u;
-        const [x, y, height] = bust.head, [above, side, below] = bust.crop, head = { x: left + x * u, top: top + y * u, height: height * u };
+        const [x, y, height] = bust.head, [above, side, below] = bust.crop || [Infinity, Infinity, Infinity], head = { x: left + x * u, top: top + y * u, height: height * u };
         const x0 = Math.max(0, left, head.x - side * head.height), x1 = Math.min(W, left + bust.width * u, head.x + side * head.height);
         const y0 = Math.max(0, top, head.top - above * head.height), y1 = Math.min(H, head.top + head.height * (1 + below));
         return { u, head, clip: { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) } };
@@ -19,24 +20,71 @@ function createStageBust({ease:galEase,clamp:galClamp01,framedHead}) {
         return { dx: (enter.dx || 0) * u * (1 - k), alpha: alpha + (1 - alpha) * k };
     }
     let disposed=false;const instances=new Set();
-    function create({PIXI,renderer}) {
+    function create({PIXI,renderer,Image}) {
         if(disposed)throw new Error('Bust owner disposed');
         let closed=false,arrival=null;
-        const bust={sprite:new PIXI.Sprite(PIXI.Texture.EMPTY),texture:null,key:'',matrix:new PIXI.Matrix(),inverse:new PIXI.Matrix()};
+        const bust={sprite:new PIXI.Sprite(PIXI.Texture.EMPTY),texture:null,key:'',matrix:new PIXI.Matrix(),inverse:new PIXI.Matrix(),
+            // a sprite source's picture (packFigureStill): the one shown and the one loading, each {identity, alias, texture, pin}.
+            still:new PIXI.Sprite(PIXI.Texture.EMPTY),mask:new PIXI.Graphics(),maskKey:'',shown:null,loading:null};
         bust.sprite.visible=false;
-        function tick({spec,subject,now,W,H,instant=false,rulerHead}) {
+        bust.still.visible=false;
+        bust.still.mask=bust.mask;
+        bust.sprite.addChild(bust.mask,bust.still);
+        function dropStill(record) { if (record?.texture) { record.texture.destroy(true); record.pin.release(); } }
+        // The sprite source's picture for `wanted` ({head, still} of packFigureStill): acquired under the stage authority (desc.tapMedia,
+        // the scene's lazy media) and decoded once; the speaker's previous picture stays up while a new mood's loads, so a mood change
+        // is a cut, not a gap. null while nothing of this speaker is ready.
+        function bustStill(wanted, alias, acquire) {
+            const identity = wanted.still.identity;
+            if (bust.shown?.identity !== identity && bust.loading?.identity !== identity && typeof acquire === "function") {
+                if (bust.loading) bust.loading.dead = true;
+                const record = bust.loading = { identity, alias, texture: null, pin: null, dead: false };
+                Promise.resolve(acquire(wanted.still)).then(async pin => {
+                    try {
+                        const image = new Image();
+                        image.src = pin.handle.url;
+                        await image.decode();
+                        if (record.dead) { pin.release(); return; }
+                        Object.assign(record, { pin, texture: PIXI.Texture.from(image) });
+                        if (bust.loading === record) bust.loading = null;
+                        dropStill(bust.shown); bust.shown = record;
+                    } catch (error) { pin.release(); throw error; }
+                }).catch(() => { if (bust.loading === record) bust.loading = null; record.dead = true; });
+            }
+            return bust.shown?.alias === alias ? bust.shown : null;
+        }
+        // A sprite source (spec.still) draws the speaker's picture; a bust their stage figure (subject: its rest head box).
+        function tick({spec,subject,now,W,H,instant=false,rulerHead,acquire}) {
             if(closed)return;
+            const still = spec?.still ? bustStill(spec.still, spec.alias, acquire) : null;
             const entry=subject,head=entry?.head;
-            const frame = spec && head && entry.container.visible ? galBustFrame(spec, W, H) : null, clip = frame && frame.clip;
+            const frame = spec && (still || head && entry.container.visible) ? galBustFrame(spec, W, H) : null, clip = frame && frame.clip;
             if (!clip || clip.width < 1 || clip.height < 1) { arrival = null; bust.sprite.visible = false; return; }
             if (arrival?.alias !== spec.alias) arrival = { alias: spec.alias, since: instant ? -Infinity : now };
             const pose = galBustEnter(spec.enter, now - arrival.since, frame.u), resolution = renderer.resolution;
+            bust.still.visible = Boolean(still);
+            bust.sprite.alpha = pose.alpha;
+            bust.sprite.visible = true;
+            if (still) {
+                // The whole picture as a child of the bust sprite (its visibility and alpha), its head box on the declared one: nothing
+                // cut but the design screen and the stage (a rect mask), no per-frame render.
+                const texture = still.texture, at = { x: spec.still.head.x * texture.width, top: spec.still.head.top * texture.height, chin: spec.still.head.chin * texture.height };
+                const s = frame.head.height / Math.max(1, at.chin - at.top), mask = clip.x + "," + clip.y + "," + clip.width + "," + clip.height;
+                bust.sprite.texture = PIXI.Texture.EMPTY;
+                bust.sprite.position.set(0, 0);
+                bust.still.texture = texture;
+                bust.still.scale.set(s);
+                bust.still.position.set(frame.head.x - at.x * s + pose.dx, frame.head.top - at.top * s);
+                if (bust.maskKey !== mask) { bust.maskKey = mask; bust.mask.clear().beginFill(0xffffff).drawRect(clip.x, clip.y, clip.width, clip.height).endFill(); }
+                return;
+            }
             const width = Math.ceil(clip.width), height = Math.ceil(clip.height), key = width + "x" + height + "@" + resolution;
             if (bust.key !== key) {
                 const texture=PIXI.RenderTexture.create({ width, height, resolution }),previous=bust.texture;
-                bust.texture=texture;bust.sprite.texture=texture;bust.key=key;
+                bust.texture=texture;bust.key=key;
                 if(previous)previous.destroy(true);
             }
+            bust.sprite.texture=bust.texture;
             // Projection = the bust framing after undoing the stage's own placement of the container.
             const container = entry.container, s = frame.head.height / framedHead(Math.max(1, head.chin - head.top), rulerHead);
             container.transform.updateLocalTransform();
@@ -54,16 +102,17 @@ function createStageBust({ease:galEase,clamp:galClamp01,framedHead}) {
                 container.transform._parentID=-1;
             }
             bust.sprite.position.set(clip.x, clip.y);
-            bust.sprite.alpha = pose.alpha;
-            bust.sprite.visible = true;
         }
 
         const view={sprite:bust.sprite,tick,dispose(){
             if(closed)return;closed=true;instances.delete(view);arrival=null;bust.sprite.visible=false;
             const errors=[];
-            try{if(!bust.sprite.destroyed)bust.sprite.destroy();}catch(error){errors.push(error);}
+            try{if(!bust.sprite.destroyed)bust.sprite.destroy({children:true});}catch(error){errors.push(error);}
             try{bust.texture?.destroy(true);}catch(error){errors.push(error);}
             bust.texture=null;
+            if(bust.loading)bust.loading.dead=true;
+            try{dropStill(bust.shown);}catch(error){errors.push(error);}
+            bust.shown=bust.loading=null;
             if(errors.length)throw new AggregateError(errors,'Bust cleanup failed');
         }};
         instances.add(view);return view;

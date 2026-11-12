@@ -49,6 +49,17 @@ function BgmPanel(props) {
     const h = React.createElement, s = useBgm();
     const [query, setQuery] = React.useState("");
     const list = bgmSearch(s.tracks, query), playing = Boolean(s.current && !s.paused);
+    // The list scrolls inside the panel: the current track opens centred and stays in view as it changes.
+    const listRef = React.useRef(null), centred = React.useRef(false), currentKey = s.current ? s.current.key : "";
+    React.useLayoutEffect(function () {
+        const box = listRef.current, row = box && box.querySelector('[aria-current="true"]');
+        if (!row) return;
+        const top = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+        if (!centred.current) box.scrollTop = top - (box.clientHeight - row.offsetHeight) / 2;
+        else if (top < box.scrollTop) box.scrollTop = top;
+        else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + row.offsetHeight - box.clientHeight;
+        centred.current = true;
+    }, [currentKey, list.length > 0]);
     const stop = event => event.stopPropagation();
     const control = (icon, label, action, disabled, className) => h("button", { type: "button", className: "fork-bgm-button" + (className ? " " + className : ""),
         title: label, "aria-label": label, disabled: Boolean(disabled), onClick: action }, h(Icon, { name: icon, size: 18 }));
@@ -75,7 +86,7 @@ function BgmPanel(props) {
                 control("next", "下一首", () => bgmPlayer.step(1), !s.tracks.length)),
             h(SearchBox, { className: "fork-bgm-search", icon: h(Icon, { name: "search", size: 15 }), value: query, placeholder: "搜索", label: "搜索曲目", onChange: setQuery }),
             s.error ? h("p", { className: "fork-bgm-error", role: "alert" }, "载入失败") : null,
-            list.length ? h("ul", { className: "fork-bgm-list", "aria-label": "曲目", onKeyDown: arrows },
+            list.length ? h("ul", { ref: listRef, className: "fork-bgm-list", "aria-label": "曲目", onKeyDown: arrows },
                 list.map(track => h("li", { key: track.key },
                     h("button", { type: "button", className: "fork-bgm-track", "aria-current": s.current && s.current.key === track.key ? "true" : undefined,
                         title: track.pack || track.name, onClick: () => bgmPlayer.pick(track.key) },
@@ -111,7 +122,9 @@ function BgmChat(props) {
         if (!open || !chip.current) { setPlace(null); return; }
         const anchor = props.menu && chip.current.closest(".dsh-tavern-more-actions")?.querySelector("[data-fork-more]") || chip.current;
         const rect = anchor.getBoundingClientRect(), width = Math.min(340, window.innerWidth - 16);
-        setPlace({ left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)), top: rect.bottom + 6, width, maxHeight: window.innerHeight - rect.bottom - 18 });
+        // About twelve tracks at most (60% of the window); the list scrolls inside.
+        setPlace({ left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)), top: rect.bottom + 6, width,
+            maxHeight: Math.min(Math.round(window.innerHeight * 0.6), window.innerHeight - rect.bottom - 18) });
     }, [open]);
     if (s.sessionId !== props.sessionId || !s.available) return null;
     const paused = s.paused || !s.enabled || !s.current;

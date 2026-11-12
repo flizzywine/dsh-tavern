@@ -1,5 +1,5 @@
 // shared figure image, preview and crop authoring; no card-level character editor.
-const IMAGE_LIMIT=6*1024*1024, IMAGE_TYPES={'image/png':'png','image/webp':'webp','image/jpeg':'jpeg'};
+const IMAGE_LIMIT=6*1024*1024, IMAGE_KEPT={'image/png':'png','image/webp':'webp'};
 const DEFAULT_AVATAR_CROP={x:0.3,y:0,w:0.4,h:0.21};
 // sample only at explicit authoring ingress, never in a thumbnail/read effect.
 async function figureAutoValue(binding,pack,figure,imported) {
@@ -30,22 +30,22 @@ async function fillImportedFigureColors(binding,pack) {
   }
   return fileUpdates.size?binding.service.patchPack({packId:pack.manifest.id,expectedRevision:pack.revision,fileUpdates}):{snapshot:pack};
 }
-// Browser image intake: PNG/WebP pass through; JPEG is re-encoded (WebP, else PNG) because sprite sources
-// only admit PNG/WebP. Dimensions, alpha and size are measured here for the §7.2 warnings.
+// Browser image intake: PNG/WebP pass through; any other still the browser decodes (JPEG, GIF — its first frame —,
+// BMP, AVIF…) is re-encoded (WebP, else PNG) because the pack only stores PNG/WebP. Dimensions, alpha and size are
+// measured here for the §7.2 warnings.
 async function browserPrepareImage(file,kind,sampleColor=true) {
-  const type=IMAGE_TYPES[file?.type]||(/\.png$/i.test(file?.name)?'png':/\.webp$/i.test(file?.name)?'webp':/\.jpe?g$/i.test(file?.name)?'jpeg':'');
-  if(!type)throw new Error('请选择 PNG、WebP 或 JPEG 图片');
-  if(file.size>IMAGE_LIMIT)throw new Error('图片过大（上限 6 MB）');
-  const bitmap=await createImageBitmap(file),width=bitmap.width,height=bitmap.height;
+  const kept=IMAGE_KEPT[file?.type]||(/\.png$/i.test(file?.name)?'png':/\.webp$/i.test(file?.name)?'webp':'');
+  if(kept&&file.size>IMAGE_LIMIT)throw new Error('图片过大（上限 6 MB）');
+  const bitmap=await createImageBitmap(file).catch(()=>{throw new Error('读不出这张图片，请换成 PNG、JPG 或 WebP 图片');}),width=bitmap.width,height=bitmap.height;
   try {
   if(width>8192||height>8192||width*height>32*1024*1024)throw new Error('图片尺寸过大（上限 8192 像素、总计 32 MP）');
   const canvas=(w,hgt)=>{const c=document.createElement('canvas');c.width=w;c.height=hgt;return c;};
-  let blob=file,ext=type==='jpeg'?'':type,alpha=false;
-  if(type==='jpeg'){
+  let blob=file,ext=kept,alpha=false;
+  if(!kept){
     const c=canvas(width,height);c.getContext('2d').drawImage(bitmap,0,0);
     blob=await new Promise(resolve=>c.toBlob(resolve,'image/webp',0.92));ext='webp';
     if(!blob||blob.type!=='image/webp'){blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));ext='png';}
-    if(!blob)throw new Error('无法转换这张 JPEG 图片');
+    if(!blob)throw new Error('没能转换这张图片，请换成 PNG 或 WebP 图片');
     if(blob.size>IMAGE_LIMIT)throw new Error('图片转换后过大（上限 6 MB）');
   }
   const side=64,c=canvas(side,side),g=c.getContext('2d');g.drawImage(bitmap,0,0,side,side);
@@ -155,7 +155,7 @@ function CommitInput({value,onCommit,validate,multiline,count,...props}) {
 }
 // `text` (optional) is a shorter visible caption; the input keeps the full accessible name.
 function UploadButton({label,text,onFile,disabled,primary}) {
-  return h('label',{className:'ap-file-button'+(primary?' is-accent':''),'data-disabled':disabled||undefined,title:text?label:undefined},text?h(React.Fragment,null,h(Glyph,{name:'upload'}),text):label,h('input',{type:'file',accept:'image/png,image/webp,image/jpeg','aria-label':label,disabled,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);}}));
+  return h('label',{className:'ap-file-button'+(primary?' is-accent':''),'data-disabled':disabled||undefined,title:text?label:undefined},text?h(React.Fragment,null,h(Glyph,{name:'upload'}),text):label,h('input',{type:'file',accept:IMAGE_ACCEPT,'aria-label':label,disabled,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);}}));
 }
 function useUpload() {
   const [busy,setBusy]=React.useState(''),[error,setError]=React.useState(''),[warnings,setWarnings]=React.useState([]);
@@ -178,5 +178,5 @@ function MediaTile({className,actions=[],children}) {
 // Image upload as an icon: pinned to a thumbnail corner (`pos`) or a plain icon button in a tool group.
 function IconUpload({label,onFile,disabled,pos,icon='upload'}) {
   return h('label',{className:(pos?'ap-overlay':'ap-icon-button')+' ap-file-button','data-pos':pos,'data-disabled':disabled||undefined,title:label},h(Glyph,{name:icon}),
-    h('input',{type:'file',accept:'image/png,image/webp,image/jpeg','aria-label':label,disabled,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);}}));
+    h('input',{type:'file',accept:IMAGE_ACCEPT,'aria-label':label,disabled,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)onFile(file);}}));
 }

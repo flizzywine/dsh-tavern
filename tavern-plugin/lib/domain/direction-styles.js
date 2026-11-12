@@ -12,7 +12,7 @@ export function directionStyles(snapshots = [], boundPackIds = [], globalEnabled
   for (const {manifest} of snapshots) {
     const group = player.has(manifest.id) ? 'player' : card.has(manifest.id) ? 'card' : null
     if (!group) continue
-    for (const {asset} of effective.filter(row => row.ref.packId === manifest.id)) if (asset.kind === 'directions' && asset.enabled) {
+    for (const {asset} of effective.filter(row => row.ref.packId === manifest.id)) if (asset.kind === 'directions' && asset.enabled && asset.text.trim()) {
       styles[group].push({ref:{packId:manifest.id,kind:'directions',assetId:asset.id},name:asset.name,text:asset.text,packName:manifest.name})
     }
   }

@@ -6,19 +6,16 @@
 //                                               in the head decides where every control of the section writes
 //   <素材种类> N (?) ………………………… ›           ModEntries — one section per manifest admission entry kind: this
 //                                               card's entries (全局 + 本卡 packs) with their lamps, as in 舞台素材
-// A config page (MOD_CONFIG_PAGES) gets the entry sections ready-made as its `entries` prop and places them last;
-// the manifest renderer appends them itself. Rule 15: a mod's switch is global only; a card differs by its entries.
+// A settings page (MOD_CONFIG_PAGES, else ModConfigList) gets the entry sections ready-made as its `entries` prop and
+// places them last. Rule 15: a mod's switch is global only; a card differs by its entries.
 
 // The page head's (?): one sentence a player understands (a manifest summary is written for the director); another
 // mod shows its manifest summary.
 // The mods' own sentences come from their parts (mod-clients.js: description / glyph / fieldHelp).
 const modPartMap = name => Object.fromEntries(modClients.slot(name).map(part => [part.modId, part.value]));
-const MOD_HELP = Object.freeze({
-    'dsh.performance': '场景专属的持续演出（如场景光效），导演按本卡的演出素材播放。',
-    ...modPartMap('description')
-});
+const MOD_HELP = Object.freeze(modPartMap('description'));
 // The 舞台设置 › 模组 row icon of a first-party mod (glyph names of the panel's one Glyph); another mod shows 'widgets'.
-const MOD_GLYPHS = Object.freeze({ 'dsh.performance': 'performances', ...modPartMap('glyph') });
+const MOD_GLYPHS = Object.freeze(modPartMap('glyph'));
 // A setting's (?) where the config schema carries none (the manifest's settingsSchema help is used first).
 const MOD_FIELD_HELP = Object.freeze(modPartMap('fieldHelp'));
 const MOD_ENTRY_HELP = '蓝灯每轮可用，绿灯在正文提到触发词时可用；一轮里一条都用不上时，这个模组那一轮不启用。';
@@ -39,15 +36,10 @@ function ModSettings({ modId, config, help, children }) {
     return h(StageSection, { title: '设置', help, foldKey: 'mod:' + modId + '/settings', className: 'fork-mod-settings', action: h(CfgScope, { config }) }, children);
 }
 
-// A mod's own built-in asset pack (tavern-plugin/lib/mod-builtins.js assetPackId; tests keep them equal). Rule 15:
-// its entries are in use whenever the mod is on, like a 全局 pack (mod-event-catalogue.js), so its section lists them
-// first and 舞台设置 loads its document like a lit pack's (stageDetailRows).
-const MOD_BUILTIN_PACKS = Object.freeze({});
-// This card's entries of one kind, pack by pack (the mod's built-in pack, then 全局 packs, then 本卡 — the packs the
-// mod reads): the full pack documents 舞台设置 already holds (items null while one is still loading).
-function modEntryGroups(ctx, kind, modId) {
-    const own = MOD_BUILTIN_PACKS[modId], builtin = own ? (ctx.packs || []).filter(row => !row.error && row.manifest?.id === own && packCount(row, kind) > 0) : [];
-    return [...builtin, ...stageKindPacks(ctx, kind).filter(row => row.manifest.id !== own)].map(row => {
+// This card's entries of one kind, pack by pack (全局 packs, then 本卡 — the packs the mod reads): the full pack
+// documents 舞台设置 already holds (items null while one is still loading).
+function modEntryGroups(ctx, kind) {
+    return stageKindPacks(ctx, kind).map(row => {
         const pack = ctx.writer?.pack?.(row.manifest.id);
         return { packId: row.manifest.id, pack, items: pack ? pack.manifest.assets.filter(asset => asset.kind === kind) : null };
     });
@@ -55,7 +47,7 @@ function modEntryGroups(ctx, kind, modId) {
 // One entry section: the library's own entry rows (EntryItem: art · name · lamp menu). A row opens the entry in 舞台素材;
 // its lamp writes the pack on the stage page's CAS queue (writer.packOp), like the library's list lamp.
 function ModEntries({ ctx, modId, kind }) {
-    const [error, setError] = React.useState(''), label = kinds[kind] || kind, groups = modEntryGroups(ctx, kind, modId);
+    const [error, setError] = React.useState(''), label = kinds[kind] || kind, groups = modEntryGroups(ctx, kind);
     const loading = groups.some(group => !group.items), shown = loading ? [] : groups.filter(group => group.items.length);
     const count = loading ? undefined : shown.reduce((sum, group) => sum + group.items.length, 0), many = shown.length > 1, library = ctx.nav?.openLibrary;
     // The library selects any entry of the opened kind by `figureId` (its deep-link field for the selected item).
