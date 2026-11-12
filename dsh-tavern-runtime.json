@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8c8f11af61b0c0c54cd09c61c12ec821f39775e5",
-  "releaseSequence": 1566,
+  "revision": "16759c77a1139b55eb76bc6941174df591d51e21",
+  "releaseSequence": 1567,
   "version": "3.3.0",
   "files": [
     {
@@ -421,8 +421,8 @@
     },
     {
       "path": "bin/theme-font-limit.mjs",
-      "sha256": "5e71551855c7379a1ef9ae03d3fc437d8f7a9f12fd21ee7988bfb7b41e997a4d",
-      "size": 1954
+      "sha256": "c99ab777aa9735da619fc02dd2e2e81819b70d32d38361633264e3e56c5946ac",
+      "size": 2577
     },
     {
       "path": "bin/update-diagnostics.mjs",
@@ -9191,9 +9191,9 @@
     }
   ],
   "archive": {
-    "commit": "2217781b415569b7882136b9e1781d59baf89217",
+    "commit": "53dceae53752bca4177058707002a96896b39798",
     "path": "runtime.zip",
-    "sha256": "4681a8180c997e1eb31643b5584f6921a717e827a70800869401012e7f943e1d",
-    "size": 16333015
+    "sha256": "cfa2e35cb339b5fc005abaa9a5518b51101d7d5094b9eeeacccda88c98f7b450",
+    "size": 16333262
   }
 }
