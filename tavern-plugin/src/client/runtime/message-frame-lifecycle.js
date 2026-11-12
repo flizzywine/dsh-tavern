@@ -1,4 +1,34 @@
-		const TAVERN_FRAME_MAX_HEIGHT = 32000;
+// A card figure's face by alias or name: the identity resolver's card figure (config.characters[] holds every enabled
+// figure of the card's and the global packs) and its avatarMedia.default, the face its transcript bubbles show (bubbles.js),
+// as this session's avatar-cache descriptor; null for a name with no figure or no face. The one rule for the stage widgets'
+// faces (source-widgets useCardFaces, handed over as characters.face) and the chat card frames' (bubbleCardFaceBlobs).
+function bubbleCardFace(config, name, sessionId) {
+    const descriptor = name ? bubbleCharacter(config, name)?.avatarMedia?.default : null;
+    return descriptor ? {...descriptor, sessionId} : null;
+}
+// A chat card frame's faces (its window.DshCardFaces.faces, frame-document.js): each named figure's card face, prepared in
+// the session avatar cache as the transcript prepares its rows' and handed over as a Blob the frame makes its own URL of
+// (a sandboxed frame cannot load the host's). A name without a face is left out; a card without bubble settings has none.
+const BUBBLE_FRAME_FACE_PX = 96;
+async function bubbleCardFaceBlobs(sessionId, names) {
+    const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
+    const source = stageSessions.get(sessionId)?.getSnapshot().source;
+    const authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
+    const faces = await Promise.all([...new Set(names)].map(async name => {
+        const face = bubbleCardFace(data?.config, name, sessionId);
+        if (!face) return null;
+        let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX) || avatarCache.ready(face);
+        if (!url && !(stageSessions.resourceOwner && !authority)) {
+            const pool = bubbleMediaPool.retain(), {sessionId: _session, ...descriptor} = face;
+            try {
+                const pin = await pool.owner.acquire(descriptor, authority);
+                try { url = await avatarCache.prepare(face,pin.handle.url,BUBBLE_FRAME_FACE_PX); } finally { pin.release(); }
+            } catch (_) { /* an unleasable face is left out, as the transcript leaves its avatar empty */ } finally { pool.release(); }
+        }
+        return url ? {name, blob: await (await fetch(url)).blob()} : null;
+    }));
+    return faces.filter(Boolean);
+}		const TAVERN_FRAME_MAX_HEIGHT = 32000;
 		function clampTavernFrameHeight(value) {
 			const height = Number(value);
 			return Number.isFinite(height) ? Math.max(48, Math.min(TAVERN_FRAME_MAX_HEIGHT, Math.ceil(height))) : 48;
@@ -645,6 +675,16 @@
 						return;
 					}
 
+					// window.DshCardFaces.faces(names): the card figures' transcript faces (bubbles.js bubbleCardFaceBlobs).
+					if (data.method === "getCardFaces") {
+						const names = Array.isArray(data.args && data.args.names) ? data.args.names.slice(0, 32).map(String) : [];
+						bubbleCardFaceBlobs(props.sessionId, names).then(function (result) {
+							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
+						}, function (error) {
+							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
+						});
+						return;
+					}
 					if (data.method === "triggerTavernSlash") {
 						const executeSlash = configuredSlashExecutor || requestProps.executeSlash;
 						Promise.resolve().then(function () {

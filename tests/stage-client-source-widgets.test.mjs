@@ -70,7 +70,7 @@ test('a phone config response from the prior session cannot replace the new sess
 })
 test('a late widget avatar lease is released without warming the shared cache after stop',async()=>{
  let finish,prepared=0,released=0
- const f=fixture({characters:{character:()=>({avatarMedia:{default:{identity:'face',revision:1}}})},
+ const f=fixture({characters:{face:(config,name,sessionId)=>({identity:'face',revision:1,sessionId})},
   avatarCache:{subscribe:()=>()=>{},get:()=>null,ready:()=>null,prepare:()=>prepared++},
   sessions:()=>({resourceOwner:{acquire:()=>new Promise(resolve=>finish=resolve)}})})
  function View(){f.plugin.useFaces({config:{},sessionId:'s',source:{sessionId:'s',authorityEpoch:1},names:['person'],px:96});return null}
@@ -86,7 +86,8 @@ test('a phone contact keeps one face across rounds, outfit changes and moods',as
  // The card face is the contact's only face; the stage portrait follows the current outfit and mood.
  const characters=[{alias:'alice',name:'Alice',avatarMedia:{default:{identity:'alice-default-calm',revision:1},moods:{happy:{identity:'alice-happy'},sad:{identity:'alice-sad'}}}}]
  const f=fixture({phoneProtocol,
-  characters:{character:(config,name)=>config.characters.find(row=>row.alias===(name?.alias ?? name))},
+  characters:{character:(config,name)=>config.characters.find(row=>row.alias===(name?.alias ?? name)),
+   face:(config,name,sessionId)=>{const row=config.characters.find(row=>row.alias===name);return row ? {...row.avatarMedia.default,sessionId} : null}},
   figureResolution:{resolveFigureName:(rows,id)=>{const row=rows.find(value=>value.actorKey===id);return row ? {status:'resolved',row,actorKey:id} : {status:'unresolved'}}},
   avatarCache:{subscribe:()=>()=>{},get:face=>'card:'+face.identity,ready:face=>'card:'+face.identity,prepare(){}},
   sessions:()=>({owner:{getWidgetContext:()=>null}}),
