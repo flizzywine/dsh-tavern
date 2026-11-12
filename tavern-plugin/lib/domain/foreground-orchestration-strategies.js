@@ -546,6 +546,10 @@ export function createNativePlayOrchestrationStrategy(options) {
       const text = options.styleReferencePrompt(input.chat)
       if (text) sections.push({ name: 'tavern:foreground-style-reference', text })
     }
+    if (mode === 'story' && options.foregroundCandidatePrompt) {
+      const text = options.foregroundCandidatePrompt(input.chat)
+      if (text) sections.push({ name: 'tavern:foreground-candidates', text })
+    }
     assembly.sections = sections
     return assembly
   }

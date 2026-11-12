@@ -139,6 +139,64 @@ function buildMessages(chat, card, selection, now, limit = 6) {
   return messages
 }
 
+export const FOREGROUND_CHOICES_OPEN_TAG = '<story_choices>'
+export const FOREGROUND_CHOICES_CLOSE_TAG = '</story_choices>'
+
+export const FOREGROUND_CANDIDATES_PROMPT = [
+  '<foreground_story_candidates>',
+  'After finishing the story prose for this turn, append a `<story_choices>` block at the very end on a new line (inside `submit_story` `content` if using tool submission, or at the end of your text reply):',
+  '<story_choices>',
+  '{"actions":["...","...","...","..."],"scene":"..."}',
+  '</story_choices>',
+  'Requirements for the choices:',
+  '- `actions` holds exactly 4 distinct character-action director instructions (~40 characters each, in the story\'s language), spanning 4 directorial angles:',
+  '  1. Escalate: follow the current momentum and deepen the ongoing action, intimacy, or conflict.',
+  '  2. Shift dynamic: change the pace, posture, initiative, or power balance in the interaction.',
+  '  3. Tension & dialogue: pause or slow physical progression to focus on verbal interplay, teasing, questioning, or emotional tension.',
+  '  4. Physical & detail focus: center on a specific bodily touch, object, garment, or immediate physical surroundings.',
+  '- `scene` holds 1 scene-change direction (~40 characters) transitioning to a new time, location, or incoming event.',
+  '- Write as concrete director staging instructions matching the current tone and rating (both SFW and explicit NSFW are fully supported). Do not write anything after `</story_choices>`.',
+  '</foreground_story_candidates>'
+].join('\n')
+
+export function foregroundCandidatePrompt(chat) {
+  if ((chat?.mode || 'story') !== 'story' || chat?.backgroundTasks?.foregroundCandidates !== true) return ''
+  return FOREGROUND_CANDIDATES_PROMPT
+}
+
+/**
+ * Extract trailing `<story_choices>...</story_choices>` from a foreground reply.
+ * Returns `{ proseText, choices, hadTag }`, where `choices` is either a validated
+ * 4+1 choice array or `null` if no valid block was present. Any trailing `<story_choices>`
+ * block (complete or truncated at max-tokens) is stripped from `proseText`.
+ */
+export function extractForegroundStoryChoices(rawText, { card, chat, logger } = {}) {
+  const source = str(rawText)
+  const match = source.match(/\s*<story_choices>\s*([\s\S]*?)(?:<\/story_choices>\s*$|$)/i)
+  if (!match || match.index === undefined) {
+    return { proseText: source, choices: null, hadTag: false }
+  }
+  const proseText = source.slice(0, match.index).trimEnd()
+  const payload = str(match[1]).trim()
+  if (payload === '') return { proseText, choices: null, hadTag: true }
+  try {
+    const parsed = parseJsonLenient(payload)
+    const rawActions = Array.isArray(parsed.actions) ? parsed.actions : []
+    const actions = rawActions.map(function (item) {
+      const text = typeof item === 'string' ? item : str(item && item.text)
+      return projectCandidateIdentityMacros(text, card, chat).trim()
+    }).filter(Boolean)
+    const sceneText = typeof parsed.scene === 'string' ? parsed.scene : str(parsed.scene && parsed.scene.text)
+    const scene = projectCandidateIdentityMacros(sceneText, card, chat).trim()
+    const items = actions.map(function (text) { return { type: 'action', text } })
+    if (scene !== '') items.push({ type: 'scene', text: scene })
+    const choices = validatedChoices(items, false, logger)
+    return { proseText, choices, hadTag: true }
+  } catch (_error) {
+    return { proseText, choices: null, hadTag: true }
+  }
+}
+
 export const CANDIDATE_SUBMIT_TOOL_NAME = 'candidate_submit_choices'
 
 export const CANDIDATE_SUBMIT_TOOL = Object.freeze({

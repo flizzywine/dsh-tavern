@@ -1,4 +1,5 @@
 import { createHostToolPolicy } from '../host/tools.js'
+import { randomUUID } from 'node:crypto'
 import { assistantResultForTurn } from '../domain/session-turn-result.js'
 import { inputEventForTurn } from '../domain/session-turn-input.js'
 import { roundAnchor } from '../domain/round-anchor.js'
@@ -88,6 +89,8 @@ export function registerTurnLifecycleHooks({
       })
       throw new Error(message)
     }
+    const projectedMessageId = assistant.storyToolSubmission ? 'tavern-tool-reply:' + randomUUID() : randomUUID()
+    let replyMessageId = String(assistant.event?.data?.message?.id || '')
     const finalize = () => foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,
@@ -96,6 +99,7 @@ export function registerTurnLifecycleHooks({
       userContent,
       pluginBodyGeneration: assistant?.pluginBodyGeneration === true,
       assistantText: assistant === null ? '' : assistant.text,
+      replyMessageId: projectedMessageId,
       incomplete: reachedOutputLimit(assistant),
       incompleteReason: '这次生成达到输出上限或被中断，保留了已生成的部分正文',
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
@@ -103,8 +107,16 @@ export function registerTurnLifecycleHooks({
     const saved = requestPerformance ? await requestPerformance.run('generateCommit', sessionId, finalize) : await finalize()
     // A submit_story call and its receipt both carry the body; fold them into one
     // plain reply so context, regeneration and rollback see an ordinary round.
-    if (assistant.storyToolSubmission) replaceAssistantReply(session, assistant, saved.reply ? saved.reply.sessionText : assistant.content)
-    else if (saved.reply) replaceAssistantReply(session, assistant, saved.reply.sessionText)
+    if (assistant.storyToolSubmission) {
+      replaceAssistantReply(session, assistant, saved.reply ? saved.reply.sessionText : assistant.content, projectedMessageId)
+      replyMessageId = projectedMessageId
+    } else if (saved.reply) {
+      if (assistant.text !== saved.reply.sessionText) replyMessageId = projectedMessageId
+      replaceAssistantReply(session, assistant, saved.reply.sessionText, projectedMessageId)
+    }
+    if (saved?.candidates && saved.candidates.messageId !== replyMessageId && replyMessageId !== '') {
+      await foregroundHandoff.syncCandidateMessageId?.(sessionId, saved.candidates.requestId, replyMessageId)
+    }
   })
 
   ctx.on('agent/error', function (payload) {

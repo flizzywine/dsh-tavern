@@ -154,7 +154,7 @@ export function storySubmissionForTurn(session, turn) {
  * replacement then leaves that one text where the call, receipt and copy were,
  * so the model sees the body once and rollback/regeneration see a normal round.
  */
-export function foldStorySubmission(session, result, bodyText) {
+export function foldStorySubmission(session, result, bodyText, messageId) {
   const data = result.event.data
   const turn = Number(data.turn) || 0
   const step = Number(data.step) || 1
@@ -179,7 +179,7 @@ export function foldStorySubmission(session, result, bodyText) {
     ...data.message,
     // The client marks a tool-submitted body by this prefix: it arrives whole in
     // one commit, so the reader must land on its first line instead of its end.
-    id: 'tavern-tool-reply:' + randomUUID(),
+    id: typeof messageId === 'string' && messageId.startsWith('tavern-tool-reply:') ? messageId : 'tavern-tool-reply:' + randomUUID(),
     source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' },
     content: [{ type: 'text', text: bodyText }]
   }

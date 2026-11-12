@@ -209,7 +209,7 @@ return { bodyGenerationProviders: await deps.pluginApi?.bodyGenerators?.list(), 
       const patch = {
         defaultPlaySettings: {
           playerName,
-          backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true },
+          backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true },
           webSearchEnabled: chat.webSearchEnabled === true
         },
         defaultDisabledForegroundTools: disabledForegroundTools,

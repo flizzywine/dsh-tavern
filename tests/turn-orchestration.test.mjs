@@ -415,3 +415,39 @@ test('plugin projection uses durable rules and freezes distinct prompt/display c
   assert.equal(row.displayText, 'display')
   assert.equal(row.bodyPluginProjection, true)
 })
+
+test('前台正文结尾包含 <story_choices> 时，落盘自动剥离标签并写入 chat.candidates', async () => {
+  const h = harness('story', { autoSettle: false, macros: true })
+  await h.orchestrator.prepare({ sessionId: 'session', turn: 2, userText: '继续', requestId: 'req-fg' })
+  const assistantText = [
+    '阿芙拉收起短剑，靠在窗边。',
+    '<story_choices>',
+    JSON.stringify({
+      actions: [
+        '{{user}}顺势贴近{{char}}，继续深入刚才的话题',
+        '主动牵起{{char}}的手，改变现场僵持的节奏',
+        '停下动作低声调侃{{char}}，观察她的细微神态',
+        '伸手替{{char}}整理被雨水打湿的斗篷领口'
+      ],
+      scene: '雨停后离开旅店前往黎明的集市'
+    }),
+    '</story_choices>'
+  ].join('\n')
+  const saved = await h.orchestrator.finalize({
+    sessionId: 'session',
+    turn: 2,
+    userText: '继续',
+    requestId: 'req-fg',
+    assistantText,
+    replyMessageId: 'msg-projected-1'
+  })
+  assert.equal(saved.reply.sessionText, '阿芙拉收起短剑，靠在窗边。')
+  const chat = h.chat()
+  assert.equal(chat.messages.at(-1).text, '阿芙拉收起短剑，靠在窗边。')
+  assert.equal(chat.messages.at(-1).sourceText, '阿芙拉收起短剑，靠在窗边。')
+  assert.ok(chat.candidates)
+  assert.equal(chat.candidates.messageId, 'msg-projected-1')
+  assert.equal(chat.candidates.choices.length, 5)
+  assert.equal(chat.candidates.choices[0].text, 'User顺势贴近阿芙拉，继续深入刚才的话题')
+  assert.equal(chat.candidates.choices[4].type, 'scene')
+})

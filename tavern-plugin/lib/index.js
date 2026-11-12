@@ -156,7 +156,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
-import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator } from './domain/candidate-generation.js'
+import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator, foregroundCandidatePrompt } from './domain/candidate-generation.js'
 import { computeSceneTarget, projectedSceneText } from './domain/scene-illustration.js'
 import { createPluginMedia } from './domain/plugin-media.js'
 import { createPluginMediaViews } from './domain/plugin-media-views.js'
@@ -3627,11 +3627,18 @@ export async function apply(ctx) {
   // style_reference_submit call first. The full instructions stay in the stable system prompt; the
   // reminder is what the model reads last, so the call is not skipped.
   async function projectPluginTurnContext(input) {
-    const sections = await Promise.resolve(pluginApi.turnContext(input)).catch(() => [])
+    const sections = [...(await Promise.resolve(pluginApi.turnContext(input)).catch(() => []) || [])]
     const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
-    if ((header?.mode || 'story') !== 'story' || header?.backgroundTasks?.styleReference !== true) return sections
-    return [...(sections || []), { owner: 'dsh-tavern', name: 'style-reference', position: 'after',
-      text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' }]
+    if ((header?.mode || 'story') !== 'story') return sections
+    if (header?.backgroundTasks?.styleReference === true) {
+      sections.push({ owner: 'dsh-tavern', name: 'style-reference', position: 'after',
+        text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' })
+    }
+    if (header?.backgroundTasks?.foregroundCandidates === true) {
+      sections.push({ owner: 'dsh-tavern', name: 'foreground-candidates', position: 'after',
+        text: '【本轮结尾附候选项】正文全部写完后，在最末尾另起一行附上 `<story_choices>{"actions":["...","...","...","..."],"scene":"..."}</story_choices>`（4 条不同导演视角的行动指引 + 1 条场景变化指引，每条约 40 字）。' })
+    }
+    return sections
   }
   const turnOrchestrator = createTurnOrchestrator({
     // Either direction needs submit_story declared: output to submit this turn,
@@ -3710,6 +3717,14 @@ export async function apply(ctx) {
     turnDiscarded: (sessionId, turn) => storyEvents.emit('turn-discarded', { sessionId, turn }),
     cancelPresentation: sessionId => {void presentationObservers.cancelled(sessionId)},
     beforeNextTurn: chat => workflow.beforeNextTurn(chat),
+    syncCandidateMessageId: async (sessionId, requestId, messageId) => {
+      const chat = await chatHeaderForSession(sessionId, ['candidates'])
+      if (!chat?.id || !chat.candidates || chat.candidates.requestId !== requestId || chat.candidates.messageId === messageId) return
+      await updateChatHeader(chat.id, ['candidates'], current => {
+        if (!current.candidates || current.candidates.requestId !== requestId) return current
+        return { ...current, candidates: { ...current.candidates, messageId } }
+      }, { source: 'foreground.candidate-message-id' })
+    },
     waitReconcile: storyReconciliation.waitReconcile,
     syncWorldBook: async function (chat) {
       if (!['story', 'script'].includes(chat.mode || 'story')) return
@@ -4254,8 +4269,8 @@ export async function apply(ctx) {
     return phase && phase.kind === 'running' ? Math.max(0, Number(phase.turn) || 0) : 0
   }
 
-  function replaceAssistantReply(session, result, bodyText) {
-    if (result !== null && result.storyToolSubmission) return foldStorySubmission(session, result, bodyText)
+  function replaceAssistantReply(session, result, bodyText, messageId) {
+    if (result !== null && result.storyToolSubmission) return foldStorySubmission(session, result, bodyText, messageId)
     if (result === null || result.text === bodyText) return
     const previous = result.event && result.event.data && result.event.data.message
     if (previous === null || typeof previous !== 'object') return
@@ -4263,7 +4278,7 @@ export async function apply(ctx) {
       turn: Number(result.event.data && result.event.data.turn) || 0,
       step: Number(result.event.data && result.event.data.step) || 1,
       message: Object.assign({}, previous, {
-        id: randomUUID(),
+        id: typeof messageId === 'string' && messageId !== '' ? messageId : randomUUID(),
         source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' },
         content: [{ type: 'text', text: bodyText }]
       })
@@ -4326,6 +4341,7 @@ export async function apply(ctx) {
     nativePlay: {
       // Input side: replay past bodies as calls of the submission tool.
       styleReferencePrompt: chat => foregroundStyleReferencePrompt(chat, runtimePrompt('style-reference-recall'), runtimePrompt('style-reference')),
+      foregroundCandidatePrompt: chat => foregroundCandidatePrompt(chat),
       bodyGeneration: sessionId => pluginBodyGeneration.route(sessionId),
       historyToolCall: async () => (await readTavernSettings()).storyInputToolCall,
       // Output side: whether a new body must be submitted through the tool.

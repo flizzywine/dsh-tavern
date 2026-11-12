@@ -15,6 +15,7 @@ import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface
 export { unansweredTailIndex }
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
+import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
@@ -660,6 +661,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         consumeScriptPrompts(draft)
         delete draft.ledgerInjection
       }
+      const extractedForegroundChoices = (draft.mode || 'story') === 'story'
+        ? extractForegroundStoryChoices(body, { card, chat: draft })
+        : { proseText: body, choices: null, hadTag: false }
+      body = str(extractedForegroundChoices.proseText).trim()
       const projectedReply = typeof prepareRegenerationReply === 'function'
         ? await prepareRegenerationReply({ chat: draft, card, turn: storyTurn, text: body }) : null
       const prose = projectedReply ? replyProse(projectedReply.sourceText ?? body, projectedReply) : plainReplyProse(body)
@@ -737,6 +742,25 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
           message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
             source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
+      if (extractedForegroundChoices.choices) {
+        const regenMessageId = appending
+          ? str(assistantResultForTurn(session, syntheticTurn)?.event?.data?.message?.id)
+          : 'tavern-regen:' + operationId
+        if (regenMessageId !== '') {
+          next.candidates = {
+            messageId: regenMessageId,
+            choices: extractedForegroundChoices.choices,
+            generatedAt: Date.now(),
+            script: undefined,
+            requestId: 'fg-choices-regen-' + operationId,
+            operationId: bodyOperation.id,
+            traceSessionId: effectiveSessionId,
+            traceSessionIds: effectiveSessionId ? [effectiveSessionId] : [],
+            traceMode: 'one-shot',
+            basedOn: { branchId: next.timeline.branchId, revision: next.timeline.revision }
+          }
+        }
+      }
 
       committedChat = await stage('regen.commit', () => attempt.commit({ projection, apply(current) {
         if (agent.phase?.kind === 'running') throw new Error('前台已开始新一轮，本次候选已作废')

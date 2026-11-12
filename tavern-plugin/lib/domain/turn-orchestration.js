@@ -1,4 +1,5 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
+import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { promptSection } from './prompt-section.js'
 import { captureChatHeader } from './chat-persistence.js'
@@ -1036,14 +1037,18 @@ export function createTurnOrchestrator(options) {
     const userText = str(input.userText).trim()
     const attachments = inputAttachments(input.userContent)
     const mode = chat.mode || 'story'
-    const sourceText = str(input.assistantText).trim()
+    const rawAssistantText = str(input.assistantText).trim()
     const frame = Object.values(chat.foregroundFrames || {}).findLast(item => Number(item.turn) === turn)
     const pluginBody = input.pluginBodyGeneration === true || frame?.source?.bodyGeneration?.mode?.startsWith('plugin-')
     const hostRegex = pluginBody && frame?.source?.bodyGeneration?.hostRegex === true
     const generated = pluginBody ? chat.timeline?.operations?.[frame?.operationId]?.bodyGeneration : null
     if (pluginBody) {
-      if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== sourceText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
+      if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== rawAssistantText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
     }
+    const extractedForegroundChoices = mode === 'story'
+      ? extractForegroundStoryChoices(rawAssistantText, { card: { name: chat.cardName }, chat })
+      : { proseText: rawAssistantText, choices: null, hadTag: false }
+    const sourceText = str(extractedForegroundChoices.proseText).trim()
     let assistantText = sourceText
     let previousMvuVariables
     let operation
@@ -1251,8 +1256,25 @@ export function createTurnOrchestrator(options) {
     })
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
+    if (input.adopt !== true && extractedForegroundChoices.choices) {
+      const messageId = str(input.replyMessageId)
+      if (messageId !== '') {
+        chat.candidates = {
+          messageId,
+          choices: extractedForegroundChoices.choices,
+          generatedAt: now(),
+          script: undefined,
+          requestId: requestId ? 'fg-choices-' + requestId : 'fg-choices-' + turn,
+          operationId: operation.id,
+          traceSessionId: str(input.sessionId),
+          traceSessionIds: str(input.sessionId) ? [str(input.sessionId)] : [],
+          traceMode: 'one-shot',
+          basedOn: { branchId: chat.timeline.branchId, revision: chat.timeline.revision }
+        }
+      }
+    }
     await writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
-    return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply }
+    return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply, candidates: chat.candidates || null }
   }
 
   async function recordFailure(input) {

@@ -20,6 +20,12 @@ export function createForegroundHandoff(options = {}) {
     return await turns.finalize(input)
   }
 
+  async function syncCandidateMessageId(sessionId, requestId, messageId) {
+    if (typeof options.syncCandidateMessageId === 'function') {
+      await options.syncCandidateMessageId(sessionId, requestId, messageId)
+    }
+  }
+
   // MVU's greeting/initvar path runs while floor 0 is still the latest floor, or on
   // the first input when the page loads its scripts after the player sent. An
   // immediate first send must wait before the system prompt, templates, context or
@@ -117,5 +123,5 @@ export function createForegroundHandoff(options = {}) {
     }
   }
 
-  return Object.freeze({ awaitOpening, prepare, finalize, end, recover })
+  return Object.freeze({ awaitOpening, prepare, finalize, syncCandidateMessageId, end, recover })
 }

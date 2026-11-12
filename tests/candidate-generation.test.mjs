@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createCandidateGenerator } from '../tavern-plugin/lib/domain/candidate-generation.js'
+import { createCandidateGenerator, extractForegroundStoryChoices, foregroundCandidatePrompt } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
@@ -187,3 +187,42 @@ test('first candidate interrupted before a result keeps its bound session for re
   await run.candidates.generate({ sessionId: 'session-1', messageId: 'first' });
   assert.equal(run.modelRequests[1].persistentSessionId, 'background-bound-before-result');
 });
+
+test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提取、宏替换与剥离', () => {
+  assert.equal(foregroundCandidatePrompt({ mode: 'story', backgroundTasks: { foregroundCandidates: false } }), '')
+  assert.equal(foregroundCandidatePrompt({ mode: 'script', backgroundTasks: { foregroundCandidates: true } }), '')
+  assert.match(foregroundCandidatePrompt({ mode: 'story', backgroundTasks: { foregroundCandidates: true } }), /<foreground_story_candidates>/)
+
+  const raw = [
+    '雨夜的钟声回荡在走廊尽头。',
+    '<story_choices>',
+    JSON.stringify({
+      actions: [
+        '{{user}}顺势走近{{char}}，压低声音追问真相',
+        '突然转变态度，夺过{{char}}手中的提灯掌控主动',
+        '停下脚步盯着{{char}}的眼睛，用沉默与反问试探反应',
+        '伸手触碰{{char}}微凉的指尖并检查桌上的旧信封'
+      ],
+      scene: '推开暗门转移到钟楼顶层的密室'
+    }),
+    '</story_choices>'
+  ].join('\n')
+  const extracted = extractForegroundStoryChoices(raw, {
+    card: { name: '阿芙拉' },
+    chat: { macroState: { userName: '旅人' } }
+  })
+  assert.equal(extracted.hadTag, true)
+  assert.equal(extracted.proseText, '雨夜的钟声回荡在走廊尽头。')
+  assert.equal(extracted.choices.length, 5)
+  assert.equal(extracted.choices[0].type, 'action')
+  assert.equal(extracted.choices[0].text, '旅人顺势走近阿芙拉，压低声音追问真相')
+  assert.equal(extracted.choices[4].type, 'scene')
+  assert.equal(extracted.choices[4].text, '推开暗门转移到钟楼顶层的密室')
+
+  // 截断或无效的标签同样从正文中剥离，不污染显示正文
+  const truncated = '正文内容。\n<story_choices>\n{"actions":["未写完'
+  const broken = extractForegroundStoryChoices(truncated, {})
+  assert.equal(broken.hadTag, true)
+  assert.equal(broken.proseText, '正文内容。')
+  assert.equal(broken.choices, null)
+})
