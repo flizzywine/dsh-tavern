@@ -186,10 +186,6 @@ export function createBackgroundAgentSessions(options, task) {
       mode: 'one-shot', provider: 'dsh-tavern-stage-director', label: '舞台导演',
       persona: '独立处理已完成正文的增量演出，与变量和姿势任务并行；不改写剧情或变量。'
     })
-    if (input.task === 'phone') return snapshotSubagentDescriptor({
-      mode: 'one-shot', provider: 'dsh-tavern-phone', label: '手机私聊',
-      persona: '只扮演指定联系人回复一条手机私聊，不推进正文或修改游戏状态。'
-    })
     if (input.task === 'plugin') return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '插件任务' + (input.pluginName ? '：' + String(input.pluginName).slice(0, 60) : '') })
     if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '候选研究' })
     return snapshotSubagentDescriptor({
@@ -205,7 +201,7 @@ export function createBackgroundAgentSessions(options, task) {
   async function execute(input) {
     // Resolve after the queue admits this task, then keep that selection fixed
     // through every step of the task, even if the game setting changes meanwhile.
-    if (options.resolveModelSelection && input.task !== 'phone') {
+    if (options.resolveModelSelection) {
       input = { ...input, selection: await options.resolveModelSelection(input) }
     }
     input.runRecord?.start(input.selection)
@@ -226,10 +222,10 @@ export function createBackgroundAgentSessions(options, task) {
     const runtimeInput = Object.assign({}, input)
     // Read capabilities are an optional part of the task contract: a task without them runs as before.
     const readCapability = await task.resolveReadCapability?.(input) ?? null
-    runtimeInput.worldbookSkillsEnabled = !['phone', 'stage-director', 'polish'].includes(input.task) && input.ownPrefix !== true && Boolean(await options.resolveWorldbookSkills?.(input))
+    runtimeInput.worldbookSkillsEnabled = !['stage-director', 'polish'].includes(input.task) && input.ownPrefix !== true && Boolean(await options.resolveWorldbookSkills?.(input))
     // The game's web search setting, unless the task rules it out (style reference, worldbook
     // filter: paid, slow, and what they look for is not on the open web).
-    if (options.resolveWebSearch && !['phone', 'polish'].includes(input.task) && input.ownPrefix !== true && input.webSearchEnabled !== false) {
+    if (options.resolveWebSearch && input.task !== 'polish' && input.ownPrefix !== true && input.webSearchEnabled !== false) {
       runtimeInput.webSearchEnabled = await options.resolveWebSearch(input)
     }
     const persistent = input.persistent === true
@@ -352,7 +348,7 @@ export function createBackgroundAgentSessions(options, task) {
     requestSessions.set(traceSessionId, handle.agent.session)
     requestContexts.set(traceSessionId, {
       scope: 'background',
-      webSearchEnabled: !['phone', 'stage-director', 'polish'].includes(input.task) && input.ownPrefix !== true && runtimeInput.webSearchEnabled === true,
+      webSearchEnabled: !['stage-director', 'polish'].includes(input.task) && input.ownPrefix !== true && runtimeInput.webSearchEnabled === true,
       parentSessionId: str(input.sessionId),
       selection: { ...input.selection },
       maxTokens,
@@ -577,22 +573,22 @@ export function createBackgroundAgentSessions(options, task) {
   }
 
   // `task`: only that task's runs (停止选项 stops the choices, an interrupted turn its director);
-  // without it every run of the game but the phone's and the parallel tasks'.
+  // without it every run of the game but the parallel tasks'.
   function cancel(parentSessionId, input = {}) {
     let count = 0
     for (const [controller, pending] of preparing) {
-      if (pending.sessionId !== parentSessionId || pending.task === 'phone' || (input.task ? pending.task !== input.task : parallelTasks.has(pending.task))) continue
+      if (pending.sessionId !== parentSessionId || (input.task ? pending.task !== input.task : parallelTasks.has(pending.task))) continue
       controller.abort(); count++
     }
     for (const [id, resident] of residentHandles) {
       const context = requestContexts.get(id)
-      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (input.task ? context.task !== input.task : parallelTasks.has(context.task))) continue
+      if (context?.parentSessionId !== parentSessionId || (input.task ? context.task !== input.task : parallelTasks.has(context.task))) continue
       resident.state.sharedRequest = null
       resident.state.sharedAnchor = null
     }
     for (const sessionId of activeSessions) {
       const context = requestContexts.get(sessionId)
-      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (input.task ? context.task !== input.task : parallelTasks.has(context.task))) continue
+      if (context?.parentSessionId !== parentSessionId || (input.task ? context.task !== input.task : parallelTasks.has(context.task))) continue
       const agent = residentHandles.get(sessionId)?.handle?.agent || agents.get(sessionId)
       const progress=residentHandles.get(sessionId)?.state.progress
       if (progress) { progress.cancel(); count++ }
@@ -602,7 +598,7 @@ export function createBackgroundAgentSessions(options, task) {
   }
 
   function progress(parentSessionId) {
-    for(const id of activeSessions) if(requestContexts.get(id)?.parentSessionId===parentSessionId && requestContexts.get(id)?.task !== 'phone' && !parallelTasks.has(requestContexts.get(id)?.task)) {
+    for(const id of activeSessions) if(requestContexts.get(id)?.parentSessionId===parentSessionId && !parallelTasks.has(requestContexts.get(id)?.task)) {
       const snapshot=residentHandles.get(id)?.state.progress?.snapshot()
       if(snapshot) return {...snapshot,task:requestContexts.get(id).task}
     }

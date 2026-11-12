@@ -32,7 +32,7 @@ export function apply(ctx) {
       }
 
       // Every settlement request verbatim, to compare refactors of the background pipeline.
-      if (process.env.TAVERN_E2E_SETTLEMENT_DUMP && JSON.stringify(input.messages || []).includes('任务类型：状态结算')) {
+      if (process.env.TAVERN_E2E_SETTLEMENT_DUMP && JSON.stringify(input.messages || []).includes('Task type: state settlement')) {
         await appendFile(process.env.TAVERN_E2E_SETTLEMENT_DUMP, JSON.stringify({ system: input.system, tools: (input.tools || []).map(tool => tool.name), messages: input.messages }) + '\n')
       }
       // Every background request (settlement, posture, candidates) verbatim.

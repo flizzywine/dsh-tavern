@@ -39,18 +39,17 @@ function harness(t) {
   return { runner, cancelled, start }
 }
 
-test('停止选项与打断回合只停自己的任务；不带任务时停掉除手机外的全部', async t => {
+test('停止选项与打断回合只停自己的任务；不带任务时停掉其余全部', async t => {
   const h = harness(t)
   const runs = []
-  for (const task of ['candidate', 'stage-director', 'polish', 'phone']) runs.push(await h.start(task))
+  for (const task of ['candidate', 'stage-director', 'polish']) runs.push(await h.start(task))
   assert.equal(h.runner.cancel('game', { task: 'candidate' }), 1)
   assert.deepEqual(h.cancelled, ['candidate'])
   assert.equal(h.runner.cancel('game', { task: 'stage-director' }), 1)
   assert.deepEqual(h.cancelled, ['candidate', 'stage-director'])
-  // Stopped runs end first; then the rest of the game but the phone.
+  // Stopped runs end first; then the rest of the game.
   await Promise.allSettled([runs[0].run, runs[1].run])
   assert.equal(h.runner.cancel('game'), 1)
   assert.deepEqual(h.cancelled, ['candidate', 'stage-director', 'polish'])
-  runs[3].agent.stop()
   await Promise.allSettled(runs.map(item => item.run))
 })

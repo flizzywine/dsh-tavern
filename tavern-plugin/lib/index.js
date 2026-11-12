@@ -3308,7 +3308,7 @@ export async function apply(ctx) {
         checkedCompactionPressure.add(target)
       }
       const background = backgroundAgentRunner.requestContext(target.session.id)
-      if (background && background.task !== 'phone') {
+      if (background) {
         return compactBackgroundIfNeeded({
           trigger, forced, native: fallback,
           pressure: () => measureBackgroundBudget({
@@ -3332,7 +3332,7 @@ export async function apply(ctx) {
     }
     async function compactionRegionGuard(target) {
       const background = backgroundAgentRunner.requestContext(target.session.id)
-      if (!background || background.task === 'phone') return
+      if (!background) return
       const chat = await chatHeaderForSession(background.parentSessionId, [])
       if (!chat) throw new Error('后台压缩找不到所属对话')
       // The Session belongs to its task's member (书记 for a task without a timeline member).
@@ -3357,7 +3357,7 @@ export async function apply(ctx) {
     // old frames stay model-visible until a whole-turn compaction consumes them.
     // ephemeral director corrections must not acquire/prune a story compaction surface.
     if (background?.task === 'stage-director') return next()
-    if ((background && ['phone'].includes(background.task)) || chat?.mode === 'card') {
+    if (chat?.mode === 'card') {
       await configureAgentCompaction(payload.agent)
       return next()
     }

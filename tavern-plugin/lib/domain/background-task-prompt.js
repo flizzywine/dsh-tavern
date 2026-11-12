@@ -1,5 +1,25 @@
 // Common background request assembly. Keep this production seam independent of DSH.
+import { promptSection } from './prompt-section.js'
 import { prependSystemInstruction } from './system-append.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "Card system prompt:\n",
+  p002: "This is the latest state. Where it conflicts with older cursors, postures or guidance in the background session, this section wins.\n",
+  p003: "",
+  p006: "Story",
+  p007: "User",
+  p010: "state settlement",
+  p012: "character design",
+  p013: "stage direction",
+  p014: "ledger update",
+  p015: "plugin task",
+  p016: "choice generation",
+  p017: "Task type: ",
+  p018: "DSH background task protocol (final instructions):\n",
+  p019: "",
+  p020: "Card instructions:\n"
+})
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -20,24 +40,22 @@ export function backgroundPrompt(messages, turnContext, task, taskProtocol, inpu
   const sections = []
   const sharedDirector = task === 'stage-director' && input.contextPolicy === 'shared-background'
   if (sharedDirector && str(input.systemPromptText).trim()) {
-    sections.push('【人物卡系统提示】\n' + str(input.systemPromptText).trim())
+    sections.push(promptSection('card_system', PROMPT_PROSE.p001 + str(input.systemPromptText).trim()))
   }
   const authoritative = str(turnContext).trim()
   if (authoritative !== '') {
-    sections.push('【本轮权威状态】\n' + (task === 'stage-director' ? '这是最新状态；与后台会话中较早的游标、姿势或指引冲突时，以本节为准。\n' : '') + authoritative)
+    sections.push(promptSection('authoritative_state', (task === 'stage-director' ? PROMPT_PROSE.p002 : PROMPT_PROSE.p003) + authoritative))
   }
   const recent = (messages || []).map(function (message) {
-    const role = task === 'phone'
-      ? (message && message.role === 'assistant' ? '联系人' : '你')
-      : (message && message.role === 'assistant' ? '正文' : '用户')
+    const role = message && message.role === 'assistant' ? PROMPT_PROSE.p006 : PROMPT_PROSE.p007
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  const taskName = task === 'stage-director' ? '舞台导演' : task === 'settlement' ? '状态结算' : task === 'phone' ? '手机私聊' : task === 'character-design' ? '人物设计' : task === 'ledger' ? '台账整理' : task === 'plugin' ? '插件任务' : '候选生成'
-  sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
+  const taskName = task === 'settlement' ? PROMPT_PROSE.p010 : task === 'character-design' ? PROMPT_PROSE.p012 : task === 'stage-director' ? PROMPT_PROSE.p013 : task === 'ledger' ? PROMPT_PROSE.p014 : task === 'plugin' ? PROMPT_PROSE.p015 : PROMPT_PROSE.p016
+  sections.push(promptSection('recent_task', PROMPT_PROSE.p017 + taskName + '\n' + recent))
   const protocol = str(taskProtocol).trim()
-  if (protocol !== '') sections.push('【任务要求】\n' + (task === 'stage-director' ? 'DSH 后台任务协议（最终指令）：\n' : '') + protocol)
+  if (protocol !== '') sections.push(promptSection('task_requirements', (task === 'stage-director' ? PROMPT_PROSE.p018 : PROMPT_PROSE.p019) + protocol))
   if ((task === 'candidate' || sharedDirector) && str(input.postHistoryText).trim()) {
-    sections.push('【人物卡历史后指令】\n' + str(input.postHistoryText).trim())
+    sections.push(promptSection('post_history', PROMPT_PROSE.p020 + str(input.postHistoryText).trim()))
   }
   return sections.join('\n\n')
 }

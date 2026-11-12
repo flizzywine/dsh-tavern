@@ -20,6 +20,15 @@ import {
 } from './domain/character-design-stage.js'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix, sessionStablePrefixSections, withCurrentWorldbook } from './domain/session-stable-prefix.js'
+import { promptSection } from './domain/prompt-section.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p002: "You are a Tavern background agent, apart from foreground story generation, doing a one-off plugin task. Output only what the task asks; don't continue the story or change game state yourself. Consult the worldbook and history as needed.",
+  p003: "You are a Tavern background agent, apart from foreground story generation. In one story branch you handle state settlement and choice generation in turn; character design runs only when the user explicitly starts it. Follow the task protocol appended to each turn exactly, keeping each task's output format to that task. The latest authoritative state overrides older dynamic state in the session.",
+  p004: "The card system prompt below only governs choice text; settlement, filtering, character design and other background tasks follow their own protocols.",
+  p010: "## Plugin choice requirements"
+})
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -68,7 +77,7 @@ export function maximumBackgroundTokens(selection) {
 }
 
 export function traceError(error, traceSessionId, task) {
-  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'phone' ? '手机私聊回复失败' : task === 'plugin' ? '插件后台任务失败' : '后台候选生成失败'
+  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'plugin' ? '插件后台任务失败' : '后台候选生成失败'
   const wrapped = new Error(str(error && error.message || error) || fallback, { cause: error })
   wrapped.traceSessionId = traceSessionId
   return wrapped
@@ -170,11 +179,9 @@ export function createBackgroundAgentTask(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = state.input.task === 'phone'
-      ? '你是与故事正文隔离的手机私聊 Agent。你只代表指定联系人回复当前手机消息，不推进正文、不修改状态，也不把私聊虚构成已经发生的现场剧情。'
-      : state.input.task === 'plugin'
-      ? '你是与前台正文生成隔离的酒馆后台 Agent，正在为一个插件完成一次性任务。只按任务要求输出结果，不续写正文，不自行修改游戏状态；需要资料时可以查世界书和历史。'
-      : '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，人物设计仅在用户明确发起人物设计任务时执行；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
+    const backgroundPersona = promptSection('background_role', state.input.task === 'plugin'
+      ? PROMPT_PROSE.p002
+      : PROMPT_PROSE.p003)
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       // Legacy directors retain their exact preview; shared-context directors keep scoped native tools.
@@ -250,8 +257,7 @@ export function createBackgroundAgentTask(options) {
           // instruction without changing its system prefix when the task switches.
           const fixed = sessionStablePrefixSections(state.session).flatMap(section => {
             if (section.name !== CARD_SYSTEM_PROMPT_SECTION) return [section]
-            if (state.input.task === 'phone') return []
-            return [{ ...section, text: '以下人物卡系统提示仅用于候选文本的写作；结算、筛选、人物设计等后台任务遵循各自任务协议。\n' + section.text }]
+            return [{ ...section, text: promptSection('card_system_scope', PROMPT_PROSE.p004) + '\n\n' + section.text }]
           })
           let sections = state.currentWorldbook === undefined ? fixed : withCurrentWorldbook(fixed, state.currentWorldbook)
           if (state.input.worldbookSkillsEnabled) sections = withWorldbookFileInstructions(sections)
@@ -262,7 +268,7 @@ export function createBackgroundAgentTask(options) {
         }
       })
       childCtx.systemPrompt.suppressRuntimeContext()
-      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : state.input.task === 'phone' ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
+      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
       const hostTools = createHostToolPolicy(childCtx)
       childCtx.on('system-prompt/assemble', async function (_assembly, context, next) {
         return hostTools.assemble(await next(), context, async (assembly, tools) => {
@@ -277,13 +283,6 @@ export function createBackgroundAgentTask(options) {
           if (director && !usesSharedBackgroundContext(state.input)) return markTavernSectionsLiteral(assembly)
           prependSystemInstruction(assembly, options.systemAppend?.())
           markTavernSectionsLiteral(assembly)
-          if (state.input.task === 'phone') {
-            assembly.sections = (assembly.sections || []).filter(function (section) {
-              return !section || typeof section.name !== 'string' || !section.name.startsWith('tool:')
-            })
-            assembly.tools = []
-            return assembly
-          }
           if (!state.input.worldbookSkillsEnabled) {
             assembly.sections = (assembly.sections || []).filter(section => !['tool:read', 'tool:worldbook_list', 'tool:worldbook_grep'].includes(section?.name))
             assembly.tools = (assembly.tools || []).filter(tool => !['read', 'worldbook_list', 'worldbook_grep'].includes(tool?.name))
@@ -560,11 +559,11 @@ export function createBackgroundAgentTask(options) {
       const settlementText = items ? await items.text(pluginContext) : ''
       const candidateNotes = input.task === 'candidate' && typeof options.pluginCandidate === 'function'
         ? await options.pluginCandidate()?.sections(pluginContext).catch(() => []) || [] : []
-      const candidateText = candidateNotes.length ? ['【插件附加的候选要求】', ...candidateNotes.map(note => note.text)].join('\n\n') : ''
+      const pluginText = promptSection('plugin_task', [settlementText,
+        candidateNotes.length ? [PROMPT_PROSE.p010, ...candidateNotes.map(note => note.text)].join('\n\n') : ''].filter(Boolean).join('\n\n'))
       const ownTaskText = input.task === 'polish' || input.ownPrefix === true
       const taskText = ownTaskText ? (typeof input.taskText === 'function' ? input.taskText() : input.taskText)
-        : backgroundTaskPrompt({ input, turnContext: scriptContext?.turnContext ?? input.turnContext, worldbook: snapshot, systemUpdate,
-          pluginText: [settlementText, candidateText].filter(Boolean).join('\n\n') })
+        : backgroundTaskPrompt({ input, turnContext: scriptContext?.turnContext ?? input.turnContext, worldbook: snapshot, systemUpdate, pluginText })
       if (!sharedContext && !ownTaskText) {
         for (const message of input.messages || []) agent.followup({ ...message, id: randomUUID(), source: message.source || { kind: 'plugin:dsh-tavern' } })
       } else agent.followup({

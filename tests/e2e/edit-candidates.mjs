@@ -55,7 +55,7 @@ export async function editCandidatesChecks({ page, step, savedChat, output, repo
       tail: request.messages.slice(-3).map(message => ({ role: message.role, text: textOf(message).slice(0, 600) }))
     }))
     await writeFile(join(output, 'edit-candidates-requests.json'), JSON.stringify(requests, null, 2))
-    const candidate = report.editCandidates.requests.findLast(request => request.tools.includes('candidate_submit_choices') && JSON.stringify(request.tail).includes('任务类型：候选生成'))
+    const candidate = report.editCandidates.requests.findLast(request => request.tools.includes('candidate_submit_choices') && JSON.stringify(request.tail).includes('Task type: choice generation'))
     if (!candidate?.sawEdited) throw new Error('改正文后的候选请求必须带上改过的正文（#394）')
   })
 }
