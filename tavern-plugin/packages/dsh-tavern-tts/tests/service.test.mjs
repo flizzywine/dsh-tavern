@@ -49,6 +49,34 @@ test('synthesis and cache use the normalised text', async () => {
   await f.tts.dispose()
 })
 
+test('a cached line plays without waking or asking its service', async () => {
+  const tts = createTts({profileId:'test'}), asked = []
+  let offline = false
+  tts.registerProvider('test',{id:'p',kind:'azure',revision:'model-1',capabilities:{paid:false},
+    discover:async () => {asked.push('discover'); if (offline) throw Object.assign(Error('down'),{code:'SERVICE_OFFLINE'})},
+    health:async () => ({state:'ready'}),catalog:async () => [],synthesize:async () => audio})
+  tts.registerVoiceSource({owner:'consumer',sourceId:'card',revision:'one',voices:[voice],bindings:{v:'p'}})
+  const {grant} = tts.grantConsumer({source:'card',principal:'user',scope:'card'}), input = {voice:{source:'card',id:'v'},text:'abc',language:'ja'}
+  assert.equal((await tts.synthesize(input,{grant,scope:'card'})).cacheHit,false)
+  asked.length = 0; offline = true
+  assert.equal((await tts.synthesize(input,{grant,scope:'card'})).cacheHit,true)
+  assert.deepEqual(asked,[])
+  await assert.rejects(tts.synthesize({...input,text:'new line'},{grant,scope:'card'}),/down|SERVICE_OFFLINE/)
+  await tts.dispose()
+})
+test('a line keeps its cache key across a service rename or move and a new figure source; its sound changes it', async () => {
+  const key = async ({revision = 'one', sourceId = 'card', label = 'Voice', params = voice.params, text = 'abc'} = {}) => {
+    const tts = createTts({profileId:'p'})
+    tts.registerProvider('test',{id:'p',kind:'azure',revision,capabilities:{paid:false},synthesize:async () => Buffer.alloc(0)})
+    tts.registerVoiceSource({owner:'consumer',sourceId,revision:'one',voices:[{...voice,label,params}],bindings:{v:'p'}})
+    const {grant} = tts.grantConsumer({source:sourceId,principal:'user',scope:'card'})
+    try { return (await tts.cacheIdentity({voice:{source:sourceId,id:'v'},text,language:'ja'},{grant,scope:'card'})).key } finally { await tts.dispose() }
+  }
+  const base = await key()
+  // A renamed service, a service at a new address, a figure source re-registered after an expression edit, a renamed voice.
+  for (const change of [{revision:'renamed-and-moved'},{sourceId:'card-after-edit'},{label:'Renamed voice'}]) assert.equal(await key(change),base)
+  for (const change of [{params:{voiceName:'ja-JP-KeitaNeural'}},{text:'abd'}]) assert.notEqual(await key(change),base)
+})
 test('registry supports source before provider; duplicate rejected and removal goes offline',async () => {
   const f = fixture(); f.source(); assert.equal(f.tts.listVoices({source:'card'})[0].state,'offline')
   const off = f.register(); assert.throws(() => f.register(),{code:'REVISION_CONFLICT'})

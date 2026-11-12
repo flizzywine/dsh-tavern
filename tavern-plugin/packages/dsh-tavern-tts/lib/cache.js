@@ -18,7 +18,8 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
     return null
   }
   async function find(key) {
-    if (!entries.has(key) && !loaded && root) {
+    // The directory is the record: a clip placed there after the index was read (a cache rekey) is still found.
+    if (!entries.has(key) && root) {
       const entry = await readEntry(key)
       if (entry) entries.set(key, entry)
     }
