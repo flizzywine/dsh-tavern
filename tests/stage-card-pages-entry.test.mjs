@@ -44,7 +44,7 @@ test('the controller handles each navigation visit once and skipping resumes the
  const stop=navigation.galStageLifetime(), opened=[], entries=[]
  let latest=0,ended=0
  const context={cardPages:{pages:[intro],fresh:false},sessionId:'s',cardPageVisits:new Map(),galActive:navigation.galActive,galEntryPage:navigation.getEntryPage,
-  stageViews:{controls:{stageEnterPage}},reading:{skipTitlePage:false},setHidden(){},setOpenPage:id=>opened.push(id),setEntryCardPage:id=>entries.push(id),entrance:{end:()=>ended++},jumpLatest:()=>latest++}
+  stageViews:{controls:{stageEnterPage}},reading:{skipTitlePage:false},setHidden(){},setOpenPage:id=>opened.push(id),setEntryCardPage:id=>entries.push(id),entrance:{hold:()=>ended++},jumpLatest:()=>latest++}
  const run=()=>{context.stageVisit=navigation.visit();vm.runInNewContext('(function(){'+effect+'})()',context)}
  navigation.galOpen('s');run()
  run();context.reading.skipTitlePage=true;run();context.cardPages={...context.cardPages};run()

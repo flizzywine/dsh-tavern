@@ -2,8 +2,8 @@ import {ASSET_KINDS,BUNDLE_KINDS} from '../../../dsh-asset-library/lib/asset-pac
 import {ASSET_IMAGE_QUALITIES} from '../../../../lib/domain/asset-production-contract.js'
 // Card-workbench management tools the stage package owns: one request envelope per tool,
 // one row per action. Syntax only; payload semantics stay with each owner (asset library,
-// asset engine, mods, asset generation, the voice plugin).
-const s={type:'string'},b={type:'boolean'},i={type:'integer'},n={type:'null'},o={type:'object',additionalProperties:true};
+// asset engine, mods, asset generation, the voice plugin, the core's scripts).
+const s={type:'string'},b={type:'boolean'},i={type:'integer'},n={type:'null'},o={type:'object',additionalProperties:true},j={};
 const a=items=>({type:'array',items}),e=(...values)=>({type:typeof values[0],enum:values}),u=(...oneOf)=>({oneOf});
 export const WORKBENCH_ACTIONS = {
   assets_read: [
@@ -109,6 +109,17 @@ export const WORKBENCH_ACTIONS = {
     ["read", {"jobId":s,"emotionId?":s}],
     ["list", {"packId":s}],
   ],
+  script_manage: [
+    ["info", {"path?":s}],
+    ["read", {"path?":s,"query?":s,"offset?":i,"limit?":i}],
+    ["import", {"file":s,"title?":s}],
+    ["bind", {"path":s}],
+    ["unbind|helpers", {}],
+    ["mute", {"id":s,"muted":b}],
+    ["browse", {"playRef":s,"position":i}],
+    ["chunk-size", {"playRef":s,"chunkSize":i,"revision":j,"cardPath":s,"scriptVersion":s}],
+    ["point", {"playRef":s,"position":i,"revision":j,"cardPath":s,"scriptVersion":s}],
+  ],
 }
 // The Skills that unlock each tool: a tool joins the card-workbench request once one of them is loaded.
 export const WORKBENCH_SKILLS = {
@@ -116,6 +127,7 @@ export const WORKBENCH_SKILLS = {
   'stage-setup': ['tavern_assets_read', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-directing': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-mods': ['tavern_mods_read', 'tavern_mods_patch', 'tavern_media_upload'],
-  'stage-sharing': ['tavern_assets_read', 'tavern_assets_transfer']
+  'stage-sharing': ['tavern_assets_read', 'tavern_assets_transfer'],
+  'script-play': ['tavern_script_manage']
 }
 export const WORKBENCH_TOOL_NAMES=Object.keys(WORKBENCH_ACTIONS).map(name=>'tavern_'+name)

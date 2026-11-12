@@ -641,7 +641,7 @@ function GalStage(props) {
     };
     const reading = useStageReading();
     // showOn stage-enter: each entry from text mode (navigation.visit(), bumped by galOpen) opens the page stageEnterPage picks,
-    // once the declarations are read. It stands in for that visit's entrance; closing it continues with the normal resume.
+    // once the declarations are read. It stands in front of that visit's entrance, which waits behind it and plays once the page lets the player in.
     const stageVisit = React.useSyncExternalStore(galActive.subscribe, galVisitCount);
     React.useLayoutEffect(() => {
         if (!cardPages || !stageVisit || galActive.get() !== sessionId || cardPageVisits.get(sessionId) === stageVisit) return;
@@ -655,9 +655,13 @@ function GalStage(props) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
         }
-        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.end();
+        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.hold();
     // a layout effect: the page is open in the same paint its declarations arrive in, never a frame of the stage before it
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
+    // the entry page has let the player in (继续, a 履历 jump, fillInput): the entrance held behind it plays now (owner 11-12:
+    // 潜入月读 after 继续). Only a page that was open and closed releases it, never the render before the page opens.
+    const entryWasOpen = React.useRef(false);
+    React.useEffect(() => { if (entryWasOpen.current && !entryOpen) entrance.release(); entryWasOpen.current = entryOpen; }, [entryOpen]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
     // on phones the top bar's icons are one group centred at the top of the stage.
     const [topbarNode, topbarRef] = React.useState(null);
