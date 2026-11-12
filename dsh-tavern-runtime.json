@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ed1caedebba6257cf6c36330fff51f71207ab14a",
-  "releaseSequence": 1546,
+  "revision": "bc78ff34aa4a9b050e86ec2b3f405f5b02604bdc",
+  "releaseSequence": 1547,
   "version": "3.3.0",
   "files": [
     {
@@ -3366,8 +3366,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-compaction.js",
-      "sha256": "110ce5841e2909eed3e46568144ac225c64abd0371489e3aac36810bea3dd6c1",
-      "size": 12375
+      "sha256": "c5254d008dac5769a4cd2c3a26766f2aecd87cce5373ee1b539987879b2d8802",
+      "size": 12490
     },
     {
       "path": "tavern-plugin/lib/domain/story-events.js",
@@ -9176,9 +9176,9 @@
     }
   ],
   "archive": {
-    "commit": "611a09a03669a5ad58f30a02c956b02206e58eed",
+    "commit": "aead64cc05637f38e73b3e8bc14c1087f89730ff",
     "path": "runtime.zip",
-    "sha256": "937e4c89e84e2a6290f1787654a9252c81c8a5f1efce5294d55b6fb8c91676e0",
-    "size": 16312366
+    "sha256": "6cf2743cb8b90619f2d16ab48239ccb2dcbb28927f8adbbb261cc6656c2c4b67",
+    "size": 16312424
   }
 }
