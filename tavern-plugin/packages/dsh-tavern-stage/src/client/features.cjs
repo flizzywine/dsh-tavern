@@ -20,7 +20,8 @@ function createStageFeatures() {
                 if(feature.css){
                     const style=document.createElement('style');
                     own({dispose:()=>style.remove()});
-                    style.dataset.stageFeature=id;style.textContent=feature.css;document.head.appendChild(style);
+                    // named like the stage's own styles, so the module loader never claims it for another plugin.
+                    style.dataset.plugin='dsh-tavern-stage';style.dataset.stageFeature=id;style.textContent=feature.css;document.head.appendChild(style);
                 }
                 const additions=feature.views(context);
                 for(const [key,value] of Object.entries(additions)){
