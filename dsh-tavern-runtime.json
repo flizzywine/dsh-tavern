@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3929c749da4720831fd5fc388799449b7f115a28",
-  "releaseSequence": 1569,
+  "revision": "8a711c4577c2f0d46f6e1c67205024aa3597f228",
+  "releaseSequence": 1570,
   "version": "3.3.0",
   "files": [
     {
@@ -5561,8 +5561,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/check-tool.js",
-      "sha256": "25c91d40653f55f2d195abbd5d18c8e18aa6407a4ee084cbeb2f2d172d55de60",
-      "size": 8224
+      "sha256": "65cd70d9656071addefda01f76419a028ff02713af5db49ff90a8bc1ab232e61",
+      "size": 8406
     },
     {
       "path": "tavern-plugin/mods/dice/client/check.js",
@@ -5621,8 +5621,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/README.md",
-      "sha256": "4bad3abe0134ace4afc4e5de805cae3b74619b581ca1576b1216d5277071c4fc",
-      "size": 8926
+      "sha256": "279d5cb17fcdaf3429646018865e0113f47ae0bcc696ae2edbe558e8c0fb0019",
+      "size": 9028
     },
     {
       "path": "tavern-plugin/mods/dice/runtime.js",
@@ -8976,8 +8976,8 @@
     },
     {
       "path": "tavern-plugin/prompts/phone-call.md",
-      "sha256": "54f1a67cb28c18368db266e6a57ec682e2a8b3bea1d920d666ee4ffdcc0d05e3",
-      "size": 404
+      "sha256": "adda996a9a56a5626f6aaeaa65da6d9fa3d5a6328fef04854c2313193a249700",
+      "size": 435
     },
     {
       "path": "tavern-plugin/prompts/polish-guidance.md",
@@ -9181,9 +9181,9 @@
     }
   ],
   "archive": {
-    "commit": "4c9a98d2a4c1ac48812dcf525cb605d0c70d186b",
+    "commit": "5a1a612f8b09e1f80097109a5f833a4dd213f3d9",
     "path": "runtime.zip",
-    "sha256": "0df71ed9d91684c6a07f48b606cbd20e103f40613396575d7e685fe5c81a9f84",
-    "size": 16330090
+    "sha256": "1c75222dfa5a9646e3fa6d0d338b3d722c46192da22bf4a58463a3829d83b661",
+    "size": 16330225
   }
 }
