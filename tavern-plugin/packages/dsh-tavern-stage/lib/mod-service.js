@@ -17,8 +17,8 @@ import {compileModPrompts} from '../../../lib/domain/mods/prompts.js'
 import {modStageContribution} from '../../../lib/domain/mods/stage-contributions.js'
 import {modCatalogue,modAssetCatalogue,modTurnActive} from '../../../lib/domain/mods/catalogue.js'
 import {selectModAdmission,modKeepFragments} from '../../../lib/domain/mods/relevance.js'
-import {phoneSourceView} from '../../../mods/phone/source-view.js'
-import {phoneDevices} from '../../../mods/phone/logic.js'
+import {modStageContributions} from '../../../lib/domain/mods/stage-contributions.js'
+import {createModSourceViews} from './mod-source-views.js'
 import {modReadBindings,projectModReadSlots} from '../../../lib/domain/mods/variable-slots.js'
 import {captureStageTarget} from '../../../lib/domain/stage-incremental.js'
 import {createModStageCorrections,admitModSettlement} from '../../../lib/domain/mods/stage-corrections.js'
@@ -34,7 +34,7 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
+export function createBuiltinModService({workbenchAuthority,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
   let service,library,runtime,sessionEvents,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   const modelTasks=models?createModModelTasks(models):null
   const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
@@ -67,14 +67,15 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       // a placed kind must be one the mod declared with its backlog and replay (manifest.performances).
       const declared=management.modHost.manifests().find(manifest=>manifest.id===context.modId)?.performances
       check(declared?.some(row=>row.kind===args?.kind),'$.kind','Declare performance kind '+JSON.stringify(args?.kind)+' in manifest.performances with its backlog and replay','MOD_PERMISSION_DENIED')
-      if(context.modId!=='dsh.phone') {
+      // A source mod's placement presents its admitted source mark (sourceMarker.presents); it is not persisted.
+      const source=sourceViews.of(context.modId)
+      if(!source) {
         const result=await corrections.place(context,args,isCurrent)
         deliveryLog(context,context.command,'persisted')
         return result
       }
       const receipt=accepted(context,isCurrent)
-      check(receipt.source==='phone.message' && args.id==='message' && args.kind==='dsh.phone.message' && equal(args.payload?.marker,{op:'phone.message',...receipt.params}) &&
-        phoneDevices(context.catalogue).some(ref=>equal(ref,args.payload?.device)),'$.payload','Phone presentation must reference its admitted source mark','MOD_PERMISSION_DENIED')
+      check(receipt.source===source.op && source.presents(args,receipt,context.catalogue),'$.payload','A source presentation must reference its admitted source mark','MOD_PERMISSION_DENIED')
       return {accepted:true,at:receipt.at}
     },
     reviseAfterSettlement:corrections.reviseAfterSettlement,
@@ -240,7 +241,9 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         try {return await library.saveModSettings(args)} finally {writingSettings=false;invalidate()}
       })
     },
-    readPhonePresentation({chat,direction,at,view}) {
+    // The source view a mod's mark binds, rendered by that mod (sourceViews): the phone of the anchored page.
+    sources:sourceViews,
+    readSourcePresentation({chat,direction,at,view}) {
       const target=direction.target || (direction.record || direction.preview)?.binding?.target
       const validateSource=async()=>{
         if(!stage?.source)return
@@ -253,9 +256,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         check(head?._storageRevision===chat._storageRevision && head.timeline.branchId===expected.branchId,'$.revision','Phone source revision changed','MOD_SOURCE_STALE')
       }
       return readSnapshot('sources',async library=>{
-      const card=await readCard(chat.cardPath),manifest=card && library.active(card.meta.id).find(row=>row.id==='dsh.phone')
-      const record=direction.record || direction.preview
-      view ||= record?.binding.mods?.sourceViews?.phone
+      const record=direction.record || direction.preview,bound=sourceViews.bound(record)
+      const modId=bound?.modId || sourceViews.sources()[0]?.modId
+      const card=await readCard(chat.cardPath),manifest=card && library.active(card.meta.id).find(row=>row.id===modId)
+      view ||= bound?.view
       if(!manifest || !record || at>direction.through)return []
       const catalogue=modCatalogue(manifest)
       const snapshot=await config.managedRequest(chat),builtin=await builtins
@@ -317,10 +321,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       for(const fragment of keep)selection.mods.find(row=>row.id===fragment.modId).persistent=true
       if(!manifests.length)return modFreeze({revision:version,manifests:[],contexts:[],commands:[],schemaCommands,grammarRevision,enabledAssetKinds,capabilities,fragments:keep,selection,...(preview?{names}:{})})
       const activeCatalogues=Object.fromEntries(manifests.map(manifest=>[manifest.id,catalogues[manifest.id]]))
-      const sourceViews=activeCatalogues['dsh.phone'] ? {phone:phoneSourceView(activeCatalogues['dsh.phone'])} : {}
+      const turnSourceViews=sourceViews.views(activeCatalogues)
       // Preview never executes a module or makes a model/variable write request.
       if(preview) {
-        return modFreeze({revision:version,manifests,commands:configured,validateCommand:runtime.validateCommand,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews,names,selection,fragments:[...keep,...compileModPrompts(manifests,(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name).toString('utf8'),'director',configured),...catalogue(activeCatalogues,settingsByMod)]})
+        return modFreeze({revision:version,manifests,commands:configured,validateCommand:runtime.validateCommand,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews:turnSourceViews,names,selection,fragments:[...keep,...compileModPrompts(manifests,(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name).toString('utf8'),'director',configured),...catalogue(activeCatalogues,settingsByMod)]})
       }
       proofs.set(chat.sessionId,{key,turn,branchId:target.branchId,value:sourceValue(message),active:true,
         stageState:stageState && modFreeze(structuredClone(stageState)),commands:new Map()})
@@ -331,7 +335,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         const result=await host.prepare({cardId:card.meta.id,gameId:chat.sessionId,turn,
           source:{branchId:target.branchId,sourceKey:key,generation:message.stageDirectionGeneration || 0,textVersion:key},authorityEpoch:ownEpoch,catalogueRevision:version,catalogues,bindings,settingsByMod,selectedModIds})
         check(ownEpoch===epoch && isCurrent(),'$.source','Director source changed','MOD_SOURCE_STALE')
-        const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
+        const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews:turnSourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
         prepared.set(cacheKey,snapshot);while(prepared.size>64)prepared.delete(prepared.keys().next().value)
         queueMicrotask(()=>{try {notify(snapshot,settlements.get(chat.sessionId));void correct(snapshot)}catch(error){onError(error)}})
         return snapshot
@@ -419,7 +423,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
           deliveryLog(context,identity,'applied')
           const result=await runtime.command(snapshot,op,{key,at})
           if(!result.ok){deliveryLog(context,identity,'failed',result.error);onError(result.error)}
-          else if(op.modId==='dsh.phone')deliveryLog(context,identity,'source-mark')
+          else if(sourceViews.of(op.modId))deliveryLog(context,identity,'source-mark')
         } catch(error) {deliveryLog(context,identity,'failed',error);throw error}
         void correct(snapshot)
       }})().catch(error=>onError(error))

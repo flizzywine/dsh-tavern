@@ -1,5 +1,7 @@
+import {isDeepStrictEqual as same} from 'node:util'
 import {variableGuessHints} from '../../lib/domain/variable-bindings/index.js'
-import {withBuiltinPhoneDevice} from './logic.js'
+import {withBuiltinPhoneDevice,phoneDevices} from './logic.js'
+import {phoneSourceView} from './source-view.js'
 import {phoneModMarker,phoneModSourceMarker} from './stage-phone.cjs'
 import {phoneGroup,applyPhoneGroup} from './threads.js'
 import {createPhoneExtension} from './host/extension.js'
@@ -57,7 +59,11 @@ export default {
   promptState(own,command) {
     return own.threads && command.admission?.phoneGroup ? {threads:own.threads} : undefined
   },
-  sourceMarker:{op:'phone.message',valid:phoneModMarker},
+  // A phone message: the director's mark command makes the text the phone's source; its record binds the phone view
+  // (sourceViews.phone) and the phone presents that mark on its device (mod-source-views.js).
+  sourceMarker:{op:'phone.message',valid:phoneModMarker,command:'mark',view:'phone',viewOf:phoneSourceView,
+    presents:(args,receipt,catalogue)=>args.id==='message' && args.kind==='dsh.phone.message' && same(args.payload?.marker,{op:'phone.message',...receipt.params}) &&
+      phoneDevices(catalogue).some(ref=>same(ref,args.payload?.device))},
   promptActors(own,actor) {
     if(own.threads)for(const thread of Object.values(own.threads))thread.participants=thread.participants.map(id=>id==='$player'?id:actor(id) || id)
     return own

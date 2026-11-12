@@ -10,7 +10,9 @@
 //   admitParams(command,params,state,context,metadata,check) -> canonical params for an admitted command
 //   applyStageState(state,command,params,metadata)   -> next stage draft, or undefined when the command is generic
 //   promptState(own,command)                         -> the saved state the director sees for an admitted command
-//   sourceMarker                                     -> {op, valid(op,unit,aliases)}: a source marker op it owns
+//   sourceMarker                                     -> {op, valid(op,unit,aliases)}: a source marker op it owns; with
+//                                                       {command, view, viewOf(catalogue), presents(args,receipt,catalogue)} its
+//                                                       director mark makes the text its source view (stage mod-source-views.js)
 //   promptActors(own,actor)                          -> own state with actor ids mapped to model handles
 //   stageControls                                    -> {[handler]: {apply, operation, choices(command), instanceId(state)}}
 //   performanceUses                                  -> capability edges the core performance may consume

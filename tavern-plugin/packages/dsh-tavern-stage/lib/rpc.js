@@ -3,10 +3,10 @@ import { widgetSourceRounds } from './domain/widget-window-projection.js'
 import {projectStageLease} from './domain/stage-lease-projection.js'
 import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
-import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
-// A dsh.phone message mark: the phone reads in full only the earlier rounds whose record binds a phone view and marks one.
+// A source mod's mark (modService.sources, mod-source-views.js): the phone reads in full only the earlier rounds whose record
+// binds its view and marks one.
 export function createStageHandlers(deps) {
   const { ctx } = deps
   return {
@@ -118,7 +118,7 @@ return cgGallery.ack(args,authority?.origin)
         // every other floor stays an identity row.
         const marks=await readRoundOps(args.sessionId,args.turn,20)
         if(!marks)return {status:'revoked',widgets:[]}
-        const rounds=phoneRounds(marks.records)
+        const rounds=modService.sources.rounds(marks.records)
         const read=()=>readRoundView(args.sessionId,args.turn,rounds)
         const chat=await marks.view(rounds)
         if(!chat)return {status:'revoked',widgets:[]}
@@ -132,12 +132,12 @@ return cgGallery.ack(args,authority?.origin)
           // floor without a record has no phone view.
           if(turn!==args.turn && !rounds.includes(turn))continue
           const candidate=turn===args.turn?direction:await stageDirector.get(chat,turn,null,{readOnly:true})
-          const record=candidate.record || candidate.preview,bound=record?.binding.mods?.sourceViews?.phone
+          const record=candidate.record || candidate.preview,bound=modService.sources.bound(record)?.view
           if(!bound)continue
           let used=false
           for(const entry of record.entries) {
             if(entry.at>candidate.through || turn===args.turn && entry.at>args.at)continue
-            if(entry.ops.some(phoneMark)) {view ||= bound;used=true}
+            if(entry.ops.some(modService.sources.marks)) {view ||= bound;used=true}
           }
           if(used)found.push({turn,token:candidate.token})
         }
@@ -149,7 +149,7 @@ return cgGallery.ack(args,authority?.origin)
           for(const source of found)if(JSON.stringify((await stageDirector.get(latest,source.turn,null,{readOnly:true})).token)!==JSON.stringify(source.token))return false
           return true
         }
-        const widgets=view?await modService.readPhonePresentation({chat,direction,at:args.at,view}):[]
+        const widgets=view?await modService.readSourcePresentation({chat,direction,at:args.at,view}):[]
         return await authorizeSource()?{status:'ready',widgets}:{status:'stale',widgets:[]}
 
     },
@@ -187,7 +187,7 @@ return cgGallery.ack(args,authority?.origin)
         if (current?.stageDirectionAssetPacks?.binding?.mods?.sourceViews) void (async () => {
           const marks=await readRoundOps(args.sessionId,turn,20)
           if (!marks) return
-          const marked=[...new Set([...phoneRounds(marks.records),...widgetSourceRounds(marks.records)])]
+          const marked=[...new Set([...deps.modService.sources.rounds(marks.records),...widgetSourceRounds(marks.records)])]
           if (marked.length) await marks.view(marked)
         })().catch(() => {})
         const performanceEnabled=!!chat && await cardStageSwitch(chat.cardPath,'performance')
@@ -196,7 +196,7 @@ return cgGallery.ack(args,authority?.origin)
           readCountdown:async ({direction,at}) => stageTimer.read({sessionId:args.sessionId,turn:Number(args.turn),at,expectedDirectionToken:direction.token,mode:args.history?'history':'live'}),
           readModSources:async ({direction,at,state}) => {
             const chat=await read()
-            return chat?modService.readPhonePresentation({chat,direction,at,state}):[]
+            return chat?modService.readSourcePresentation({chat,direction,at,state}):[]
           },
           readPlayback:async () => (await read())?.messages.find(m => m.role === 'assistant' && Number(m.turn || (m.greeting ? 1 : 0)) === Number(args.turn))?.[STAGE_PLAYBACK_FIELD],
           writePlayback:async (direction,metadata,assetRevision) => {
