@@ -9,7 +9,7 @@ import { measureVoiceLoudness, measureVoiceLoudnessSafely, voiceLoudnessGain } f
 // the browser auditions it through the mixer's preview bus. Callers pass only sample identities the provider's own
 // discovery listed (settings.js fishSample); this is not a URL proxy. Provider sample URLs are presigned and change per
 // listing, so the identity is the provider, voice and the URL's origin + path (the signature query is not identity).
-const TYPES = { 'audio/mpeg':'mp3', 'audio/mp3':'mp3', 'audio/wav':'wav', 'audio/x-wav':'wav', 'audio/wave':'wav', 'audio/ogg':'ogg',
+const TYPES = { 'audio/mpeg':'mp3', 'audio/mp3':'mp3', 'audio/wav':'wav', 'audio/x-wav':'wav', 'audio/wave':'wav', 'audio/vnd.wave':'wav', 'audio/vnd.wav':'wav', 'audio/x-pn-wav':'wav', 'audio/ogg':'ogg',
   'audio/opus':'opus', 'audio/webm':'webm', 'audio/aac':'aac', 'audio/mp4':'m4a', 'audio/x-m4a':'m4a', 'audio/flac':'flac' }
 export const SAMPLE_KEY = /^[a-f0-9]{40}$/
 
@@ -57,7 +57,7 @@ export function createSampleCache({ dataDir, fetch = globalThis.fetch, measureLo
         if (!row) {
           const { bytes, type } = await download(url)
           // Vendor compressed demos are mastered; preserve their original gain.
-          const loudness = type === 'wav' ? await measureVoiceLoudnessSafely(wav(bytes), measureLoudness) : voiceLoudnessGain(null, null)
+          const loudness = type === 'wav' ? await measureVoiceLoudnessSafely(bytes, raw => measureLoudness(wav(raw))) : voiceLoudnessGain(null, null)
           row = { v:1, ext:type, mime:Object.keys(TYPES).find(mime => TYPES[mime] === type), size:bytes.length, loudness, at:now() }
           await mkdir(root, { recursive:true })
           await atomic(join(root, key + '.' + type), bytes); await atomic(join(root, key + '.json'), JSON.stringify(row))

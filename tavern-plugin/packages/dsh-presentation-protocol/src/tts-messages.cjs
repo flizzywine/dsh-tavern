@@ -43,7 +43,7 @@ function ttsErrorMessage(code) {
     USAGE_UNKNOWN:'查不到有没有人物在用这个语音服务，删除前需要确认。',
     REVISION_CONFLICT:'声音配置已变化，请重新载入人物声音页后再试。',
     ABORTED:'试听已取消，请需要时重新试听。',
-    SAMPLE_UNAVAILABLE:'暂时取不到这个声音的官方样例，请重新打开声音列表后再试。',
+    SAMPLE_UNAVAILABLE:'暂时取不到这个声音的官方样例，请稍后再试。',
     VOICE_NOT_FOUND:'声音绑定未解析，请重新选择该人物的声音。',
     'voice-unbound':'声音绑定未解析，请重新选择该人物的声音。',
     QWEN_MODEL_NOT_FOUND:'通义千问配音模型不存在，请在声音预设中选择服务当前提供的模型。',

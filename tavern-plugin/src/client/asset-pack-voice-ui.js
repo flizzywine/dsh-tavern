@@ -24,7 +24,7 @@ const VOICE_TUNING={
   'openai-compatible':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}]};
 const voiceFailure=(code,message)=>Object.assign(new Error(message||code),{code});
 const voiceCode=e=>typeof e?.code==='string'?e.code:e?.name==='TimeoutError'?'TIMEOUT':e?.name==='AbortError'?'ABORTED':/^[A-Z][A-Z0-9_]+$/.test(e?.message||'')?e.message:'';
-const VOICE_ERRORS={MINIMAX_VOICE_NOT_FOUND:'这个 MiniMax 账号下找不到这个音色 ID：请确认拼写，以及它是在同一个站点（中国版 / 国际版）、同一个账号下创建的',ENOENT:'找不到配音所需的本地文件或程序，请检查语音服务的安装路径和参考音频。',ENOTDIR:'配音所需的本地路径不是文件夹，请检查语音服务的安装路径。',TTS_DISABLED:'配音插件未启用',PLUGIN_UNAVAILABLE:'配音插件未启用',SERVICE_REQUIRED:'这个声音绑定的语音服务还没设置；请到语音后端设置，或重新选择已设置服务的音色',CREDENTIALS_REQUIRED:'语音服务缺少 API Key',
+const VOICE_ERRORS={ENOENT:'找不到配音所需的本地文件或程序，请检查语音服务的安装路径和参考音频。',ENOTDIR:'配音所需的本地路径不是文件夹，请检查语音服务的安装路径。',TTS_DISABLED:'配音插件未启用',PLUGIN_UNAVAILABLE:'配音插件未启用',SERVICE_REQUIRED:'这个声音绑定的语音服务还没设置；请到语音后端设置，或重新选择已设置服务的音色',CREDENTIALS_REQUIRED:'语音服务缺少 API Key',
   QWEN_MODEL_NOT_FOUND:'当前服务上次合成无法访问此模型（404），请核对模型开通状态与区域',QWEN_VOICE_UNSUPPORTED:'上次合成返回此模型不支持该音色，请重新选择音色',
   MISSING_REFERENCE:'这个差分没有参考录音，「默认」里也没有',PREVIEW_CONFIRMATION_REQUIRED:'付费确认已过期，请重新试听',PAID_PREVIEW_DISABLED:'这个服务不能免费试听',
   FISH_AUTH_FAILED:'Fish Audio API Key 无效',FISH_BILLING_REQUIRED:'Fish Audio 额度不足：去充值，或换回免费模型',FISH_RATE_LIMITED:'Fish Audio 请求太频繁，请稍后再试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请稍后再试',
@@ -262,7 +262,7 @@ function useVoicePreview(binding,speech){
     try{kinds.current||=binding.rpc('getAssetVoiceServices').then(r=>r.services||[]);const s=(await kinds.current).find(x=>x.id===id);
       return s?providerName(s.kind)+(modelLabel?' · '+modelLabel+'（计费）':''):'付费语音服务';}catch(_){return '付费语音服务';}
   }
-  async function play(key,request,{label='',mood=''}={}){
+  async function play(key,request,{label='',mood='',notice=''}={}){
     if(current.current?.key===key){stop();return;}
     stop();
     const run={key,abort:new AbortController()};current.current=run;setState({key,phase:'loading'});
@@ -278,7 +278,7 @@ function useVoicePreview(binding,speech){
         let ok=!voicePaidAsk.get();
         if(!ok){
           const service=await previewWait(serviceName(result.billing?.serviceId,result.billing?.modelLabel),15000,'REQUEST_TIMEOUT',run.abort.signal);
-          const answer=live()&&await new Promise(resolve=>{run.resolve=resolve;setAsk({label,service,resolve});});
+          const answer=live()&&await new Promise(resolve=>{run.resolve=resolve;setAsk({label,service,notice,resolve});});
           ok=!!answer;if(answer?.quiet)voicePaidAsk.set(false);
         }
         run.resolve=null;setAsk(null);
@@ -303,7 +303,9 @@ function useVoicePreview(binding,speech){
   // a catalogue voice's official sample plays
   // without synthesis or billing. The TTS host downloads a sample its discovery listed once into its own cache, measures
   // it there and serves it same-origin (no browser CORS); it plays on the mixer's preview bus like every audition.
-  async function playSample(key,sample){
+  // allback ({request,label}): a sample the host cannot fetch (SAMPLE_UNAVAILABLE) is not left as an error — the voice is
+  // synthesised for one short line instead, through the paid-preview gate, whose dialog says so.
+  async function playSample(key,sample,fallback){
     if(current.current?.key===key){stop();return;}
     stop();
     const run={key,abort:new AbortController()};current.current=run;setState({key,phase:'loading'});
@@ -319,7 +321,9 @@ function useVoicePreview(binding,speech){
       audio.onerror=()=>failed(previewAudioError(audio));
       await playPreviewAudio(run.audio,run.abort.signal);
       if(current.current===run&&!run.cancelled)setState({key,phase:'playing'});
-    }catch(e){failed(e);}
+    }catch(e){
+      if(fallback&&voiceCode(e)==='SAMPLE_UNAVAILABLE'&&current.current===run){stop();play(key,fallback.request,{label:fallback.label,notice:'这个声音的官方样例暂时取不到，改为合成一句短句试听。'});}
+      else failed(e);}
   }
   // Browser speech: the system speaks the sample itself — free, no job, outside the mixer
   // (master volume only); the preview card's mouth follows it.
@@ -335,10 +339,10 @@ function useVoicePreview(binding,speech){
   return {state,play,playSample,playBrowser,stop,dialog,of:key=>state?.key===key?state:null};
 }
 // `service`: the billed service and model (「Fish Audio · Drama 3（计费）」). 「不再提示」 applies on 确认试听 only.
-function VoiceBillingDialog({label,service,onConfirm,onCancel}) {
+function VoiceBillingDialog({label,service,notice,onConfirm,onCancel}) {
   const [quiet,setQuiet]=React.useState(false);
   return h(Modal,{title:'付费试听',onClose:onCancel,closable:false,className:'ap-confirm ap-voice-dialog'},
-    h('p',null,'试听'+(label?'「'+label+'」':'')+'会用'+spacedName(service)+'合成一句短句，按服务价格计费一次。'),
+    h('p',null,(notice?notice+' ':'')+'试听'+(label?'「'+label+'」':'')+'会用'+spacedName(service)+'合成一句短句，按服务价格计费一次。'),
     h('button',{type:'button',role:'checkbox','aria-checked':quiet,className:'ap-check-row ap-voice-quiet',onClick:()=>setQuiet(v=>!v)},
       h('span',{className:'ap-check-mark','aria-hidden':true},quiet&&h(Glyph,{name:'check'})),h('span',null,'不再提示')),
     h(Actions,null,h(Button,{onClick:onCancel},'取消'),h(Button,{primary:true,onClick:()=>onConfirm(quiet)},'确认试听')));
@@ -817,7 +821,7 @@ function VoiceFishLibrary({binding,figure,spec:boundSpec,way,preview,candidate,c
   // ▶ plays the voice model's own official sample (Fish samples[].audio →
   // sampleUrl) — free, no synthesis, no billing question; only a voice without one is synthesised (the paid-preview gate).
   const play=(v,key,spec,name)=>h(VoicePlay,{state:preview.of(key),label:'试听「'+name+'」',
-    onClick:()=>v.sampleUrl&&fish?preview.playSample(key,{serviceId:fish,voiceId:v.voiceId}):preview.play(key,candidate(spec),{label:name})});
+    onClick:()=>v.sampleUrl&&fish?preview.playSample(key,{serviceId:fish,voiceId:v.voiceId},{request:candidate(spec),label:name}):preview.play(key,candidate(spec),{label:name})});
   const popularRow=v=>{
     const key='fish:'+v.voiceId,name=v.name&&v.name!==v.voiceId?v.name:v.voiceId===currentId?boundSpec.name:'Fish 声音',spec=fishVoiceSpec({...v,name},name,way);
     const heat=[voiceCount(v.likeCount)&&voiceCount(v.likeCount)+' 赞',voiceCount(v.taskCount)&&voiceCount(v.taskCount)+' 次使用'].filter(Boolean).join(' · ');
@@ -845,12 +849,44 @@ function VoiceFishLibrary({binding,figure,spec:boundSpec,way,preview,candidate,c
     list=shown.length?h(React.Fragment,null,h('ul',{className:'ap-voice-rows','aria-label':'推荐声音'},shown.slice(0,paging.n).map(popularRow)),shown.length>paging.n&&h(VoiceMore,{onClick:paging.more})):
       idLike?null:q?h(EmptyState,{compact:true,noun:'声音',query:q,plain:true,onClear:clear}):h(EmptyState,{compact:true,noun:'推荐声音'});
   }
-  return h('div',{className:'ap-voice-fish'},
+  return h(VoiceLibraryBox,{label:'搜索 Fish 声音',placeholder:'搜名字、标签或语言，或粘贴声音编号',query,onQuery:v=>{setQuery(v);setError('');},clear,
+    onFind:()=>find(),findLabel:idLike?'查找编号':'搜索',canFind:!!q,busy,error},list);
+}
+// The 声音库 box every voice library shares (Fish 声音库, MiniMax 音色): one search box on top of one list of VoiceRow —
+// typing filters at once; Enter or the button asks the service (`onFind`: a Fish search; a list read whole has none). `help` is a (?) after it.
+function VoiceLibraryBox({label,placeholder,query,onQuery,clear,onFind,findLabel,canFind,busy,error,help,children}) {
+  return h('div',{className:'ap-voice-fish ap-voice-library'},
     h('div',{className:'ap-voice-search',role:'search'},
-      h(SearchBox,{bare:true,label:'搜索 Fish 声音',value:query,placeholder:'搜名字、标签或语言，或粘贴声音编号',spellCheck:false,onChange:v=>{setQuery(v);setError('');},onKeyDown:voiceSearchKeys(query,clear,()=>find())}),
-      h(Button,{className:'ap-chip-button ap-voice-find',disabled:!q||busy,onClick:()=>find()},busy?h(Spinner,{key:'find'}):h(Glyph,{name:'search'}),idLike?'查找编号':'搜索')),
+      h(SearchBox,{bare:true,label,value:query,placeholder,spellCheck:false,onChange:onQuery,onKeyDown:voiceSearchKeys(query,clear,canFind?onFind:null)}),
+      onFind&&h(Button,{className:'ap-chip-button ap-voice-find',disabled:!canFind||busy,onClick:onFind},busy?h(Spinner,{key:'find'}):h(Glyph,{name:'search'}),findLabel),
+      help||null),
     error&&h(VoiceLoadError,{error}),
-    list);
+    children);
+}
+// MiniMax 音色 is one 声音库 (owner 11-12): the account's voices (/v1/get_voice) — the one in use first, then 我的音色 (its
+// clones and designed voices, made on MiniMax's site), then the official voices: those in the figure's 配音语言 first, each
+// group by name (MiniMax gives a voice only its ID, name, description and date — no use counts or likes to rank by).
+// Typing filters by name, language, description or ID; a pasted ID that no listed voice matches is offered as its own row
+// (使用这个编号): a voice made minutes ago is not listed until its first synthesis. MiniMax has no community library and no
+// official samples: ▶ synthesises one short line (the billed preview).
+const MINIMAX_VOICE_ID=/^[\x21-\x7e](?:[\x20-\x7e]{0,158}[\x21-\x7e])?$/;
+function VoiceMinimaxLibrary({voices,current,lang,speaks,play,onUse}) {
+  const [query,setQuery]=React.useState('');
+  const q=query.trim(),needle=voiceNeedle(q),clear=()=>setQuery('');
+  const words=v=>[v.label,v.id,v.description,v.mine?'我的音色':'系统音色',...(v.languages||[]),...(v.languages||[]).map(voiceLanguageName)];
+  const byName=list=>[...list].sort((a,b)=>(a.label||a.id).localeCompare(b.label||b.id,'zh'));
+  const matched=voices.filter(v=>v.id!==current&&voiceMatches(needle,words(v))),official=matched.filter(v=>!v.mine);
+  const rows=[...voices.filter(v=>v.id===current&&voiceMatches(needle,words(v))),...byName(matched.filter(v=>v.mine)),...byName(official.filter(speaks)),...byName(official.filter(v=>!speaks(v)))];
+  const typed=q&&!rows.length&&MINIMAX_VOICE_ID.test(q)?{id:q,label:q,languages:[],mine:true}:null;
+  const paging=useVoicePaging('minimax:'+needle);
+  const meta=v=>[(v.languages||[]).map(voiceLanguageName).join(' / '),v.mine?'我的音色':'系统音色'].filter(Boolean).join(' · ');
+  const row=v=>h(VoiceRow,{key:v.id,name:v.label||v.id,meta:meta(v),tags:v.description||'',current:v.id===current,title:v.description||undefined,
+    warn:v.id===current&&!speaks(v)?h(VoiceWarn,null,'这个音色不支持'+voiceLanguageName(lang)):null,play:play(v),onUse:()=>onUse(v)});
+  return h(VoiceLibraryBox,{label:'搜索 MiniMax 音色',placeholder:'搜名字、语言或标签，或粘贴音色 ID',query,onQuery:setQuery,clear,
+      help:h(Help,{text:'MiniMax 没有官方样音：▶ 会用这个音色合成一句短句，按 MiniMax 价格计费；合成结果会缓存，同一人物再听同一音色不会再扣费。',label:'MiniMax 试听 说明'})},
+    typed?h('ul',{className:'ap-voice-rows','aria-label':'MiniMax 音色'},h(VoiceRow,{name:q,meta:'列表里没有这个编号：在 MiniMax 刚做好、还没用过的音色也是这样',useLabel:'使用这个编号',onUse:()=>onUse(typed)})):
+    rows.length?h(React.Fragment,null,h('ul',{className:'ap-voice-rows','aria-label':'MiniMax 音色'},rows.slice(0,paging.n).map(row)),rows.length>paging.n&&h(VoiceMore,{onClick:paging.more})):
+      q?h(EmptyState,{compact:true,noun:'音色',query:q,plain:true,onClear:clear}):h(EmptyState,{compact:true,text:'这个账号没有可用的音色',icon:h(Glyph,{name:'voice'})}));
 }
 // A filterable pick (owner 11-08: 配音语言, 模型 and 音色 are type-to-filter dropdowns): the trigger reads the value; the menu
 // opens with its search box focused (Popover), the options below it. `options` [{id,label,meta,words,extra}] — `words` are
@@ -898,7 +934,7 @@ function VoiceOptionPick({label,value,options,onPick}) {
 function VoiceProviderVoices({binding,figure,spec,writer,preview,candidate,choose,active,row,state,current,openSettings,language,needed}) {
   const provider=row.kind,name=row.name,custom=!!row.custom,serviceId=row.serviceId,browser=provider==='browser';
   const own=current&&active?.provider===provider?active:null,ownId=own&&spec?Object.keys(spec.sources).find(k=>spec.sources[k]===own):null;
-  const [model,setModel]=React.useState(own?.model||''),[idError,setIdError]=React.useState(''),[everyLanguage,setEveryLanguage]=React.useState(false),[typed,setTyped]=React.useState('');
+  const [model,setModel]=React.useState(own?.model||''),[everyLanguage,setEveryLanguage]=React.useState(false),[typed,setTyped]=React.useState('');
   const modelStatus=useVoiceModelStatus(binding,{provider,model,voiceName:own?.voiceName||''},preview.state?.phase);
   // How the voices are listed is the catalog's (voiceList); a kind not set up lists none.
   const list=useVoiceLoad(()=>browser?browserSpeechVoiceList(window.speechSynthesis).then(voices=>({voices})):row.missing?{voices:[]}:row.service.voiceList==='provider'?voiceTts(binding).call('providerVoices',{serviceId}):voiceTts(binding).call('listOnlinePresetVoices',{provider,...(serviceId?{serviceId}:{})}),[binding,provider,serviceId,row.missing]);
@@ -915,8 +951,6 @@ function VoiceProviderVoices({binding,figure,spec,writer,preview,candidate,choos
   const listen=v=>browser?preview.playBrowser(keyOf(v),{voice:v.id,language:v.languages?.[0],text:sampleText(primaryLanguage(v.languages?.[0]||'zh'))}):preview.play(keyOf(v),candidate(spec1(v)),{label:v.label||v.id});
   const play=v=>h(VoicePlay,{state:preview.of(keyOf(v)),label:'试听「'+(v.label||v.id)+'」',disabled:custom&&!useModel,title:custom&&!useModel?'先填写模型':undefined,onClick:()=>listen(v)});
   const meta=v=>[v.mine?'我的音色':'',VOICE_GENDERS[v.gender],(v.languages||[]).slice(0,2).join(' / '),v.styles?.length?v.styles.length+' 种风格':''].filter(Boolean).join(' · ');
-  // MiniMax: a voice the account made itself (clone / design) can be typed by its id; it is checked once against the account's voices.
-  const useOwnId=async v=>{const id=v.trim();if(!id)return;try{const found=await voiceTts(binding).call('validateMinimaxVoice',{...(serviceId?{serviceId}:{}),voiceId:id});setIdError('');choose(spec1(found),found.label||found.id);}catch(e){setIdError(voiceErrorText(e));}};
   const pickModel=id=>{setModel(id);if(ownId)writer.setSourceModel(ownId,id||undefined);};
   const modelPick=models.length>0&&h(InlineRow,{label:'模型'},
     h(VoiceOptionPick,{label:'模型',value:useModel,options:[...(custom?[]:[{id:'',label:'默认'}]),...models],onPick:pickModel}),
@@ -928,7 +962,11 @@ function VoiceProviderVoices({binding,figure,spec,writer,preview,candidate,choos
   const byId=new Map(voices.map(v=>[v.id,v])),mine=own?.voiceName?byId.get(own.voiceName)||{id:own.voiceName,label:voiceDisplayName(own.voiceName),languages:[]}:null;
   const foot=voices.length>inLanguage.length&&inLanguage.length>0&&h('div',{className:'ap-voice-pick-foot'},
     h(Button,{className:'ap-link','aria-pressed':everyLanguage,onClick:()=>setEveryLanguage(!everyLanguage)},everyLanguage?'只看'+voiceLanguageName(lang)+'（'+inLanguage.length+' 个）':'显示所有语言（共 '+voices.length+' 个，当前只列'+voiceLanguageName(lang)+' '+inLanguage.length+' 个）'));
-  const voicePick=h(InlineRow,{label:'音色',className:'ap-voice-voice-row'+(needed&&!mine?' is-needed':'')},
+  // MiniMax lists its voices in the 声音库 box; the voice in use stays in it when the list lacks it (an id the account
+  // checked when it was picked, so one of its own).
+  const voicePick=provider==='minimax'?h(VoiceMinimaxLibrary,{voices:mine&&!byId.has(mine.id)?[{...mine,mine:true},...voices]:voices,current:own?.voiceName||'',lang,speaks,play,
+      onUse:v=>choose(spec1(v),v.label||v.id)}):
+    h(InlineRow,{label:'音色',className:'ap-voice-voice-row'+(needed&&!mine?' is-needed':'')},
     h(VoiceFilterPick,{label:'音色',value:own?.voiceName||'',valueText:mine?(mine.label||mine.id)+(mine.gender?' · '+VOICE_GENDERS[mine.gender]:''):'',placeholder:'选择音色',options,limit:60,foot,searchAt:0,
       onPick:id=>{const v=byId.get(id);if(v)choose(spec1(v),v.label||v.id);}}),
     mine&&play(mine),
@@ -945,8 +983,7 @@ function VoiceProviderVoices({binding,figure,spec,writer,preview,candidate,choos
       manual?h(React.Fragment,null,
           !models.length&&h(InlineField,{kind:'text',label:'模型',value:model,placeholder:'例：tts-1',maxLength:160,onCommit:v=>setModel(v.trim())}),
           h(InlineField,{kind:'text',label:'音色',value:typed,placeholder:'例：alloy',maxLength:160,onCommit:v=>{const id=v.trim();setTyped(id);if(id)choose(spec1({id,label:id,languages:[]}),id);}})):
-      !voices.length?h(EmptyState,{compact:true,text:'这个服务没有可选的音色',icon:h(Glyph,{name:'voice'})}):voicePick,
-      provider==='minimax'&&h(InlineField,{kind:'text',label:'自创音色 ID',value:'',placeholder:'克隆或设计得到的 voice_id',maxLength:160,error:idError,onCommit:useOwnId})));
+      !voices.length&&provider!=='minimax'?h(EmptyState,{compact:true,text:'这个服务没有可选的音色',icon:h(Glyph,{name:'voice'})}):voicePick));
 }
 // One reference clip: № · ▶ original · what it says · language · length / size · ⋯ (上移 / 下移 / 删除). Alt+↑/↓ moves it.
 function VoiceClipRow({index,count,clip,size,duration,playing,onPlay,onEdit,onMove,onRemove,reorder}) {

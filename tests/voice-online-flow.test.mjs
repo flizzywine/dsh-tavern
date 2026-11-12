@@ -63,8 +63,9 @@ for(const kind of ['minimax','qwen'])test(`${kind} only: new figure -> online vo
   ctx.testVoices=[{id:voiceId,label:'少女',languages:['zh']},{id:kind==='minimax'?'female-yujie':'Serena',label:'御姐',languages:['zh']}]
   const writer=ctx.useVoiceWriter({binding:{service:library},pack,figure:pack.figures[figureId],setError:message=>assert.equal(message,''),commitVoice:async job=>{const result=await job(pack);pack=result.snapshot;return result}})
   const tree=ctx.VoiceProviderVoices({binding:{},figure:pack.figures[figureId],language:'zh',row:{id:'service:'+serviceId,kind,name:kind,serviceId,service:{voiceList:'preset'},ways:[]},preview:{state:null,of:()=>null},choose:made=>writer.useSource(made)})
-  // 音色 is a filterable pick: picking 少女 is what the figure then speaks with.
-  await nodes(tree).find(n=>n.type===ctx.VoiceFilterPick&&n.props.label==='音色').props.onPick(voiceId)
+  // 音色 is a filterable pick (MiniMax: the 声音库 list's 使用): picking 少女 is what the figure then speaks with.
+  if(kind==='minimax')await nodes(tree).find(n=>n.type===ctx.VoiceMinimaxLibrary).props.onUse(ctx.testVoices[0])
+  else await nodes(tree).find(n=>n.type===ctx.VoiceFilterPick&&n.props.label==='音色').props.onPick(voiceId)
   const saved=await library.getPackSnapshot({packId:pack.manifest.id}),binding=saved.figures[figureId].voice,spec=saved.manifest.voiceLibrary.voices[binding.voice]
   assert.equal(spec.sources[binding.source??spec.defaultSource].provider,kind)
   assert.equal(spec.sources[binding.source??spec.defaultSource].voiceName,voiceId)
