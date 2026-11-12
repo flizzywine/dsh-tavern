@@ -1185,7 +1185,7 @@ export function apply(ctx, config = {}) {
           deps.bridge = installTavernBridge({
             tavern,
             attachments: attachmentApi,
-            engine: { planMessage: engine.planMessage, wardrobePrompt: engine.wardrobePrompt, templateMarkerPrompt: engine.templateMarkerPrompt, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
+            engine: { planMessage: engine.planMessage, imageReady: () => engine.imageReady(), wardrobePrompt: engine.wardrobePrompt, templateMarkerPrompt: engine.templateMarkerPrompt, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
             getConfig: () => engine.currentConfig(),
             logger,
             readFileAsBytes: async file => new Uint8Array(await readFile(file)),
@@ -5916,6 +5916,8 @@ function createRuntime(ctx, overrides, logger, deps) {
           { structured: resolvePromptMode(promptConfig, backend) === 'structured' })
       },
       currentConfig: () => config,
+      // 能不能出图：选中的渠道，或至少一份可用的工作流。和 startJob 找不到两者时报错的条件相同。
+      imageReady: () => Boolean(activeChannel(config) || usable().length),
       currentDefinitions: () => definitions,
       characterLibrary,
       readReference: reference => referenceStore.read(reference),
