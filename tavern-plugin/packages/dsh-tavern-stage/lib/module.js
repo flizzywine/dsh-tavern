@@ -87,7 +87,7 @@ export async function createStageModule(core) {
   let modConfigHost
   const workbenchAuthority=Object.freeze({})
   modService=createBuiltinModService({workbenchAuthority,management:managedModManagement,readCard:readModCard,
-    config:{values:(...args)=>modConfigHost.values(...args),bindings:(...args)=>modConfigHost.bindings(...args),
+    config:{values:(...args)=>modConfigHost.values(...args),
       managedRequest:async chat=>managedModManagement.request(chat,{sources:modConfigHost.sources,context:await modConfigHost.context({sessionId:chat.sessionId})}),
       // the phone reads which layer supplied a value and that layer's uploaded files.
       resolved:(...args)=>modConfigHost.resolved(...args),readFile:(...args)=>modConfigHost.readFile(...args)},

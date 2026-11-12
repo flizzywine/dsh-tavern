@@ -680,15 +680,11 @@ var manifest_default = {
       }
     ]
   },
-  packSchema: {
-    fields: []
-  },
   assetKinds: [],
   uiPages: [],
   runtime: {
     entry: "runtime.js"
   },
-  defaultPacks: [],
   files: [
     { path: "audio-loudness.json", size: 246 },
     {

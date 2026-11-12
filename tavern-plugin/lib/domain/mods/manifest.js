@@ -2,10 +2,10 @@ import directorCommands from '../../../packages/dsh-presentation-protocol/src/di
 import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 import widgetContract from '../../../src/client/widget-contracts.cjs'
 import {validateAssetRef, ASSET_KINDS} from '../../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import {validateModSettingsSchema, modSettingValue, modHelp} from './settings.js'
+import {validateModSettingsSchema, modHelp} from './settings.js'
 const {modCheck: check, modShape: shape, modJson, modPlacement, modFreeze, modSafeKey: key, MOD_STAGE_CAPABILITIES} = contract
 const {stageWidgetSchemaValid} = widgetContract
-const validatedManifests = new WeakSet(), validatedPacks = new WeakMap()
+const validatedManifests = new WeakSet()
 const modId = value => typeof value === 'string' && value.length <= 128 && /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value)
 const version = value => typeof value === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
@@ -80,58 +80,12 @@ function permissions(value, at) {
   }
 }
 
-export function validateModPack(input, manifest) {
-  if (validatedPacks.get(input) === manifest) return input
-  modJson(input, 1024 * 1024)
-  const value = structuredClone(input)
-  shape(value, ['format','schemaVersion','id','modId','requiresModVersion','name','fields','entries','files'])
-  check(value.format === 'dsh-mod-pack' && value.schemaVersion === 1 && uuid(value.id) && value.modId === manifest.id && text(value.name), '$', 'Invalid pack identity')
-  validateModVersionRange(value.requiresModVersion, '$.requiresModVersion')
-  files(value.files, '$.files')
-  const fileSet = new Set(value.files.map(file => file.path))
-  const values = (schema, data, at) => {
-    shape(data, schema.fields.map(field => field.key), [], at)
-    for (const [id,item] of Object.entries(data)) check(modSettingValue(schema.fields.find(field => field.key === id),item,manifest.id), at + '.' + id, 'Invalid field value')
-  }
-  values(manifest.packSchema || {fields:[]}, value.fields, '$.fields')
-  const references = new Map()
-  for (const kind of manifest.assetKinds) for (const field of kind.fields.fields) if (field.type === 'reference' && field.target.library === 'pack') {
-    const rows = value.fields[field.target.field]
-    check(Array.isArray(rows), '$.fields.' + field.target.field, 'Missing pack reference list')
-    check(rows.every(row => key(row.id)) && new Set(rows.map(row => row.id)).size === rows.length, '$.fields.' + field.target.field, 'Pack list IDs must be unique stable keys')
-    references.set(field.target.field, new Set(rows.map(row => row.id)))
-  }
-  declarations(value.entries, '$.entries', (entry, at) => {
-    shape(entry, ['id','kind','name','enabled','recall','directorNote','fields','media'], ['id','kind','name','enabled','fields','media'], at)
-    const kind = manifest.assetKinds.find(kind => kind.id === entry.kind)
-    check(kind && text(entry.name) && typeof entry.enabled === 'boolean', at, 'Unknown asset kind or invalid entry')
-    values(kind.fields, entry.fields, at + '.fields')
-    for (const field of kind.fields.fields) if (field.type === 'reference' && field.target.library === 'pack' && entry.fields[field.key] != null)
-      check(references.get(field.target.field).has(entry.fields[field.key]), at + '.fields.' + field.key, 'Unknown pack list reference')
-    shape(entry.media, kind.mediaSlots.map(slot => slot.id), [], at + '.media')
-    for (const file of Object.values(entry.media)) check(fileSet.has(file), at + '.media', 'Media must belong to the declared pack files')
-    if (entry.directorNote !== undefined) check(kind.directorSelectable && text(entry.directorNote,2000), at + '.directorNote')
-    if (entry.recall !== undefined) {
-      check(kind.directorSelectable, at + '.recall', 'Utility entries have no director recall lamp')
-      shape(entry.recall, ['mode','keywords','synonyms'], ['mode','keywords'], at + '.recall')
-      check(['constant','keyword'].includes(entry.recall.mode), at + '.recall.mode')
-      uniqueStrings(entry.recall.keywords, at + '.recall.keywords', value => text(value,160))
-      if (entry.recall.synonyms !== undefined) {
-        shape(entry.recall.synonyms, entry.recall.keywords, [], at + '.recall.synonyms')
-        for (const terms of Object.values(entry.recall.synonyms)) uniqueStrings(terms, at + '.recall.synonyms', value => text(value,160))
-      }
-    }
-  }, 1024)
-  validatedPacks.set(value,manifest)
-  return modFreeze(value)
-}
-
 export function validateModManifest(input) {
   if (validatedManifests.has(input)) return input
   try {
     modJson(input)
     const value = structuredClone(input), at = '$'
-    shape(value, ['format','schemaVersion','id','name','summary','relevance','i18n','ui','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','packSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission','subscriptions','modelSlots','uiLayers','provides','consumes'], ['format','schemaVersion','id','name','summary','relevance','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission'], at)
+    shape(value, ['format','schemaVersion','id','name','summary','relevance','i18n','ui','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','assetKinds','uiPages','runtime','files','license','compatibility','builtinAssets','admission','subscriptions','modelSlots','uiLayers','provides','consumes'], ['format','schemaVersion','id','name','summary','relevance','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','assetKinds','uiPages','runtime','files','license','compatibility','builtinAssets','admission'], at)
     check(text(value.relevance,120) && value.relevance.trim() === value.relevance && !/[\r\n]/.test(value.relevance), '$.relevance', 'Expected a single-line relevance description, at most 120 characters')
     check(text(value.summary) && modHelp(value.summary), '$.summary', 'Expected one-sentence summary')
     check(value.format === 'dsh-mod' && value.schemaVersion === 2 && value.apiVersion === 1, at, 'Unsupported mod API or format')
@@ -278,7 +232,6 @@ export function validateModManifest(input) {
     for (const field of value.settingsSchema.fields.filter(field => ['asset-picker','sound-picker'].includes(field.type))) {
       check(value.assetKinds.some(kind => kind.id === field.kind && (field.type !== 'sound-picker' || kind.mediaSlots.some(slot => slot.type === 'audio'))), '$.settingsSchema.fields.' + field.key + '.kind', 'Single-choice setting must reference this mod library')
     }
-    if (value.packSchema !== undefined) validateModSettingsSchema(value.packSchema, '$.packSchema', false, value.id)
     if (value.ui !== undefined) {
       // `internal` marks a first-party mod kept for tests (the demo); the UI never lists it.
       shape(value.ui, ['layout','preview','internal'], [], '$.ui')
@@ -332,10 +285,8 @@ export function validateModManifest(input) {
           } else visit(child, at + '.' + id)
         }
       }
-      visit({summary:value.summary,settingsSchema:value.settingsSchema,packSchema:value.packSchema,assetKinds:value.assetKinds,ui:value.ui,uiPages:value.uiPages}, '$')
+      visit({summary:value.summary,settingsSchema:value.settingsSchema,assetKinds:value.assetKinds,ui:value.ui,uiPages:value.uiPages}, '$')
     }
-    uniqueStrings(value.defaultPacks, '$.defaultPacks', name => typeof name === 'string')
-    for (const name of value.defaultPacks) entry(name, '$.defaultPacks')
     shape(value.license, ['privateUse','notes'], ['privateUse'], '$.license')
     check(typeof value.license.privateUse === 'boolean', '$.license.privateUse')
     if (value.license.notes !== undefined) {list(value.license.notes, '$.license.notes'); check(value.license.notes.every(note => text(note,2000)), '$.license.notes')}

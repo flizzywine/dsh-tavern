@@ -739,15 +739,11 @@ var manifest_default = {
       }
     ]
   },
-  packSchema: {
-    fields: []
-  },
   assetKinds: [],
   uiPages: [],
   runtime: {
     entry: "runtime.js"
   },
-  defaultPacks: [],
   files: [
     {
       path: "runtime.js",

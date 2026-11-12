@@ -632,15 +632,11 @@ var manifest_default = {
     fields: [],
     sections: []
   },
-  packSchema: {
-    fields: []
-  },
   assetKinds: [],
   uiPages: [],
   runtime: {
     entry: "runtime.js"
   },
-  defaultPacks: [],
   files: [
     { path: "activity.cjs", size: 443 },
     { path: "countdown.cjs", size: 3604 },

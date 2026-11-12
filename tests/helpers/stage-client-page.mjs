@@ -87,7 +87,7 @@ export function stageHostScript() {
     directorCommands,
     // no mod parts offline (mod-clients.js): the rows stay as they are
     backlogView:{voicePlayer:player,modClients:{slot:()=>[]},useJumpLatest:()=>({}),JumpLatest:Nothing,useFigureTextContrast:typeof useFigureTextContrast==='function'?useFigureTextContrast:noop,bubbleCharacter,galQuoted,VoiceButton:Nothing,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
-    modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:async()=>null,readItems:async()=>({performances:[]})},
+    modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readItems:async()=>({performances:[]})},
     performanceSurface:{fonts,resolution:()=>1,subscribeResolution:off,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
     textIndex:{pageCards:stagePageCards},
     playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
