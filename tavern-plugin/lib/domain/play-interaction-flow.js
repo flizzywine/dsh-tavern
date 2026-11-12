@@ -60,6 +60,19 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     function submitCandidateTask(sessionId, messageId, guidance) {
         return once(pendingCandidates, JSON.stringify([sessionId, messageId, guidance || ""]), () => sendCandidateTask(sessionId, messageId, guidance));
     }
+    // 前台生成把候选项写在正文自己身上（chat.candidates），没有任务把结果送到页面，
+    // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
+    async function loadSavedCandidates(sessionId, messageId) {
+        if (!sessionId || !messageId) return null;
+        const shown = panel => panel && panel.sessionId === sessionId && panel.messageId === messageId && panel.phase !== "error";
+        if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        const result = await rpc("getChoices", { sessionId, messageId }, sessionId);
+        const saved = result && result.candidates;
+        if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) return null;
+        // The player may have started a task or dismissed a failure while this read ran.
+        if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        return candidates.set(readyCandidatePanel(sessionId, messageId, saved));
+    }
     async function regenerateCandidates(panel, guidance) {
         if (!panel || guide.getSnapshot() !== panel || panel.phase === "loading") return;
         const loading = guide.set({ ...panel, phase: "loading", error: "" });
@@ -128,7 +141,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             } finally { notifyRegenerating(sessionId, false); }
         });
     }
-    return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask,
+    return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask, loadSavedCandidates,
         regenerateCandidates, cancelGuide, regenerateBody, submitBodyRegeneration,
         guidance: sessionId => guidanceBySession.get(sessionId) || "" });
 }

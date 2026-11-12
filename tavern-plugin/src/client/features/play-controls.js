@@ -480,7 +480,7 @@
         const setCandidatePanel = interactions.candidates.set;
         const setCandidateGuidePanel = interactions.guide.set;
         const setRegenPanel = interactions.regeneration.set;
-        const { readyCandidatePanel, submitCandidateTask, submitBodyRegeneration } = interactions;
+        const { readyCandidatePanel, submitCandidateTask, submitBodyRegeneration, loadSavedCandidates } = interactions;
         function useInteractionPanel(store) { return React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot); }
         function useCandidatePanel() { return useInteractionPanel(interactions.candidates); }
         function useCandidateGuidePanel() { return useInteractionPanel(interactions.guide); }
@@ -609,6 +609,11 @@
 			}, [canRollback, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
+			// 前台候选项随正文一起存好，没有任务送到页面：这一轮落地后按消息读一次。
+			React.useEffect(function () {
+				if (!props.messageId || taskForMessage) return;
+				loadSavedCandidates(props.sessionId, props.messageId).catch(function () {});
+			}, [props.sessionId, props.messageId, taskForMessage && taskForMessage.taskId]);
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
 				if (!taskForMessage) return;
