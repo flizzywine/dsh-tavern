@@ -1,6 +1,7 @@
 import {readFile} from 'node:fs/promises'
 import {trimAuthoringImages} from './image-closure.js'
 import {sealPack} from './validation.js'
+import {exportPrivacyView} from './export-privacy.js'
 
 const readJson = async bytes => JSON.parse((bytes.file ? await readFile(bytes.file) : Buffer.from(bytes)).toString('utf8'))
 
@@ -39,7 +40,7 @@ export async function projectPackFigures(packs, excludeFigures) {
       }
       await sealPack(manifest, files, original)
     }
-    projected.push({...original, manifest, files})
+    projected.push(await exportPrivacyView({...original, manifest, files}))
   }
   return {packs:projected, figures:rows}
 }

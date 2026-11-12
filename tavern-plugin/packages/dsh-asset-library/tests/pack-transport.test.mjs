@@ -279,3 +279,14 @@ test('change stream pushes mutations, resumes by sequence and closes on detach',
   f.detach()
   assert.equal((await reader.read()).done,true)
 })
+test('automatic review is public but writer capabilities never cross control transport', async t => {
+  const f = await fixture(t)
+  const {snapshot} = await f.service.createPack({name:'Review fixture',expectedRevision:null})
+  const response = await f.control('listAutomaticWrites',{packId:snapshot.manifest.id})
+  assert.equal(response.status,200)
+  assert.deepEqual(await response.json(),{revision:snapshot.revision,entries:[],nextCursor:null})
+  for (const method of ['registerAutomaticWriter','writeAutomaticItems','readContext']) {
+    const denied = await f.control(method,{})
+    assert.notEqual(denied.status,200,method)
+  }
+})

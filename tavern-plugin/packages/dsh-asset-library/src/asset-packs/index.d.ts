@@ -14,9 +14,9 @@ export interface AssetContentMap {
   items: ImageContent & {categoryDefault?:boolean};
   directions: {text:string};
   timers: TimerContent;
-  music: {media:Sha256;usage?:string;volume?:number;tags?:string[];loopStart?:number;loopEnd?:number;loudness?:{v:1;lufs:number;peak:number}};
-  sfx: {media:Sha256;loop?:false;durationMs?:number;volume?:number;tags?:string[];gainDb?:number;loudness?:{v:1;lufs:number;peak:number}};
-  ambience: {media:Sha256;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number}};
+  music: {media:Sha256|null;pendingMedia?:boolean;usage?:string;volume?:number;tags?:string[];loopStart?:number;loopEnd?:number;loudness?:{v:1;lufs:number;peak:number}};
+  sfx: {media:Sha256|null;pendingMedia?:boolean;loop?:false;durationMs?:number;volume?:number;tags?:string[];gainDb?:number;loudness?:{v:1;lufs:number;peak:number}};
+  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number}};
   looks: {params:Extensions;layer:'mood';event?:boolean};
   skins: {bundleKey:string;entry:string};
   performances: {bundleKey:string;entry:string};
@@ -37,7 +37,7 @@ export interface VoiceReference {media: Sha256; text: string; language: string}
 export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string}
   | {kind:'preset'; provider:string; voiceName:string; model?:string}
   | {kind:'reference-list'; provider:'fish-audio'; references:VoiceReference[]};
-export interface VoiceSpec {name:string; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}
+export interface VoiceSpec {name:string; /** 使用情景, ≤ 60 字 */ guidance?:string; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}
 export interface VoiceLibrary {version:1; voices:Record<string,VoiceSpec>}
 export interface Voice {voice:string; source?:string|null; variant?:string; language?:string; emotionVariants?:Record<string,string>}
 export type OutfitRecall = Recall;
@@ -65,7 +65,7 @@ export function figureEmotionRows(figure?: Pick<Figure, 'emotions'>): Array<Figu
 export function figureOutfitEmotionRows(figure: Pick<Figure, 'emotions'>, outfit: Figure['outfits'][number], sprites?: Record<string, SpriteManifest>): ReturnType<typeof figureEmotionRows>;
 // board versions belong to the identity, never to outfit accessories.
 export interface IdentitySettei { board: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
-export interface Figure { schemaVersion: 1; id: UUID; name: string; aliases?: string[]; description?: string; remark?: string; enabled: boolean; recall: FigureRecall; appearance: 'live2d' | 'spine' | 'sprite' | 'avatar'; identityAppearance?: string; identitySettei?: IdentitySettei; heightCm?: number; heightBasis?: 'standing' | 'seated'; elevationCm?: number; imageColor?: string; autoColor?: string; emotions?: FigureEmotion[]; voice?: Voice; outfits: Outfit[]; extensions?: Extensions }
+export interface Figure { schemaVersion: 1; id: UUID; name: string; aliases?: string[]; description?: string; guidance?: string; remark?: string; enabled: boolean; recall: FigureRecall; appearance: 'live2d' | 'spine' | 'sprite' | 'avatar'; identityAppearance?: string; identitySettei?: IdentitySettei; heightCm?: number; heightBasis?: 'standing' | 'seated'; elevationCm?: number; imageColor?: string; autoColor?: string; emotions?: FigureEmotion[]; voice?: Voice; outfits: Outfit[]; extensions?: Extensions }
 export interface Rect { x: number; y: number; w: number; h: number }
 export type MouthEvent = 'closed' | 'small' | 'mid' | 'open';
 /** Optional closed-eyes overlay at a base-canvas rect [x, y, w, h]; patch images are exactly w×h. */

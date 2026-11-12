@@ -1,3 +1,5 @@
+import figureScale from '../../../dsh-presentation-protocol/src/figure-scale.cjs'
+import {figureHeadReference} from '../../../dsh-asset-library/lib/asset-packs/figure.js'
 import { analyzeVariableSchema } from '../../../../lib/domain/variable-bindings/index.js'
 import { widgetVariableProjection } from '../../../../lib/domain/widget-variable-provider.js'
 import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
@@ -81,7 +83,7 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
     ...(form === 'live2d' && emotion === 'shy' ? {live2dBlush:true} : {}), heightCm:figure.heightCm ?? null, heightBasis:figure.heightBasis || 'standing', elevationCm:figure.elevationCm || 0,
     ...(form === 'spine' ? {spineEmotion:outfit.spine.emotionMap?.[emotion] || standIn && outfit.spine.emotionMap?.[standIn] || outfit.spine.emotionMap?.[figureDefaultEmotion(figure,outfit)] || null} : {}),
     // old packs and uncalibrated outfits still produce JSON-safe replay frames.
-    anatomy:(form === 'live2d' ? outfit.live2d?.anatomy : form === 'spine' ? outfit.spine.anatomy : form === 'sprite' ? outfit.sprite?.anatomy?.[state?.id] : null) ?? null,
+    anatomy:figureScale.packHeadRelativeAnatomy((form === 'live2d' ? outfit.live2d?.anatomy : form === 'spine' ? outfit.spine.anatomy : form === 'sprite' ? outfit.sprite?.anatomy?.[state?.id] : null) ?? null, figureHeadReference(figure)),
     // the shown picture's head (its crop), for the stage's head-normalised size.
     head:form === 'sprite' && packSpriteCrop(outfit, state?.id) ? packCropHead(packSpriteCrop(outfit, state?.id)) : null, diagnostics}
 }
@@ -178,7 +180,8 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
     // the entry's authored 音量 (0..1) travels with every BGM / SFX / ambience track; the
     // browser mixer applies it as a per-entry gain (forkStageAudio.bind authored.volume). The install-time loudness
     // levels every audio kind; the browser never measures a track that carries it.
-    return value?.enabled ? {ref, identity:mediaIdentity(ref,value.media), name:value.name, ...(typeof value.volume === 'number' ? {volume:value.volume} : {}), ...(ref.kind === 'music' && value.loopStart !== undefined ? {loopStart:value.loopStart, loopEnd:value.loopEnd} : {}), ...(ref.kind === 'sfx' ? {gainDb:value.gainDb ?? 0} : {}), ...(value.loudness ? {loudness:clone(value.loudness)} : {}), url:await resource(ref,revision,value.media,descriptors)} : null
+    // a blank entry (no file yet) is no track.
+    return value?.enabled && value.media ? {ref, identity:mediaIdentity(ref,value.media), name:value.name, ...(typeof value.volume === 'number' ? {volume:value.volume} : {}), ...(ref.kind === 'music' && value.loopStart !== undefined ? {loopStart:value.loopStart, loopEnd:value.loopEnd} : {}), ...(ref.kind === 'sfx' ? {gainDb:value.gainDb ?? 0} : {}), ...(value.loudness ? {loudness:clone(value.loudness)} : {}), url:await resource(ref,revision,value.media,descriptors)} : null
   }
   // descriptors carry content identity; only the browser resource owner leases them.
   const resource = (ref, revision, hash, descriptors) => descriptors && hash
@@ -337,10 +340,10 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
         const pack = await snapshot(packId).catch(() => null)
         if (!pack) continue
         lists.push(await cached(projections, 'music:' + packId + ':' + pack.revision, async () => {
-          return Promise.all(pack.manifest.assets.filter(asset => asset.kind === 'music' && asset.enabled).map(async asset => {
-            const ref = {packId, kind:'music', assetId:asset.id}
-            return {...await describeAudioTrack(ref, {...asset,...assetContent(asset)}, pack.revision, true), pack:pack.manifest.name}
-          }))
+          return (await Promise.all(pack.manifest.assets.filter(asset => asset.kind === 'music' && asset.enabled).map(async asset => {
+            const ref = {packId, kind:'music', assetId:asset.id}, track = await describeAudioTrack(ref, {...asset,...assetContent(asset)}, pack.revision, true)
+            return track && {...track, pack:pack.manifest.name}
+          }))).filter(Boolean)
         }))
       }
       if (disposed || getService() !== s || epoch !== generation) throw error('ASSET_STALE')
@@ -394,7 +397,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
       for (const ref of expanded.refs) {
         const resolved = await resolveAsset(ref), asset = resolved.value
         if (!assetEntryEnabled(asset)) return unavailable(ref)
-        if (asset.pendingMedia) throw error('ASSET_STALE')
+        if (asset.pendingMedia) return unavailable(ref)
         const pack = packs.get(ref.packId)
         if (ref.kind === 'widgets') {
           const document=pack.widgets[ref.assetId], state=performanceWidgetDefaults(document)

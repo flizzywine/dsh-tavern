@@ -25,6 +25,7 @@ const fields = Object.freeze({
   startPackDownload:['selection','url','useMirrorPrefix'], getPackDownload:['jobId'], controlPackDownload:['jobId','action'],
   getStageSetupStatus:['path','autoOpened'], mergeStageSetupPack:['path','expectedCardRevision','expectedLibraryRevision','selections','name','figure'],
   listPackSummaries:[], getPackSnapshot:['packId'],
+  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'],
   savePackVoice:['figureId','packId','expectedRevision','voiceId','voiceSpec','confirmShared'], saveFigureVoiceBinding:['packId','figureId','expectedRevision','binding'], createAndAssignPackVoice:['packId','figureId','expectedRevision','voiceSpec'],
   savePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','variant','confirmShared'],
   deletePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','confirmShared'],
@@ -41,12 +42,12 @@ const fields = Object.freeze({
   removeFigureEmotion:['packId','expectedRevision','figureId','emotionId'],
   migrateFigureVariants:['packId','expectedRevision','dryRun'],
   resolveAssets:['refs'], resolveFigures:['refs'], inspectImport:['bytes','copy'],
-  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk'], exportPack:['packId','expectedRevision'], exportPacks:['packs'],
+  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision'], exportPacks:['packs'],
   exportCardBundle:['path','expectedRevision','packIds'], inspectCardBundle:['path','bytes'], inspectCardBundleUrl:['path','url'], previewCardBundleDecisions:['inspectionId','decisions'],
   applyCardBundle:['inspectionId','expectedRevision','cancel','decisions','acceptScriptRisk','disableWidgets'],
   leaseMedia:['packId','hash'], leaseBundle:['packId','bundleKey'], releaseLease:['ticket'], discardUpload:['ticket']
 })
-const status = {FORBIDDEN:403, INVALID_INPUT:400, LIMIT_EXCEEDED:413, REVISION_CONFLICT:409, ASSET_UNAVAILABLE:503, SETTINGS_UNAVAILABLE:503, RECOVERY_REQUIRED:503}
+const status = {FORBIDDEN:403, NOT_AUTHORIZED_WRITER:403, AUTOMATIC_WRITE_CHANGED:409, INVALID_INPUT:400, LIMIT_EXCEEDED:413, REVISION_CONFLICT:409, ASSET_UNAVAILABLE:503, SETTINGS_UNAVAILABLE:503, RECOVERY_REQUIRED:503}
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const json = (value, code = 200) => Response.json(value, {status:code, headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
 function errorResponse(error) {
@@ -117,7 +118,7 @@ export function createAssetPackTransport({settings, ...options}) {
   let active = true, connection = null, pendingBytes = 0, storedBytes = 0, sequence = 0, generation = 0, routeStops = [], carrierLife = null
   const alive = () => check(active, '$', 'Transport disposed', 'ASSET_UNAVAILABLE')
   // card export may embed globally enabled packs; the service reads them from these settings.
-  const core = createAssetPackService({...options, exportArchive, globalEnabledPackIds:() => settings ? settings.read().values.globalEnabledPackIds : [], externalSpoolUsage:() => pendingBytes + storedBytes + outboxBytes(), authorizeLease:async input => {
+  const core = createAssetPackService({...options, settings, exportArchive, globalEnabledPackIds:() => settings ? settings.read().values.globalEnabledPackIds : [], externalSpoolUsage:() => pendingBytes + storedBytes + outboxBytes(), authorizeLease:async input => {
     if (!active || !connection || input.scope !== PRINCIPAL) return false
     return options.authorizeLease ? await options.authorizeLease(input) === true : true
   }})

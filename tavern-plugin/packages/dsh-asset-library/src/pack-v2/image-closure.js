@@ -1,4 +1,5 @@
 import {readDocument, jsonBytes} from './validation.js'
+import {assetContents} from '../shared/asset-variant-content.js'
 
 const figureMedia = figure => new Set(figure.outfits.flatMap(o => [...Object.values(o.avatars || {}), ...Object.values(o.sprite?.assets || {})]))
 const outfitMedia = outfit => new Set([...Object.values(outfit?.avatars || {}), ...Object.values(outfit?.sprite?.assets || {})])
@@ -58,5 +59,16 @@ export function trimAuthoringImages(manifest, files, previousFigures) {
   for (const [hash, descriptor] of Object.entries(manifest.blobs)) if (descriptor.mime.startsWith('image/') && !used.has(hash)) {
     delete manifest.blobs[hash]
     files.delete('media/' + hash + '.' + descriptor.ext)
+  }
+}
+
+// Removed figures retire their own models (Live2D / Spine bundles); a bundle a remaining figure or an asset uses stays.
+export function retireFigureBundles(manifest, files, removed, remaining) {
+  const owned = new Set(removed.flatMap(figure => figure.outfits.flatMap(outfit => [outfit.live2d?.bundleKey, outfit.spine?.bundleKey])).filter(Boolean))
+  const used = new Set(manifest.assets.flatMap(asset => assetContents(asset).map(content => content.bundleKey)))
+  for (const figure of remaining) for (const outfit of figure.outfits) { used.add(outfit.live2d?.bundleKey); used.add(outfit.spine?.bundleKey) }
+  for (const key of owned) if (!used.has(key)) {
+    delete manifest.bundles[key]
+    for (const file of files.keys()) if (file.startsWith(`bundles/${key}/`)) files.delete(file)
   }
 }
