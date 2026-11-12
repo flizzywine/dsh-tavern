@@ -4,7 +4,7 @@ import {projectStageLease} from './domain/stage-lease-projection.js'
 import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
 import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
-// The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.
+// The stage's requests: director, asset packs, figures and voices, widgets, mods, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
 // A dsh.phone message mark: the phone reads in full only the earlier rounds whose record binds a phone view and marks one.
 export function createStageHandlers(deps) {
@@ -76,31 +76,6 @@ return {invalidated:widgetVariables.invalidate(args)}
     async getStagePerformanceKinds(args, method, serverTemplate, authority) {
       const { modService } = deps
 return {kinds:modService.performanceKinds()}
-    },
-    async updateStageTimer(args, method, serverTemplate, authority) {
-      const { stageTimer } = deps
-return method==='getStageTimer'?stageTimer.read(args):stageTimer.update(args)
-    },
-    async getStageTimerLooks(args, method, serverTemplate, authority) {
-      const { modService } = deps
-return modService.builtinImages('dsh.timer')
-    },
-    async getStageTimerReaction(args, method, serverTemplate, authority) {
-      const { STAGE_TIMER_FIELD, assetEngineSettings, assetRuntime, cardStageSwitch, readRoundView, stageDirector } = deps
-
-        const chat=await readRoundView(args.sessionId,args.turn)
-        if(!chat)return {status:'unavailable'}
-        const direction=await stageDirector.get(chat,Number(args.turn),null,{readOnly:true})
-        if(JSON.stringify(direction.token)!==JSON.stringify(args.expectedDirectionToken))return {status:'stale'}
-        const message=chat.messages.findLast(row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===Number(args.turn))
-        const event=message?.[STAGE_TIMER_FIELD]?.events?.find(row=>row.id===args.eventId),ref=event?.onTimeup
-        if(!ref || !await cardStageSwitch(chat.cardPath,'performance'))return {status:'unavailable'}
-        const consumer=await assetRuntime.consumer(chat,authority?.origin)
-        if(!consumer?.presentation.available() || !consumer.allowedPackIds.includes(ref.packId))return {status:'unavailable'}
-        const metadata=await consumer.presentation.performanceMetadata([ref])
-        const performance=await consumer.presentation.performance({ref,instanceKey:[event.id],phase:'entry'},{snapshots:metadata,engine:assetEngineSettings.read().values,isCurrent:()=>true})
-        return performance.unavailable?{status:'unavailable'}:{status:'ready',performance}
-
     },
     async getStageItems(args, method, serverTemplate, authority) {
       const { cardStageSwitch, readCardWorkspace, readRoundView, stageDirector } = deps

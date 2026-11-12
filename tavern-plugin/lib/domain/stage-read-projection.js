@@ -1,3 +1,5 @@
+import {modFloorFields} from './mods/stage-contributions.js'
+
 // Read-only coordinates remain those of the complete archive. This tag is never persisted.
 const scopes = new WeakMap()
 export const stageReadScope = chat => scopes.get(chat)
@@ -15,8 +17,8 @@ export const stageReadIdentityFields = ['id','role','turn','greeting','swipeId',
 export const stageReadDisplayFields = ['projectionText','tavernPluginData.template_display']
 export const stageReadRecordFields = ['stageDirectionAssetPacks']
 // Small per-floor stage state (a few KB per archive): every prefix floor carries it, so one turn view also answers the
-// countdown, item and mod history readers of any earlier turn.
-export const stageReadFloorFields = ['stageDirectionGeneration','stageTimerV1','modCorrections','stageItems']
+// countdown, item and mod history readers of any earlier turn. Mods add the fields they save (stage contribution floorFields).
+export const stageReadFloorFields = () => ['stageDirectionGeneration','modCorrections','stageItems',...modFloorFields()]
 export const stageReadCurrentFields = ['stageDirectionAssetPacksFailure','stagePlaybackV1','openingId']
 // A chain-only turn view: an earlier floor carries its hashed source and the
 // identity of its record (digest, binding target, performance boundary), not the record. The state of round N is
@@ -91,12 +93,12 @@ export function createStageReads({open, whole}) {
         return row
       }
       if (chainOnly && position !== index) {
-        const row = await snapshot.fields(ref, [...stageReadChainFields, ...stageReadFloorFields])
+        const row = await snapshot.fields(ref, [...stageReadChainFields, ...stageReadFloorFields()])
         if (row.sourceText == null) { const text = await snapshot.get(ref, 'text'); if (text !== undefined) row.text = text }
         return row
       }
       return snapshot.fields(ref, configOnly ? [...stageReadIdentityFields, 'stageDirectionAssetPacks.stats.judge.probabilities']
-        : [...stageReadIdentityFields, ...stageReadDisplayFields, ...stageReadRecordFields, ...stageReadFloorFields, ...(position === index ? stageReadCurrentFields : [])])
+        : [...stageReadIdentityFields, ...stageReadDisplayFields, ...stageReadRecordFields, ...stageReadFloorFields(), ...(position === index ? stageReadCurrentFields : [])])
     })
     indices.forEach((position, i) => { chat.messages[position] = {...chat.messages[position], ...values[i]} })
     return markStageRead(chat, {turn: requested, index, configOnly, ...(sourceOnly ? {sourceOnly: true} : {}), ...(chainOnly ? {chainOnly: true, full: []} : {})})
@@ -104,7 +106,7 @@ export function createStageReads({open, whole}) {
   // The earlier floors (indices) a chain-only view's consumer names, at `revision`: by default each as a stage view
   // reads an earlier floor in full, its record without the judge probabilities (stageReadEarlierOmitted); `fields`
   // selects others (the record alone, or each beat's ops).
-  async function readFloors(id, indices, {revision, fields = [...stageReadIdentityFields, ...stageReadDisplayFields, ...stageReadRecordFields, ...stageReadFloorFields]} = {}) {
+  async function readFloors(id, indices, {revision, fields = [...stageReadIdentityFields, ...stageReadDisplayFields, ...stageReadRecordFields, ...stageReadFloorFields()]} = {}) {
     const snapshot = await open(id, {revision: revision ?? Infinity})
     if (!snapshot) return null
     const references = await snapshot.refs(indices)

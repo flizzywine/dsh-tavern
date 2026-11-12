@@ -1,8 +1,6 @@
 import {randomUUID} from 'node:crypto'
-import {foldAssetPackEntries} from '../../domain/stage-asset-pack-director.js'
-import {stageReadScope,markStageRead} from '../../../../../lib/domain/stage-read-projection.js'
-import {timerTimeupFact} from '../../../../../mods/timer/state.cjs'
-import {timerClockSample,timerClockRemaining,timerClockFrozen} from '../../client/timer-clock.cjs'
+import {timerTimeupFact} from '../state.cjs'
+import {timerClockSample,timerClockRemaining,timerClockFrozen} from '../timer-clock.cjs'
 
 // One host lifetime owns stage-open leases. A saved clock from a dead host resumes
 // from its last durable sample, never from a timestamp spanning an application exit.
@@ -11,7 +9,8 @@ import {timerClockSample,timerClockRemaining,timerClockFrozen} from '../../clien
 // through by this clock, and written at most every progressFlushMs, when a stage closes and on dispose. Any other
 // change writes at once and carries the held progress with it.
 export const STAGE_TIMER_PROGRESS_FLUSH_MS=20000
-export function createStageTimerClock({readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,publish=()=>{},now,owner=randomUUID(),savedBudget,progressFlushMs=STAGE_TIMER_PROGRESS_FLUSH_MS}) {
+// stage: the stage's read helpers handed to the extension (fold, readScope, markRead; lib/module.js stageExtensions.start).
+export function createStageTimerClock({stage,readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,publish=()=>{},now,owner=randomUUID(),savedBudget,progressFlushMs=STAGE_TIMER_PROGRESS_FLUSH_MS}) {
   const epoch=Date.now(),start=performance.now()
   now ||= ()=>Math.floor(epoch+performance.now()-start)
   const sessions=new Map(),pending=new Map(),field='stageTimerV1'
@@ -25,7 +24,7 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
     const value=pending.get(sessionId)
     if(!value || !chat)return null
     const index=chat.messages.findLastIndex(row=>row.role==='assistant' && turnOf(row)===value.turn),row=chat.messages[index]
-    if(index>stageReadScope(chat)?.index)return null
+    if(index>stage.readScope(chat)?.index)return null
     if(row && chat.timeline.branchId===value.branchId && (row.stageDirectionGeneration || 0)===value.generation && (row[field]?.revision || 0)===value.base)return {value,index}
     release(sessionId)
     return null
@@ -36,8 +35,8 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
     const messages=[...chat.messages]
     messages[found.index]={...messages[found.index],[field]:found.value.saved}
     // The overlaid copy is the same stage view: it keeps the view's scope (which floors carry what).
-    const scope=stageReadScope(chat),copy={...chat,messages}
-    return scope ? markStageRead(copy,scope) : copy
+    const scope=stage.readScope(chat),copy={...chat,messages}
+    return scope ? stage.markRead(copy,scope) : copy
   }
   async function flush(sessionId,attempt=0) {
     const chat=await readChat(sessionId),found=held(sessionId,chat)
@@ -81,7 +80,7 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
     if(visit && (args.mode!=='live' || row!==chat.messages.findLast(row=>row.role==='assistant') || JSON.stringify(args.expectedDirectionToken)!==JSON.stringify(direction.token)))fail('Only the latest live floor can execute timer commands')
     if(visit && (!Number.isSafeInteger(args.at) || args.at<1 || args.at>direction.through || !Number.isSafeInteger(args.offset??0) || (args.offset??0)<0))fail('Invalid timer floor')
     const record=direction.record || direction.preview
-    const activeState=record && foldAssetPackEntries(record,visit?args.at:row[field]?.highWater || row[field]?.at || 1)
+    const activeState=record && stage.fold(record,visit?args.at:row[field]?.highWater || row[field]?.at || 1)
     const control=Object.values(activeState?.stageControls || {}).find(value=>value.provider==='dsh.timer')
     const controllerOff=control && !await controllerEnabled(chat,control.consumer)
     let result,event,change,hold
@@ -112,7 +111,7 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
       }
       if(!timer && prior?.checkpoint && !prior.clockEvents) {
         // V1 has no timestamp. Recover only its known balance, not invented past time.
-        const previousState=prior.source.turn===turn ? foldAssetPackEntries(record,prior.at) : record?.baseline
+        const previousState=prior.source.turn===turn ? stage.fold(record,prior.at) : record?.baseline
         const own=previousState?.modState?.['dsh.timer']?.timer
         timer=own?.instanceId===prior.checkpoint.instanceId?own:null
         if(timer)checkpoint={...checkpoint,durationMs:timer.durationMs}
@@ -192,7 +191,7 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
   // is not the live clock's: that countdown at the page's floor, frozen; a legacy V1 frame where no floor names it.
   function behind(record,floors,clocks,frames,args,turn,timer) {
     if(!record || args.turn!==turn || !Number.isSafeInteger(args.at) || args.at<1)return null
-    const state=foldAssetPackEntries(record,args.at)
+    const state=stage.fold(record,args.at)
     let own=state.modState?.['dsh.timer']?.timer || null
     const control=Object.values(state.stageControls || {}).find(value=>value.provider==='dsh.timer' && value.timerInstanceId===own?.instanceId)
     if(control?.exiting && control.releasePolicy==='stop')own=null

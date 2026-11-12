@@ -21,11 +21,6 @@ const stageClientPlugin = (() => {
         __STAGE_ADMISSION__
         __STAGE_PROGRESS__
         __STAGE_VIDEO__
-        const timerClock = (() => {
-            __TIMER_CLOCK__
-            return {timerClockRemaining};
-        })();
-        __STAGE_TIMER__
         __STAGE_SOUNDSCAPE__
         __STAGE_AMBIENCE__
         __STAGE_FIGURE_GEOMETRY__
@@ -193,9 +188,8 @@ const stageClientPlugin = (() => {
             // UI implementation is being extracted from the core client closure.
             const host = ctx.get('tavernStageFrontend');
             const stageFeatures=createStageFeatures();
-            stageFeatures.register('timer',{views:({options,views,own,getResourceOwner})=>({
-                timer:own(createStageTimer({React:options.React,window,...options.timer,getResourceOwner,createRects:views.performanceSurface.createRects,createKeyframeLayer:views.performanceSurface.createKeyframeLayer,performanceSafety:views.performanceSurface.safety}))
-            })});
+            // Each mod's stage client (tavern-plugin/mods/<folder>/client/stage.cjs), bundled by build.mjs.
+            for(const [id,feature] of __STAGE_MOD_FEATURES__)stageFeatures.register(id,feature);
             ctx.provide('stageFeatures',stageFeatures);
             const activate=() => {
                 const cleanups=[];

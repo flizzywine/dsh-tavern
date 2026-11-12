@@ -1,4 +1,3 @@
-import {STAGE_TIMER_FIELD} from './mods/timer/stage-service.js'
 import {describeOpeningScenes} from './domain/stage-opening-scene.js'
 import {readStageProjection} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
@@ -66,7 +65,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
       if (live2dFiles) assets.figureRuntimes.register('live2d', live2dFigureRuntime(live2dFiles))
       assets.figureRuntimes.bind(registry)
       assets.stageExtensions.bind(registry)
-      const owned = Object.fromEntries(Object.entries({STAGE_TIMER_FIELD,live2dFiles,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
+      const owned = Object.fromEntries(Object.entries({live2dFiles,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
       return module.requests(Object.create(bindings,owned),registry)
     },
     async dispose() {phase = 'disposed';await scope.dispose()},

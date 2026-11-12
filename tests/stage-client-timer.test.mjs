@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-const {createStageTimer} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/timer.cjs')
+const {createStageTimer} = createRequire(import.meta.url)('../tavern-plugin/mods/timer/client/timer.cjs')
 test('timer layout observers and queued frame are removed immediately on plugin disposal', () => {
   const effects = [], frames = new Map(), observers = []
   const stage = {querySelectorAll:() => []}

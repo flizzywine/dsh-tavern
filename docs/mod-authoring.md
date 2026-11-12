@@ -14,10 +14,10 @@ tavern-plugin/mods/<name>/
   package.json      name = mod.json 的 packageName；exports 指向 plugin.mjs
   plugin.mjs        Cordis 入口：apply(ctx) 里登记本模组用到的全部接口（§3），别处不替它登记
   runtime.js        指令执行、提示词准备等宿主侧逻辑，纯函数优先
-  stage.js          可选：导演事务钩子
-  host/             可选：舞台宿主服务
+  stage.js          可选：导演事务钩子，按文件夹自动发现并登记（§3）
+  host/             可选：舞台宿主服务，由 stage.js 的 hostExtension 带入
   tools.js          可选：前台工具，按文件夹自动发现并登记（§3）
-  client/           可选：舞台画面（视图与样式）
+  client/           可选：舞台画面；入口 client/stage.cjs（+ client/stage.css），由舞台构建打包
   view/             可选：独立界面文档（如手机）
   prompts/ assets/  提示词片段、内置素材
   README.md         开发者说明（§4）
@@ -55,10 +55,11 @@ tavern-plugin/mods/<name>/
 |---|---|---|
 | 导演指令 | 清单 `commands`；`registerMod` 的 `command` | 导演能下的结构化指令，op 为 `mod.<id>.<cmd>`，带每轮次数和字节上限 |
 | 提示词 | 清单 `prompts` | 本轮准入时注入的说明 |
-| 导演事务钩子 | `stage.js`，`registerModStageContribution`（`lib/domain/mods/stage-contributions.js` 头注释列出全部钩子） | 状态归约、提示词里的状态、本轮事实与进度 |
-| 舞台宿主服务 | `ctx` 的 `stageExtensions.register` | 跨请求的宿主侧服务与请求路由 |
+| 导演事务钩子 | `stage.js` 的默认导出；`lib/mod-builtins.js` 按文件夹发现并 `registerModStageContribution`（`lib/domain/mods/stage-contributions.js` 头注释列出全部钩子） | 状态归约、提示词里的状态、本轮事实与进度、导演目录片段（`catalogueFragments`） |
+| 楼层字段 | `stage.js` 的 `floorFields` | 模组存在助手消息上的字段；舞台读取每层时带上 |
+| 舞台宿主服务 | `stage.js` 的 `hostExtension(core)`，舞台在服务启动前按模组 id 登记（`stage-extensions.js`） | 跨请求的宿主侧服务（`deps`）与本模组自己的 RPC 方法（`requests`）；`core.stage` 提供状态折叠与读取范围工具 |
 | 前台工具 | `tools.js` 默认导出 `[{name, create(core)}]`；`lib/mod-tools.js` 按文件夹发现，本体据此登记、提供和管控，不点名工具 | 正文模型可调用的工具（如骰子的 `tavern_roll`）；`core` 给出回合读取与 `authorize(chat)`、`markUsed(chat)` 两个按本模组生效的回调 |
-| 舞台画面 | `ctx` 的 `stageFeatures.register` | 舞台上的视图与样式；HUD 用演出的 `regions` |
+| 舞台画面 | `client/stage.cjs` 导出 `{views}`，可 `require` 本文件夹内文件；`client/stage.css` 是它的样式。舞台构建（`dsh-tavern-stage/build.mjs`）打包后按文件夹名 `stageFeatures.register` | 舞台上的视图与样式；HUD 用演出的 `regions` |
 | 独立界面 | `registerMod` 的 `render` | 手机这类自带文档的界面 |
 | 素材 | 清单 `assetKinds`、`coreAssets` | 素材库条目与内置素材 |
 | 模型 | 清单 `permissions` 的 `models.*` | 本模组的模型槽 |
@@ -101,9 +102,9 @@ export function apply(ctx) {
 | # | 偏差 | 去向 |
 |---|---|---|
 | M1 | 第一方模组表写死在 `lib/mod-builtins.js`、`lib/mod-system-distributions.js`、`lib/domain/user-plugin-install.js`，由本体加载 | 扫描 `mods/*/mod.json`，由舞台加载 |
-| M2 | 舞台包里的模组宿主代码 `dsh-tavern-stage/lib/mods/{timer,phone}/`，舞台按名 import | 移进 `mods/<name>/host/`，由模组自己登记 |
-| M3 | 舞台客户端里的模组画面（textcard-*、timer、phone-*、call-views 等） | 移进 `mods/<name>/client/` |
-| M4 | 本体客户端里的模组代码（dice-roll、dice-throw、phone-*、textcard-stage、timer-stage） | 同 M3 |
+| M2 | 舞台包里的模组宿主代码 `dsh-tavern-stage/lib/mods/phone/`，舞台按名 import（计时器已迁） | 移进 `mods/<name>/host/`，由模组自己登记 |
+| M3 | 舞台客户端里的模组画面（textcard-*、phone-*、call-views 等；计时器已迁） | 移进 `mods/<name>/client/` |
+| M4 | 本体客户端里的模组代码（dice-roll、dice-throw、phone-*、textcard-stage） | 同 M3 |
 | M5 | 本体点名模组（`asset-pack-ui.js` 等；骰子前台工具已迁到 `mods/dice/tools.js`） | 通用接口或清单声明 |
 | M6 | 手机模组 import 本体内部（`lib/domain/*`、`prompt-catalog`、`bubble-line.cjs`） | 移进协议包或经 `ctx` 取得 |
 | M7 | 两份清单与旧注册表 | 并为一份 `mod.json` |

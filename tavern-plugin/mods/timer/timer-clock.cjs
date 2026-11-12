@@ -29,4 +29,4 @@ function timerClockFrozen(checkpoint, atMs) {
     return {...checkpoint,remainingMs,status:remainingMs <= 0 ? 'expired' : checkpoint.status,
         clock:checkpoint.clock ? {...checkpoint.clock,atMs,remainingMs,open:false} : undefined};
 }
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {timerClockRemaining,timerClockSample,timerClockFrozen};
+if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerClockSample,timerClockFrozen};

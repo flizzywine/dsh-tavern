@@ -1,6 +1,5 @@
 'use strict';
-const stageTimerClock = typeof window === 'undefined' && typeof module !== 'undefined'
-    ? require('../../lib/client/timer-clock.cjs') : timerClock;
+const stageTimerClock = require('../timer-clock.cjs');
 function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver, getResourceOwner, resourceAuthority, createRects, createKeyframeLayer, useModOptions, performanceSafety}) {
 const {timerClockRemaining} = stageTimerClock;
 let disposed = false;
@@ -347,4 +346,4 @@ return {useSlot:useStageTimerSlot, createReactionScope, useTimer:useStageTimer, 
     if (errors.length) throw new AggregateError(errors, 'Stage timer cleanup failed');
 }};
 }
-if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageTimer};
+module.exports = {createStageTimer};

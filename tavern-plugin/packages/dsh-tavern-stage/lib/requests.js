@@ -13,7 +13,6 @@ const unavailable = () => Object.assign(new Error('舞台模块已停用'), {cod
 // method admission and dispatch; all stage aliases and mod routing live here.
 export function createStageRequests(deps, modules = deps) {
   const handlers = Object.assign(Object.create(null), createStageHandlers(deps))
-  handlers.getStageTimer = handlers.updateStageTimer
   for (const method of ['getJudgeConfig', 'saveJudgeConfig', 'getJudgeCredentialStatus', 'setJudgeKey']) handlers[method] = handlers.testJudgeConnection
   const delegated = new Map([
     ...MANAGED_MOD_METHODS.map(method => [method, (input, authority, serverTemplate) => modules.managedModManagement.call(method,input,authority,{serverTemplate})]),

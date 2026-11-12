@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {STAGE_TIMER_FIELD,stageTimerSaved,stageTimerFacts,stageTimerProgress} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-service.js'
+import {STAGE_TIMER_FIELD,stageTimerSaved,stageTimerFacts,stageTimerProgress} from '../tavern-plugin/mods/timer/host/stage-service.js'
 test('existing timer checkpoints and facts retain branch and generation boundaries', () => {
   assert.equal(STAGE_TIMER_FIELD,'stageTimerV1')
   const checkpoint = {instanceId:'timer-1',remainingMs:12000}
@@ -22,7 +22,7 @@ test('existing timer checkpoints and facts retain branch and generation boundari
 })
 
 test('clock disposal drains a queued open before closing leases and refuses new work', async () => {
-  const {createStageTimerClock} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-clock.js')
+  const {createStageTimerClock} = await import('../tavern-plugin/mods/timer/host/stage-clock.js')
   let releaseRead, first = true, reads = 0
   const blocked = new Promise(resolve => {releaseRead=resolve})
   const writes = []
@@ -58,4 +58,20 @@ test('clock disposal drains a queued open before closing leases and refuses new 
   const before = reads
   await assert.rejects(clock.update({sessionId:'s',action:'sample',lease:'l'}),{code:'RESOURCE_DISPOSED'})
   assert.equal(reads,before)
+})
+
+test('the timer joins the stage through its own stage.js: saved field, catalogue fragments and its stage service', async () => {
+  await import('../tavern-plugin/lib/mod-builtins.js')
+  const {modStageContribution} = await import('../tavern-plugin/lib/domain/mods/stage-contributions.js')
+  const {stageReadFloorFields} = await import('../tavern-plugin/lib/domain/stage-read-projection.js')
+  const timer = modStageContribution('dsh.timer')
+  assert.deepEqual(timer.floorFields, [STAGE_TIMER_FIELD])
+  assert.ok(stageReadFloorFields().includes(STAGE_TIMER_FIELD))
+  assert.deepEqual(timer.catalogueFragments({packs:[]}), [])
+  const extension = timer.hostExtension({stage:{}, chatPersistence:{}, modService:{builtinImages:async id => ({id})}})
+  try {
+    assert.deepEqual(extension.requests.methods, ['getStageTimer','updateStageTimer','getStageTimerLooks','getStageTimerReaction'])
+    assert.deepEqual(await extension.requests.call('getStageTimerLooks', {}), {id:'dsh.timer'})
+    assert.equal(typeof extension.deps.stageTimer.read, 'function')
+  } finally {extension.dispose()}
 })

@@ -1,8 +1,10 @@
-import contract from '../../../../dsh-presentation-protocol/src/mod-contract.cjs'
-import {assetRefKey} from '../../../../dsh-presentation-protocol/src/asset-packs.js'
-import {reduceTimerCommand,TIMER_MOD_ID} from '../../../../../mods/timer/state.cjs'
-import {reduceCountdown,countdownBudget} from '../../../../../mods/timer/countdown.cjs'
-import {stageTimerFacts,stageTimerProgress} from './stage-service.js'
+import contract from '../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
+import {assetRefKey} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import {reduceTimerCommand,TIMER_MOD_ID} from './state.cjs'
+import {reduceCountdown,countdownBudget} from './countdown.cjs'
+import {timerCatalogueFragments} from './catalogue.js'
+import {createTimerExtension} from './host/extension.js'
+import {STAGE_TIMER_FIELD,stageTimerFacts,stageTimerProgress} from './host/stage-service.js'
 const {modCheck:check}=contract
 
 // The timer's part of the director transaction (tavern-plugin/lib/domain/mods/stage-contributions.js).
@@ -49,4 +51,7 @@ export default {
     return state
   },
   facts:{section:'timer_events',id:'timeup',field:'timeup'},
+  catalogueFragments:timerCatalogueFragments,
+  floorFields:[STAGE_TIMER_FIELD],
+  hostExtension:createTimerExtension,
 }

@@ -5,7 +5,6 @@ async function timedRead(name,task) {
   try {return await task()} finally {if(readTiming.hasSubscribers)readTiming.publish({name:'mod.'+name,durationMs:performance.now()-start})}
 }
 import {createModModelTasks} from './domain/mods/models.js'
-import {timerCatalogueFragments} from '../../../mods/timer/catalogue.js'
 import {createSettledModSource} from '../../../lib/mod-source.js'
 import {createModSessionEvents} from '../../../lib/mod-events.js'
 import {createModEventCatalogue} from '../../../lib/mod-event-catalogue.js'
@@ -15,6 +14,7 @@ import {createFirstPartyMods} from '../../../lib/mod-builtins.js'
 import {createModHostRuntime} from '../../../lib/mod-runtime.js'
 import {createModVariablePort} from '../../../lib/mod-variables.js'
 import {compileModPrompts} from '../../../lib/domain/mods/prompts.js'
+import {modStageContribution} from '../../../lib/domain/mods/stage-contributions.js'
 import {modCatalogue,modAssetCatalogue,modTurnActive} from '../../../lib/domain/mods/catalogue.js'
 import {selectModAdmission,modKeepFragments} from '../../../lib/domain/mods/relevance.js'
 import {phoneSourceView} from '../../../mods/phone/source-view.js'
@@ -152,7 +152,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       : modCatalogue(manifest)]))
   }
   function catalogue(catalogues,settingsByMod) {
-    return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.prompts.some(row=>row.target==='director') || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modId==='dsh.timer' ? timerCatalogueFragments(view) : view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
+    return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.prompts.some(row=>row.target==='director') || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modStageContribution(modId)?.catalogueFragments?.(view) ?? view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
       const id=ref.assetId ?? ref.entryId,entry=view.packs.find(pack=>pack.id===ref.packId).entries.find(row=>row.id===id)
       return {modId,id:ref.packId+'.'+id,type:'catalogue',source:'library',placement:{section:'director.catalogue',order:0},
         text:JSON.stringify({ref,name:entry.name,...(entry.performanceLevels?{levels:entry.performanceLevels,default:entry.performanceDefault}:{}),...(entry.directorNote?{directorNote:entry.directorNote}:{})})}
@@ -214,7 +214,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       return run(()=>sessionEvents?.presentation(sessionId,input) || {accepted:true})
     },
     stageEvent(sessionId,event) {return run(()=>sessionEvents?.stageEvent(sessionId,event))},
-    // A first-party mod's declared image files (manifest builtinAssets type image) as data URLs; e.g. dsh.timer's looks.
+    // A first-party mod's declared image files (manifest builtinAssets type image) as data URLs (a mod's built-in looks).
     async builtinImages(modId) {
       const builtin=await builtins,manifest=builtin.manifest(modId),files=builtin.files(modId)
       return Object.fromEntries(manifest.builtinAssets.filter(row=>row.type==='image').map(row=>[row.id,'data:image/'+(row.path.endsWith('.svg')?'svg+xml':row.path.split('.').pop())+';base64,'+files.get(row.path).toString('base64')]))

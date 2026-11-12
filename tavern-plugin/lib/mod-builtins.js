@@ -1,15 +1,13 @@
-import {readFile} from 'node:fs/promises'
+import {access,readFile} from 'node:fs/promises'
 import {fileURLToPath} from 'node:url'
 import {createManagedModHost} from './domain/mod-system-host.js'
-import {firstPartyModIds} from './mod-system-distributions.js'
+import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distributions.js'
 import {registerModStageContribution} from './domain/mods/stage-contributions.js'
-import timerStage from '../packages/dsh-tavern-stage/lib/mods/timer/stage.js'
-import phoneStage from '../mods/phone/stage.js'
-const stages = {'dsh.timer':timerStage,'dsh.phone':phoneStage}
-// One source per mod folder; its entry comes from its own mod.json.
+// One source per mod folder; its entry comes from its own mod.json, its director contribution from its optional stage.js.
 const sources = Object.freeze(await Promise.all(firstPartyModIds.map(async folder => {
-  const directory=new URL('../mods/'+folder+'/',import.meta.url),manifest=JSON.parse(await readFile(new URL('mod.json',directory),'utf8'))
-  return {id:manifest.id,directory,module:await import(new URL(manifest.entry,directory)),stage:stages[manifest.id]}
+  const directory=firstPartyModDirectory(folder),manifest=JSON.parse(await readFile(new URL('mod.json',directory),'utf8'))
+  const stage=await access(new URL('stage.js',directory)).then(()=>true,()=>false) ? (await import(new URL('stage.js',directory))).default : undefined
+  return {id:manifest.id,directory,module:await import(new URL(manifest.entry,directory)),stage}
 })))
 // The installed first-party mods' director contributions; core reaches their stage state only through these.
 for (const source of sources) if (source.stage) registerModStageContribution(source.id, source.stage)

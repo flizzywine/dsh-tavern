@@ -29,7 +29,7 @@ import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/dir
 import {createFigureVoiceAuthoring, countServiceUsers} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
 import {createStagePhoneHost} from './mods/phone/host.js'
-import {createTimerExtension} from './mods/timer/extension.js'
+import {foldAssetPackEntries} from './domain/stage-asset-pack-director.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
 import {createCardPagesService} from './domain/status-panel-service.js'
@@ -306,8 +306,11 @@ export function createStageAssets(core) {
   })
   const stageExtensions = createStageExtensions()
   ctx.effect(() => () => stageExtensions.dispose())
-  stageExtensions.register('timer', createTimerExtension)
+  // A mod's own stage service (its stage contribution's hostExtension), under the mod id.
+  for (const contribution of core.modStageContributions()) if (contribution.hostExtension) stageExtensions.register(contribution.modId, contribution.hostExtension)
   ctx.provide('stageExtensions', stageExtensions)
+  // stage: the read helpers a mod's stage service folds and scopes its state with (core.stageReads plus the record fold).
+  const stageModReads = Object.freeze({fold:foldAssetPackEntries,...core.stageReads})
   const assetEngineSettings = createAssetEngineSettings(ctx)
   const getTts = () => ctx.get('tts')
   // A card's stage switch in effect (effectiveCardStage: the card's own setting over the global stageToggles), for the
@@ -345,7 +348,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。
@@ -406,6 +409,6 @@ export function createStageServices(core) {
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
 
-  const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery})
+  const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery,stage:core.stageModReads})
   return {widgetVariables, cardPages, cgGallery, ...extensions}
 }

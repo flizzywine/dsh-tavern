@@ -1,6 +1,5 @@
 import {createStageTimerClock} from './stage-clock.js'
-import {TIMER_MOD_ID,timerCheckpoint} from '../../../../../mods/timer/state.cjs'
-import {foldAssetPackEntries} from '../../domain/stage-asset-pack-director.js'
+import {TIMER_MOD_ID,timerCheckpoint} from '../state.cjs'
 
 export const STAGE_TIMER_FIELD='stageTimerV1'
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b)
@@ -8,9 +7,9 @@ const fail=(message,code='REVISION_CONFLICT')=>{throw Object.assign(new Error(me
 const turnOf=row=>Number(row.turn || (row.greeting?1:0))
 const messageAt=(chat,turn)=>chat.messages.findLast(row=>row.role==='assistant' && turnOf(row)===turn)
 
-export function stageTimerAt(direction,at) {
+export function stageTimerAt(stage,direction,at) {
   const record=direction.record || direction.preview
-  return record?foldAssetPackEntries(record,at).modState?.[TIMER_MOD_ID]?.timer || null:null
+  return record?stage.fold(record,at).modState?.[TIMER_MOD_ID]?.timer || null:null
 }
 export function stageTimerSaved(chat,timer,turn) {
   if(!timer)return null
@@ -39,16 +38,16 @@ export function stageTimerFacts(chat,turn) {
 }
 
 // readChat(sessionId, turn) reads the chat through `turn` (the stage's own round view); without a turn, through the latest.
-export function createStageTimerService({readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,publish=()=>{},now,owner,progressFlushMs}) {
-  const clock=createStageTimerClock({readChat,readDirection,patchChat,enabled,controllerEnabled,publish,now,owner,savedBudget:stageTimerSaved,progressFlushMs})
+export function createStageTimerService({stage,readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,publish=()=>{},now,owner,progressFlushMs}) {
+  const clock=createStageTimerClock({stage,readChat,readDirection,patchChat,enabled,controllerEnabled,publish,now,owner,savedBudget:stageTimerSaved,progressFlushMs})
   async function snapshot(args) {
     const chat=clock.overlay(args.sessionId,await readChat(args.sessionId,args.turn))
     if(!chat || !await enabled(chat))return {enabled:false,timer:null}
     const direction=await readDirection(chat,args.turn)
     if(!same(direction.token,args.expectedDirectionToken))fail('Timer source changed; refresh the stage.')
     if(!Number.isSafeInteger(args.at) || args.at<1 || args.at>direction.through)fail('Choose a revealed paragraph.','ARG_INVALID')
-    let timer=stageTimerAt(direction,args.at)
-    const saved=stageTimerSaved(chat,timer,args.turn),state=foldAssetPackEntries(direction.record || direction.preview,args.at)
+    let timer=stageTimerAt(stage,direction,args.at)
+    const saved=stageTimerSaved(chat,timer,args.turn),state=stage.fold(direction.record || direction.preview,args.at)
     const control=Object.values(state.stageControls || {}).find(row=>row.provider===TIMER_MOD_ID && row.timerInstanceId===timer?.instanceId) || null
     if(!['history','replay'].includes(args.mode) && control && (saved?.checkpoint?.releasedControlEpoch===control.epoch || !await controllerEnabled(chat,control.consumer)))timer=control.releasePolicy==='stop'?null:{...timer,suspended:true}
     return {enabled:true,chat,direction,timer,control,saved,checkpoint:timerCheckpoint(timer,saved?.checkpoint),revision:messageAt(chat,args.turn)?.[STAGE_TIMER_FIELD]?.revision || saved?.revision || 0}

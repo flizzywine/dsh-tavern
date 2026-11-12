@@ -25,4 +25,18 @@ function createStageFeatures() {
         }
     };
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFeatures};
+// A mod's stage client as the build bundles it (build.mjs modStageFeatures): its own CommonJS files, keyed by path in its
+// folder, each with the paths its relative require() calls resolve to. The entry's exports are the feature ({views}).
+function loadStageModFeature(files, entry, css) {
+    const loaded=new Map();
+    const load=key=>{
+        if(loaded.has(key))return loaded.get(key).exports;
+        const [requires,factory]=files[key],module={exports:{}};
+        loaded.set(key,module);
+        factory(module,module.exports,specifier=>load(requires[specifier]));
+        return module.exports;
+    };
+    const feature=load(entry);
+    return css?{...feature,css}:feature;
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFeatures,loadStageModFeature};

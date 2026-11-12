@@ -268,7 +268,8 @@ import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resol
 import { createCardStorage } from './card-storage.js'
 import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
-import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
+import { createStageReads, markStageRead, stageReadCarries, stageReadScope } from './domain/stage-read-projection.js'
+import { modStageContributions } from './domain/mods/stage-contributions.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
@@ -951,7 +952,9 @@ export async function apply(ctx) {
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
   const clientAssets = createTavernClientAssets()
   ctx.provide('tavernClientAssets', clientAssets)
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents,
+    // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
+    modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
   const {dialogueBubbles} = stageRuntime.assets
 
   // ---------- 模型调用 ----------
