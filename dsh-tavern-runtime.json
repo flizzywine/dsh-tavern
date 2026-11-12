@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fe15712e372bd4d8ba66c291ae4727e27e294c67",
-  "releaseSequence": 1555,
+  "revision": "f1d9f31836a4c5cfe66b088b923fe04a17025eb9",
+  "releaseSequence": 1556,
   "version": "3.3.0",
   "files": [
     {
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-generation.js",
-      "sha256": "ae33605ac37cfcd6f814f84a00c47ceeb647da2b93279652480440ced83b830b",
-      "size": 49733
+      "sha256": "b0d048afe4b552aedc57a39560f49fe23f914f77565dfa29c5f75d7fc9ab364e",
+      "size": 50069
     },
     {
       "path": "tavern-plugin/lib/domain/asset-image-processing.js",
@@ -4040,14 +4040,19 @@
       "size": 30699
     },
     {
+      "path": "tavern-plugin/lib/image-asset-preset.js",
+      "sha256": "58225dadc405030966594eaa0deda8732b1364b5312b2b975c2be1b3af60f782",
+      "size": 1838
+    },
+    {
       "path": "tavern-plugin/lib/image-character-follow.js",
       "sha256": "dcadfb92da456c705a60b619595b60937c045aa3d91788cff11f049299fa00c5",
       "size": 6627
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "7e76c45a338029e008f74a69d8e2a8430dbea4c6d6ffeaef31ffe8010991a6c8",
-      "size": 294240
+      "sha256": "70340600df6d63efef2387dcd0d211df9dc7118ed803c2c0123abc7347dc235d",
+      "size": 294412
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9181,9 +9186,9 @@
     }
   ],
   "archive": {
-    "commit": "b96654adb79688999946647db74b464c8f01e3a7",
+    "commit": "2892aee97a6feac17aec58fafe922b3e7e672790",
     "path": "runtime.zip",
-    "sha256": "94a1095ff814d81a79a337fbe9f8a615d6a770c89b6ad98bd298c7c4b10d834d",
-    "size": 16325886
+    "sha256": "befd7e7a0a236937e73ee96413d30ecbb1ba3062f9e4bf5fe49bac8aea7a14bc",
+    "size": 16327131
   }
 }
