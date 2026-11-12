@@ -6245,6 +6245,36 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-roll-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; padding: 0 12px 8px 34px; }
 .fork-roll-details dt { font-size: var(--fork-fs-meta); font-weight: 600; line-height: inherit; }
 .fork-roll-details dd { margin: 0; overflow-wrap: anywhere; }
+/* A card rule check (mods/dice/client/check.js): the roll card with its dice, the engine's report, what changed and,
+   while it waits for the player, the choices. */
+.fork-check { padding-bottom: 6px; }
+.fork-check-dice { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 4px 34px; }
+.fork-check-die { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; border-radius: 4px; background: var(--fork-surface); font-weight: 600; font-variant-numeric: tabular-nums; }
+.fork-check-die.is-marked { background: var(--fork-check-mark, var(--fork-accent-fill)); color: var(--fork-on-accent); }
+/* d4 read from its top face (client/check.js CheckDie): a face in the muted ink with surface numbers; a marked face has a band in
+   the rules' markColor (else the accent) around a window in the on-accent colour. */
+.fork-check-d4 { width: 54px; height: 47px; flex: none; overflow: visible; }
+.fork-check-d4-face { fill: var(--fork-ink-3); }
+.fork-check-d4-band { fill: var(--fork-check-mark, var(--fork-accent-fill)); }
+.fork-check-d4-window { fill: var(--fork-on-accent); }
+.fork-check-d4 text { fill: var(--fork-surface); font-weight: 800; text-anchor: middle; font-family: var(--fork-font-ui, sans-serif); }
+.fork-check-d4.is-marked .fork-check-d4-top { fill: var(--fork-check-mark, var(--fork-accent-fill)); }
+@media (max-width: 480px) { .fork-check-dice { padding-left: 12px; } .fork-check-d4 { width: 46px; height: 40px; } }
+.fork-check-line, .fork-check-choices { padding: 0 12px 0 34px; overflow-wrap: anywhere; }
+.fork-check-choice-label { font-weight: 600; }
+.fork-check-hint { font-size: var(--fork-fs-meta); }
+/* The answer buttons of an awaiting record (check.js): quiet tiles, the chosen one in the accent; the confirm button only when several picks go together. */
+.fork-check-choice + .fork-check-choice { margin-top: 6px; }
+.fork-check-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.fork-check-button, .fork-check-confirm { box-sizing: border-box; min-height: 30px; max-width: 100%; margin: 0; padding: 4px 10px; border: 1px solid transparent; border-radius: var(--fork-radius); background: var(--fork-surface); color: var(--fork-ink); font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.fork-check-button:hover:not(:disabled), .fork-check-confirm:hover:not(:disabled) { background: var(--fork-hover); }
+.fork-check-button.is-on { border-color: var(--fork-accent); background: var(--fork-accent-soft); }
+.fork-check-button:focus-visible, .fork-check-confirm:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
+.fork-check-button:disabled, .fork-check-confirm:disabled { color: var(--fork-ink-3); cursor: default; }
+.fork-check-confirm { margin-top: 6px; border-color: var(--fork-accent); font-weight: 600; }
+@media (max-width: 720px) { .fork-check-button, .fork-check-confirm { min-height: 36px; } }
+/* An outcome the rules stage (outcomes[].show; its stage performance is mods/dice/client/show.js): on the chat floor only its name, in the mark colour. */
+.fork-check[data-show] .fork-roll-tier { color: color-mix(in srgb, var(--fork-check-mark, var(--fork-accent)) 82%, var(--fork-ink)); font-weight: 700; }
 /* ==== round dice throw (mods/dice/client/throw.js) ==== */
 /* A roll arriving live: two d10s thrown into the band just above the stage text box, centred on it (placed by the script
    from the box, out of every flow; it never takes pointer events and may pass over the figures). The round's card waits
