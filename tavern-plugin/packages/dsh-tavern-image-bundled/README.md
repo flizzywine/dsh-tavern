@@ -519,8 +519,8 @@ Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图�
 
 共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、别名、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。
 
-可选接口 deleteCharacter({characterId, expected}) 删除一条记录（expected 与当前记录不一致时报 REVISION_CONFLICT），返回 {deleted: characterId}。patchCharacter 把 igureId 与 igurePackId **同时**设为 
-ull 即断开与素材库人物的关联（只设其一报 INVALID_ARGUMENT），记录本身保留。
+可选接口 `deleteCharacter({characterId, expected})` 删除一条记录（`expected` 与当前记录不一致时报 `REVISION_CONFLICT`），返回 `{deleted: characterId}`。`patchCharacter` 把 `figureId` 与 `figurePackId` 同时设为 `null` 即断开与素材库人物的关联；只设其一报 `INVALID_ARGUMENT`，记录本身保留。
+
 
 关联存为 `figurePackId + figureId`，人物图存为 `referenceImage`，穿指定服装的成套图存为服装的 `characterOutfitImage`。成套图优先于角色图与独立服装图；使用本地模型或 LoRA 时仍可不上传成套图。
 

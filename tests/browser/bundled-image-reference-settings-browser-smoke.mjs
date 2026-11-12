@@ -16,7 +16,7 @@ import { browserReactScript } from '../fixtures/browser-react.mjs'
 const executablePath = [process.env.DSH_BROWSER_EXECUTABLE, 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].find(path => path && existsSync(path)) || chromium.executablePath()
 const screenshotPath = join(tmpdir(), 'dsh-tavern-pr421-image-settings.png')
 const clientSource = await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/client.js', import.meta.url), 'utf8')
-const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jdbsAAAAASUVORK5CYII=', 'base64')
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
 let uploads = 0, libraryRevision = 1, promptRevision = 1, cardEnabled = false
