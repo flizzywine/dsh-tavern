@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-const {createStagePhoneLayout}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/phone-layout.cjs')
+const {createStagePhoneLayout}=createRequire(import.meta.url)('../tavern-plugin/mods/phone/client/layout.cjs')
 test('phone layout keeps legacy preferences and separates wide and narrow layouts',()=>{
   const writes=[],sections={}
   const view=createStagePhoneLayout({width:()=>500,sections,storage:{

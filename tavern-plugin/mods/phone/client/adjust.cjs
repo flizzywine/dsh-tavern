@@ -246,4 +246,4 @@ function usePhoneAdjust(item, owner, panel, menu) {
 }
 return {useAdjust:usePhoneAdjust,dispose(){if(disposed)return;disposed=true;clean([...cleanups]);}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStagePhoneAdjust};
+module.exports={createStagePhoneAdjust};

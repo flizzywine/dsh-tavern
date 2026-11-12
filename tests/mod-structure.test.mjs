@@ -25,9 +25,6 @@ const PENDING = new Set([
   'import-out:tavern-plugin/mods/phone/call-context.js', 'import-out:tavern-plugin/mods/phone/call.js',
   'import-out:tavern-plugin/mods/phone/stage.js',
   'names-mod:tavern-plugin/lib/domain/user-plugin-install.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/phone-layout.cjs',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/source-widgets.cjs',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/widgets.cjs',
   'names-mod:tavern-plugin/src/client/phone-beat.cjs',
 ])
 

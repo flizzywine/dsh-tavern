@@ -5,12 +5,14 @@
 // useStageTakeovers); mount lists them in views.takeovers.
 // hud: optional views => the feature's HUD view (useSlot(props) => {shown,element,onInputActivity,fallbackRef}, controller.cjs
 // useStageHuds); mount lists them in views.huds.
+// sourceDevice: optional views => the handheld source device the source widgets lay out and adjust ({modId, presentation,
+// glyph, mark, group, threads(state), prefs, min, useAdjust}); at most one, in views.sourceDevice (null without one).
 function createStageFeatures() {
     const features=new Map();
     return {
-        register(id,{views,css,backlog,takeover,hud,skipShows}){
+        register(id,{views,css,backlog,takeover,hud,sourceDevice,skipShows}){
             if(features.has(id))throw new Error('Stage feature already registered: '+id);
-            const feature={views,css,backlog,takeover,hud,skipShows};features.set(id,feature);
+            const feature={views,css,backlog,takeover,hud,sourceDevice,skipShows};features.set(id,feature);
             return ()=>{if(features.get(id)===feature)features.delete(id);};
         },
         // whether a feature shows this performance kind of its own while skipping: page DOM alone (runtime-kernel.cjs stageSkipShows).
@@ -29,6 +31,8 @@ function createStageFeatures() {
             const takeovers=[],huds=[];views.takeovers=takeovers;
             if(Object.hasOwn(views,'huds'))throw new Error('Occupied stage view: huds');
             views.huds=huds;
+            if(Object.hasOwn(views,'sourceDevice'))throw new Error('Occupied stage view: sourceDevice');
+            views.sourceDevice=null;
             for(const [id,feature] of features){
                 if(feature.css){
                     const style=document.createElement('style');
@@ -43,6 +47,10 @@ function createStageFeatures() {
                 }
                 if(feature.takeover)takeovers.push(feature.takeover(views));
                 if(feature.hud)huds.push(feature.hud(views));
+                if(feature.sourceDevice){
+                    if(views.sourceDevice)throw new Error('A second stage source device: '+id);
+                    views.sourceDevice=feature.sourceDevice(views);
+                }
             }
         }
     };

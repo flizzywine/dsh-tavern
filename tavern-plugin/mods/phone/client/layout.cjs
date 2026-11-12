@@ -52,4 +52,4 @@ return {prefs:phoneModPrefs, sizes:PHONE_SIZE, min:phoneModSizeMin, dispose() {
     }
 }};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStagePhoneLayout};
+module.exports={createStagePhoneLayout};

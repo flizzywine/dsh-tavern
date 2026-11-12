@@ -1,4 +1,6 @@
-function createStageWidgets({React:react, window, document, sandbox:WidgetSandbox, adjust:usePhoneAdjust, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+function createStageWidgets({React:react, window, document, sandbox:WidgetSandbox, device:sourceDevice=()=>null, adjust:usePhoneAdjust, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+// the handheld source device's widget (device(): the stage's sourceDevice, features.cjs) is classed and marked by its glyph.
+const isSourceDevice=item=>{const device=sourceDevice();return !!device && item?.ref?.modId===device.modId;};
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -67,7 +69,7 @@ function WidgetPanel({item,owner,onBacklog,onMenu,onAdvance,onWheel}) {
     if (!hint.current) hint.current='fork-widget-hint-'+(++stageWidgetHintSerial);
     const p=item.presentation,shown=!owner.paused && p.state!=='hidden',custom=p.state==='open' || p.state==='compact' && item.definition.document.presentation.compact;
     // the phone keeps its centred place and the banner its top-centre slot - unless the reader
-    // unlocked it (CONFIG 「解锁手机位置」, phone-layout.js): then its edge ring drags it like any widget.
+    // unlocked it (CONFIG 「解锁手机位置」, the phone mod's client/layout.cjs): then its edge ring drags it like any widget.
     const movable=p.surface==='stage' && Boolean(item.bounds) && (!item.modSource || item.unlocked);
     if (custom && shown && !item.failed) loaded.current=true;
     React.useEffect(()=>{
@@ -142,7 +144,7 @@ function WidgetPanel({item,owner,onBacklog,onMenu,onAdvance,onWheel}) {
         item.sourceOnly && !item.modSource && p.state==='open' && (['limited','unavailable'].includes(item.source?.historyStatus) || item.source?.hasEarlier || item.source?.messages.some(row=>row.truncated))?h(React.Fragment,{key:'backlog'},chip('在履历查看','长消息或更早内容，请在履历查看全文','backlog')):null].filter(Boolean);
     const help=adjust ? (item.unlocked ? '拖动移动，右下角、滚轮、双指或加减号缩放，方向键微调；Esc 锁定' : '长按边框或状态栏调整位置和大小；Esc 收起')+'；右键或 Shift+F10 打开菜单'
         : (p.state==='open' ? (movable?'拖动边缘移动，方向键微调；':'')+'Esc 收起' : '回车打开；拖动移动，方向键微调')+'；右键、长按或 Shift+F10 打开菜单';
-    return h('section',{ref:panel,tabIndex:shown?0:-1,className:'fork-widget-panel'+(p.surface==='sheet'?' is-sheet':'')+(item.fill?' is-fill':'')+(custom?' is-custom':' is-chip')+(item.banner && shown?' is-banner':'')+(item.ref?.modId==='dsh.phone'?' is-phone':''),'data-widget-ref':item.key,'data-presentation':p.state,'data-banner':item.banner && shown?item.banner:undefined,'data-unlocked':item.unlocked?'':undefined,
+    return h('section',{ref:panel,tabIndex:shown?0:-1,className:'fork-widget-panel'+(p.surface==='sheet'?' is-sheet':'')+(item.fill?' is-fill':'')+(custom?' is-custom':' is-chip')+(item.banner && shown?' is-banner':'')+(isSourceDevice(item)?' is-'+sourceDevice().glyph:''),'data-widget-ref':item.key,'data-presentation':p.state,'data-banner':item.banner && shown?item.banner:undefined,'data-unlocked':item.unlocked?'':undefined,
         role:p.surface==='sheet'?'dialog':'group','aria-modal':p.surface==='sheet'?'true':undefined,'aria-label':caption+(attention?'，'+attention:''),'aria-describedby':hint.current,'aria-haspopup':'menu','aria-keyshortcuts':'Shift+F10 ContextMenu',
         style:{left:item.bounds?.x || 0,top:item.bounds?.y || 0,width:item.fill?owner.viewport.width:p.bounds.width,height:item.fill?owner.viewport.height:undefined,maxHeight:p.surface==='sheet' && !item.fill?Math.max(0,owner.viewport.height-16):undefined,visibility:shown?'visible':'hidden',pointerEvents:shown?'auto':'none','--widget-transition':p.transitionMs+'ms','--phone-zoom':item.phoneZoom || undefined},
         inert:!shown?true:undefined,onClick:e=>{e.stopPropagation();if(item.modSource && !e.target.closest('button,a,input,textarea,select,[role="button"],.fork-widget-grip'))onAdvance?.();},onWheel:e=>{e.stopPropagation();if(adjust?.wheel(e))return;if(item.modSource)onWheel?.(e);},
@@ -217,7 +219,7 @@ function WidgetContextMenu({item,owner,request,layer,onClose}) {
 function WidgetMenu({owner}) {
     const h=React.createElement,[open,setOpen]=React.useState(false),[left,setLeft]=React.useState(null),trigger=React.useRef(null),list=React.useRef(null);
     const items=owner.paused?[]:owner.items,single=items.length===1?items[0]:null,shown=open && items.length>1;
-    const glyph=item=>item?.ref?.modId==='dsh.phone'?'phone':item?.sourceOnly?'message':'widget';
+    const glyph=item=>isSourceDevice(item)?sourceDevice().glyph:item?.sourceOnly?'message':'widget';
     const sfx=name=>{if (typeof forkUiSfx==='object' && forkUiSfx) forkUiSfx.play(name);};
     const close=refocus=>{if(disposed)return;sfx('close');setOpen(false);if (refocus) trigger.current?.focus({preventScroll:true});};
     const launch=item=>{if(disposed)return;trigger.current?.focus({preventScroll:true});owner.action(item.key,item.requestedState==='open' && item.presentation.state!=='open'?'sheet':'open');};

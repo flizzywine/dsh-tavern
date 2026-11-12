@@ -11968,7 +11968,8 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
 const {character:bubbleCharacter,actor:stageActorCharacter}=characters || {};
-const phoneModPrefs=views.phoneLayout.prefs,phoneModSizeMin=views.phoneLayout.min,phoneModRun=phoneProtocol?.run;
+// The handheld source device (a stage feature's sourceDevice, features.cjs), or null: its widget is laid out and adjusted as a phone.
+const phoneDevice=views.sourceDevice,phoneModPrefs=phoneDevice?.prefs,phoneModSizeMin=phoneDevice?.min,phoneModRun=phoneProtocol?.run;
 const matchMedia=(...args)=>window.matchMedia(...args),getComputedStyle=(...args)=>window.getComputedStyle(...args);
 // Viewport reads must stay live across resize, not be captured at activation.
 let closed=false;const owned=new Set(),timers=new Map(),frames=new Map(),idles=new Map();
@@ -12033,7 +12034,8 @@ function stageWidgetFacePx(width,dpr) {
 }
 
 // ephemeral reading UI, never a director state or a persisted preference.
-const stageWidgetRefKey = ref => ref.modId==='dsh.phone' ? JSON.stringify([ref.modId,'source']) : JSON.stringify([ref.packId,ref.kind,ref.assetId]);
+const isPhoneRef=ref=>!!phoneDevice && ref?.modId===phoneDevice.modId;
+const stageWidgetRefKey = ref => isPhoneRef(ref) ? JSON.stringify([ref.modId,'source']) : JSON.stringify([ref.packId,ref.kind,ref.assetId]);
 function stageWidgetPresentationState() { return {entries:new Map(), cursor:null, serial:0, liveVisit:false}; }
 function reduceWidgetPresentation(previous, action) {
     const state = {...previous, entries:new Map([...previous.entries].map(([key,item]) => [key,{...item,seen:[...item.seen],pending:[...item.pending]}]))};
@@ -12109,7 +12111,7 @@ function stageWidgetTextPrefix(text, limit) {
     return result;
 }
 function sourceMark(op,ref) {
-    if(ref.modId==='dsh.phone')return op.op==='mod.command' && op.modId==='dsh.phone' && op.commandId==='mark' ? op.params : null;
+    if(isPhoneRef(ref))return op.op==='mod.command' && isPhoneRef(op) && op.commandId===phoneDevice.mark ? op.params : null;
     return op.op==='widget.source' && op.ref.packId===ref.packId && op.ref.kind===ref.kind && op.ref.assetId===ref.assetId ? op : null;
 }
 const PHONE_PLAYER='$player';
@@ -12133,10 +12135,10 @@ function phoneModGroups(rows,cursor) {
     const groups=new Map();
     for (const row of [...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>a.turn-b.turn)) {
         const record=row.record;if (!record?.token?.bindingKey) continue;
-        for (const value of Object.values(record.baseline?.modState?.['dsh.phone']?.threads || {})) if (value?.id) groups.set(value.id,value);
+        for (const value of Object.values((phoneDevice && phoneDevice.threads(record.baseline?.modState?.[phoneDevice.modId])) || {})) if (value?.id) groups.set(value.id,value);
         for (const entry of record.entries || []) {
             if (entry.at>record.through || row.turn===cursor.turn && entry.at>cursor.para) continue;
-            for (const op of entry.ops || []) if (op.op==='mod.command' && op.modId==='dsh.phone' && op.commandId==='group' && op.params?.thread) groups.set(op.params.thread,{id:op.params.thread,name:op.params.name,participants:op.params.participants});
+            for (const op of entry.ops || []) if (op.op==='mod.command' && isPhoneRef(op) && op.commandId===phoneDevice.group && op.params?.thread) groups.set(op.params.thread,{id:op.params.thread,name:op.params.name,participants:op.params.participants});
         }
     }
     return groups;
@@ -12156,7 +12158,7 @@ function phoneModOfLine(message,phones,prefer=[],hint=null) {
 const phoneModAfter=(order,mark)=>Array.isArray(mark) && (order[0]-(Number(mark[0]) || 0) || order[1]-(Number(mark[1]) || 0))>0;
 function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', revealed=false, unavailable=false, limited=false, selected=null, directory=null, reads=null, limits=null, phoneView=null}) {
     const key=value=>value.modId ? JSON.stringify([value.modId,value.packId,value.kind,value.entryId]) : JSON.stringify([value.packId,value.kind,value.assetId]);
-    const phone=ref.modId==='dsh.phone';
+    const phone=isPhoneRef(ref);
     // The phone reads every turn the stage has loaded for it (it loads earlier turns as the reader scrolls up); other source
     // widgets keep their 20-turn window.
     const wanted=key(ref), turns=[...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>b.turn-a.turn).slice(0,phone ? rows.length : 20), playerId=phone && directory?.playerId || null;
@@ -12520,7 +12522,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
         const mine = life.current;
         setState(old => ({ ...old, status: old.data ? old.status : 'loading' }));
         try {
-            const [data, sources] = await Promise.all([call('getModConfig', { modId: 'dsh.phone', sessionId }), call('listModConfigSources', { sessionId }).catch(() => null)]);
+            const [data, sources] = await Promise.all([call('getModConfig', { modId: phoneDevice.modId, sessionId }), call('listModConfigSources', { sessionId }).catch(() => null)]);
             if (mine !== life.current) return;
             const list = Array.isArray(data.schema) ? data.schema : data.schema && data.schema.fields || [];
             latest.current = data; setState({ status: 'ready', error: '', data, autos: phoneModAutoColours(sources && sources.sources, list) });
@@ -12544,10 +12546,10 @@ function usePhoneSettings({ sessionId, call: callProp }) {
         queue.current = run.catch(() => null);
         return run;
     };
-    const set = async (key, layer, value) => accept(await call('setModConfig', { modId: 'dsh.phone', sessionId, key, layer, value, expectedRevision: latest.current.revision }));
-    const clear = async (key, layer) => { if (phoneModOwn(latest.current[layer], key)) accept(await call('clearModConfig', { modId: 'dsh.phone', sessionId, key, layer, expectedRevision: latest.current.revision })); };
+    const set = async (key, layer, value) => accept(await call('setModConfig', { modId: phoneDevice.modId, sessionId, key, layer, value, expectedRevision: latest.current.revision }));
+    const clear = async (key, layer) => { if (phoneModOwn(latest.current[layer], key)) accept(await call('clearModConfig', { modId: phoneDevice.modId, sessionId, key, layer, expectedRevision: latest.current.revision })); };
     const upload = async (layer, media) => {
-        const done = await call('uploadModConfigFile', { modId: 'dsh.phone', layer, sessionId, mime: media.mime, data: media.data, expectedRevision: latest.current.revision });
+        const done = await call('uploadModConfigFile', { modId: phoneDevice.modId, layer, sessionId, mime: media.mime, data: media.data, expectedRevision: latest.current.revision });
         latest.current = { ...latest.current, revision: done.revision };
         return done.file.path;
     };
@@ -12566,7 +12568,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
         let own = file;
         if (from !== layer) {
             // Files belong to their layer: a picture of the other layer is uploaded again (not added to this layer's 照片).
-            const read = await call('readModConfigFile', { modId: 'dsh.phone', layer: from, sessionId, path: file });
+            const read = await call('readModConfigFile', { modId: phoneDevice.modId, layer: from, sessionId, path: file });
             own = await upload(layer, { mime: read.file.mime, data: read.data });
         }
         await set('wallpaper', layer, { fixed: { file: own } });
@@ -12594,7 +12596,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
     const open = async choice => {
         if (full[choice]) return;
         const { from, file } = phoneModChoice(choice), mine = life.current;
-        const read = await call('readModConfigFile', { modId: 'dsh.phone', layer: from, sessionId, path: file });
+        const read = await call('readModConfigFile', { modId: phoneDevice.modId, layer: from, sessionId, path: file });
         if (mine === life.current) setFull(old => Object.fromEntries([...Object.entries(old).filter(([id]) => id !== choice), [choice, 'data:' + read.file.mime + ';base64,' + read.data]].slice(-PHONE_FULL_KEEP)));
     };
     const request = React.useCallback(message => {
@@ -12623,7 +12625,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
             const id = layer + ':' + file;
             if (asked.current.has(id)) continue;
             asked.current.add(id);
-            call('readModConfigFile', { modId: 'dsh.phone', layer, sessionId, path: file })
+            call('readModConfigFile', { modId: phoneDevice.modId, layer, sessionId, path: file })
                 .then(read => phoneModScaled('data:' + read.file.mime + ';base64,' + read.data, PHONE_THUMB, 'image/jpeg', .82))
                 .then(url => { if (mine === life.current) setThumbs(old => ({ ...old, [id]: url })); }, () => { asked.current.delete(id); });
         }
@@ -12687,7 +12689,7 @@ function stageWidgetPlacePoint(viewport,size,fraction) {
 // keeping its proportions; the
 // incoming banner is exactly as wide as that phone's screen. The view zooms to match and is told the dialogue box's body
 // size, so its message text reads at least as large as the box's at every window size.
-const PHONE_KEY=JSON.stringify(['dsh.phone','source']),PHONE_BANNER_MS=3500,PHONE_GAP=4,PHONE_MIN_WIDTH=160;
+const PHONE_KEY=JSON.stringify([phoneDevice?.modId,'source']),PHONE_BANNER_MS=3500,PHONE_GAP=4,PHONE_MIN_WIDTH=160;
 const PHONE_BEZEL=15,PHONE_SCREEN=265,PHONE_BANNER_HEIGHT=78,PHONE_MAX_ZOOM=3;
 // on a stage this narrow the open phone is the
 // full-bleed sheet - the reader's own phone is the device - and the dialogue box stays hidden under it until it is put away.
@@ -12865,7 +12867,7 @@ function useWidgetStage(props) {
         (async()=>{
             const items=[];
             for (const ref of missing) {
-                const result=await (props.readWindow || ((args)=>rpc(ref.modId==='dsh.phone'?'getStagePhonePresentation':'getAssetPackPresentation',args,props.sessionId)))({sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})}).catch(()=>null);
+                const result=await (props.readWindow || ((args)=>rpc(isPhoneRef(ref)?phoneDevice.presentation:'getAssetPackPresentation',args,props.sessionId)))({sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})}).catch(()=>null);
                 if (!live) return;
                 if (result?.status==='ready') items.push(...result.widgets);
             }
@@ -12883,7 +12885,7 @@ function useWidgetStage(props) {
     const historical=props.enabled ? (checked ? grants.items : [...held.current.items.values()].map(item=>({...item,checking:true}))) : [];
     for (const widget of [...available,...historical]) {if (!byRef.has(stageWidgetRefKey(widget.ref))) byRef.set(stageWidgetRefKey(widget.ref),widget);}
     const rows=[...(history?.scope===scope ? history.rows.filter(row=>row.turn<props.turn) : []),currentRow];
-    const hasPhone=[...byRef.values()].some(value=>value.ref?.modId==='dsh.phone' && value.sourceOnly);
+    const hasPhone=[...byRef.values()].some(value=>isPhoneRef(value.ref) && value.sourceOnly);
     const directoryKey=JSON.stringify([scope,props.turn,props.record?.phase,hasPhone]);
     React.useEffect(()=>{
         if (!hasPhone || !props.sessionId) return;
@@ -12894,7 +12896,7 @@ function useWidgetStage(props) {
     },[directoryKey]);
     const directory=phoneDirectory?.scope===scope ? phoneDirectory.value : null;
     const items=[...byRef].slice(0,64).map(([key,value])=>{
-        const phone=value.ref?.modId==='dsh.phone';
+        const phone=isPhoneRef(value.ref);
         const source=value.sourceOnly ? stageWidgetThread({rows,ref:value.ref,cursor,characters:props.config?.characters,visibleText:text,revealed:props.revealed,limited:history?.limited,unavailable:history?.unavailable,
             ...(phone ? {phoneView:{...phoneView,follow:phoneFollow.current},directory,reads,limits:phoneLimits.scope===readScope ? phoneLimits.values : null} : {})}) : null;
         if (phone && source?.current && source.livePhoneId) phoneFollow.current=source.livePhoneId;
@@ -12965,7 +12967,7 @@ function useWidgetStage(props) {
     // (stageWidgetFacePx: the phone's widest width so far on this stage x the screen's pixel ratio), and the card face is asked
     // of the session avatar cache at that size, so her 512 px library face reaches the 200 pt card and the 132 pt call
     // screen sharp instead of as a 64 px thumbnail scaled up four to six times.
-    const phoneOpenWidth=items.find(item=>item.ref.modId==='dsh.phone')?.definition.document.presentation.open.width;
+    const phoneOpenWidth=items.find(item=>isPhoneRef(item.ref))?.definition.document.presentation.open.width;
     const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=window.devicePixelRatio || 1;
     const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : 64;
     const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx/dpr});
@@ -13025,7 +13027,7 @@ function useWidgetStage(props) {
     cursor.currentRef=items.find(item=>item.source?.current)?.key || null;
     // A phone's first look (per chat branch) takes what is already there as read; later messages count as unread.
     const looked=new Set(Object.keys(reads).map(phoneModReadOwner));
-    const unseen=(items.find(item=>item.ref?.modId==='dsh.phone')?.source?.phones || []).filter(row=>!looked.has(row.id) && row.threads.some(thread=>thread.latest));
+    const unseen=(items.find(item=>isPhoneRef(item.ref))?.source?.phones || []).filter(row=>!looked.has(row.id) && row.threads.some(thread=>thread.latest));
     const firstLook=unseen.length ? JSON.stringify([readScope,unseen.map(row=>row.id)]) : '';
     React.useEffect(()=>{if (firstLook) markRead(Object.fromEntries(unseen.flatMap(row=>row.threads.filter(thread=>thread.latest).map(thread=>[phoneModReadKey(row.id,thread.id),thread.latest]))));},[firstLook]);
     const mountedIdentities=items.map(item=>item.identity).sort().join('|');
@@ -13063,10 +13065,10 @@ function useWidgetStage(props) {
     // is still in the pocket, so the first open paints the finished list at once instead of 「还没有对话」 for a second and a
     // half. Other source widgets still read their history when opened. The read is shared and cached per session source.
     const opened=items.find(item=>item.sourceOnly && context.state.entries.get(item.key)?.requestedState==='open');
-    const pocket=opened ? null : items.find(item=>item.sourceOnly && item.ref?.modId==='dsh.phone');
+    const pocket=opened ? null : items.find(item=>item.sourceOnly && isPhoneRef(item.ref));
     const historyFor=opened || pocket;
-    const depth=historyFor?.ref?.modId==='dsh.phone' ? phoneDepth : 19;
-    const historyKey=historyFor ? historyKeyOf(historyFor.key,historyFor.ref?.modId==='dsh.phone') : '';
+    const depth=isPhoneRef(historyFor?.ref) ? phoneDepth : 19;
+    const historyKey=historyFor ? historyKeyOf(historyFor.key,isPhoneRef(historyFor.ref)) : '';
     React.useEffect(()=>{
         // Opening reads again (the session's cached read, rechecked against the turn index), as before.
         if (!historyFor) return;
@@ -13090,7 +13092,7 @@ function useWidgetStage(props) {
         remeasure.current=guardedMeasure;register(()=>{remeasure.current=null;});
         register(()=>window.visualViewport?.removeEventListener('resize',guardedMeasure));window.visualViewport?.addEventListener('resize',guardedMeasure);
     },[props.rootRef,props.film]);
-    const phone=items.find(item=>item.ref.modId==='dsh.phone'),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
+    const phone=items.find(item=>isPhoneRef(item.ref)),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
     const phoneEntry=phone && context.state.entries.get(phone.key),userClosed=Boolean(phoneRun && phoneClosed.current===phoneRun.key);
     // a real phone's banner — only for an incoming message that reaches a closed phone (the
     // first line of a run, or after the reader put the phone away). It slides down, stays ~3.5 s, slides back up and then
@@ -13120,13 +13122,13 @@ function useWidgetStage(props) {
     for (const item of ordered) {
         const entry=context.state.entries.get(item.key),declaration=item.definition.document.presentation;
         let state=entry.requestedState,bounds=null,surface='stage',fill=false,placed=false,phoneZoom=null,phoneBase=null,device=null;
-        const headsUp=item.ref.modId==='dsh.phone' && state==='compact';
-        // The reader's size and place for the phone on this device (phone-layout.js).
-        const phoneLayout=item.ref.modId==='dsh.phone' && geometry && phonePrefs ? phonePrefs[phoneModPrefs.current(geometry.viewport.width)] : null;
+        const headsUp=isPhoneRef(item.ref) && state==='compact';
+        // The reader's size and place for the phone on this device (the phone mod's client/layout.cjs).
+        const phoneLayout=isPhoneRef(item.ref) && geometry && phonePrefs ? phonePrefs[phoneModPrefs.current(geometry.viewport.width)] : null;
         if(headsUp && (!noticeId || noticePhase==='done'))state='hidden';
         if (geometry && state!=='hidden') {
             const viewport=geometry.viewport;
-            const fullPhone=item.ref.modId==='dsh.phone' && state==='open' && handheld;
+            const fullPhone=isPhoneRef(item.ref) && state==='open' && handheld;
             if (fullPhone) device={kind:'phone',safe:safeAreaInsets(props.rootRef.current)};
             // A phone the reader placed (long press or CONFIG) stays that stage phone even where the band above the box is too
             // small for it - then its 100% size is the sheet's (design: on a 1707x960 screen with a tall box the phone
@@ -13135,7 +13137,7 @@ function useWidgetStage(props) {
                 surface='sheet';const box=declaration.open;
                 // Portrait or narrow phone: the view fills the reading area edge to edge (the bundle paints screen only). Elsewhere
                 // the sheet keeps the declared proportions, centred on the dimmed stage.
-                if (fullPhone || portrait && item.ref.modId!=='dsh.phone') {fill=true;bounds={x:viewport.x,y:viewport.y,width:Math.max(box.minWidth,viewport.width),height:Math.max(box.minHeight,viewport.height)};}
+                if (fullPhone || portrait && !isPhoneRef(item.ref)) {fill=true;bounds={x:viewport.x,y:viewport.y,width:Math.max(box.minWidth,viewport.width),height:Math.max(box.minHeight,viewport.height)};}
                 else {
                     const size=stageWidgetSheetSize(viewport,box);
                     bounds={x:viewport.x+Math.max(8,(viewport.width-size.width)/2),y:viewport.y+Math.max(8,(viewport.height-size.height)/2),...size};
@@ -13148,11 +13150,11 @@ function useWidgetStage(props) {
                 const size=phoneModStageSize(geometry,declaration.open,phoneBand.current),zoom=size?.zoom || phoneModStageScale(viewport);
                 const width=Math.min(viewport.width-24,size ? size.width-PHONE_BEZEL*zoom : PHONE_SCREEN*zoom),height=PHONE_BANNER_HEIGHT*zoom;
                 bounds={x:viewport.x+(viewport.width-width)/2,y:viewport.y+10*zoom,width,height};phoneZoom=zoom;
-            } else if (item.ref.modId==='dsh.phone' && state==='open' && !bounds) {
+            } else if (isPhoneRef(item.ref) && state==='open' && !bounds) {
                 // Centred between the top bar and the dialogue box, which stays readable underneath.
                 const size=phoneModStageSize(geometry,declaration.open,phoneBand.current) || (phoneLayout?.place ? stageWidgetSheetSize(viewport,declaration.open) : null);
                 if (size) {
-                    // The reader's size (percent of that band size) and place on this device (phone-layout.js): a smaller phone
+                    // The reader's size (percent of that band size) and place on this device (the phone mod's client/layout.cjs): a smaller phone
                     // stays centred in the band; one too tall for the band is centred on the stage; a dragged phone keeps its spot.
                     const layout=phoneLayout,scale=layout ? layout.size/100 : 1,ratio=declaration.open.aspectRatio || declaration.open.width/declaration.open.height;
                     let width=size.width*scale,height=size.height*scale;
@@ -13163,7 +13165,7 @@ function useWidgetStage(props) {
                     bounds={x,y,width,height};phoneZoom=Math.min(PHONE_MAX_ZOOM,Math.max(.7,width/declaration.open.width));phoneBase=layout ? {width:size.width,height:size.height,size:layout.size,min:phoneModSizeMin(phoneModPrefs.current(viewport.width))} : null;
                 }
             }
-            for (const candidate of state==='open' && !bounds ? (item.ref.modId==='dsh.phone' ? ['compact'] : ['open','compact']) : !bounds ? ['compact'] : []) {
+            for (const candidate of state==='open' && !bounds ? (isPhoneRef(item.ref) ? ['compact'] : ['open','compact']) : !bounds ? ['compact'] : []) {
                 const box=declaration[candidate] || {width:220,height:44,minWidth:120,minHeight:44,anchor:'corner-right'};
                 if (candidate==='compact' && compacts>=(viewport.width<700?1:3)) continue;
                 const sizes=[false,true].map(small=>{
@@ -13203,20 +13205,20 @@ function useWidgetStage(props) {
         if (!audio || audio.token!==eventToken) {context.arrival=(context.arrival || 0)+1;audio={token:eventToken,arrival:eventToken ? eventToken+'#'+context.arrival : eventToken,identity:item.identity,replay:replay ? item.source.current.id : null,fresh:Boolean(!suspended && (replay || entry.pending.some(event=>event.token===eventToken)))};audioEvents.current.set(item.key,audio);}
         if (suspended || props.skipping || audio.identity!==item.identity) audio.fresh=false;
         const playback={mode:props.mode,paused:suspended,eventToken:audio.arrival,fresh:audio.fresh,...(audio.replay ? {replay:audio.replay} : {})};
-        // The open stage phone can be adjusted directly (phone-layout.js usePhoneAdjust): phoneBase is its 100% band size
+        // The open stage phone can be adjusted directly (the phone mod's client/adjust.cjs): phoneBase is its 100% band size
         // and the reader's size percent; unlocked is the one adjust state (CONFIG 「解锁手机位置」 or a long press).
         const adjustable=Boolean(phoneBase && state==='open' && !fill);
         layouts.set(item.key,{...item,presentation,bounds,fill,placed,isReady,failed:failed[item.identity],requestedState:entry.requestedState,playback,banner,phoneZoom,
             phoneBase:adjustable ? phoneBase : null,unlocked:Boolean(adjustable && phonePrefs.unlocked)});
     }
     // The faces follow the open phone's widest width (stageWidgetFacePx): a larger phone or the full-bleed sheet redraws them.
-    const phoneShownWidth=[...layouts.values()].find(layout=>layout.ref.modId==='dsh.phone' && layout.presentation.state==='open')?.presentation.bounds.width || 0;
+    const phoneShownWidth=[...layouts.values()].find(layout=>isPhoneRef(layout.ref) && layout.presentation.state==='open')?.presentation.bounds.width || 0;
     React.useEffect(()=>{if (phoneShownWidth>phoneFaceWidth) setPhoneFaceWidth(phoneShownWidth);},[phoneShownWidth]);
     // A drag or arrow key stores the reader's spot for this view; a null point forgets the widget's spots (reset).
     const place=(key,view,point)=>{
         const layout=layouts.get(key);
-        // The phone's spot is a device preference per layout (phone-layout.js), not a card's.
-        if (layout?.ref.modId==='dsh.phone' && phonePrefs) {
+        // The phone's spot is a device preference per layout (the phone mod's client/layout.cjs), not a card's.
+        if (isPhoneRef(layout?.ref) && phonePrefs) {
             if (!point) phoneModPrefs.update(phoneModPrefs.current(geometry?.viewport.width),{place:null});
             else if (geometry && layout.bounds && layout.presentation.surface==='stage') phoneModPrefs.update(phoneModPrefs.current(geometry.viewport.width),{place:stageWidgetPlaceFraction(geometry.viewport,layout.bounds,point)});
             return;
@@ -13227,11 +13229,11 @@ function useWidgetStage(props) {
         redraw(n=>n+1);
     };
     const clampPlace=(key,point)=>{const box=layouts.get(key)?.bounds;return geometry && box ? stageWidgetPlacePoint(geometry.viewport,box,stageWidgetPlaceFraction(geometry.viewport,box,point)) : point;};
-    // The phone's direct adjust (phone-layout.js): the one unlocked state, and a size percent with, when the phone moved,
+    // The phone's direct adjust (the phone mod's client/layout.cjs): the one unlocked state, and a size percent with, when the phone moved,
     // its new rect (stage units) stored as the place for that size; without a rect an unplaced phone stays centred in its band.
     const adjust=on=>{if (phonePrefs && phonePrefs.unlocked!==on) phoneModPrefs.set({unlocked:on});};
     const resize=(key,size,rect)=>{
-        if (!phonePrefs || !geometry || layouts.get(key)?.ref.modId!=='dsh.phone') return;
+        if (!phonePrefs || !geometry || !isPhoneRef(layouts.get(key)?.ref)) return;
         phoneModPrefs.update(phoneModPrefs.current(geometry.viewport.width),{size,...(rect ? {place:stageWidgetPlaceFraction(geometry.viewport,rect,rect)} : {})});
     };
     // Moving an existing iframe DOM node reloads its browsing context; allocation priority must not reorder mounts.
@@ -13239,19 +13241,19 @@ function useWidgetStage(props) {
     useWidgetVariables(props,projected);
     useWidgetSettingImages(projected);
     useWidgetSettingsFeedback(props,projected,context);
-    const phoneBeat=projected.some(item=>item.ref.modId==='dsh.phone' && item.source?.current);
+    const phoneBeat=projected.some(item=>isPhoneRef(item.ref) && item.source?.current);
     // phone lines are read in the phone (or its banner) while the dialogue box stays up with
     // the last line from outside the phone; only a failed phone gives its line back to the box.
-    const phoneLine=projected.some(item=>item.ref.modId==='dsh.phone' && item.source?.current && !item.failed);
-    const phoneOpen=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.presentation.state==='open' && item.presentation.surface==='stage' && !item.failed);
+    const phoneLine=projected.some(item=>isPhoneRef(item.ref) && item.source?.current && !item.failed);
+    const phoneOpen=!paused && projected.some(item=>isPhoneRef(item.ref) && item.presentation.state==='open' && item.presentation.surface==='stage' && !item.failed);
     // a phone the reader moved off its default spot is read
     // alongside the story, so the stage is not shaded behind it (gal-scene.js phoneShade); the default spot keeps the shade.
-    const phoneShade=phoneOpen && !projected.some(item=>item.ref.modId==='dsh.phone' && item.phoneBase && item.placed);
+    const phoneShade=phoneOpen && !projected.some(item=>isPhoneRef(item.ref) && item.phoneBase && item.placed);
     // The phone is in hand (asked open, before its place is measured): a skin's boxless narration then takes its image band
     // under the phone, as under a shown picture, instead of the centre the phone needs (2026-10-21 「阅读」 chip).
-    const phoneHeld=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.requestedState==='open' && !item.failed);
+    const phoneHeld=!paused && projected.some(item=>isPhoneRef(item.ref) && item.requestedState==='open' && !item.failed);
     // On a real phone the open phone is the device itself: its opaque full-bleed sheet covers the whole stage until it is put away.
-    const covered=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
+    const covered=!paused && projected.some(item=>isPhoneRef(item.ref) && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
     // The stage's pieces (box, top bar, figures) are re-measured every 100 ms while the stage is in view; under that cover only
     // the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
     React.useEffect(()=>{
@@ -13260,7 +13262,7 @@ function useWidgetStage(props) {
         const timer=forkForeground.setInterval(()=>remeasure.current?.(),100);
         return()=>forkForeground.clearInterval(timer);
     },[covered,props.rootRef,props.film]);
-    const claimed=projected.find(item=>item.source?.current && item.ref.modId!=='dsh.phone' && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
+    const claimed=projected.find(item=>item.source?.current && !isPhoneRef(item.ref) && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
     // an open overlay that owns scroll input — a sheet (modal reader)
     // or a held mod device (the phone, which dims the stage behind it). While one is open the stage's wheel gestures (up =
     // 履历, down = next page) stand down; a wheel that lands on the stage around it scrolls that overlay's view instead.
@@ -23140,7 +23142,9 @@ return {group:galConfigGroup,row:galConfigRow,segmented:galConfigSegmented,slide
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageConfigFields};
 
-        function createStageWidgets({React:react, window, document, sandbox:WidgetSandbox, adjust:usePhoneAdjust, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+        function createStageWidgets({React:react, window, document, sandbox:WidgetSandbox, device:sourceDevice=()=>null, adjust:usePhoneAdjust, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+// the handheld source device's widget (device(): the stage's sourceDevice, features.cjs) is classed and marked by its glyph.
+const isSourceDevice=item=>{const device=sourceDevice();return !!device && item?.ref?.modId===device.modId;};
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -23209,7 +23213,7 @@ function WidgetPanel({item,owner,onBacklog,onMenu,onAdvance,onWheel}) {
     if (!hint.current) hint.current='fork-widget-hint-'+(++stageWidgetHintSerial);
     const p=item.presentation,shown=!owner.paused && p.state!=='hidden',custom=p.state==='open' || p.state==='compact' && item.definition.document.presentation.compact;
     // the phone keeps its centred place and the banner its top-centre slot - unless the reader
-    // unlocked it (CONFIG 「解锁手机位置」, phone-layout.js): then its edge ring drags it like any widget.
+    // unlocked it (CONFIG 「解锁手机位置」, the phone mod's client/layout.cjs): then its edge ring drags it like any widget.
     const movable=p.surface==='stage' && Boolean(item.bounds) && (!item.modSource || item.unlocked);
     if (custom && shown && !item.failed) loaded.current=true;
     React.useEffect(()=>{
@@ -23284,7 +23288,7 @@ function WidgetPanel({item,owner,onBacklog,onMenu,onAdvance,onWheel}) {
         item.sourceOnly && !item.modSource && p.state==='open' && (['limited','unavailable'].includes(item.source?.historyStatus) || item.source?.hasEarlier || item.source?.messages.some(row=>row.truncated))?h(React.Fragment,{key:'backlog'},chip('在履历查看','长消息或更早内容，请在履历查看全文','backlog')):null].filter(Boolean);
     const help=adjust ? (item.unlocked ? '拖动移动，右下角、滚轮、双指或加减号缩放，方向键微调；Esc 锁定' : '长按边框或状态栏调整位置和大小；Esc 收起')+'；右键或 Shift+F10 打开菜单'
         : (p.state==='open' ? (movable?'拖动边缘移动，方向键微调；':'')+'Esc 收起' : '回车打开；拖动移动，方向键微调')+'；右键、长按或 Shift+F10 打开菜单';
-    return h('section',{ref:panel,tabIndex:shown?0:-1,className:'fork-widget-panel'+(p.surface==='sheet'?' is-sheet':'')+(item.fill?' is-fill':'')+(custom?' is-custom':' is-chip')+(item.banner && shown?' is-banner':'')+(item.ref?.modId==='dsh.phone'?' is-phone':''),'data-widget-ref':item.key,'data-presentation':p.state,'data-banner':item.banner && shown?item.banner:undefined,'data-unlocked':item.unlocked?'':undefined,
+    return h('section',{ref:panel,tabIndex:shown?0:-1,className:'fork-widget-panel'+(p.surface==='sheet'?' is-sheet':'')+(item.fill?' is-fill':'')+(custom?' is-custom':' is-chip')+(item.banner && shown?' is-banner':'')+(isSourceDevice(item)?' is-'+sourceDevice().glyph:''),'data-widget-ref':item.key,'data-presentation':p.state,'data-banner':item.banner && shown?item.banner:undefined,'data-unlocked':item.unlocked?'':undefined,
         role:p.surface==='sheet'?'dialog':'group','aria-modal':p.surface==='sheet'?'true':undefined,'aria-label':caption+(attention?'，'+attention:''),'aria-describedby':hint.current,'aria-haspopup':'menu','aria-keyshortcuts':'Shift+F10 ContextMenu',
         style:{left:item.bounds?.x || 0,top:item.bounds?.y || 0,width:item.fill?owner.viewport.width:p.bounds.width,height:item.fill?owner.viewport.height:undefined,maxHeight:p.surface==='sheet' && !item.fill?Math.max(0,owner.viewport.height-16):undefined,visibility:shown?'visible':'hidden',pointerEvents:shown?'auto':'none','--widget-transition':p.transitionMs+'ms','--phone-zoom':item.phoneZoom || undefined},
         inert:!shown?true:undefined,onClick:e=>{e.stopPropagation();if(item.modSource && !e.target.closest('button,a,input,textarea,select,[role="button"],.fork-widget-grip'))onAdvance?.();},onWheel:e=>{e.stopPropagation();if(adjust?.wheel(e))return;if(item.modSource)onWheel?.(e);},
@@ -23359,7 +23363,7 @@ function WidgetContextMenu({item,owner,request,layer,onClose}) {
 function WidgetMenu({owner}) {
     const h=React.createElement,[open,setOpen]=React.useState(false),[left,setLeft]=React.useState(null),trigger=React.useRef(null),list=React.useRef(null);
     const items=owner.paused?[]:owner.items,single=items.length===1?items[0]:null,shown=open && items.length>1;
-    const glyph=item=>item?.ref?.modId==='dsh.phone'?'phone':item?.sourceOnly?'message':'widget';
+    const glyph=item=>isSourceDevice(item)?sourceDevice().glyph:item?.sourceOnly?'message':'widget';
     const sfx=name=>{if (typeof forkUiSfx==='object' && forkUiSfx) forkUiSfx.play(name);};
     const close=refocus=>{if(disposed)return;sfx('close');setOpen(false);if (refocus) trigger.current?.focus({preventScroll:true});};
     const launch=item=>{if(disposed)return;trigger.current?.focus({preventScroll:true});owner.action(item.key,item.requestedState==='open' && item.presentation.state!=='open'?'sheet':'open');};
@@ -23460,312 +23464,6 @@ return {Widgets:GalWidgets, Card:WidgetCard, boundary:getWidgetBoundary, count:s
 }};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageWidgets};
-
-        function createStagePhoneAdjust({React, window, document, navigator, sizes:PHONE_SIZE, pad:STAGE_WIDGET_PLACE_PAD, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
-let disposed=false;
-const cleanups=new Set();
-function clean(actions) {
-    const errors=[];
-    for(const action of actions){try{action();}catch(error){errors.push(error);}}
-    if(errors.length)throw new AggregateError(errors,'Phone gesture cleanup failed');
-}
-function useEffect(setup,deps) {
-    React.useEffect(()=>{
-        if(disposed)return;
-        const cleanup=setup();
-        if(typeof cleanup!=='function')return;
-        let active=true;
-        const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};
-        cleanups.add(release);return release;
-    },deps);
-}
-// the direct path.
-// A long press (holdMs) on the open stage phone's frame - the edge ring over its bezel - or its status bar (time, signal,
-// battery: no controls) enters adjust mode, the one `unlocked` state CONFIG's switch also sets: a short pulse and the outline,
-// a haptic tick on touch, and the same press goes on as a drag. App content (lists, messages, the call button) has no hit
-// area over it, so its own taps, scrolls and long presses are untouched. In adjust mode a cover takes the whole phone (the
-// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize within 50–150%, the
-// phone always clamped on stage. The wheel zooms wherever it lands on the stage (over the phone or the dimmed stage around
-// it, never the phone's content scroll while adjusting); each 5% step glides there. A gesture paints a translate/scale preview and stores once, on release (size, and the spot
-// where it was left). Letting go and doing nothing for idleMs, a press outside the phone or Esc locks it again and the outline
-// fades. A touch hold that keeps still on to menuMs opens the widget menu, as a long press did before (mouse: right-click).
-const PHONE_ADJUST = Object.freeze({ holdMs: 500, menuMs: 1100, idleMs: 2500, slop: 6, wheelPx: 100, glideMs: 160 });
-function usePhoneAdjust(item, owner, panel, menu) {
-    const scope=React.useRef({active:true,timers:new Map(),frames:new Map(),animations:new Set()}).current;
-    const alive=()=>scope.active&&!disposed;
-    const schedule=(map,start,callback,delay)=>{
-        if(!alive())return 0;
-        const token={};
-        const id=start((...args)=>{if(map.get(id)!==token||!alive())return;map.delete(id);callback(...args);},delay);
-        map.set(id,token);return id;
-    };
-    const setTimeout=(fn,ms)=>schedule(scope.timers,hostSetTimeout,fn,ms);
-    const clearTimeout=id=>{scope.timers.delete(id);hostClearTimeout(id);};
-    const requestAnimationFrame=fn=>schedule(scope.frames,hostRequestFrame,fn);
-    const cancelAnimationFrame=id=>{scope.frames.delete(id);hostCancelFrame(id);};
-    const animate=(node,...args)=>{
-        if(!node||!alive())return null;
-        const animation=node.animate(...args);scope.animations.add(animation);
-        animation.finished?.then(()=>scope.animations.delete(animation),()=>scope.animations.delete(animation));
-        return animation;
-    };
-    useEffect(()=>{
-        scope.active=true;
-        return ()=>{scope.active=false;clean([
-            ...[...scope.timers.keys()].map(id=>()=>clearTimeout(id)),
-            ...[...scope.frames.keys()].map(id=>()=>cancelAnimationFrame(id)),
-            ...[...scope.animations].map(animation=>()=>{scope.animations.delete(animation);animation.cancel();}),
-        ]);};
-    },[]);
-    const h = React.createElement, unlocked = Boolean(item.unlocked);
-    const pointers = React.useRef(new Map()), tracking = React.useRef(null), gesture = React.useRef(null), idle = React.useRef(0), wheel = React.useRef(0), pending = React.useRef(0), frame = React.useRef(0), pulse = React.useRef(null), glide = React.useRef(null), live = React.useRef(null);
-    live.current = { item, owner, menu };
-    const lockNow = () => { clearTimeout(idle.current); idle.current = 0; live.current.owner.adjust(false); };
-    const arm = () => { clearTimeout(idle.current); idle.current = setTimeout(lockNow, PHONE_ADJUST.idleMs); };
-    const unpaint = () => {
-        clearTimeout(pending.current); pending.current = 0;
-        const node = panel.current; if (!node) return;
-        node.classList.remove("is-dragging"); node.style.translate = node.style.scale = node.style.transformOrigin = "";
-    };
-    // The preview is a paint-only translate/scale from the laid-out rect; the stored layout replaces it in the same frame.
-    const paint = () => {
-        if (frame.current) return;
-        frame.current = requestAnimationFrame(() => {
-            frame.current = 0;
-            const node = panel.current, from = live.current.item.bounds, g = gesture.current;
-            if (!node || !from || !g?.rect) return;
-            node.classList.add("is-dragging"); node.style.transformOrigin = "0 0";
-            node.style.translate = (g.rect.x - from.x) + "px " + (g.rect.y - from.y) + "px"; node.style.scale = String(g.rect.width / from.width);
-        });
-    };
-    // A wheel / key step glides from the rect it left (FLIP) once the stored size is laid out.
-    React.useLayoutEffect(() => {
-        if (pending.current) unpaint();
-        const from = glide.current, to = item.bounds, node = panel.current; glide.current = null;
-        if (!from || !to || !node || item.presentation.reducedMotion) return;
-        const at = { transformOrigin: "0 0", translate: (from.x - to.x) + "px " + (from.y - to.y) + "px", scale: String(from.width / to.width) };
-        animate(node,[at, { transformOrigin: "0 0", translate: "0px 0px", scale: "1" }], { duration: PHONE_ADJUST.glideMs, easing: "cubic-bezier(.2,.8,.2,1)" });
-    }, [item.bounds?.x, item.bounds?.y, item.bounds?.width, item.bounds?.height]);
-    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept within the layout's min–150% of the band size and on stage.
-    const shape = (origin, scale, anchor, dx, dy) => {
-        const v = live.current.owner.viewport, base = live.current.item.phoneBase, pad = STAGE_WIDGET_PLACE_PAD;
-        const max = Math.min(base.width * PHONE_SIZE.max / 100, v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
-        const s = Math.max(base.width * base.min / 100, Math.min(max, origin.width * scale)) / origin.width, width = origin.width * s, height = origin.height * s;
-        const x = anchor.x - (anchor.x - origin.x) * s + dx, y = anchor.y - (anchor.y - origin.y) * s + dy;
-        return { x: Math.min(v.x + v.width - pad - width, Math.max(v.x + pad, x)), y: Math.min(v.y + v.height - pad - height, Math.max(v.y + pad, y)), width, height };
-    };
-    // The stored percent is a whole number: the rect is redrawn at that size (as the layout will draw it) about its anchor -
-    // the top-left for the corner handle, else the centre - so the spot does not drift by the rounding.
-    const store = (size, shown, anchor) => {
-        const { item, owner } = live.current, b = item.bounds, v = owner.viewport, pad = STAGE_WIDGET_PLACE_PAD, ratio = shown.width / shown.height;
-        const width = Math.min(item.phoneBase.width * size / 100, v.width - 2 * pad, (v.height - 2 * pad) * ratio), height = width / ratio;
-        const rect = anchor === "corner" ? { x: shown.x, y: shown.y, width, height } : { x: shown.x + (shown.width - width) / 2, y: shown.y + (shown.height - height) / 2, width, height };
-        const same = size === item.phoneBase.size && Math.abs(rect.x - b.x) < .5 && Math.abs(rect.y - b.y) < .5 && Math.abs(rect.width - b.width) < .5;
-        if (same) { unpaint(); return false; }
-        clearTimeout(pending.current); pending.current = setTimeout(unpaint, 400);
-        owner.resize(item.key, size, rect);
-        return true;
-    };
-    const sizeOf = rect => Math.min(PHONE_SIZE.max, Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width)));
-    const enter = g => {
-        const { item, owner } = live.current;
-        owner.adjust(true);
-        if (g.touch) try { navigator.vibrate?.(12); } catch (_) {}
-        if (!item.presentation.reducedMotion) pulse.current = animate(panel.current,[{ scale: "1" }, { scale: "1.03" }, { scale: "1" }], { duration: 240, easing: "ease-out" }) || null;
-        if (g.touch) g.timer = setTimeout(() => toMenu(g), PHONE_ADJUST.menuMs - PHONE_ADJUST.holdMs);
-    };
-    const toMenu = g => {
-        if (g.moved || gesture.current !== g) return;
-        g.cancelled = true; g.menu = true; lockNow(); live.current.menu(g.x, g.y, true);
-    };
-    const k = () => {
-        // Stage units per screen pixel: a docked stage is only scaled (createModStageDock).
-        const stage = panel.current?.closest(".fork-gal-stage"), outer = stage?.getBoundingClientRect();
-        return outer && outer.width > 0 && Math.abs(outer.width - stage.offsetWidth) >= 1 ? stage.offsetWidth / outer.width : 1;
-    };
-    // The gesture's pointers are followed on the window, not on the grip pressed: entering adjust mode swaps the ring for the
-    // cover, which unmounts that grip (and its pointer capture), and a drag that outruns the cover's edge must still move the phone.
-    const track = () => {
-        if (tracking.current) return;
-        const win = panel.current?.ownerDocument.defaultView || window, onMove = event => move(event), onUp = event => up(event, false), onCancel = event => up(event, true);
-        win.addEventListener("pointermove", onMove, true); win.addEventListener("pointerup", onUp, true); win.addEventListener("pointercancel", onCancel, true);
-        tracking.current = () => { win.removeEventListener("pointermove", onMove, true); win.removeEventListener("pointerup", onUp, true); win.removeEventListener("pointercancel", onCancel, true); tracking.current = null; };
-    };
-    const down = (event, kind) => {
-        if(!alive())return;
-        panel.current?.setAttribute("data-pointer", "");
-        if (event.button !== 0) return;
-        event.stopPropagation(); event.currentTarget.setPointerCapture?.(event.pointerId); track();
-        const { item } = live.current, old = gesture.current;
-        pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        clearTimeout(idle.current);
-        if (pointers.current.size >= 2) {
-            // A second finger turns the gesture into a pinch about the phone's centre (adjust mode only), from where it is now.
-            if (!item.unlocked && !old?.entered) return;
-            clearTimeout(old?.timer); pulse.current?.cancel();
-            const [a, b] = [...pointers.current.values()], origin = old?.rect || item.bounds;
-            gesture.current = { mode: "pinch", k: k(), origin: { ...origin }, dist: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, entered: true, rect: old?.rect || null };
-            return;
-        }
-        const g = { mode: kind === "corner" ? "corner" : "drag", id: event.pointerId, k: k(), touch: event.pointerType !== "mouse", x: event.clientX, y: event.clientY, origin: { ...item.bounds }, entered: item.unlocked, moved: false, cancelled: false, timer: 0, rect: null };
-        if (kind === "corner") pulse.current?.cancel();
-        if (!g.entered) g.timer = setTimeout(() => { g.entered = true; enter(g); }, PHONE_ADJUST.holdMs);
-        else if (g.touch && kind !== "corner") g.timer = setTimeout(() => toMenu(g), PHONE_ADJUST.holdMs);
-        gesture.current = g;
-    };
-    const move = event => {
-        if(!alive())return;
-        const point = pointers.current.get(event.pointerId); if (!point) return;
-        point.x = event.clientX; point.y = event.clientY;
-        const g = gesture.current; if (!g || g.cancelled) return;
-        if (g.mode === "pinch") {
-            const [a, b] = [...pointers.current.values()]; if (!b) return;
-            const centre = { x: g.origin.x + g.origin.width / 2, y: g.origin.y + g.origin.height / 2 };
-            g.rect = shape(g.origin, Math.hypot(b.x - a.x, b.y - a.y) / g.dist, centre, ((a.x + b.x) / 2 - g.mid.x) * g.k, ((a.y + b.y) / 2 - g.mid.y) * g.k);
-            paint(); return;
-        }
-        if (g.id !== event.pointerId) return;
-        const dx = (event.clientX - g.x) * g.k, dy = (event.clientY - g.y) * g.k;
-        if (!g.moved && Math.hypot(dx, dy) < PHONE_ADJUST.slop) return;
-        clearTimeout(g.timer);
-        // Moving before the hold completes is not a long press: the locked phone stays where it is.
-        if (!g.entered) { g.cancelled = true; return; }
-        g.moved = true;
-        g.rect = g.mode === "corner" ? shape(g.origin, ((g.origin.width + dx) / g.origin.width + (g.origin.height + dy) / g.origin.height) / 2, g.origin, 0, 0) : shape(g.origin, 1, g.origin, dx, dy);
-        paint();
-    };
-    const up = (event, cancelled) => {
-        if(!alive())return;
-        if (!pointers.current.delete(event.pointerId)) return;
-        if (!pointers.current.size) tracking.current?.();
-        const g = gesture.current; if (!g || g.mode !== "pinch" && g.id !== event.pointerId) return;
-        gesture.current = null; clearTimeout(g.timer); cancelAnimationFrame(frame.current); frame.current = 0;
-        if (g.rect && !cancelled) store(g.mode === "drag" ? live.current.item.phoneBase.size : sizeOf(g.rect), g.rect, g.mode);
-        else unpaint();
-        if (g.entered && !g.menu) arm();
-    };
-    const reset = event => { if(!alive())return;event.stopPropagation(); if (live.current.item.placed) live.current.owner.place(live.current.item.key, null, null); };
-    // One wheel notch (or + / -) is 5%, about the phone's centre.
-    const step = steps => {
-        if(!alive())return;
-        const { item } = live.current, base = item.phoneBase, b = item.bounds;
-        const size = Math.min(PHONE_SIZE.max, Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
-        if (size !== base.size) glide.current = store(size, shape(b, base.width * size / 100 / b.width, { x: b.x + b.width / 2, y: b.y + b.height / 2 }, 0, 0)) ? { ...b } : null;
-        arm();
-    };
-    const zoom = event => {
-        if(!alive())return;
-        wheel.current += event.deltaY * (event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 400 : 1);
-        const steps = Math.trunc(wheel.current / PHONE_ADJUST.wheelPx);
-        if (steps) { wheel.current -= steps * PHONE_ADJUST.wheelPx; step(-steps); } else arm();
-    };
-    useEffect(() => {
-        if (!unlocked) return undefined;
-        // A press outside the phone locks it; on the bare stage that press only locks and does not also turn the page.
-        const doc = panel.current?.ownerDocument || document, swallow = event => { event.stopPropagation(); event.preventDefault(); };
-        const outside = event => {
-        if(!alive())return;
-            const node = panel.current, target = event.target;
-            if (!node || node.contains(target) || target?.closest?.(".fork-gal-config, .fork-widget-context, .fork-widget-context-veil")) return;
-            lockNow();
-            if (!target?.closest?.("button, input, select, textarea, a, [role=button]")) {
-                doc.addEventListener("click", swallow, { capture: true, once: true });
-                setTimeout(() => doc.removeEventListener("click", swallow, true), 600);
-            }
-        };
-        // While adjusting, a wheel anywhere on the stage zooms the phone (not the stage's 履历 / page turn, not the phone's
-        // content); open menus and CONFIG keep their own scroll, Ctrl+wheel stays the reading size.
-        const onWheel = event => {
-        if(!alive())return;
-            const target = event.target, stage = panel.current?.closest(".fork-gal-stage");
-            if (event.ctrlKey || !stage?.contains(target) || target.closest?.(".fork-gal-config, .fork-widget-context, .fork-widget-menu")) return;
-            event.stopPropagation(); event.preventDefault();
-            if (!gesture.current) zoom(event);
-        };
-        const win = doc.defaultView || window, wheelOptions = { capture: true, passive: false };
-        doc.addEventListener("pointerdown", outside, true); win.addEventListener("wheel", onWheel, wheelOptions);
-        return () => { clean([()=>doc.removeEventListener("pointerdown", outside, true),()=>win.removeEventListener("wheel", onWheel, wheelOptions),()=>doc.removeEventListener("click", swallow, true)]); wheel.current = 0; };
-    }, [unlocked]);
-    useEffect(() => () => { clean([()=>tracking.current?.(),()=>clearTimeout(gesture.current?.timer),()=>cancelAnimationFrame(frame.current),()=>clearTimeout(pending.current),()=>{if(idle.current)lockNow();},unpaint]); }, []);
-    if (!item.phoneBase || !owner.adjust) return null;
-    const grip = (kind, side) => h("div", { key: kind + (side || ""), className: "fork-widget-grip is-" + kind + (side ? " is-" + side : ""), "aria-hidden": true,
-        onPointerDown: event => down(event, kind),
-        onDoubleClick: kind === "ring" || kind === "adjust" ? reset : undefined });
-    return {
-        grips: unlocked ? [grip("adjust"), grip("corner")] : [...["top", "right", "bottom", "left"].map(side => grip("ring", side)), grip("status")],
-        // The panel asks first: true when adjust mode used the event.
-        holding: () => Boolean(gesture.current),
-        // (Adjust mode takes the wheel on the window, above; a press still being held swallows it.)
-        wheel: () => Boolean(gesture.current),
-        key: event => {
-        if(!alive())return;
-            if (!live.current.item.unlocked) return false;
-            if (event.key === "Escape") { event.preventDefault(); lockNow(); return true; }
-            if (event.target === event.currentTarget && ["+", "=", "-", "_"].includes(event.key)) { event.preventDefault(); step(event.key === "-" || event.key === "_" ? -1 : 1); return true; }
-            if (event.key.startsWith("Arrow")) arm();
-            return false;
-        },
-    };
-}
-return {useAdjust:usePhoneAdjust,dispose(){if(disposed)return;disposed=true;clean([...cleanups]);}};
-}
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStagePhoneAdjust};
-
-        function createStagePhoneLayout({React, storage:localStorage, width, group:galConfigGroup, row:galConfigRow, slider:galConfigSlider, Switch:GalConfigSwitch, ResetButton, sections:STAGE_CONFIG_SECTIONS}) {
-let disposed = false;
-const viewportWidth=()=>width?.() ?? 1024;
-const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, max: 150, step: 5, default: 100 });
-// The smallest size percent of a layout ("wide" / "narrow").
-function phoneModSizeMin(name) { return name === "narrow" ? PHONE_SIZE.narrowMin : PHONE_SIZE.min; }
-const phoneModPrefs = (function () {
-    const KEY = "fork-phone-layout", listeners = new Set(); let cached = null;
-    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.min(PHONE_SIZE.max, Math.max(phoneModSizeMin(name), Math.round(saved.size))) : PHONE_SIZE.default,
-        place: Array.isArray(saved?.place) && saved.place.length === 2 && saved.place.every(n => Number.isFinite(n) && n >= 0 && n <= 1) ? saved.place : null });
-    const normalize = saved => ({ unlocked: saved?.unlocked === true, wide: layout(saved?.wide, "wide"), narrow: layout(saved?.narrow, "narrow") });
-    function get() {
-        if (!cached) { let saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (_) {} cached = normalize(saved); }
-        return cached;
-    }
-    function set(patch) {
-        if (disposed) return;
-        cached = normalize({ ...get(), ...patch });
-        try { localStorage.setItem(KEY, JSON.stringify(cached)); } catch (_) {}
-        for (const listener of listeners) listener();
-    }
-    return { clear:()=>listeners.clear(), get, set, subscribe(listener) { if(disposed)return()=>{}; listeners.add(listener); return () => listeners.delete(listener); },
-        // The layout the stage is in: narrow under 700px (the widget owner's own narrow test).
-        current(width) { return (width ?? viewportWidth()) < 700 ? "narrow" : "wide"; },
-        // One layout's entry changed (size / place); null place forgets the reader's spot.
-        update(name, patch) { set({ [name]: { ...get()[name], ...patch } }); } };
-})();
-function usePhonePrefs() { return React.useSyncExternalStore(phoneModPrefs.subscribe, phoneModPrefs.get, phoneModPrefs.get); }
-
-// The stage CONFIG › 模组 › 手机 section (gal-config.js building blocks; include after it). props: { compact }.
-function PhoneStageConfig() {
-    const h = React.createElement, prefs = usePhonePrefs(), name = phoneModPrefs.current(), layout = prefs[name];
-    const [draft, setDraft] = React.useState(null), size = draft ?? layout.size;
-    return galConfigGroup("手机", null,
-        galConfigRow("解锁手机位置", h("span", { className: "fork-gal-config-inline" },
-                h(GalConfigSwitch, { label: "解锁手机位置", checked: prefs.unlocked, onChange: value => phoneModPrefs.set({ unlocked: value }) }),
-                layout.place ? h(ResetButton, { label: "恢复默认位置", onClick: () => phoneModPrefs.update(name, { place: null }) }) : null),
-            "打开后在舞台上拖动手机移动，拖右下角、滚轮或双指缩放；也可以直接长按手机边框或顶部状态栏。松手几秒后或点手机外面即锁定；双击手机回到默认位置。", null, "toggle"),
-        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: PHONE_SIZE.max, step: PHONE_SIZE.step, value: size, label: "手机大小",
-                valueText: size + "%", output: size + "%", onChange: value => setDraft(value), onCommit: value => { setDraft(null); phoneModPrefs.update(name, { size: value }); } },
-                size === PHONE_SIZE.default ? null : { label: "恢复为 100%", onClick: () => { setDraft(null); phoneModPrefs.update(name, { size: PHONE_SIZE.default }); } }),
-            "100% 是手机自动填满文本框上方空间的大小；缩小后可以一边读故事一边看手机。电脑和手机各自记住。"));
-}
-const PHONE_STAGE_CONFIG = Object.freeze({ label: "手机", en: "PHONE", Component: PhoneStageConfig });
-
-const previous=STAGE_CONFIG_SECTIONS?.['dsh.phone'];
-if(STAGE_CONFIG_SECTIONS)STAGE_CONFIG_SECTIONS['dsh.phone']=PHONE_STAGE_CONFIG;
-return {prefs:phoneModPrefs, sizes:PHONE_SIZE, min:phoneModSizeMin, dispose() {
-    if(disposed)return;disposed=true;phoneModPrefs.clear();
-    if(STAGE_CONFIG_SECTIONS?.['dsh.phone']===PHONE_STAGE_CONFIG) {
-        if(previous===undefined)delete STAGE_CONFIG_SECTIONS['dsh.phone'];else STAGE_CONFIG_SECTIONS['dsh.phone']=previous;
-    }
-}};
-}
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStagePhoneLayout};
 
         function createStageCg({React, window, ResizeObserver, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, policy:cgMotionPolicy, rpc}) {
 let disposed = false;
@@ -30309,12 +30007,14 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
 // useStageTakeovers); mount lists them in views.takeovers.
 // hud: optional views => the feature's HUD view (useSlot(props) => {shown,element,onInputActivity,fallbackRef}, controller.cjs
 // useStageHuds); mount lists them in views.huds.
+// sourceDevice: optional views => the handheld source device the source widgets lay out and adjust ({modId, presentation,
+// glyph, mark, group, threads(state), prefs, min, useAdjust}); at most one, in views.sourceDevice (null without one).
 function createStageFeatures() {
     const features=new Map();
     return {
-        register(id,{views,css,backlog,takeover,hud,skipShows}){
+        register(id,{views,css,backlog,takeover,hud,sourceDevice,skipShows}){
             if(features.has(id))throw new Error('Stage feature already registered: '+id);
-            const feature={views,css,backlog,takeover,hud,skipShows};features.set(id,feature);
+            const feature={views,css,backlog,takeover,hud,sourceDevice,skipShows};features.set(id,feature);
             return ()=>{if(features.get(id)===feature)features.delete(id);};
         },
         // whether a feature shows this performance kind of its own while skipping: page DOM alone (runtime-kernel.cjs stageSkipShows).
@@ -30333,6 +30033,8 @@ function createStageFeatures() {
             const takeovers=[],huds=[];views.takeovers=takeovers;
             if(Object.hasOwn(views,'huds'))throw new Error('Occupied stage view: huds');
             views.huds=huds;
+            if(Object.hasOwn(views,'sourceDevice'))throw new Error('Occupied stage view: sourceDevice');
+            views.sourceDevice=null;
             for(const [id,feature] of features){
                 if(feature.css){
                     const style=document.createElement('style');
@@ -30347,6 +30049,10 @@ function createStageFeatures() {
                 }
                 if(feature.takeover)takeovers.push(feature.takeover(views));
                 if(feature.hud)huds.push(feature.hud(views));
+                if(feature.sourceDevice){
+                    if(views.sourceDevice)throw new Error('A second stage source device: '+id);
+                    views.sourceDevice=feature.sourceDevice(views);
+                }
             }
         }
     };
@@ -30376,7 +30082,334 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
             const host = ctx.get('tavernStageFrontend');
             const stageFeatures=createStageFeatures();
             // Each mod's stage client (tavern-plugin/mods/<folder>/client/stage.cjs), bundled by build.mjs.
-            for(const [id,feature] of [["textcard",loadStageModFeature({"client/stage.cjs":[{"./presets.cjs":"client/presets.cjs","./card.cjs":"client/card.cjs","./fonts.cjs":"client/fonts.cjs","./player.cjs":"client/player.cjs","./center.cjs":"client/center.cjs","./vert-ink.cjs":"client/vert-ink.cjs","./layout.cjs":"client/layout.cjs"},function(module,exports,require){
+            for(const [id,feature] of [["phone",loadStageModFeature({"client/stage.cjs":[{"./layout.cjs":"client/layout.cjs","./adjust.cjs":"client/adjust.cjs"},function(module,exports,require){
+'use strict';
+// The phone's stage feature (src/client/features.cjs): the handheld source device the source widgets lay out and adjust
+// (sourceDevice: its mod id, presentation read, glyph, layout preferences per device and the direct adjust hook), with its
+// CONFIG › 模组 › 手机 section; client/stage.css is its CSS.
+const {createStagePhoneLayout} = require('./layout.cjs');
+const {createStagePhoneAdjust} = require('./adjust.cjs');
+module.exports = {sourceDevice:views => views.phoneDevice, views:({options, views, own, window, document}) => {
+    const fields = views.configFields;
+    const layout = own(createStagePhoneLayout({React:options.React, group:fields.group, row:fields.row, slider:fields.slider, Switch:fields.Switch, ...options.phoneLayout}));
+    const adjust = own(createStagePhoneAdjust({React:options.React, window, document, sizes:layout.sizes, ...options.phoneAdjust}));
+    return {phoneDevice:Object.freeze({modId:'dsh.phone', presentation:'getStagePhonePresentation', glyph:'phone',
+        // the director's mark and group commands and the saved threads its records carry (source-widgets.cjs).
+        mark:'mark', group:'group', threads:state => state?.threads,
+        prefs:layout.prefs, min:layout.min, useAdjust:adjust.useAdjust})};
+}};
+}],
+"client/layout.cjs":[{},function(module,exports,require){
+function createStagePhoneLayout({React, storage:localStorage, width, group:galConfigGroup, row:galConfigRow, slider:galConfigSlider, Switch:GalConfigSwitch, ResetButton, sections:STAGE_CONFIG_SECTIONS}) {
+let disposed = false;
+const viewportWidth=()=>width?.() ?? 1024;
+const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, max: 150, step: 5, default: 100 });
+// The smallest size percent of a layout ("wide" / "narrow").
+function phoneModSizeMin(name) { return name === "narrow" ? PHONE_SIZE.narrowMin : PHONE_SIZE.min; }
+const phoneModPrefs = (function () {
+    const KEY = "fork-phone-layout", listeners = new Set(); let cached = null;
+    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.min(PHONE_SIZE.max, Math.max(phoneModSizeMin(name), Math.round(saved.size))) : PHONE_SIZE.default,
+        place: Array.isArray(saved?.place) && saved.place.length === 2 && saved.place.every(n => Number.isFinite(n) && n >= 0 && n <= 1) ? saved.place : null });
+    const normalize = saved => ({ unlocked: saved?.unlocked === true, wide: layout(saved?.wide, "wide"), narrow: layout(saved?.narrow, "narrow") });
+    function get() {
+        if (!cached) { let saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (_) {} cached = normalize(saved); }
+        return cached;
+    }
+    function set(patch) {
+        if (disposed) return;
+        cached = normalize({ ...get(), ...patch });
+        try { localStorage.setItem(KEY, JSON.stringify(cached)); } catch (_) {}
+        for (const listener of listeners) listener();
+    }
+    return { clear:()=>listeners.clear(), get, set, subscribe(listener) { if(disposed)return()=>{}; listeners.add(listener); return () => listeners.delete(listener); },
+        // The layout the stage is in: narrow under 700px (the widget owner's own narrow test).
+        current(width) { return (width ?? viewportWidth()) < 700 ? "narrow" : "wide"; },
+        // One layout's entry changed (size / place); null place forgets the reader's spot.
+        update(name, patch) { set({ [name]: { ...get()[name], ...patch } }); } };
+})();
+function usePhonePrefs() { return React.useSyncExternalStore(phoneModPrefs.subscribe, phoneModPrefs.get, phoneModPrefs.get); }
+
+// The stage CONFIG › 模组 › 手机 section (gal-config.js building blocks; include after it). props: { compact }.
+function PhoneStageConfig() {
+    const h = React.createElement, prefs = usePhonePrefs(), name = phoneModPrefs.current(), layout = prefs[name];
+    const [draft, setDraft] = React.useState(null), size = draft ?? layout.size;
+    return galConfigGroup("手机", null,
+        galConfigRow("解锁手机位置", h("span", { className: "fork-gal-config-inline" },
+                h(GalConfigSwitch, { label: "解锁手机位置", checked: prefs.unlocked, onChange: value => phoneModPrefs.set({ unlocked: value }) }),
+                layout.place ? h(ResetButton, { label: "恢复默认位置", onClick: () => phoneModPrefs.update(name, { place: null }) }) : null),
+            "打开后在舞台上拖动手机移动，拖右下角、滚轮或双指缩放；也可以直接长按手机边框或顶部状态栏。松手几秒后或点手机外面即锁定；双击手机回到默认位置。", null, "toggle"),
+        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: PHONE_SIZE.max, step: PHONE_SIZE.step, value: size, label: "手机大小",
+                valueText: size + "%", output: size + "%", onChange: value => setDraft(value), onCommit: value => { setDraft(null); phoneModPrefs.update(name, { size: value }); } },
+                size === PHONE_SIZE.default ? null : { label: "恢复为 100%", onClick: () => { setDraft(null); phoneModPrefs.update(name, { size: PHONE_SIZE.default }); } }),
+            "100% 是手机自动填满文本框上方空间的大小；缩小后可以一边读故事一边看手机。电脑和手机各自记住。"));
+}
+const PHONE_STAGE_CONFIG = Object.freeze({ label: "手机", en: "PHONE", Component: PhoneStageConfig });
+
+const previous=STAGE_CONFIG_SECTIONS?.['dsh.phone'];
+if(STAGE_CONFIG_SECTIONS)STAGE_CONFIG_SECTIONS['dsh.phone']=PHONE_STAGE_CONFIG;
+return {prefs:phoneModPrefs, sizes:PHONE_SIZE, min:phoneModSizeMin, dispose() {
+    if(disposed)return;disposed=true;phoneModPrefs.clear();
+    if(STAGE_CONFIG_SECTIONS?.['dsh.phone']===PHONE_STAGE_CONFIG) {
+        if(previous===undefined)delete STAGE_CONFIG_SECTIONS['dsh.phone'];else STAGE_CONFIG_SECTIONS['dsh.phone']=previous;
+    }
+}};
+}
+module.exports={createStagePhoneLayout};
+
+}],
+"client/adjust.cjs":[{},function(module,exports,require){
+function createStagePhoneAdjust({React, window, document, navigator, sizes:PHONE_SIZE, pad:STAGE_WIDGET_PLACE_PAD, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+let disposed=false;
+const cleanups=new Set();
+function clean(actions) {
+    const errors=[];
+    for(const action of actions){try{action();}catch(error){errors.push(error);}}
+    if(errors.length)throw new AggregateError(errors,'Phone gesture cleanup failed');
+}
+function useEffect(setup,deps) {
+    React.useEffect(()=>{
+        if(disposed)return;
+        const cleanup=setup();
+        if(typeof cleanup!=='function')return;
+        let active=true;
+        const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};
+        cleanups.add(release);return release;
+    },deps);
+}
+// the direct path.
+// A long press (holdMs) on the open stage phone's frame - the edge ring over its bezel - or its status bar (time, signal,
+// battery: no controls) enters adjust mode, the one `unlocked` state CONFIG's switch also sets: a short pulse and the outline,
+// a haptic tick on touch, and the same press goes on as a drag. App content (lists, messages, the call button) has no hit
+// area over it, so its own taps, scrolls and long presses are untouched. In adjust mode a cover takes the whole phone (the
+// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize within 50–150%, the
+// phone always clamped on stage. The wheel zooms wherever it lands on the stage (over the phone or the dimmed stage around
+// it, never the phone's content scroll while adjusting); each 5% step glides there. A gesture paints a translate/scale preview and stores once, on release (size, and the spot
+// where it was left). Letting go and doing nothing for idleMs, a press outside the phone or Esc locks it again and the outline
+// fades. A touch hold that keeps still on to menuMs opens the widget menu, as a long press did before (mouse: right-click).
+const PHONE_ADJUST = Object.freeze({ holdMs: 500, menuMs: 1100, idleMs: 2500, slop: 6, wheelPx: 100, glideMs: 160 });
+function usePhoneAdjust(item, owner, panel, menu) {
+    const scope=React.useRef({active:true,timers:new Map(),frames:new Map(),animations:new Set()}).current;
+    const alive=()=>scope.active&&!disposed;
+    const schedule=(map,start,callback,delay)=>{
+        if(!alive())return 0;
+        const token={};
+        const id=start((...args)=>{if(map.get(id)!==token||!alive())return;map.delete(id);callback(...args);},delay);
+        map.set(id,token);return id;
+    };
+    const setTimeout=(fn,ms)=>schedule(scope.timers,hostSetTimeout,fn,ms);
+    const clearTimeout=id=>{scope.timers.delete(id);hostClearTimeout(id);};
+    const requestAnimationFrame=fn=>schedule(scope.frames,hostRequestFrame,fn);
+    const cancelAnimationFrame=id=>{scope.frames.delete(id);hostCancelFrame(id);};
+    const animate=(node,...args)=>{
+        if(!node||!alive())return null;
+        const animation=node.animate(...args);scope.animations.add(animation);
+        animation.finished?.then(()=>scope.animations.delete(animation),()=>scope.animations.delete(animation));
+        return animation;
+    };
+    useEffect(()=>{
+        scope.active=true;
+        return ()=>{scope.active=false;clean([
+            ...[...scope.timers.keys()].map(id=>()=>clearTimeout(id)),
+            ...[...scope.frames.keys()].map(id=>()=>cancelAnimationFrame(id)),
+            ...[...scope.animations].map(animation=>()=>{scope.animations.delete(animation);animation.cancel();}),
+        ]);};
+    },[]);
+    const h = React.createElement, unlocked = Boolean(item.unlocked);
+    const pointers = React.useRef(new Map()), tracking = React.useRef(null), gesture = React.useRef(null), idle = React.useRef(0), wheel = React.useRef(0), pending = React.useRef(0), frame = React.useRef(0), pulse = React.useRef(null), glide = React.useRef(null), live = React.useRef(null);
+    live.current = { item, owner, menu };
+    const lockNow = () => { clearTimeout(idle.current); idle.current = 0; live.current.owner.adjust(false); };
+    const arm = () => { clearTimeout(idle.current); idle.current = setTimeout(lockNow, PHONE_ADJUST.idleMs); };
+    const unpaint = () => {
+        clearTimeout(pending.current); pending.current = 0;
+        const node = panel.current; if (!node) return;
+        node.classList.remove("is-dragging"); node.style.translate = node.style.scale = node.style.transformOrigin = "";
+    };
+    // The preview is a paint-only translate/scale from the laid-out rect; the stored layout replaces it in the same frame.
+    const paint = () => {
+        if (frame.current) return;
+        frame.current = requestAnimationFrame(() => {
+            frame.current = 0;
+            const node = panel.current, from = live.current.item.bounds, g = gesture.current;
+            if (!node || !from || !g?.rect) return;
+            node.classList.add("is-dragging"); node.style.transformOrigin = "0 0";
+            node.style.translate = (g.rect.x - from.x) + "px " + (g.rect.y - from.y) + "px"; node.style.scale = String(g.rect.width / from.width);
+        });
+    };
+    // A wheel / key step glides from the rect it left (FLIP) once the stored size is laid out.
+    React.useLayoutEffect(() => {
+        if (pending.current) unpaint();
+        const from = glide.current, to = item.bounds, node = panel.current; glide.current = null;
+        if (!from || !to || !node || item.presentation.reducedMotion) return;
+        const at = { transformOrigin: "0 0", translate: (from.x - to.x) + "px " + (from.y - to.y) + "px", scale: String(from.width / to.width) };
+        animate(node,[at, { transformOrigin: "0 0", translate: "0px 0px", scale: "1" }], { duration: PHONE_ADJUST.glideMs, easing: "cubic-bezier(.2,.8,.2,1)" });
+    }, [item.bounds?.x, item.bounds?.y, item.bounds?.width, item.bounds?.height]);
+    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept within the layout's min–150% of the band size and on stage.
+    const shape = (origin, scale, anchor, dx, dy) => {
+        const v = live.current.owner.viewport, base = live.current.item.phoneBase, pad = STAGE_WIDGET_PLACE_PAD;
+        const max = Math.min(base.width * PHONE_SIZE.max / 100, v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
+        const s = Math.max(base.width * base.min / 100, Math.min(max, origin.width * scale)) / origin.width, width = origin.width * s, height = origin.height * s;
+        const x = anchor.x - (anchor.x - origin.x) * s + dx, y = anchor.y - (anchor.y - origin.y) * s + dy;
+        return { x: Math.min(v.x + v.width - pad - width, Math.max(v.x + pad, x)), y: Math.min(v.y + v.height - pad - height, Math.max(v.y + pad, y)), width, height };
+    };
+    // The stored percent is a whole number: the rect is redrawn at that size (as the layout will draw it) about its anchor -
+    // the top-left for the corner handle, else the centre - so the spot does not drift by the rounding.
+    const store = (size, shown, anchor) => {
+        const { item, owner } = live.current, b = item.bounds, v = owner.viewport, pad = STAGE_WIDGET_PLACE_PAD, ratio = shown.width / shown.height;
+        const width = Math.min(item.phoneBase.width * size / 100, v.width - 2 * pad, (v.height - 2 * pad) * ratio), height = width / ratio;
+        const rect = anchor === "corner" ? { x: shown.x, y: shown.y, width, height } : { x: shown.x + (shown.width - width) / 2, y: shown.y + (shown.height - height) / 2, width, height };
+        const same = size === item.phoneBase.size && Math.abs(rect.x - b.x) < .5 && Math.abs(rect.y - b.y) < .5 && Math.abs(rect.width - b.width) < .5;
+        if (same) { unpaint(); return false; }
+        clearTimeout(pending.current); pending.current = setTimeout(unpaint, 400);
+        owner.resize(item.key, size, rect);
+        return true;
+    };
+    const sizeOf = rect => Math.min(PHONE_SIZE.max, Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width)));
+    const enter = g => {
+        const { item, owner } = live.current;
+        owner.adjust(true);
+        if (g.touch) try { navigator.vibrate?.(12); } catch (_) {}
+        if (!item.presentation.reducedMotion) pulse.current = animate(panel.current,[{ scale: "1" }, { scale: "1.03" }, { scale: "1" }], { duration: 240, easing: "ease-out" }) || null;
+        if (g.touch) g.timer = setTimeout(() => toMenu(g), PHONE_ADJUST.menuMs - PHONE_ADJUST.holdMs);
+    };
+    const toMenu = g => {
+        if (g.moved || gesture.current !== g) return;
+        g.cancelled = true; g.menu = true; lockNow(); live.current.menu(g.x, g.y, true);
+    };
+    const k = () => {
+        // Stage units per screen pixel: a docked stage is only scaled (createModStageDock).
+        const stage = panel.current?.closest(".fork-gal-stage"), outer = stage?.getBoundingClientRect();
+        return outer && outer.width > 0 && Math.abs(outer.width - stage.offsetWidth) >= 1 ? stage.offsetWidth / outer.width : 1;
+    };
+    // The gesture's pointers are followed on the window, not on the grip pressed: entering adjust mode swaps the ring for the
+    // cover, which unmounts that grip (and its pointer capture), and a drag that outruns the cover's edge must still move the phone.
+    const track = () => {
+        if (tracking.current) return;
+        const win = panel.current?.ownerDocument.defaultView || window, onMove = event => move(event), onUp = event => up(event, false), onCancel = event => up(event, true);
+        win.addEventListener("pointermove", onMove, true); win.addEventListener("pointerup", onUp, true); win.addEventListener("pointercancel", onCancel, true);
+        tracking.current = () => { win.removeEventListener("pointermove", onMove, true); win.removeEventListener("pointerup", onUp, true); win.removeEventListener("pointercancel", onCancel, true); tracking.current = null; };
+    };
+    const down = (event, kind) => {
+        if(!alive())return;
+        panel.current?.setAttribute("data-pointer", "");
+        if (event.button !== 0) return;
+        event.stopPropagation(); event.currentTarget.setPointerCapture?.(event.pointerId); track();
+        const { item } = live.current, old = gesture.current;
+        pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        clearTimeout(idle.current);
+        if (pointers.current.size >= 2) {
+            // A second finger turns the gesture into a pinch about the phone's centre (adjust mode only), from where it is now.
+            if (!item.unlocked && !old?.entered) return;
+            clearTimeout(old?.timer); pulse.current?.cancel();
+            const [a, b] = [...pointers.current.values()], origin = old?.rect || item.bounds;
+            gesture.current = { mode: "pinch", k: k(), origin: { ...origin }, dist: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, entered: true, rect: old?.rect || null };
+            return;
+        }
+        const g = { mode: kind === "corner" ? "corner" : "drag", id: event.pointerId, k: k(), touch: event.pointerType !== "mouse", x: event.clientX, y: event.clientY, origin: { ...item.bounds }, entered: item.unlocked, moved: false, cancelled: false, timer: 0, rect: null };
+        if (kind === "corner") pulse.current?.cancel();
+        if (!g.entered) g.timer = setTimeout(() => { g.entered = true; enter(g); }, PHONE_ADJUST.holdMs);
+        else if (g.touch && kind !== "corner") g.timer = setTimeout(() => toMenu(g), PHONE_ADJUST.holdMs);
+        gesture.current = g;
+    };
+    const move = event => {
+        if(!alive())return;
+        const point = pointers.current.get(event.pointerId); if (!point) return;
+        point.x = event.clientX; point.y = event.clientY;
+        const g = gesture.current; if (!g || g.cancelled) return;
+        if (g.mode === "pinch") {
+            const [a, b] = [...pointers.current.values()]; if (!b) return;
+            const centre = { x: g.origin.x + g.origin.width / 2, y: g.origin.y + g.origin.height / 2 };
+            g.rect = shape(g.origin, Math.hypot(b.x - a.x, b.y - a.y) / g.dist, centre, ((a.x + b.x) / 2 - g.mid.x) * g.k, ((a.y + b.y) / 2 - g.mid.y) * g.k);
+            paint(); return;
+        }
+        if (g.id !== event.pointerId) return;
+        const dx = (event.clientX - g.x) * g.k, dy = (event.clientY - g.y) * g.k;
+        if (!g.moved && Math.hypot(dx, dy) < PHONE_ADJUST.slop) return;
+        clearTimeout(g.timer);
+        // Moving before the hold completes is not a long press: the locked phone stays where it is.
+        if (!g.entered) { g.cancelled = true; return; }
+        g.moved = true;
+        g.rect = g.mode === "corner" ? shape(g.origin, ((g.origin.width + dx) / g.origin.width + (g.origin.height + dy) / g.origin.height) / 2, g.origin, 0, 0) : shape(g.origin, 1, g.origin, dx, dy);
+        paint();
+    };
+    const up = (event, cancelled) => {
+        if(!alive())return;
+        if (!pointers.current.delete(event.pointerId)) return;
+        if (!pointers.current.size) tracking.current?.();
+        const g = gesture.current; if (!g || g.mode !== "pinch" && g.id !== event.pointerId) return;
+        gesture.current = null; clearTimeout(g.timer); cancelAnimationFrame(frame.current); frame.current = 0;
+        if (g.rect && !cancelled) store(g.mode === "drag" ? live.current.item.phoneBase.size : sizeOf(g.rect), g.rect, g.mode);
+        else unpaint();
+        if (g.entered && !g.menu) arm();
+    };
+    const reset = event => { if(!alive())return;event.stopPropagation(); if (live.current.item.placed) live.current.owner.place(live.current.item.key, null, null); };
+    // One wheel notch (or + / -) is 5%, about the phone's centre.
+    const step = steps => {
+        if(!alive())return;
+        const { item } = live.current, base = item.phoneBase, b = item.bounds;
+        const size = Math.min(PHONE_SIZE.max, Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
+        if (size !== base.size) glide.current = store(size, shape(b, base.width * size / 100 / b.width, { x: b.x + b.width / 2, y: b.y + b.height / 2 }, 0, 0)) ? { ...b } : null;
+        arm();
+    };
+    const zoom = event => {
+        if(!alive())return;
+        wheel.current += event.deltaY * (event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 400 : 1);
+        const steps = Math.trunc(wheel.current / PHONE_ADJUST.wheelPx);
+        if (steps) { wheel.current -= steps * PHONE_ADJUST.wheelPx; step(-steps); } else arm();
+    };
+    useEffect(() => {
+        if (!unlocked) return undefined;
+        // A press outside the phone locks it; on the bare stage that press only locks and does not also turn the page.
+        const doc = panel.current?.ownerDocument || document, swallow = event => { event.stopPropagation(); event.preventDefault(); };
+        const outside = event => {
+        if(!alive())return;
+            const node = panel.current, target = event.target;
+            if (!node || node.contains(target) || target?.closest?.(".fork-gal-config, .fork-widget-context, .fork-widget-context-veil")) return;
+            lockNow();
+            if (!target?.closest?.("button, input, select, textarea, a, [role=button]")) {
+                doc.addEventListener("click", swallow, { capture: true, once: true });
+                setTimeout(() => doc.removeEventListener("click", swallow, true), 600);
+            }
+        };
+        // While adjusting, a wheel anywhere on the stage zooms the phone (not the stage's 履历 / page turn, not the phone's
+        // content); open menus and CONFIG keep their own scroll, Ctrl+wheel stays the reading size.
+        const onWheel = event => {
+        if(!alive())return;
+            const target = event.target, stage = panel.current?.closest(".fork-gal-stage");
+            if (event.ctrlKey || !stage?.contains(target) || target.closest?.(".fork-gal-config, .fork-widget-context, .fork-widget-menu")) return;
+            event.stopPropagation(); event.preventDefault();
+            if (!gesture.current) zoom(event);
+        };
+        const win = doc.defaultView || window, wheelOptions = { capture: true, passive: false };
+        doc.addEventListener("pointerdown", outside, true); win.addEventListener("wheel", onWheel, wheelOptions);
+        return () => { clean([()=>doc.removeEventListener("pointerdown", outside, true),()=>win.removeEventListener("wheel", onWheel, wheelOptions),()=>doc.removeEventListener("click", swallow, true)]); wheel.current = 0; };
+    }, [unlocked]);
+    useEffect(() => () => { clean([()=>tracking.current?.(),()=>clearTimeout(gesture.current?.timer),()=>cancelAnimationFrame(frame.current),()=>clearTimeout(pending.current),()=>{if(idle.current)lockNow();},unpaint]); }, []);
+    if (!item.phoneBase || !owner.adjust) return null;
+    const grip = (kind, side) => h("div", { key: kind + (side || ""), className: "fork-widget-grip is-" + kind + (side ? " is-" + side : ""), "aria-hidden": true,
+        onPointerDown: event => down(event, kind),
+        onDoubleClick: kind === "ring" || kind === "adjust" ? reset : undefined });
+    return {
+        grips: unlocked ? [grip("adjust"), grip("corner")] : [...["top", "right", "bottom", "left"].map(side => grip("ring", side)), grip("status")],
+        // The panel asks first: true when adjust mode used the event.
+        holding: () => Boolean(gesture.current),
+        // (Adjust mode takes the wheel on the window, above; a press still being held swallows it.)
+        wheel: () => Boolean(gesture.current),
+        key: event => {
+        if(!alive())return;
+            if (!live.current.item.unlocked) return false;
+            if (event.key === "Escape") { event.preventDefault(); lockNow(); return true; }
+            if (event.target === event.currentTarget && ["+", "=", "-", "_"].includes(event.key)) { event.preventDefault(); step(event.key === "-" || event.key === "_" ? -1 : 1); return true; }
+            if (event.key.startsWith("Arrow")) arm();
+            return false;
+        },
+    };
+}
+return {useAdjust:usePhoneAdjust,dispose(){if(disposed)return;disposed=true;clean([...cleanups]);}};
+}
+module.exports={createStagePhoneAdjust};
+
+}]},"client/stage.cjs","/* The phone's stage presentation (its stage feature CSS, client/stage.cjs): the notification banner, the scene shade\n   while it is open, its adjust ring and grips, the full-screen sheet and the invisible phone line reader. */\n/* the incoming banner is a real phone's notification card — exactly as wide as the phone's\n   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down\n   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */\n.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}\n.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}\n@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-fade{from{opacity:0}}\n/* while the phone is open the scene stays and dims behind it (the Pixi\n   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */\n.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}\n.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}\n.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}\n/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the\n   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,\n   7.2% of the device height: no controls) enters adjust mode (adjust.cjs useAdjust); in it a cover takes\n   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */\n.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}\n.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}\n.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}\n.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}\n.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}\n.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}\n/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */\n.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}\n.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:\"\";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}\n/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue\n   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */\n.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}\n.fork-widget-panel.is-phone.is-fill{border-radius:0}\n/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */\n.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}\n")],
+["textcard",loadStageModFeature({"client/stage.cjs":[{"./presets.cjs":"client/presets.cjs","./card.cjs":"client/card.cjs","./fonts.cjs":"client/fonts.cjs","./player.cjs":"client/player.cjs","./center.cjs":"client/center.cjs","./vert-ink.cjs":"client/vert-ink.cjs","./layout.cjs":"client/layout.cjs"},function(module,exports,require){
 'use strict';
 // The 「文字演出」 stage feature (src/client/features.cjs): the full-screen text card view, built per view scope, and its
 // 履历 row (the declarations' backlog renderer "textcard"); client/stage.css is its CSS. The card takes the stage over while it
@@ -31701,7 +31734,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     cleanups.push(()=>style.remove());
                     style.dataset.plugin='dsh-tavern-stage';
                     style.dataset.pluginCss='dsh-tavern-stage/presentation.css';
-                    style.textContent="/* Generic source-widget reading controls. The phone appearance belongs to its pack. */\n.fork-gal-box.is-source-widget-line,.fork-gal-box.is-source-widget-line *{visibility:hidden!important;pointer-events:none}\n.fork-widget-source-controls{position:absolute;z-index:19;bottom:16px;right:24px;display:flex;align-items:center;gap:8px;background:var(--gal-ui-surface-2);border:1px solid var(--gal-ui-line);border-radius:var(--gal-ui-radius);padding:4px 8px;color:var(--gal-ui-ink)}\n.fork-widget-source-controls .fork-gal-control{position:static;min-width:34px;height:34px;border:0;background:transparent;color:var(--gal-ui-accent);font:13px var(--gal-ui-font);cursor:pointer}\n.fork-widget-source-controls button:focus-visible{outline:var(--gal-ui-focus);outline-offset:3px}\n@media(max-width:700px){.fork-widget-source-controls{bottom:12px;right:12px;gap:3px;padding:4px}.fork-widget-source-controls .fork-gal-control{min-width:30px}}\n/* the incoming banner is a real phone's notification card — exactly as wide as the phone's\n   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down\n   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */\n.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}\n.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}\n@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-fade{from{opacity:0}}\n/* while the phone is open the scene stays and dims behind it (the Pixi\n   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */\n.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}\n.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}\n.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}\n/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the\n   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,\n   7.2% of the device height: no controls) enters adjust mode (phone-layout.js usePhoneAdjust); in it a cover takes\n   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */\n.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}\n.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}\n.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}\n.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}\n.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}\n.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}\n/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */\n.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}\n.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:\"\";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}\n/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue\n   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */\n.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}\n.fork-widget-panel.is-phone.is-fill{border-radius:0}\n/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */\n.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}\n";
+                    style.textContent="/* Generic source-widget reading controls. The phone appearance belongs to its pack. */\n.fork-gal-box.is-source-widget-line,.fork-gal-box.is-source-widget-line *{visibility:hidden!important;pointer-events:none}\n.fork-widget-source-controls{position:absolute;z-index:19;bottom:16px;right:24px;display:flex;align-items:center;gap:8px;background:var(--gal-ui-surface-2);border:1px solid var(--gal-ui-line);border-radius:var(--gal-ui-radius);padding:4px 8px;color:var(--gal-ui-ink)}\n.fork-widget-source-controls .fork-gal-control{position:static;min-width:34px;height:34px;border:0;background:transparent;color:var(--gal-ui-accent);font:13px var(--gal-ui-font);cursor:pointer}\n.fork-widget-source-controls button:focus-visible{outline:var(--gal-ui-focus);outline-offset:3px}\n@media(max-width:700px){.fork-widget-source-controls{bottom:12px;right:12px;gap:3px;padding:4px}.fork-widget-source-controls .fork-gal-control{min-width:30px}}\n";
                     document.head.appendChild(style);
                     let activeViews=null;
                     // The core's stage registrations (main.js stageEffect) run as one owned lifetime of this activation.
@@ -31723,8 +31756,6 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
                     const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, prefetch:skinResources.prefetch, themes:STAGE_THEMES, frameRate:(...args)=>sceneMath.galFrameRate(...args), handheld:()=>views.device.handheld()}));
                     const mixer = own(createStageMixer({React:options.React, fields:configFields, ...options.mixer}));
-                    const phoneLayout = own(createStagePhoneLayout({React:options.React, group:configFields.group, row:configFields.row, slider:configFields.slider, Switch:configFields.Switch, ...options.phoneLayout}));
-                    const phoneAdjust = own(createStagePhoneAdjust({React:options.React, window, document, sizes:phoneLayout.sizes, ...options.phoneAdjust}));
                     const music = own(createStageMusic(options.music));
                     const skinShape=own(createStageSkinShape({React:options.React,window,document,...options.skinDecoration}));
                     const skinFrame=own(createStageSkinFrame({React:options.React,...options.skinDecoration,Shape:skinShape.Shape}));
@@ -31773,7 +31804,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
