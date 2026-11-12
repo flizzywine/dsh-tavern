@@ -1,6 +1,7 @@
 import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, renderHistoryRecall } from '../domain/history-recall.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshParameterFields } from '../domain/dsh-tool-schema.js'
+import { surfaceToolResults } from '../domain/surface-tool-results.js'
 import { currentVariableSnapshot } from '../domain/read-variables.js'
 
 export function registerGameplayTools({
@@ -10,15 +11,18 @@ export function registerGameplayTools({
   activeTurnOf,
   chatForSession,
   isBackground,
+  readChatCard = async () => undefined,
   cardResponseTest,
   foregroundRecallScopes,
   recallHistoryForSession,
   tools,
 }) {
-  // The mods' foreground tools (lib/mod-tools.js), each authorized and marked under its own mod; variables(chat) is the
-  // game's latest saved MVU stat_data (the reader tavern_read_variables uses).
+  // The mods' foreground tools (lib/mod-tools.js), each authorized and marked under its own mod. readCard(chat) is the
+  // card the game plays with; results(exec) the tool's own earlier results on the game's current branch;
+  // variables(chat) the game's latest saved MVU stat_data (the reader tavern_read_variables uses).
   for (const tool of modTools) tools.register(defineTool(tool.create({ activeTurnOf, chatForSession, isBackground,
     authorize: chat => authorizeMod(tool.modId, chat), markUsed: chat => markModToolUsed(chat, tool.name),
+    readCard: chat => readChatCard(chat), results: exec => surfaceToolResults(exec?.agent?.session, tool.name, activeTurnOf(exec)),
     variables: chat => currentVariableSnapshot(chat).snapshot })))
   tools.register(defineTool({
     name: 'tavern_test_response',

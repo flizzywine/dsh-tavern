@@ -1,0 +1,116 @@
+import { randomInt } from 'node:crypto'
+import { adjustResources, compileRules, describeChecks, describeState, initialState, rollCheck, settleCheck, withVariables } from './check-engine.js'
+
+// The card's check rules sit in its data under extensions["dsh.dice"].rules (README.md). A game reads them from the
+// card it plays with (frozen at its opening), so a game's records always replay against the same rules.
+export const CHECK_RULES_KEY = 'dsh.dice'
+
+export const CHECK_TOOL = {
+  name: 'tavern_check',
+  description: "Rule check for cards that declare check rules: the engine rolls with a recorded seed and settles every number and resource; never roll, count or do arithmetic yourself. action=status: this card's checks and current resources. action=roll: propose one declared check when the player's character attempts what the card's rules roll for. If the result is awaiting, show the player its choices in plain words and stop; when the player answers, action=settle with the record id and their choice, never choose for them. action=adjust: a game-master change to a gm resource (spend a pool, award or take points), with the reason. Resources the card keeps in its variables are read from them; a change row with a path is that variable's new value, to state in the story as the card asks.",
+  parameters: {
+    action: { type: 'string', enum: ['status', 'roll', 'settle', 'adjust'], required: true },
+    check: { type: 'string', description: 'roll: the check id from status, e.g. roll' },
+    params: { type: 'object', additionalProperties: true, description: 'roll: the check\'s parameters from status, e.g. {"quality":"气质","kind":"agency"}' },
+    reason: { type: 'string', description: 'roll/adjust: one sentence, what the character attempts or why the change happens' },
+    stakes: { type: 'string', description: 'roll: what success and failure each change in the story' },
+    id: { type: 'string', description: 'settle: the awaiting record id, e.g. #3' },
+    choice: { type: 'object', additionalProperties: true, description: 'settle: the player\'s choice by choice id, e.g. {"threes":3}; omit a choice to keep its default' },
+    changes: { type: 'array', description: 'adjust: e.g. [{"resource":"chaos","add":-2}]; key names the entry of a keyed resource', items: { type: 'object', additionalProperties: false, properties: {
+      resource: { type: 'string', required: true }, key: { type: 'string' }, add: { type: 'number', required: true } } } }
+  }
+}
+
+const compiled = new Map()
+function rulesOf(card) {
+  const source = card?.extensions?.[CHECK_RULES_KEY]?.rules
+  if (!source) return null
+  const key = JSON.stringify(source)
+  if (!compiled.has(key)) {
+    if (compiled.size > 16) compiled.delete(compiled.keys().next().value)
+    compiled.set(key, compileRules(source))
+  }
+  return compiled.get(key)
+}
+
+const requireText = (args, field) => {
+  if (typeof args[field] !== 'string' || !args[field].trim()) throw new Error(field + ' must be one non-empty sentence')
+  return args[field].trim()
+}
+
+/**
+ * The game's check records on its current branch, oldest first: the latest one carries the resources (state);
+ * an awaiting one is the open check. `records` are the parsed result texts of this tool (core reader).
+ * `variables` (the game's settled MVU stat_data) hold the resources a card keeps there: they are the truth between
+ * turns, while within the running `turn` the latest record already follows from them (variables settle after it).
+ */
+export function checkLedger(rules, records, { variables, turn } = {}) {
+  const rows = records.filter(row => row && typeof row === 'object' && row.state)
+  const numbered = rows.filter(row => row.id), last = numbered.at(-1), latest = rows.at(-1)
+  const state = latest ? latest.state : initialState(rules)
+  return { state: variables && !(latest && latest.turn === turn) ? withVariables(rules, state, variables) : state,
+    awaiting: last?.status === 'awaiting' ? last : null, count: numbered.length }
+}
+
+// Each record carries its turn and the resource labels, so the player's card can show the resources after it; `secret`
+// lists the resources the rules keep from the player (the model reads them in the record, the card leaves them out).
+export function runCheckAction(rules, records, args, seed, context = {}) {
+  const record = runAction(rules, records, args, seed, context)
+  const secret = Object.values(rules.resources).filter(row => row.secret).map(row => row.id)
+  return { ...record, ...(context.turn !== undefined ? { turn: context.turn } : {}), labels: Object.fromEntries(Object.values(rules.resources).filter(row => !row.hidden).map(row => [row.id, row.label])),
+    ...(secret.length ? { secret } : {}) }
+}
+function runAction(rules, records, args, seed, context) {
+  const ledger = checkLedger(rules, records, context)
+  const id = '#' + (ledger.count + 1)
+  switch (args.action) {
+    case 'status':
+      return { status: 'sheet', rules: rules.name, ...(rules.guide ? { guide: rules.guide } : {}), checks: describeChecks(rules), resources: describeState(rules, ledger.state),
+        ...(ledger.awaiting ? { awaiting: { id: ledger.awaiting.id, title: ledger.awaiting.title, choices: ledger.awaiting.choices } } : {}), state: ledger.state }
+    case 'roll': {
+      if (ledger.awaiting) throw new Error('check ' + ledger.awaiting.id + ' still waits for the player\'s choice: settle it first (an empty choice keeps the defaults)')
+      const reason = requireText(args, 'reason'), stakes = requireText(args, 'stakes')
+      return { id, ...rollCheck(rules, ledger.state, { check: requireText(args, 'check'), params: args.params || {} }, seed), reason, stakes }
+    }
+    case 'settle': {
+      if (!ledger.awaiting) throw new Error('no check waits for a choice; roll a new one')
+      if (args.id !== ledger.awaiting.id) throw new Error('the awaiting check is ' + ledger.awaiting.id)
+      const settled = settleCheck(rules, ledger.state, ledger.awaiting, args.choice || {})
+      return { id, of: ledger.awaiting.id, ...settled, reason: ledger.awaiting.reason, stakes: ledger.awaiting.stakes }
+    }
+    case 'adjust': {
+      if (ledger.awaiting) throw new Error('check ' + ledger.awaiting.id + ' still waits for the player\'s choice: settle it first')
+      return { id, ...adjustResources(rules, ledger.state, args.changes), reason: requireText(args, 'reason') }
+    }
+  }
+  throw new Error('action must be status, roll, settle or adjust')
+}
+
+// core: the turn readers, authorize/markUsed (this mod on for the card), readCard(chat) (the card this game plays
+// with), results(exec) (this tool's earlier result texts on the game's current branch, oldest first) and
+// variables(chat) (the game's latest saved MVU stat_data, if any).
+export function createCheckTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {}, readCard, results, variables = () => undefined }) {
+  return {
+    ...CHECK_TOOL,
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }]
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      const sessionId = exec?.agent?.session?.id
+      const turn = activeTurnOf(exec)
+      if (!sessionId || !turn || isBackground(sessionId)) throw new Error('tavern_check requires an active foreground story/script turn')
+      const chat = await chatForSession(sessionId)
+      if (!chat || !['story', 'script'].includes(chat.mode || 'story') || activeTurnOf(exec) !== turn || exec.signal?.aborted) {
+        throw new Error('tavern_check requires an active foreground story/script turn')
+      }
+      if (!await authorize(chat)) throw new Error('Dice mod is disabled for this card')
+      const rules = rulesOf(await readCard(chat))
+      if (!rules) throw new Error('This card declares no check rules; use tavern_roll for a plain roll')
+      if (!(chat.usedModTools || []).includes(CHECK_TOOL.name)) await markUsed(chat)
+      const records = (await results(exec)).map(text => { try { return JSON.parse(text) } catch { return null } })
+      return runCheckAction(rules, records, args, randomInt(0, 2 ** 32), { variables: variables(chat), turn })
+    }
+  }
+}
