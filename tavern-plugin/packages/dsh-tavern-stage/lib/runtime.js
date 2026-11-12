@@ -64,7 +64,6 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
       const live2dFiles = isAbsolute(String(bindings.dataRoot || '')) ? createLive2dFiles(join(bindings.dataRoot, 'live2d')) : null
       if (live2dFiles) assets.figureRuntimes.register('live2d', live2dFigureRuntime(live2dFiles))
       assets.figureRuntimes.bind(registry)
-      assets.stageExtensions.bind(registry)
       const owned = Object.fromEntries(Object.entries({live2dFiles,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
       return module.requests(Object.create(bindings,owned),registry)
     },

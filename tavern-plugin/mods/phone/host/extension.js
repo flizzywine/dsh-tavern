@@ -1,22 +1,18 @@
-import {createPhoneCalls} from '../../../../../mods/phone/call.js'
-import {callGreeting, createCallGreetings} from '../../../../../mods/phone/call-greeting.js'
-import {callRoundWorldbook, callDesignPersona, callRecognitionContext, storyRoundMessages, phoneMarkRounds, roundPhoneMessages, callStorySection, callPhoneRecords} from '../../../../../mods/phone/call-context.js'
-import {phoneThreadDirectory, phonePeople} from '../../../../../mods/phone/threads.js'
-import figureResolution from '../../../../dsh-presentation-protocol/src/figure-resolution.cjs'
-import {recognitionAudio} from '../../../../../lib/domain/speech-recognition.js'
-import {figureCatalogue} from '../../../../../lib/domain/figure-catalogue.js'
-import {bubbleCharacter} from '../../../../../src/client/bubble-line.cjs'
-import {bubbleVoiceSwitches, effectiveBubbleMoods} from '../../../../../lib/domain/dialogue-bubbles.js'
-import {projectAgentMessageText} from '../../../../../lib/domain/runtime-content-projection.js'
+import {createPhoneCalls} from '../call.js'
+import {callGreeting, createCallGreetings} from '../call-greeting.js'
+import {callRoundWorldbook, callDesignPersona, callRecognitionContext, storyRoundMessages, phoneMarkRounds, roundPhoneMessages, callStorySection, callPhoneRecords} from '../call-context.js'
+import {phoneThreadDirectory, phonePeople} from '../threads.js'
+import figureResolution from '../../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
 const {figureSpeakerHandle} = figureResolution
 
-// The dsh.phone mod's host side inside the stage: the phone's directory (getStagePhoneThreads) and its calls
-// (phoneCall*, phone-call.md). Speech recognition stays the core's shared service (ctx 'asr'); the call's
-// voice goes through the card's asset consumer as the stage's own voices do. The voice files (mods/phone/call.js,
-// call-greeting.js) stay where they are until the voice boundary work moves them.
+// The dsh.phone mod's host side, its stage service (stage.js hostExtension; stage-extensions.js): the phone's directory
+// (getStagePhoneThreads) and its calls (phoneCall*, phone-call.md). Speech recognition stays the core's shared service
+// (ctx 'asr'); the call's voice goes through the card's asset consumer as the stage's own voices do. The core helpers it
+// shares with the stage come in hostLibrary (the stage's request bindings), never by import.
 export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspace, stageDirector, chatForSession, assetRuntime, profileData, callModel,
   readRoundOps, readChatCard, readModCard, modConfigHost, replyDisplayForChat, pluginApi, resolveSlot, agentRegistry, backgroundTasks, speech,
-  speechRecognition, readStageChat, readRoundView, worldbookRecallLog, dialogueBubbles, figureRuntimes}) {
+  speechRecognition, readStageChat, readRoundView, worldbookRecallLog, dialogueBubbles, figureRuntimes,
+  hostLibrary:{recognitionAudio, figureCatalogue, bubbleCharacter, bubbleVoiceSwitches, effectiveBubbleMoods, projectAgentMessageText}}) {
   async function stagePhoneDirectory(chat) {
     if(!await managedModManagement.enabled({modId:'dsh.phone',cardPath:chat.cardPath}))return {enabled:false,contacts:[],threads:[]}
     const raw=(await readCardWorkspace(chat.cardPath))?.raw,bindings=(raw?.data || raw)?.extensions?.dsh_tavern?.assetBindings
@@ -225,4 +221,94 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
   }
 
   return {stagePhoneDirectory, phoneCallHost}
+}
+
+// The phone's stage service (stage contribution hostExtension, stage-extensions.js). Its requests are built with the
+// stage's request bindings (chats, models, speech, recognition, hostLibrary); work() reports live calls to deployment.
+export function createPhoneExtension(core) {
+  return {requests(bindings) {
+    const phone = createStagePhoneHost(Object.create(bindings, {ctx:{value:core.ctx}}))
+    const deps = Object.create(bindings, {stagePhoneDirectory:{value:phone.stagePhoneDirectory}, phoneCallHost:{value:phone.phoneCallHost}})
+    const handlers = {
+    async getStagePhoneThreads(args, method, serverTemplate, authority) {
+      const { readStageChat, stagePhoneDirectory } = deps
+
+        const chat=await readStageChat.view(args.sessionId)
+        return chat?stagePhoneDirectory(chat):{enabled:false,contacts:[],threads:[]}
+
+    },
+    // one contact's call, its own context window.
+    async phoneCallStart(args, method, serverTemplate, authority) {
+      return deps.phoneCallHost.startByContact({sessionId:args.sessionId, contactId:String(args.contactId || ''), origin:authority?.origin, at:args.at})
+    },
+    async phoneCallHear(args) {
+      const { phoneCallHost } = deps
+      return phoneCallHost.hear({audio:args.audio, language:args.language})
+    },
+    async phoneCallTurn(args) {
+      const { phoneCallHost, readStageChat } = deps
+      const said = String(args.said || '').trim()
+      if (!said) throw new Error('没有听清')
+      // The call is anchored to the latest round; its recent-story section reads its own view.
+      // note: the camera's quiet line for the model (FaceTime), never in the transcript.
+      const note = typeof args.note === 'string' ? args.note.slice(0, 200) : ''
+      return phoneCallHost.calls.turn({sessionId:args.sessionId, callId:args.callId, said, note, cue:args.cue === true, timing:args.timing, chat:await readStageChat.view(args.sessionId,{configOnly:true})})
+    },
+    // the call turned into a video call (its record), and a call
+    // party's stage figure (`who`: a contact id or 'self') in the outfit of the page it was made from and the clause's mood.
+    async phoneCallVideo(args) {
+      return deps.phoneCallHost.calls.video({sessionId:args.sessionId, callId:args.callId})
+    },
+    async phoneCallFigure(args, method, serverTemplate, authority) {
+      const at = args.at && Number.isSafeInteger(args.at.turn) && args.at.turn > 0 ? {turn:args.at.turn, ...(Number.isSafeInteger(args.at.para) && args.at.para > 0 ? {para:args.at.para} : {})} : null
+      return deps.phoneCallHost.figure({sessionId:args.sessionId, who:String(args.who || ''), emotion:typeof args.emotion === 'string' && args.emotion ? args.emotion : undefined, at, origin:authority?.origin})
+    },
+    async phoneCallPoll(args) {
+      const { phoneCallHost } = deps
+      return phoneCallHost.calls.poll({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, says:Number(args.says) || 0, subs:Number(args.subs) || 0, waitMs:Number(args.waitMs) || 0})
+    },
+    async phoneCallAlive(args) {
+      return deps.phoneCallHost.calls.alive({sessionId:args.sessionId, callId:args.callId})
+    },
+    // her cached greeting sounded as she picked up: it enters the call's record
+    async phoneCallGreeted(args) {
+      return deps.phoneCallHost.calls.greeted({sessionId:args.sessionId, callId:args.callId})
+    },
+    async phoneCallTtsRequested(args, method, serverTemplate, authority) {
+      return deps.phoneCallHost.calls.ttsRequested({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, origin:authority?.origin})
+    },
+    async phoneCallHeard(args) {
+      return deps.phoneCallHost.calls.heard({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, heard:args.heard, timing:args.timing})
+    },
+    async phoneCallInterrupt(args) {
+      const { phoneCallHost } = deps
+      return phoneCallHost.calls.interrupt({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, heard:args.heard, timing:args.timing, retract:args.retract === true})
+    },
+    async phoneCallEnd(args) {
+      const { phoneCallHost } = deps
+      return phoneCallHost.calls.end({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, heard:args.heard, timing:args.timing})
+    },
+    async phoneCallThreads(args, method, serverTemplate, authority) {
+      const { phoneCallHost, readStageChat } = deps
+      // Dev diagnostics: each phase's wall time, logged and returned as `timing`.
+      const started = performance.now(), timing = {}
+      const timed = async (name, work) => { const at = performance.now(); try { return await work } finally { timing[name] = Math.round(performance.now() - at) } }
+      const chat = await timed('chatMs', readStageChat.view(args.sessionId,{configOnly:true}))
+      // The call button shows only where calls can work: local speech recognition answering (started here when it is set
+      // up but not running; `starting` asks the page to look again). `voices`: the phone's 电话 app also asks which
+      // contacts have a voice to call with.
+      const readiness = chat ? await timed('readinessMs', phoneCallHost.readiness()) : {available:false}
+      if (!chat) return {threads:{}, ...readiness}
+      const [calls, facts] = await Promise.all([timed('callsMs', phoneCallHost.calls.threads({chat})),
+        args.voices === true ? timed('contactsMs', phoneCallHost.directoryFacts(args.sessionId, authority?.origin)) : null])
+      timing.totalMs = Math.round(performance.now() - started)
+      if (facts) { timing.contacts = Object.keys(facts.voices).length; console.info('[dsh-tavern.phone-directory]', JSON.stringify(timing)) }
+      // The 电话 app opened: the contacts called before in this chat get their pick-up greeting ready in idle time.
+      if (facts) phoneCallHost.wantGreetings({sessionId:args.sessionId, origin:authority?.origin, contactIds:Object.keys(calls.threads).filter(id => facts.voices[id])})
+      return {...calls, ...(facts || {}), ...readiness, timing}
+    }
+    }
+    return {methods:Object.keys(handlers), call:(method, args, authority) => handlers[method](args, method, false, authority),
+      work:() => ({calls:phone.phoneCallHost.calls.activeCount()})}
+  }}
 }

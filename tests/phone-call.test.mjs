@@ -338,7 +338,7 @@ for (const roundCount of [0, 12]) test(`production dial context and call start a
   const {readFileSync} = await import('node:fs')
   const {default:vm} = await import('node:vm')
   const {createCardPreparation} = await import('../tavern-plugin/lib/domain/card-preparation.js')
-  const source = readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../tavern-plugin/mods/phone/host/extension.js', import.meta.url), 'utf8')
   const start = source.indexOf('    context:async ({sessionId, contact, input, anchor, phase, calls, playerName}) => {')
   const end = source.indexOf('\n  })', start)
   const empty = {id:'empty-chat', sessionId:'empty-session', cardPath:'cards/empty.json', messages:Array.from({length:roundCount}, (_, index) => ({role:'assistant', turn:index + 1, content:'Story round ' + (index + 1)}))}
@@ -358,7 +358,7 @@ for (const roundCount of [0, 12]) test(`production dial context and call start a
     storyRoundMessages, phoneMarkRounds:(await import('../tavern-plugin/mods/phone/call-context.js')).phoneMarkRounds,
     roundPhoneMessages, callStorySection, callPhoneRecords,
     callRecognitionContext:(await import('../tavern-plugin/mods/phone/call-context.js')).callRecognitionContext,
-  }, {filename:'tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js', lineOffset:source.slice(0,start).split('\n').length - 1})
+  }, {filename:'tavern-plugin/mods/phone/host/extension.js', lineOffset:source.slice(0,start).split('\n').length - 1})
   const sections = await context({sessionId:empty.sessionId, contact:callee, anchor:storyAnchor(empty), phase:'start', calls:[], playerName:'Player'})
   const story = sections.promptSections.find(row => row.name === 'recent-story').text
   if (roundCount) assert.match(story, /Story round 12/)
@@ -415,25 +415,32 @@ test('greetings are made one at a time, only after the app has been idle a while
   assert.equal(callGreeting('fr', 'm01'), null)
   greetings.dispose()
 })
-// The phone's host side lives in the stage (lib/mods/phone/host.js): its requests answer from the stage-owned directory and
-// call host, and a card with the phone off answers as off.
-test('stage phone requests answer from the stage-owned phone host', async () => {
-  const {createStagePhoneHost} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js')
-  const {createStageHandlers} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js')
-  const cleanups = [], sections = []
+// The phone's host side is its stage service (mods/phone/host/extension.js, stage.js hostExtension): its requests are
+// built from the stage's request bindings, answer from the phone's own directory and call host, and a card with the phone
+// off answers as off; its live calls are reported to deployment (work).
+test('phone stage service requests answer from the phone host built from the request bindings', async () => {
+  const {createPhoneExtension} = await import('../tavern-plugin/mods/phone/host/extension.js')
+  const {createStageExtensions} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/stage-extensions.js')
+  const {default:stage} = await import('../tavern-plugin/mods/phone/stage.js')
+  assert.equal(stage.hostExtension, createPhoneExtension)
+  const cleanups = [], sections = [], routes = new Map()
   const chat = {id:'chat-1', sessionId:'s', cardPath:'cards/a.json', messages:[]}, readStageChat = {view:async () => chat}
-  const {stagePhoneDirectory, phoneCallHost} = createStagePhoneHost({ctx:{effect:install => cleanups.push(install()), get:() => undefined},
+  const extensions = createStageExtensions()
+  extensions.register('dsh.phone', createPhoneExtension)
+  extensions.start({ctx:{effect:install => cleanups.push(install()), get:() => undefined}})
+  extensions.bind({register:(id, requests) => { routes.set(id, requests); return () => routes.delete(id) }}, {
     managedModManagement:{enabled:async ({modId}) => { assert.equal(modId, 'dsh.phone'); return false }}, readStageChat, chatForSession:async () => chat,
     pluginApi:{builtinPromptSection:(entry, owner) => owner.effect(() => {
       sections.push(entry.target + ':' + entry.name)
       return () => sections.pop()
     })},
-    speechRecognition:{readiness:async () => ({available:false})}})
+    speechRecognition:{readiness:async () => ({available:false})}, hostLibrary:{}})
   assert.deepEqual(sections, ['call:persona'])
-  const handlers = createStageHandlers({ctx:{}, readStageChat, stagePhoneDirectory, phoneCallHost})
-  assert.deepEqual(await handlers.getStagePhoneThreads({sessionId:'s'}), {enabled:false, contacts:[], threads:[]})
-  await assert.rejects(handlers.phoneCallStart({sessionId:'s', contactId:'A'}), /手机模组没有为这张卡开启/)
-  assert.equal(phoneCallHost.calls.activeCount(), 0)
+  assert.ok(routes.get('stage.extension.dsh.phone').methods.includes('phoneCallStart'))
+  assert.deepEqual(await extensions.call('getStagePhoneThreads', {sessionId:'s'}), {enabled:false, contacts:[], threads:[]})
+  await assert.rejects(extensions.call('phoneCallStart', {sessionId:'s', contactId:'A'}), /手机模组没有为这张卡开启/)
+  assert.deepEqual(extensions.works().map(work => work()), [{calls:0}])
+  extensions.dispose()
   for (const cleanup of cleanups.reverse()) cleanup()
   assert.deepEqual(sections, [], 'the call persona section goes with the stage')
 })

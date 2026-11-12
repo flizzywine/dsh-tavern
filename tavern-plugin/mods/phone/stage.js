@@ -2,6 +2,7 @@ import {variableGuessHints} from '../../lib/domain/variable-bindings/index.js'
 import {withBuiltinPhoneDevice} from './logic.js'
 import {phoneModMarker,phoneModSourceMarker} from './stage-phone.cjs'
 import {phoneGroup,applyPhoneGroup} from './threads.js'
+import {createPhoneExtension} from './host/extension.js'
 
 // A card's private config pack holds at most 128 files / 16 MiB (asset library), the phone's pictures ≤ 480 KB each.
 export const PHONE_PHOTOS_MAX=30
@@ -9,6 +10,8 @@ export const PHONE_TONES=Object.freeze([{value:'drop',label:'水滴'},{value:'ch
 
 // The phone's part of the director transaction (tavern-plugin/lib/domain/mods/stage-contributions.js).
 export default {
+  // its stage service: the directory and the calls (host/extension.js).
+  hostExtension:createPhoneExtension,
   // Builtins and uploaded settings are presentation resources, never recall candidates.
   catalogue:withBuiltinPhoneDevice,
   configFields(fields) {

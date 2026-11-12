@@ -264,6 +264,8 @@ import { createTavernScriptDispatch } from './domain/tavern-script-dispatch.js'
 import { createTavernExtensionSettings } from './domain/tavern-extension-settings.js'
 import { createDialogueBubblePresets, DEFAULT_BUBBLE_TEMPLATE } from './domain/dialogue-bubble-presets.js'
 import { bubbleCharacter } from '../src/client/bubble-line.cjs'
+import { recognitionAudio } from './domain/speech-recognition.js'
+import { figureCatalogue } from './domain/figure-catalogue.js'
 import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resolveBubbleMood, bubbleInstructionPreview, bubbleInjection, readDialogueBubblePlacement } from './domain/dialogue-bubbles.js'
 import { createCardStorage } from './card-storage.js'
 import { isAbsolute, join as joinPath } from 'node:path'
@@ -3996,7 +3998,9 @@ export async function apply(ctx) {
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
-  const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
+  // hostLibrary: core helpers a mod's stage service shares with the core (it never imports core files; docs/mod-authoring.md).
+  const hostLibrary = Object.freeze({ recognitionAudio, figureCatalogue, bubbleCharacter, bubbleVoiceSwitches, effectiveBubbleMoods, projectAgentMessageText })
+  const rpcDeps = { hostLibrary, readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,
     cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
