@@ -3,15 +3,20 @@ import path from 'node:path'
 
 // DSH 0.2.1 centralizes each font role's schema, controls and validation in
 // FONT_SIZE_SPECS. Raise only the text role; code and terminal keep host limits.
-const textSpec = indent => `variable: "--dsh-content-font-size",\n${indent}min: 10,\n${indent}max: 22,`
-const replacements = {
-  'index.js': [
-    ['const FONT_SIZE_MAX = 22;', 'const FONT_SIZE_MAX = 32;'],
-    [textSpec('\t\t'), textSpec('\t\t').replace('max: 22,', 'max: 32,')],
-  ],
-  'client.js': [
-    [textSpec('\t\t\t\t'), textSpec('\t\t\t\t').replace('max: 22,', 'max: 32,')],
-  ],
+const FONT_SIZE_MAX_FROM = 'const FONT_SIZE_MAX = 22;'
+const FONT_SIZE_MAX_TO = 'const FONT_SIZE_MAX = 32;'
+// The text-role spec ships readable in index.js but minified in client.js
+// (0.2.2-rc.2: backtick strings, no whitespace). Match the shape rather than a
+// fixed indentation, keep the host's own formatting around the change, and
+// accept the already-raised value so repeated installation stays a no-op.
+const TEXT_FONT_SPEC = /(variable\s*:\s*(["'`])--dsh-content-font-size\2\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*)(22|32)(\s*,)/g
+
+function raiseTextFontMax(source) {
+  const matches = [...source.matchAll(TEXT_FONT_SPEC)]
+  if (matches.length !== 1) return null
+  const [match] = matches
+  if (match[3] === '32') return source
+  return source.slice(0, match.index) + match[1] + '32' + match[4] + source.slice(match.index + match[0].length)
 }
 
 export function patchThemeFontLimit(directory) {
@@ -21,15 +26,18 @@ export function patchThemeFontLimit(directory) {
   // skipped (null) otherwise instead of rolling back the install. Validate every
   // anchor before writing; repeated installation is a no-op.
   const changes = []
-  for (const [name, pairs] of Object.entries(replacements)) {
+  for (const name of ['index.js', 'client.js']) {
     const file = path.join(directory, 'lib', name)
     let before
     try { before = readFileSync(file, 'utf8') } catch { return null }
     let after = before
-    for (const [from, to] of pairs) {
-      if (after.split(from).length === 2 && !after.includes(to)) after = after.replace(from, to)
-      else if (after.includes(from) || after.split(to).length !== 2) return null
+    if (name === 'index.js') {
+      if (after.split(FONT_SIZE_MAX_FROM).length === 2 && !after.includes(FONT_SIZE_MAX_TO)) after = after.replace(FONT_SIZE_MAX_FROM, FONT_SIZE_MAX_TO)
+      else if (after.includes(FONT_SIZE_MAX_FROM) || after.split(FONT_SIZE_MAX_TO).length !== 2) return null
     }
+    const raised = raiseTextFontMax(after)
+    if (raised === null) return null
+    after = raised
     if (after !== before) changes.push({ file, before, after })
   }
   const written = []
