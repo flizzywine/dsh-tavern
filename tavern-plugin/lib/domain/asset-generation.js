@@ -147,7 +147,9 @@ function inspectImage(bytes, mediaType, max) {
 /** One profile owner. Network work never occupies the short mutation gate. */
 export function createAssetGeneration({store, imageProvider = () => null, getLibrary, now = Date.now,
   readTemplate = kind => readFile(new URL(`../../presets/asset-gen/templates/${kind}.md`, import.meta.url), 'utf8'),
-  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null}) {
+  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null,
+  // the 配图 preset every picture names (素材原样, image-asset-preset.js), or undefined: the prompt is sent as written
+  promptPreset = async () => undefined}) {
   const plans = new Map(), pendingBytes = new Map(), controllers = new Map(), tasks = new Set()
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
@@ -225,7 +227,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     try {
       // Pictures come from the image plugin's current channel; Tavern keeps no image channels of its own.
       const [width, height] = plan.output.size.split('x').map(Number)
-      const reply = await plan.source.generate({prompt:plan.prompt, references:plan.images, width, height,
+      const preset = await promptPreset()
+      const reply = await plan.source.generate({prompt:plan.prompt, references:plan.images, width, height, ...(preset ? {promptPreset:preset} : {}),
         background:plan.output.background, quality:plan.output.quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)])})
       if (reply?.data instanceof Uint8Array) {
         const {usd, estimated, model} = await charge(reply, plan.provider.model, {prompt:plan.prompt, width, height, quality:plan.output.quality, references:plan.images})
@@ -435,7 +438,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const failed = (message, mayHaveCharged) => fail('GENERATION_FAILED', String(message || '生图失败').replace(/\s+/g, ' ').trim().slice(0, 300), {mayHaveCharged})
       try {
         let reply
-        try { reply = await source.generate({prompt, references:images, width, height, background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
+        const preset = await promptPreset()
+        try { reply = await source.generate({prompt, references:images, width, height, ...(preset ? {promptPreset:preset} : {}), background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
         catch (error) { failed(error?.message, error?.requestMayHaveSucceeded !== false) }
         if (!(reply?.data instanceof Uint8Array) || reply.data.length > 20 * 1024 ** 2) failed('生图渠道没有返回有效图片', true)
         return {data:reply.data, mediaType:String(reply.mediaType || ''), ...(reply.provider!==undefined?{provider:reply.provider}:{}), ...(reply.model!==undefined?{model:reply.model}:{}),

@@ -36,6 +36,7 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
+import { assetPromptPreset } from './image-asset-preset.js'
 import { runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
@@ -2798,6 +2799,7 @@ export async function apply(ctx) {
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   // Asset pictures come from an image plugin (tavern.imageProvider); Tavern keeps no image channels.
   const assetGeneration = createAssetGeneration({store:profileData, imageProvider:() => pluginApi.imageProviders()[0], getLibrary:() => ctx.get('assetLibrary'),
+    promptPreset:assetPromptPreset({pluginsDir:userPluginPaths(dataRoot).plugins, running:runningUserPlugins}),
     // a figure linked to the 配图 人物库 takes its 外貌 from there (the one store); unlinked figures keep the pack text.
     linkedAppearance: async ({packId, figureId, outfitKey}) => {
       const linked = await findFigureImageCharacter(pluginApi, {packId, figureId})
