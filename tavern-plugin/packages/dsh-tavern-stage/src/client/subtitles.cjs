@@ -108,7 +108,7 @@ function galSubtitleCards(text, fits, hold, limit) {
     const midPhrase = end => rank(end) === 1 ? 1 : 0;
     const worse = (a, b) => total(a, level) > total(b, level) || total(a, midPhrase) > 0 && !total(b, midPhrase);
     if (!even || worse(even, greedy.slice(kept.length))) return greedy;
-    return kept.concat(even.map(({ start, end }) => ({ text: cardText(start, end), start, end })));
+    return kept.concat(even.map(({ start, end }) => ({ text: cardText(start, end), start, end, even: true })));
 }
 // The split of [from, to) into at most `count` cards that fit (maxEnd) with the least unused room, squared per card so the
 // cards come out even, plus each break's penalty (a weaker break, a cut into a bracket). floorOf(start, reach) is the
@@ -138,6 +138,8 @@ function galEvenCards(from, to, count, maxEnd, floorOf, penalty) {
     let start = from;
     return result.ends.map(end => { const card = { start, end }; start = end; return card; });
 }
+// An evened card (galEvenCards: the break moved back to fill a tiny last card) is not held: more text may end the tiny last card,
+// and the page then splits as the same text read later does. The held end still keeps what was typed inside its card.
 // The measured cards of a page whose text changed in place (a streaming page grew, or its paragraph's pagination moved the
 // unfinished sentence to the next page): every card but the last inside the unchanged prefix, and the end of the text that
 // may already be on screen. `shown` (galShownEnd) excludes the held unfinished sentence of a streaming narration page:
@@ -150,7 +152,7 @@ function galHeldCards(cards, before, text, shown = Infinity) {
     while (end < a.length && end < b.length && a[end] === b[end]) end++;
     end = Math.min(end, Math.max(shown, cards.length > 1 ? cards[cards.length - 2].end : 0));
     const kept = [];
-    for (const card of cards.slice(0, -1)) { if (card.end > end) break; kept.push(card); }
+    for (const card of cards.slice(0, -1)) { if (card.end > end || card.even) break; kept.push(card); }
     return { cards: kept, end };
 }
 // The end (in characters) of a page's text that may be on screen: all of it, except the unfinished last sentence of a
@@ -324,7 +326,8 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
                     if (!near(index)) return null;
                     const before = prev && prev.pageTexts[index], old = prev && prev.cards[index];
                     if (old && before === item.text) return old;
-                    const hold = old && typeof before === "string" ? galHeldCards(old, before, item.text, prev.pageShown[index]) : null;
+                    // a settled page is split afresh: held cards are for the text still arriving, and the settled page is the one a later read gets.
+                    const hold = item.pending && old && typeof before === "string" ? galHeldCards(old, before, item.text, prev.pageShown[index]) : null;
                     if (hold && hold.end > 0) return galSubtitleCards(item.text, fits(item), hold, limit);
                     return cache.get(item.text, width, font + ':' + lines + ':' + labelRoom + ':' + item.kind + ':' + limit, style.fontSize, () => galSubtitleCards(item.text, fits(item), null, limit));
                 }) };

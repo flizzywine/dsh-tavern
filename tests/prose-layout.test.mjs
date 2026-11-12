@@ -104,7 +104,8 @@ test('关掉自动分段就原样返回；开着时同一段文本重复排版�
 // 聊天正文在渲染前分段：模型的整块正文走自动分段，@ 台词行原样交给对白气泡；
 // 段落编号、配音和舞台定位仍按原文本算（分段只发生在交给 Markdown 的那一刻）。
 test('聊天正文渲染前自动分段；台词行与段落编号不受影响', () => {
-  const frame = slice('function bubbleProseText', '// Avatar import:') + '\n' + 'return { bubbleProseText: bubbleProseText, BubbleSafePublication: BubbleSafePublication, BubbleMarkdown: BubbleMarkdown };'
+  // BubbleMarkdown is followed by the roster voice chip (avatar import lives outside bubbles.js).
+  const frame = slice('function bubbleProseText', '// Voice chip on a roster card') + '\n' + 'return { bubbleProseText: bubbleProseText, BubbleSafePublication: BubbleSafePublication, BubbleMarkdown: BubbleMarkdown };'
   const react = {
     Fragment: 'Fragment',
     createElement(type, props, ...children) { return { type, props: Object.assign({}, props, children.length ? { children: children.length === 1 ? children[0] : children } : {}) }; },

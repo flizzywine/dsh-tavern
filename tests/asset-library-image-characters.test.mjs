@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createImageCharacterHandlers } from '../tavern-plugin/lib/rpc/image-characters.js'
+import { appearanceFromImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -43,7 +44,7 @@ function host() {
   return { api, service }
 }
 
-async function fixture(t) {
+async function fixture(t, { deletes = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'image-characters-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const library = createAssetPackService({ assetRoot: join(root, 'packs') })
@@ -53,7 +54,10 @@ async function fixture(t) {
   pack = (await library.createFigure({ packId: pack.manifest.id, expectedRevision: pack.revision, figure })).snapshot
   const figureId = pack.manifest.figures[0].id ?? Object.keys(pack.figures)[0]
   const { api, service } = host(), images = imageLibrary()
-  service.registerImageLibrary(images.registration)
+  service.registerImageLibrary(deletes ? { ...images.registration, async deleteCharacter({ characterId, expected }) {
+    const current = images.store.characters.find(c => c.id === characterId)
+    if (JSON.stringify(current) !== JSON.stringify(expected)) throw Object.assign(new Error('changed'), { code: 'REVISION_CONFLICT' })
+    images.store.characters = images.store.characters.filter(c => c !== current); return { deleted: characterId } } } : images.registration)
   const handlers = createImageCharacterHandlers({ ctx: { get: name => name === 'assetLibrary' ? library : null }, pluginApi: api })
   return { library, pack, figureId, api, service, handlers, images, root }
 }
@@ -92,6 +96,36 @@ test('wrong figure, missing pack and stale associations cannot change a characte
   assert.deepEqual(f.images.store.images, [])
 })
 
+test('the 人物库 aliases are the 触发词 that name only this figure, readable Latin name first', () => {
+  const yuno = { id: 'f-yuno', name: '千石由乃', aliases: ['由乃', '千石', 'yuno_c', 'Yuno', 'Kaname', 'Ai'] }
+  const others = [{ id: 'f-nadeko', name: '千石抚子', aliases: ['抚子', 'Nadeko'] }, { id: 'f-rana', name: '要乐奈', aliases: ['KANAME', 'rana_k'] },
+    { id: 'f-aiko', name: 'Aiko', aliases: ['愛子'] }]
+  // 千石 is in another name, Kaname another's alias (any case); the actor key never goes; Ai is not a word of Aiko
+  assert.deepEqual(imageAliasesFromFigure(yuno, others), ['Yuno', '由乃', 'Ai'])
+  // kana run on inside kana, as the 人物库 matches them
+  assert.deepEqual(imageAliasesFromFigure({ id: 'f-s', name: '時雨羽衣', aliases: ['しぐれ', 'Shigure'] }, [{ id: 'f-u', name: 'しぐれうい' }]), ['Shigure'])
+})
+
+test('a new record leaves out a 触发词 another installed figure also answers to', async t => {
+  const f = await fixture(t)
+  const next = (await f.library.createFigure({ packId: f.pack.manifest.id, expectedRevision: f.pack.revision, figure: { schemaVersion: 1, name: '佐仓爱里', aliases: ['Kyoko的友人', 'Kyoko'], enabled: true, appearance: 'sprite', recall: { mode: 'keyword' }, outfits: [] } })).snapshot
+  const linked = await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
+  assert.equal(linked.character.match, '')
+  assert.equal(next.manifest.figures.length, 2)
+})
+
+test('deleting a figure can take its linked record along, only where the library deletes records', async t => {
+  for (const deletes of [false, true]) {
+    const f = await fixture(t, { deletes }), target = { packId: f.pack.manifest.id, figureId: f.figureId }
+    const linked = await f.handlers.linkFigureImageCharacter(target)
+    const state = await f.handlers.getFigureImageCharacter(target)
+    assert.equal(state.deletes, deletes)
+    const call = f.handlers.deleteFigureImageCharacter({ ...target, providerId: state.providerId, characterId: linked.character.id, expected: state.character })
+    if (!deletes) { await assert.rejects(call, { code: 'NOT_SUPPORTED' }); continue }
+    await call
+    assert.equal((await f.handlers.getFigureImageCharacter(target)).status, 'unlinked')
+  }
+})
 test('copied figure UUIDs in distinct packs do not share an appearance record', async t => {
   const f = await fixture(t)
   await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })

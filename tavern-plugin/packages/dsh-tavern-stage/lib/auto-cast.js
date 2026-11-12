@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto'
 import resolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 import {matchBubbleMood} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {planAutoFigures} from './domain/auto-figure.js'
-import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteCasting, castDrawn} from './domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteCasting, castDrawn, noteDrawn, noteWriteFailure, autoCastProblem, looksDelivered} from './domain/auto-cast-queue.js'
 
 const {resolveFigureName} = resolution
 const ROOT = 'auto-cast/', INDEX = ROOT + 'index.json', PER_CARD = 2
@@ -46,7 +46,10 @@ export function castChanges(speakers, decided) {
     const copy = decided?.copy[name], voice = decided?.voice[name]
     if (copy) { changes.push({op:'copy', kind:'figures', source:copy.source, patch:{name, aliases}}); sources.push({packId:copy.source.packId, revision:copy.revision}) }
     else {
-      changes.push({op:'create', kind:'figures', value:{name, aliases}, ...(voice ? {voice:voice.from ? {from:voice.from} : {spec:voice.spec}} : {})})
+      // 外貌 goes with the figure to its 配图 人物库 record (looks), its 人物介绍 into the pack (description).
+      const looks = decided?.appearance[name], about = decided?.about?.[name]
+      changes.push({op:'create', kind:'figures', value:{name, aliases, ...(about ? {description:about} : {})}, ...(looks ? {looks} : {}),
+        ...(voice ? {voice:voice.from ? {from:voice.from} : {spec:voice.spec}} : {})})
       if (voice?.from) sources.push({packId:voice.from.packId, revision:voice.revision})
     }
     entries.push({name, copied:!!copy, ...(!copy && decided?.appearance[name] ? {appearance:decided.appearance[name]} : {})})
@@ -67,12 +70,12 @@ const keyBackground = key => 'Background: one flat solid ' + key + ' colour fill
 // 自动选角's runtime: each committed round, the 选角助理 decides about the new speakers and they are
 // written at once (copied, or created with their voice); then the round's requests are counted and the queue's best jobs are
 // drawn on the image plugin's channel (at most PER_CARD at a time per card). A picture stays on disk until it lands; the ready
-// pictures of a card land together while no director runs. Never in the way of the story: errors stay in the record and log.
+// pictures of a card land together. Never in the way of the story: errors stay in the record and log.
 // store: profile data; settings(cardPath) → {enabled, level} in effect; library: auto-cast-library.js; images: {prompt,
 // generate, status, check, matte?} (the plugin image entry's automatic prompt, picture and cheap checks; matte({data, key}) → a transparent PNG,
-// the local keying of a channel that cannot draw transparent pictures — not wired yet); idle() resolves once no director runs;
+// the local keying of a channel that cannot draw transparent pictures — not wired yet);
 // cast({cardPath, chat, speakers, cast}) → the assistant's decisions.
-export function createAutoCast({store, settings, library, images, idle, cast:castAssistant = null, now = Date.now, onError = () => {}}) {
+export function createAutoCast({store, settings, library, images, cast:castAssistant = null, now = Date.now, onError = () => {}}) {
   let active = true, chain = Promise.resolve()
   const records = new Map(), busy = new Map(), pumps = new Map(), landing = new Map(), controllers = new Set()
   const serial = task => { const next = chain.then(task); chain = next.catch(() => {}); return next }
@@ -94,7 +97,7 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
     const pictures = []
     if (job.kind === 'sprite') {
       const ready = record.jobs[jobKey({kind:'identity-settei', ref:job.ref})]
-      pictures.push({data:ready?.status === 'ready' ? await store.readBytes(ready.file) : await library.readMedia({packId:cast.packId, expectedRevision:cast.revision, hash:figure.setteiHash}), mediaType:'image/png'})
+      pictures.push({data:ready?.status === 'ready' ? await store.readBytes(ready.file) : await library.readMedia({packId:cast.packId, hash:figure.setteiHash}), mediaType:'image/png'})
     }
     // 外貌: the figure's 人物库 record's; the 选角助理's text stands in while the record has none.
     const pending = record.appearance?.[figureKey(job.ref)]
@@ -103,18 +106,27 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
     const key = keyed && job.kind === 'sprite' ? keyColor(figure, pending) : null
     const prompt = key ? base + '\n\n' + keyBackground(key) : base
     const [width, height] = output.size.split('x').map(Number), controller = new AbortController()
+    // Every call is kept (drawn): what, how long, and its cost when the image entry returns one.
+    const generate = async input => {
+      const at = now(), entry = {kind:job.kind, ref:job.ref, emotionId:job.emotionId ?? null, channel, at}
+      try {
+        const reply = await images.generate(input)
+        await update(cast.cardId, current => noteDrawn(current, {...entry, ms:now() - at, ...(reply.cost ? {cost:reply.cost} : {})}))
+        return reply
+      } catch (error) { await update(cast.cardId, current => noteDrawn(current, {...entry, ms:now() - at, failed:true})); throw error }
+    }
     controllers.add(controller)
     try {
       for (let attempt = 0; ; attempt++) {
-        const reply = await images.generate({prompt, width, height, background:key ? 'opaque' : output.background, quality:output.quality, references:pictures, signal:controller.signal})
+        const reply = await generate({prompt, width, height, background:key ? 'opaque' : output.background, quality:output.quality, references:pictures, signal:controller.signal})
         if (!active) return
         if (reply.mediaType !== 'image/png') throw Object.assign(new Error('生图渠道没有返回 PNG'), {code:'GENERATION_FAILED'})
         const drawn = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength)
         const data = key ? Buffer.from(await images.matte({data:drawn, key})) : drawn, checks = images.check(data, job.kind)
-        if (key && !checks.hasTransparency) { await update(cast.cardId, current => jobFailed(current, job, now(), 'MATTE_FAILED')); return }
+        if (key && !checks.hasTransparency) { await update(cast.cardId, current => jobFailed(current, job, now(), 'MATTE_FAILED', channel)); return }
         if (job.kind === 'sprite' && !checks.hasTransparency) {
           // This channel draws no transparent picture: no more 立绘 for it.
-          await update(cast.cardId, current => jobFailed(channelOpaque(current, channel), job, now(), 'OPAQUE_CHANNEL'))
+          await update(cast.cardId, current => jobFailed(channelOpaque(current, channel), job, now(), 'OPAQUE_CHANNEL', channel))
           return
         }
         if (attempt === 0 && checks.warnings.some(row => REDRAW.has(row.code))) continue
@@ -137,14 +149,15 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
         if (!choice?.enabled || !library.writable()) return
         const cast = await library.readCast(cardPath), status = await images.status()
         if (!cast?.packId || !status?.ready) return
-        const channel = status.channel ?? status.model ?? 'default', record = await read(cast.cardId)
+        // The channel as status() names it (its id, its model): a pause after failures is this channel's alone.
+        const channel = [status.channel, status.model].filter(Boolean).join('/') || 'default', record = await read(cast.cardId)
         const transparent = channelDrawsSprites(record, channel, status), keyed = !transparent && !!images.matte
-        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), sprites:transparent || keyed, now:now()})
+        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), sprites:transparent || keyed, now:now(), channel})
         if (!jobs.length && !running.size) return
         for (const job of jobs.slice(0, PER_CARD - running.size)) {
           const key = jobKey(job)
           running.set(key, draw(cast, job, channel, keyed)
-            .catch(error => { onError(error); return update(cast.cardId, current => jobFailed(current, job, now(), error.code ? error.code + ': ' + error.message : error)) })
+            .catch(error => { onError(error); return update(cast.cardId, current => jobFailed(current, job, now(), error.code ? error.code + ': ' + error.message : error, channel)) })
             .finally(() => { running.delete(key); void land(cardPath) }))
         }
         if (!running.size) return
@@ -155,13 +168,12 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
     return task
   }
 
-  // Every ready picture of the card in one write, once no director runs (a pack write stops a running director). A picture
+  // Every ready picture of the card in one write, at once (a running director finishes on the assets it started with). A picture
   // whose place was filled meanwhile (the owner, another write) or whose figure is gone is dropped.
   function land(cardPath) {
     if (!active) return
     const previous = landing.get(cardPath) || Promise.resolve()
     const task = previous.then(async () => {
-      await idle()
       const cast = active && await library.readCast(cardPath)
       if (!cast?.packId) return
       const record = await read(cast.cardId), ready = Object.values(record.jobs).filter(job => job.status === 'ready')
@@ -172,20 +184,35 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
         const images_ = {}, changes = new Map()
         for (const [index, job] of pictures.entries()) {
           images_['i' + index] = await store.readBytes(job.file)
-          const change = changes.get(figureKey(job.ref)) || {op:'patch', kind:'figures', ref:{packId:job.ref.packId, kind:'figures', figureId:job.ref.figureId}}
+          // the 外貌 still waiting in the record goes with the figure's pictures to its 人物库 record (the one home), then leaves the record
+          const looks = record.appearance?.[figureKey(job.ref)]
+          const change = changes.get(figureKey(job.ref)) || {op:'patch', kind:'figures', ref:{packId:job.ref.packId, kind:'figures', figureId:job.ref.figureId}, ...(looks ? {looks} : {})}
           if (job.kind === 'sprite') change.sprites = [...(change.sprites || []), {emotion:job.emotionId, image:'i' + index}]
           else change.settei = {image:'i' + index}
           changes.set(figureKey(job.ref), change)
         }
         await library.write({cardPath, changes:[...changes.values()], images:images_, source:record.source, requestId:sha(JSON.stringify(pictures.map(job => [jobKey(job), job.file])))})
       }
-      await update(cast.cardId, current => jobsLanded(current, ready))
+      await update(cast.cardId, current => looksDelivered(jobsLanded(current, ready), pictures.map(job => figureKey(job.ref))))
       for (const job of ready) await store.remove(job.file)
       void pump(cardPath)
     }).catch(onError)
     landing.set(cardPath, task)
     void task.finally(() => { if (landing.get(cardPath) === task) landing.delete(cardPath) })
     return task
+  }
+
+  // 外貌 a figure's record still holds after its 人设图 landed: written before 外貌 went with the figure (11-11), so its 人物库 record
+  // is empty and 场景配图 drew someone else. One write takes it there (the same looks), then the record drops it.
+  async function deliver(cardPath) {
+    const cast = active && await library.readCast(cardPath)
+    if (!cast?.packId) return
+    const record = await read(cast.cardId)
+    const waiting = cast.figures.filter(figure => figure.settei && record.appearance?.[figureKey(figure.ref)])
+    if (!waiting.length || !record.source) return
+    const changes = waiting.map(figure => ({op:'patch', kind:'figures', ref:{packId:figure.ref.packId, kind:'figures', figureId:figure.ref.figureId}, looks:record.appearance[figureKey(figure.ref)]}))
+    await library.write({cardPath, changes, source:record.source, requestId:sha(JSON.stringify(['looks', changes]))})
+    await update(cast.cardId, current => looksDelivered(current, waiting.map(figure => figureKey(figure.ref))))
   }
 
   const handles = async cardPath => active && library.writable() && (await settings(cardPath))?.enabled === true
@@ -205,12 +232,15 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
       await remember(cast.cardId, cardPath)
       const speakers = newSpeakers(body, cast, await read(cast.cardId), {actorKey:'player', name:chat.macroState?.userName?.trim() || '你', aliases:[]})
       if (speakers.length && active) {
-        const decided = castAssistant ? await castAssistant({cardPath, chat, speakers, cast}).catch(error => { onError(error); return null }) : null
+        let failure = null
+        const decided = castAssistant ? await castAssistant({cardPath, chat, speakers, cast}).catch(error => {
+          onError(error); failure = {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)}; return null }) : null
         const plan = castChanges(speakers, decided)
-        // The assistant takes seconds: by now the player may have sent the next round, and a pack write would stop its director.
-        if (plan.changes.length) await idle()
-        const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}) : {refs:[]}
-        await update(cast.cardId, current => noteCasting(current, plan.entries.map((entry, index) => ({...entry, ref:written.refs[index]})), decided?.same || {}))
+        // a write the library refuses is kept for the player (status), not only the host log; the round's speakers are asked again next round
+        const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}).catch(async error => {
+          onError(error); await update(cast.cardId, current => noteWriteFailure(current, {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)})); return null }) : {refs:[]}
+        if (!written) return
+        await update(cast.cardId, current => noteCasting(current, plan.entries.map((entry, index) => ({...entry, ref:written.refs[index]})), decided?.same || {}, failure))
         cast = await library.readCast(cardPath)
       }
       await update(cast.cardId, current => ({...noteRound(current, roundRequests(body, cast), cast.figures), source}))
@@ -219,7 +249,12 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
     // After a restart: land what was drawn and continue the queue of every card that has one.
     async resume() {
       const index = await store.readJson(INDEX) || {}
-      for (const cardPath of new Set(Object.values(index))) { void land(cardPath); void pump(cardPath) }
+      for (const cardPath of new Set(Object.values(index))) { void deliver(cardPath).catch(onError).then(() => land(cardPath)); void pump(cardPath) }
+    },
+    // 自动素材's page: the card's bound packs not installed (their figures are cast anew) and the latest problem (autoCastProblem).
+    async status(cardPath) {
+      const cast = active && library.writable() && await library.readCast(cardPath)
+      return cast ? {missingPacks:cast.missingPackIds.length, problem:autoCastProblem(await read(cast.cardId))} : null
     },
     pending:() => [...busy.values()].reduce((sum, running) => sum + running.size, 0),
     dispose() { active = false; library.dispose?.(); for (const controller of controllers) controller.abort() }

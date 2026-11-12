@@ -134,6 +134,8 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
     if (method === 'getBackgroundModelReasoning') return {reasoning:{efforts:[]}}
     if (method === 'getStageRuntimeStatus') return {enabled:true,status:'ready'}
     if (method === 'getAssetGenPrompts') return {data:{kinds:[],revision:'fixture'}}
+    // the page's 基础设置 switches read the engine settings (stageToggles)
+    if (method === 'getAssetEngineSettings') return {revision:'e1',writable:true,values:{stageToggles:{}}}
     if (method === 'getTavernSettings') return {settings, modelCatalog:[{provider:'p',models:[{id:'saved'},{id:'next'}]}], modModelSlots:[{modId:'dsh.stage',modName:'舞台',id:'director',label:'导演模型',fallback:'foreground'}]}
     if (method === 'updateTavernSettings') {
       const value=args.patch.modModelSelection

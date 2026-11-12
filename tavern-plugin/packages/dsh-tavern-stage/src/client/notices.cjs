@@ -24,7 +24,7 @@ function useCapabilityNotice(sessionId, live, rows) {
     }, [sessionId, notice]);
     return live && notice?.sessionId === sessionId ? notice.message : null;
 }
-// The voice line of the stack: source = {key, state:'loading'|'error'|'text', failed} from the
+// The voice line of the stack (owner 11-08 「配音状态」): source = {key, state:'loading'|'error'|'text', failed} from the
 // line on screen (its voice player state) or her reply on a phone call (phone-call.js state.voice); null: nothing to say.
 // A voice that keeps up shows nothing: synthesizing becomes a quiet line only after VOICE_QUIET_MS and 「配音较慢…」
 // after VOICE_SLOW_MS; a failure or a reply gone to text shows for VOICE_RESULT_MS. Local timers only, no voice polling.
@@ -194,7 +194,7 @@ function GalCubismNotice({ icon, request }) {
 // a failure the ⚠ line. overSheet: the stack stands over a reading sheet (the handheld phone call) rather than under the top bar.
 function GalRuntimeStatus({ interopNotice, page = false, round = null, voice = null, overSheet = false, onStop, stopping, hints, pages = [], error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope, picture = null, pictureReady = null }) {
     const h = React.createElement;
-    const notes = diagnostics || [], cancelled = error === 'cancelled';
+    const cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
         h('path', { d: 'M12 4.5 20.5 19h-17L12 4.5zM12 10v4.2M12 16.8v.2', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }));
     // one flat notice — the title line, then directly one list (a single
@@ -206,6 +206,7 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, voice = n
     const debugView = typeof document !== 'undefined' && !!document.body && document.body.classList.contains('dsh-fork-debug');
     const prefs = GAL_DEBUG_PREFS();
     const debugOn = prefs ? galDebugHidden(prefs.snapshot()) === false : debugView;
+    const notes = [...(diagnostics || []), ...(debugOn && !bodyFailure && error ? [{message: stageRuntimeErrorText(error)}] : [])];
     const rawOf = row => !row.raw ? null : row.always || (!prefs && debugView) ? h(GalRawText, { text: row.raw }) : prefs ? h(GalRawLine, { text: row.raw }) : null;
     const opened = galNoticeOpen(scope);
     const keys = event => { if ([' ', 'Enter'].includes(event.key) && event.target.closest?.('summary, button')) event.stopPropagation(); };

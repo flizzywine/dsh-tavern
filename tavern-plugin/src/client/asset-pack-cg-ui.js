@@ -1,7 +1,6 @@
 // CG is an ordered image draft, not a top-level media entry.
 // CG hides all stage figures; composition focus stays independent.
 const CG_VARIANTS_MAX=16,CG_FOCUS_MAX=8;
-const CG_IMAGE_TYPES='image/png,image/webp,image/jpeg';
 const CG_VARIANT_HELP='同一张 CG 的几张差分图，导演按动作描述切换，带「默认」的那张最先显示。';
 const CG_FOCUS_HELP='导演可以把镜头移到这些位置；在预览上点选或拖动取景框，滚轮、双指或拖右下角缩放，虚线框是对白框。';
 // the reference stages of the check (电脑 / 手机) and their dialogue box
@@ -167,7 +166,7 @@ function CgVariantMenu({variant,first,last,isDefault,only,disabled,onView,onDown
   return h('span',{className:'ap-cg-tile-menu',ref:pop.root,onKeyDown:pop.keys},
     h('button',{ref:pop.trigger,type:'button',className:'ap-cg-tile-more','aria-haspopup':'menu','aria-expanded':pop.open,'aria-label':name,title:'操作',disabled,
       onClick:()=>pop.setOpen(!pop.open),onKeyDown:e=>{if(e.key==='ArrowDown'&&!pop.open){e.preventDefault();pop.setOpen(true);}}},h(Glyph,{name:'more'})),
-    h('input',{ref:input,type:'file',accept:CG_IMAGE_TYPES,hidden:true,tabIndex:-1,'aria-label':'替换「'+variant.name+'」的图片',onChange:e=>{const list=[...(e.target.files||[])];e.target.value='';if(list.length)onReplace(list);}}),
+    h('input',{ref:input,type:'file',accept:IMAGE_ACCEPT,hidden:true,tabIndex:-1,'aria-label':'替换「'+variant.name+'」的图片',onChange:e=>{const list=[...(e.target.files||[])];e.target.value='';if(list.length)onReplace(list);}}),
     pop.open?pop.layer({className:'fork-inline-pop ap-cg-menu',role:'menu','aria-label':name,onKeyDown:inlineMenuKeys},
       item('查看大图',onView),item('下载',onDownload),
       item('设为默认',onDefault,{checked:isDefault,off:isDefault,title:isDefault?'出场时先显示这张':undefined}),
@@ -201,7 +200,7 @@ function CgVariants({binding,pack,packId,draft,variant,files,blobs,busy,onSelect
       !full&&h('div',{role:'listitem',className:'ap-cg-tile'},
         h('button',{type:'button',className:'ap-cg-tile-add','aria-label':'添加差分',title:'添加差分（可多选）',disabled:busy,onClick:()=>add.current?.click?.()},
           h('span',{className:'ap-cg-tile-art'},busy?h(Spinner,{key:'upload'}):h(Glyph,{name:'plus'}))),
-        h('input',{ref:add,type:'file',multiple:true,accept:CG_IMAGE_TYPES,hidden:true,tabIndex:-1,'aria-label':'选择差分图片',onChange:e=>{const picked=[...(e.target.files||[])];e.target.value='';if(picked.length)upload(picked);}}))),
+        h('input',{ref:add,type:'file',multiple:true,accept:IMAGE_ACCEPT,hidden:true,tabIndex:-1,'aria-label':'选择差分图片',onChange:e=>{const picked=[...(e.target.files||[])];e.target.value='';if(picked.length)upload(picked);}}))),
     big&&h(CgVariantView,{binding,packId,variant,files,blobs,onClose:()=>setBig(false)}),
     h(InlineGrid,{label:'所选差分',columns:1,className:'ap-cg-variant-fields'},
       h(InlineField,{key:'label:'+variant.id,kind:'text',label:'差分名称',value:variant.name||'',placeholder:'未填写',maxLength:32,validate:v=>v.trim()?'':'请填写差分名称',onCommit:name=>update({name})}),
@@ -245,18 +244,24 @@ function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
   // A clean editor follows the stored entry (another surface, or this editor's own save); a dirty one keeps its draft.
   const seen=React.useRef(asset);
   React.useEffect(()=>{if(seen.current===asset)return;const was=seen.current;seen.current=asset;if(!files.size&&cgStable(draft)===cgStable(cgDraft(was))){setDraft(cgDraft(asset));setRevision(pack.revision);}},[asset]);
+  // a blank CG (新建条目: no picture yet) shows the empty picture area instead of the preview; 差分 and 构图焦点 appear
+  // with its first picture (owner r2 c6). Its first pictures replace the empty placeholder variant. Saved without a picture it stays blank (library contract).
+  const blank=!draft.variants.entries.some(v=>v.content.media);
   async function upload(list,replace=false) {
     setBusy(true);setError('');
     try {
-      if(!replace&&draft.variants.entries.length+list.length>CG_VARIANTS_MAX)throw new Error('差分最多 16 张');
+      if(!replace&&(blank?0:draft.variants.entries.length)+list.length>CG_VARIANTS_MAX)throw new Error('差分最多 16 张');
       const prepared=await prepareCgFiles(replace?list.slice(0,1):list);
       setFiles(old=>new Map([...old,...prepared.updates]));setBlobs(old=>({...old,...prepared.blobs}));
+      if(blank){setDraft(current=>({...current,variants:{default:prepared.variants[0].id,entries:prepared.variants}}));setSelected(prepared.variants[0].id);return;}
       setDraft(current=>({...current,variants:{...current.variants,entries:replace?current.variants.entries.map(v=>v.id===variant.id?{...v,content:{...v.content,media:prepared.variants[0].content.media}}:v):[...current.variants.entries,...prepared.variants]}}));
       if(!replace)setSelected(prepared.variants[0].id);
     } catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
   const discard=()=>{setDraft(cgDraft(asset));setRevision(pack.revision);setFiles(new Map());setBlobs({});setError('');if(!entryVariantTable(asset).entries.some(v=>v.id===selected))setSelected(entryVariantTable(asset).default);};
-  const commit=async()=>{setBusy(true);setError('');try{const result=await save(draft,revision,files,blobs);setRevision(result.snapshot.revision);setFiles(new Map());setBlobs({});}catch(e){setError(errorText(e));}finally{setBusy(false);}};
+  // a draft still without a picture is written back in the blank shape (no 差分 table, media pending).
+  const blankShape=d=>{const next={...d,media:null,pendingMedia:true};delete next.variants;return next;};
+  const commit=async()=>{setBusy(true);setError('');try{const result=await save(blank?blankShape(draft):draft,revision,files,blobs);setRevision(result.snapshot.revision);setFiles(new Map());setBlobs({});}catch(e){setError(errorText(e));}finally{setBusy(false);}};
   const focus=(variant.content.focusHints||[]).find(f=>f.key===focusOpen)||null;
   const help=(label,text)=>h(Help,{text,label:label+' 说明'});
   const keywordSuggest=React.useMemo(()=>entryWordCandidates(pack,'cg',a=>a.recall?.keywords),[pack]);
@@ -264,6 +269,7 @@ function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
     h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:draft.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>set({name:v.trim()})}));
   const setFocus=next=>setDraft(old=>({...old,variants:{...old.variants,entries:old.variants.entries.map(row=>row.id===variant.id?{...row,content:{...row.content,focusHints:(row.content.focusHints||[]).map(f=>f.key===focusOpen?{...f,...next}:f)}}:row)}}));
   return h('div',{ref:pane,className:'ap-detail-pane ap-cg-editor','data-disabled':draft.enabled===false||undefined},title,h(ErrorBox,{error}),
+    blank?h('div',{className:'ap-hero-wrap'},busy?h('div',{className:'ap-media-drop','data-busy':true},h(Spinner,{key:'upload'})):h(MediaEmpty,{onFile:file=>upload([file]),onError:setError})):
     h(CgPreview,{binding,packId:pack.manifest.id,assetId:asset.id,variant,files,blobs,focus,onFocus:setFocus,view,setView,playing,exiting,
       onPlay:()=>{if(!playing){setExiting(false);setPlaying(true);}else stopPlay();},onExited:endPlay}),
     // 启用 is part of 触发策略 (蓝灯 / 绿灯 / 关闭); the separate 启用 switch is gone.
@@ -271,13 +277,13 @@ function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
       h(InlineRow,{label:'触发策略',help:help('触发策略',LAMP_HELP+' 关闭：这张 CG 不再用于舞台。')},h(LampMenu,{mode:entryLamp(draft,false),named:true,label:'触发策略',onChange:mode=>setDraft(current=>setEntryLamp(current,mode))})),
       triggerFields({value:draft.recall.keywords,suggest:keywordSuggest,fresh:fresh&&draft.enabled===false,onCommit:keywords=>setDraft(current=>applyEntryFields(current,{recall:{keywords},top:{}}))}),
       // 详情 is the inline multi-line field of the audio editors; it fills the draft on Enter / blur.
-      // 导演说明 (was 详情), then the owner's 备注 (`remark`, never sent) in the same draft.
-      h(InlineField,{kind:'text',multiline:true,label:'导演说明',className:'ap-note-field',hideEmpty:true,help:help('导演说明','会和名称一起发给导演，用来判断什么时候展示这张 CG。只写适用情景，最多 300 字。'),placeholder:'适用情景',value:draft.directorNote||'',
-        validate:v=>chars(v)>300?'导演说明最多 300 字':'',onCommit:directorNote=>set({directorNote})}),
+      // 使用情景 (directorNote; always shown, like 触发词), then the owner's 备注 (`remark`, never sent) in the same draft.
+      h(InlineField,{kind:'text',multiline:true,label:NOTE_LABEL,className:'ap-note-field',help:help(NOTE_LABEL,'会和名称一起发给导演，用来判断什么时候展示这张 CG。写什么情景下用它，最多 300 字。'),placeholder:NOTE_PLACEHOLDER,value:draft.directorNote||'',
+        validate:v=>chars(v)>300?NOTE_LABEL+'最多 300 字':'',onCommit:directorNote=>set({directorNote})}),
       remarkField({value:draft.remark,onCommit:v=>setDraft(current=>withRemark(current,v))})),
       // no 优先级 — nothing ordered by it; removed with the field itself.
-    h(CgVariants,{binding,pack,packId:pack.manifest.id,draft,variant,files,blobs,busy,onSelect:setSelected,set,update,upload,onError:setError}),
-    h(CgFocusHints,{draft:{...draft,editingVariant:variant.id},open:focusOpen,setOpen:setFocusOpen,set}),
+    !blank&&h(CgVariants,{binding,pack,packId:pack.manifest.id,draft,variant,files,blobs,busy,onSelect:setSelected,set,update,upload,onError:setError}),
+    !blank&&h(CgFocusHints,{draft:{...draft,editingVariant:variant.id},open:focusOpen,setOpen:setFocusOpen,set}),
     // Sticky while there is something to save (the engine settings page's foot); nothing when the draft is clean.
     dirty&&h('div',{className:'ap-cg-savebar'},h('span',{className:'ap-save-state',role:'status','data-state':'dirty'},'有未保存的修改'),
       h(Button,{disabled:busy,onClick:discard},'放弃修改'),h(Button,{primary:true,disabled:busy,onClick:commit},busy?'正在保存…':'保存')));

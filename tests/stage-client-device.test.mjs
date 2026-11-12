@@ -17,5 +17,6 @@ test('device disposal removes all listeners despite errors and ignores queued ev
   lists.forEach(row=>row.fn())
   off();device.dispose();device.subscribe(()=>changes++)
   assert.equal(changes,1)
-  assert.equal(lists.length,2)
+  // one media query list per profile query (mobile-landscape, mobile-portrait, tablet), none re-subscribed after disposal
+  assert.equal(lists.length,3)
 })

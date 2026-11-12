@@ -84,9 +84,11 @@ export declare const TTS_UNAVAILABLE: 'TTS_UNAVAILABLE'
 export type ReadingVoiceBinding = {browser: string} | {serviceId: string; voice: string}
 /** Native setting tts.reading: 旁白配音's global switch (off by default) and 全文朗读's reader. 通用声音 / 旁白's voices are the asset
  * library's reading voices, not settings. */
-export interface TtsReading { narrator: {enabled: boolean}; readAloud: {voice: ReadingVoiceBinding | null; auto: boolean} }
+/** 通用声音 / 旁白: the asset-library figure whose voice they speak with (null = the browser's default voice). */
+export type FigurePointer = {packId: string; figureId: string}
+export interface TtsReading { general: {figure: FigurePointer | null}; narrator: {enabled: boolean; figure: FigurePointer | null}; readAloud: {voice: ReadingVoiceBinding | null; auto: boolean} }
 /** ttsControl `setReading` input: omitted keys keep their value; null clears a voice. Invalid input rejects with INVALID_READING_VOICE. */
-export interface TtsReadingPatch { narrator?: {enabled?: boolean}; readAloud?: {voice?: ReadingVoiceBinding | null; auto?: boolean} }
+export interface TtsReadingPatch { general?: {figure?: FigurePointer | null}; narrator?: {enabled?: boolean; figure?: FigurePointer | null}; readAloud?: {voice?: ReadingVoiceBinding | null; auto?: boolean} }
 /** One configured voice service as UIs and other plugins list it: no keys, URLs or config. 浏览器朗读 (kind 'browser') is always listed;
  * so is every other plugin's registered provider that reports `voiceSources`. */
 export interface VoiceServiceEntry {
@@ -113,6 +115,7 @@ export interface Tts {
   readonly apiVersion: 1
   /** Current tts.reading (a copy); subscribe for {type:'readingChanged'}. */
   reading(): TtsReading
+  setReading(patch: TtsReadingPatch): Promise<TtsReading>
   registerProvider(owner: string, provider: Provider): () => void
   registerVoiceSource(input: VoiceSourceInput): {source: string; replace(next: VoiceSourceInput, expectedRevision: string): void; dispose(): void}
   grantConsumer(input: {principal: string; source: string; scope: string; authorize?: (input: unknown, provider: {serviceId:string;serviceRevision:string}) => void}): {grant: ConsumerGrant; dispose(): void}

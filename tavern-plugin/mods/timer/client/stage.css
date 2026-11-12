@@ -38,6 +38,10 @@
 .fork-gal-stage .fork-timer-label, .fork-gal-stage .fork-timer-state { font-size: var(--gal-ui-meta-size); font-weight: 500; color: var(--gal-ui-hud-ink-idle); }
 .fork-gal-stage .fork-timer-digits { min-width: 3.2ch; text-align: center; letter-spacing: .02em; }
 .fork-gal-stage .fork-timer[data-mode="reply"][data-ticking] .fork-timer-pill { box-shadow: var(--gal-ui-shadow), 0 0 0 2px var(--gal-ui-accent); }
+/* A skin's pill takes its ui.radius; a square skin (radius 0, data-fk-skin-square) has no soft shadow either. */
+.fork-gal-stage[data-fk-skin] .fork-timer-pill { border-radius: var(--gal-ui-radius); }
+.fork-gal-stage[data-fk-skin][data-fk-skin-square] .fork-timer-pill { box-shadow: none; }
+.fork-gal-stage[data-fk-skin][data-fk-skin-square] .fork-timer[data-mode="reply"][data-ticking] .fork-timer-pill { box-shadow: 0 0 0 2px var(--gal-ui-accent); }
 .fork-gal-stage .fork-timer[data-held] .fork-timer-digits { color: var(--gal-ui-hud-ink-idle); }
 .fork-gal-stage .fork-timer[data-status="expired"] .fork-timer-digits { color: var(--gal-ui-ink-disabled); }
 .fork-gal-stage .fork-timer[data-urgent] :is(.fork-timer-digits, .fork-timer-plate) { animation: fork-timer-breathe 1s ease-in-out infinite; }

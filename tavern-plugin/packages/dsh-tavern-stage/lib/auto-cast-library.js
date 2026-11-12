@@ -1,6 +1,6 @@
 import {cardFigureRows} from './card-stage.js'
 import {selectPackFigure} from './domain/asset-pack-presentation.js'
-import {figureDefaultEmotion} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
+import {figureDefaultEmotion, STANDARD_FIGURE_EMOTIONS} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {serviceVoiceSpec} from './figure-voice-authoring.js'
 
 // 自动选角's one port to the asset library and the shared figure records: the library's
@@ -17,11 +17,13 @@ export function createAutoCastLibrary({getLibrary, getTts = () => null}) {
     }
     return writer && {library, writer}
   }
-  // A figure's own 立绘 are the emotions the stage shows with their own picture (not a stand-in).
+  // A figure's own 立绘 are the emotions the stage shows with their own picture (not a stand-in). A figure 自动建人物 created
+  // before figures came with the standard 差分 has none: the library gives them with its next automatic change (its 人设图), so
+  // its lines are counted against those (else they ask for nothing and it is never drawn).
   const figuresOf = pack => Object.entries(pack?.figures || {}).map(([figureId, figure]) => {
-    const ref = {packId:pack.manifest.id, figureId}
+    const ref = {packId:pack.manifest.id, figureId}, emotions = figure.emotions?.length ? figure.emotions : STANDARD_FIGURE_EMOTIONS
     const sprites = (figure.emotions || []).map(row => row.id).filter(emotion => selectPackFigure(figure, pack.sprites || {}, {emotion, appearance:'sprite'}).spriteResolution?.resolvedEmotion === emotion)
-    return {ref, name:figure.name, aliases:figure.aliases || [], emotions:figure.emotions || [], defaultEmotion:figureDefaultEmotion(figure, figure.outfits?.find(outfit => outfit.enabled)) ?? null, settei:!!figure.identitySettei?.board, setteiHash:figure.identitySettei?.board ?? null, sprites}
+    return {ref, name:figure.name, aliases:figure.aliases || [], emotions, defaultEmotion:(figure.emotions?.length ? figureDefaultEmotion(figure, figure.outfits?.find(outfit => outfit.enabled)) : emotions[0].id) ?? null, settei:!!figure.identitySettei?.board, setteiHash:figure.identitySettei?.board ?? null, sprites}
   })
   // What a cast figure speaks with, as provider:voiceName of its source (a 配音后端 voice is checked against it).
   const spokenSources = (rows, packs) => new Set(rows.flatMap(row => {
@@ -39,7 +41,7 @@ export function createAutoCastLibrary({getLibrary, getTts = () => null}) {
       if (context.detached) return null
       const pack = context.target ? await library.getPackSnapshot({packId:context.target.packId}) : null
       const rows = cardFigureRows({raw:context.card.raw, snapshots:context.packs, globalEnabledPackIds:context.globalEnabledPackIds})
-      return {cardId:context.card.cardId, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, figures:figuresOf(pack), spoken:spokenSources(rows, context.packs)}
+      return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, figures:figuresOf(pack), spoken:spokenSources(rows, context.packs)}
     },
     search:query => port().writer.searchLibrary({query, limit:8}),
     // The 配音后端's voices ready to speak now ([] without the service), and one as a pack voice spec.
@@ -48,8 +50,11 @@ export function createAutoCastLibrary({getLibrary, getTts = () => null}) {
       return tts ? (await tts.listServiceVoices()).filter(voice => voice.state === 'ready').map(voice => ({voiceId:voice.id, name:voice.label || voice.id, languages:voice.languages || []})) : []
     },
     async backendVoiceSpec(voiceId, language) { return (await serviceVoiceSpec(getTts(), voiceId, language)).voice },
-    async readMedia({packId, expectedRevision, hash}) {
-      return Buffer.from((await port().library.readMedia({packId, expectedRevision, hash})).bytes)
+    // A picture by its hash (content-addressed): read at the pack's current revision, so a landing of another picture
+    // between the queue's read and this one does not fail the job (11-12 验收: a 立绘 lost to REVISION_CONFLICT).
+    async readMedia({packId, hash}) {
+      const {library} = port(), {revision} = await library.getPackSnapshot({packId})
+      return Buffer.from((await library.readMedia({packId, expectedRevision:revision, hash})).bytes)
     },
     // One automatic write: changes (op create / copy / patch, with voice, settei, sprites), images {key: PNG bytes}; `sources`:
     // the other packs a copy or a voice comes from [{packId, revision}] (from the search). source: the round it serves.

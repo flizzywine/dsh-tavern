@@ -163,6 +163,28 @@ function packFigureReactions(figure, moods, resolve = typeof matchBubbleMood ===
     }
     return Object.keys(result).length ? result : null;
 }
+// a skin's sprite portrait (art.portrait.source lists sprite): the
+// figure's whole static 差分 picture - its current outfit and mood (the projection's sprite state, which a figure record carries
+// whatever its stage form, on stage or not) - as {hash, head}: the picture and its head box in canvas fractions from the crop its
+// avatar is cut by (pack-avatar.cjs: the state's crop, else the default): x the crop's centre, top / chin its head. A plain
+// source, no resource descriptor: every speaker's face record keeps one (stageAvatarResources) and none is pinned until the
+// stage shows it (packStillMedia). null without a picture.
+function packFigureStill(figure) {
+    const outfit = figure?.outfit, state = figure?.state, name = state ? (state.stage ? state.stage.src : state.src) : null;
+    const hash = typeof name === 'string' && outfit?.sprite?.assets && Object.hasOwn(outfit.sprite.assets, name) ? outfit.sprite.assets[name] : null;
+    if (typeof hash !== 'string' || !figure.ref?.packId) return null;
+    const avatar = typeof window === 'undefined' && typeof require === 'function' ? require('../../lib/domain/pack-avatar.cjs') : {packSpriteCrop, packCropHead, DEFAULT_AVATAR_CROP:PACK_AVATAR_DEFAULT_CROP};
+    const crop = avatar.packSpriteCrop(outfit, state.id) || avatar.DEFAULT_AVATAR_CROP, head = avatar.packCropHead(crop);
+    return {hash, head:{x:crop.x + crop.w / 2, top:head.top, chin:head.chin}};
+}
+// the shown speaker's still (a face record's `still`) as the lazy media descriptor the scene acquires when it draws it (as a tap
+// reaction's still), with its head box: {head, still}. null without one.
+function packStillMedia(figure) {
+    const still = figure?.still, ref = figure?.ref;
+    if (!still || !ref?.packId) return null;
+    return {head:still.head, still:{resource:true, kind:'media', ref:{...ref}, alias:figure.alias, revision:figure.revision, hash:still.hash,
+        identity:`${ref.packId}:${ref.kind || 'figures'}:${ref.assetId || ref.figureId}:${still.hash}`}};
+}
 // image identity belongs to the pinned content, never its transport.
 function packCropStyle(crop, width, height, cropOverflow = false) {
     const scale = Math.min(1 / (width * crop.w), 1 / (height * crop.h));
@@ -243,6 +265,10 @@ function PackImage({identity,src,crop,avatar,originalSrc,cropOverflow=false,...p
             onLoad:event => { const image = event.currentTarget; setSize({url,width:image.naturalWidth,height:image.naturalHeight});
                 if (avatar) void cache?.prepare(avatar,url,px || 64,dpr,image); }}));
 }
+// A failed line's code for the name plate: the service's code, a lost connection (fetch's TypeError) or the autoplay refusal.
+function packVoiceFailureCode(error) {
+    return error.code || (error.name === 'TypeError' ? 'SERVICE_OFFLINE' : error.name === 'NotAllowedError' ? 'PLAY_BLOCKED' : error.message);
+}
 function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url), createSpeech = null, urls = globalThis.URL, prepareAudio = () => {}, maskAudio = () => {}, disposeAudio = () => {}, onAudio = () => {}, now = Date.now, schedule = (fn, ms) => setInterval(fn, ms), cancel = id => clearInterval(id), maxBytes = 256 * 1024 ** 2, maxClips = 4096, maxPrefetch = 64 }) {
     // decoded Audio objects survive page/turn unmounts for session revisits.
     const clips = new Map(), pending = new Map(), failures = new Map(), listeners = new Set(), queue = [];
@@ -263,6 +289,9 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
     // Streamed clips replaced by their complete line while they still play; disposed once they stop.
     const superseded = new Set();
     const keyOf = ({cacheKey, owner, id, text, mood = 'default'}) => cacheKey || JSON.stringify([owner, id, text, mood]);
+    // blocked: the browser's autoplay policy refused the last line (the stage shows 「点任意处开启声音」); a played line clears it.
+    let blocked = false;
+    const setBlocked = value => { if (blocked !== value) { blocked = value; for (const fn of listeners) fn(); } };
     const emit = () => { onAudio(current?.audio && !current.audio.paused ? current.audio : null); for (const fn of listeners) fn(); };
     function release(audio) {
         if (!audio) return;
@@ -331,7 +360,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             if (!abort.signal.aborted && epoch === generation && error.name !== 'AbortError') {
                 const attempts = (failures.get(key)?.attempts || 0) + 1;
                 const permanent = error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
-                failures.set(key, {code:error.code || error.message, attempts, retryAt:permanent ? Infinity : now() + 1000 * 2 ** (attempts - 1)});
+                failures.set(key, {code:packVoiceFailureCode(error), attempts, retryAt:permanent ? Infinity : now() + 1000 * 2 ** (attempts - 1)});
                 emit();
             }
         };
@@ -406,6 +435,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
     return {
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         get() { return current; },
+        blocked() { return blocked; },
         getError(input) { return input ? failures.get(keyOf(input))?.code || null : null; }, stop, invalidate,
         stopPlayback() { retire(false); emit(); },
         setEnabled(value) { enabled = value === true; if (!enabled) stop(); },
@@ -439,10 +469,12 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 // before and now played without them is heard as is again
                 if (input.masks || clip.covered) { clip.covered = Boolean(input.masks); maskAudio(clip.audio, input.masks?.() || null); }
                 await clip.audio.play();
+                setBlocked(false);
                 if (current !== entry || !enabled || !service.available()) return false;
                 emit(); return true;
             } catch (e) {
-                if (current === entry) { entry.loading = false; if (e.name !== 'AbortError') entry.error = e.code || e.message; emit(); }
+                if (e.name === 'NotAllowedError') setBlocked(true);
+                if (current === entry) { entry.loading = false; if (e.name !== 'AbortError') entry.error = packVoiceFailureCode(e); emit(); }
                 return false;
             }
         },
@@ -459,4 +491,4 @@ function PackVoiceButton({player, descriptor, text, mood, enabled}) {
         title:state?.error || descriptor?.diagnostics?.join(', ') || 'Speech',
         onClick:() => state?.audio && !state.audio.paused ? player.stop() : void player.play(descriptor,{text,mood})}, state?.loading ? 'Loading speech' : state?.audio && !state.audio.paused ? 'Stop speech' : 'Play speech');
 }
-if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {packPerformanceScene, createPackCalibration, createPackFigureCalibration, createPackSceneLayers, packSpriteViews, packBlinkBundle, packSpineInputs, packSpineBottomFade, packFigureRenderInputs, packFigureReactions, createPackVoicePlayer};
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {packPerformanceScene, createPackCalibration, createPackFigureCalibration, createPackSceneLayers, packSpriteViews, packBlinkBundle, packSpineInputs, packSpineBottomFade, packFigureRenderInputs, packFigureReactions, packFigureStill, packStillMedia, createPackVoicePlayer};

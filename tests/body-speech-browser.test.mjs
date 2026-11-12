@@ -7,6 +7,7 @@ import { browserReactScript } from './fixtures/browser-react.mjs'
 
 // The 🔊 on a reply: the host resolves each part (speechForLine) and the one stage voice player (voice.js) plays it.
 const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'features/speech.js', 'features/read-aloud.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
+// available: false = the voice plugin mounted with its service off; null = no voice plugin, so no ttsClient at all.
 async function mount(t, text, available = true) {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
@@ -23,7 +24,7 @@ async function mount(t, text, available = true) {
     function usePackRevision(select){return React.useSyncExternalStore(fn=>{packListeners.add(fn);return()=>packListeners.delete(fn);},select);}
     const ttsClient={apiVersion:1,available:()=>ttsOn,subscribe:()=>()=>{}};
     const forkForeground={now:()=>Date.now(),setInterval:(fn,ms)=>setInterval(fn,ms),clearInterval:id=>clearInterval(id),isAudible:()=>true,subscribeAudio:()=>()=>{},media(){}};
-    const forkStageAudio={speechVolume:()=>1,prepareVoice:(audio,blob,loudness)=>prepared.push([audio.src,loudness]),release(){},voice(){}};
+    const forkStageAudio={speechVolume:()=>1,prepareVoice:(audio,blob,loudness)=>prepared.push([audio.src,loudness]),release(){},voice(){},keepAwake(){},diagnostics:()=>({speaking:true,prefs:{voice:1,master:1},ducking:{},tracks:[]})};
     const stageReading={get:()=>({voiceRate:1})};
     const tavernErrorHub={report:(...args)=>errors.push(args)};
     Object.defineProperty(window,'speechSynthesis',{value:{getVoices:()=>[{name:'chosen-voice',lang:'zh-CN'},{name:'narrator-voice',lang:'zh-CN'}],
@@ -38,12 +39,15 @@ async function mount(t, text, available = true) {
     const useTavernSessionMode=()=> 'story',isPlayMode=mode=>mode==='story';
     const latestTavernAssistantMessageId=()=> 'latest';
     const props={sessionId:'game',messageId:'older',useChat:select=>select({legacy:{nodes:[{kind:'assistant',messageId:'older',blocks:[{kind:'reasoning',text:'不能念的思考'},{kind:'text',text:${JSON.stringify(text)}}]}]}})};
+    ${available === null ? 'var galParagraphs=()=>[],packTransport,tavernSessionSignals;' : ''}
     ${sources.join('\n')}
     ReceiptButton=()=>null;
-    forkTtsScope={get:name=>name==='ttsClient'?ttsClient:undefined};
+    ${available === null ? '' : "forkTtsScope={get:name=>name==='ttsClient'?ttsClient:undefined};"}
     voicePlayer.setEnabled(true);
-    modules["react-dom/client"].createRoot(document.getElementById('root')).render(React.createElement(TurnActions,props));
-    window.fixture={calls,utterances,audios,prepared,errors,
+    const bubbleHandles=[];
+    function BubbleVoices(){bubbleHandles.push(Object.keys(useVoiceBubbles({sessionId:'game',voiceScope:'older'},[{kind:'bubble',character:'lin',text:'你好。'}],'',{})));return null;}
+    modules["react-dom/client"].createRoot(document.getElementById('root')).render([React.createElement(TurnActions,{...props,key:'actions'}),${available === null ? "React.createElement(BubbleVoices,{key:'bubbles'})" : 'null'}]);
+    window.fixture={calls,utterances,audios,prepared,errors,bubbleHandles,
       setTts(on){ttsOn=on;packListeners.forEach(fn=>fn());},
       end(){const u=utterances.at(-1);u.done=true;u.onend();},
       endAudio(){const a=audios.at(-1);a.paused=true;a.onended();},
@@ -91,6 +95,16 @@ test('语音服务未启用时不显示正文朗读按钮，启用后出现', as
   assert.equal(await page.getByRole('button', {name:'朗读正文',exact:true}).count(),0)
   await page.evaluate(() => fixture.setTts(true))
   await page.getByRole('button', {name:'朗读正文',exact:true}).waitFor()
+})
+
+test('没有语音插件（无 ttsClient）时不显示正文朗读按钮，气泡也没有播放按钮', async t => {
+  const page = await mount(t, '正文', null)
+  await page.locator('.dsh-fork-turn-actions').waitFor({state:'attached'})
+  assert.equal(await page.getByRole('button', {name:'朗读正文',exact:true}).count(),0)
+  const state = await page.evaluate(() => ({handles:fixture.bubbleHandles, calls:fixture.calls.length, errors:fixture.errors.length}))
+  assert.ok(state.handles.length > 0)
+  assert.deepEqual(state.handles.flat(), [], '气泡没有可播放的语音（▶）')
+  assert.deepEqual([state.calls, state.errors], [0, 0])
 })
 
 test('准备语音时也能停止，合成返回后不会继续播放', async t => {

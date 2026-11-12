@@ -1,28 +1,50 @@
-// Shared recognition service. Providers see audio, never contacts, calls or story state.
+// Shared recognition service: the 语音后端's 语音识别 services. Providers see audio, never contacts, calls or story state.
+// A service is an API reached by URL — a cloud one or a model on this machine (本地模型 page), the same way: OpenAI's
+// transcription format (POST {base}/audio/transcriptions, optional GET {base}/info and POST {base}/turn).
+// Plugin channels (tavern.speechProvider({recognize})) join the list as services of their own.
 import {randomUUID} from 'node:crypto'
 import {untilAborted} from './plugin-callback.js'
 
-export const RECOGNITION_KEYS = Object.freeze({local:'DSH_TAVERN_ASR_LOCAL_TOKEN',openai:'DSH_TAVERN_ASR_OPENAI_KEY','openai-compatible':'DSH_TAVERN_ASR_COMPATIBLE_KEY'})
-// openai and openai-compatible are one transcription format (POST {base}/audio/transcriptions); the compatible base URL is
-// the player's (a local SenseVoice worker, a LAN or cloud server) and its key is optional.
 export const OPENAI_BASE_URL = 'https://api.openai.com/v1'
-export const defaultRecognitionConfig = () => ({provider:'local',language:'zh',localUrl:'http://127.0.0.1:9887',model:'gpt-4o-mini-transcribe',compatibleUrl:'http://127.0.0.1:9887/v1',compatibleModel:'sensevoice'})
+// kind → its defaults. openai always needs its key; an OpenAI-compatible server only when it was given one.
+export const RECOGNITION_KINDS = Object.freeze({
+  openai:Object.freeze({label:'OpenAI',url:OPENAI_BASE_URL,model:'gpt-4o-mini-transcribe',keyRequired:true}),
+  'openai-compatible':Object.freeze({label:'OpenAI 兼容',url:'',model:'',keyRequired:false}),
+})
+export const recognitionKeyRef = id => 'DSH_TAVERN_ASR_' + id.toUpperCase().replace(/-/g,'_') + '_KEY'
+export const defaultRecognitionConfig = () => ({services:[]})
 const fail = code => Object.assign(new Error(code), {code})
-const MAX_AUDIO = 16000 * 2 * 60, MODEL_ID = /^[a-zA-Z0-9._:/-]{1,100}$/
-export function validateRecognitionConfig(value, providers = []) {
-  const config = {...defaultRecognitionConfig(),...value}
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !Object.hasOwn(defaultRecognitionConfig(),key))) throw fail('ASR_CONFIG_INVALID')
-  if (![...Object.keys(RECOGNITION_KEYS),...providers.map(row=>row.id)].includes(config.provider)) throw fail('ASR_PROVIDER_INVALID')
-  if (typeof config.language !== 'string' || !/^[a-z]{2,3}(?:-[A-Za-z]{2,8})?$/.test(config.language)) throw fail('ASR_LANGUAGE_INVALID')
-  if ([config.model,config.compatibleModel].some(model => typeof model !== 'string' || !MODEL_ID.test(model))) throw fail('ASR_MODEL_INVALID')
-  let base
-  try {base = new URL(config.compatibleUrl)} catch {}
-  if (!base || !['http:','https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw fail('ASR_COMPATIBLE_URL_INVALID')
-  config.compatibleUrl = base.href.replace(/\/+$/,'')
-  let url
-  try {url = new URL(config.localUrl)} catch {}
-  if (!url || url.protocol !== 'http:' || !['127.0.0.1','localhost','[::1]'].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw fail('ASR_LOCAL_URL_INVALID')
-  return config
+const MAX_AUDIO = 16000 * 2 * 60, MODEL_ID = /^[a-zA-Z0-9._:/-]{1,100}$/, SERVICE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/, LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z]{2,8})?$/
+const FIELDS = ['id','label','kind','url','model','language','final']
+
+export function validateRecognitionService(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !FIELDS.includes(key))) throw fail('ASR_CONFIG_INVALID')
+  const kind = RECOGNITION_KINDS[value.kind]
+  if (!kind) throw fail('ASR_PROVIDER_INVALID')
+  if (typeof value.id !== 'string' || !SERVICE_ID.test(value.id)) throw fail('ASR_SERVICE_ID_INVALID')
+  const label = typeof value.label === 'string' ? value.label.trim() : ''
+  if (!label || label.length > 30) throw fail('ASR_LABEL_INVALID')
+  const model = value.model ?? kind.model
+  if (typeof model !== 'string' || !MODEL_ID.test(model)) throw fail('ASR_MODEL_INVALID')
+  const language = value.language ?? 'zh'
+  if (typeof language !== 'string' || !LANGUAGE.test(language)) throw fail('ASR_LANGUAGE_INVALID')
+  let url = kind.url
+  if (!url) {
+    let base
+    try {base = new URL(value.url)} catch {}
+    if (!base || !['http:','https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw fail('ASR_URL_INVALID')
+    url = base.href.replace(/\/+$/,'')
+  }
+  if (value.final !== undefined && (typeof value.final !== 'string' || !value.final || value.final === value.id)) throw fail('ASR_FINAL_INVALID')
+  return {id:value.id,label,kind:value.kind,...(kind.url ? {} : {url}),model,language,...(value.final ? {final:value.final} : {})}
+}
+export function validateRecognitionConfig(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.services) || Object.keys(value).some(key => key !== 'services')) throw fail('ASR_CONFIG_INVALID')
+  const services = value.services.map(validateRecognitionService), ids = new Set(services.map(row => row.id))
+  if (ids.size !== services.length) throw fail('ASR_SERVICE_ID_TAKEN')
+  // A final service names another configured one; a deleted one is dropped by the host before this is asked.
+  if (services.some(row => row.final && !ids.has(row.final))) throw fail('ASR_FINAL_INVALID')
+  return {services}
 }
 export function recognitionAudio(value) {
   if (typeof value !== 'string' || value.length > Math.ceil(MAX_AUDIO / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) throw fail('ASR_AUDIO_INVALID')
@@ -37,7 +59,7 @@ function wav(pcm) {
   head.writeUInt16LE(2,32);head.writeUInt16LE(16,34);head.write('data',36);head.writeUInt32LE(pcm.length,40)
   return Buffer.concat([head,pcm])
 }
-async function cloudTranscript(response, onPartial, language) {
+async function transcript(response, onPartial, language) {
   if (!(response.headers.get('content-type') || '').includes('text/event-stream')) return response.json()
   const reader = response.body.getReader(), decoder = new TextDecoder()
   let buffer = '', text = ''
@@ -63,67 +85,75 @@ async function cloudTranscript(response, onPartial, language) {
   } finally {await reader.cancel().catch(()=>{});reader.releaseLock()}
 }
 
-const transcriptionBase = config => config.provider === 'openai' ? OPENAI_BASE_URL : config.compatibleUrl
+const baseOf = service => RECOGNITION_KINDS[service.kind].url || service.url
 
 export function createSpeechRecognition({getConfig,credentials,providers = () => [],fetch:send = globalThis.fetch,id = randomUUID,now = () => performance.now()}) {
   const sessions = new Map()
-  // The official endpoint always needs its key; a compatible server only when it was given one.
-  async function bearer(provider) {
-    const key = await credentials()?.resolve(RECOGNITION_KEYS[provider])
-    if (!key?.value && provider !== 'openai-compatible') throw fail('ASR_NO_KEY')
-    return key?.value ? {Authorization:'Bearer ' + key.value} : {}
+  async function bearer(service, typed) {
+    const value = typed ?? (await credentials()?.resolve(recognitionKeyRef(service.id)))?.value
+    if (!value && RECOGNITION_KINDS[service.kind].keyRequired) throw fail('ASR_NO_KEY')
+    return value ? {Authorization:'Bearer ' + value} : {}
   }
-  // Optional discovery of a compatible server (GET {base}/info): turnDetection marks POST {base}/turn. A server without the
-  // route is still a recognition server, just without one; the answer is kept briefly so each pause does not ask again.
-  // finalModel names the server's model for the words that become the player's line (recognize({final:true}), a call's
-  // pause snapshot) - a slower, more accurate one (the local worker's firered) while the live line keeps compatibleModel.
-  let discovered = null
-  async function discover(config, headers) {
-    const base = transcriptionBase(config)
-    if (discovered?.base === base && discovered.until > now()) return discovered.info
-    const response = await send(base + '/info',{headers,signal:AbortSignal.timeout(1500),redirect:'error'})
-    const info = response.ok ? await response.json() : response.status === 404 ? {} : null
-    if (!info) throw fail('ASR_HTTP_ERROR')
-    const finalModel = info.capabilities?.finalModel
-    const capabilities = {turnDetection:info.capabilities?.turnDetection === true,finalModel:typeof finalModel === 'string' && MODEL_ID.test(finalModel) ? finalModel : null}
-    discovered = {base,until:now() + 30000,info:capabilities}
-    return capabilities
+  // A configured service, or a plugin channel by its id. Unknown: unavailable (the phone names one the backend dropped).
+  function serviceOf(serviceId) {
+    const row = getConfig().services.find(service => service.id === serviceId)
+    if (row) return row
+    const extension = providers().find(entry => entry.id === serviceId)
+    if (extension) return {id:extension.id,label:extension.label,extension}
+    throw fail('ASR_PROVIDER_UNAVAILABLE')
   }
-  async function recognize({audio,language,signal,onPartial,final = false}, config = getConfig()) {
-    config = validateRecognitionConfig(config,providers())
-    const started = now(), provider = config.provider, lang = language || config.language
+  // GET {base}/info, the server's own description: models [{id,state?}], languages, capabilities.turnDetection. A server
+  // without the route is still a recognition server (404 → nothing declared). Kept briefly so each pause does not ask again.
+  const infos = new Map()
+  async function info(service, typed) {
+    if (service.kind === 'openai') return {models:[{id:service.model}],languages:null,turnDetection:false}
+    const base = baseOf(service), cached = typed === undefined && infos.get(base)
+    if (cached && cached.until > now()) return cached.info
+    const response = await send(base + '/info',{headers:await bearer(service,typed),signal:AbortSignal.timeout(1500),redirect:'error'})
+    const body = response.ok ? await response.json() : response.status === 404 ? {} : null
+    if (!body) throw fail(response.status === 401 ? 'ASR_UNAUTHORIZED' : 'ASR_HTTP_ERROR')
+    const result = {
+      models:(Array.isArray(body.models) ? body.models : []).filter(row => typeof row?.id === 'string' && MODEL_ID.test(row.id)).slice(0,40).map(row => ({id:row.id,...(typeof row.state === 'string' ? {state:row.state.slice(0,20)} : {})})),
+      languages:Array.isArray(body.languages) ? body.languages.filter(lang => typeof lang === 'string' && LANGUAGE.test(lang)).slice(0,20) : null,
+      turnDetection:body.capabilities?.turnDetection === true,
+      // a server still loading (or failed) says so; one that does not is taken as ready
+      ready:body.state === undefined || body.state === 'ready',
+    }
+    if (typed === undefined) infos.set(base,{until:now() + 30000,info:result})
+    return result
+  }
+  async function transcribe(service, {audio,language,signal,onPartial}) {
+    if (service.extension) return untilAborted(Promise.resolve().then(() => {
+      signal.throwIfAborted()
+      return service.extension.recognize({audio:new Uint8Array(audio),sampleRate:16000,language,signal,onPartial})
+    }),signal)
+    const body = new FormData()
+    body.set('file',new Blob([wav(audio)],{type:'audio/wav'}),'speech.wav')
+    body.set('model',service.model);body.set('language',language);body.set('stream','true')
+    const response = await send(baseOf(service) + '/audio/transcriptions',{method:'POST',headers:await bearer(service),body,signal,redirect:'error'})
+    if (!response.ok) throw fail('ASR_HTTP_ERROR')
+    return transcript(response,onPartial,language)
+  }
+  // final: these words become the player's line (a call's pause snapshot): the service's 定稿用 service reads them when it
+  // takes this language and is ready; otherwise (no final service, one still loading or down, or one that declares other
+  // languages) the service itself.
+  async function recognize({serviceId,audio,language,signal,onPartial,final = false}) {
+    const started = now(), own = serviceOf(serviceId), lang = language || own.language || 'zh'
     if (!(audio instanceof Uint8Array) || !audio.length || audio.length % 2 || audio.length > MAX_AUDIO) throw fail('ASR_AUDIO_INVALID')
-    if (typeof lang !== 'string' || !/^[a-z]{2,3}(?:-[A-Za-z]{2,8})?$/.test(lang)) throw fail('ASR_LANGUAGE_INVALID')
+    if (typeof lang !== 'string' || !LANGUAGE.test(lang)) throw fail('ASR_LANGUAGE_INVALID')
     audio = Buffer.from(audio)
     const combined = signal ? AbortSignal.any([signal,AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000)
     combined.throwIfAborted()
-    let result
     try {
-      if (!Object.hasOwn(RECOGNITION_KEYS,provider)) {
-        const extension = providers().find(row=>row.id === provider)
-        if (!extension) throw fail('ASR_PROVIDER_UNAVAILABLE')
-        result = await untilAborted(Promise.resolve().then(() => {
-          combined.throwIfAborted()
-          return extension.recognize({audio:new Uint8Array(audio),sampleRate:16000,language:lang,signal:combined,onPartial})
-        }),combined)
-      } else {
-        let url, body, headers = await bearer(provider)
-        if (provider === 'local') {
-          url = new URL('/v1/transcribe',config.localUrl)
-          body = audio; headers = {...headers,'Content-Type':'application/octet-stream','X-Language':lang}
-        } else {
-          url = transcriptionBase(config) + '/audio/transcriptions'
-          body = new FormData();body.set('file',new Blob([wav(audio)],{type:'audio/wav'}),'speech.wav')
-          const finalModel = final && provider === 'openai-compatible' ? (await discover(config,headers).catch(() => ({}))).finalModel : null
-          body.set('model',provider === 'openai' ? config.model : finalModel || config.compatibleModel);body.set('language',lang);body.set('stream','true')
-        }
-        const response = await send(url,{method:'POST',headers,body,signal:combined,redirect:'error'})
-        if (!response.ok) throw fail('ASR_HTTP_ERROR')
-        result = provider === 'local' ? await response.json() : await cloudTranscript(response,onPartial,lang)
+      let service = own
+      if (final && own.final) {
+        const finisher = serviceOf(own.final), described = await info(finisher).catch(() => null)
+        if (described?.ready && (!described.languages || described.languages.includes(lang))) service = finisher
       }
+      const result = await transcribe(service,{audio,language:lang,signal:combined,onPartial})
       combined.throwIfAborted()
       if (typeof result?.text !== 'string' || result.text.length > 12000) throw fail('ASR_RESPONSE_INVALID')
-      return {text:result.text,language:result.language || lang,provider,roundTripMs:now()-started,
+      return {text:result.text,language:result.language || lang,provider:service.id,roundTripMs:now()-started,
         modelMs:Number.isFinite(result.seconds) ? result.seconds * 1000 : null}
     } catch(error) {
       if (combined.aborted) throw fail(signal?.aborted ? 'ASR_CANCELLED' : 'ASR_TIMEOUT')
@@ -144,9 +174,9 @@ export function createSpeechRecognition({getConfig,credentials,providers = () =>
     try {
       while (!row.controller.signal.aborted && row.decoded !== row.sequence) {
         const sequence = row.sequence, audio = Buffer.concat(row.audio,row.bytes)
-        const result = await recognize({audio,language:row.language,signal:row.controller.signal,onPartial:value=>{
+        const result = await recognize({serviceId:row.serviceId,audio,language:row.language,signal:row.controller.signal,onPartial:value=>{
           if (!row.controller.signal.aborted && typeof value?.text === 'string' && value.text.length <= 12000) {row.text=value.text;row.revision++}
-        }},row.config)
+        }})
         if (row.controller.signal.aborted) return
         row.decoded=sequence;row.text=result.text;row.language=result.language;row.timing={modelMs:result.modelMs,roundTripMs:result.roundTripMs};row.revision++
         if (row.final && row.sequence === sequence) {row.done=true;row.audio=[]}
@@ -154,19 +184,33 @@ export function createSpeechRecognition({getConfig,credentials,providers = () =>
     } catch(error) {if(!row.controller.signal.aborted){row.error=error.code;row.done=true;row.audio=[];row.revision++}}
     finally {row.running=false}
   }
+  // available: the service answers (its /info, or its key for the official endpoint). A plugin channel: registered.
+  async function readiness(serviceId) {
+    let service
+    try {service = serviceOf(serviceId)} catch(error) {return {available:false,reason:error.code}}
+    if (service.extension) return {available:true,provider:service.id}
+    try {await bearer(service)} catch(error) {return {available:false,provider:service.id,reason:error.code}}
+    if (service.kind === 'openai') return {available:true,provider:service.id}
+    try {await info(service);return {available:true,provider:service.id}}
+    catch(error) {return {available:false,provider:service.id,...(error.code === 'ASR_UNAUTHORIZED' ? {reason:'ASR_UNAUTHORIZED'} : {})}}
+  }
   return Object.freeze({
-    recognize,
-    // Has the speaker finished? {probability, modelMs} from the provider's optional turn detector, or null when it has none
-    // (the phone call then judges the end by the pause alone). A detector the provider declares and that fails is a failure.
-    async endpoint({audio}) {
+    recognize,readiness,
+    // The editor's 测试 / model list for a draft service (typed key, or the saved one when the key is left alone).
+    async describe(service, typed) {
+      const row = validateRecognitionService(service)
+      try {return {available:true,...await info(row,typed ?? (await credentials()?.resolve(recognitionKeyRef(row.id)))?.value ?? '')}}
+      catch(error) {return {available:false,reason:error.code || 'ASR_HTTP_ERROR'}}
+    },
+    // Has the speaker finished? {probability, modelMs} from the service's turn detector (POST {base}/turn, declared in its
+    // /info), or null when it has none (the phone call then judges the end by the pause alone).
+    async endpoint({serviceId,audio}) {
       if (!(audio instanceof Uint8Array) || !audio.length || audio.length % 2 || audio.length > MAX_AUDIO) throw fail('ASR_AUDIO_INVALID')
-      const config = validateRecognitionConfig(getConfig(),providers())
-      if (!['local','openai-compatible'].includes(config.provider)) return null
-      const headers = await bearer(config.provider)
-      if (config.provider === 'openai-compatible' && !(await discover(config,headers).catch(() => ({}))).turnDetection) return null
+      const service = serviceOf(serviceId)
+      if (service.extension || service.kind === 'openai' || !(await info(service).catch(() => ({}))).turnDetection) return null
       try {
-        const response = await send(config.provider === 'local' ? new URL('/v1/endpoint',config.localUrl) : config.compatibleUrl + '/turn', {
-          method:'POST', headers:{...headers,'Content-Type':'application/octet-stream'},
+        const response = await send(baseOf(service) + '/turn', {
+          method:'POST', headers:{...await bearer(service),'Content-Type':'application/octet-stream'},
           body:audio, signal:AbortSignal.timeout(5000), redirect:'error',
         })
         if (!response.ok) throw fail('ASR_ENDPOINT_UNAVAILABLE')
@@ -175,26 +219,12 @@ export function createSpeechRecognition({getConfig,credentials,providers = () =>
         return {probability,modelMs}
       } catch { throw fail('ASR_ENDPOINT_UNAVAILABLE') }
     },
-    async readiness() {
-      let config
-      try {config=validateRecognitionConfig(getConfig(),providers())}
-      catch(error) {return {available:false,reason:error.code}}
-      if (!Object.hasOwn(RECOGNITION_KEYS,config.provider)) return {available:providers().some(row=>row.id===config.provider),provider:config.provider}
-      if(config.provider==='openai-compatible') {
-        try {await discover(config,await bearer(config.provider));return {available:true,provider:config.provider}}
-        catch{return {available:false,provider:config.provider}}
-      }
-      const key=await credentials()?.resolve(RECOGNITION_KEYS[config.provider])
-      if(!key?.value)return {available:false,provider:config.provider,reason:'ASR_NO_KEY'}
-      if(config.provider==='openai')return {available:true,provider:'openai'}
-      try {const response=await send(new URL('/v1/info',config.localUrl),{headers:{Authorization:'Bearer '+key.value},signal:AbortSignal.timeout(1500),redirect:'error'});return {available:response.ok,provider:'local'}}
-      catch{return {available:false,provider:'local'}}
-    },
-    start({owner,language}) {
+    start({owner,serviceId,language}) {
       if (typeof owner !== 'string' || !owner.trim() || owner.length > 200) throw fail('ASR_OWNER_INVALID')
-      if (language !== undefined && (typeof language !== 'string' || !/^[a-z]{2,3}(?:-[A-Za-z]{2,8})?$/.test(language))) throw fail('ASR_LANGUAGE_INVALID')
+      if (language !== undefined && (typeof language !== 'string' || !LANGUAGE.test(language))) throw fail('ASR_LANGUAGE_INVALID')
+      const service = serviceOf(serviceId)
       for(const row of sessions.values())if(row.owner===owner)cancel(row)
-      const config=validateRecognitionConfig(structuredClone(getConfig()),providers()), row={id:id(),owner,config,language:language || config.language,controller:new AbortController(),audio:[],bytes:0,sequence:0,decoded:0,revision:0,text:'',done:false,final:false,error:null,timing:null,running:false,timer:null}
+      const row={id:id(),owner,serviceId:service.id,language:language || service.language || 'zh',controller:new AbortController(),audio:[],bytes:0,sequence:0,decoded:0,revision:0,text:'',done:false,final:false,error:null,timing:null,running:false,timer:null}
       sessions.set(row.id,row);touch(row);return snapshot(row)
     },
     append({owner,id:sessionId,sequence,audio,final=false}) {

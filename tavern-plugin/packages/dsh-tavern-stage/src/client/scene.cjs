@@ -59,9 +59,18 @@ const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
 const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
-// Register before creating scenes. A scene snapshots factories and owns their instances.
-// factory(scene) returns load, tick, head, hit, react, release, set, reload and dispose.
-// Model renderers own placement; sprite renderers return spriteBased:true for shared placement.
+// A full-stage cover (desc.covered) stops the frame loop once its opening has settled; the scene still ticks this often.
+const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10;
+// Every figure kind beyond static pictures (Spine, Live2D) draws through a registered renderer. Register before creating
+// scenes; a scene snapshots the factories and owns their instances. Per scene factory(scene) returns
+//   load(entry)                         start loading entry.figure; once ready set entry.model (or entry.sprite) and call scene.commit(entry)
+//   tick(entry, figure, desc, frame)    each frame once loaded; frame = {now, dt, W, H, framing, reducedHop}
+//   head(entry, exact)                  the head box in emote-layer px (headOf), or null
+//   hit(entry, point)                   the tap hit test at a stage point, or null
+//   react(entry, reaction, hit, plan)   a claimed tap's reaction (figure.reactions[emotion]) while the figure is silent
+//   release(entry), set(desc), reload(), dispose()
+// scene = {PIXI, app, state, emotes, figures, onError, commit, lifeOn, tune, spine}.
+// Model renderers (Live2D) own placement; sprite renderers (Spine) return spriteBased:true for the shared placement.
 const figureRenderers=new Map();
 function registerFigureRenderer(kind,factory){
     if(disposed)throw new Error('Stage scene disposed');
@@ -154,7 +163,7 @@ function galCreateScene(host, options, own) {
     // model or picture, in its current outfit, mood and mouth) drawn once more into a texture the size of the skin's crop,
     // framed by its rest head box (tickBust). No second model and no camera; above the world and under the overlay (phone
     // shade, cover), so the DOM text box covers it as the original's box covers its bust.
-    const bust = stageViews.bust.create({PIXI,renderer:app.renderer});
+    const bust = stageViews.bust.create({PIXI,renderer:app.renderer,Image});
     own(bust,value=>value.dispose());
     // the call view - each party framed by its rest head into a
     // texture the size of the phone page's box, over everything (the phone shade, transitions), under the page's own glass.
@@ -795,7 +804,8 @@ function galCreateScene(host, options, own) {
             const style = env.box && getComputedStyle(env.box);
             // The box covers at most its normal-mode reservation (layoutTop): a page whose box stands elsewhere or is not
             // drawn (an art skin's narration, centred over the scene) never moves a figure; only film / theme changes do.
-            env.boxTop = style ? Math.max(env.layoutTop, H - parseFloat(style.bottom) - parseFloat(style.height) - env.rise) : env.occluderTop;
+            const boxTop = H - parseFloat(style?.bottom) - parseFloat(style?.height) - env.rise;
+            env.boxTop = Number.isFinite(boxTop) ? Math.max(env.layoutTop, boxTop) : env.occluderTop;
             env.boxDirty = false;
         }
         const boxTop = env.boxTop;
@@ -880,8 +890,9 @@ function galCreateScene(host, options, own) {
     }
     function tickBust(desc, now, W, H) {
         const spec=desc.bust && W>640 && !desc.hideFigures && !desc.shot ? desc.bust : null;
-        const entry=spec && entryOf(spec.alias);
-        bust.tick({spec,subject:entry ? {container:entry.container,head:entry.localHead} : null,
+        // A sprite source draws the speaker's picture (acquired through desc.tapMedia); a bust their stage figure.
+        const entry=spec && !spec.still && entryOf(spec.alias);
+        bust.tick({spec,subject:entry ? {container:entry.container,head:entry.localHead} : null,acquire:desc.tapMedia,
             now,W,H,instant:desc.snap || desc.skipping || desc.reducedMotion,rulerHead:sceneLayout.layout?.head});
     }
 
@@ -1030,6 +1041,7 @@ function galCreateScene(host, options, own) {
     // Be deliberately conservative: even flat figures can breathe, blink or gesture. Only a
     // settled, empty, neutral stage without DOM animations qualifies for the idle rate.
     function frameRate() {
+        if (state.coverOn) return GAL_COVERED_FPS;
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
         const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
@@ -1049,6 +1061,22 @@ function galCreateScene(host, options, own) {
     app.ticker.add(frame);
     releaseForeground = forkForeground.application(app);
     own(releaseForeground,release=>release());
+    // Under an opaque full-stage cover (the handheld phone, desc.covered), once its opening has settled, the scene leaves the
+    // display's frame loop: a plain timer ticks its clock and state at GAL_COVERED_FPS and nothing is drawn (the canvas keeps
+    // its last frame, unseen). The cover going away puts it straight back on the frame loop.
+    const renderUncovered = app.renderer.render;
+    app.renderer.render = function (...args) { if (!state.coverOn) return renderUncovered.apply(this, args); };
+    function restart() { app.ticker.lastTime = performance.now(); app.start(); }
+    function setCovered(on) {
+        if (on === Boolean(state.coverOn)) return;
+        state.coverOn = on;
+        if (on) { app.stop(); state.coverTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / GAL_COVERED_FPS); return; }
+        forkForeground.clearInterval(state.coverTimer); state.coverTimer = null;
+        // Hidden now: the foreground starts it again on return (it only restarts a ticker that was running when it left).
+        if (forkForeground.isForeground()) restart(); else state.coverRestart = true;
+    }
+    const releaseCoverForeground = forkForeground.subscribe(active => { if (active && state.coverRestart) { state.coverRestart = false; if (!state.coverOn) restart(); } });
+    own(releaseCoverForeground,release=>release());
     // A new pixel ratio (another monitor, the zoom) re-renders at it, with the filters retuned, without a reload.
     const releaseResolution = galResolutionSubscribe(() => applyQuality(quality));
     own(releaseResolution,release=>release());
@@ -1187,7 +1215,12 @@ function galCreateScene(host, options, own) {
     return {
         figureRects,
         debug,
-        set(desc) { state.desc = desc; state.changedAt = performance.now(); },
+        set(desc) {
+            const was = state.desc?.covered === true;
+            state.desc = desc; state.changedAt = performance.now();
+            if (desc.covered && !was) state.coverSettle = forkForeground.setTimeout(() => { state.coverSettle = null; setCovered(true); }, GAL_COVER_SETTLE_MS);
+            else if (!desc.covered && was) { forkForeground.clearTimeout(state.coverSettle); state.coverSettle = null; setCovered(false); }
+        },
         // failed figure models and a failed Live2D runtime load try again on
         // the next frame; figures already on stage and the backdrop stay as they are.
         reload() {
@@ -1201,7 +1234,8 @@ function galCreateScene(host, options, own) {
             const errors=[];
             const clean=fn=>{try{fn();}catch(error){errors.push(error);}};
             clean(()=>app.ticker.stop());
-            clean(releaseForeground);clean(releaseResolution);
+            clean(releaseForeground);clean(releaseResolution);clean(releaseCoverForeground);
+            clean(()=>{forkForeground.clearTimeout(state.coverSettle);forkForeground.clearInterval(state.coverTimer);});
             clean(()=>faceBoxObserver?.disconnect());clean(()=>emptyThemeObserver.disconnect());
             if(stageHost){
                 for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])clean(()=>stageHost.removeEventListener(type,onStagePointer,{capture:true}));

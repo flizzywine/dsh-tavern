@@ -34,7 +34,7 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const mixer=createStageMixer({React,fields,reading,voiceRateLimits:[.8,2,.1],audio,Slider,Icon,sounds})
   const text=createStageConfigText({React,fields,reading,limits:{textSpeed:[0,80,2],autoWait:[0,3000,100]},defaults:{textSpeed:28},scale:[70,130,5],scaleOf:(r,id)=>r.textScale[id]||100,themes:[['classic','经典']],Typewriter:()=>null})
   const appearance=createStageConfigAppearance({React,fields,reading,quality,themes:[['classic','经典']],window:dom.window,document,Icon,ResetButton,sounds,frameRate:galFrameRate,handheld:()=>false})
-  const screen=createStageConfigScreen({React,window:dom.window,document,sections:{},rpc:async()=>({mods:[]}),useSounds(){},sounds,Icon,Sound:mixer.Sound,Text:text.Text,Appearance:appearance.Appearance})
+  const screen=createStageConfigScreen({React,window:dom.window,document,sections:{},rpc:async()=>({mods:[]}),useSounds(){},sounds,Icon,Sound:mixer.Sound,Text:text.Text,Appearance:appearance.Appearance,Looks:fields.Looks})
   const root=createRoot(document.getElementById('root'))
   const click=async label=>{const node=[...document.querySelectorAll('button')].find(n=>n.textContent===label||n.getAttribute('aria-label')===label);assert.ok(node,label);await act(async()=>node.click())}
   try {

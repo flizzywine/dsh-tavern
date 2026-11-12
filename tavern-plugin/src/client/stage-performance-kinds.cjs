@@ -80,7 +80,7 @@ const STAGE_PERFORMANCE_CORE = Object.freeze([
     {kind: 'core.event.emote', blocking: false, autoHold: {minMs: 0, until: 'complete'}, regions: ["figures"], backlog: {none: '漫符是那一页台词的表演：履历行就是那一句'}, replay: {stage: true}},
     {kind: 'core.event.beat', blocking: false, autoHold: {minMs: 0, until: 'complete'}, regions: ["screen-effect"], backlog: {none: '画面效果（震动、闪光）是那一页的修饰：履历行就是那一页的正文'}, replay: {stage: true}},
     {kind: 'core.event.trans', blocking: false, autoHold: {minMs: 0, until: 'complete'}, regions: ["scene-transition"], backlog: {none: '转场是换场景的方式，换场后的画面在下一页：履历行就是那一页的正文'}, replay: {stage: true}},
-    {kind: 'core.voice', blocking: false, autoHold: {minMs: 0, until: 'complete'}, regions: [], backlog: {line: {label: '配音'}}, replay: {none: '配音在它那一行的播放按钮上重听，不必重演舞台'}},
+    {kind: 'core.voice', blocking: false, autoHold: {minMs: 0, until: 'complete'}, regions: [], backlog: {line: {label: '配音'}}, replay: {stage: true}},
     {kind: 'core.performance.phase', blocking: false, autoHold: {minMs: 0, until: 'complete'}, regions: ["stage"], backlog: {none: '演出组合是持续的画面状态：回到那一页即按记录显示，不是一条独立的事件'}, replay: {none: '持续状态没有单独的一次性重演；片段导出回放整轮时照常播放'}},
 ].map(row => validateStagePerformanceDeclaration(row, 'core')));
 // whether a ledger one-shot holds the line of its page. kinds: the

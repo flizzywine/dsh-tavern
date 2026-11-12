@@ -27,7 +27,7 @@ button.fork-cfg-icon:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([
 
 /* ---- ValueEditor: one opaque popover (fk-surface popover level); a bottom sheet on a narrow window ---- */
 .ap-ui.fork-cfg-layer { display: contents; }
-.fork-cfg-pop, .fork-cfg-pop.fk-surface.fk-surface { position: fixed; z-index: 10012; box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 12px 14px; border-radius: var(--fork-radius-lg); color: var(--fork-ink); font-family: var(--fork-font-ui, inherit); font-size: var(--fork-fs-body); line-height: 1.5; text-align: left; }
+.fork-cfg-pop, .fork-cfg-pop.fk-surface.fk-surface { position: fixed; z-index: var(--fk-z-cfg-pop); box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 12px 14px; border-radius: var(--fork-radius-lg); color: var(--fork-ink); font-family: var(--fork-font-ui, inherit); font-size: var(--fork-fs-body); line-height: 1.5; text-align: left; }
 /* as specific as the rule above, so the sheet spans the window. */
 .fork-cfg-pop.fk-surface.fk-surface[data-sheet], .fork-cfg-pop[data-sheet] { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 80vh; border-radius: var(--fork-radius-lg) var(--fork-radius-lg) 0 0; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
 /* A field popover (a preview part) is as wide as its control; with the picker / formula box open it takes the full width. */
@@ -69,7 +69,7 @@ button.fork-cfg-icon:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([
 .fork-cfg-pick-field input.fork-cfg-pick-input:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):not([data-cfg-e]):focus { border: 0; box-shadow: none; outline: none; }
 .fork-cfg-pick-input::placeholder { color: var(--fork-ink-3); }
 .fork-cfg-pick-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
-.fork-cfg-drop, .fork-cfg-drop.fk-surface.fk-surface { position: absolute; z-index: 10013; left: -8px; right: -8px; top: calc(100% + 4px); min-width: 260px; padding: 4px; border-radius: var(--fork-radius-lg); }
+.fork-cfg-drop, .fork-cfg-drop.fk-surface.fk-surface { position: absolute; z-index: var(--fk-z-cfg-drop); left: -8px; right: -8px; top: calc(100% + 4px); min-width: 260px; padding: 4px; border-radius: var(--fork-radius-lg); }
 .fork-cfg-pick.is-inline .fork-cfg-drop { position: static; min-width: 0; margin-top: 4px; padding: 0; border-radius: 0; }
 .fork-cfg-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; min-height: 30px; padding: 2px 6px 4px; border-bottom: 1px solid var(--fork-hairline); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
 button.fork-cfg-crumb:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { min-width: 0; height: 24px; min-height: 0; margin: 0; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-meta); }

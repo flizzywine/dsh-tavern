@@ -2,14 +2,15 @@
 // the cast it reads (the figures of the card's 自动生成 pack) in, the next picture out. Nothing here draws or writes.
 //
 // Record: {version:1, misses:{[figure]:{[emotionId]:n}}, lines:{[figure]:n}, jobs:{[jobKey]:{…}},
-// channels:{[channel]:{transparent:false}}}. `figure` is packId/figureId. A job is only kept while it is ready (drawn,
-// not yet landed) or has failed; what is done is read from the cast, never stored twice.
+// channels:{[channel]:{transparent:false}}, drawn:[…]}. `figure` is packId/figureId. A job is only kept while it is ready (drawn,
+// not yet landed) or has failed; what is done is read from the cast, never stored twice. `drawn` keeps every call to the channel
+// (redraws and failures too): what it drew, when, how long it took and, when the channel tells, what it cost.
 
 // The standard emotions in the order a figure's lines use them (gap.md §7: 平和 35.8%, 紧张 20.0%, 喜悦 17.9% …).
 export const AUTO_CAST_EMOTIONS = Object.freeze(['calm', 'anxious', 'joy', 'sad', 'shy', 'crying', 'disgust', 'anger', 'love'])
 const COMMON = 3, MAX_FAILURES = 2, FAILURE_PAUSE_MS = 30 * 60_000
 
-export const emptyAutoCastRecord = () => ({version:1, misses:{}, lines:{}, jobs:{}, channels:{}, cast:{}, same:{}, appearance:{}})
+export const emptyAutoCastRecord = () => ({version:1, misses:{}, lines:{}, jobs:{}, channels:{}, cast:{}, same:{}, appearance:{}, drawn:[]})
 export const figureKey = ref => ref.packId + '/' + ref.figureId
 // One picture: a figure's 人设图, or one emotion's 立绘 (in the outfit it lands in; null = the figure's first outfit).
 export const jobKey = job => JSON.stringify([job.kind, job.ref.packId, job.ref.figureId, job.kind === 'sprite' ? job.emotionId : null])
@@ -31,18 +32,20 @@ export function noteRound(record, requests, cast) {
 
 // The jobs to draw, best first. cast: [{ref, settei:boolean, sprites:[emotionId]}] (the automatic pack's figures);
 // level: late | eager | all; sprites: false while the channel cannot draw a transparent picture. Skipped: a job ready or in
-// flight (`busy`: Set of job keys), or one that failed MAX_FAILURES times in a row, for FAILURE_PAUSE_MS after the last.
+// flight (`busy`: Set of job keys), or one that failed MAX_FAILURES times in a row on this `channel`, for FAILURE_PAUSE_MS after the
+// last (another channel or model tries it at once).
 //   1. What the story asked for and has no picture, by misses; a figure with no 立绘 at all puts its 人设图 and its first
 //      立绘 in front of everything else.
 //   2. (积极 / 全部) The common emotions (平和 → 紧张 → 喜悦) of each figure in turn, the one with more lines first, then the
 //      rest of the standard order. 积极 covers the figures who have spoken (the opening's speakers too); 全部 every figure.
 // A 立绘 is drawn from the figure's 人设图: a figure without one has only its 人设图 planned (the runtime counts a drawn,
 // not yet landed 人设图 as there).
-export function planAutoCast(record, cast, level, {busy = new Set(), sprites = true, now = 0} = {}) {
+export function planAutoCast(record, cast, level, {busy = new Set(), sprites = true, now = 0, channel = null} = {}) {
   const jobs = [], seen = new Set()
   const usable = job => {
     const key = jobKey(job), stored = record.jobs[key]
-    return !seen.has(key) && !busy.has(key) && stored?.status !== 'ready' && !(stored?.status === 'failed' && stored.failures >= MAX_FAILURES && now - stored.at < FAILURE_PAUSE_MS)
+    return !seen.has(key) && !busy.has(key) && stored?.status !== 'ready'
+      && !(stored?.status === 'failed' && stored.channel === channel && stored.failures >= MAX_FAILURES && now - stored.at < FAILURE_PAUSE_MS)
   }
   const add = (figure, emotionId) => {
     const settei = {kind:'identity-settei', ref:figure.ref}
@@ -74,11 +77,13 @@ export function planAutoCast(record, cast, level, {busy = new Set(), sprites = t
 export function jobReady(record, job, file, at) {
   return {...record, jobs:{...record.jobs, [jobKey(job)]:{...job, status:'ready', file, at}}}
 }
-// error: why it failed (its code, else its message), kept with the job for whoever reads the record.
-export function jobFailed(record, job, at, error = null) {
+// error: why it failed (its code, else its message), kept with the job for whoever reads the record; failures count on one channel.
+export function jobFailed(record, job, at, error = null, channel = null) {
   const key = jobKey(job), before = record.jobs[key], reason = error && String(error.code || error.message || error).slice(0, 200)
-  return {...record, jobs:{...record.jobs, [key]:{...job, status:'failed', failures:(before?.status === 'failed' ? before.failures : 0) + 1, at, ...(reason ? {error:reason} : {})}}}
+  return {...record, jobs:{...record.jobs, [key]:{...job, status:'failed', failures:(before?.status === 'failed' && before.channel === channel ? before.failures : 0) + 1, at, channel, ...(reason ? {error:reason} : {})}}}
 }
+// One call to the channel: {kind, ref, emotionId, channel, at, ms, failed?, cost?} (cost as the image entry returns it).
+export const noteDrawn = (record, entry) => ({...record, drawn:[...(record.drawn || []), entry]})
 export function jobsLanded(record, jobs) {
   const next = structuredClone(record)
   for (const job of jobs) {
@@ -92,12 +97,34 @@ export function jobsLanded(record, jobs) {
 export const channelOpaque = (record, channel) => ({...record, channels:{...record.channels, [channel]:{transparent:false}}})
 export const channelDrawsSprites = (record, channel, status) => status?.transparent !== false && record.channels[channel]?.transparent !== false
 
+// The 外貌 of these figures reached their 人物库 record (with their pictures, or deliver after a restart): the record keeps no copy.
+export function looksDelivered(record, keys) {
+  if (!keys.some(key => record.appearance?.[key])) return record
+  const appearance = {...record.appearance}
+  for (const key of keys) delete appearance[key]
+  return {...record, appearance}
+}
+// A round whose speakers the asset library would not write ({at, error}: its code, else its message); the last ones kept.
+export const noteWriteFailure = (record, failure) => ({...record, writeFailures:[...(record.writeFailures || []), failure].slice(-10)})
+
+// What the player sees on 自动素材's page: the latest thing that did not work (the 选角助理, the write to the pack, a
+// picture), unless a picture landed after it (it works again). → {at, kind:'cast'|'write'|'draw', error} | null
+export function autoCastProblem(record) {
+  const rows = [...(record.castFailures || []).map(row => ({...row, kind:'cast'})), ...(record.writeFailures || []).map(row => ({...row, kind:'write'})),
+    ...Object.values(record.jobs || {}).filter(job => job.status === 'failed').map(job => ({at:job.at, kind:'draw', error:job.error || ''}))]
+  const latest = rows.reduce((last, row) => !last || row.at > last.at ? row : last, null)
+  return latest && !(record.drawn || []).some(entry => !entry.failed && entry.at > latest.at) ? {at:latest.at, kind:latest.kind, error:latest.error} : null
+}
+
 // Casting (选角助理): a speaker it found to be an existing figure under another name is never created (`same`, by name); a
 // figure copied from the library is never drawn (`cast[figure] = 'copied'`); the 外貌 it wrote for a new figure waits in
 // `appearance` until the figure's 人物库 record exists and takes it.
 export const castDrawn = (record, figure) => record.cast?.[figureKey(figure.ref)] !== 'copied'
-export function noteCasting(record, entries, same = {}) {
-  const next = {...record, same:{...record.same, ...same}, cast:{...record.cast}, appearance:{...record.appearance}}
+// failure: why the 选角助理 did not decide this round ({at, error}); its speakers were then all created new. The last ones are
+// kept for whoever reads the record (the fallback alone would hide a broken assistant).
+export function noteCasting(record, entries, same = {}, failure = null) {
+  const next = {...record, same:{...record.same, ...same}, cast:{...record.cast}, appearance:{...record.appearance},
+    ...(failure ? {castFailures:[...(record.castFailures || []), failure].slice(-10)} : {})}
   for (const entry of entries) if (entry.ref) {
     const key = figureKey(entry.ref)
     if (entry.copied) next.cast[key] = 'copied'

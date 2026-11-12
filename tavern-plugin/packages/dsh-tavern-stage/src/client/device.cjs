@@ -7,11 +7,14 @@ const subscriptions = new Set();
 // correctly without a new command and without rewriting anything.
 //
 // Profiles, from the stage's existing breakpoints (the compact CONFIG sheet, gal-config.js, and the stage's
-// ≤ 640px layout in theme.css): a short touch screen is a phone held sideways; otherwise a narrow viewport is a
-// phone held upright; everything else is desktop.
+// ≤ 640px and 641-1024px layouts in theme.css): a short touch screen is a phone held sideways; otherwise a narrow viewport
+// is a phone held upright, a viewport up to 1024px a tablet (or a narrow window); everything else is desktop.
+// The stage root carries the profile (data-fk-device): theme.css keys the reading minimums on it, and a skin's own
+// per-device override (skin devices.mobile / devices.pc, galDeviceSkinSide) is picked by it - skin-interface.md §13.1.
 const GAL_DEVICE_QUERIES = Object.freeze({
     "mobile-landscape": "(max-height: 520px) and (pointer: coarse)",
-    "mobile-portrait": "(max-width: 640px)"
+    "mobile-portrait": "(max-width: 640px)",
+    "tablet": "(max-width: 1024px)"
 });
 // The one table: presentation command -> what it renders as, per profile. A command absent here looks the same everywhere.
 //   camera.close: the close-up (gal-scene.js galCloseFrame), or the normal shot - on an upright phone the full
@@ -29,6 +32,10 @@ function galDeviceProfile() {
 // galResolution) to spare a phone's battery.
 function galDeviceHandheld() {
     return galDeviceProfile().startsWith("mobile") && matchMedia("(pointer: coarse)").matches;
+}
+// The skin's side of a profile: phones are mobile, tablets and desktops are pc (the wide stage's art).
+function galDeviceSkinSide(profile) {
+    return profile.startsWith("mobile") ? "mobile" : "pc";
 }
 function galDeviceSubscribe(changed) {
     if (disposed || typeof matchMedia !== "function") return () => {};
@@ -67,7 +74,7 @@ function galDeviceState(state, profile) {
     return state;
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, dispose() {
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

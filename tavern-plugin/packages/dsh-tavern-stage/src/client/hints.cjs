@@ -1,5 +1,5 @@
 'use strict';
-function createStageHints({React, window, document, storage:forkFrameStorage, music, setTimeout, clearTimeout}) {
+function createStageHints({React, window, document, storage:forkFrameStorage, music, voice, setTimeout, clearTimeout}) {
 let disposed = false;
 const cleanups = new Set();
 // A touch screen (GAL_TOUCH_QUERY: no hover, coarse pointer) has no keys: the key list is never rendered there, nor marked seen.
@@ -14,11 +14,15 @@ function galTouchSubscribe(changed) {
 }
 const GAL_KEYS_HINT = 'stage-shortcuts';
 let galSoundHintShown = false;
+const galNoSubscribe = () => () => {}, galNotBlocked = () => false;
 function useGalFirstRunHints(visible, rootRef, position) {
     const store = typeof forkFrameStorage === 'object' && forkFrameStorage && typeof forkFrameStorage.seen === 'function' ? forkFrameStorage : null;
     const [keyList, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
     const touch = React.useSyncExternalStore(galTouchSubscribe, galTouchOnly, () => false), keys = keyList && !touch;
-    const blocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
+    // The one 「点任意处开启声音」 notice: the autoplay policy holds back the BGM or a line's voice (the pack voice player).
+    const musicBlocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
+    const voiceBlocked = React.useSyncExternalStore(voice?.subscribe || galNoSubscribe, voice?.blocked || galNotBlocked, () => false);
+    const blocked = musicBlocked || voiceBlocked;
     React.useEffect(function () {
         if (!visible || !store) return undefined;
         let live = true;
@@ -34,6 +38,7 @@ function useGalFirstRunHints(visible, rootRef, position) {
         const swallow = event => { event.stopPropagation(); event.preventDefault(); };
         function dismiss(event) {
             if (disposed) return;
+            if ((event.type === 'pointerdown' || event.key === 'Enter' || event.key === ' ') && event.target?.closest?.('.fork-stage-skin-button[data-action="keys"]')) return;
             if (keys) store.markSeen(GAL_KEYS_HINT);
             setKeys(false); setSoundGone(true);
             const target = event.target, root = rootRef.current;
@@ -56,7 +61,8 @@ function useGalFirstRunHints(visible, rootRef, position) {
         if (shownAt.current !== position) { if (store) store.markSeen(GAL_KEYS_HINT); setKeys(false); }
     }, [keys, position]);
     const showKeys = React.useCallback(() => setKeys(true), []);
-    return React.useMemo(() => ({ keys, sound, touch, showKeys }), [keys, sound, touch, showKeys]);
+    const toggleKeys = React.useCallback(() => setKeys(shown => { if (shown && store) store.markSeen(GAL_KEYS_HINT); return !shown; }), []);
+    return React.useMemo(() => ({ keys, sound, touch, showKeys, toggleKeys }), [keys, sound, touch, showKeys, toggleKeys]);
 }
 return {useHints:useGalFirstRunHints, dispose() { if (disposed) return; disposed = true; const errors = []; for (const cleanup of [...cleanups]) { try {cleanup();} catch (error) {errors.push(error);} } cleanups.clear(); if (errors.length) throw new AggregateError(errors, 'Stage hint cleanup failed'); }};
 }

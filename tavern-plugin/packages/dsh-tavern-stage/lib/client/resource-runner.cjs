@@ -1,6 +1,6 @@
 'use strict';
 
-function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained}) {
+function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained, packFigureStill = () => undefined}) {
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
 const stageResourceErrorText = stageRuntimeErrorText;
 // conflicts that resolve on a re-read (the stage moved on, a lease went stale).
@@ -43,13 +43,14 @@ function stageResourceDescriptors(value, seen) {
     return out;
 }
 
-// Faces use avatar media, never the portrait's unused sprite/mouth catalogue.
+// Faces use avatar media, never the portrait's unused sprite/mouth catalogue. still: the speaker's whole static picture
+// (packFigureStill: hash and head box, no descriptor - nothing pinned) for a skin whose portrait source lists sprite.
 function stageAvatarResources(value) {
     return (value || []).map(figure => figure.media?.avatar ? {
         alias:figure.alias,ref:figure.ref,revision:figure.revision,outfitKey:figure.outfitKey,
         avatarOutfitKey:figure.avatarOutfitKey,avatarStateId:figure.avatarStateId,state:{id:figure.state?.id},
         avatarCrop:figure.avatarCrop,avatarUrl:figure.avatarUrl,media:{avatar:figure.media.avatar},
-        views:{stage:false,portrait:true},form:'avatar'
+        views:{stage:false,portrait:true},form:'avatar',still:figure.still === undefined ? packFigureStill(figure) : figure.still
     } : figure);
 }
 
@@ -777,7 +778,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         ]), () => owner.dispose()]);
     }};
 }
-return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
+return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageResourceDescriptors, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
 }
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageResourceRunnerModule};

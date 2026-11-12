@@ -187,8 +187,9 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
     }
     // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
     // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the
-    // page needs from the core travel as the stage view options (gal-stage.js bindStageViews, globalSettings).
-    const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry};
+    // page needs from the core travel as the stage view options (gal-stage.js bindStageViews, globalSettings);
+    // TavernSettingRow and Switch draw the four-state 基础设置 switches.
+    const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, Switch};
     function TavernStageSettingsSection() {
         const h = React.createElement;
         React.useEffect(() => galStageHold(), []);

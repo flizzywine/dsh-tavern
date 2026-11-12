@@ -1,4 +1,31 @@
-function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, CubismCoreEntry, SpineRuntimeEntry, ForkModManagerEntry}) {
+function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, CubismCoreEntry, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, Switch}) {
+    // 对话气泡 / 舞台模式's global layer (engine stageToggles, default off); a card's 本卡开启 / 本卡关闭 lives on its 舞台设置 and wins
+    // (card-stage-settings.js effectiveCardStage). 舞台模式 needs 对话气泡, like the card page.
+    function GlobalStageSwitches() {
+        const h = React.createElement;
+        const [engine, setEngine] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+        React.useEffect(() => {
+            let active = true;
+            rpc("getAssetEngineSettings").then(value => { if (active) setEngine(value); }, err => { if (active) setError("读取失败：" + err.message); });
+            return () => { active = false; };
+        }, []);
+        async function save(key, value) {
+            setBusy(true); setError("");
+            const write = current => rpc("saveAssetEngineSettings", { expectedRevision: current.revision, patch: { stageToggles: { [key]: value } } });
+            try {
+                try { setEngine(await write(engine)); }
+                catch (err) { if (err?.code !== "REVISION_CONFLICT") throw err; setEngine(await write(await rpc("getAssetEngineSettings"))); }
+            } catch (err) { setError("保存失败：" + err.message); }
+            finally { setBusy(false); }
+        }
+        const toggles = engine?.values?.stageToggles, dialogue = toggles?.dialogue === true;
+        const row = (key, title, text, blocked) => h(TavernSettingRow, { key, title, help: text },
+            h(Switch, { label: title, disabled: !engine || busy || engine.writable === false || blocked, checked: toggles?.[key] === true, onChange: value => save(key, value) }));
+        return h(React.Fragment, null,
+            row("dialogue", "对话气泡", "带舞台设置的卡默认是否用带头像的对话气泡显示正文。单张卡可在它的舞台设置里改为本卡开启或本卡关闭；普通人物卡不受影响。"),
+            row("stage", "舞台模式", dialogue ? "带舞台设置的卡默认是否打开舞台（立绘、背景、音乐和演出）。单张卡可在它的舞台设置里改为本卡开启或本卡关闭。" : "先打开对话气泡", !dialogue),
+            error ? h("p", { className: "dsh-tavern-gs-notice is-alert", role: "alert" }, "⚠ " + error) : null);
+    }
     function StageModelSettings() {
         const h = React.createElement;
         const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
@@ -26,6 +53,7 @@ function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernMod
     function TavernStageSettingsSection() {
         const h = React.createElement;
         return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+            h(SettingsGroup, {title:"基础设置"}, h(GlobalStageSwitches)),
             h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
             h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
             // the optional runtimes, the same entries as the model previews.

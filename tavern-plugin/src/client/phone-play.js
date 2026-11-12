@@ -59,9 +59,12 @@ function phoneModMenuKeys(event) {
     items[next].focus();
 }
 
-// The ⋯ menu's phone-play page: the moved top-bar entries, then 导出… (its own items), then the readout row.
+// The ⋯ menu's phone-play page: the moved top-bar entries, then 导出… (its own items), then the readout row. The stage rows
+// (舞台, BGM) are there only when the host says this card's stage is on (the session view's `stage`, never recomputed here),
+// and each sits in its own stage boundary, so a stage failure leaves the rest of the menu.
 function PhonePlayMoreItems(props) {
     const h = React.createElement;
+    const live = useLiveTavernView(props.sessionId), stage = live && live.view && live.view.stage && live.view.stage.stage === true;
     const [view, setView] = React.useState("main");
     React.useEffect(function () { if (!props.open) setView("main"); }, [props.open]);
     if (view === "export") return h(React.Fragment, null,
@@ -71,9 +74,9 @@ function PhonePlayMoreItems(props) {
     return h(React.Fragment, null,
         h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "status", onClick: function () { props.openStatus(); } }, phoneModIcon("status"), "酒馆状态"),
         // The stage entries render their own header buttons (one implementation each); here they are menu rows.
-        h(GalStageToggle, { sessionId: props.sessionId }),
+        stage ? tavernStageBoundary("舞台按钮", h(GalStageToggle, { key: "stage:" + props.sessionId, sessionId: props.sessionId })) : null,
         h(CardStageToggle, { sessionId: props.sessionId }),
-        h(BgmChat, { sessionId: props.sessionId, menu: true }),
+        stage ? tavernStageBoundary("背景音乐", h(BgmChat, { key: "bgm:" + props.sessionId, sessionId: props.sessionId, menu: true })) : null,
         h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "fullscreen", onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-play-chrome", { detail: "toggle" })); } },
             phoneModIcon(full ? "exitFullscreen" : "fullscreen"), full ? "退出全屏" : "全屏"),
         h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "export", "data-keep-open": "", "aria-haspopup": "menu", onClick: function () { setView("export"); } }, phoneModIcon("export"), "导出…"),

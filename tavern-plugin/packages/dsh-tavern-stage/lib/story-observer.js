@@ -1,5 +1,27 @@
 import {roundBody, streamTailClosed} from '../../../lib/domain/round-body.js'
 
+// Only the existing commit event admits automatic writes. Reads and saved projections
+// (including opening recovery) deliberately have no path to this writer.
+// afterRound(chat): the round's automatic figures are written (or nothing was to write); 自动选角 takes the round from here.
+// deferred(chat): 自动选角 handles this card's new speakers itself (it decides before anything is created), so they are left to it.
+export function registerAutoFigureObserver({storyEvents, chatHeaderForSession, dialogueBubbles, readStageChat, bodyForTurn, getLibrary, afterRound = async () => {}, deferred = async () => false, onError}) {
+  let active = true, loading, writer
+  const off = storyEvents.on('reply-committed', '登记气泡人物', async ({sessionId}) => {
+    const header = await chatHeaderForSession(sessionId, ['cardPath'])
+    if (!active || !header?.cardPath || !(await dialogueBubbles.read(header.cardPath))?.enabled) return
+    const chat = await readStageChat(sessionId)
+    if (!active || !chat) return
+    loading ||= import('./auto-figure.js').then(({createAutoFigureWriter}) => {
+      if (!active) return
+      writer = createAutoFigureWriter({getLibrary, dialogueBubbles, readCurrent:chat => readStageChat(chat.sessionId), bodyForTurn, onError})
+      return writer
+    })
+    if (!await deferred(chat)) await (await loading)?.committed(chat)
+    if (active) await afterRound(chat)
+  })
+  return () => {active = false; off(); writer?.dispose()}
+}
+
 // Stage-owned adapter. Core saves and streams know only optional observers.
 export function createStageStoryObserver({settlementQueued, modService, stageDirector, chatPersistence,
   chatHeaderForSession, dialogueBubbles, readStageChat, readReplyPrefix, activeRoundBodies}) {

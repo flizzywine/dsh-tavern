@@ -38,10 +38,9 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
             const state = store?.getSnapshot(), handles = [];
             const config = state?.settings?.config;
             const latest = state?.latestSource?.turn;
-            // While this session's stage is entering, its own first-page window (gal-stage.js) is the only voice
-            // needed: the rest of the latest body would take the entry's connections. It warms once the entry is shown.
-            const entering = entry.hasDisplay() && entry.shown.get() !== store;
-            const turns = new Set(latest === undefined || entering ? [] : [latest]);
+            // Sealed latest dialogue is latency-sensitive, not speculative history. The voice player's two
+            // workers bound synthesis; entry readiness and the reader's page must never gate this queue.
+            const turns = new Set(latest === undefined ? [] : [latest]);
             // Historical lookahead waits for reveal; sealed lines in the latest body can warm immediately.
             if (state?.opened && state.source && entry.shown.get() === store) {
                 turns.add(state.source.turn);

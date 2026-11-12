@@ -23,6 +23,9 @@ export function storyRoundMessages(messages, turn, count = CALL_STORY_ROUNDS) {
   return [...rounds.values()]
 }
 
+// The relay's host adapter, re-exported so the stage host reaches the phone's call context through one module.
+export {createPhoneRelayHost} from './relay-host.js'
+
 /** One round's phone messages: each mark through `para`, with the text of the paragraph it marks. */
 export function roundPhoneMessages(turn, record, paragraphs, para) {
   return (record?.entries || []).flatMap(entry => para && entry.at > para ? [] : (entry.ops || []).filter(phoneMark).map(op => ({kind:'message', turn, para:entry.at, params:op.params, text:paragraphs[entry.at - 1]?.text || ''})))
@@ -55,6 +58,10 @@ export function createCallSections({promptSection}) {
     const body = rounds.filter(row => row.text.trim()).map(row => label(row.turn) + (row.input.trim() ? '\nPlayer: ' + row.input.trim() : '') + '\n' + row.text.trim()).join('\n\n')
     return body ? promptSection('call_recent_story', '- The latest story rounds, in full, up to this call. You know these events; do not retell them on the call.\n\n' + body) : ''
   }
+  // Summary relay on (experimental): the read-only source tools, and the summary of the rounds before the raw window.
+  const callRelayTools = () => promptSection('call_source_tools', '- You can look up the original text of earlier story rounds (tavern_recall_history) and of your own calls (tavern_read_source). Use them only when you really need an exact detail the summary does not give; never mention them on the call.')
+  const callEventsSection = text => promptSection('phone_events', '- Phone records that ended since the last round:\n\n' + text)
+  const callRelaySummary = text => text.trim() ? promptSection('call_story_summary', '- Summary of the story before the rounds below, by round, source and participants. Each person knows only what they took part in or were told.\n\n' + text.trim()) : ''
   /**
    * Every phone record of the story as it now stands, in story order: round, then page (a call dialled without a page
    * came at the end of its round), then start time. calls: [{contactId, call}] (visible calls of every contact);
@@ -81,5 +88,5 @@ export function createCallSections({promptSection}) {
     ].sort((a, b) => a.turn - b.turn || (a.para ?? Infinity) - (b.para ?? Infinity) || a.at - b.at || a.id.localeCompare(b.id))
     return rows.length ? promptSection('call_phone_records', '- Every phone record of this story so far, in story order, each labelled with the round (and page) it happened at. ' + contact + ' knows only the records they took part in, unless the story says she was told.\n\n' + rows.map(row => row.text).join('\n\n')) : ''
   }
-  return Object.freeze({callRecognitionContext, callRoundWorldbook, callStorySection, callPhoneRecords})
+  return Object.freeze({callRecognitionContext, callRoundWorldbook, callStorySection, callRelayTools, callEventsSection, callRelaySummary, callPhoneRecords})
 }

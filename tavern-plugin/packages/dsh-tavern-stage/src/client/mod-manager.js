@@ -12,6 +12,8 @@
 // managedModApply commits. The client never resolves dependencies itself.
 
 // The one checked choice of a switch (and the words on the tag): the card key when set, else the global switch.
+// The one word->colour key: 全局开启 blue / 本卡开启 green / either 关闭 grey (theme.css [data-sw]).
+function modSwitchTone(word) { return word === '全局开启' ? 'global' : word === '本卡开启' ? 'card' : 'off'; }
 function modSwitchWord(global, card) { return card === 'off' ? '本卡关闭' : card === 'on' ? '本卡开启' : global === true ? '全局开启' : '全局关闭'; }
 const modSwitchOn = (global, card) => card !== 'off' && (global === true || card === 'on');
 // The host's dependency reasons in player words.
@@ -110,11 +112,11 @@ function ModConfirmation({ confirmation: c, nameOf, onAnswer }) {
 const MOD_SWITCH_CHOICES = [['全局开启', 'global', true], ['全局关闭', 'global', false], ['本卡开启', 'card', 'on'], ['本卡关闭', 'card', 'off']];
 function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) {
   const { global, card } = switches || {}, word = modSwitchWord(global, cardScoped ? card : undefined);
-  const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
-    h('span', { className: 'ap-state-label' }, label), checked && h('span', { className: 'ap-state-check' }, h(Glyph, { name: 'check' }))); };
+  const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', 'data-sw': modSwitchTone(label), onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
+    h('i', { className: 'ap-state-lamp', 'data-state': modSwitchTone(label), 'aria-hidden': true }), h('span', { className: 'ap-state-label' }, label), checked && h('span', { className: 'ap-state-check' }, h(Glyph, { name: 'check' }))); };
   const closeMenu = React.useRef(null);
   return h(Popover, { label: name + ' 开关', className: 'fork-mod-switch-anchor', stopClicks: true,
-    trigger: ({ toggle, open }) => h('button', { type: 'button', className: 'fork-mod-switch', 'data-on': switches?.effective || undefined, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
+    trigger: ({ toggle, open }) => h('button', { type: 'button', className: 'fork-mod-switch', 'data-sw': modSwitchTone(word), 'data-on': switches?.effective || undefined, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
         'aria-label': name + '：' + word + '，更改', disabled: busy || disabled || undefined, onClick: toggle },
       busy ? h(Spinner, { key: 'busy' }) : null, h('span', null, word), h(Glyph, { name: 'chevDown' })),
     content: close => { closeMenu.current = close; return h('div', { role: 'group', 'aria-label': name + ' 开关', className: 'fork-mod-switch-group' }, (cardScoped ? MOD_SWITCH_CHOICES : MOD_SWITCH_CHOICES.slice(0, 2)).map(item)); } });

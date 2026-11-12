@@ -4,13 +4,14 @@ import {readFile} from 'node:fs/promises'
 import {checkPurchaseConfirmation} from './image-billing-confirmation.js'
 import {cropAssetBackground, checkAssetImage, sliceAssetAvatarSheet, alignAssetSprite, assertSpriteCutout} from './asset-image-processing.js'
 import {assetSheetEmotionIds} from './asset-generation-emotions.js'
+import {imageCost, addCost} from './asset-generation-cost.js'
 import spriteEmotions from '../../shared/sprite-emotions.cjs'
 import {validateUuid, validateHash, validateShortId, validateStateId} from '../../packages/dsh-asset-library/lib/asset-packs/common.js'
 import {validateIdentitySettei} from '../../packages/dsh-asset-library/lib/asset-packs/identity-settei.js'
 import {PACK_GEN_STYLES} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
 
-const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json'
+const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const clone = value => structuredClone(value)
 import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, ASSET_STYLE_DEFAULT, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
@@ -151,11 +152,20 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
   const readPrompts = async () => await store.readJson(PROMPTS) || {revision:0,overrides:{}}
-  const promptView = async ({revision, overrides}) => ({revision, kinds:await Promise.all(ASSET_PROMPT_KINDS.map(async kind => {
+  // cost: what every picture drawn so far cost (asset-generation-cost.js), shown beside the prompts in 设置 → 舞台 → 素材生图.
+  const promptView = async ({revision, overrides}) => ({revision, cost:await store.readJson(COSTS) || null, kinds:await Promise.all(ASSET_PROMPT_KINDS.map(async kind => {
     const base = await readTemplate(kind)
     return {kind, text:overrides[kind] ?? base, edited:Object.hasOwn(overrides, kind), required:slotsOf(base)}
   }))})
   const library = () => { const service = getLibrary(); assert(service, 'ASSET_UNAVAILABLE', '舞台素材未启用'); return service }
+  // A received picture is paid for whatever happens to it next: price it (from the reply's usage, else the request) and add it to the total.
+  async function charge(reply, model, request) {
+    // request.references are the pictures sent; only an estimate needs their sizes.
+    const sizes = reply.usage ? [] : request.references.map(({data}) => { const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength); return imageDimensions(bytes, imageKind(bytes)) })
+    const cost = imageCost({model:reply.model ?? model, usage:reply.usage, request:{...request, references:sizes}})
+    await store.updateJson(COSTS, total => addCost(total ?? undefined, cost, now())).catch(() => {})
+    return cost
+  }
   async function initialize() {
     if (jobs) return
     jobs = await store.readJson(INDEX) || {}
@@ -217,6 +227,10 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const [width, height] = plan.output.size.split('x').map(Number)
       const reply = await plan.source.generate({prompt:plan.prompt, references:plan.images, width, height,
         background:plan.output.background, quality:plan.output.quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)])})
+      if (reply?.data instanceof Uint8Array) {
+        const {usd, estimated, model} = await charge(reply, plan.provider.model, {prompt:plan.prompt, width, height, quality:plan.output.quality, references:plan.images})
+        job.cost = {usd, estimated, model}
+      }
       if (controller.signal.aborted) return
       assert(reply?.data instanceof Uint8Array && reply.data.length <= 20 * 1024 ** 2, 'INVALID_ARGUMENT', '生图渠道没有返回有效图片')
       const result = {data:Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), mediaType:String(reply.mediaType || '')}
@@ -253,10 +267,10 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(input.preview === true || plans.size < 8 && Object.keys(jobs).length < 128 && Object.values(jobs).filter(j => ['running','candidate','save_failed'].includes(j.status)).length < 32, 'LIMIT_EXCEEDED', '请先丢弃候选或等待记录到期')
       const target = targetInput(input.target), pack = await snapshot(target, input.expectedRevision), ctx = context(pack,target), followUp = followUpInput(input.followUp, target)
       if (target.kind === 'avatar-sheet') target.emotionIds = ctx.emotions.map(emotion => emotion.id)
-      // A figure linked to the 配图 人物库 draws from that record's 外貌; empty views keep the pack text.
+      // 方案甲: a figure's 外貌 lives only in its 配图 人物库 record; without one the prompt has no 外貌 text.
       const linked = ctx.figure && await linkedAppearance({packId:target.packId, figureId:target.figureId, outfitKey:target.outfitKey})
-      if (linked?.identityAppearance) ctx.figure = {...ctx.figure, identityAppearance:linked.identityAppearance}
-      if (linked?.outfitAppearance && ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked.outfitAppearance}
+      if (ctx.figure) ctx.figure = {...ctx.figure, identityAppearance:linked?.identityAppearance || ''}
+      if (ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked?.outfitAppearance || ''}
       if(target.imageId)assert(ctx.outfit.sprite?.imagePools?.[target.emotionId]?.imageIds.includes(target.imageId),'TARGET_CHANGED','Selected image is no longer an active candidate')
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.
@@ -424,9 +438,23 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         try { reply = await source.generate({prompt, references:images, width, height, background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
         catch (error) { failed(error?.message, error?.requestMayHaveSucceeded !== false) }
         if (!(reply?.data instanceof Uint8Array) || reply.data.length > 20 * 1024 ** 2) failed('生图渠道没有返回有效图片', true)
-        return {data:reply.data, mediaType:String(reply.mediaType || '')}
+        return {data:reply.data, mediaType:String(reply.mediaType || ''), ...(reply.provider!==undefined?{provider:reply.provider}:{}), ...(reply.model!==undefined?{model:reply.model}:{}),
+          cost:await charge(reply, status.model, {prompt, width, height, quality, references:images})}
       } finally { controllers.delete(key) }
     },
+    // 自动选角 (auto cast): the prompt and output of one automatic picture, from the same editable templates as
+    // the asset pictures (设置 → 生图). figure {ref, name, emotions}: its 外貌 is its 配图 人物库 record's (方案甲), else `appearance`
+    // (the text the 选角助理 wrote, before the record has it). fromSettei: the one image sent is the figure's 人设图.
+    async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', style = ASSET_STYLE_DEFAULT}) {
+      assert(['identity-settei','sprite'].includes(kind), 'INVALID_ARGUMENT', '未知素材类型')
+      const own = (await readPrompts()).overrides[kind], linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
+      const emotion = emotionId === undefined ? undefined : matchBubbleMood(emotionId, figure.emotions || []) || figure.emotions?.find(row => row.id === emotionId)
+      const values = assetPromptValues({kind, style, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
+        emotion, userPrompt, references:fromSettei ? [{role:roles.identity}] : []})
+      return {prompt:composeAssetPrompt(own ?? await readTemplate(kind), values), output:assetOutput(kind)}
+    },
+    // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
+    autoCheck: (data, kind) => checkAssetImage(data, kind),
     // 设置 → 生图: every kind's effective text, whether it is edited, and the {{slots}} an edit must keep.
     prompts: () => serial(async () => promptView(await readPrompts())),
     // One kind, CAS on the file's revision. `text: null`, or the default's own text, removes the override.

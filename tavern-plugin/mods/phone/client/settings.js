@@ -5,6 +5,11 @@
 // (phone-settings.js), the same two layers; this page keeps what is not the phone's look:
 // 状态来源, the date / weekday bindings and 联系人 (card content).
 const PHONE_APP_SETTINGS = new Set(['photos', 'wallpaper', 'accentColor', 'surfaceColor', 'bodyColor', 'cutout', 'statusBar', 'clockText', 'carrier', 'signal', 'battery', 'sound']);
+// 摘要中转（实验）: its own section; the switch is off by default and a card inherits the global layer until it sets its own.
+const PHONE_RELAY_KEYS = ['summaryRelay'];
+const PHONE_RELAY_HELP = {
+    summaryRelay: '实验功能。开启后手机通话的上下文由摘要中转站整理；需要先开启手机。全局开启时，本卡可以单独关闭，本卡关闭优先。'
+};
 // The phone's contacts. exactly the stage's — the stage source's /contacts
 // (mod-config-host.js: the enabled figures of the card's packs through the one figure catalogue, keyed by the actor
 // key the stage uses), each with its figure ref for the face. Without them (no card): the stage's characters of an open
@@ -93,7 +98,7 @@ function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, e
     const [editing, setEditing] = React.useState(false), opener = React.useRef(null);
     React.useEffect(() => { config.needSources(); }, []);
     const contacts = phoneModContacts(config, characters);
-    const listed = config.data ? Array.from(config.fields.keys()).filter(key => key !== 'contacts' && !PHONE_APP_SETTINGS.has(key)) : [];
+    const listed = config.data ? Array.from(config.fields.keys()).filter(key => key !== 'contacts' && !PHONE_APP_SETTINGS.has(key) && !PHONE_RELAY_KEYS.includes(key)) : [];
     const own = config.data && cfgOwn(config.data[config.layerFor('contacts')], 'contacts');
     const renamed = contacts.filter(contact => phoneModContactView(config, files, contact).overridden).length;
     return h('div', { className: 'fork-cfg-page fork-phone-page', 'data-compact': true },
@@ -104,6 +109,8 @@ function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, e
                     onClick: () => setEditing(open => !open) }, contacts.length ? contacts.length + ' 人' + (renamed ? ' · 改了 ' + renamed + ' 人' : '') : '还没有人物'),
                 own ? h(OverrideDot, { layer: config.layerFor('contacts') }) : null) : null,
             editing ? h(PhoneContactsEditor, { config, files, contacts, faceOf, anchor: opener.current, placement: 'below', onClose: () => setEditing(false) }) : null),
+        config.data ? h(StageSection, { title: '摘要中转（实验）', help: '手机通话的上下文改由摘要中转站整理；需要先开启手机。全局与本卡各有一层，本卡关闭优先。', foldKey: 'mod:dsh.phone/relay', className: 'fork-mod-settings' },
+            h(CfgList, { rpc, config, keys: PHONE_RELAY_KEYS, help: PHONE_RELAY_HELP })) : null,
         entries || null);
 }
 modClients.register('dsh.phone', { settings: PhoneConfigPage });

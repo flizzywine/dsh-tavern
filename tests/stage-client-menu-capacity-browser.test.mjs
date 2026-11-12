@@ -68,8 +68,9 @@ const look=(page,id)=>page.locator(`.fork-gal-menu-item[data-item="${id}"]`).eva
 })
 // read after the list's scroll event has marked its edges (two frames)
 const boxes=async page=>{await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));return page.evaluate(()=>{
-  const list=document.querySelector('.fork-gal-menu-list'),area=list.getBoundingClientRect()
-  return {area:{top:area.top,bottom:area.bottom,left:area.left,right:area.right},more:list.dataset.more || '',
+  // the rows' view: the list inside its padding (a rows.fit list reaches round its fit, uncut while nothing scrolls past an edge)
+  const list=document.querySelector('.fork-gal-menu-list'),area=list.getBoundingClientRect(),pad=getComputedStyle(list),px=v=>parseFloat(v)||0
+  return {area:{top:area.top+px(pad.paddingTop),bottom:area.bottom-px(pad.paddingBottom),left:area.left+px(pad.paddingLeft),right:area.right-px(pad.paddingRight)},more:list.dataset.more || '',
     rows:[...list.querySelectorAll('.fork-gal-menu-item')].map(el=>{const box=el.getBoundingClientRect(),style=getComputedStyle(el)
       return {id:el.dataset.item,placed:style.position==='absolute',top:box.top,bottom:box.bottom,left:box.left,right:box.right,height:box.height}}),
     indicators:[...document.querySelectorAll('.fork-gal-menu-more')].filter(el=>getComputedStyle(el).display!=='none').map(el=>el.dataset.edge)}

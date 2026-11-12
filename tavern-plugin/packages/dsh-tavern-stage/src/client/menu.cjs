@@ -100,7 +100,9 @@ function GalMenu(props) {
         // keep the focused row in view when the list scrolls (only the list moves, never the stage; a placed tile stays put)
         const list = listRef.current;
         if (node && list && node.parentNode === list && list.scrollHeight > list.clientHeight && window.getComputedStyle(node).position !== "absolute") {
-            const box = node.getBoundingClientRect(), view = list.getBoundingClientRect();
+            // the rows' view: the list inside its padding (a rows.fit list's reach round its fit, themes.css)
+            const box = node.getBoundingClientRect(), rect = list.getBoundingClientRect(), style = window.getComputedStyle(list);
+            const view = { top: rect.top + parseFloat(style.paddingTop), bottom: rect.bottom - parseFloat(style.paddingBottom) };
             if (box.top < view.top) list.scrollTop -= view.top - box.top;
             else if (box.bottom > view.bottom) list.scrollTop += box.bottom - view.bottom;
         }
