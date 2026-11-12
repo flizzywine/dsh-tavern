@@ -1,6 +1,14 @@
 # DSH Tavern Image
 
 
+## 3.15.0 生图扩展接口
+
+- 人物库支持按快照删除、解除素材人物关联，以及读取库中参考图。
+- 同名或相同触发词指向不同人物时，避免把多个人的外貌混入同一张图。
+- 外部插件可登记只读画风预设，在设置中选择，或通过 `promptPreset` 为单次生图指定；在线渠道和 ComfyUI 共用选择规则。
+- 宿主可在规划前、每张图提交前等待资料就绪；每张图独立等待，放行后读取最新资料，支持跳过和取消。
+- 保留现有 ComfyUI 素材任务引擎和用量返回，并补充组合回归检查。
+
 ## 3.14.0 本机界面与模式更新
 
 - 首次使用默认进入世界书模式；生图工作台作为高级模式手动切换，已有模板和资料保留。
@@ -551,7 +559,7 @@ Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图�
 
 ## 兼容与许可
 
-当前 Tavern 内置生图插件版本为 **3.14.0**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
+当前 Tavern 内置生图插件版本为 **3.15.0**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
 
 在 DSH 0.2.1-rc.2 + Tavern 3.0.0 上核对过：插件 bundle 正常加载（宿主加载器返回 0 个被跳过的包），本插件调用的 14 个 Tavern 接口（`attach`、`update`、`remove`、`list`、`getTurn`、`readTurnData`、`saveTurnData`、`promptSection`、`onTurnSettled`、`onGameRemoved`、`onTimelineChanged`、`getCardContext`、`backgroundModel`、`apiVersion`）在 Tavern 3.0 中全部保留，3.0 相对 2.7 的接口变化是纯新增（例如 `versionSignal`）。
 
