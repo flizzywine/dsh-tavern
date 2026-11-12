@@ -1,6 +1,7 @@
 import { helperGenerationHistory, validateHelperGenerateConfig } from '../domain/helper-generation-prompts.js'
 import { defaultOrderedRawConfig, generateHelper, generateHelperCompletion, generateHelperRaw } from '../domain/helper-generation.js'
 import { sanitizeRuntimeDiagnostics } from '../domain/mvu-diagnostics.js'
+import { hasMvuVisibilityRules, restoreHiddenMvuStatData } from '../domain/mvu-visibility.js'
 import { hydrateTavernHelperMessages } from '../domain/tavern-helper-context.js'
 import { recordVariableUpdate } from '../domain/variable-update.js'
 import { estimateWorldBookTokens } from '../domain/worldbook-activation.js'
@@ -56,10 +57,39 @@ export function createTemplateHandlers(deps) {
       return await tavernScriptHostAdapter.updatePrompts(args && args.sessionId, args && args.operation, args && args.expectedLifecycleRevision, args && args.eventId)
     },
     async updateTavernHelperVariables(args) {
-      const result = await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, args && args.variables, args && args.expectedLifecycleRevision, args && args.eventId, args && args.contextBaseline)
+      let incomingVariables = args && args.variables
+      let variableUpdate = args && args.variableUpdate
+      // Non-transaction writes (player MVU editor or display frame scripts) must not overwrite
+      // hidden attributes with masked placeholders or tamper with locked values.
+      if (!args?.eventId && incomingVariables && typeof incomingVariables === 'object' && incomingVariables.stat_data && typeof incomingVariables.stat_data === 'object' && !Array.isArray(incomingVariables.stat_data)) {
+        const currentChat = await chatForSession(args?.sessionId)
+        const extensions = currentChat?.cardPath ? await readCardExtensions(currentChat.cardPath, currentChat) : null
+        if (hasMvuVisibilityRules(extensions?.mvuVisibility)) {
+          let authStatData = null
+          const opt = args.option && typeof args.option === 'object' ? args.option : { type: 'message' }
+          if (opt.type === 'chat') {
+            authStatData = currentChat.variables?.stat_data || null
+          } else if (!opt.type || opt.type === 'message') {
+            const messages = Array.isArray(currentChat.messages) ? currentChat.messages : []
+            const rawId = Number(opt.message_id)
+            const msgId = Number.isInteger(rawId) ? (rawId < 0 ? messages.length + rawId : rawId) : messages.length - 1
+            const msg = messages[msgId]
+            const swipeId = Math.max(0, Number(opt.swipe_id ?? msg?.swipeId) || 0)
+            authStatData = msg?.variables?.[swipeId]?.stat_data || null
+          }
+          if (authStatData && typeof authStatData === 'object' && !Array.isArray(authStatData)) {
+            const restored = restoreHiddenMvuStatData(incomingVariables.stat_data, authStatData, extensions.mvuVisibility, { lockHidden: Boolean(variableUpdate) })
+            incomingVariables = { ...incomingVariables, stat_data: restored }
+            if (variableUpdate && typeof variableUpdate === 'object') {
+              variableUpdate = { ...variableUpdate, before: authStatData }
+            }
+          }
+        }
+      }
+      const result = await tavernScriptHostAdapter.updateVariables(args && args.sessionId, args && args.option, incomingVariables, args && args.expectedLifecycleRevision, args && args.eventId, args && args.contextBaseline)
       // The variable panel's edits; card scripts never send variableUpdate.
-      if (args?.variableUpdate && !result?.stale) {
-        await recordVariableUpdate({ chatForSession, updateChat }, args.sessionId, args.variableUpdate, args.variables?.stat_data)
+      if (variableUpdate && !result?.stale) {
+        await recordVariableUpdate({ chatForSession, updateChat }, args.sessionId, variableUpdate, incomingVariables?.stat_data)
           .catch(error => console.warn('dsh-tavern: 记录变量更新失败:', error?.message || error))
       }
       return result

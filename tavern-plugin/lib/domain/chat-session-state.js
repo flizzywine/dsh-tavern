@@ -94,8 +94,8 @@ export function settlementTurn(chat) {
     return 0
   }
 
-export function createSessionStateView({ activity: activityOf, evidence: evidenceOf, sharedReceipts = false, sharedMappings = false }) {
-  const receiptIndex = createMvuReceiptIndex({shared:sharedReceipts})
+export function createSessionStateView({ activity: activityOf, evidence: evidenceOf, visibility: visibilityOf, sharedReceipts = false, sharedMappings = false }) {
+  const receiptIndex = createMvuReceiptIndex({shared:sharedReceipts, visibilityOf})
   const rollbackCache = new Map()
   const mappingCache = new Map(), mappingIds = new WeakMap(), mappingFields = createImmutableTurnFields()
   let mappingSequence = 0

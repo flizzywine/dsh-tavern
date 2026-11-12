@@ -74,7 +74,7 @@ function TurnReceiptButton({ sessionId, view, receipt, storyTurn }) {
                         storyTurn === view?.settlementTurn ? h(VariableRetryButton, { sessionId, turn: storyTurn, status: status, busy }) : null),
                     h("button", { type: "button", className: "fork-dialog-close", "aria-label": "关闭", onClick: function () { setOpen(false); } }, "×")),
                 h("div", { className: "fork-dialog-body fork-var-body" },
-                    h(VariableReceipt, { receipt, sessionId, turn: storyTurn, latest: storyTurn === view?.settlementTurn, busy }))))) : null);
+                    h(VariableReceipt, { receipt, visibility: view && view.mvuVisibility, sessionId, turn: storyTurn, latest: storyTurn === view?.settlementTurn, busy }))))) : null);
 }
 
 function TurnMenu(props) {

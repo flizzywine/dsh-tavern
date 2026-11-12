@@ -5,6 +5,7 @@
 import { inspectCardExtensions } from './card-extension-reading.js'
 import { plainKeys, plainPath } from './encoded-keys.js'
 import { openingInitialState as existingState } from './card-openings.js'
+import { extractCardMvuVisibility, hasMvuVisibilityRules, matchMvuVisibilityRule, validateMvuVisibility } from './mvu-visibility.js'
 
 export const STATUS_VIEW_ID = 'dsh-mvu-status-view'
 export const HIDE_MARKER_ID = 'dsh-mvu-hide-marker'
@@ -40,8 +41,8 @@ const escapeHtml = text => str(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<
 const at = (state, path) => path.split('/').slice(1).reduce((value, key) => value == null ? undefined : value[key], state)
 
 // Layout spec → panel fields. Without sections every leaf is shown, grouped by
-// its top-level key: numbers within 0–100 as bars, arrays as lists.
-function sectionsOf(spec, state) {
+// its top-level key: numbers within 0–100 as bars (unless hidden), arrays as lists.
+function sectionsOf(spec, state, visibility = null) {
   if (Array.isArray(spec.sections) && spec.sections.length) {
     return spec.sections.map(section => ({
       title: str(section?.title),
@@ -54,7 +55,8 @@ function sectionsOf(spec, state) {
     const top = path.split('/')[1]
     if (!groups.has(top)) groups.set(top, [])
     const value = at(state, path)
-    groups.get(top).push({ path, kind: Array.isArray(value) ? 'list' : typeof value === 'number' && value >= 0 && value <= 100 ? 'bar' : 'text' })
+    const hidden = Boolean(matchMvuVisibilityRule(visibility, path, state))
+    groups.get(top).push({ path, kind: hidden ? 'text' : Array.isArray(value) ? 'list' : typeof value === 'number' && value >= 0 && value <= 100 ? 'bar' : 'text' })
   }
   return [...groups].map(([title, fields]) => ({ title, fields }))
 }
@@ -76,9 +78,10 @@ function fieldLabels(fields) {
   return fields.map((field, index) => name(index))
 }
 
-export function generatePanel(spec, state) {
+export function generatePanel(spec, state, visibility = null) {
   const accent = /^#[0-9a-f]{3,8}$|^[a-z]+$/i.test(str(spec.accent)) ? spec.accent : '#8b3a2e'
-  const sections = sectionsOf(spec, state).map(section => {
+  const rules = hasMvuVisibilityRules(visibility) ? visibility : (hasMvuVisibilityRules(spec?.visibility) ? spec.visibility : null)
+  const sections = sectionsOf(spec, state, rules).map(section => {
     const labels = fieldLabels(section.fields)
     return { ...section, fields: section.fields.map((field, index) => ({ ...field, label: labels[index] })) }
   })
@@ -87,7 +90,8 @@ export function generatePanel(spec, state) {
     const path = escapeHtml(field.path)
     // Yes/no words for a true/false value, e.g. 在线 / 离线; the script falls back to 是 / 否.
     const yesNo = (str(field.yes) ? ' data-yes="' + escapeHtml(field.yes) + '"' : '') + (str(field.no) ? ' data-no="' + escapeHtml(field.no) + '"' : '')
-    const kind = field.kind || (Array.isArray(at(state, field.path)) ? 'list' : 'text')
+    const hidden = Boolean(matchMvuVisibilityRule(rules, field.path, state))
+    const kind = hidden ? 'text' : (field.kind || (Array.isArray(at(state, field.path)) ? 'list' : 'text'))
     if (kind === 'list') return '<div class="row list"><b>' + label(field) + '</b><ul data-mvu-list="' + path + '"></ul></div>'
     if (kind === 'bar') {
       const max = Number(field.max) > 0 ? Number(field.max) : 100
@@ -96,6 +100,9 @@ export function generatePanel(spec, state) {
     return '<div class="row"><b>' + label(field) + '</b><span data-mvu="' + path + '"' + yesNo + '></span></div>'
   }
   const body = sections.map(section => '<section>' + (section.title ? '<h3>' + escapeHtml(section.title) + '</h3>' : '') + section.fields.map(row).join('') + '</section>').join('\n')
+  const rulesJson = rules ? JSON.stringify(rules).replace(/</g, '\\u003c').replace(/\$/g, '\\u0024') : ''
+  const maskLine = rules ? `\n  var vis = ${rulesJson};\n  function mask(path, val) { var segs = path.split('/').slice(1), rule = null; Object.keys(vis).forEach(function (pat) { var ps = pat.split('/').slice(1); if (ps.length === segs.length && ps.every(function (p, i) { return p === '*' || p === segs[i]; })) rule = vis[pat]; }); if (!rule) return val; var raw = Array.isArray(val) && val.length === 2 && typeof val[1] === 'string' ? val[0] : val; if (rule.mode === 'tiered') { var s = typeof raw === 'string' ? raw.trim() : ''; if (typeof raw === 'string' && (!s || !Number.isFinite(Number(s)))) return s || rule.placeholder || '未知'; var n = typeof raw === 'number' ? raw : Number(s); if (!Number.isFinite(n)) return rule.placeholder || '未知'; var label = rule.tiers[0][1]; rule.tiers.forEach(function (t) { if (n >= t[0]) label = t[1]; }); return label; } return rule.placeholder || '？？？'; }` : ''
+  const readExpr = rules ? 'mask(el.dataset.mvu, get(data, el.dataset.mvu))' : 'get(data, el.dataset.mvu)'
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -119,10 +126,10 @@ ${body}
 </div>
 <script>
 (function () {
-  function get(data, path) { return path.split('/').slice(1).reduce(function (value, key) { return value == null ? undefined : value[key]; }, data); }
+  function get(data, path) { return path.split('/').slice(1).reduce(function (value, key) { return value == null ? undefined : value[key]; }, data); }${maskLine}
   function render() {
     var data = Mvu.getMvuData({ type: 'message', message_id: 'latest' }).stat_data || {};
-    document.querySelectorAll('[data-mvu]').forEach(function (el) { var v = get(data, el.dataset.mvu); el.textContent = v == null || v === '' ? '未明确' : typeof v === 'boolean' ? (v ? el.dataset.yes || '是' : el.dataset.no || '否') : typeof v === 'object' ? JSON.stringify(v) : String(v); });
+    document.querySelectorAll('[data-mvu]').forEach(function (el) { var v = ${readExpr}; el.textContent = v == null || v === '' ? '未明确' : typeof v === 'boolean' ? (v ? el.dataset.yes || '是' : el.dataset.no || '否') : typeof v === 'object' ? JSON.stringify(v) : String(v); });
     document.querySelectorAll('[data-mvu-width]').forEach(function (el) { var v = Number(get(data, el.dataset.mvuWidth)) || 0, max = Number(el.dataset.max) || 100; el.style.width = Math.max(0, Math.min(100, v / max * 100)) + '%'; });
     document.querySelectorAll('[data-mvu-list]').forEach(function (el) { var v = get(data, el.dataset.mvuList); el.replaceChildren(); (Array.isArray(v) ? v : []).forEach(function (item) { var li = document.createElement('li'); li.textContent = typeof item === 'object' ? JSON.stringify(item) : String(item); el.append(li); }); if (!el.children.length) { var li = document.createElement('li'); li.textContent = '无'; el.append(li); } });
   }
@@ -146,10 +153,14 @@ function plainRequest(request) {
   const panel = object(request.panel) && Array.isArray(request.panel.sections) ? { ...request.panel, sections: request.panel.sections.map(section => object(section) && Array.isArray(section.fields)
     ? { ...section, fields: section.fields.map(field => typeof field === 'string' ? plainPath(field) : object(field) && typeof field.path === 'string' ? { ...field, path: plainPath(field.path) } : field) }
     : section) } : request.panel
+  const visibility = object(request.visibility)
+    ? Object.fromEntries(Object.entries(request.visibility).map(([key, value]) => [plainPath(key.startsWith('/') ? key : '/' + key), value]))
+    : request.visibility
   return { ...request,
     ...(object(request.variables) ? { variables: plainKeys(request.variables) } : {}),
     ...(Array.isArray(request.openings) ? { openings: request.openings.map(item => object(item) ? plainKeys(item) : item) } : {}),
-    ...(panel === undefined ? {} : { panel }) }
+    ...(panel === undefined ? {} : { panel }),
+    ...(visibility === undefined ? {} : { visibility }) }
 }
 
 export function planMvuApply(raw, input = {}) {
@@ -161,6 +172,18 @@ export function planMvuApply(raw, input = {}) {
   if (request.variables !== undefined && !object(request.variables)) throw new Error('variables 必须是对象')
   if (openings.length > greetings.length) throw new Error('openings 有 ' + openings.length + ' 项，但这张卡只有 ' + greetings.length + ' 个开场（first_mes + alternate_greetings）')
   openings.forEach((item, index) => { if (item !== null && item !== undefined && !object(item)) throw new Error('openings[' + index + '] 必须是对象或 null') })
+  let activeVisibility = extractCardMvuVisibility(raw)
+  let nextDshTavern
+  if (request.visibility !== undefined) {
+    if (request.visibility !== null && !object(request.visibility)) throw new Error('visibility 必须是对象或 null')
+    const checked = validateMvuVisibility(request.visibility, base + '/extensions/dsh_tavern/mvuVisibility')
+    if (checked.errors.length) throw new Error(checked.errors[0].path + '：' + checked.errors[0].message)
+    activeVisibility = checked.normalized
+    const prevTavern = object(data.extensions?.dsh_tavern) ? structuredClone(data.extensions.dsh_tavern) : {}
+    if (activeVisibility) prevTavern.mvuVisibility = activeVisibility
+    else delete prevTavern.mvuVisibility
+    nextDshTavern = prevTavern
+  }
   const remove = object(request.remove) ? request.remove : {}
 
   // Old status protocol: one pattern cleans every opening.
@@ -233,7 +256,7 @@ export function planMvuApply(raw, input = {}) {
   const panel = request.panel
   let html, panelSource = 'kept'
   if (object(panel) && str(panel.html).trim()) { html = str(panel.html).trim(); panelSource = 'custom' }
-  else if (object(panel) || viewIndex < 0) { html = generatePanel(object(panel) ? panel : {}, states[0]); panelSource = 'generated' }
+  else if (object(panel) || viewIndex < 0) { html = generatePanel(object(panel) ? panel : {}, states[0], activeVisibility); panelSource = 'generated' }
   const nextScripts = scripts.map(rule => structuredClone(rule))
   const view = html === undefined ? undefined : {
     id: STATUS_VIEW_ID, scriptName: 'MVU 状态视图', findRegex: '/<mvu-status\\s*\\/>/g',
@@ -248,6 +271,9 @@ export function planMvuApply(raw, input = {}) {
     trimStrings: [], placement: [2], disabled: false, markdownOnly: false, promptOnly: true, runOnEdit: true, substituteRegex: 0
   })
   const rawOperations = JSON.stringify(nextScripts) === JSON.stringify(scripts) ? [] : [{ op: 'set', path: base + '/extensions/regex_scripts', value: nextScripts }]
+  if (nextDshTavern !== undefined && JSON.stringify(nextDshTavern) !== JSON.stringify(object(data.extensions?.dsh_tavern) ? data.extensions.dsh_tavern : {})) {
+    rawOperations.push({ op: 'set', path: base + '/extensions/dsh_tavern', value: nextDshTavern })
+  }
 
   return {
     fields, rawOperations, worldbook,
@@ -256,7 +282,8 @@ export function planMvuApply(raw, input = {}) {
       variables: leafPaths(states[0]),
       rules: request.rules === undefined ? 'kept' : find('mvu_update') >= 0 ? 'updated' : 'added',
       panel: panelSource,
-      removed: { openings: cleaned, entries: dropEntries.length, regex: dropRegex.size }
+      removed: { openings: cleaned, entries: dropEntries.length, regex: dropRegex.size },
+      ...(request.visibility !== undefined ? { visibility: activeVisibility ? Object.keys(activeVisibility) : [] } : {})
     }
   }
 }
@@ -288,6 +315,7 @@ export function surveyMvuCard(raw) {
       initvar: /<initvar>/i.test(text), marker: /<mvu-status\s*\/>/i.test(text), flags: flagsOf(text.replace(/<initvar>[\s\S]*?<\/initvar>/gi, ''))
     })),
     variables: leafPaths(states.find(object) || {}),
+    visibility: extensions.mvuVisibility || null,
     worldbook: (Array.isArray(data.character_book?.entries) ? data.character_book.entries : []).map((entry, index) => ({
       ref: 'entry:' + index, title: commentOf(entry), enabled: entry?.enabled !== false && entry?.disable !== true, constant: entry?.constant === true,
       keys: (Array.isArray(entry?.keys) ? entry.keys : []).slice(0, 4).map(str), chars: str(entry?.content).length, flags: flagsOf(commentOf(entry), entry?.content)
@@ -308,6 +336,9 @@ export function surveyText(survey) {
   lines.push('开场 ' + survey.openings.length + ' 个：')
   for (const item of survey.openings) lines.push('- ' + item.pointer + ' · ' + item.chars + '字' + (item.initvar ? ' · 有<initvar>' : '') + (item.marker ? ' · 有<mvu-status/>' : '') + flags(item.flags) + ' · 开头：' + item.start + (item.chars > 160 ? ' · 结尾：' + item.end : ''))
   if (survey.variables.length) lines.push('现有变量：' + survey.variables.join('、'))
+  if (survey.visibility && Object.keys(survey.visibility).length) {
+    lines.push('隐藏属性：' + Object.entries(survey.visibility).map(([k, v]) => k + '(' + v.mode + ')').join('、'))
+  }
   lines.push('内置世界书 ' + survey.worldbook.length + ' 条：')
   for (const item of survey.worldbook) lines.push('- ' + item.ref + ' ' + (item.title || '（无标题）') + ' · ' + (item.enabled ? (item.constant ? '常驻' : '关键词 ' + item.keys.join(',')) : '禁用') + ' · ' + item.chars + '字' + flags(item.flags))
   lines.push('正则 ' + survey.regex.length + ' 条' + (survey.regex.length ? '：' : ''))

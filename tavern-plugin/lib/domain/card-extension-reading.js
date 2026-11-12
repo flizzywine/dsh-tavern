@@ -1,4 +1,5 @@
 import { normalizeCardFrameSizing } from './frame-sizing.js'
+import { extractCardMvuVisibility } from './mvu-visibility.js'
 import { applyRegexOverrides } from './regex-manager.js'
 
 function str(value) {
@@ -168,6 +169,7 @@ export function inspectCardExtensions(value) {
     hasSelectableAssetPacks: Array.isArray(boundPackIds) && boundPackIds.some(id => id !== tavern.modConfigPackId),
     frameSizing: normalizeCardFrameSizing(tavern?.frameSizing),
     openingSetup: cardOpeningSetup(extensions),
+    mvuVisibility: extractCardMvuVisibility(data),
     extensionCount: regexScripts.length + helperScripts.length + otherExtensions.length + mvuResources.filter(function (item) { return item.kind === 'extension' }).length,
     regexScripts,
     helperScripts,

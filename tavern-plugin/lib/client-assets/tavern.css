@@ -1152,6 +1152,7 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-mvu-kind, .dsh-mvu-null, .dsh-mvu-empty { margin-left: 6px; font-size: 11px; font-weight: 400; opacity: .55; }
 /* leaves are shared inline fields / switches, the JSON box the shared text area. */
 .dsh-mvu-field { margin: 2px 0 2px 8px; }
+.dsh-mvu-hidden { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .78; user-select: none; }
 .dsh-mvu-check { display: inline-flex; align-items: center; gap: 8px; }
 .dsh-mvu-json { box-sizing: border-box; width: 100%; min-height: 260px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.5; tab-size: 2; }
 .dsh-mvu-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

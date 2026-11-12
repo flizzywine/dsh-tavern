@@ -129,6 +129,32 @@ function variableRich(h, text, className) {
 function VariableValue(props) {
     const h = React.createElement;
     const change = props.change;
+    if (change && change.hidden && typeof change.hidden === "object") {
+        const hidden = change.hidden;
+        if (hidden.mode === "tiered") {
+            if (!hidden.afterTier) return h("div", { className: "fork-var-value", "data-kind": "removed", "data-hidden-mode": "tiered" },
+                h("span", { className: "fork-var-old" }, hidden.beforeTier || "（空）"), h("span", { className: "fork-var-tag", "data-mark": "removed" }, "已移除"));
+            if (!hidden.beforeTier) return h("div", { className: "fork-var-value", "data-kind": "added", "data-hidden-mode": "tiered" },
+                h("span", { className: "fork-var-new" }, hidden.afterTier), h("span", { className: "fork-var-tag", "data-mark": "added" }, "新增"));
+            if (hidden.crossed) {
+                const arrowBadge = hidden.direction === "up" ? (hidden.strength === "major" ? "↑↑" : "↑") : hidden.direction === "down" ? (hidden.strength === "major" ? "↓↓" : "↓") : "";
+                return h("div", { className: "fork-var-value", "data-kind": "short", "data-hidden-mode": "tiered" },
+                    h("span", { className: "fork-var-old" }, hidden.beforeTier), h("span", { className: "fork-var-arrow", "aria-hidden": true }, "→"),
+                    h("span", { className: "fork-var-new" }, hidden.afterTier),
+                    arrowBadge ? h("span", { className: "fork-var-delta", "data-sign": hidden.direction }, arrowBadge) : null);
+            }
+            const trendText = hidden.direction === "up" ? (hidden.strength === "major" ? "大幅上升 ↑↑" : "略有上升 ↑")
+                : hidden.direction === "down" ? (hidden.strength === "major" ? "大幅下降 ↓↓" : "略有下降 ↓") : "";
+            return h("div", { className: "fork-var-value", "data-kind": "short", "data-hidden-mode": "tiered" },
+                h("span", { className: "fork-var-new" }, hidden.afterTier),
+                trendText ? h("span", { className: "fork-var-delta", "data-sign": hidden.direction }, trendText)
+                    : h("span", { className: "fork-var-tag", "data-mark": "masked" }, "已发生变化"));
+        }
+        return h("div", { className: "fork-var-value", "data-kind": "short", "data-hidden-mode": hidden.mode || "masked" },
+            hidden.direction
+                ? h("span", { className: "fork-var-delta", "data-sign": hidden.direction }, String(hidden.text || ""))
+                : h("span", { className: "fork-var-tag", "data-mark": hidden.after === "" ? "removed" : "masked" }, String(hidden.text || "已发生变化")));
+    }
     const before = variableText(change.before), after = variableText(change.after);
     const operation = String(change.operation || "");
     // Fields of an added/removed object: the heading carries the mark, the row just the value.
@@ -183,7 +209,8 @@ function VariableGroups(props) {
 
 function VariableReceipt(props) {
     const h = React.createElement;
-    const receipt = props.receipt || {};
+    const rawReceipt = props.receipt || {};
+    const receipt = props.visibility && typeof maskMvuReceipt === "function" ? maskMvuReceipt(rawReceipt, props.visibility) : rawReceipt;
     const changes = Array.isArray(receipt.changes) ? receipt.changes : [];
     const sideEffects = (Array.isArray(receipt.sideEffects) ? receipt.sideEffects : []).filter(function (change) { return !VARIABLE_HIDDEN_ROOTS.test(String(change && change.path || "")); });
     const failures = Array.isArray(receipt.failures) ? receipt.failures : [];

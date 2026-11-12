@@ -49,8 +49,16 @@ export function createSessionViewProjection({
 }) {
   const inputFieldsProjection = createInputFieldsProjection()
   const incrementalReplyView = createIncrementalReplyView({ readChanges })
+  const mvuVisibilityByCardPath = new Map()
+  function rememberCardMvuVisibility(cardPath, visibility) {
+    const key = str(cardPath)
+    if (!key) return
+    if (visibility && typeof visibility === 'object' && Object.keys(visibility).length) mvuVisibilityByCardPath.set(key, visibility)
+    else mvuVisibilityByCardPath.delete(key)
+  }
   async function replyExtensions(chat, settings) {
     const extensions = await requestPerformance.stage('cardExtensions', () => readCardExtensions(chat.cardPath, chat, settings)) || {regexScripts:[],helperScripts:[]}
+    rememberCardMvuVisibility(chat.cardPath, extensions.mvuVisibility)
     const pinned = await requestPerformance.stage('remoteAssets', () => tavernRemoteAssets.pinExtensions(extensions))
     return {...extensions, helperScripts:pinned.helperScripts, regexScripts:pinned.regexScripts,
       remoteAssetDiagnostics:pinned.diagnostics, remoteAssetPins:pinned.pins}
@@ -237,12 +245,13 @@ export function createSessionViewProjection({
       tavernStatusViews: replyDisplay.statusViews || [],
       cardStage,
       stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true},
+      mvuVisibility: cardExtensions.mvuVisibility || null,
       mvuReceipts: mvuReceiptsOf(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.
       polishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && (message.polished || message.polishedFrom)).map(message => Number(message.turn) || 0),
       autoPolishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && message.polishedFrom).map(message => Number(message.turn) || 0),
-      tavernHelper: helperContext ? { ...helperContext, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
+      tavernHelper: helperContext ? { ...helperContext, mvuVisibility: cardExtensions.mvuVisibility || null, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,
@@ -352,7 +361,8 @@ export function createSessionViewProjection({
   const sessionStateView = createSessionStateView({
     sharedReceipts: true, sharedMappings: true,
     activity: chat => activityOf(chat),
-    evidence: sessionId => sessionDebugEvidence(sessionId, true)
+    evidence: sessionId => sessionDebugEvidence(sessionId, true),
+    visibility: chat => mvuVisibilityByCardPath.get(str(chat?.cardPath)) || chat?.mvuVisibility || chat?.mvu?.visibility || null
   })
   function mvuReceiptsOf(chat, changes) { return sessionStateView.receipts(chat, changes) }
   function rollbackViewFields(chat, evidence, changes) { return sessionStateView.rollback(chat, evidence, changes) }

@@ -384,12 +384,12 @@
 					receipt.summary ? h("div", { className: "dsh-tavern-mvu-receipt-reason" }, "原因：" + String(receipt.summary)) : null,
 					changes.map(function (change, index) { return h("div", { key: "change:" + index, className: "dsh-tavern-mvu-change" },
 						h("div", { className: "dsh-tavern-mvu-change-path" }, (operationLabels[change.operation] || "更新") + " " + String(change.path || "/")),
-						h("div", { className: "dsh-tavern-mvu-change-values" }, String(change.before) + " → " + String(change.after))
+						h("div", { className: "dsh-tavern-mvu-change-values" }, change && change.hidden && change.hidden.text ? String(change.hidden.text) : (String(change.before) + " → " + String(change.after)))
 					); }),
 					sideEffects.length > 0 ? h("div", { className: "dsh-tavern-mvu-side-effect-title" }, "人物卡脚本联动") : null,
 					sideEffects.map(function (change, index) { return h("div", { key: "side-effect:" + index, className: "dsh-tavern-mvu-change", "data-origin": "card-script" },
 						h("div", { className: "dsh-tavern-mvu-change-path" }, (operationLabels[change.operation] || "更新") + " " + String(change.path || "/")),
-						h("div", { className: "dsh-tavern-mvu-change-values" }, String(change.before) + " → " + String(change.after))
+						h("div", { className: "dsh-tavern-mvu-change-values" }, change && change.hidden && change.hidden.text ? String(change.hidden.text) : (String(change.before) + " → " + String(change.after)))
 					); }),
 					failures.map(function (failure, index) {
 						const operation = operationLabels[failure.operation] || String(failure.operation || "操作");

@@ -304,7 +304,7 @@ function createTavernStoryTranscriptFeature(deps) {
 				h('span', { className: 'dsh-tavern-story-floor-no' }, '第 ' + String(row.floorNo) + ' 楼'),
 				row.greeting ? h('span', { className: 'dsh-tavern-story-floor-tag' }, '开场') : null,
 				row.streaming ? h('span', { className: 'dsh-tavern-story-floor-tag' }, row.tool ? '正在调用 ' + row.tool : '正在生成') : null),
-			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls }) : null,
+			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls, visibility: props.helperView?.mvuVisibility || props.helperView?.tavernHelper?.mvuVisibility }) : null,
 			h('div', { className: 'dsh-tavern-story-body' }, bodyNode),
 			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
@@ -318,13 +318,18 @@ function createTavernStoryTranscriptFeature(deps) {
 				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host, turnFooter: props.turnFooter }))
 	})
 
-	function StoryToolCalls({ calls }) {
+	function StoryToolCalls({ calls, visibility }) {
 		return h('details', { className: 'dsh-tavern-assistant-reasoning dsh-tavern-story-tools' },
 			h('summary', null, '工作过程 · ' + calls.length + ' 次工具调用'),
-			h('ol', null, calls.map(call => h('li', { key: call.id },
-				h('strong', null, call.name), ' · ', call.status === 'error' ? '失败' : call.status === 'success' ? '完成' : '未返回结果',
-				call.arguments && h('pre', null, '参数\n' + call.arguments),
-				call.result && h('pre', null, '结果\n' + call.result)))))
+			h('ol', null, calls.map(call => {
+				const resultText = call.name === 'tavern_read_variables' && call.result && visibility && typeof maskTavernReadVariablesResultText === 'function'
+					? maskTavernReadVariablesResultText(call.result, visibility)
+					: call.result;
+				return h('li', { key: call.id },
+					h('strong', null, call.name), ' · ', call.status === 'error' ? '失败' : call.status === 'success' ? '完成' : '未返回结果',
+					call.arguments && h('pre', null, '参数\n' + call.arguments),
+					resultText && h('pre', null, '结果\n' + resultText));
+			})))
 	}
 
 	function TavernStoryTranscriptList(props) {

@@ -4,8 +4,12 @@ function TavernMvuVariables(props) {
   const h = React.createElement;
   const view = props.view || {};
   const helper = view.tavernHelper || null;
+  const visibility = React.useMemo(function () {
+    const raw = view.mvuVisibility || (helper && helper.mvuVisibility) || null;
+    return typeof normalizeMvuVisibility === 'function' ? normalizeMvuVisibility(raw) : null;
+  }, [view.mvuVisibility, helper && helper.mvuVisibility]);
   const floor = React.useMemo(function () { return readMvuVariableFloor(helper, view.latestAssistantTurn); }, [helper, view.latestAssistantTurn]);
-  const floorKey = floor ? floor.messageId + ':' + floor.swipeId : '';
+  const floorKey = floor ? floor.messageId + ':' + floor.swipeId + ':' + (visibility ? JSON.stringify(visibility) : '') : '';
   const [open, setOpen] = React.useState(false);
   const [tab, setTab] = React.useState('fields');
   const [draft, setDraft] = React.useState(null);
@@ -24,8 +28,9 @@ function TavernMvuVariables(props) {
     const changedFloor = loadedRef.current !== floorKey;
     if (dirtyRef.current && !changedFloor) return;
     const statData = floor.statData || {};
-    setDraft(mvuCloneJson(statData));
-    setJsonText(serializeMvuStatData(statData));
+    const editorData = visibility && typeof maskMvuStatDataForEditor === 'function' ? maskMvuStatDataForEditor(statData, visibility) : statData;
+    setDraft(mvuCloneJson(editorData));
+    setJsonText(serializeMvuStatData(editorData));
     setDirty(false);
     loadedRef.current = floorKey;
     if (changedFloor) { setError(''); setNotice(''); }
@@ -40,23 +45,31 @@ function TavernMvuVariables(props) {
       setError('不支持的变量名：' + String(path.at(-1)));
       return;
     }
+    if (visibility && typeof describeMvuEditorNode === 'function' && describeMvuEditorNode(value, path, visibility, floor && floor.statData)) return;
     setDraft(function (current) { return mvuSetAtPath(current, path, value); });
     setDirty(true); setNotice(''); setError('');
   }
   function switchTab(next) {
     if (next === tab) return;
     if (next === 'fields') {
-      try { setDraft(parseMvuStatData(jsonText)); }
+      try {
+        const parsed = parseMvuStatData(jsonText);
+        setDraft(visibility && typeof maskMvuStatDataForEditor === 'function' && floor && floor.statData
+          ? maskMvuStatDataForEditor(restoreHiddenMvuStatData(parsed, floor.statData, visibility, { lockHidden: true }), visibility)
+          : parsed);
+      }
       catch (e) { setError(String(e.message || e)); return; }
     } else {
-      setJsonText(serializeMvuStatData(draft));
+      setJsonText(serializeMvuStatData(visibility && typeof maskMvuStatDataForEditor === 'function' ? maskMvuStatDataForEditor(draft, visibility) : draft));
     }
     setError(''); setTab(next);
   }
   function reset() {
     if (!floor) return;
-    setDraft(mvuCloneJson(floor.statData || {}));
-    setJsonText(serializeMvuStatData(floor.statData || {}));
+    const base = floor.statData || {};
+    const editorData = visibility && typeof maskMvuStatDataForEditor === 'function' ? maskMvuStatDataForEditor(base, visibility) : base;
+    setDraft(mvuCloneJson(editorData));
+    setJsonText(serializeMvuStatData(editorData));
     setDirty(false); setError(''); setNotice('');
   }
   async function save() {
@@ -65,6 +78,9 @@ function TavernMvuVariables(props) {
     if (tab === 'json') {
       try { statData = parseMvuStatData(jsonText); }
       catch (e) { setError(String(e.message || e)); return; }
+    }
+    if (visibility && typeof restoreHiddenMvuStatData === 'function') {
+      statData = restoreHiddenMvuStatData(statData, floor.statData, visibility, { lockHidden: true });
     }
     setBusy(true); setError(''); setNotice('');
     try {
@@ -79,8 +95,9 @@ function TavernMvuVariables(props) {
         liveTavernView.invalidate(props.sessionId);
         return;
       }
-      setDraft(mvuCloneJson(statData));
-      setJsonText(serializeMvuStatData(statData));
+      const nextEditorData = visibility && typeof maskMvuStatDataForEditor === 'function' ? maskMvuStatDataForEditor(statData, visibility) : statData;
+      setDraft(mvuCloneJson(nextEditorData));
+      setJsonText(serializeMvuStatData(nextEditorData));
       setDirty(false);
       setNotice('已保存到当前楼层' + (floor.turn ? '（第 ' + floor.turn + ' 轮）' : ' #' + floor.messageId) + '。下一轮生成会读取新变量。');
       liveTavernView.invalidate(props.sessionId);
@@ -106,8 +123,24 @@ function TavernMvuVariables(props) {
     return h(InlineRow, { key: key, className: 'dsh-mvu-field', label: label }, h('span', { className: 'dsh-mvu-null' }, 'null'));
   }
 
+  function rawAtPath(root, path) {
+    let cur = root;
+    for (let i = 0; i < path.length; i += 1) {
+      if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+      cur = cur[path[i]];
+    }
+    return cur;
+  }
+
   function node(value, path, label, depth) {
     const key = JSON.stringify(path);
+    const hiddenInfo = visibility && typeof describeMvuEditorNode === 'function'
+      ? describeMvuEditorNode(rawAtPath(floor && floor.statData, path), path, visibility, floor && floor.statData)
+      : null;
+    if (hiddenInfo) {
+      return h(InlineRow, { key: key, className: 'dsh-mvu-field', label: label },
+        h('span', { className: 'dsh-mvu-hidden', title: '隐藏属性，具体数值不可查看或直接修改' }, '🔒 ' + hiddenInfo.displayText));
+    }
     if (Array.isArray(value)) {
       return h('details', { key: key, className: 'dsh-mvu-node', open: depth < 1 },
         h('summary', null, h('span', { className: 'dsh-mvu-node-label' }, label), h('span', { className: 'dsh-mvu-kind' }, '数组 · ' + value.length)),

@@ -873,6 +873,7 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 .fork-var-tag { flex: none; align-self: center; padding: 0 5px; border-radius: 4px; background: var(--fork-hover); color: var(--fork-ink-3); font: 500 11px/16px var(--fork-font-ui); letter-spacing: 0; }
 :is(.fork-var-group-name, .fork-var-sub-name) > .fork-var-tag { display: inline-block; margin-left: 8px; vertical-align: 1px; }
 .fork-var-tag[data-mark="added"] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22a55a) 14%, var(--fk-current-bgSolid, Canvas)); color: var(--dsw-alias-state-success-primary, #22a55a); }
+.fork-var-tag[data-mark="masked"] { background: color-mix(in srgb, var(--fork-ink-3, #888) 14%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-ink-2, inherit); }
 .fork-var-delta { font-size: var(--fork-ui-small, 12px); font-weight: 600; font-variant-numeric: tabular-nums; }
 .fork-var-delta[data-sign="up"] { color: var(--dsw-alias-state-success-primary, #22a55a); }
 .fork-var-delta[data-sign="down"] { color: var(--dsh-tavern-accent-error, #e5534b); }

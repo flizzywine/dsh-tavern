@@ -208,6 +208,10 @@ export function registerCardEditingTools({
             } } }
           } } }
         }
+      },
+      visibility: {
+        type: 'json',
+        description: '可选，隐藏属性规则映射（键为相对 stat_data 的路径或含 * 通配符路径，如 "/人物/*/好感度"）。每项支持 mode: "masked"（纯迷雾，默认显示 ？？？、回执仅提示已发生变化）、"trend"（迷雾+趋势，回执显示上升 ↑ / 下降 ↓ 不透具体数值）、"tiered"（模糊档位，配合 tiers: [[0,"戒备"],[60,"信赖"]] 显示阶段词，默认带趋势与跨档提示），可选 placeholder、largeDelta 及预留字段 revealWhen；传 {} 清空隐藏规则'
       }
     },
     output: {
@@ -221,6 +225,7 @@ export function registerCardEditingTools({
           panel: { type: 'string', required: true },
           removed: { type: 'object', required: true, additionalProperties: false, properties: {
             openings: { type: 'integer', required: true }, entries: { type: 'integer', required: true }, regex: { type: 'integer', required: true } } },
+          visibility: { type: 'array', items: { type: 'string' } },
           validation: VALIDATION_SCHEMA
         }
       },
@@ -228,6 +233,7 @@ export function registerCardEditingTools({
         const words = { kept: '保留', updated: '已更新', added: '已新增', custom: '使用你写的 HTML', generated: '已生成标准面板' }
         const lines = ['已写入 MVU（' + value.path + '）：' + (value.openings ? value.openings + ' 个开场的初值' : '开场初值未改') + '；规则' + words[value.rules] + '；面板' + words[value.panel],
           '变量：' + value.variables.join('、')]
+        if (Array.isArray(value.visibility)) lines.push('隐藏属性：' + (value.visibility.length ? value.visibility.join('、') : '已清空'))
         const removed = value.removed
         if (removed.openings || removed.entries || removed.regex) lines.push('已清理旧协议：' + [removed.openings && removed.openings + ' 个开场', removed.entries && removed.entries + ' 条世界书', removed.regex && removed.regex + ' 条正则'].filter(Boolean).join('、'))
         if (value.validation) lines.push(validationText(value.validation))

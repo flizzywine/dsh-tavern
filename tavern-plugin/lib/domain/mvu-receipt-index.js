@@ -2,20 +2,22 @@ import {createIndexedArrayApi} from './indexed-array.js'
 import {freezeJson,createImmutableOrderedJsonIndex} from './freeze-json.js'
 import {createOrderedNumericIndex} from './ordered-numeric-index.js'
 import {copyJsonTree} from './copy-json-tree.js'
+import {hasMvuVisibilityRules,maskMvuReceipt} from './mvu-visibility.js'
 const notable = new Set(['pending','error','interrupted','partial','stale'])
-function rowOf(message) {
+function rowOf(message, visibility) {
   const assistant = message?.role === 'assistant'
   const turn = Math.max(0,Number(message?.turn) || (message?.greeting === true ? 1 : 0))
   if (!assistant || !turn || !message.mvu) return {assistant}
   const stored = message.mvu.receipt, diagnostics = Array.isArray(message.mvu.diagnostics) ? message.mvu.diagnostics : []
-  const receipt = stored && typeof stored === 'object' ? structuredClone(stored) : {
+  const rawReceipt = stored && typeof stored === 'object' ? structuredClone(stored) : {
     version:1,status:message.mvu.pending === true ? 'pending' : diagnostics.length ? 'error' : message.mvu.modified === true ? 'updated' : 'unchanged',
     summary:'',changes:[],failures:diagnostics.map(item=>({command:String(item.command ?? ''),message:String(item.message ?? '')}))
   }
+  const receipt = visibility ? maskMvuReceipt(rawReceipt, visibility) : rawReceipt
   return freezeJson({assistant,turn,receipt})
 }
 // Public reads detach receipts; internal views may share branded immutable output.
-export function createMvuReceiptIndex({maxBytes = 8*1024*1024, shared = false, onVisit} = {}) {
+export function createMvuReceiptIndex({maxBytes = 8*1024*1024, shared = false, onVisit, visibilityOf} = {}) {
   const outputIndex=createImmutableOrderedJsonIndex({visit:onVisit,measure:row=>JSON.stringify(row).length*2})
   const cache = new Map()
   let retainedBytes = 0
@@ -37,23 +39,27 @@ export function createMvuReceiptIndex({maxBytes = 8*1024*1024, shared = false, o
   const alert=(row,id,interrupted)=>Boolean(row?.receipt && (id===interrupted || notable.has(String(row.receipt.status ?? ''))))
   return function project(chat,activity,changes) {
     const messages = Array.isArray(chat.messages) ? chat.messages : []
+    const rawVis = visibilityOf ? visibilityOf(chat) : (chat?.mvuVisibility ?? chat?.mvu?.visibility ?? null)
+    const visibility = hasMvuVisibilityRules(rawVis) ? rawVis : null
+    const visibilityKey = visibility ? JSON.stringify(visibility) : ''
     const previous = cache.get(chat.id), revision = chat._storageRevision
     const reuse = previous && changes && Number.isSafeInteger(revision) && previous.lifecycle === chat.tavernHelperLifecycleRevision
+      && previous.visibilityKey === visibilityKey
       && (previous.revision === revision || previous.revision === changes.baseRevision)
       && Array.isArray(changes.indices)
     let state, pointEntries
     if (reuse) {
       const indices = new Set(previous.revision === revision ? [] : changes.indices)
       for(let id=previous.length;id<messages.length;id++)indices.add(id)
-      const entries = [...indices].filter(id=>id>=0 && id<messages.length).map(id=>[id,rowOf(messages[id])])
+      const entries = [...indices].filter(id=>id>=0 && id<messages.length).map(id=>[id,rowOf(messages[id],visibility)])
         .filter(([id,row])=>id>=previous.length || JSON.stringify(row)!==JSON.stringify(previous.all[id]))
       pointEntries=entries
       const unchanged = entries.length===0 && previous.length===messages.length
-      state = {...previous,revision,length:messages.length,all:unchanged ? previous.all : all.update(previous.all,entries,messages.length),
+      state = {...previous,revision,visibilityKey,length:messages.length,all:unchanged ? previous.all : all.update(previous.all,entries,messages.length),
         quiet:unchanged ? previous.quiet : quiet.update(previous.quiet,entries,messages.length)}
     } else {
-      const rows = messages.map(rowOf)
-      state = {revision,lifecycle:chat.tavernHelperLifecycleRevision,length:messages.length,all:all.from(rows),quiet:quiet.from(rows)}
+      const rows = messages.map(message => rowOf(message, visibility))
+      state = {revision,visibilityKey,lifecycle:chat.tavernHelperLifecycleRevision,length:messages.length,all:all.from(rows),quiet:quiet.from(rows)}
     }
     const latest = all.previous(state.all,messages.length)
     const interrupted = activity.reason === 'interrupted' && activity.role === 'settlement' && state.all[latest]?.receipt ? latest : -1

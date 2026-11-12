@@ -49,6 +49,7 @@ window.__ModuleLoader__.load({
 
 
 		// @include foreground.js
+		// @include-domain mvu-visibility.js
 		// @include tab-icons.js
 		// @include variable-bindings.cjs
 		// @include pack-transport.js

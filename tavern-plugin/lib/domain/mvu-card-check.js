@@ -1,5 +1,6 @@
 import { parse as parseScript } from 'acorn'
 import { parse as parseYaml } from 'yaml'
+import { validateMvuVisibility } from './mvu-visibility.js'
 
 // Static format checks for MVU cards. The card is edited freely like a source
 // file; this only points at things that would break at runtime, with locations
@@ -67,6 +68,26 @@ export function checkMvuCard(data, prefix = '') {
     for (const state of states) {
       const missing = [...all].filter(path => !leafPaths(state.value).has(path))
       if (missing.length) warn(state.path, '初值缺少其他开场有的字段：' + missing.slice(0, 12).join('、') + (missing.length > 12 ? ' 等' : '') + '；如属有意可忽略')
+    }
+  }
+
+  // Hidden attribute visibility rules
+  const allFields = new Set(states.flatMap(state => [...leafPaths(state.value)]))
+  if (data.extensions?.dsh_tavern?.mvuVisibility !== undefined) {
+    const checked = validateMvuVisibility(data.extensions.dsh_tavern.mvuVisibility, prefix + '/extensions/dsh_tavern/mvuVisibility')
+    errors.push(...checked.errors)
+    warnings.push(...checked.warnings)
+    if (checked.normalized && allFields.size) {
+      const missing = Object.keys(checked.normalized).filter(pattern => !pattern.includes('*') && ![...allFields].some(known => known === pattern || known.startsWith(pattern + '/')))
+      if (missing.length) warn('/extensions/dsh_tavern/mvuVisibility', '隐藏属性路径在初值中不存在：' + missing.slice(0, 12).join('、'))
+    }
+  }
+  for (const state of states) {
+    const rawMetaVis = object(state.value?.$meta) ? (state.value.$meta.visibility ?? state.value.$meta.hidden) : undefined
+    if (rawMetaVis !== undefined) {
+      const checked = validateMvuVisibility(rawMetaVis, prefix + state.path + '/$meta/visibility')
+      errors.push(...checked.errors)
+      warnings.push(...checked.warnings)
     }
   }
 

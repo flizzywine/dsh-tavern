@@ -28,18 +28,28 @@
 		// the frame's own floor travel inline. Template display output is a host rendering
 		// artifact that card scripts do not read.
 		const TAVERN_FRAME_INLINE_FLOORS = 48;
-		const tavernFrameRows = new WeakMap(), tavernFrameStubs = new WeakMap(), tavernFrameContexts = new WeakMap();
-		function tavernFrameRow(row) {
+		const tavernFrameRows = new WeakMap(), tavernFrameMaskedRows = new WeakMap(), tavernFrameStubs = new WeakMap(), tavernFrameContexts = new WeakMap();
+		function tavernFrameRow(row, visibility) {
 			const data = row && typeof row === "object" && !row.stub ? row.pluginData : null;
-			if (!data || (data.template_display === undefined && data.template_rendered === undefined)) return row;
-			let view = tavernFrameRows.get(row);
-			if (!view) {
-				const pluginData = Object.assign({}, data);
-				delete pluginData.template_display; delete pluginData.template_rendered;
-				view = Object.assign({}, row, { pluginData: pluginData });
-				tavernFrameRows.set(row, view);
+			let base = row;
+			if (data && (data.template_display !== undefined || data.template_rendered !== undefined)) {
+				let view = tavernFrameRows.get(row);
+				if (!view) {
+					const pluginData = Object.assign({}, data);
+					delete pluginData.template_display; delete pluginData.template_rendered;
+					view = Object.assign({}, row, { pluginData: pluginData });
+					tavernFrameRows.set(row, view);
+				}
+				base = view;
 			}
-			return view;
+			if (!visibility || !hasMvuVisibilityRules(visibility) || !base || typeof base !== "object" || base.stub) return base;
+			const visKey = JSON.stringify(visibility);
+			let byVis = tavernFrameMaskedRows.get(base);
+			if (!byVis) { byVis = new Map(); tavernFrameMaskedRows.set(base, byVis); }
+			if (byVis.has(visKey)) return byVis.get(visKey);
+			const masked = maskMvuHelperMessageRow(base, visibility);
+			byVis.set(visKey, masked);
+			return masked;
 		}
 		function tavernFrameStub(row) {
 			if (!row || typeof row !== "object" || row.stub) return row;
@@ -56,13 +66,20 @@
 			if (!context || typeof context !== "object" || !Array.isArray(context.messages)) return context;
 			let byTurn = tavernFrameContexts.get(context);
 			if (!byTurn) { byTurn = new Map(); tavernFrameContexts.set(context, byTurn); }
-			const key = String(Math.max(0, Number(turn) || 0));
+			const visibility = context.mvuVisibility && hasMvuVisibilityRules(context.mvuVisibility) ? context.mvuVisibility : null;
+			const key = String(Math.max(0, Number(turn) || 0)) + ":" + (visibility ? JSON.stringify(visibility) : "");
 			if (byTurn.has(key)) return byTurn.get(key);
-			const own = context.turnMessageIds && context.turnMessageIds[key];
+			const own = context.turnMessageIds && context.turnMessageIds[String(Math.max(0, Number(turn) || 0))];
 			const inlineFrom = context.historyAccess ? context.messages.length - TAVERN_FRAME_INLINE_FLOORS : 0;
-			const view = Object.assign({}, context, { messages: context.messages.map(function (row, index) {
-				return index < inlineFrom && index !== Number(own) ? tavernFrameStub(row) : tavernFrameRow(row);
-			}) });
+			const chatVariables = visibility && context.chatVariables && typeof context.chatVariables === "object" && context.chatVariables.stat_data
+				? Object.assign({}, context.chatVariables, { stat_data: maskMvuStatDataForDisplay(context.chatVariables.stat_data, visibility) })
+				: context.chatVariables;
+			const view = Object.assign({}, context, {
+				...(chatVariables !== context.chatVariables ? { chatVariables: chatVariables } : {}),
+				messages: context.messages.map(function (row, index) {
+					return index < inlineFrom && index !== Number(own) ? tavernFrameStub(row) : tavernFrameRow(row, visibility);
+				})
+			});
 			byTurn.set(key, view);
 			return view;
 		}
