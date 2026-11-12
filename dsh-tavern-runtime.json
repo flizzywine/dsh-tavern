@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d20c093f7af0f4c49d0cf8433314c0a83cd3993f",
-  "releaseSequence": 1549,
+  "revision": "e2ef53c03188046e973bd6903501e796c6de2c85",
+  "releaseSequence": 1550,
   "version": "3.3.0",
   "files": [
     {
@@ -2461,8 +2461,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
-      "sha256": "77e793aed4930a5f978bb11348d6d27103405ca5cd823244978aedd743aabd42",
-      "size": 45142
+      "sha256": "cdba1ed3686f83fa54bf334036c300cb1482cc2cbec66932bbc1309a10fbd75b",
+      "size": 46044
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-apply.js",
@@ -9166,9 +9166,9 @@
     }
   ],
   "archive": {
-    "commit": "b2ed8bfa76fc41a85224f85943f9eb8aea0b3da4",
+    "commit": "6a65183a80b8263c2a2cae0705069529506ef76e",
     "path": "runtime.zip",
-    "sha256": "3d88a8a89befb2d92972b41e14d64fbbb00c145d88ec112cf7784369100bcf17",
-    "size": 16316512
+    "sha256": "c1968cdcb364759f16ecaba26903f1563e663b45629ae323d033a4a000382dfe",
+    "size": 16316861
   }
 }

@@ -371,11 +371,14 @@ export function normalizeMvuProviderSubmission(value) {
 function valueKind(value) {
   return Array.isArray(value) ? '列表' : value !== null && typeof value === 'object' ? '对象' : typeof value === 'number' ? '数字' : typeof value === 'boolean' ? '布尔值' : value === null ? '空值' : '文本'
 }
-// A replace that changes a field's shape (list <-> text <-> object) makes MVU's
-// schema diverge and the card's view mis-render. Let the agent fix it and retry.
+const SCHEMA_KINDS = { string: '文本', number: '数字', boolean: '布尔值' }
+// A write that changes a field's type makes MVU's schema diverge and the card's view
+// mis-render; number <-> text too: a text 1999 sent without quotes would be stored as a
+// number, and MVU turns text sent to a number field into Number(text) (NaN for 12%).
+// Let the agent fix it and retry. The stored value is the type (MVU regenerates its
+// schema from the values); the schema only speaks where no value is stored yet.
 function assertMvuValueKinds(operations, variables) {
   const root = object(variables)
-  const compatible = (before, after) => before === after || (before === '数字' && after === '文本') || (before === '文本' && after === '数字')
   const elementKind = list => {
     const kinds = [...new Set(list.map(valueKind))]
     return kinds.length === 1 ? kinds[0] : null
@@ -388,30 +391,41 @@ function assertMvuValueKinds(operations, variables) {
     }
     return { found: true, target }
   }
-  const fail = (index, path, before, after, element) => {
-    throw new Error('变量操作 #' + (index + 1) + ' 类型不一致：' + path + (element ? ' 的列表元素' : '') + ' 当前是' + before + '，提交的是' + after + '；请按原类型提交（列表用 JSON 数组，元素与已有元素同形）')
+  function schemaKind(keys) {
+    let node = object(root.schema)
+    for (const key of keys[0] === 'stat_data' ? keys.slice(1) : keys) {
+      node = node.type === 'object' ? object(node.properties)[key] : node.type === 'array' && (key === '-' || /^\d+$/.test(key)) ? node.elementType : undefined
+      if (!node) return null
+    }
+    return SCHEMA_KINDS[node.type] || null
+  }
+  const hint = (before, value) => before === '文本' && typeof value === 'number' ? '文本值要带 JSON 双引号，valueJson 写 ' + JSON.stringify(String(value))
+    : before === '数字' && typeof value === 'string' ? '数字不带引号也不带单位，valueJson 写数字本身，例如 12；正文没有给出数字就不改这一项'
+    : '请按原类型提交（列表用 JSON 数组，元素与已有元素同形）'
+  const check = (index, path, before, value, element) => {
+    const after = valueKind(value)
+    if (before && before !== after) throw new Error('变量操作 #' + (index + 1) + ' 类型不一致：' + path + (element ? ' 的列表元素' : '') + ' 当前是' + before + '，提交的是' + after + '；' + hint(before, value))
   }
   for (const [index, operation] of operations.entries()) {
     if (!['replace', 'insert', 'add'].includes(operation.op)) continue
     const keys = operation.path.split('/').slice(1).map(key => key.replace(/~1/g, '/').replace(/~0/g, '~'))
     const self = lookup(keys)
     if (operation.op === 'replace' && self.found && self.target !== null) {
-      const before = valueKind(self.target), after = valueKind(operation.value)
-      if (!compatible(before, after)) fail(index, operation.path, before, after, false)
+      check(index, operation.path, valueKind(self.target), operation.value, false)
       // Elements of a list keep the shape of the existing ones (MVU infers the element schema).
       if (Array.isArray(self.target) && Array.isArray(operation.value) && self.target.length) {
         const kind = elementKind(self.target)
-        const bad = kind && operation.value.find(item => !compatible(kind, valueKind(item)))
-        if (bad !== undefined && kind) fail(index, operation.path, kind, valueKind(bad), true)
+        if (kind) for (const item of operation.value) check(index, operation.path, kind, item, true)
       }
       continue
     }
     // Inserting into a list: the new element matches its siblings.
     const parent = lookup(keys.slice(0, -1))
-    if (parent.found && Array.isArray(parent.target) && parent.target.length && (keys.at(-1) === '-' || /^\d+$/.test(keys.at(-1)))) {
-      const kind = elementKind(parent.target)
-      if (kind && !compatible(kind, valueKind(operation.value))) fail(index, operation.path, kind, valueKind(operation.value), true)
+    if (parent.found && Array.isArray(parent.target) && (keys.at(-1) === '-' || /^\d+$/.test(keys.at(-1)))) {
+      check(index, operation.path, parent.target.length ? elementKind(parent.target) : schemaKind(keys), operation.value, true)
+      continue
     }
+    if (!self.found || self.target === null) check(index, operation.path, schemaKind(keys), operation.value, false)
   }
 }
 
