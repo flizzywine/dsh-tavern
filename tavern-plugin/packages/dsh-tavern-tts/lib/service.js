@@ -120,12 +120,13 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const resolveMood = Object.hasOwn(moodResolvers, p.kind) ? moodResolvers[p.kind] : undefined
       const spoken = text => normalizeDashes(readings.apply(text, input.language))
       const text = p.kind === 'fish-audio' ? fishSpeechText(input.text, params, p.speaking ? p.speaking(params.model).voiceDirections : p.capabilities?.voiceDirections, spoken) : voiceCues.projectVoiceCues(input.text, {spoken})
-      // A line's identity is what its audio is made of: the service that speaks it, the voice's references and parameters,
-      // the mood, language, readings and text. Never a display name (of the service or the voice), the service's connection
-      // settings or the rest of the figure (renaming the local service, moving a figure's model
-      // or editing its expressions re-keyed lines whose audio stayed byte for byte the same).
+      // A line's identity is what its audio is made of: the service that speaks it, the voice's references (with the prompt
+      // text the readings make of each transcript) and parameters, the mood, language and the spoken text (readings applied).
+      // Never a display name (of the service or the voice), the service's connection settings, the rest of the figure or the
+      // reading dictionary as a whole: an edit to it re-voices only the lines whose spoken or prompt text it changes.
       const {label:_label, enabled:_enabled, languages:_languages, ...sound} = voice
-      const identity = { version: 4, profileId, provider: p.id, voice: sound, mood: input.mood || 'default', ...(resolveMood ? { resolvedMood: resolveMood({ params, mood: input.mood, moodStyles: voice.moodStyles }) } : {}), language: input.language, params, readings: readings.revision, text }
+      const prompts = voice.references?.map(item => readings.apply(item.transcript, item.language))
+      const identity = { version: 5, profileId, provider: p.id, voice: sound, ...(prompts ? {prompts} : {}), mood: input.mood || 'default', ...(resolveMood ? { resolvedMood: resolveMood({ params, mood: input.mood, moodStyles: voice.moodStyles }) } : {}), language: input.language, params, text }
       const key = ttsCacheKey(identity)
       return {g,source,voice,entry,p,ref,params,readings,identity,key}
   }
@@ -308,9 +309,9 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     // Maintenance/export identity only: no cache hydration, credentials, network or synthesis. source, voice and service are
     // what the identity was derived from (a maintenance tool proving an entry recorded under an earlier identity uses them).
     async cacheIdentity(input, options) {
-      const {key,identity,source,voice,p} = await resolveUtterance(input, options, true)
+      const {key,identity,source,voice,p,readings} = await resolveUtterance(input, options, true)
       grantFor(options.grant)
-      return {key,identity:structuredClone(identity),source:source.sourceId,voice:structuredClone(voice),service:{id:p.id,revision:p.revision}}
+      return {key,identity:structuredClone(identity),source:source.sourceId,voice:structuredClone(voice),service:{id:p.id,revision:p.revision},readings:readings.revision}
     },
     async readCached(input, options) {
       const {key} = await resolveUtterance(input, options, true)
