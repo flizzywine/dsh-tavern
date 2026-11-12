@@ -955,8 +955,8 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
   --gal-dice-paper: #eadcb8; --gal-dice-paper-edge: #c9b07a; --gal-dice-cinnabar: #b3261e;
   --gal-dice-shadow: #0b0608; --gal-dice-dust: #e8dcc0;
   /* a check outcome's performance (mods/dice/client/show.js): the stage bleached to office paper, black geometric type;
-     the figure and the crowd are the rules' mark colour (faces.markColor, e.g. a signal red), else the accent. */
-  --gal-check-show-paper: #f2f0eb; --gal-check-show-ink: #121212; --gal-check-show-shade: #4a0a10;
+     the figure and the field are the rules' mark colour (faces.markColor, e.g. a signal red), else the accent. */
+  --gal-check-show-paper: #f2f0eb; --gal-check-show-ink: #121212;
   --gal-check-show-font: var(--gal-base-font);
   --gal-ui-line: var(--fk-s-stage-panel-line);
   --gal-ui-track: color-mix(in srgb, var(--gal-base-ink) 12%, transparent);
@@ -7274,36 +7274,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   mask: linear-gradient(100deg, var(--gal-dice-shadow) 48%, color-mix(in srgb, var(--gal-dice-shadow) 38%, transparent) 62%, color-mix(in srgb, var(--gal-dice-shadow) 70%, transparent)); }/* ==== end round dice throw ==== */
 
 /* ==== check outcome performance (mods/dice/client/show.js) ==== */
-/* Over the stage (the text box stays on top): the scene bleaches to paper, then the mark colour floods it (the field
-   canvas); the script poses every part per frame. */
-.fork-check-show { --check-show-mark: var(--gal-ui-accent); position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: hidden; }
+/* Over the whole stage for its few seconds - the text box, the top bar and the notices included (band 8; an opened
+   backlog, CONFIG or menu stays above): one canvas the script paints whole each frame (show-art.js) in the paper, ink
+   and mark colours and this family. */
+.fork-check-show { --check-show-mark: var(--gal-ui-accent); position: absolute; inset: 0; z-index: 8; pointer-events: none; overflow: hidden; font-family: var(--gal-check-show-font); }
 .fork-check-show[hidden] { display: none; }
-.fork-check-show-bleach { position: absolute; inset: 0; background: color-mix(in srgb, var(--gal-check-show-paper) 80%, transparent);
-  -webkit-backdrop-filter: grayscale(1) contrast(.62) brightness(1.3); backdrop-filter: grayscale(1) contrast(.62) brightness(1.3); }
-.fork-check-show-art { position: absolute; inset: 0; }
 .fork-check-show-field { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
-.fork-check-show-svg { position: absolute; left: 0; top: 0; overflow: visible; }
-/* The crowd stands on the flooded field: the paper's light. */
-.fork-check-show-mote { fill: none; stroke: var(--gal-check-show-paper); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.fork-check-show-mote.is-solid { fill: var(--gal-check-show-paper); stroke: none; }
-/* The figure as on the dice (mark band, paper window, mark number), and lit (paper band, mark window, paper number). */
-.fork-check-show-band { fill: var(--check-show-mark); }
-.fork-check-show-window { fill: var(--gal-check-show-paper); }
-.fork-check-show-face { fill: var(--check-show-mark); font-family: var(--gal-check-show-font); font-weight: 900; text-anchor: middle; dominant-baseline: middle; }
-.is-lit > .fork-check-show-band { fill: var(--gal-check-show-paper); }
-.is-lit > .fork-check-show-window { fill: var(--check-show-mark); }
-.is-lit > .fork-check-show-face { fill: var(--gal-check-show-paper); }
-.fork-check-show-edge { stroke: var(--check-show-mark); stroke-linecap: square; }
-.fork-check-show-die-face { fill: var(--gal-check-show-ink); }
-.fork-check-show-die-band { fill: var(--check-show-mark); }
-.fork-check-show-die-window { fill: var(--gal-check-show-paper); }
-.fork-check-show-die text { fill: var(--gal-check-show-paper); font-family: var(--gal-check-show-font); font-weight: 800; text-anchor: middle; }
-.fork-check-show-die.is-marked .fork-check-show-die-top { fill: var(--check-show-mark); }
-/* The outcome's label in huge heavy type in the paper's light on the field (the rulebook's title); the check's line below. */
-.fork-check-show-label { position: absolute; left: 0; right: 0; translate: 0 -50%; text-align: center; color: var(--gal-check-show-paper); font-family: var(--gal-check-show-font); font-weight: 900; line-height: 1; letter-spacing: .04em; text-indent: .04em; white-space: nowrap;
-  text-shadow: 0 .04em .12em var(--gal-check-show-shade); }
-.fork-check-show-label span { display: inline-block; }
-.fork-check-show-line { position: absolute; left: 0; right: 0; translate: 0 -50%; text-align: center; color: var(--gal-check-show-paper); font-family: var(--gal-check-show-font); font-weight: 700; letter-spacing: .2em; text-indent: .2em; white-space: nowrap; }
 /* ==== end check outcome performance ==== */
 
 
