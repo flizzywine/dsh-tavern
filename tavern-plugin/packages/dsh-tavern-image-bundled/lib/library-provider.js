@@ -1,3 +1,5 @@
+import { libraryPromptFields } from './library-prompts.js'
+
 const localOutfitId = (characterId, outfitId) => JSON.stringify([characterId, outfitId])
 const outfit = (item, characterId = null) => {
   // Shared outfits have a front/back schema; character-owned outfits already use six parts.
@@ -6,6 +8,7 @@ const outfit = (item, characterId = null) => {
     id: localOutfitId(characterId, item.id), name: item.name, characterId,
     parts: Object.fromEntries(['upper', 'lower', 'shoes', 'accessory', 'full', 'back'].map(key => [key, String(parts[key] || '')])),
     negative: item.negative || '', isDefault: item.default === true,
+    ...libraryPromptFields(item),
   }
 }
 
@@ -22,6 +25,8 @@ export function imageLibraryProvider(getDefinitions, records) {
       return characters(definitions, context).map(item => ({
         id: item.id, name: item.name, aliases: String(item.match || '').split(/[,，\n]/).map(s => s.trim()).filter(Boolean),
         description: item.note || '', group: item.group || '', traits: { ...item.traits },
+        ...libraryPromptFields(item),
+        comfyLoras: (item.comfyLoras || []).map(lora => ({ ...lora })),
         outfitIds: (item.outfits || []).filter(o => o.enabled !== false).map(o => localOutfitId(item.id, o.id))
           .concat((item.outfitRefs || []).filter(id => sharedIds.has(id)).map(id => localOutfitId(null, id))),
       }))

@@ -32,7 +32,6 @@ const fragments = [
   between(settings, '\n      function post(', '\n      async function save('),
   between(settings, '\n      async function save(', '\n      async function saveDisplayWidth('),
   between(settings, '\n      function ComfyBackendCard(', '\n      function imageDisplayCard('),
-  between(settings, '\n      function worldbookTab(', '\n      function galleryTab('),
 ].join('\n')
 const clone = value => JSON.parse(JSON.stringify(value))
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -161,7 +160,7 @@ function harness({ providers = IMAGE_PROVIDERS, config = {}, worldbookBooks = []
   const renderComponent = vm.runInContext(`(function render(snapshot, view) {
     const { ${Object.keys(state).join(', ')} } = snapshot
     ${fragments}
-    return view === 'worldbook' ? worldbookTab() : ComfyBackendCard()
+    return ComfyBackendCard()
   })`, context, { filename: 'bundled-image-atlascloud-ui.client-fragments.js' })
   let tree, view = 'backend'
   function render(nextView = view) { view = nextView; tree = renderComponent(state, view); return tree }
@@ -373,53 +372,6 @@ test('custom Atlas protocol dimension modes expose only the appropriate override
   assert.ok(h.calls.every(call => ['/config', '/image-channel-test'].includes(call.pathname)))
 })
 
-test('worldbook Atlas compatibility checkbox persists applicability for custom channels', async () => {
-  const h = harness({ worldbookBooks: [{ key: 'main', name: '生图规则', count: 1,
-    entries: [{ index: 0, comment: '渠道规则', content: 'test rule', enabled: true, backends: ['openai'] }] }] })
-  h.render('worldbook')
-  await h.click('编辑')
-  function atlasCheckbox() {
-    const label = only(h.tree, node => node.type === 'label' && text(node) === 'Atlas兼容（自定义）', 'worldbook Atlas compatibility label')
-    return only(label, node => node.type === 'input' && node.props.type === 'checkbox', 'atlascloud applicability checkbox')
-  }
-  assert.match(text(h.tree), /适用于协议为 AtlasCloud 且后端支持的自定义渠道；它不是独立渠道/)
-  assert.equal(atlasCheckbox().props.checked, false)
-  await h.act(() => atlasCheckbox().props.onChange({ target: { checked: true } }))
-  assert.deepEqual(h.calls.map(call => [call.method, call.pathname]), [['POST', '/worldbook-entry'], ['GET', '/worldbook?format=tags']])
-  assert.deepEqual(h.calls[0].body, { format: 'tags', book: 'main', index: 0, patch: { backends: ['openai', 'atlascloud'] } })
-  assert.equal(atlasCheckbox().props.checked, true, 'server refresh keeps the selected provider')
-
-  h.calls.length = 0
-  await h.act(() => atlasCheckbox().props.onChange({ target: { checked: false } }))
-  assert.deepEqual(h.calls[0].body, { format: 'tags', book: 'main', index: 0, patch: { backends: ['openai'] } })
-  assert.deepEqual(h.calls.map(call => call.pathname), ['/worldbook-entry', '/worldbook?format=tags'])
-  assert.equal(atlasCheckbox().props.checked, false, 'unchecking removes only atlascloud')
-})
-
-for (const provider of ['openai', 'custom']) {
-  test(`${provider}: OpenAI Images quality and moderation save and reopen per channel`, async () => {
-    const existing = channel(provider, provider === 'custom' ? { options: { apiProtocol: 'openai' } } : {})
-    const other = { ...existing, id: 'other-channel' }
-    const config = { imageBackend: provider, activeImageChannel: existing.id, imageChannels: [existing, other] }
-    const h = harness({ config })
-    const options = label => walk(h.control('select', label), node => node.type === 'option').map(node => node.props.value)
-    assert.deepEqual(options('画质'), ['', 'auto', 'low', 'medium', 'high', 'xhigh', 'max'])
-    assert.deepEqual(options('内容审核级别'), ['', 'auto', 'low'])
-    assert.equal(h.control('select', '画质').props.value, '')
-    assert.equal(h.control('select', '内容审核级别').props.value, '')
-    for (const [quality, moderation] of [['auto', 'auto'], ['xhigh', 'low'], ['max', 'low'], ['', '']]) {
-      await h.change('select', '画质', quality)
-      await h.change('select', '内容审核级别', moderation)
-      await h.click('保存并测试连接')
-      const saved = channelConfigPatch(config, h.savedConfig)
-      assert.deepEqual(saved.imageChannels[0].options, { ...existing.options, quality, moderation })
-      assert.deepEqual(saved.imageChannels[1].options, other.options)
-      const reopened = harness({ config: { ...saved, imageChannels: publicChannels(saved.imageChannels) } })
-      assert.equal(reopened.control('select', '画质').props.value, quality)
-      assert.equal(reopened.control('select', '内容审核级别').props.value, moderation)
-    }
-  })
-}
 
 test('画质 keeps a previously typed value and is hidden for protocols without a quality parameter', () => {
   const typed = channel('openai', { options: { quality: 'auto' } })

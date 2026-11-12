@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 const root = new URL('./', import.meta.url)
-const fragments = new Set(['media.js', 'settings-fields.js', 'settings.js', 'card-worldbook.js', 'card-gallery.js', 'transport.js', 'capabilities.js'])
+const sharedFragments = { 'transport.js': 'lib/client/transport.js', 'capabilities.js': 'lib/image-provider-capabilities.js', 'library-prompts.js': 'lib/library-prompts.js' }
+const fragments = new Set(['media.js', 'image-display.js', 'workflow-lora.js', 'workflow-inputs.js', 'image-editor.js', 'legacy-worldbook.js', 'settings-fields.js', 'prompt-structure-editor.js', 'prompt-workspace.js', 'prompt-entry-library.js', 'draft-state.js', 'prompt-forms.js', 'prompt-style.js', 'settings.js', 'card-worldbook.js', 'card-gallery.js', ...Object.keys(sharedFragments)])
 const normalize = value => value.replace(/\r\n?/g, '\n')
 
 /** Build one classic browser registration; production needs no source loader or extra requests. */
@@ -15,9 +16,9 @@ export async function assembleImageClient(packageRoot = root) {
     const name = match[1]
     if (!fragments.has(name) || seen.has(name)) throw new Error('Invalid or duplicate image client fragment: ' + name)
     seen.add(name)
-    const source = name === 'transport.js' ? 'lib/client/transport.js' : name === 'capabilities.js' ? 'lib/image-provider-capabilities.js' : 'src/client/' + name
+    const source = sharedFragments[name] || 'src/client/' + name
     let fragment = normalize(await readFile(new URL(source, packageRoot), 'utf8'))
-    if (name === 'transport.js' || name === 'capabilities.js') fragment = fragment.replace(/^export /gm, '').split('\n').map(line => line ? '    ' + line : '').join('\n')
+    if (sharedFragments[name]) fragment = fragment.replace(/^export /gm, '').split('\n').map(line => line ? '    ' + line : '').join('\n')
     output = output.slice(0, match.index) + fragment.trimEnd() + output.slice(match.index + match[0].length)
   }
   if (seen.size !== fragments.size || output.includes('// @include ')) throw new Error('Incomplete image client source')

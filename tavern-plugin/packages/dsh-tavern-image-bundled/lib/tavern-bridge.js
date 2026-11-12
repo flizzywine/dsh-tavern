@@ -369,7 +369,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
         })
         await assertCurrent(task)
         // prompt：Tavern 插图卡「改提示词」的初始内容。
-        await tavern.update(attached.id, { status: 'ready', attachment, progress: 1, prompt: String(job.params?.rawTag || job.params?.tag || job.positive || '').slice(0, 12000) })
+        await tavern.update(attached.id, { status: 'ready', attachment, progress: 1, actions: [{ id: 'image-edit', label: '改图' }], prompt: String(job.params?.rawTag || job.params?.tag || job.positive || '').slice(0, 12000) })
         await assertCurrent(task)
         // The new image is now a completed media item. If a later manual click
         // supersedes this task while old items are being removed, keep this image.
@@ -426,7 +426,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
   try {
     const off = tavern.promptSection({
       name: 'auto-image-gen',
-      text: () => (getConfig()?.autoImageGen && getConfig()?.smartImageSelection === false ? markerRule(getConfig()?.imageGenCount) : ''),
+      text: () => (getConfig()?.autoImageGen && getConfig()?.smartImageSelection === false ? engine.templateMarkerPrompt?.() || markerRule(getConfig()?.imageGenCount) : ''),
     })
     if (typeof off === 'function') disposes.push(off)
     log('已注册提示词段落 auto-image-gen')

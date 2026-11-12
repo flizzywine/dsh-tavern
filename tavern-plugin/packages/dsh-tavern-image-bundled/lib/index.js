@@ -1,3 +1,8 @@
+import { listTemplateModules, materializeTemplateModulesAsync, applyModuleWorkflowValues, applyModuleParameters } from './template-modules.js'
+import { applyWorkflowLora, loraBindingKey, loraOrderPairs, scanWorkflowLoras } from './comfy-lora.js'
+import { fillPromptInputs, bindPromptConfig, selectPromptMaterials } from './prompt-materials.js'
+import { PROMPT_ENTRY_LIMIT, normalizePromptEntries, matchPromptEntries, promptEntryGuidance } from './prompt-entries.js'
+import { activePromptBlocks, normalizePromptUsage } from './prompt-structure.js'
 import { registerImageRoutes } from './http/routes.js'
 import { resolveCharacterForms, hasPositiveChineseCue, sameCharacterForm } from './character-forms.js'
 import { charactersFromWorldbookText, charactersFromCardBookBody, charactersFromCardBook, charactersFromExtraction, mergeCharacters } from './character-import.js'
@@ -23,39 +28,47 @@ import { buildOutfitPrompt, clampBatchCount, mergeOutfits, parseOutfits } from '
  *   POST /plugins/dsh-tavern-image/jobs              建作业（浏览器渲染器用）
  *   GET  /plugins/dsh-tavern-image/jobs?id=&image=1  查作业 / 取图
  */
-import { randomUUID, randomInt } from 'node:crypto'
+import { createHash, randomUUID, randomInt } from 'node:crypto'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { buildTemplateMarkerPrompt } from './prompts.js'
 import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
 import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume, combinedPrompt, novelaiChatPrompt } from './image-providers.js'
 import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
+import { describeImageIntegration } from './model-provider.js'
 import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 import { createDefinitionsStore } from './definitions-store.js'
+import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
 import { runCardImage } from './card-app/generation.js'
 export { stageImageProvider } from './image-catalog.js'
-import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
+import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
 import { createCredentialStore } from './credential-store.js'
+import { generationTemplates, selectGenerationConfig, usesWorldbook } from './generation-selection.js'
+import { generationMechanism } from './generation-mechanism.js'
+import { comfyReferenceCapacity, normalizeImageMentions, normalizeCharacterLoras, applyDynamicLoras } from './comfy-dynamic.js'
 import { patchWorkflowGraph, workflowRevision } from './workflow-graph.js'
-import { parseImagePlan, hideGlobalPlayers, parsePlannerDecision, characterRoster, buildPlannerSystem, runPlanner, normalizePrompts, dedupeTags, parseDesign, parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from './planner.js'
+import { parseImagePlan, hideGlobalPlayers, parsePlannerDecision, characterRoster, buildPlannerSystem, runPlanner, normalizePrompts, parseDesign, parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from './planner.js'
 import { normalizeEntryActivation, selectPlannerContext } from './planner-context.js'
 import { createDownloadPackage, PLUGIN_DOWNLOADS } from './download-package.js'
 import { createMediaActions } from './media-actions.js'
 import { applyCharacterSnapshot, boundCharacterSnapshot, emptyCharacterSnapshot, mergeCharacterUpdates } from './character-history.js'
 import { getPromptGuidance, acceptsChinese } from './prompt-presets.js'
-import { PROMPT_FORMATS, BUILTIN_PROMPT_PRESETS, normalizePromptPresets, resolvePromptMode, composePresetText, promptPresetNegative, effectivePromptPreset, formatPromptForBackend, validPromptPresetId, promptBackendContext } from './prompt-presets.js'
+import { BASIC_IMAGE_WORLDBOOK, STRUCTURED_PROMPT_SECTIONS, PROMPT_FORMATS, MAX_PROMPT_PRESETS, DEFAULT_MODULAR_TEMPLATE, STRUCTURED_PROMPT_TEMPLATE, BUILTIN_PROMPT_PRESETS, normalizePromptPresets, normalizeDefaultPromptTemplate, resolvePromptMode, composePresetText, promptPresetNegative, effectivePromptPreset, validPromptPresetId, promptBackendContext, promptConfigForTarget } from './prompt-presets.js'
 import { transcodeImageOutputAsync, isBlankImage } from './image-output.js'
-import { comfyLoadImageBindings, applyComfyReferenceImages } from './comfy-reference-images.js'
+import { compactComfySchema, comfyWorkflowFields, comfyPromptMarkers, applyComfyPromptMarkers, withComfyPromptMarkers, validateComfyTextBindings } from './comfy-inputs.js'
+import { comfyLoadImageBindings, applyComfyReferenceImages, validateComfyImageBindings } from './comfy-reference-images.js'
 import { createDiagnostics } from './diagnostics.js'
 import { deleteWorkflow } from './workflow-delete.js'
 import { createFormatWorldbooks } from './format-worldbooks.js'
-import { composeStructuredPrompt } from './prompt-presets.js'
+import { activeArtistText, applyWeights, resolveWeightMode, prepareImagePrompt } from './prompt-assembly.js'
+export { convertWeights, stripWeights, resolveWeightMode } from './prompt-assembly.js'
 import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
 
 export const name = 'dsh-tavern-image'
@@ -110,7 +123,10 @@ const DEFAULTS = {
   activePreset: '',
   // 默认负面固定词（没选预设时用）
   styleNegative: '',
+  promptSystem: 'workbench', randomPromptTemplates: false, randomTemplateIds: [],
   promptPresets: [],
+  promptDefault: undefined,
+  promptEntries: [],
   activePromptPreset: '',
   promptMode: 'auto',
   designPromptMode: 'auto',
@@ -305,6 +321,7 @@ function referenceFields(raw) {
 export function normalizeOutfit(raw, index) {
   const item = {
     ...referenceFields(raw),
+    ...libraryPromptFields(raw),
     id: String(raw?.id ?? `outfit-${index + 1}`),
     name: String(raw?.name ?? `通用服装 ${index + 1}`),
     enabled: raw?.enabled !== false,
@@ -312,6 +329,18 @@ export function normalizeOutfit(raw, index) {
   }
   for (const key of OUTFIT_FIELDS) item[key] = String(raw?.[key] ?? '')
   return item
+}
+
+function sharedOutfitParts(outfit) {
+  return { ...outfit, upper: outfit.upper || outfit.body, back: outfit.back || outfit.fullBack || outfit.bodyBack }
+}
+
+function characterOutfits(person, definitions) {
+  const owned = person.outfits ?? []
+  if (!person.outfitRefs?.length || !definitions?.outfits?.length) return owned
+  return [...owned, ...definitions.outfits.filter(outfit => outfit?.enabled !== false &&
+    person.outfitRefs.includes(outfit?.id) && !owned.some(item => item.id === outfit.id))
+    .map(sharedOutfitParts)]
 }
 
 /** 看照片写 tag 时用的规则。 */
@@ -420,6 +449,12 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
         const sceneScope = lastPerson ? sceneForPerson(lastPerson) : (personMacroCount === 1 ? sceneText : '')
         const bareForScope = isBarefoot(sceneScope)
         const pushOutfit = (outfit) => {
+          const raw = libraryPromptOverride(outfit)
+          if (raw !== null) {
+            if (raw) bits.push(raw)
+            bits.push(...libraryImageDetails(outfit))
+            return
+          }
           const shoesOff = !bareForScope && footwearOverridden(sceneScope, [outfit.upper, outfit.lower, outfit.shoes, outfit.full].join(' '))
           const noShoes = bareForScope || shoesOff
           for (const field of ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']) {
@@ -430,6 +465,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             const value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
             if (value && !PLACEHOLDER_VALUE.test(value)) bits.push(value)
           }
+          bits.push(...libraryImageDetails(outfit))
         }
 
         // ① 人物库
@@ -476,7 +512,8 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 「服装名（状态）」：括号前是服装库里的名字，括号里是这一刻的临时状态（袖子挽起、赤足、沾了土）。
           // 整串拿去对服装库会对不上，于是被当成一句自写描述，模型不知道「常服」长什么样，衣服每张都变。
           const outfitAsked = stripUsualSuffix(parsed.outfit ?? parsed.clothes ?? parsed['服装'])
-          const enabledOutfits = (person.outfits ?? []).filter((o) => o && o.enabled !== false)
+          const promptPerson = outfitAsked && person.outfitRefs?.length ? { ...person, outfits: characterOutfits(person, scoped) } : person
+          const enabledOutfits = (promptPerson.outfits ?? []).filter((o) => o && o.enabled !== false)
           const exactHit = enabledOutfits.some((o) => o.name === outfitAsked)
           const stated = exactHit ? null : /^(.+?)\s*[（(]([^（()）]*)[）)]\s*$/.exec(outfitAsked)
           const statedBase = stated && enabledOutfits.some((o) => o.name === stated[1].trim()) ? stated[1].trim() : ''
@@ -492,7 +529,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 同一段里另有属于此人的单独服装宏时，衣服交给那个宏。
           const hiddenBody = /hidden/i.test(upper) && /hidden/i.test(lower)
           const ownsStandalone = (person.outfits ?? []).some((o) => o && o.enabled !== false && standaloneNames.has(nameKey(o.name)))
-          const libraryHit = outfitName && (person.outfits ?? []).some((o) => o && o.enabled !== false && o.name === outfitName)
+          const libraryHit = outfitName && enabledOutfits.some(o => o.name === outfitName)
           const macroText = outfitName && !PLACEHOLDER_VALUE.test(outfitName) && (style === 'structured' || (/^[\x20-\x7e]+$/.test(outfitName) && /[a-z]/i.test(outfitName)) ||
             // 中文人物：宏里直接写的中文服装描述（不是服装库里的名字）照样用。
             (chinesePerson(person) && style === 'natural' && /[\u3400-\u9fff]/.test(outfitName)))
@@ -527,7 +564,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 宏里明确标了下身 nsfw 的照常写。
           const closeShot = style === 'natural' && chinesePerson(person) && closeShotZh(sceneText) && lower !== 'nsfw' && !lowerShot
           if (closeShot && wear) wear = dropFootwear(wear, false)
-          const picked = characterTags(person, {
+          const picked = characterTags(promptPerson, {
             nsfw,
             back,
             mode,
@@ -586,7 +623,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
               if (outfit) { owner = candidate; break }
             }
           }
-          if (outfit) pushOutfit(outfit)
+          if (outfit) pushOutfit(owner ? outfit : sharedOutfitParts(outfit))
           note({ macro: source, asked, result: outfit ? (owner ? 'character-outfit' : 'shared-outfit') : 'not-found', outfitId: outfit ? String(outfit.id ?? '') : '', ownerId: owner ? String(owner.id ?? '') : '' })
         }
         if (!person && idAsked && !matches.length) note({ macro: source, asked, result: 'not-found' })
@@ -703,6 +740,9 @@ function boundCharacterPhrase(person, picked, extras = [], wear = '', style = 'n
     const body = [traits.join('；'), outfit.length ? '穿着：' + outfit.join('；') : (wear ? '穿着：' + wear : ''), ...extras].filter(Boolean).join('；')
     return identity && body ? `人物“${identity}”：` + body : ''
   }
+  if (origins.some(origin => /(?:imagePrompt|imageDetails)$/.test(origin.field))) {
+    return [label + ' is a character in this scene:', ...traits, ...outfit, wear, extras.expression, ...extras].filter(Boolean).join('\n')
+  }
   const look = [person?.traits?.face, person?.traits?.faceBack, person?.traits?.feature].map(v => String(v ?? '')).join(' ')
   if (chinesePerson(person)) return chineseCharacterPhrase(person, traits, outfit, extras, wear, look, label)
   for (let i = 0; i < traits.length; i++) traits[i] = String(traits[i]).replace(HAIR_MARK, '，')
@@ -732,7 +772,7 @@ function zhAgeClause(text) {
 
 /** 人物资料（脸部外貌）是用中文写的：给读得懂中文的模型用的人物条目。 */
 function chinesePerson(person) {
-  return /[㐀-鿿]/.test(String(person?.traits?.face ?? ''))
+  return /[㐀-鿿]/.test(libraryPromptOverride(person) ?? String(person?.traits?.face ?? ''))
 }
 
 /** 画面描述里交代了镜头（景别、机位、俯仰、正侧背）。 */
@@ -933,8 +973,11 @@ export function addSceneTime(scene, body, mount) {
 
 /** 服装条目 → 一句完整描述。中文服装用中文逗号连成一句。 */
 function outfitDescription(outfit) {
+  const raw = libraryPromptOverride(outfit)
+  const details = libraryImageDetails(outfit)
+  if (raw !== null) return [raw, ...details].filter(Boolean).join('\n')
   const parts = ['upper', 'lower', 'shoes', 'accessory'].map(k => String(outfit?.[k] ?? '').trim().replace(/[，,。\s]+$/, '')).filter(v => v && !PLACEHOLDER_VALUE.test(v))
-  return parts.join(parts.some(v => /[\u3400-\u9fff]/.test(v)) ? '，' : ', ')
+  return [parts.join(parts.some(v => /[\u3400-\u9fff]/.test(v)) ? '，' : ', '), ...details].filter(Boolean).join('\n')
 }
 
 /** 「当前穿着」记录可能是英文描述，也可能是服装库里的名字；是名字就展开成那套衣服。 */
@@ -944,7 +987,7 @@ function resolveWearText(person, text) {
   const n = v => String(v ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '').replace(/常穿$/, '')
   const find = piece => (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === n(piece))
   const whole = find(value)
-  if (whole) return outfitDescription(whole) || value
+  if (whole) return outfitDescription(whole) || (libraryPromptOverride(whole) === null ? value : '')
   // 中文人物的「当前穿着」记录本身就是一句中文描述：整句保留，不按逗号拆。
   if (chinesePerson(person) && /[\u3400-\u9fff]/.test(value) && !value.split(/[,，、]/).some(piece => find(piece.trim()))) return value
   // 规划有时把服装名和补充的单品混着写（「酒红色挂脖包臀裙, black pantyhose」）：逐段展开服装名，
@@ -968,7 +1011,7 @@ function chineseAllowed(config, workflow = null) {
 }
 
 function rosterStyle(config, workflow = null) {
-  const mode = resolvePromptMode(config, promptBackendContext(config, workflow))
+  const mode = resolvePromptMode(promptConfigForTarget(config, workflow), promptBackendContext(config, workflow))
   return mode === 'structured' ? 'structured' : mode === 'natural' ? 'natural' : 'tags'
 }
 
@@ -998,10 +1041,13 @@ function characterTags(character, options = {}) {
   const origins = []
   const negativeRaw = String(traits.negative ?? '').trim()
   if (negativeRaw && !PLACEHOLDER_VALUE.test(negativeRaw)) { negative.push(negativeRaw); origins.push({ field: 'traits.negative', channel: 'negative', text: negativeRaw }) }
-  for (const key of keys) {
+  const raw = libraryPromptOverride(character)
+  if (raw && keys.length) { tags.push(raw); origins.push({ field: 'imagePrompt', text: raw }) }
+  for (const key of raw === null ? keys : []) {
     const value = String(traits[key] ?? '').trim()
     if (value && !PLACEHOLDER_VALUE.test(value)) { tags.push(value); origins.push({ field: 'traits.' + key, text: value }) }
   }
+  if (keys.length) for (const text of libraryImageDetails(character)) { tags.push(text); origins.push({ field: 'imageDetails', text }) }
   for (const outfit of options.noOutfit ? [] : character.outfits ?? []) {
     if (outfit?.enabled === false) continue
     const isDefault = outfit.default === true
@@ -1009,7 +1055,12 @@ function characterTags(character, options = {}) {
     // 指名要某套衣服时按名字找；没指名时才退回常穿（或第一套）。
     else if (options.outfitName) { if (outfit.name !== options.outfitName) continue }
     else if (!isDefault && (character.outfits ?? []).some(o => o.default && o.enabled !== false)) continue
-    for (const key of ['upper', 'lower', 'shoes', 'accessory', 'full']) {
+    const outfitPrompt = libraryPromptOverride(outfit)
+    if (outfitPrompt && [upperPart, lowerPart].includes('sfw')) {
+      tags.push(outfitPrompt)
+      origins.push({ field: 'outfit.imagePrompt', outfitId: outfit.id, text: outfitPrompt })
+    }
+    for (const key of outfitPrompt === null ? ['upper', 'lower', 'shoes', 'accessory', 'full'] : []) {
       // 宏里标了 hidden 或 nsfw 的部位，对应的衣服不写：hidden 是出了画框，nsfw 是那个部位露着，
       // 写上衣或裤子会让模型把衣服画回去。半身、近景（只有下身 hidden）照样写下装，
       // 不写的话模型常把下摆画到大腿、下面却什么都没穿；鞋照旧不写。
@@ -1023,9 +1074,13 @@ function characterTags(character, options = {}) {
       const value = options.barefoot ? dropFootwear(outfit[key], options.keepSocks) : String(outfit[key] ?? '').trim()
       if (value && !PLACEHOLDER_VALUE.test(value)) { tags.push(value); origins.push({ field: 'outfit.' + key, outfitId: outfit.id, text: value }) }
     }
-    if (options.back === true && String(outfit.back ?? '').trim()) {
+    if (outfitPrompt === null && options.back === true && String(outfit.back ?? '').trim()) {
       tags.push(String(outfit.back).trim())
       origins.push({ field: 'outfit.back', outfitId: outfit.id, text: String(outfit.back).trim() })
+    }
+    if ([upperPart, lowerPart].includes('sfw')) for (const text of libraryImageDetails(outfit)) {
+      tags.push(text)
+      origins.push({ field: 'outfit.imageDetails', outfitId: outfit.id, text })
     }
     if (outfit.negative) { negative.push(String(outfit.negative).trim()); origins.push({ field: 'outfit.negative', channel: 'negative', outfitId: outfit.id, text: String(outfit.negative).trim() }) }
     break
@@ -1110,7 +1165,7 @@ export function apply(ctx, config = {}) {
           deps.bridge = installTavernBridge({
             tavern,
             attachments: attachmentApi,
-            engine: { planMessage: engine.planMessage, wardrobePrompt: engine.wardrobePrompt, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
+            engine: { planMessage: engine.planMessage, wardrobePrompt: engine.wardrobePrompt, templateMarkerPrompt: engine.templateMarkerPrompt, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
             getConfig: () => engine.currentConfig(),
             logger,
             readFileAsBytes: async file => new Uint8Array(await readFile(file)),
@@ -1130,7 +1185,11 @@ export function apply(ctx, config = {}) {
           }
           // Tavern's own picture requests (stage asset packs) run on the current online channel.
           if (typeof tavern.imageProvider === 'function') {
-            const off = tavern.imageProvider(stageImageProvider(() => engine.currentConfig()))
+            const provider = stageImageProvider(() => engine.currentConfig(), undefined, { definitions: () => engine.currentDefinitions(), readReference: reference => engine.readReference(reference),
+              workflows: () => engine.comfyModels(), generateComfy: request => engine.generateComfyAsset(request),
+              templates: () => engine.templateModels(), generateTemplate: request => engine.generateTemplateAsset(request) })
+            const off = tavern.imageProvider(provider)
+            deps.imageIntegration = provider
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           if (tavern.capabilities?.imageLibrary >= 1 && typeof tavern.registerImageLibrary === 'function') {
@@ -1143,6 +1202,7 @@ export function apply(ctx, config = {}) {
         // ctx.effect 只接受同步返回的清理函数，所以这里同步返回
         return () => {
           disposed = true
+          deps.imageIntegration = null
           try { deps.bridge?.dispose?.(); deps.mediaActions?.dispose?.() } catch {}
           for (const off of lifecycleDisposes) { try { off() } catch {} }
         }
@@ -1217,6 +1277,10 @@ async function handleJobs(request, response, url, engine) {
 }
 
 // =====================================================================
+// 自动生图提示词注入
+// =====================================================================
+
+// =====================================================================
 // 引擎
 // =====================================================================
 
@@ -1227,6 +1291,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     // 诊断日志：默认关闭；插件目录下放 diagnostics.json 打开（见 lib/diagnostics.js）。
     const diag = createDiagnostics({ root: ROOT, logger, secrets: () => collectSecretValues(config) })
     config.workflows = await scanWorkflows(config)
+    const promptRevision = () => createHash('sha256').update(JSON.stringify([config.promptPresets, config.promptDefault, config.activePromptPreset, config.promptEntries])).digest('hex')
     let definitions = await loadDefinitions()
     const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next } })
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
@@ -1271,7 +1336,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               const job = Object.assign({}, item, { params: item.params ?? {} })
               // 旧版把 cache 兜底补回的占位记录（无 key、无提示词）也落了盘，且 createdAt 是当次启动时间。
               // 认出来按占位处理：不再落盘、时间改用文件修改时间，免得挤掉真实记录、打乱图库顺序。
-              if (job.label === '历史图片' && !job.key && !job.positive) job.fromCache = true
+              if (job.label === '历史图片' && !job.key && !job.positive && !job.favorite && !job.trashedAt) job.fromCache = true
               // 老记录有两处会让取图永久 404，这里在内存里补正（不写回盘，每次启动重算）：
               //   ① file 指着改名前的 cache 目录（…\tools\dsh-tavern-image\cache\…），文件其实已搬到 dsh-tavern-image；
               //   ② byteLength 被早期兜底恢复写成了 0，而取图门槛正是 `if (!job.file || !job.byteLength)`。
@@ -1367,15 +1432,17 @@ function createRuntime(ctx, overrides, logger, deps) {
             .sort((a, b) => (a[1].createdAt || 0) - (b[1].createdAt || 0))
           const needsTracking = job => ['pending', 'running', 'uncertain'].includes(job.state) || job.requestMayHaveSucceeded === true || job.cancelMayHaveContinued === true || (job.state === 'cancelled' && job.requestStarted === true)
           // Never evict a live/uncertain paid request in favor of newer history.
-          const entries = [...ordered.filter(([, job]) => needsTracking(job)), ...ordered.filter(([, job]) => !needsTracking(job)).slice(-150)]
+          const archived = job => job.favorite || job.trashedAt
+          const entries = [...ordered.filter(([, job]) => needsTracking(job) || archived(job)),
+            ...ordered.filter(([, job]) => !needsTracking(job) && !archived(job)).slice(-150)]
           const plain = {}
           for (const [id, job] of entries) {
             plain[id] = {
               id: job.id, state: job.state, percent: job.backend === 'comfyui' && job.state !== 'done' ? 0 : (job.percent ?? 0), createdAt: job.createdAt,
               workflowId: job.workflowId, outputNode: job.outputNode,
-              file: job.file, size: job.size ?? null, params: job.params ?? {}, label: job.label ?? '', source: jobSource(job),
+              file: job.file, favorite: job.favorite === true, trashedAt: job.trashedAt || null, size: job.size ?? null, params: job.params ?? {}, label: job.label ?? '', source: jobSource(job),
               positive: job.positive ?? '', negative: job.negative ?? '',
-              byteLength: job.byteLength ?? 0, mediaType: job.mediaType ?? '', seed: job.seed ?? null,
+              byteLength: job.byteLength ?? 0, mediaType: job.mediaType ?? '', seed: job.seed ?? null, resultSeed: job.resultSeed, usage: job.usage, promptSystem: job.promptSystem, promptTemplate: job.promptTemplate,
               error: job.error ?? undefined,
               // 落盘 key，重启后才能重建 byKey（见 restoreJobs）
               key: job.key ?? '',
@@ -1394,6 +1461,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               submissionTracked: job.submissionTracked === true,
               gameId: job.gameId ?? '', turn: job.turn ?? null, textVersion: job.textVersion ?? '',
               imageOutputWarning: job.imageOutputWarning ?? '',
+              loras: job.loras ?? [],
             }
           }
           await writeJsonAtomic(JOBS_STORE, plain)
@@ -1428,14 +1496,14 @@ function createRuntime(ctx, overrides, logger, deps) {
       const loaded = []
       for (const entry of config.workflows) {
         try {
-          const raw = await readJson(join(ROOT, String(entry.file)), null)
+          let raw = await readJson(join(ROOT, String(entry.file)), null)
           if (!raw) throw new Error('文件不存在')
           if (!['dsh-tavern-image-v1', 'dsh-tavern-comfy-v1'].includes(raw.format)) throw new Error('不是 dsh-tavern-image-v1 格式')
           if (!raw.prompt || !raw.outputNode || !raw.prompt[raw.outputNode]) throw new Error('缺少 prompt 或 outputNode')
           // 补全 bindings：老格式的工作流只绑了正负面，尺寸/步数/CFG/底模/LoRA 都要能读能改。
           // 用自动识别补齐缺的那几类，已有的不动（尊重手工设置）。
           try {
-            const auto = detectWorkflow(raw.prompt).bindings
+            const auto = detectWorkflow(raw.prompt, raw.nodeSchemas).bindings
             const b = Object.assign({}, raw.bindings)
             for (const key of ['positive', 'negative', 'seed', 'batch', 'size', 'steps', 'cfg', 'model', 'loras']) {
               const has = Array.isArray(b[key]) ? b[key].length : 0
@@ -1444,12 +1512,13 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             raw.bindings = b
           } catch { /* 补不了就算了，用原来的 */ }
-          if (!(raw.bindings?.positive ?? []).length) throw new Error('没有 positive 映射，无法替换画面提示词')
+          raw = withComfyPromptMarkers(raw)
+          if (!(raw.bindings?.positive ?? []).length && !comfyWorkflowFields(raw).some(field => field.image)) throw new Error('没有提示词映射或图片输入，无法生成图片')
           loaded.push({
             id: String(entry.id), label: entry.label || entry.id, match: Array.isArray(entry.match) ? entry.match : [],
             sizes: entry.sizes ?? null, enabled: entry.enabled !== false, file: String(entry.file),
-            prompt: raw.prompt, bindings: raw.bindings ?? {}, outputNode: raw.outputNode, digest: raw.digest ?? '',
-            summary: workflowSummary(raw), error: null,
+            prompt: raw.prompt, nodeSchemas: raw.nodeSchemas, dynamicImages: raw.dynamicImages, bindings: raw.bindings ?? {}, outputNode: raw.outputNode, digest: raw.digest ?? '',
+            summary: workflowSummary(raw), revision: workflowRevision(raw), error: null,
           })
         } catch (error) {
           loaded.push({
@@ -1474,21 +1543,20 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (cfg.imageBackend === 'comfyui') return 'comfyui'
       try { return effectiveImageProvider(activeChannel(cfg)) } catch { return String(cfg.imageBackend ?? '') }
     }
-    const referenceCapability = () => {
-      if (config.imageBackend === 'comfyui') {
-        if (config.comfyMode === 'simple') return false
-        return workflowAcceptsReferences(styleWorkflow(config))
-      }
-      try { return supportsImageReferences(activeChannel(config)) } catch { return false }
+    const referenceCapability = (cfg = config, workflow = styleWorkflow(cfg)) => {
+      if (cfg.imageBackend === 'comfyui') return cfg.comfyMode !== 'simple' && workflowAcceptsReferences(workflow)
+      try { return supportsImageReferences(activeChannel(cfg)) } catch { return false }
     }
     /**
      * 这次出图会用到的 ComfyUI 工作流：指定了就用指定的，否则用默认工作流。
      * 规划、人物宏展开和编译都按它的模型判断提示词写法；不传工作流时只看得到 "comfyui"，
      * 默认工作流是 Z-Image 这类自然语言模型时，人物宏会被展开成 tag，和编译时的写法对不上。
      */
+    const imageOutputConfig = job => job.params?.assetBackground === 'transparent' ? { ...config, jpegOutput: false } : config
+
     const styleWorkflow = (cfg = config, id = '') => {
       if (cfg.imageBackend !== 'comfyui') return null
-      return id ? (workflows.find(wf => wf.id === id && !wf.error) ?? null) : (usable().find(wf => wf.id === cfg.defaultWorkflow) ?? null)
+      return id ? (workflows.find(wf => wf.id === id && !wf.error) ?? null) : pickWorkflow(usable(), cfg)
     }
 
     async function comfyJson(pathname, init) {
@@ -1668,7 +1736,9 @@ function createRuntime(ctx, overrides, logger, deps) {
               onTask: info => { if (info?.taskId) { job.providerTaskId = String(info.taskId); job.providerTaskProvider = String(info.provider || job.backend); return persistJobs() } },
             })
             if (stopped()) return
-            const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, config, { maxOutputBytes: config.maxImageBytes, signal })
+            if (Number.isSafeInteger(result.seed) && result.seed >= 0) job.resultSeed = result.seed
+            if (result.usage) job.usage = structuredClone(result.usage)
+            const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
             if (stopped()) return
             const file = join(cacheRoot(config), `${job.id}.img`)
             await writeFile(file, output.bytes)
@@ -1761,7 +1831,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                 return
               }
               const signal = job.controller?.signal
-              const output = await transcodeImageOutputAsync(bytes, sourceType, config, { maxOutputBytes: config.maxImageBytes, signal })
+              const output = await transcodeImageOutputAsync(bytes, sourceType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
               if (signal?.aborted || job.state === 'cancelled') return
               job.mediaType = output.mediaType
               job.imageOutputWarning = output.warning || ''
@@ -1826,6 +1896,15 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     let lastSessionId = ''
     const startingJobs = new Map()
+    const galleryWrites = new Set()
+    const workflowWrites = new Map()
+    function withWorkflowWrite(path, operation) {
+      const pending = (workflowWrites.get(path) ?? Promise.resolve()).catch(() => {}).then(operation)
+      workflowWrites.set(path, pending)
+      return pending.finally(() => {
+        if (workflowWrites.get(path) === pending) workflowWrites.delete(path)
+      })
+    }
     const settledTurnWaits = new Map()
     const settledTurnWaitControllers = new Set()
     const imageQueue = []
@@ -1861,7 +1940,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const result = await generateImage(channel, {
               positive: compiled.positive, negative: compiled.negative, promptMode: compiled.promptMode, seed: compiled.seed, characters: compiled.characters, references,
-              width: compiled.size.width, height: compiled.size.height, explicitSize: job.params.explicitSize === true, steps: job.params.steps, cfg: job.params.cfg,
+              width: compiled.size.width, height: compiled.size.height, explicitSize: job.params.explicitSize === true, exactSize: job.params.moduleSize === true, background: job.params.assetBackground, quality: job.params.assetQuality, steps: job.params.steps, cfg: job.params.cfg,
             }, { signal: job.controller.signal, maxImageBytes, onGenerationSubmit: async () => {
               job.controller.signal.throwIfAborted()
               if (!jobs.has(job.id)) throw new Error('生图任务已删除')
@@ -1876,10 +1955,12 @@ function createRuntime(ctx, overrides, logger, deps) {
                 return persistJobs({ required: true })
               }
             } })
+            if (Number.isSafeInteger(result.seed) && result.seed >= 0) job.resultSeed = result.seed
+            if (result.usage) job.usage = structuredClone(result.usage)
             providerCompleted = true
             job.controller.signal.throwIfAborted()
             if (!jobs.has(job.id)) return
-            const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, config, { maxOutputBytes: maxImageBytes, signal: job.controller.signal })
+            const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: maxImageBytes, signal: job.controller.signal })
             job.controller.signal.throwIfAborted()
             const file = join(cacheRoot(config), `${job.id}.img`)
             await writeFile(file, output.bytes)
@@ -1926,18 +2007,24 @@ function createRuntime(ctx, overrides, logger, deps) {
       return pending
     }
 
-    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false } = {}) {
+    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false, preview = false, previewToken = '', signal: preparationSignal, jobDefinitions } = {}) {
       // 浏览器半边只传 tag 和 key，其余（画师串、画幅）由控制台配置兜底。
-      const params = {
+      let params = {
         tag: String(rawParams?.tag ?? ''),
         // 展开前的原始提示词（含 ${...}$ 宏），编辑器里显示这个 —— 一眼能看出调用了谁
         rawTag: String(rawParams?.rawTag ?? rawParams?.tag ?? ''),
+        promptUsage: normalizePromptUsage(rawParams?.promptUsage, 'story'),
+        promptSubjects: rawParams?.promptSubjects,
+        ...(rawParams?.loraOverride ? { loraOverride: rawParams.loraOverride } : {}),
+        inheritedArtist: rawParams?.inheritedArtist === true || !rawParams?.artist,
         artist: rawParams?.artist ? String(rawParams.artist) : activeArtistText(jobConfig).text,
         artistPosition: rawParams?.artistPosition ?? (rawParams?.artist ? undefined : activeArtistText(jobConfig).position),
         negative: String(rawParams?.negative ?? ''),
         size: String(rawParams?.size || jobConfig.imageSize || '竖图'),
         // 调用方明确指定了尺寸时，渠道那对默认宽高不许覆盖它。游玩模式不传这个标记，行为不变。
         explicitSize: rawParams?.explicitSize === true,
+        assetBackground: ['transparent', 'opaque', 'auto'].includes(rawParams?.assetBackground) ? rawParams.assetBackground : undefined,
+        assetQuality: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'].includes(rawParams?.assetQuality) ? rawParams.assetQuality : undefined,
         model: String(rawParams?.model ?? ''),
         textVersion: String(rawParams?.textVersion ?? ''),
         steps: rawParams?.steps,
@@ -1954,6 +2041,12 @@ function createRuntime(ctx, overrides, logger, deps) {
         }
         if (existing && (existing.state === 'pending' || existing.state === 'running' || existing.state === 'done')) return publicJob(existing)
       }
+      if (!usesWorldbook(jobConfig) && jobConfig.activePromptPreset !== 'prompt-preview') {
+        const selected = selectGenerationConfig(jobConfig, usable(), { templateId: rawParams?.templateId, purpose: rawParams?.imagePurpose || 'generate' })
+        jobConfig = selected.config
+        if (selected.workflow) forceWorkflow = selected.workflow
+        else if (jobConfig.imageBackend !== 'comfyui') forceWorkflow = null
+      }
       const channel = forceWorkflow ? null : channelWithPresetParams(jobConfig)
       // 'auto' = 有参考图就用：本张选得到参考图走参考图生图，否则这一张按文生图提交。
       // 明确的 'reference' 仍然要求参考图，选不到就拒绝。
@@ -1962,8 +2055,16 @@ function createRuntime(ctx, overrides, logger, deps) {
       const effectiveProvider = channel ? effectiveImageProvider(channel) : 'comfyui'
       if (requestedGenerationMode === 'reference' && channel && !supportsImageReferences(channel)) throw Object.assign(new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图'), { submissionNotStarted: true })
       if (!channel && jobConfig.comfyMode === 'simple') throw Object.assign(new Error('旧版 ComfyUI 简易模式已停用，原配置和简易模式数据已保留；请导入完整 ComfyUI API workflow 后再生成'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
-      const workflow = forceWorkflow || (!channel ? pickWorkflow(usable(), jobConfig, params.model) : null)
+      let workflow = forceWorkflow || (!channel ? pickWorkflow(usable(), jobConfig, params.model) : null)
       if (!channel && !workflow) throw new Error('没有可用的 ComfyUI 工作流；请导入完整 workflow，或选择其他生图渠道')
+      if (workflow?.dynamicImages === true && requestedGenerationMode === 'text' && comfyLoadImageBindings(workflow).length) throw Object.assign(new Error('这个工作流需要输入图片，请使用图片编辑或参考图模式'), { submissionNotStarted: true })
+      if (rawParams?.origin === 'inline') {
+        const promptConfig = promptConfigForTarget(jobConfig, workflow, channel)
+        if (promptConfig.promptMode === 'structured' && effectivePromptPreset(promptConfig)?.structure) {
+          params.tag = params.tag.replaceAll('\\n', '\n')
+          params.rawTag = params.rawTag.replaceAll('\\n', '\n')
+        }
+      }
       let generationMode = requestedGenerationMode
       let generationModeReason = ''
       if (generationMode === 'auto') {
@@ -1974,30 +2075,67 @@ function createRuntime(ctx, overrides, logger, deps) {
         generationMode = acceptsReferences ? 'reference' : 'text'
         generationModeReason = acceptsReferences ? 'references' : 'unsupported-input'
       }
-      const defsForTurn = applyCharacterSnapshot(definitions, rawParams?.characterSnapshot)
-      const card = await currentCard(rawParams?.sessionId || lastSessionId, rawParams?.turn)
+      const defsForTurn = applyCharacterSnapshot(jobDefinitions ?? definitions, rawParams?.characterSnapshot)
+      const card = preview || previewToken ? null : await currentCard(rawParams?.sessionId || lastSessionId, rawParams?.turn)
       const cardDefs = card
         ? { ...defsForTurn, characters: scopeCharacters(defsForTurn.characters, card) }
         : defsForTurn
+      const selectedConfig = promptConfigForTarget(jobConfig, workflow, channel)
+      const selectedTemplate = effectivePromptPreset(selectedConfig)
+      const templateInputs = fillPromptInputs(selectedTemplate?.structure, rawParams?.inputs)
+      if (templateInputs.missing.length) throw new Error('请填写模板输入：' + templateInputs.missing.join('、'))
+      const modules = await materializeTemplateModulesAsync(templateInputs.structure, { scene: templateInputs.render(params.tag), inputs: templateInputs.values, usage: params.promptUsage, backend: promptBackendContext(selectedConfig, workflow), definitions: cardDefs, subjects: params.promptSubjects, signal: preparationSignal })
+      if (!workflow && modules.workflowValues.length) {
+        throw Object.assign(new Error('当前模板的节点参数需要 ComfyUI 工作流'), { submissionNotStarted: true })
+      }
+      templateInputs.structure = modules.structure
+      jobConfig = bindPromptConfig(selectedConfig, selectedTemplate, modules.structure)
+      params = applyModuleParameters(params, modules.parameters)
+      params.tag = templateInputs.render(params.tag)
+      params.rawTag = templateInputs.render(params.rawTag)
+      params.inputs = templateInputs.values
+      const materialOptions = { usage: params.promptUsage, subjects: params.promptSubjects,
+        mode: resolvePromptMode(selectedConfig, promptBackendContext(selectedConfig, workflow)), traitMode: jobConfig.traitMode }
+      const pickedMaterials = selectPromptMaterials(templateInputs.structure, cardDefs, materialOptions)
+      if (pickedMaterials.warnings.length) throw new Error(pickedMaterials.warnings.join('；'))
+      const boundSubjects = pickedMaterials.selected.map(item => item.characterId
+        ? { characterId: item.characterId, outfitId: item.outfitId }
+        : { name: item.outfitName, outfitId: item.outfitId })
+      const boundIds = new Set(boundSubjects.map(item => item.characterId).filter(Boolean))
+      const subjects = boundSubjects.length ? [
+        ...boundSubjects, ...(Array.isArray(rawParams?.subjects) ? rawParams.subjects.filter(item => !boundIds.has(item?.characterId)) : []),
+      ] : rawParams?.subjects
+      params.subjects = subjects
       let scopedDefs = cardDefs
       let referenceState = null
       const unresolvedCharacterIds = new Set()
       if (generationMode === 'reference') {
         const sectioned = rosterStyle(jobConfig, workflow) === 'structured'
-        if (referenceSnapshot) {
+        if (Array.isArray(rawParams?.sourceImages) && rawParams.sourceImages.length) {
+          if (rawParams.sourceImages.length > 16) throw new Error('一次最多传入 16 张图片')
+          const references = rawParams.sourceImages.map((value, index) => {
+            const image = normalizeReferenceImage(value)
+            if (!image) throw new Error('图生图输入图片无效，请重新添加')
+            return { kind: 'source', index: index + 1, image, label: image.name || '输入图片 ' + (index + 1) }
+          })
+          referenceState = { version: 3, references, subjects: [], definitions: structuredClone(scopedDefs), sourceImages: true }
+          params.rawTag = normalizeImageMentions(params.rawTag, references.length)
+          params.tag = normalizeImageMentions(params.tag, references.length)
+          params.referenceText = references.map(item => '<image' + item.index + '> 对应输入图片 ' + item.index + '：' + item.label).join('\n')
+        } else if (referenceSnapshot) {
           referenceState = structuredClone(referenceSnapshot)
-          scopedDefs = sectioned
+          scopedDefs = sectioned && !referenceState.sourceImages
             ? referenceScopedDefinitions(referenceState.definitions, referenceState.references, { subjects: referenceState.subjects, markers: false })
             : referenceState.definitions
         } else {
-          const selected = resolveImageReferences({ text: params.rawTag, characters: params.characters, subjects: rawParams?.subjects, definitions: scopedDefs })
+          const selected = resolveImageReferences({ text: params.rawTag, characters: params.characters, subjects, definitions: scopedDefs })
           scopedDefs = referenceScopedDefinitions(scopedDefs, selected.references, { subjects: selected.subjects, markers: !sectioned })
           referenceState = { version: sectioned ? 2 : 1, ...selected, definitions: structuredClone(scopedDefs) }
         }
         if (!referenceState.references?.length && requestedGenerationMode !== 'auto') throw Object.assign(new Error('本张图片没有可用的角色或服装参考图；请添加参考图，或明确切换为文生图'), { submissionNotStarted: true, code: 'REFERENCE_IMAGES_REQUIRED' })
         if (referenceState.references?.length) {
           params.subjects = structuredClone(referenceState.subjects)
-          if (sectioned) params.referenceText = buildStructuredReferenceText(referenceState.references)
+          if (sectioned && !referenceState.sourceImages) params.referenceText = buildStructuredReferenceText(referenceState.references)
         } else {
           // 自动模式本张没有参考图：按文生图提交，用完整人物库展开外貌。
           generationMode = 'text'
@@ -2010,27 +2148,68 @@ function createRuntime(ctx, overrides, logger, deps) {
           knownCharacterIds: (cardDefs.characters ?? []).map(person => person?.id).filter(Boolean),
           onUnresolvedCharacter: id => unresolvedCharacterIds.add(id)
         }) : null
-        params.tag = normalizePrompts(expandRosterCalls(params.rawTag, scopedDefs, jobConfig.traitMode, { style, names }), scopedDefs, { backend: effectiveProvider, style, allowChinese: chineseAllowed(jobConfig, workflow) })
+        params.tag = normalizePrompts(expandRosterCalls(params.rawTag, scopedDefs, jobConfig.traitMode, { style, names }), scopedDefs, { backend: effectiveProvider, style, allowChinese: referenceState?.sourceImages || chineseAllowed(jobConfig, workflow) })
         if (names) params.negative = names.rewrite(params.negative)
       }
       // A generic graph cannot safely bypass image conditioning. Retaining its
       // imported filenames would silently use stale images for a "text" job.
       if (requestedGenerationMode === 'auto' && generationMode === 'text' && !channel
-        && Object.values(workflow.prompt).some(node => node?.class_type === 'LoadImage')) {
-        throw Object.assign(new Error('本张没有可用参考图，但当前 ComfyUI 工作流仍有 LoadImage 输入；请选择文生图工作流或为本张添加参考图，本次未提交'), { submissionNotStarted: true, code: 'COMFY_AUTO_TEXT_UNAVAILABLE' })
+        && comfyWorkflowFields(workflow).some(field => field.image)) {
+        throw Object.assign(new Error('本张没有可用参考图，但当前 ComfyUI 工作流仍有图片加载输入（如 LoadImage）；请选择文生图工作流或为本张添加参考图，本次未提交'), { submissionNotStarted: true, code: 'COMFY_AUTO_TEXT_UNAVAILABLE' })
       }
+      if (generationMode === 'text' && params.tag === params.rawTag && params.tag.includes('${')) {
+        const style = rosterStyle(jobConfig, workflow)
+        params.tag = normalizePrompts(expandRosterCalls(params.rawTag, scopedDefs, jobConfig.traitMode, { style }), scopedDefs,
+          { backend: effectiveProvider, style, allowChinese: chineseAllowed(jobConfig, workflow) })
+      }
+      const preparedMaterials = referenceState ? selectPromptMaterials(templateInputs.structure, scopedDefs, materialOptions) : pickedMaterials
       params.generationMode = generationMode
       // 这里可以打日志（runtime 里能拿到 logger）
       const compileConfig = forceWorkflow ? { ...jobConfig, imageBackend: 'comfyui' } : jobConfig
       const traceStages = diagTrace?.traceId ? [] : null
       const onStage = traceStages ? (name, data) => traceStages.push({ name, data }) : null
-      const compiled = workflow ? compileJob({ workflow, params, config: compileConfig, definitions: scopedDefs, onStage })
-        : compileChannelJob({ params, config: jobConfig, definitions: scopedDefs, channel, onStage })
-      if (referenceState && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
+      const compileParams = { ...params, moduleParameters: modules.parameters, moduleWorkflowValues: modules.workflowValues, preparedMaterials, libraryCharacterIds: pickedMaterials.selected.map(item => item.characterId).filter(Boolean) }
+      if (referenceState?.sourceImages) {
+        const text = [params.tag, params.referenceText].filter(Boolean).join('\n\n')
+        compileParams.tag = text
+        compileParams.rawTag = text
+        compileParams.referenceText = ''
+      }
+      const compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
+        : compileChannelJob({ params: compileParams, config: jobConfig, definitions: scopedDefs, channel, onStage })
+      if (referenceState?.sourceImages) {
+        normalizeImageMentions(compiled.positive, referenceState.references.length)
+      }
+      if (referenceState && compiled.promptMode !== 'structured' && !referenceState.sourceImages) compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
       const novelaiChat = effectiveProvider === 'novelai' && channel.options?.protocol === 'chat'
       const boundPrompt = kind => {
         const binding = workflow.bindings[kind]?.[0]
         return binding ? String(compiled.prompt[binding.node]?.inputs?.[binding.input] ?? '') : ''
+      }
+      if (preview || previewToken) {
+        const selected = promptConfigForTarget(compileConfig, workflow, channel)
+        const positive = workflow ? boundPrompt('positive') : novelaiChat ? novelaiChatPrompt(compiled.positive) : compiled.positive
+        const negative = workflow ? boundPrompt('negative') : novelaiChat ? novelaiChatPrompt(compiled.negative) : compiled.negative
+        const singlePrompt = ['atlascloud', 'openai', 'seedream', 'grok', 'gemini', 'gemini-chat'].includes(effectiveProvider)
+        const result = {
+          positive, negative, ...(singlePrompt ? { combined: combinedPrompt(compiled) } : {}),
+          target: workflow ? workflow.label || workflow.id : channel.name || channel.id,
+          promptMode: compiled.promptMode, generationMode,
+          template: effectivePromptPreset(selected)?.name ?? '',
+          hits: compiled.hits,
+          assembly: { usage: params.promptUsage, inputs: templateInputs.values,
+            modules: activePromptBlocks(templateInputs.structure, params.promptUsage).map(block => ({ title: block.title, kind: block.kind })),
+            materials: pickedMaterials.selected.map(({ references, ...item }) => ({ ...item,
+              referenceCount: references.filter(reference => referenceState?.references?.some(used => used.image?.id === reference.id)).length })),
+            warnings: pickedMaterials.warnings },
+          referenceCount: referenceState?.references?.length ?? 0,
+          ...(workflow ? { negativeUnbound: !workflow.bindings.negative?.length } : {}),
+        }
+        const token = createHash('sha256').update(JSON.stringify([result, compiled.characters, compiled.size, compiled.loras,
+          workflow?.id, workflow?.revision ?? workflow?.digest, channel?.id, channel?.model, channel?.options,
+          referenceState?.references?.map(item => item.referenceImage?.id ?? item.image?.id ?? item.id)])).digest('hex')
+        if (preview) return { ...result, token }
+        if (token !== previewToken) throw new Error('生图配置已变化，请更新预览后再试出图')
       }
       if (compiled.promptAssembly) Object.assign(compiled.promptAssembly, { generationMode, requestedGenerationMode, generationModeReason })
       if (compiled.promptAssembly && unresolvedCharacterIds.size) compiled.promptAssembly.unresolvedCharacterIds = [...unresolvedCharacterIds]
@@ -2060,6 +2239,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
         generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
+        promptSystem: jobConfig.promptSystem || 'workbench', promptTemplate: jobConfig.promptSelectionTemplate || null,
         ...(cardRequest && {
           cardCharacterPrompts: compiled.characters,
           ...(workflow && { cardPositive: boundPrompt('positive'), cardNegative: boundPrompt('negative') }),
@@ -2260,6 +2440,11 @@ function createRuntime(ctx, overrides, logger, deps) {
           subjects: refreshReferences && submitted !== (source.params?.rawTag ?? source.params?.tag) ? undefined : (source.params?.subjects?.length ? source.params.subjects : undefined),
           characters: characterSource,
           artist: source.params?.artist,
+          promptUsage: source.params?.promptUsage,
+          inputs: source.params?.inputs,
+          promptSubjects: source.params?.promptSubjects,
+          loraOverride: workflow ? source.params?.loraOverride : undefined,
+          inheritedArtist: source.params?.inheritedArtist,
           artistPosition: source.params?.artistPosition,
           negative: String(negative ?? source.params?.negative ?? ''),
           size: source.params?.size,
@@ -2463,7 +2648,8 @@ function createRuntime(ctx, overrides, logger, deps) {
     // original files untouched; edits never spill into another format.
     const formatWorldbooks = createFormatWorldbooks({ root: ROOT })
     const worldbookFormat = value => {
-      const mode = value || resolvePromptMode(config, promptBackendContext(config, styleWorkflow()))
+      const workflow = styleWorkflow()
+      const mode = value || resolvePromptMode(promptConfigForTarget(config, workflow), promptBackendContext(config, workflow))
       if (!['tags', 'natural', 'mixed', 'structured'].includes(mode)) throw new Error('世界书格式无效')
       return mode
     }
@@ -2597,7 +2783,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       return ''
     }
 
-    async function planMessage({ text, messageId, turn, textVersion, count, sessionId, manual, force, smartSelection, imageGeneration = true, characterUpdates = false, historySnapshot, signal, onPlan, reusePlan, instruction = '' }) {
+    const promptPlanCache = new Map()
+    async function planMessage({ text, messageId, turn, textVersion, count, sessionId, manual, force, smartSelection, imageGeneration = true, characterUpdates = false, historySnapshot, signal, onPlan, reusePlan, instruction = '', trial = null }) {
+      let cfg = trial?.config ?? config
+      if (!trial && !usesWorldbook(cfg)) cfg = selectGenerationConfig(cfg, usable()).config
       signal?.throwIfAborted()
       if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
       instruction = instruction.trim()
@@ -2609,25 +2798,35 @@ function createRuntime(ctx, overrides, logger, deps) {
         characterUpdates = false
         reusePlan = false
       }
-      if (config.plannerEnabled === false && !manual && !characterUpdates) throw new Error('生图规划没打开（控制台 → 高级设置）')
+      if (cfg.plannerEnabled === false && !manual && !characterUpdates) throw new Error('生图规划没打开（控制台 → 高级设置）')
       if (!deps.llm) throw new Error('当前 DSH 没有 llm 服务，无法做生图规划')
       const fallback = await backgroundModel(sessionId)
-      const provider = config.plannerProvider || fallback?.provider || ''
-      const model = config.plannerModel || fallback?.model || ''
+      const provider = cfg.plannerProvider || fallback?.provider || ''
+      const model = cfg.plannerModel || fallback?.model || ''
       const plannerEffort = plannerEffortFor(fallback)
       if (!provider || !model) throw new Error('规划用的模型没定：Tavern 设置里的「默认后台模型」是空的，或者在本插件设置里单独指定一个')
-      const body = String(text ?? '').trim()
+      let body = String(text ?? '').trim()
       if (!body) throw new Error('正文是空的')
       const needsIdentityContext = (imageGeneration || characterUpdates)
         && /[她他]|\b(?:she|her|he|him|his|they|them|their)\b/i.test(body)
       const priorTail = needsIdentityContext ? await previousReplyTail({ gameId: sessionId, turn, body, signal }) : ''
       signal?.throwIfAborted()
       // 自动模式在渠道能接参考图时按参考图规划；每张图是否真的用参考图由 startJob 按本张选图决定。
-      const planningGenerationMode = config.generationMode === 'reference' || (config.generationMode === 'auto' && referenceCapability()) ? 'reference' : 'text'
-      const plannedJobMode = config.generationMode === 'auto' ? 'auto' : planningGenerationMode
-      if (imageGeneration && planningGenerationMode === 'reference' && config.imageBackend !== 'comfyui' && !supportsImageReferences(activeChannel(config))) throw new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图')
+      const planningGenerationMode = cfg.generationMode === 'reference' || (cfg.generationMode === 'auto' && referenceCapability(cfg, trial?.workflow ?? styleWorkflow(cfg))) ? 'reference' : 'text'
+      const plannedJobMode = cfg.generationMode === 'auto' ? 'auto' : planningGenerationMode
+      if (imageGeneration && planningGenerationMode === 'reference' && cfg.imageBackend !== 'comfyui' && !supportsImageReferences(activeChannel(cfg))) throw new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图')
 
-      const entries = await worldbook()
+      const plannerWorkflow = trial?.workflow ?? styleWorkflow(cfg)
+      let plannerConfig = promptConfigForTarget(cfg, plannerWorkflow)
+      const plannerTemplate = effectivePromptPreset(plannerConfig)
+      const plannerInputs = fillPromptInputs(plannerTemplate?.structure, trial?.inputs)
+      if (plannerInputs.missing.length) throw new Error('请填写模板输入：' + plannerInputs.missing.join('、'))
+      const plannerModules = await materializeTemplateModulesAsync(plannerInputs.structure, { scene: plannerInputs.render(body), inputs: plannerInputs.values, usage: trial?.usage || 'story', backend: promptBackendContext(plannerConfig, plannerWorkflow), definitions, subjects: trial?.subjects, signal })
+      plannerInputs.structure = plannerModules.structure
+      plannerConfig = bindPromptConfig(plannerConfig, plannerTemplate, plannerModules.structure)
+      body = plannerInputs.render(body)
+      const plannerBackend = promptBackendContext(plannerConfig, plannerWorkflow)
+      const plannerMode = resolvePromptMode(plannerConfig, plannerBackend)
       const card = await currentCard(sessionId, turn)
       const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
       let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
@@ -2635,6 +2834,9 @@ function createRuntime(ctx, overrides, logger, deps) {
         ...timelineDefinitions,
         characters: scopeCharacters(timelineDefinitions.characters, card),
       }
+      const plannerMaterials = selectPromptMaterials(plannerInputs.structure, scoped, { usage: trial?.usage,
+        subjects: trial?.subjects, mode: plannerMode, traitMode: cfg.traitMode })
+      if (plannerMaterials.warnings.length) throw new Error(plannerMaterials.warnings.join('；'))
       // 规划调用了、但人物库补不上外貌的角色：插件只能写个名字，长相每张都会不一样。
       // 以前这件事完全静默；现在收集起来，配图完成时提示用户。
       const unmatchedCharacters = new Map()
@@ -2662,37 +2864,44 @@ function createRuntime(ctx, overrides, logger, deps) {
             && [c.id, c.name, ...splitTags(c.match)].some(alias => norm(alias) && norm(alias) === norm(asked)))
           if (elsewhere) return '「' + (elsewhere.name || asked) + '」在人物库里绑定的是别的卡，这次没用上她的外貌；在人物库里给她勾上这张卡即可'
           return '「' + asked + '」不在人物库里，长相每张会不一样；把她加进人物库能固定外貌'
-        }).slice(0, 4).concat(missingMounts.size ? ['有 ' + missingMounts.size + ' 张图的挂载句无法精确匹配，没有画（例如「' + [...missingMounts][0] + '」）；确认是单字错字时可在提示词设置中开启挂载句错字容错后重试'] : [])
+        }).slice(0, 4).concat(missingMounts.size ? ['有 ' + missingMounts.size + ' 张图的挂载句无法精确匹配，没有画（例如「' + [...missingMounts][0] + '」）；确认正文与挂载句一致后可重试'] : [])
       }
-      // 世界书条目的 backends 里可以写 tags / natural / mixed，按默认工作流的写法只给规划看对应的规则。
-      const plannerWorkflow = styleWorkflow()
-      const plannerMode = resolvePromptMode(config, promptBackendContext(config, plannerWorkflow))
+      const legacyEntries = usesWorldbook(cfg) ? (await loadWorldbook(plannerMode)).entries : []
       const plannerContext = selectPlannerContext({
+        entries: legacyEntries,
         recentText: priorTail,
-        entries, selected: config.plannerEntries, text: body, definitions: scoped,
-        backend: effectiveConfiguredProvider(config), backendAliases: config.imageBackend === 'custom' ? ['custom'] : [], promptMode: plannerMode, characterUpdates,
+        text: body + plannerMaterials.selected.map(item => '\n' + item.characterName).join(''), definitions: scoped,
+        backend: effectiveConfiguredProvider(cfg), backendAliases: cfg.imageBackend === 'custom' ? ['custom'] : [], promptMode: plannerMode, characterUpdates,
       })
       const roster = characterRoster(plannerContext.definitions, { fullTraits: characterUpdates, text: body })
-      const want = imageGeneration ? Math.max(1, Math.min(8, Number(count) || config.plannerCount || 3)) : 0
+      const want = imageGeneration ? Math.max(1, Math.min(8, Number(count) || cfg.plannerCount || 3)) : 0
       const smart = Boolean(imageGeneration && smartSelection && !force)
       // 生图只依赖两样：正文本身，和「生成图片的世界书」+ 人物库。
       // 卡片自己的世界书是给叙事用的（NPC生成/宗门生成那类规则），掺进画面提示词只会带偏。
-      const guidanceWorkflow = config.imageBackend === 'comfyui'
-        ? usable().find(item => item.id === config.defaultWorkflow)
-        : null
-      const guidanceBackend = promptBackendContext(config, guidanceWorkflow)
-      const guidance = getPromptGuidance(config, guidanceBackend)
+      const guidance = getPromptGuidance(plannerConfig, plannerBackend, { compact: true, usage: trial?.usage })
+      const template = effectivePromptPreset(plannerConfig)
+      const plannerBlocks = activePromptBlocks(template?.structure, trial?.usage)
+      const entryTrace = trial ? matchPromptEntries(cfg.promptEntries, plannerBlocks, body, { explain: true }) : null
+      const entryMatches = imageGeneration ? entryTrace?.matches ?? matchPromptEntries(cfg.promptEntries, plannerBlocks, body) : []
+      const templateKey = template?.structure ? createHash('sha256').update(JSON.stringify([
+        template.id, template.structure.blocks, template.structure.generationRules, ...(entryMatches.length ? [entryMatches] : []),
+      ])).digest('hex')
+        : cfg.promptDefault === null ? 'no-default' : ''
+      const planningJobConfig = templateKey ? { ...cfg } : cfg
       const system = buildPlannerSystem({
-        rules: plannerContext.staticRules, dynamicRules: plannerContext.dynamicRules,
-        roster, rosterIndex: plannerContext.rosterIndex, count: want,
-        extra: [config.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
-        smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode,
+        rules: usesWorldbook(cfg) ? plannerContext.staticRules || BASIC_IMAGE_WORLDBOOK : activePromptBlocks(template?.structure).some(block => block.kind === 'output') ? '' : BASIC_IMAGE_WORLDBOOK,
+        dynamicRules: usesWorldbook(cfg) ? plannerContext.dynamicRules : '',
+        roster, rosterIndex: plannerContext.rosterIndex, count: want, visualEntries: [promptEntryGuidance(entryMatches), plannerMaterials.selected.length
+          ? '本次明确选择的主体与服装，只用于这次画面：\n' + JSON.stringify(plannerMaterials.selected.map(({ characterId, characterName, outfitId, outfitName, angle, state }) =>
+            ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
+        extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true,
       })
       const currentInput = instruction ? `${body}\n\n<本次生图要求>\n${instruction}\n</本次生图要求>` : body
       const contextBoundary = system.indexOf('\n\n<本轮上下文>\n')
-      lastPlannerContext = {
+      const context = {
         ...plannerContext.diagnostics, at: Date.now(), turn: Number(turn) || null,
-        messageId: String(messageId ?? ''), backend: effectiveConfiguredProvider(config),
+        messageId: String(messageId ?? ''), backend: effectiveConfiguredProvider(cfg),
         staticChars: contextBoundary < 0 ? system.length : contextBoundary,
         dynamicChars: contextBoundary < 0 ? 0 : system.length - contextBoundary,
         bodyChars: body.length,
@@ -2700,6 +2909,26 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerInput = priorTail
         ? '上一轮正文摘录（JSON 字符串）：' + JSON.stringify(priorTail) + '\n\n本轮正文：\n' + currentInput
         : currentInput
+      if (trial) {
+        const cacheKey = createHash('sha256').update(JSON.stringify([provider, model, plannerEffort, cfg.plannerTemperature, system, plannerInput, definitions.revision, template?.id, template?.name, plannerInputs.values, entryTrace.decisions, trial.usage])).digest('hex')
+        const cached = promptPlanCache.get(cacheKey)
+        if (!trial.forceFresh && cached && Date.now() - cached.at < 300000) return { ...structuredClone(cached.result), cached: true }
+        const result = await runPlanner(deps.llm, { provider, model, reasoningEffort: plannerEffort, system, text: plannerInput, sessionId: sessionId || 'dsh-image-workbench',
+          temperature: plannerTemperatureOf(cfg.plannerTemperature), signal })
+        if (result.failure) throw new Error(result.failure)
+        const plans = parseImagePlan(result.text).slice(0, want).map(({ title, mount, prompts, negative, characters, size, subjects, subjectsError }) =>
+          ({ title, mount, prompts, ...(negative ? { negative } : {}), characters, size, subjects, subjectsError }))
+        if (!plans.length) throw new Error('模型没有返回可用的规划结果')
+        const output = { plans, entryMatches, entryTrace, cached: false,
+          assembly: { template: template?.name || '', usage: trial.usage, inputs: plannerInputs.values,
+            modules: plannerBlocks.map(block => ({ title: block.title, kind: block.kind })),
+            materials: plannerMaterials.selected.map(({ references, ...item }) => ({ ...item, referenceCount: references.length })),
+            contextChars: system.length + plannerInput.length } }
+        promptPlanCache.set(cacheKey, { at: Date.now(), result: structuredClone(output) })
+        while (promptPlanCache.size > 16) promptPlanCache.delete(promptPlanCache.keys().next().value)
+        return output
+      }
+      lastPlannerContext = context
       const traceId = imageGeneration ? diag.begin({ kind: 'planMessage', messageId: String(messageId ?? ''), turn: Number(turn) || null, textVersion: String(textVersion ?? ''), manual: Boolean(manual), force: Boolean(force), smart, characterUpdates: Boolean(characterUpdates), reusePlan: Boolean(reusePlan) }) : null
       let traceImageIndex = 0
       if (traceId) {
@@ -2768,7 +2997,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!sceneText.trim() && !planCharacters.length) continue
           if (!mountInBody(image.mount)) {
             // 规划抄挂载句时改了几个字：换成正文里最像的那一句，图照画、照样挂在那一句后面。
-            const nearest = resolveMountFallback(config, image.mount, body, anchorText)
+            const nearest = resolveMountFallback(plannerConfig, image.mount, body, anchorText)
             if (nearest && mountInBody(nearest)) image = { ...image, mount: nearest, mountAsked: image.mount }
             else {
               // 以前逐字比对、静默跳过：规划少抄一个 * 或换行就整张图不画，全部跳过时还报成「没有返回可用的 <image> 块」。
@@ -2778,7 +3007,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
-          if (rosterStyle(config, plannerWorkflow) === 'natural' && chineseAllowed(config, plannerWorkflow)) {
+          if (rosterStyle(plannerConfig, plannerWorkflow) === 'natural' && chineseAllowed(plannerConfig, plannerWorkflow)) {
             const timed = addSceneTime(image.prompts, body, image.mount)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
@@ -2799,9 +3028,9 @@ function createRuntime(ctx, overrides, logger, deps) {
             // 诊断里记录的「展开后、清理前」的场景提示词（以前引用了不存在的 expanded，开着诊断时每张图都提交失败）。
             let expandedScene = ''
             const expandOne = (text, keep = false) => {
-              const expanded = expandRosterCalls(text, scoped, config.traitMode, { style: rosterStyle(config, plannerWorkflow), onMacro: entry => { macros?.push(entry); noteMacro(entry) } })
+              const expanded = expandRosterCalls(text, scoped, plannerConfig.traitMode, { style: rosterStyle(plannerConfig, plannerWorkflow), onMacro: entry => { macros?.push(entry); noteMacro(entry) } })
               if (keep) expandedScene = expanded
-              return normalizePrompts(expanded, scoped, { backend: effectiveConfiguredProvider(config), style: rosterStyle(config, plannerWorkflow), allowChinese: chineseAllowed(config, plannerWorkflow) })
+              return normalizePrompts(expanded, scoped, { backend: effectiveConfiguredProvider(plannerConfig), style: rosterStyle(plannerConfig, plannerWorkflow), allowChinese: chineseAllowed(plannerConfig, plannerWorkflow) })
             }
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
@@ -2814,8 +3043,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const job = await startJob({
               tag: normalizedTag,
-              rawTag: sceneText, characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
-            }, { label: 'agent 规划', diagTrace: traceId ? { traceId, imageIndex } : null })
+              rawTag: sceneText, negative: image.negative || '', characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
+            }, { label: 'agent 规划', jobConfig: planningJobConfig, diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
             const item = { ...image, jobId: job.id, status: job.status, sizeText: sizeLabel(job.size) }
@@ -2829,9 +3058,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       let failure = null
       try {
         const cached = reusePlan && !smart && !characterUpdates && messageId ? plansByMessage.get(String(messageId)) : null
-        if (cached?.plans?.length && !cached.error && (cached.generationMode ?? 'text') === planningGenerationMode && (!cached.promptMode || cached.promptMode === plannerMode)) {
+        if (cached?.plans?.length && !cached.error && (cached.generationMode ?? 'text') === planningGenerationMode && (!cached.promptMode || cached.promptMode === plannerMode) && (cached.templateKey ?? '') === templateKey) {
           submitImages(cached.plans)
         } else result = await runPlanner(deps.llm, {
+          sessionId: sessionId || 'dsh-image-workbench',
           provider,
           model,
           reasoningEffort: plannerEffort,
@@ -2937,7 +3167,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         + (result.usage ? '（token ' + result.usage.inputTokens + '+' + result.usage.outputTokens + '）' : ''))
 
       const characterSnapshot = characterUpdates ? visualSnapshot : null
-      const plan = { messageId: String(messageId ?? ''), turn, generationMode: planningGenerationMode, promptMode: plannerMode, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
+      const plan = { messageId: String(messageId ?? ''), turn, generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
       const warnings = characterWarnings()
       if (warnings.length) plan.characterWarnings = warnings
       if (failure) plan.error = String(failure?.message ?? failure)
@@ -3180,7 +3410,7 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function sweep() {
       if (jobs.size <= 200) return
-      const ordered = [...jobs.values()].filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true)).sort((a, b) => a.createdAt - b.createdAt)
+      const ordered = [...jobs.values()].filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true)).sort((a, b) => a.createdAt - b.createdAt)
       for (const job of ordered.slice(0, jobs.size - 200)) {
         jobs.delete(job.id)
         if (job.key) byKey.delete(job.key)
@@ -3197,7 +3427,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         id: job.id, status: job.state, state: job.state, source: jobSource(job), percent: job.percent ?? 0,
         comfyId: job.comfyId || '',
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
-        seed: job.seed, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
+        seed: job.seed, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
         backend: job.backend ?? 'comfyui', channelId: job.channelId ?? '', channelName: job.channelName ?? '',
         generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode ?? '',
         references: structuredClone(job.referenceSnapshot?.references ?? []),
@@ -3228,6 +3458,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         hits: job.hits ?? [], hasImage: job.state === 'done' && Boolean(job.byteLength), label: job.label ?? '',
         gameId: job.gameId ?? '', turn: job.turn ?? null,
         byteLength: job.byteLength ?? 0, mediaType: job.mediaType ?? '', completedAt: job.completedAt ?? null,
+        favorite: job.favorite === true, trashedAt: job.trashedAt || null,
         imageOutputWarning: job.imageOutputWarning ?? '',
       }
     }
@@ -3371,7 +3602,11 @@ function createRuntime(ctx, overrides, logger, deps) {
     }
 
     async function consoleState() {
-    const worldbookList = await worldbook().catch(() => [])
+      const promptWorkflow = styleWorkflow()
+      const promptConfig = promptConfigForTarget(config, promptWorkflow)
+      const promptPreset = effectivePromptPreset(promptConfig)
+      const promptBackend = promptBackendContext(promptConfig, promptWorkflow)
+      const worldbookList = await worldbook().catch(() => [])
       return {
         ok: true,
         base: BASE,
@@ -3418,11 +3653,27 @@ function createRuntime(ctx, overrides, logger, deps) {
           styleArtists: config.styleArtists ?? '', imageSize: config.imageSize ?? '竖图',
           // 正文插图统一显示宽度（0 = 默认）：前端启动时读一次，之后每张图都不再问服务端。
           imageDisplayWidth: normalizeImageDisplayWidth(config.imageDisplayWidth),
+          imageDisplayPosition: config.imageDisplayPosition ?? 'inline',
+          imageDisplayFollow: config.imageDisplayFollow ?? 'scroll',
           stylePresets: Array.isArray(config.stylePresets) ? config.stylePresets : [],
           activePreset: String(config.activePreset ?? ''),
           styleNegative: String(config.styleNegative ?? ''),
           promptPresets: normalizePromptPresets(config.promptPresets),
-          promptPresetLibrary: BUILTIN_PROMPT_PRESETS,
+          promptPresetLibrary: BUILTIN_PROMPT_PRESETS.filter(item => item === STRUCTURED_PROMPT_TEMPLATE ||
+            item.id === config.activePromptPreset),
+          promptDefaultSections: STRUCTURED_PROMPT_SECTIONS,
+          promptDefaultEditable: true,
+          promptWorkbench: true,
+          promptWorkbenchDraw: true,
+          promptSystem: config.promptSystem || 'workbench', randomPromptTemplates: config.randomPromptTemplates === true, randomTemplateIds: config.randomTemplateIds || [],
+          promptDefault: config.promptDefault,
+          promptDefaultTemplate: DEFAULT_MODULAR_TEMPLATE,
+          promptEntries: config.promptEntries,
+          promptRevision: promptRevision(),
+          promptCatalogEpoch: String(config.promptCatalogEpoch || ''),
+          promptModuleTypes: listTemplateModules(),
+          promptEntryLimit: PROMPT_ENTRY_LIMIT,
+          promptPresetLimit: MAX_PROMPT_PRESETS,
           designPromptMode: ['auto', 'chinese', 'tags'].includes(config.designPromptMode) ? config.designPromptMode : 'auto',
           closestMountTolerance: config.closestMountTolerance === true,
           characterDesignRequirements: String(config.characterDesignRequirements ?? ''),
@@ -3430,10 +3681,13 @@ function createRuntime(ctx, overrides, logger, deps) {
           activePromptPreset: String(config.activePromptPreset ?? ''),
           promptMode: ['auto', 'tags', 'natural', 'mixed', 'structured'].includes(config.promptMode) ? config.promptMode : 'auto',
           allowChinesePrompt: config.allowChinesePrompt === true,
-          promptEffectiveFormat: resolvePromptMode(config, promptBackendContext(config, styleWorkflow())),
-          promptEffectiveName: effectivePromptPreset(config)?.name ?? '',
-          promptPreviewPositive: composePresetText(String(config.promptManualPositive ?? ''), config, promptBackendContext(config, styleWorkflow())),
-          promptPreviewNegative: [activeArtistText(config).negative, promptPresetNegative(config), String(config.promptManualNegative ?? '')].filter(Boolean).join(', '),
+          promptEffectiveFormat: resolvePromptMode(promptConfig, promptBackend),
+          libraryPromptEditing: true,
+          libraryDetailsEditing: true,
+          promptEffectivePreset: promptConfig.activePromptPreset,
+          promptEffectiveName: promptPreset?.name ?? '',
+          promptPreviewPositive: composePresetText(promptPreset?.independent ? '' : String(config.promptManualPositive ?? ''), promptConfig, promptBackend),
+          promptPreviewNegative: [promptPreset?.independent ? '' : activeArtistText(config).negative, promptPresetNegative(promptConfig, promptBackend), promptPreset?.independent ? '' : String(config.promptManualNegative ?? '')].filter(Boolean).join(', '),
           promptManualPositive: String(config.promptManualPositive ?? ''),
           promptManualNegative: String(config.promptManualNegative ?? ''),
           jpegOutput: config.jpegOutput === true,
@@ -3448,6 +3702,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           indexTap: deps.indexTap ?? null,
           // Tavern 官方接口桥的自检：装了没、Tavern 给了哪些能力
           tavernBridge: deps.bridge ? { installed: true, exports: Object.keys(deps.bridge) } : { installed: false },
+          imageIntegration: describeImageIntegration(deps.imageIntegration, config),
           tavernApi: deps.tavern ? { apiVersion: deps.tavern.apiVersion, hasAttach: typeof deps.tavern.attach === 'function', hasPromptSection: typeof deps.tavern.promptSection === 'function', hasGetTurn: typeof deps.tavern.getTurn === 'function', hasOnTurnSettled: typeof deps.tavern.onTurnSettled === 'function', hasTurnData: typeof deps.tavern.readTurnData === 'function' } : null,
           plannerEnabled: config.plannerEnabled !== false, plannerProvider: config.plannerProvider ?? '',
           wardrobeHints: config.wardrobeHints === true,
@@ -3470,6 +3725,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         sizes: config.sizes ?? {},
         workflows: workflows.map(wf => ({
           id: wf.id, label: wf.label, file: wf.file, match: wf.match, sizes: wf.sizes, enabled: wf.enabled,
+          referenceCapacity: (() => { try { return comfyReferenceCapacity(wf, comfyLoadImageBindings(wf)) } catch { return 0 } })(),
           error: wf.error, digest: wf.digest ?? '', summary: wf.summary ?? null, current: wf.id === config.defaultWorkflow,
         })),
         definitions,
@@ -3481,7 +3737,36 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
     }
 
-    let graphWrite = Promise.resolve()
+    const comfySchemas = new Map()
+    async function discoverComfyNodes(workflow) {
+      const base = String(config.comfyUrl || DEFAULTS.comfyUrl).replace(/\/+$/, '')
+      const types = [...new Set(Object.values(workflow.prompt).map(node => node.class_type).filter(type => typeof type === 'string'))]
+      const schemas = Object.create(null)
+      const unavailable = []
+      const signal = AbortSignal.timeout(6000)
+      let cursor = 0
+      await Promise.all(Array.from({ length: Math.min(6, types.length) }, async () => {
+        while (cursor < types.length) {
+          const type = types[cursor++]
+          const key = JSON.stringify([base, type])
+          const cached = comfySchemas.get(key)
+          if (cached && Date.now() - cached.at < 300000) { schemas[type] = cached.schema; continue }
+          if (signal.aborted) { unavailable.push(type); continue }
+          try {
+            const response = await fetch(base + '/object_info/' + encodeURIComponent(type), { headers: comfyHeaders(config), signal })
+            if (!response.ok) throw new Error('ComfyUI 未返回节点定义')
+            const result = await response.json()
+            const schema = compactComfySchema(result?.[type])
+            if (!schema) throw new Error('ComfyUI 节点定义缺失')
+            schemas[type] = schema
+            comfySchemas.set(key, { at: Date.now(), schema })
+            while (comfySchemas.size > 256) comfySchemas.delete(comfySchemas.keys().next().value)
+          } catch { unavailable.push(type) }
+        }
+      }))
+      return { schemas, unavailable }
+    }
+
     async function handleConsole(action, request, response, _url) {
       if (action === 'runtime') {
         if (request.method !== 'GET') { sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return }
@@ -3576,8 +3861,8 @@ function createRuntime(ctx, overrides, logger, deps) {
           } else {
             const file = String(body?.file ?? '').replace(/^workflows[\\/]/, '')
             if (!file || /[\\/]/.test(file) || !/\.json$/i.test(file) || file.includes('..')) throw new Error('工作流文件名不正确')
-            const operation = graphWrite.then(async () => {
-              const path = join(WORKFLOW_DIR, file)
+            const path = join(WORKFLOW_DIR, file)
+            const result = await withWorkflowWrite(path, async () => {
               let raw = await readJson(path, null)
               if (!raw?.prompt) throw new Error('找不到可编辑的 API 工作流')
               if (body.patch !== undefined) {
@@ -3586,10 +3871,9 @@ function createRuntime(ctx, overrides, logger, deps) {
                 config.workflows = await scanWorkflows(config)
                 await loadAllWorkflows()
               }
-              return { ok: true, workflow: raw, revision: workflowRevision(raw) }
+              return { ok: true, workflow: raw, revision: workflowRevision(raw), fields: comfyWorkflowFields(raw) }
             })
-            graphWrite = operation.catch(() => {})
-            sendJson(response, 200, await operation)
+            sendJson(response, 200, result)
           }
         } catch (error) { sendJson(response, 400, { ok: false, error: error.message }) }
         return
@@ -3607,6 +3891,45 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (action === 'plugin-update') sendJson(response, 200, await updater.status())
           else if (action === 'plugin-update-check') { await readBody(request, 4096); sendJson(response, 200, await updater.check()) }
           else { const body = await readBody(request, 4096); sendJson(response, 200, await updater.apply(body?.target)) }
+        } catch (error) { sendJson(response, 400, { ok: false, error: error.message }) }
+        return
+      }
+      if (action === 'image-edit') {
+        if (request.method !== 'POST') { sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return }
+        try {
+          const origin = request.headers.origin
+          if (origin && origin !== _url.origin || !String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) throw new Error('请从生图面板编辑图片')
+          const input = await readBody(request, 96 * 1024)
+          let editConfig = config, workflow = null
+          if (!usesWorldbook(config)) {
+            const selected = selectGenerationConfig(config, usable(), { templateId: input.templateId, purpose: 'edit', random: false })
+            editConfig = selected.config; workflow = selected.workflow
+          }
+          if (!workflow && (usesWorldbook(config) || editConfig.imageBackend === 'comfyui' || input.workflowId)) {
+            const candidates = usable().filter(item => { try { return comfyReferenceCapacity(item, comfyLoadImageBindings(item)) > 0 } catch { return false } })
+            workflow = input.workflowId ? candidates.find(item => item.id === input.workflowId) : candidates.find(item => item.id === editConfig.defaultWorkflow) || candidates[0]
+            if (!workflow) throw new Error('所选方案没有可用的图片输入，请在模板中绑定图生图接口')
+            editConfig = { ...editConfig, imageBackend: 'comfyui', comfyMode: 'workflow', defaultWorkflow: workflow.id }
+          }
+          const source = input.jobId ? getJob(String(input.jobId)) : null
+          const sourceImages = []
+          if (source) {
+            if (source.state !== 'done' || !source.file) throw new Error('原图尚未生成完成')
+            const data = await readFile(source.file)
+            sourceImages.push(await referenceStore.put({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
+          } else if (input.jobId) throw new Error('找不到原图')
+          for (const value of input.sourceImages || []) {
+            const image = normalizeReferenceImage(value)
+            if (!image) throw new Error('请重新添加输入图片')
+            sourceImages.push(image)
+          }
+          if (!sourceImages.length) throw new Error('请添加至少一张输入图片')
+          const tag = String(input.prompt || '').trim() || '保持原图内容，按所选编辑方案处理。'
+          if (tag.length > 16000) throw new Error('请填写编辑指令（最多 16000 字）')
+          const job = await startJob({ tag, rawTag: tag, sourceImages, templateId: input.templateId, imagePurpose: 'edit', generationMode: 'reference', promptUsage: normalizePromptUsage(input.usage, 'plugin'),
+            size: '__workflow__', key: 'image-edit:' + String(input.requestId || randomUUID()).slice(0, 120) },
+            { forceWorkflow: workflow, jobConfig: editConfig, label: '图片编辑', cardRequest: false })
+          sendJson(response, 200, { ok: true, jobId: job.id, job })
         } catch (error) { sendJson(response, 400, { ok: false, error: error.message }) }
         return
       }
@@ -3673,7 +3996,9 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (action === 'history') {
           const source = _url?.searchParams?.get('source') || ''
           if (source && !['play', 'card'].includes(source)) { sendJson(response, 400, { ok: false, error: 'source 必须是 play 或 card' }); return }
-          sendJson(response, 200, { ok: true, jobs: [...jobs.values()].filter(job => !source || jobSource(job) === source).sort((a, b) => b.createdAt - a.createdAt).slice(0, 60).map(consoleJob) })
+          const gallery = _url?.searchParams?.get('gallery') || ''
+          const visible = job => gallery === 'trash' ? Boolean(job.trashedAt) : !job.trashedAt && (gallery !== 'favorite' || job.favorite === true)
+          sendJson(response, 200, { ok: true, jobs: [...jobs.values()].filter(job => (!source || jobSource(job) === source) && visible(job)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 60).map(consoleJob) })
           return
         }
         if (action === 'plans') {
@@ -3750,6 +4075,118 @@ function createRuntime(ctx, overrides, logger, deps) {
           sendJson(response, 200, await deps.mediaActions.handle(input))
         } catch (error) {
           sendJson(response, 400, { ok: false, error: String(error?.message ?? error), code: error?.code, submissionNotStarted: error?.submissionNotStarted === true })
+        }
+        return
+      }
+      if (['prompt-preview', 'prompt-tryout', 'prompt-plan'].includes(action)) {
+        if (request.method !== 'POST') { sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return }
+        const origin = request.headers.origin
+        if ((origin && origin !== _url?.origin) || !String(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
+          sendJson(response, 403, { ok: false, error: '请从 DSH Tavern 生图面板试拼提示词' }); return
+        }
+        try {
+          const input = await readBody(request, 384 * 1024)
+          const tag = String(input?.text ?? '').trim().slice(0, 8000)
+          if (!tag) throw new Error('请先填写测试场景')
+          const target = input.target
+          const base = { ...config }
+          let workflow = null
+          if (target?.kind === 'channel') {
+            const channel = config.imageChannels.find(item => item.id === target.id)
+            if (!channel) throw new Error('这个生图渠道已不存在')
+            base.activeImageChannel = channel.id
+            base.imageBackend = channel.provider
+          } else if (target?.kind === 'workflow') {
+            workflow = usable().find(item => item.id === target.id)
+            if (!workflow) throw new Error('这个工作流当前不可用')
+            base.imageBackend = 'comfyui'
+          }
+          const draft = { ...base }
+          let independent = false
+          if (input.template !== undefined) {
+            const [template] = normalizePromptPresets(input.template ? [{ ...input.template, id: 'prompt-preview', enabled: true }] : [])
+            independent = template?.independent === true
+            draft.promptPresets = template ? [template] : []
+            draft.activePromptPreset = template?.id ?? ''
+            draft.promptDefault = null
+          }
+          const source = input.source
+          if (source && typeof source === 'object') {
+            const activeStyle = (Array.isArray(draft.stylePresets) ? draft.stylePresets : []).find(item => String(item.id) === String(draft.activePreset) && item.enabled !== false)
+            const artist = String(source.artist ?? '').slice(0, 4000)
+            const negative = String(source.artistNegative ?? '').slice(0, 2000)
+            const position = source.position === 'suffix' ? 'suffix' : 'prefix'
+            if (activeStyle) draft.stylePresets = draft.stylePresets.map(item => item === activeStyle ? { ...item, artist, negative, position } : item)
+            else Object.assign(draft, { styleArtists: artist, styleNegative: negative })
+            draft.promptManualPositive = String(source.positive ?? '').slice(0, 4000)
+            draft.promptManualNegative = String(source.negative ?? '').slice(0, 4000)
+          }
+          if (action === 'prompt-plan') {
+            const generationMode = input.generationMode ?? draft.generationMode ?? 'text'
+            if (!GENERATION_MODES.includes(generationMode)) throw new Error('生图模式无效')
+            const trial = { config: { ...draft, generationMode }, workflow, usage: normalizePromptUsage(input.usage, 'story'), inputs: input.inputs, subjects: input.subjects, forceFresh: input.forceFresh === true }
+            const controller = new AbortController()
+            const abort = () => controller.abort(new Error('提示词生成已取消'))
+            response.once?.('close', abort)
+            try {
+              const result = await planMessage({ text: tag, count: 1, manual: true, sessionId: String(input.sessionId ?? ''),
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]), trial })
+              sendJson(response, 200, { ok: true, ...result })
+            } finally { response.removeListener?.('close', abort) }
+            return
+          }
+          const params = { tag, negative: String(input.negative || '').slice(0, 8000), generationMode: input.generationMode, promptUsage: input.usage, inputs: input.inputs,
+            promptSubjects: input.subjects, subjects: input.subjects ? undefined : input.referenceSubjects,
+            characters: input.characters, size: input.size }
+          if (action === 'prompt-tryout') {
+            if (typeof input.token !== 'string' || !/^[a-f0-9]{64}$/.test(input.token)) throw new Error('请先更新试写结果')
+            if (typeof input.requestId !== 'string' || !/^[a-f0-9]{32}$/.test(input.requestId)) throw new Error('试出图请求无效')
+            const selectedWorkflow = workflow || (draft.imageBackend === 'comfyui' ? pickWorkflow(usable(), draft, '') : null)
+            const recipe = input.runMechanism === true
+              ? generationMechanism(effectivePromptPreset(draft)?.structure, params.promptUsage, selectedWorkflow, randomInt(0, 2 ** 32)) : [{}]
+            if (input.runMechanism === true) {
+              const check = await createJob(params, { forceWorkflow: workflow, jobConfig: draft, preview: true })
+              if (check.token !== input.token) throw new Error('生图配置已变化，请更新预览后再执行机制')
+            }
+            const generated = []
+            let error = ''
+            for (let index = 0; index < recipe.length; index++) {
+              try {
+                const job = await startJob({ ...params, ...recipe[index], key: 'prompt-tryout:' + input.requestId + (input.runMechanism ? ':' + index : '') }, {
+                  forceWorkflow: workflow, jobConfig: draft, label: input.runMechanism ? '生成机制 ' + (index + 1) + '/' + recipe.length : '提示词试出图',
+                  ...(input.runMechanism ? {} : { previewToken: input.token }),
+                })
+                generated.push(job)
+                if (['failed', 'uncertain', 'cancelled'].includes(job.state)) break
+              } catch (failure) { if (!generated.length) throw failure; error = failure.message; break }
+            }
+            sendJson(response, 200, { ok: true, job: generated[0], jobs: generated, ...(error ? { error } : {}) })
+            return
+          }
+          const compile = jobConfig => createJob(params, { forceWorkflow: workflow, jobConfig, preview: true })
+          const result = await compile(draft)
+          const comparisons = {
+            saved: base,
+            plain: { ...draft, promptPresets: [], activePromptPreset: '', promptDefault: null, promptMode: result.promptMode,
+              ...(independent ? { stylePresets: [], artistSets: [], styleArtists: '', styleNegative: '', promptManualPositive: '', promptManualNegative: '' } : {}) },
+            style: { ...draft, stylePresets: [], artistSets: [], styleArtists: '', styleNegative: '' },
+            extra: { ...draft, promptManualPositive: '', promptManualNegative: '' },
+          }
+          const comparison = Object.hasOwn(comparisons, input.compare) ? await compile(comparisons[input.compare]) : null
+          const previewEntries = jobConfig => {
+            const template = effectivePromptPreset(promptConfigForTarget(jobConfig, workflow ?? styleWorkflow(jobConfig)))
+            const filled = fillPromptInputs(template?.structure, input.inputs)
+            return matchPromptEntries(jobConfig.promptEntries, activePromptBlocks(filled.structure, normalizePromptUsage(input.usage, 'story')), filled.render(tag), { explain: true })
+          }
+          result.entryTrace = previewEntries(draft)
+          result.entryMatches = result.entryTrace.matches
+          if (comparison) {
+            comparison.entryTrace = previewEntries(comparisons[input.compare])
+            comparison.entryMatches = comparison.entryTrace.matches
+          }
+          sendJson(response, 200, { ok: true, result, comparison })
+        } catch (error) {
+          sendJson(response, 400, { ok: false, error: String(error?.message ?? error) })
         }
         return
       }
@@ -3844,66 +4281,69 @@ function createRuntime(ctx, overrides, logger, deps) {
             const file = String(body?.file ?? '').replace(/^.*[\\\\/]/, '')
             if (!file) { sendJson(response, 400, { ok: false, error: '缺少文件名' }); return }
             const path = join(ROOT, 'workflows', file)
-            const raw = await readJson(path, null)
-            if (!raw) { sendJson(response, 404, { ok: false, error: '找不到这张工作流' }); return }
-            const prompt = raw.prompt ?? {}
-            const b = raw.bindings ?? {}
-            const nodeOf = (key) => { const it = (b[key] ?? [])[0]; return it ? prompt[it.node] : null }
-            const inputOf = (key, fallback) => { const it = (b[key] ?? [])[0]; return it ? it.input : fallback }
+            await withWorkflowWrite(path, async () => {
+              const raw = await readJson(path, null)
+              if (!raw) { sendJson(response, 404, { ok: false, error: '找不到这张工作流' }); return }
+              const prompt = raw.prompt ?? {}
+              const b = withComfyPromptMarkers(raw).bindings
+              const nodeOf = (key) => { const it = (b[key] ?? [])[0]; return it ? prompt[it.node] : null }
+              const inputOf = (key, fallback) => { const it = (b[key] ?? [])[0]; return it ? it.input : fallback }
 
-            const readValue = (key, fallbackInput) => {
-              const n = nodeOf(key)
-              if (!n || !n.inputs) return undefined
-              return n.inputs[inputOf(key, fallbackInput)]
-            }
-            // 尺寸：宽高分别取
-            const sizeNode = nodeOf('size')
-            const values = {
-              positive: String(readValue('positive', 'text') ?? ''),
-              negative: String(readValue('negative', 'text') ?? ''),
-              width: sizeNode?.inputs?.width,
-              height: sizeNode?.inputs?.height,
-              steps: readValue('steps', 'steps'),
-              cfg: readValue('cfg', 'cfg') ?? readValue('guidance', 'guidance'),
-              model: String(readValue('model', 'ckpt_name') ?? ''),
-            }
-
-            if (body?.values && typeof body.values === 'object') {
-              const v = body.values
-              const setIn = (key, fallbackInput, value) => {
-                const it = (b[key] ?? [])[0]
-                if (!it) return false
-                const n = prompt[it.node]
-                if (!n || !n.inputs) return false
-                const input = it.input || fallbackInput
-                if (!Object.hasOwn(n.inputs, input)) return false
-                n.inputs[input] = value
-                return true
+              const readValue = (key, fallbackInput) => {
+                const n = nodeOf(key)
+                if (!n || !n.inputs) return undefined
+                return n.inputs[inputOf(key, fallbackInput)]
               }
-              const done = []
-              if (typeof v.positive === 'string') { setIn('positive', 'text', v.positive); done.push('正面') }
-              if (typeof v.negative === 'string') { setIn('negative', 'text', v.negative); done.push('负面') }
-              if (Number.isFinite(Number(v.width)) || Number.isFinite(Number(v.height))) {
-                const n = nodeOf('size')
-                if (n && n.inputs) {
-                  if (Number.isFinite(Number(v.width))) n.inputs.width = Math.round(Number(v.width))
-                  if (Number.isFinite(Number(v.height))) n.inputs.height = Math.round(Number(v.height))
-                  done.push('尺寸')
+              // 尺寸：宽高分别取
+              const sizeNode = nodeOf('size')
+              const values = {
+                positive: String(readValue('positive', 'text') ?? ''),
+                negative: String(readValue('negative', 'text') ?? ''),
+                width: sizeNode?.inputs?.width,
+                height: sizeNode?.inputs?.height,
+                steps: readValue('steps', 'steps'),
+                cfg: readValue('cfg', 'cfg') ?? readValue('guidance', 'guidance'),
+                model: String(readValue('model', 'ckpt_name') ?? ''),
+              }
+
+              if (body?.values && typeof body.values === 'object') {
+                const v = body.values
+                const setIn = (key, fallbackInput, value) => {
+                  const it = (b[key] ?? [])[0]
+                  if (!it) return false
+                  const n = prompt[it.node]
+                  if (!n || !n.inputs) return false
+                  const input = it.input || fallbackInput
+                  if (!Object.hasOwn(n.inputs, input)) return false
+                  n.inputs[input] = value
+                  return true
                 }
+                const done = []
+                const markers = comfyPromptMarkers(prompt)
+                if (!markers.positive.length && typeof v.positive === 'string' && setIn('positive', 'text', v.positive)) done.push('正面')
+                if (!markers.negative.length && typeof v.negative === 'string' && setIn('negative', 'text', v.negative)) done.push('负面')
+                if (Number.isFinite(Number(v.width)) || Number.isFinite(Number(v.height))) {
+                  const n = nodeOf('size')
+                  if (n && n.inputs) {
+                    if (Number.isFinite(Number(v.width))) n.inputs.width = Math.round(Number(v.width))
+                    if (Number.isFinite(Number(v.height))) n.inputs.height = Math.round(Number(v.height))
+                    done.push('尺寸')
+                  }
+                }
+                if (Number.isFinite(Number(v.steps))) { if (setIn('steps', 'steps', Math.round(Number(v.steps)))) done.push('步数') }
+                if (Number.isFinite(Number(v.cfg))) {
+                  if (setIn('cfg', 'cfg', Number(v.cfg)) || setIn('guidance', 'guidance', Number(v.cfg))) done.push('CFG')
+                }
+                if (typeof v.model === 'string' && v.model.trim()) { if (setIn('model', 'ckpt_name', v.model)) done.push('底模') }
+                await writeJsonSafe(path, raw, join(ROOT, 'backups'))
+                logger.info?.('dsh-tavern-image: 改了工作流《' + (raw.name ?? file) + '》的 ' + done.join('、'))
+                config.workflows = await scanWorkflows(config)
+                await loadAllWorkflows()
+                sendJson(response, 200, { ok: true, changed: done, values })
+                return
               }
-              if (Number.isFinite(Number(v.steps))) { if (setIn('steps', 'steps', Math.round(Number(v.steps)))) done.push('步数') }
-              if (Number.isFinite(Number(v.cfg))) {
-                if (setIn('cfg', 'cfg', Number(v.cfg)) || setIn('guidance', 'guidance', Number(v.cfg))) done.push('CFG')
-              }
-              if (typeof v.model === 'string' && v.model.trim()) { if (setIn('model', 'ckpt_name', v.model)) done.push('底模') }
-              await writeJsonSafe(path, raw, join(ROOT, 'backups'))
-              logger.info?.('dsh-tavern-image: 改了工作流《' + (raw.name ?? file) + '》的 ' + done.join('、'))
-              config.workflows = await scanWorkflows(config)
-              await loadAllWorkflows()
-              sendJson(response, 200, { ok: true, changed: done, values })
-              return
-            }
-            sendJson(response, 200, { ok: true, values })
+              sendJson(response, 200, { ok: true, values })
+            })
           } catch (error) {
             sendJson(response, 400, { ok: false, error: String(error?.message ?? error) })
           }
@@ -3948,12 +4388,36 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const norm = normalizeWorkflow(src, String(body?.name ?? '').trim() || undefined)
             if (!norm) { sendJson(response, 400, { ok: false, error: '没找到 ComfyUI 节点（需要 API 格式的 JSON）' }); return }
+            if (Object.values(norm.prompt).some(node => !norm.nodeSchemas?.[node.class_type])) {
+              const { schemas } = await discoverComfyNodes(norm)
+              norm.nodeSchemas = { ...norm.nodeSchemas, ...schemas }
+              if (!src.bindings) {
+                const detected = detectWorkflow(norm.prompt, norm.nodeSchemas)
+                norm.bindings = detected.bindings
+                norm.outputNode = detected.outputNode || norm.outputNode
+              }
+            }
+            const outputs = Object.entries(norm.prompt).filter(([, node]) => /SaveImage|PreviewImage/i.test(String(node.class_type))
+              || norm.nodeSchemas?.[node.class_type]?.outputNode && Object.values(norm.nodeSchemas[node.class_type].inputs || {}).some(input => input.type === 'IMAGE'))
+              .map(([id, node]) => ({ id, label: node._meta?.title || node.class_type }))
+            if (norm.outputNode && norm.prompt[norm.outputNode] && !outputs.some(item => item.id === norm.outputNode)) {
+              outputs.push({ id: norm.outputNode, label: norm.prompt[norm.outputNode].class_type })
+            }
+            if (body.preview === true) {
+              sendJson(response, 200, { ok: true, name: norm.name, nodes: Object.keys(norm.prompt).length,
+                bindings: withComfyPromptMarkers(norm).bindings, outputs, outputNode: norm.outputNode })
+              return
+            }
+            if (body.outputNode !== undefined) {
+              if (!outputs.some(item => item.id === String(body.outputNode))) throw new Error('请选择可用的图片输出节点')
+              norm.outputNode = String(body.outputNode)
+            }
             const safe = String(norm.name).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) || 'imported'
             const file = join(ROOT, 'workflows', safe + '.tavern-comfy-v1.json')
             await writeJsonAtomic(file, norm)
             config.workflows = await scanWorkflows(config)
             await loadAllWorkflows()
-            const imported = workflows.find(item => item.file === safe + '.tavern-comfy-v1.json' && !item.error)
+            const imported = workflows.find(item => item.file === 'workflows/' + safe + '.tavern-comfy-v1.json' && !item.error)
             if (imported) config.defaultWorkflow = imported.id
             config.comfyMode = 'workflow'
             await saveConfig(config)
@@ -3962,12 +4426,55 @@ function createRuntime(ctx, overrides, logger, deps) {
               ok: true, name: norm.name, file: safe + '.tavern-comfy-v1.json',
               nodes: Object.keys(norm.prompt).length,
               bindings: {
-                positive: norm.bindings.positive.length, negative: norm.bindings.negative.length,
-                seed: norm.bindings.seed.length, size: norm.bindings.size.length,
-                steps: norm.bindings.steps.length, cfg: norm.bindings.cfg.length,
-                model: norm.bindings.model.length, loras: norm.bindings.loras.length,
+                positive: withComfyPromptMarkers(norm).bindings.positive?.length ?? 0, negative: withComfyPromptMarkers(norm).bindings.negative?.length ?? 0,
+                seed: norm.bindings.seed?.length ?? 0, size: norm.bindings.size?.length ?? 0,
+                steps: norm.bindings.steps?.length ?? 0, cfg: norm.bindings.cfg?.length ?? 0,
+                model: norm.bindings.model?.length ?? 0, loras: norm.bindings.loras?.length ?? 0,
               },
             })
+          } catch (error) {
+            sendJson(response, 400, { ok: false, error: String(error?.message ?? error) })
+          }
+          return
+        }
+
+        if (action === 'workflow-series') {
+          try {
+            const workflow = usable().find(item => item.id === body?.workflowId)
+            if (!workflow) throw new Error('所选工作流不可用')
+            const tag = String(body?.tag ?? '').trim().slice(0, 8000)
+            const seed = Number(body?.seed)
+            const requestId = String(body?.requestId ?? '')
+            const weights = body?.weights
+            if (!tag || !/^[a-f0-9]{32}$/.test(requestId) || !Number.isSafeInteger(seed) || seed < 0) throw new Error('请填写提示词及有效种子')
+            if (!Array.isArray(weights) || !weights.length || weights.length > 8 || weights.some(weight =>
+              !Array.isArray(weight) || weight.length !== 2 || weight.some(value => typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 10))) {
+              throw new Error('输入 1–8 组 LoRA 权重，每个权重在 -10 到 10 之间')
+            }
+            const key = String(body?.lora ?? '')
+            const binding = scanWorkflowLoras(workflow.prompt, workflow.bindings.loras).find(item => loraBindingKey(item) === key)
+            if (!binding) throw new Error('所选 LoRA 槽位已不存在')
+            if (!workflow.bindings.seed?.length) throw new Error('请先为这个工作流绑定种子输入')
+            if (comfyWorkflowFields(workflow).some(field => field.image)) throw new Error('这组对照目前使用文生图，请选不依赖参考图的工作流')
+            const cfg = { ...config, imageBackend: 'comfyui', comfyMode: 'workflow' }
+            const seriesId = createHash('sha256').update(JSON.stringify([requestId, workflow.id, key, tag, seed, weights])).digest('hex')
+            const planned = weights.map(([strengthModel, strengthClip], index) => ({
+              tag, seed, generationMode: 'text', key: 'lora-series:' + seriesId + ':' + index,
+              loraOverride: { node: binding.node, slot: binding.slot, strengthModel, strengthClip },
+            }))
+            for (const params of planned) compileJob({ workflow, params, config: cfg, definitions })
+            const result = []
+            for (const [index, params] of planned.entries()) {
+              try {
+                const job = await startJob(params, { forceWorkflow: workflow, jobConfig: cfg, label: 'LoRA 对照 ' + (index + 1) + ' · ' + weights[index].join('/') })
+                result.push(job)
+                if (['failed', 'uncertain', 'cancelled'].includes(job.state)) break
+              } catch (error) {
+                sendJson(response, 200, { ok: true, jobs: result, error: String(error?.message ?? error) })
+                return
+              }
+            }
+            sendJson(response, 200, { ok: true, jobs: result })
           } catch (error) {
             sendJson(response, 400, { ok: false, error: String(error?.message ?? error) })
           }
@@ -3980,36 +4487,80 @@ function createRuntime(ctx, overrides, logger, deps) {
             const file = String(body?.file ?? '')
             if (!file) { sendJson(response, 400, { ok: false, error: '缺少文件名' }); return }
             const path = join(ROOT, 'workflows', file.replace(/^.*[\\/]/, ''))
-            const raw = await readJson(path, null)
-            if (!raw) { sendJson(response, 404, { ok: false, error: '找不到这张工作流' }); return }
-            if (body?.patch && typeof body.patch === 'object') {
-              // 改 LoRA 的启用与权重（按节点 id）
-              // 改各类绑定：{ positive: [{node,input}], negative: [...], size/steps/cfg/model/seed 同理 }
-              const patchBindings = body.patch.bindings && typeof body.patch.bindings === 'object' ? body.patch.bindings : null
-        if (patchBindings) {
-                 for (const key of ['positive', 'negative', 'seed', 'batch', 'size', 'steps', 'cfg', 'guidance', 'model', 'referenceImages']) {
-                  if (!Array.isArray(patchBindings[key])) continue
-                  raw.bindings = raw.bindings ?? {}
-                  raw.bindings[key] = patchBindings[key]
-                    .filter(x => x && x.node !== undefined)
-                     .map(x => ({ node: String(x.node), input: String(x.input ?? (key === 'referenceImages' ? 'image' : 'text')) }))
+            await withWorkflowWrite(path, async () => {
+              const raw = await readJson(path, null)
+              if (!raw?.prompt) { sendJson(response, 404, { ok: false, error: '找不到这张工作流' }); return }
+              if (body.revision && body.revision !== workflowRevision(raw)) throw new Error('工作流已变化，请重新打开后再编辑')
+              let discovery
+              if (body.refreshNodes === true) {
+                const { schemas, unavailable } = await discoverComfyNodes(raw)
+                discovery = { recognized: Object.keys(schemas).length, unavailable }
+                if (discovery.recognized) {
+                  raw.nodeSchemas = { ...raw.nodeSchemas, ...schemas }
+                  const detected = detectWorkflow(raw.prompt, raw.nodeSchemas)
+                  raw.bindings = { ...detected.bindings, ...raw.bindings }
+                  for (const role of ['positive', 'negative', 'seed', 'size', 'steps', 'cfg', 'loras']) if (!raw.bindings[role]?.length && detected.bindings[role]?.length) raw.bindings[role] = detected.bindings[role]
+                  if (!raw.outputNode) raw.outputNode = detected.outputNode
                 }
               }
-              const patchLoras = Array.isArray(body.patch.loras) ? body.patch.loras : null
-              if (patchLoras) {
-                const map = new Map(patchLoras.map(x => [String(x.node), x]))
-                for (const lora of raw.bindings?.loras ?? []) {
-                  const p = map.get(String(lora.node))
-                  if (!p) continue
-                  if (typeof p.enabled === 'boolean') lora.enabled = p.enabled
-                  if (typeof p.name === 'string') lora.name = p.name
-                  if (Number.isFinite(Number(p.strengthModel))) lora.strengthModel = Number(p.strengthModel)
-                  if (Number.isFinite(Number(p.strengthClip))) lora.strengthClip = Number(p.strengthClip)
+              if (body?.patch && typeof body.patch === 'object') {
+                if (Array.isArray(body.patch.textFields)) {
+                  validateComfyTextBindings(raw, body.patch.textFields, '提示词位置')
+                  for (const field of body.patch.textFields) {
+                    if (typeof field.text !== 'string' || field.text.length > 100000) throw new Error('节点文字超过可保存长度')
+                    raw.prompt[field.node].inputs[field.input] = field.text
+                  }
+                }
+                // 改 LoRA 的启用与权重（按节点 id）
+                // 改各类绑定：{ positive: [{node,input}], negative: [...], size/steps/cfg/model/seed 同理 }
+                const patchBindings = body.patch.bindings && typeof body.patch.bindings === 'object' ? body.patch.bindings : null
+                if (patchBindings) {
+                  for (const key of ['positive', 'negative', 'seed', 'batch', 'size', 'steps', 'cfg', 'guidance', 'model', 'referenceImages']) {
+                    if (!Array.isArray(patchBindings[key])) continue
+                    raw.bindings = raw.bindings ?? {}
+                    if (['positive', 'negative', 'referenceImages'].includes(key)) {
+                      raw.bindings[key] = key === 'referenceImages' ? validateComfyImageBindings(raw, patchBindings[key])
+                        : validateComfyTextBindings(raw, patchBindings[key], key)
+                      continue
+                    }
+                    raw.bindings[key] = patchBindings[key]
+                      .filter(x => x && x.node !== undefined)
+                      .map(x => ({ node: String(x.node), input: String(x.input ?? (key === 'referenceImages' ? 'image' : 'text')) }))
+                  }
+                }
+                raw.bindings ??= {}
+                raw.bindings.loras = scanWorkflowLoras(raw.prompt, raw.bindings.loras)
+                const swap = body.patch.loraSwap
+                if (Array.isArray(swap) && swap.length === 2) {
+                  const pair = loraOrderPairs(raw.prompt, raw.bindings.loras).find(([a, b]) =>
+                    (a === swap[0] && b === swap[1]) || (b === swap[0] && a === swap[1]))
+                  if (!pair) throw new Error('只能交换同一 LoRA 堆或直接相连且兼容的节点')
+                  const [first, second] = pair.map(key => raw.bindings.loras.find(binding => loraBindingKey(binding) === key))
+                  for (const key of ['name', 'strengthModel', 'strengthClip', 'enabled']) [first[key], second[key]] = [second[key], first[key]]
+                }
+                const patchLoras = Array.isArray(body.patch.loras) ? body.patch.loras : null
+                if (patchLoras) {
+                  const map = new Map(patchLoras.map(x => [loraBindingKey(x), x]))
+                  for (const lora of raw.bindings?.loras ?? []) {
+                    const p = map.get(loraBindingKey(lora))
+                    if (!p) continue
+                    if (typeof p.enabled === 'boolean') lora.enabled = p.enabled
+                    if (typeof p.name === 'string') lora.name = p.name
+                    if (Number.isFinite(Number(p.strengthModel))) lora.strengthModel = Number(p.strengthModel)
+                    if (Number.isFinite(Number(p.strengthClip))) lora.strengthClip = Number(p.strengthClip)
+                  }
                 }
               }
-              await writeJsonAtomic(path, raw)
-            }
-            sendJson(response, 200, { ok: true, workflow: raw })
+              if (body.patch || discovery?.recognized) {
+                if (body.patch?.textFields && raw.bindings?.referenceImages?.length) validateComfyImageBindings(raw, raw.bindings.referenceImages)
+                await writeJsonAtomic(path, raw)
+                await loadAllWorkflows()
+              }
+              const workflow = withComfyPromptMarkers(raw)
+              workflow.bindings.loras = scanWorkflowLoras(raw.prompt, raw.bindings?.loras)
+              sendJson(response, 200, { ok: true, workflow, revision: workflowRevision(raw), fields: comfyWorkflowFields(raw), discovery,
+                loraOrderPairs: loraOrderPairs(raw.prompt, workflow.bindings.loras) })
+            })
           } catch (error) {
             sendJson(response, 400, { ok: false, error: String(error?.message ?? error) })
           }
@@ -4026,6 +4577,37 @@ function createRuntime(ctx, overrides, logger, deps) {
           } catch (error) {
             sendJson(response, 200, { ok: true, loras: [], error: String(error?.message ?? error) })
           }
+          return
+        }
+
+        if (action === 'gallery-item') {
+          const job = jobs.get(String(body?.id ?? ''))
+          if (!job || job.state !== 'done' || !job.file || jobSource(job) !== 'play') {
+            sendJson(response, 404, { ok: false, error: '找不到这张游玩画廊图片' })
+            return
+          }
+          if (!['favorite', 'unfavorite', 'trash', 'restore'].includes(body.operation)) {
+            sendJson(response, 400, { ok: false, error: '画廊操作无效' })
+            return
+          }
+          if (galleryWrites.has(job.id)) { sendJson(response, 409, { ok: false, error: '图片正在更新' }); return }
+          if (!job.favorite && !job.trashedAt && ['favorite', 'trash'].includes(body.operation) &&
+            [...jobs.values()].filter(item => item.favorite || item.trashedAt).length >= 150) {
+            sendJson(response, 409, { ok: false, error: '收藏和回收站已满，请先恢复图片或取消收藏' })
+            return
+          }
+          galleryWrites.add(job.id)
+          const previous = { favorite: job.favorite, trashedAt: job.trashedAt, fromCache: job.fromCache }
+          if (body.operation === 'favorite' || body.operation === 'unfavorite') job.favorite = body.operation === 'favorite'
+          else job.trashedAt = body.operation === 'trash' ? Date.now() : null
+          job.fromCache = false
+          try {
+            await persistJobs({ required: true })
+            sendJson(response, 200, { ok: true, job: consoleJob(job) })
+          } catch (error) {
+            Object.assign(job, previous)
+            sendJson(response, 500, { ok: false, error: String(error?.message ?? error) })
+          } finally { galleryWrites.delete(job.id) }
           return
         }
 
@@ -4130,6 +4712,10 @@ function createRuntime(ctx, overrides, logger, deps) {
 
       if (action === 'config') {
         const patch = body?.config ?? body ?? {}
+        if (patch.promptRevision && patch.promptRevision !== promptRevision()) {
+          sendJson(response, 409, { ok: false, code: 'REVISION_CONFLICT', error: '模板或词条库已在别处更新，本地草稿已保留，请重新载入后再保存。' })
+          return
+        }
         try { Object.assign(config, channelConfigPatch(config, patch)) }
         catch (error) { sendJson(response, 400, { ok: false, error: error.message }); return }
         if (patch.generationMode !== undefined) {
@@ -4145,12 +4731,17 @@ function createRuntime(ctx, overrides, logger, deps) {
         // 正文图片显示大小：0 / 空 = 默认（保持原来的显示效果）；数字夹进 160–1200。
         // 非法输入（NaN、负数、乱填的字符串）一律退回默认，绝不让它进配置。
         if (patch.imageDisplayWidth !== undefined) config.imageDisplayWidth = normalizeImageDisplayWidth(patch.imageDisplayWidth)
+        if (['inline', 'left', 'right', 'floating'].includes(patch.imageDisplayPosition)) config.imageDisplayPosition = patch.imageDisplayPosition
+        if (['scroll', 'pointer', 'off'].includes(patch.imageDisplayFollow)) config.imageDisplayFollow = patch.imageDisplayFollow
         // Saved service credentials never round-trip through /state. Blank input
         // means retain the existing value; only an explicit clear flag deletes it.
         if (typeof patch.comfyAuthToken === 'string' && patch.comfyAuthToken !== '') config.comfyAuthToken = patch.comfyAuthToken
         if (typeof patch.comfyAuthPass === 'string' && patch.comfyAuthPass !== '') config.comfyAuthPass = patch.comfyAuthPass
         if (patch.clearComfyAuthToken === true) config.comfyAuthToken = ''
         if (patch.clearComfyAuthPass === true) config.comfyAuthPass = ''
+        if (['workbench', 'worldbook'].includes(patch.promptSystem)) config.promptSystem = patch.promptSystem
+        if (typeof patch.randomPromptTemplates === 'boolean') config.randomPromptTemplates = patch.randomPromptTemplates
+        if (Array.isArray(patch.randomTemplateIds)) config.randomTemplateIds = patch.randomTemplateIds.filter(id => typeof id === 'string').slice(0, 200)
         for (const key of ['lockWorkflow', 'overrideSteps', 'autoImageGen', 'imageEnabled', 'plannerEnabled', 'wardrobeHints', 'jpegOutput', 'smartImageSelection', 'characterAutoUpdate', 'closestMountTolerance']) if (typeof patch[key] === 'boolean') config[key] = patch[key]
         if (typeof patch.promptMode === 'string' && ['auto', 'tags', 'natural', 'mixed', 'structured'].includes(patch.promptMode)) config.promptMode = patch.promptMode
         if (typeof patch.designPromptMode === 'string' && ['auto', 'chinese', 'tags'].includes(patch.designPromptMode)) config.designPromptMode = patch.designPromptMode
@@ -4159,7 +4750,12 @@ function createRuntime(ctx, overrides, logger, deps) {
         }
         if (typeof patch.allowChinesePrompt === 'boolean') config.allowChinesePrompt = patch.allowChinesePrompt
         if (typeof patch.activePromptPreset === 'string') config.activePromptPreset = patch.activePromptPreset.slice(0, 80)
+        if (Array.isArray(patch.promptEntries)) config.promptEntries = normalizePromptEntries(patch.promptEntries)
         if (Array.isArray(patch.promptPresets)) config.promptPresets = normalizePromptPresets(patch.promptPresets)
+        if (Object.hasOwn(patch, 'promptDefault')) {
+          const template = normalizeDefaultPromptTemplate(patch.promptDefault)
+          if (template !== undefined) config.promptDefault = template
+        }
         config.activePromptPreset = validPromptPresetId(config)
         if (patch.jpegQuality !== undefined) config.jpegQuality = Math.max(50, Math.min(100, Math.round(Number(patch.jpegQuality) || 88)))
         if (typeof patch.jpegBackground === 'string') config.jpegBackground = /^#?[0-9a-f]{6}$/i.test(patch.jpegBackground.trim()) ? (patch.jpegBackground.trim().startsWith('#') ? patch.jpegBackground.trim() : '#' + patch.jpegBackground.trim()) : '#ffffff'
@@ -5007,7 +5603,8 @@ function createRuntime(ctx, overrides, logger, deps) {
           const provider = String(config.plannerProvider || fallback?.provider || '')
           const model = String(config.plannerModel || fallback?.model || '')
           if (!provider || !model) { sendJson(response, 400, { ok: false, error: '还没选规划用的模型，且 Tavern 设置里也没有「默认后台模型」（设置页 → 规划）' }); return }
-          const sectioned = (src?.promptMode || resolvePromptMode(config, promptBackendContext(config, styleWorkflow()))) === 'structured'
+          const workflow = styleWorkflow()
+          const sectioned = (src?.promptMode || resolvePromptMode(promptConfigForTarget(config, workflow), promptBackendContext(config, workflow))) === 'structured'
           const system = [
             '你是绘图提示词编辑。',
             sectioned ? '保留中文分节结构、角色标识和参考图对应关系；只输出修改后的完整提示词，不要解释，不要添加画面任务节。' : '只输出修改后的英文 Tag 串，一行，不要解释、不要加引号、不要换行。',
@@ -5127,13 +5724,83 @@ function createRuntime(ctx, overrides, logger, deps) {
 
 
 
+    async function generateAsset({ workflowId, templateId, generationConfig = config, prompt, negative, references = [], width, height, background, quality, signal, usage, inputs, subjects, definitions: requestDefinitions }) {
+        signal?.throwIfAborted()
+        const jobDefinitions = requestDefinitions == null ? undefined : normalizeDefinitions(requestDefinitions)
+        if (!Array.isArray(references) || references.length > 16) throw new Error('一次最多传入 16 张图片')
+        const sourceImages = []
+        for (const [index, reference] of references.entries()) {
+          signal?.throwIfAborted()
+          if (!(reference?.data instanceof Uint8Array)) throw new Error('输入图片需要原始图片数据')
+          sourceImages.push(await referenceStore.put({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
+        }
+        const result = await runCardImage({ config: () => generationConfig, workflows: usable,
+          startJob: (params, options) => startJob(params, { ...options, jobDefinitions }), getJob, refresh, cancelJob }, {
+          channel: generationConfig.imageBackend === 'comfyui' ? 'comfyui' : generationConfig.activeImageChannel, workflow: workflowId, templateId, prompt, negative, background, quality, sourceImages, promptUsage: usage || 'stage', inputs, promptSubjects: subjects,
+          generation_mode: sourceImages.length ? 'reference' : 'text', ...(width && height ? { size: width + 'x' + height } : {}) }, { signal })
+        signal?.throwIfAborted()
+        return { data: new Uint8Array(await readFile(result.file)), mediaType: result.mediaType, ...(result.seed !== undefined ? { seed: result.seed } : {}), ...(result.usage ? { usage: result.usage } : {}) }
+    }
+
+    function inputCapacity(workflow) {
+      try { return workflow ? comfyReferenceCapacity(workflow, comfyLoadImageBindings(workflow)) : 0 } catch { return 0 }
+    }
+    function templateModels() {
+      if (usesWorldbook(config)) return []
+      const templates = [...new Map([...generationTemplates(config), ...generationTemplates(config, 'edit')].map(item => [item.id, item])).values()]
+      return templates.map(template => {
+        try {
+          const selected = selectGenerationConfig(config, usable(), { templateId: template.id, purpose: template.structure.purpose === 'edit' ? 'edit' : 'generate', random: false })
+          const workflow = selected.workflow || usable().find(item => item.id === selected.config.defaultWorkflow) || usable()[0]
+          const maxReferences = selected.config.imageBackend === 'comfyui'
+            ? template.structure.targets?.length ? inputCapacity(workflow) : Math.max(0, ...usable().map(inputCapacity))
+            : imageReferenceLimit(activeChannel(selected.config))
+          const ready = selected.config.imageBackend === 'comfyui' ? Boolean(workflow) : Boolean(activeChannel(selected.config))
+          const transparent = selected.config.imageBackend === 'comfyui' ? undefined : imageTransparency(activeChannel(selected.config))
+          return { id: 'template:' + template.id, templateId: template.id, label: template.name, model: template.name, ready, maxReferences, ...(transparent === undefined ? {} : { transparent }) }
+        } catch (error) { return { id: 'template:' + template.id, templateId: template.id, label: template.name, ready: false, reason: error.message, maxReferences: 0 } }
+      })
+    }
+    async function generateTemplateAsset(request) {
+      const selected = selectGenerationConfig(config, usable(), { templateId: request.templateId, purpose: request.references?.length ? 'edit' : 'generate' })
+      let workflow = selected.workflow || usable().find(item => item.id === selected.config.defaultWorkflow) || usable()[0]
+      if (selected.config.imageBackend === 'comfyui') {
+        if (request.references?.length && !inputCapacity(workflow)) {
+          const template = generationTemplates(config, 'edit').find(item => item.id === selected.template?.id)
+          if (template?.structure.targets?.length) throw new Error('所选模板绑定的接口不接收图片，请选择改图模板')
+          workflow = usable().find(item => inputCapacity(item) > 0)
+        }
+        if (!workflow) throw new Error('这个模板没有可用的 ComfyUI 工作流')
+        if (!request.references?.length && inputCapacity(workflow)) throw new Error('这个模板需要输入图片，请添加素材或选择文生图模板')
+      }
+      return generateAsset({ ...request, workflowId: selected.config.imageBackend === 'comfyui' ? workflow?.id : undefined,
+        generationConfig: selected.config, templateId: selected.template?.id })
+    }
+
     return {
       consoleHtml, consoleState, handleConsole, readBody, sendImage,
       startJob, startReplacement, revisePrompt, cancelJob, refresh, getJob: id => (id ? getJob(id) : null), findJob, publicJob, deleteJob,
       planMessage, wardrobePrompt,
+      templateMarkerPrompt: () => {
+        const workflow = styleWorkflow()
+        const promptConfig = promptConfigForTarget(config, workflow)
+        if (!effectivePromptPreset(promptConfig)?.structure) return ''
+        const backend = promptBackendContext(promptConfig, workflow)
+        return buildTemplateMarkerPrompt(config.imageGenCount, getPromptGuidance(promptConfig, backend, { compact: true }),
+          { structured: resolvePromptMode(promptConfig, backend) === 'structured' })
+      },
       currentConfig: () => config,
       currentDefinitions: () => definitions,
       characterLibrary,
+      readReference: reference => referenceStore.read(reference),
+      comfyModels: () => usable().map(workflow => {
+        let maxReferences = 0, reason = ''
+        try { maxReferences = comfyReferenceCapacity(workflow, comfyLoadImageBindings(workflow)) } catch (error) { reason = error.message }
+        return { id: 'comfyui:' + workflow.id, label: 'ComfyUI · ' + workflow.label, workflowId: workflow.id, ready: !reason, ...(reason ? { reason } : {}), model: workflow.label, maxReferences }
+      }),
+      generateComfyAsset: generateAsset,
+      templateModels: templateModels,
+      generateTemplateAsset: generateTemplateAsset,
       cardWorkflows: () => usable(),
       generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
@@ -5301,29 +5968,6 @@ function channelWithPresetParams(config) {
   return channel
 }
 
-/**
- * 取当前启用的画师串。多套里选一套（activeArtistSet 指向它），
- * 没选就用默认的 styleArtists；每套自己带 position（放最前 / 放最后）。
- */
-function activeArtistText(config) {
-  const fallback = { text: String(config?.styleArtists ?? ''), position: 'prefix', name: '默认', negative: String(config?.styleNegative ?? '') }
-  const id = String(config?.activePreset ?? config?.activeArtistSet ?? '')
-  if (!id) return fallback
-  // 新版：画风预设
-  const presets = Array.isArray(config?.stylePresets) ? config.stylePresets : []
-  const p = presets.find(s => s && String(s.id) === id && s.enabled !== false)
-  if (p && (p.temporaryOverride === true || String(p.artist ?? '').trim())) {
-    return { text: String(p.artist), position: p.position === 'suffix' ? 'suffix' : 'prefix', name: String(p.name ?? ''), negative: String(p.negative ?? '') }
-  }
-  // 兼容旧版：画师串多套
-  const sets = Array.isArray(config?.artistSets) ? config.artistSets : []
-  const hit = sets.find(s => s && String(s.id) === id && s.enabled !== false)
-  if (hit && String(hit.text ?? '').trim()) {
-    return { text: String(hit.text), position: hit.position === 'suffix' ? 'suffix' : 'prefix', name: String(hit.name ?? ''), negative: String(config?.styleNegative ?? '') }
-  }
-  return fallback
-}
-
 /** 扫描 workflows/ 目录，把配置里没有的文件补成条目（配置里的既有条目优先）。 */
 async function scanWorkflows(config) {
   const configured = Array.isArray(config.workflows) ? config.workflows : []
@@ -5359,11 +6003,26 @@ function collectSecretValues(value, out = [], depth = 0) {
 async function loadConfig(overrides) {
   const file = await readJson(CONFIG_PATH, {})
   const config = { ...DEFAULTS, ...file, ...(overrides ?? {}) }
+  if (!Object.hasOwn(file, 'promptSystem') && !Object.hasOwn(overrides ?? {}, 'promptSystem') && Object.keys(file).length) config.promptSystem = 'worldbook'
+  if (!['workbench', 'worldbook'].includes(config.promptSystem)) config.promptSystem = 'workbench'
   config.comfyUrl = String(config.comfyUrl || DEFAULTS.comfyUrl).replace(/\/+$/, '')
   // 这个开关主要在配置文件里手改，string "true" 一律当成 false，避免手误以为打开了
   config.allowChinesePrompt = config.allowChinesePrompt === true
   if (!GENERATION_MODES.includes(config.generationMode)) config.generationMode = 'text'
-  config.promptPresets = normalizePromptPresets(config.promptPresets)
+  const savedPresets = Array.isArray(config.promptPresets)
+    ? config.promptPresets.filter(item => item && typeof item === 'object').slice(0, MAX_PROMPT_PRESETS) : []
+  const savedActiveIndex = config.activePromptPreset
+    ? savedPresets.findIndex(preset => preset.id === config.activePromptPreset) : -1
+  config.promptPresets = normalizePromptPresets(savedPresets)
+  // A newly reserved built-in ID can rename an existing user preset on upgrade.
+  if (savedActiveIndex >= 0) config.activePromptPreset = config.promptPresets[savedActiveIndex].id
+  if (config.promptDefault === undefined) {
+    const format = ['auto', 'tags', 'natural', 'mixed', 'structured'].includes(config.promptMode) ? config.promptMode : 'auto'
+    config.promptDefault = { ...DEFAULT_MODULAR_TEMPLATE, structure: { ...DEFAULT_MODULAR_TEMPLATE.structure, format,
+      blocks: DEFAULT_MODULAR_TEMPLATE.structure.blocks.map(block => block.kind === 'output' ? { ...block, format } : block) } }
+  }
+  config.promptDefault = normalizeDefaultPromptTemplate(config.promptDefault)
+  config.promptEntries = normalizePromptEntries(config.promptEntries)
   if (!['auto', 'tags', 'natural', 'mixed', 'structured'].includes(config.promptMode)) config.promptMode = 'auto'
   if (!['auto', 'chinese', 'tags'].includes(config.designPromptMode)) config.designPromptMode = 'auto'
   for (const key of ['characterDesignRequirements', 'outfitDesignRequirements']) config[key] = String(config[key] ?? '').slice(0, 4000)
@@ -5407,6 +6066,8 @@ async function saveConfig(config) {
 function normalizeCharacter(raw, index) {
   const item = {
     ...referenceFields(raw),
+    ...libraryPromptFields(raw),
+    comfyLoras: normalizeCharacterLoras(raw?.comfyLoras),
     id: String(raw?.id ?? `characters-${index + 1}`),
     enabled: raw?.enabled !== false,
     name: String(raw?.name ?? ''),
@@ -5436,6 +6097,7 @@ function normalizeCharacter(raw, index) {
   if (!outfits.length && raw?.outfit) outfits.push({ id: 'o1', name: '常服', body: String(raw.outfit), default: true })
   item.outfits = outfits.map((outfit, j) => ({
     ...referenceFields(outfit),
+    ...libraryPromptFields(outfit),
     ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
       characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
     } : {}),
@@ -5719,7 +6381,7 @@ async function saveDefinitions(definitions) {
  * 从 ComfyUI 的 API 格式 JSON 里认出一张工作流的"可调参数"。
  * 正/负面靠"谁连到采样器的 positive / negative 输入"判断，这是唯一可靠的办法。
  */
-function detectWorkflow(nodes) {
+function detectWorkflow(nodes, nodeSchemas = {}) {
   const bind = { positive: [], negative: [], seed: [], batch: [], size: [], steps: [], cfg: [], model: [], loras: [], sampler: [] }
   const list = Object.entries(nodes ?? {}).map(([id, node]) => ({ id, node }))
   const byType = (t) => list.filter(x => x.node?.class_type === t)
@@ -5738,6 +6400,9 @@ function detectWorkflow(nodes) {
     // 任意字符串输入误判成可编辑提示词。
     const recognizedType = /(?:text|prompt|primitive|stringliteral|multiline)/i.test(type)
     const recognizedTitle = /(?:text|prompt|提示词|正向|负面|反向)/i.test(title)
+    const typed = nodeSchemas?.[type]?.inputs
+    if (typed) return Object.keys(typed).filter(key => typed[key].type === 'STRING' &&
+      (Array.isArray(inp[key]) || !typed[key].forceInput && typeof inp[key] === 'string'))
     if (!recognizedType && !recognizedTitle) return []
     const preferred = ['text', 'text_g', 'text_l', 'string', 'string_a', 'string_b', 'prompt', 'content', 'value', 'positive', 'negative']
     const found = preferred.filter(key => typeof inp[key] === 'string' || Array.isArray(inp[key]))
@@ -5769,19 +6434,19 @@ function detectWorkflow(nodes) {
       if (/ConditioningZeroOut/i.test(String(nodes[id]?.class_type ?? ''))) continue
       const inp = nodes[id].inputs ?? {}
       const keys = textInputsOf(nodes[id])
-      let foundLiteral = false
       for (const key of keys) {
         const value = inp[key]
         if (typeof value === 'string') {
           targets.push({ node: id, input: key })
-          foundLiteral = true
         } else if (Array.isArray(value) && value.length >= 2) {
           const target = String(value[0])
           if (nodes[target]) queue.push({ id: target, hop: hop + 1 })
         }
       }
       if (!keys.length && hop < 8) {
-        for (const key of ['conditioning', 'positive', 'negative']) {
+        const typed = nodeSchemas?.[nodes[id]?.class_type]?.inputs || {}
+        const passthrough = Object.keys(typed).filter(key => ['STRING', 'CONDITIONING'].includes(typed[key].type))
+        for (const key of new Set(['conditioning', 'positive', 'negative', ...passthrough])) {
           const value = inp[key]
           if (Array.isArray(value) && value.length >= 2 && nodes[String(value[0])]) queue.push({ id: String(value[0]), hop: hop + 1 })
         }
@@ -5792,7 +6457,7 @@ function detectWorkflow(nodes) {
 
   // 采样器（各种 KSampler 变体）
   const samplerLinked = { positive: false, negative: false }
-  const samplers = list.filter(x => /^KSampler/i.test(String(x.node?.class_type ?? '')))
+  const samplers = list.filter(x => /^KSampler/i.test(String(x.node?.class_type ?? '')) || ['positive', 'negative'].some(key => Array.isArray(x.node?.inputs?.[key])))
   for (const { id, node } of samplers) {
     const inp = node.inputs ?? {}
     // 正/负面：采样器的 positive / negative 指到的节点；若那个节点只是中转（它的文本来自
@@ -5824,6 +6489,9 @@ function detectWorkflow(nodes) {
       if (!inputs.length) continue
       const title = String(node?._meta?.title ?? '')
       const type = String(node?.class_type ?? '')
+      const schema = nodeSchemas?.[type]
+      if (schema && !schema.outputs?.some(output => ['STRING', 'CONDITIONING'].includes(output))
+        && !/负面|反向|negative|正向|正面|positive/i.test(title)) continue
       for (const input of inputs) slots.push({
         id, input, type, rank: /CLIPTextEncode|TextEncode/i.test(type) ? 0 : 1,
         role: /负面|反向|negative/i.test(title) ? 'negative' : (/正向|正面|positive/i.test(title) ? 'positive' : ''),
@@ -5869,18 +6537,7 @@ function detectWorkflow(nodes) {
     else if (/AnimaBoosterLoader/i.test(t) && typeof inp.model_name === 'string') bind.model.push({ node: id, input: 'model_name' })
   }
 
-  // LoRA：每一个 LoraLoader 都列出来（用户可以在界面上改权重 / 停用）
-  for (const { id, node } of byType('LoraLoader')) {
-    const inp = node.inputs ?? {}
-    bind.loras.push({
-      node: id,
-      input: 'lora_name',
-      name: String(inp.lora_name ?? ''),
-      strengthModel: Number(inp.strength_model ?? 1),
-      strengthClip: Number(inp.strength_clip ?? inp.strength_model ?? 1),
-      enabled: true,
-    })
-  }
+  bind.loras = scanWorkflowLoras(nodes)
 
   // 一张图里常有两个采样器（主采样 + 高清修复二次采样），它们各报一遍正负面，
   // 同一个目标就会被登记两次；去重，免得界面上出现两行一模一样的绑定。
@@ -5895,7 +6552,7 @@ function detectWorkflow(nodes) {
   }
 
   // 输出节点：SaveImage / PreviewImage 优先
-  const out = list.find(x => /SaveImage|PreviewImage/i.test(String(x.node?.class_type ?? '')))
+  const out = list.find(x => /SaveImage|PreviewImage/i.test(String(x.node?.class_type ?? '')) || nodeSchemas?.[x.node?.class_type]?.outputNode && Object.values(nodeSchemas[x.node.class_type].inputs || {}).some(input => input.type === 'IMAGE'))
   return { bindings: bind, outputNode: out ? out.id : '' }
 }
 
@@ -5909,7 +6566,10 @@ export function normalizeWorkflow(raw, fallbackName) {
       name: String(raw.name ?? fallbackName ?? '导入的工作流'),
       prompt: raw.prompt,
       outputNode: String(raw.outputNode ?? ''),
-      bindings: raw.bindings,
+      nodeSchemas: raw.nodeSchemas,
+      ...(typeof raw.dynamicImages === 'boolean' ? { dynamicImages: raw.dynamicImages } : {}),
+      ...(raw.graphPositions ? { graphPositions: raw.graphPositions } : {}),
+      bindings: { ...raw.bindings, loras: scanWorkflowLoras(raw.prompt, raw.bindings.loras) },
       digest: String(raw.digest ?? ''),
     }
   }
@@ -5922,11 +6582,12 @@ export function normalizeWorkflow(raw, fallbackName) {
     realNodes[id] = node
   }
   if (!Object.keys(realNodes).length) return null
-  const { bindings, outputNode } = detectWorkflow(realNodes)
+  const { bindings, outputNode } = detectWorkflow(realNodes, raw.nodeSchemas)
   return {
     format: 'dsh-tavern-image-v1',
     name: String(raw.name ?? fallbackName ?? '导入的工作流'),
     prompt: realNodes,
+    nodeSchemas: raw.nodeSchemas,
     outputNode,
     bindings,
     digest: '',
@@ -5970,34 +6631,6 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-/** NovelAI 的 {}/[]/n::tag:: 权重语法 → SD 的 (tag:n)。 */
-export function convertWeights(text) {
-  let out = String(text ?? '')
-  out = out.replace(/(-?\d+(?:\.\d+)?)::([^:]+)::/g, (_m, weight, tag) => {
-    const value = Number(weight)
-    if (!Number.isFinite(value)) return tag.trim()
-    if (value <= 0) return `(${tag.trim()}:0.5)`
-    return `(${tag.trim()}:${String(Math.min(2, Math.max(0.5, value))).slice(0, 5)})`
-  })
-  out = out.replace(/(\{+)([^{}]+)(\}+)/g, (_m, open, body, close) => {
-    const depth = Math.min(4, Math.min(open.length, close.length))
-    return `(${body.trim()}:${[0, 1.05, 1.1, 1.15, 1.2][depth]})`
-  })
-  // 方括号只剥括号保留内容：NAI 的 [[[artist:x]]] 在 SD 系里不该被当成降权
-  out = out.replace(/(\[+)([^[\]]+)(\]+)/g, (_m, _open, body) => body.trim())
-  return tidyTags(out)
-}
-
-export function stripWeights(text) {
-  return tidyTags(String(text ?? '')
-    .replace(/-?\d+(?:\.\d+)?::([^:]+)::/g, '$1')
-    .replace(/[{}[\]]/g, ''))
-}
-
-function tidyTags(text) {
-  return String(text).split(',').map(part => part.trim()).filter(Boolean).join(', ')
-}
-
 function splitTags(text) {
   return String(text ?? '').split(',').map(part => part.trim()).filter(Boolean)
 }
@@ -6017,20 +6650,6 @@ function tagSet(text) {
     }
   }
   return set
-}
-
-function applyWeights(text, mode) {
-  if (mode === 'keep') return String(text ?? '')
-  return mode === 'strip' ? stripWeights(text) : convertWeights(text)
-}
-
-export function resolveWeightMode(config = {}, backend = '', mode = 'tags') {
-  const requested = String(config.weightMode ?? 'auto').toLowerCase()
-  if (mode === 'natural') return 'strip'
-  const name = String(backend ?? config.imageBackend ?? '').toLowerCase()
-  const novelai = name === 'novelai' || name.startsWith('novelai ')
-  if (requested === 'keep' || requested === 'strip') return requested
-  return novelai ? 'keep' : 'convert'
 }
 
 /** 按权重组分段拆 tag：2::hair bun, double bun:: 算一组，不按裸逗号拆。 */
@@ -6222,7 +6841,7 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   // 规划里的人物宏已经展开过的人，不再按名字重复注入；他的其他形态也不注入
   // （否则同一个人的两种外貌会同时出现）。
   const label = c => (splitTags(c?.match)[0] || String(c?.name ?? '')) + ' is '
-  const fingerprint = c => [c?.traits?.face, c?.traits?.faceBack].map(v => String(v ?? '').trim()).filter(v => v.length >= 12)
+  const fingerprint = c => [libraryPromptOverride(c), c?.traits?.face, c?.traits?.faceBack].map(v => String(v ?? '').trim()).filter(v => v.length >= 12)
   const expanded = (definitions.characters ?? []).filter(c => c && c.enabled !== false && (
     ['the woman', 'the man', 'a character'].some(who => source.includes(label(c) + who + ' in this scene')) ||
     (structured && source.includes(`人物“${structuredCharacterName(c)}”：`)) ||
@@ -6250,12 +6869,13 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
       const own = String(character.traits?.negative ?? '').trim()
       const list = own && !PLACEHOLDER_VALUE.test(own) ? [own] : []
       // 宏里点名的那套衣服，它的负面词同样没地方放：按展开进画面的衣服文字认出是哪一套，一并补回。
-      for (const outfit of character.outfits ?? []) {
+      for (const outfit of characterOutfits(character, definitions)) {
         const neg = String(outfit?.negative ?? '').trim()
         if (!neg || PLACEHOLDER_VALUE.test(neg) || outfit.enabled === false) continue
         // tag 写法有上下装时不写 full（见 characterTags），所以优先按上下装认。
         const pieces = keys => keys.map(key => String(outfit[key] ?? '').trim()).filter(v => v.length >= 6 && !PLACEHOLDER_VALUE.test(v))
-        const worn = pieces(['upper', 'lower']).length ? pieces(['upper', 'lower']) : pieces(['full'])
+        const raw = libraryPromptOverride(outfit)
+        const worn = raw !== null ? (raw ? [raw] : []) : (pieces(['upper', 'lower']).length ? pieces(['upper', 'lower']) : pieces(['full']))
         if (worn.length && worn.every(v => source.includes(v))) list.push(neg)
       }
       personNegatives.push(list)
@@ -6320,6 +6940,12 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   // 画面里写着的东西不能出现在负面里（例如路人的 short black hair 对上负面的 short hair）。
   const chunks = source.toLowerCase().split(/[,\n]/).map(t => t.trim()).filter(Boolean)
   const shown = tag => { const words = tag.toLowerCase().split(/\s+/).filter(Boolean); return words.length > 0 && chunks.some(chunk => words.every(w => new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(chunk))) }
+  const standaloneNames = new Set(sourceMacros.filter(name => !macroCharacters.some(character => matchesAlias(character, name))).map(normalizedName))
+  for (const outfit of standaloneNames.size ? definitions.outfits ?? [] : []) {
+    const negative = String(outfit?.negative ?? '').trim()
+    if (outfit?.enabled === false || !negative || ![outfit.id, outfit.name].some(key => standaloneNames.has(normalizedName(key)))) continue
+    for (const text of structured ? [negative] : splitTags(negative)) if (!negatives.includes(text) && (structured || keepNegative || !shown(text))) negatives.push(text)
+  }
   if (personNegatives.length === 1 && families.length <= 1) {
     for (const raw of personNegatives[0]) {
       if (structured) { negatives.push(raw); continue }
@@ -6403,67 +7029,10 @@ function applySize(prompt, size, sizes, bindings = null) {
   return target
 }
 
-function prepareImagePrompt({ workflow, params, config, definitions, onStage = null, channel = null }) {
-  const stage = (name, data) => { if (onStage) { try { onStage(name, data) } catch {} } }
-  const tag = String(params.tag ?? '').trim()
-  const artist = String(params.artist ?? '').trim()
-  const backend = channel ? effectiveImageProvider(channel) : promptBackendContext(config, workflow)
-  const mode = resolvePromptMode(config, backend)
-
-  if (mode === 'structured') {
-    const injected = injectDefinitions(tag, definitions, config, { style: 'structured', raw: params.rawTag })
-    const prepared = composeStructuredPrompt({ text: injected.text, config, artist, artistPosition: params.artistPosition ?? config.artistPosition, referenceText: params.referenceText || '',
-      negative: [activeArtistText(config).negative, params.negative, ...(injected.negatives ?? [])].filter(Boolean).join('\n') })
-    if (workflow) {
-      const binding = workflow.bindings.negative?.[0]
-      const workflowNegative = binding ? String(workflow.prompt[binding.node]?.inputs?.[binding.input] ?? '') : ''
-      if (config.negativeMode === 'workflow') prepared.negative = [workflowNegative, ...(injected.negatives ?? [])].filter(Boolean).join('\n')
-      else if (config.negativeMode === 'merge') prepared.negative = [workflowNegative, prepared.negative].filter(Boolean).join('\n')
-    }
-    stage('compile-positive', { mode, final: prepared.positive, hits: injected.hits })
-    stage('compile-negative', { negativeMode: config.negativeMode, final: prepared.negative })
-    return { positive: prepared.positive, negative: prepared.negative, hits: injected.hits,
-      promptAssembly: { version: 2, definitionAdditions: injected.additions || [], referenceText: params.referenceText || '' } }
-  }
-
-  const rawBase = (params.artistPosition ?? config.artistPosition) === 'suffix'
-    ? [tag, artist].filter(Boolean).join(', ')
-    : [artist, tag].filter(Boolean).join(', ')
-  const base = composePresetText([rawBase, String(config.promptManualPositive ?? '')].filter(Boolean).join(mode === 'tags' ? ', ' : '. '), config, backend)
-  const provenance = onStage ? [] : null
-  const injected = injectDefinitions(base, definitions, config, { style: mode === 'natural' ? 'natural' : 'tags', provenance, raw: params.rawTag })
-  // 自然语言模型（LLM 文本编码器）不认 (tag:1.2) 这种权重，总是去掉；tag 模型按设置处理。
-  // 画风词和按名字补上的外貌是在规划提示词清理之后才拼进来的，tag 写法再去一次重。
-  const injectedText = mode === 'tags' ? dedupeTags(injected.text) : injected.text
-  const positive = formatPromptForBackend(applyWeights(injectedText, resolveWeightMode(config, backend, mode)), backend, mode)
-  stage('compile-positive', { mode, artistPosition: params.artistPosition ?? config.artistPosition, artist, rawBase, afterPreset: base, afterInjection: injected.text, final: positive, hits: injected.hits, provenance })
-
-  const workflowNegative = String(
-    workflow?.bindings.negative?.length
-      ? workflow.prompt[workflow.bindings.negative[0].node]?.inputs?.[workflow.bindings.negative[0].input] ?? ''
-      : '',
-  )
-  const pluginNegative = [activeArtistText(config).negative, promptPresetNegative(config), config.promptManualNegative, String(params.negative ?? '')].filter(Boolean).join(', ')
-  const baseNegative = workflow ? ({
-    plugin: pluginNegative,
-    workflow: workflowNegative,
-    merge: [workflowNegative, pluginNegative].filter(Boolean).join(', '),
-  }[config.negativeMode] ?? pluginNegative) : pluginNegative
-  // 工作流自带的负面词和插件的负面词常有重叠（merge 模式），按逗号分段去重，保留第一次出现的位置。
-  const seenNegative = new Set()
-  const mergedNegative = [baseNegative, ...(injected.negatives ?? [])].filter(Boolean).join(', ').split(',').map(t => t.trim()).filter(t => {
-    const key = t.toLowerCase()
-    if (!key || seenNegative.has(key)) return false
-    seenNegative.add(key); return true
-  }).join(', ')
-  const negative = formatPromptForBackend(mergedNegative, backend, mode)
-  stage('compile-negative', { negativeMode: config.negativeMode, workflowNegative, pluginNegative, characterNegatives: injected.negatives ?? [], final: negative })
-  return { positive, negative, hits: injected.hits }
-}
-
 export function compileChannelJob({ params, config, definitions, channel = null, onStage = null }) {
+  config = promptConfigForTarget(config, null, channel)
   const provider = channel ? effectiveImageProvider(channel) : effectiveImageProvider(config.imageBackend)
-  const prepared = prepareImagePrompt({ params, config, definitions, channel, onStage })
+  const prepared = prepareImagePrompt({ params, config, definitions, channel, onStage }, injectDefinitions)
   const promptMode = resolvePromptMode(config, provider)
   const separator = promptMode === 'structured' ? '\n\n' : ', '
   const nativeNovelai = provider === 'novelai' && channel?.options?.protocol !== 'chat'
@@ -6480,8 +7049,11 @@ export function compileChannelJob({ params, config, definitions, channel = null,
 }
 
 export function compileJob({ workflow, params, config, definitions, onStage = null }) {
+  config = promptConfigForTarget(config, workflow)
   const prompt = structuredClone(workflow.prompt)
-  const prepared = prepareImagePrompt({ workflow, params, config, definitions, onStage })
+  const markers = comfyPromptMarkers(workflow.prompt)
+  const promptConfig = markers.negative.length ? { ...config, negativeMode: 'plugin' } : config
+  const prepared = prepareImagePrompt({ workflow, params, config: promptConfig, definitions, onStage }, injectDefinitions)
   const promptMode = resolvePromptMode(config, promptBackendContext(config, workflow))
   const characters = compileCharacterList(params.characters, definitions, config, promptMode, 'comfyui')
   const positive = [prepared.positive, ...characters.map(item => item.prompt)].filter(Boolean).join(promptMode === 'structured' ? '\n\n' : ', ')
@@ -6490,8 +7062,10 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
     : [...new Set([prepared.negative, ...characters.map(item => item.uc)].flatMap(value => String(value || '').split(',').map(part => part.trim())).filter(Boolean))].join(', ')
   const { hits } = prepared
 
-  setBinding(prompt, workflow.bindings.positive, positive)
-  if (workflow.bindings.negative?.length) setBinding(prompt, workflow.bindings.negative, promptMode === 'structured' ? negative : applyWeights(negative, config.weightMode))
+  if (!markers.positive.length) setBinding(prompt, workflow.bindings.positive, positive)
+  if (!markers.negative.length && workflow.bindings.negative?.length) setBinding(prompt, workflow.bindings.negative, promptMode === 'structured' ? negative : applyWeights(negative, config.weightMode))
+
+  applyComfyPromptMarkers(prompt, workflow.prompt, positive, promptMode === 'structured' ? negative : applyWeights(negative, config.weightMode))
 
   const seed = Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : Number.isSafeInteger(workflow.fixedSeed) && workflow.fixedSeed >= 0
     ? workflow.fixedSeed
@@ -6502,29 +7076,32 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
     if (Object.hasOwn(node.inputs ?? {}, 'batch_size') && typeof node.inputs.batch_size === 'number') node.inputs.batch_size = 1
   }
 
-  // 应用 LoRA：按工作流自己的 LoRA 列表（在 设置 → 配图 的「渠道」里改）写回节点。
-  // 停用一条 = 把两个权重都设 0（ComfyUI 里 0 就等于不生效），而不是删节点，保证连线不坏。
-  const loraApplied = []
-  for (const lora of workflow.bindings.loras ?? []) {
-    const node = prompt[lora.node]
-    if (!node || !node.inputs) continue
-    if (lora.enabled === false) {
-      if (Object.hasOwn(node.inputs, 'strength_model')) node.inputs.strength_model = 0
-      if (Object.hasOwn(node.inputs, 'strength_clip')) node.inputs.strength_clip = 0
-      loraApplied.push({ name: lora.name || ('节点 ' + lora.node), off: true })
-      continue
-    }
-    if (lora.name && Object.hasOwn(node.inputs, 'lora_name')) node.inputs.lora_name = String(lora.name)
-    const sm = Number(lora.strengthModel)
-    const sc = Number(lora.strengthClip)
-    if (Number.isFinite(sm) && Object.hasOwn(node.inputs, 'strength_model')) node.inputs.strength_model = sm
-    if (Number.isFinite(sc) && Object.hasOwn(node.inputs, 'strength_clip')) node.inputs.strength_clip = sc
-    loraApplied.push({ name: lora.name || ('节点 ' + lora.node), model: sm, clip: sc })
+  const bindings = scanWorkflowLoras(prompt, workflow.bindings.loras ?? [])
+  const loraBindings = new Map(bindings.map(lora => [loraBindingKey(lora), lora]))
+  const templateLoras = []
+  for (const block of activePromptBlocks(effectivePromptPreset(config)?.structure, params.promptUsage)) {
+    if (block.kind !== 'lora' || block.workflowId !== workflow.id) continue
+    if (block.node === '__auto__') { templateLoras.push({ ...block, node: '', name: block.text, enabled: true }); continue }
+    const key = loraBindingKey(block)
+    if (!loraBindings.has(key)) throw new Error('LoRA 模块「' + block.title + '」找不到可编辑的加载槽位')
+    loraBindings.set(key, { ...loraBindings.get(key), ...block, name: block.text, enabled: true })
   }
-  // 注意：这里不能打日志 —— compileJob 是模块级导出函数，拿不到 runtime 的日志器。
+  if (params.loraOverride) {
+    const key = loraBindingKey(params.loraOverride)
+    if (!loraBindings.has(key)) throw new Error('连续生图指定的 LoRA 槽位已不存在')
+    loraBindings.set(key, { ...loraBindings.get(key), ...params.loraOverride, enabled: true })
+  }
+  const loraApplied = [...loraBindings.values()].map(binding => applyWorkflowLora(prompt, binding)).filter(Boolean)
+  const selectedIds = new Set([...(params.libraryCharacterIds || []), ...[...(params.subjects || []), ...(params.promptSubjects || [])].map(item => item?.characterId).filter(Boolean)])
+  const characterLoras = (definitions?.characters || []).filter(person => person.enabled !== false &&
+    (selectedIds.has(person.id) || hits.includes(person.name) || person.name && containsNameToken(params.rawTag || params.tag || '', person.name)))
+    .flatMap(person => normalizeCharacterLoras(person.comfyLoras).filter(item => item.workflowId === workflow.id))
+  loraApplied.push(...applyDynamicLoras(prompt, [...templateLoras, ...characterLoras]))
 
-  if (config.overrideSteps) {
+  if (config.overrideSteps || params.moduleParameters?.steps !== undefined) {
     if (params.steps !== undefined && params.steps !== '') setBinding(prompt, workflow.bindings.steps, Number(params.steps))
+  }
+  if (config.overrideSteps || params.moduleParameters?.cfg !== undefined) {
     // cfg 在有些工作流里绑成 guidance
     const cfgValue = Number(params.cfg)
     if (params.cfg !== undefined && params.cfg !== '' && Number.isFinite(cfgValue)) {
@@ -6534,7 +7111,14 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
   }
 
   const size = applySize(prompt, params.size, workflow.sizes ?? config.sizes ?? null, workflow.bindings?.size)
-  return { prompt, seed, positive, negative, promptMode, size, hits, workflowId: workflow.id, loras: loraApplied, ...(prepared.promptAssembly ? { promptAssembly: prepared.promptAssembly } : {}) }
+  const protectedInputs = new Set()
+  for (const role of ['positive', 'negative', 'seed', 'steps', 'cfg', 'guidance']) for (const binding of [...(workflow.bindings[role] || []), ...(markers[role] || [])]) {
+    protectedInputs.add(String(binding.node) + ':' + String(binding.input))
+  }
+  for (const binding of workflow.bindings.size || []) for (const input of ['width', 'height']) protectedInputs.add(String(binding.node) + ':' + input)
+  for (const item of params.moduleWorkflowValues || []) if (protectedInputs.has(item.node + ':' + item.input)) throw new Error('模块节点参数与生成映射冲突：' + item.node + '.' + item.input + '；请使用正负提示词或生成参数设置')
+  const finalPrompt = applyModuleWorkflowValues({ prompt }, params.moduleWorkflowValues).prompt
+  return { prompt: finalPrompt, seed, positive, negative, promptMode, size, hits, workflowId: workflow.id, loras: loraApplied, ...(prepared.promptAssembly ? { promptAssembly: prepared.promptAssembly } : {}) }
 }
 
 /** 挑工作流：先看锁定 / 默认，再按外部传来的 model 匹配 id / label / match。 */

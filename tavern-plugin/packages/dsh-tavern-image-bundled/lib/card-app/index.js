@@ -87,6 +87,7 @@ export function apply(ctx, { ready }) {
     description: '在卡片工作台生成图片，返回带完整 HTTP(S) 地址的 Markdown。把返回的 markdown 原样写进回复，不要省略域名、端口或改成相对路径。先用 read_image_config 查看渠道及提示词格式，按 image-prompt Skill 描述用户要求的一个画面。使用当前配图渠道或临时指定渠道，支持现有全部在线协议和 ComfyUI。用户已授权直接出图时直接提交。失败或任务不确定时先查配图记录，不能自动重复提交。',
     parameters: schema({
       prompt: { type: 'string', description: '画面描述。自然语言渠道可用中文或英文完整句；标签模型用其支持的 tag；structured 按设置保留分节。画风与参考图绑定由引擎追加。' },
+      template: { type: 'string', description: '工作台模式使用的模板名称或精确 ID；省略则用当前默认模板或随机范围。先 read_image_config 查看可用模板。' },
       negative: { type: 'string', description: '本张额外排除项，由渠道适配原生负面参数或合入描述。' },
       channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
       workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
@@ -117,7 +118,7 @@ export function apply(ctx, { ready }) {
         try {
           await assertOpen()
           options.signal.throwIfAborted()
-          const result = await engine.generateCardImage({ ...args, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
+          const result = await engine.generateCardImage({ ...args, templateId: picked.template?.id, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
           const item = await gallery.add(result, { sessionId: options.sessionId, preset: args.preset })
           const url = new URL(item.url, origin).href
           images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size, prompt: result.prompt, negative: result.negative, negativeInPrompt: result.negativeInPrompt, characters: result.characters, preset: result.preset }))
@@ -162,8 +163,11 @@ export function apply(ctx, { ready }) {
         const protocol = effectiveImageProvider(item)
         return { id: item.id, name: item.name, provider: protocol, model: item.model, promptMode: resolvePromptMode(cfg, protocol), maxReferences: imageReferenceLimit(item), supportsSeed: ['novelai', 'qwen', 'sdwebui'].includes(protocol) && item.options?.protocol !== 'chat', authMode: item.authMode }
       })
-      for (const item of workflows) channels.push({ id: 'comfyui', workflowId: item.id, name: item.label, provider: 'comfyui', promptMode: cardSelection(cfg, workflows, { channel: 'comfyui', workflow: item.id }).promptMode, maxReferences: item.bindings?.referenceImages?.length || 0, supportsSeed: Boolean(item.bindings?.seed?.length) })
-      return { activeChannelId: cfg.imageBackend === 'comfyui' ? 'comfyui' : cfg.activeImageChannel, channels, defaultWorkflow: cfg.defaultWorkflow,
+      for (const item of workflows) {
+        const picked = cardSelection(cfg, workflows, { channel: 'comfyui', workflow: item.id })
+        channels.push({ id: 'comfyui', workflowId: item.id, name: item.label, provider: 'comfyui', promptMode: picked.promptMode, maxReferences: picked.maxReferences, supportsSeed: picked.supportsSeed })
+      }
+      return { promptSystem: cfg.promptSystem || 'workbench', templates: engine.templateModels?.() || [], randomTemplates: cfg.randomPromptTemplates === true, activeTemplateId: cfg.activePromptPreset || '__default__', activeChannelId: cfg.imageBackend === 'comfyui' ? 'comfyui' : cfg.activeImageChannel, channels, defaultWorkflow: cfg.defaultWorkflow,
         presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name, artist: item.artist || '' })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
     },
   }

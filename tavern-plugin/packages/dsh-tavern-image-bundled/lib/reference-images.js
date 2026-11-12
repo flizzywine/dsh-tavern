@@ -647,7 +647,7 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
     const image = referenceOf(entry.item)
     // Shared costumes are not part of characterRoster. With no image, the
     // planner needs their actual description, not just an ID and a short name.
-    const description = Object.fromEntries(['body', 'full', 'bodyBack', 'fullBack', 'upper', 'lower', 'shoes', 'accessory', 'back', 'negative']
+    const description = Object.fromEntries(['imagePrompt', 'body', 'full', 'bodyBack', 'fullBack', 'upper', 'lower', 'shoes', 'accessory', 'back', 'negative']
       .map(key => [key, cleanText(entry.item[key])]).filter(([, value]) => value))
     lines.push(JSON.stringify({ shared: true, outfitId: id, name: displayName(entry.item), referenceImage: image ? '有图' : '无图',
       consistencyText: normalizeConsistencyText(entry.item.consistencyText), ...(!image && Object.keys(description).length ? { description } : {}) }))
@@ -682,7 +682,7 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
   const identityNames = markers ? null : structuredIdentityNames(checked)
   const trimOutfit = (outfit, reference) => {
     if (!reference) return outfit
-    for (const key of ['upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'body', 'bodyBack', 'fullBack', 'negative']) delete outfit[key]
+    for (const key of ['imagePrompt', 'imageDetails', 'upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'body', 'bodyBack', 'fullBack', 'negative']) delete outfit[key]
     const marker = '服装「' + displayName(outfit) + '」[outfitId=' + idOf(outfit) + ']外观参照图' + reference.index
     if (markers) { outfit.upper = marker; outfit.body = marker }
     return outfit
@@ -690,6 +690,8 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
   for (const person of original.people) {
     const reference = characterRefs.get(idOf(person))
     if (reference) {
+      delete person.imagePrompt
+      delete person.imageDetails
       if (!markers) person.promptLabel = identityNames.get(reference.characterId) || displayName(person)
       const feature = person.traits?.feature
       const marker = '角色「' + displayName(person) + '」[characterId=' + idOf(person) + ']身份参照图' + reference.index

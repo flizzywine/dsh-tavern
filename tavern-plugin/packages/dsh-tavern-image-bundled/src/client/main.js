@@ -164,8 +164,20 @@ let openImageOverlay = null
     const jsonFetch = createJsonTransport({ onRetry: ({ url, error }) => reportHost('fetch-retry', { tail: String(url).slice(-40), msg: String(error.message || '') }) })
 
     // @include media.js
+    // @include image-display.js
+    // @include workflow-lora.js
+    // @include workflow-inputs.js
+    // @include image-editor.js
+    // @include library-prompts.js
     // @include settings-fields.js
     // @include card-worldbook.js
+    // @include legacy-worldbook.js
+    // @include draft-state.js
+    // @include prompt-forms.js
+    // @include prompt-entry-library.js
+    // @include prompt-workspace.js
+    // @include prompt-style.js
+    // @include prompt-structure-editor.js
     // @include settings.js
     // @include card-gallery.js
 
@@ -199,15 +211,21 @@ let openImageOverlay = null
           settings.imageEnabled = next
           refreshIllustrator?.()
         }
-        window.addEventListener('dsh-tavern-image:config', event => applyImageEnabled(event?.detail?.imageEnabled))
+        const updateImageConfig = event => {
+          if (!event.detail) return
+          applyImageEnabled(event.detail.imageEnabled)
+          applyImagePlacement(event.detail)
+        }
+        window.addEventListener('dsh-tavern-image:config', updateImageConfig)
+        ctx.effect?.(() => () => window.removeEventListener('dsh-tavern-image:config', updateImageConfig), 'dsh-tavern-image: display config')
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            settings.smartImageSelection = state.config.smartImageSelection !== false
             applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
+            applyImagePlacement(state.config)
           }
-        }).catch(() => { /* 读取失败时沿用默认值 */ })
+        }).catch(() => { /* 拿不到配置就安静退化成只在有标记时出图 */ })
 
         // 全屏看图浮层
         try {
@@ -215,11 +233,15 @@ let openImageOverlay = null
             name: 'shell.overlay',
             id: 'dsh-tavern-image-overlay',
             order: 90,
-          }, ImageOverlay))
+          }, ImageOverlayHost))
           reportHost('seat-registered', { seat: 'shell.overlay' })
         } catch (error) {
           reportHost('seat-failed', { seat: 'shell.overlay', error: String(error?.message ?? error) })
         }
+
+        ctx.slots?.inject?.('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay', id: 'dsh-tavern-image-placement', order: 88,
+        }, ImagePlacementPanel))
 
         // 提示词编辑浮层（长按图片打开）
         try {
@@ -446,7 +468,9 @@ let openImageOverlay = null
                   editPrompt: context => mediaAction('redraw', context, { prompt: context.prompt }),
                   cancel: context => mediaAction('cancel', context),
                   // 图上的「重试」「查询结果」：由宿主侧按任务状态写进 item.actions。
-                  action: context => context.actionId === 'force-redraw'
+                  action: context => context.actionId === 'image-edit'
+                    ? openImageEditFor(context.item?.data?.replacement?.jobId || context.item?.data?.jobId, context.item?.title)
+                    : context.actionId === 'force-redraw'
                     ? mediaAction('redraw', context, { confirmUncertain: true })
                     : mediaAction(context.actionId, context),
                 })

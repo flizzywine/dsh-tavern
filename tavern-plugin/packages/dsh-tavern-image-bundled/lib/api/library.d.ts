@@ -1,12 +1,14 @@
 export interface LibraryContext { card?: string; characterId?: string }
+export interface LibraryDetail { name: string; text: string; useForImage: boolean }
 export interface LibraryCharacter {
   id: string; name: string; aliases: string[]; description: string; group: string;
-  traits: Record<string, string>; outfitIds: string[];
+  comfyLoras?: Array<{ workflowId: string; node?: string; name: string; strengthModel?: number; strengthClip?: number; enabled?: boolean }>;
+  traits: Record<string, string>; outfitIds: string[]; imagePrompt?: string; imageDetails?: LibraryDetail[];
 }
 export interface LibraryOutfit {
   id: string; name: string; characterId: string | null;
   parts: Record<'upper' | 'lower' | 'shoes' | 'accessory' | 'full' | 'back', string>;
-  negative: string; isDefault: boolean;
+  negative: string; isDefault: boolean; imagePrompt?: string; imageDetails?: LibraryDetail[];
 }
 export interface ImageLibrary {
   id: string; label: string;

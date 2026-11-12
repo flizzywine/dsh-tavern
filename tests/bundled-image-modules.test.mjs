@@ -5,7 +5,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { createImageGenerator } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/model-provider.js'
+import { createImageGenerator, stageImageProvider } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/model-provider.js'
 import { createImageLibrary } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/library-provider.js'
 import { createJsonTransport } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/client/transport.js'
 import { assembleImageClient, buildImageClient } from '../tavern-plugin/packages/dsh-tavern-image-bundled/build.mjs'
@@ -54,6 +54,43 @@ test('model discovery uses one snapshot, does not read credentials and isolates 
   await assert.rejects(generator.generate({ prompt: 'one traveler', modelId: 'removed' }), { requestMayHaveSucceeded: false })
 })
 
+test('stage generator applies the channel template or saved default without requesting a planner', async () => {
+  const requests = []
+  const defaultPreset = { name: '默认', structure: { format: 'natural', blocks: [{ kind: 'positive', title: '氛围', text: '明亮的室内光' }] } }
+  const config = { imageBackend: 'openai', activeImageChannel: 'a', imageChannels: [{ id: 'a', provider: 'openai' }, { id: 'b', provider: 'openai' }],
+    promptDefault: defaultPreset,
+    stylePresets: [{ id: 'watercolor', artist: '舞台水彩', negative: '过曝' }],
+    promptPresets: [{ id: 'bound', name: '舞台模板', structure: { format: 'structured', generationRules: '这段只给规划器',
+      targets: [{ kind: 'channel', id: 'b' }],
+      blocks: [
+        { kind: 'positive', title: '用光', text: '柔和的侧光' },
+        { kind: 'negative', title: '限制', text: '不要水印' },
+        { kind: 'style', title: '舞台画风', text: '柔和色彩', usage: 'stage', styleId: 'watercolor' },
+        { kind: 'positive', title: '插件自定义', text: '接续原图边缘', usage: 'custom-expand' },
+        { kind: 'positive', title: '关闭的模块', text: '禁用词', enabled: false },
+      ] } }],
+  }
+  const adapter = async (channel, request) => {
+    requests.push({ channel: channel.id, ...request })
+    return { bytes: new Uint8Array([1]), mediaType: 'image/png' }
+  }
+  const generator = stageImageProvider(() => config, adapter)
+  await generator.generate({ prompt: '窗边的桌子', width: 512, height: 512 })
+  assert.match(requests[0].positive, /窗边的桌子.*明亮的室内光/)
+  await generator.generate({ modelId: 'b', prompt: '窗边的桌子', width: 512, height: 512 })
+  assert.deepEqual([requests[1].channel, requests[1].promptMode, requests[1].negative], ['b', 'structured', '不要水印\n\n过曝'])
+  assert.match(requests[1].positive, /【用光】\n柔和的侧光/)
+  assert.match(requests[1].positive, /舞台水彩\n柔和色彩/)
+  assert.doesNotMatch(requests[1].positive, /这段只给规划器|明亮的室内光|接续原图边缘|禁用词/)
+  await createImageGenerator(() => config, adapter).generate({ modelId: 'b', prompt: '窗边的桌子', usage: 'custom-expand' })
+  assert.match(requests[2].positive, /接续原图边缘/)
+  assert.doesNotMatch(requests[2].positive, /舞台水彩|禁用词/)
+  assert.equal(requests[2].negative, '不要水印')
+  config.promptDefault = null
+  await generator.generate({ prompt: '保留调用方的原文', width: 512, height: 512 })
+  assert.equal(requests[3].positive, '保留调用方的原文')
+})
+
 test('library projections read one live snapshot, preserve shared outfit text and do not mutate records', () => {
   let reads = 0, definitions = { characters: [{ id: 'a', name: 'A', traits: { face: 'original' }, outfitRefs: ['coat'] }], outfits: [{ id: 'coat', name: 'Coat', body: 'front', full: 'full outfit', bodyBack: 'back' }] }
   const library = createImageLibrary(() => { reads++; return definitions })
@@ -96,7 +133,7 @@ test('frontend build is reproducible and rejects stale or invalid sources before
   t.after(() => rm(directory, { recursive: true, force: true }))
   await mkdir(join(directory, 'lib/client'), { recursive: true })
   await cp(new URL('src', packageRoot), join(directory, 'src'), { recursive: true })
-  for (const file of ['lib/client/transport.js', 'lib/image-provider-capabilities.js', 'client.js']) await cp(new URL(file, packageRoot), join(directory, file))
+  for (const file of ['lib/client/transport.js', 'lib/image-provider-capabilities.js', 'lib/library-prompts.js', 'client.js']) await cp(new URL(file, packageRoot), join(directory, file))
   const target = join(directory, 'client.js'), original = await readFile(target, 'utf8')
   await writeFile(join(directory, 'src/client/settings.js'), '\nfunction broken( {')
   await assert.rejects(buildImageClient({ packageRoot: fixture }), SyntaxError)
@@ -117,7 +154,7 @@ test('runtime manifests retain independent SDK entries and the browser artifact,
   for (const name of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh']) await writeFile(join(directory, name), '')
   await writeFile(join(directory, 'package.json'), JSON.stringify({ version: '3.10.0' }))
   const base = 'tavern-plugin/packages/dsh-tavern-image-bundled/'
-  const included = ['client.js', 'lib/model-provider.js', 'lib/library-provider.js', 'lib/api/generation.d.ts', 'lib/client/transport.js']
+  const included = ['client.js', 'lib/model-provider.js', 'lib/library-provider.js', 'lib/library-prompts.js', 'lib/api/generation.d.ts', 'lib/client/transport.js']
   for (const name of [...included, 'src/client/main.js', 'src/client/settings.js']) {
     const target = join(directory, base + name)
     await mkdir(join(target, '..'), { recursive: true }); await writeFile(target, 'fixture')

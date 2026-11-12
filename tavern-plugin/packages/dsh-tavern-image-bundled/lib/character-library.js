@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import { normalizeCharacterLoras } from './comfy-dynamic.js'
 import { normalizeReferenceImage } from './reference-images.js'
 
 /**
@@ -8,8 +9,8 @@ import { normalizeReferenceImage } from './reference-images.js'
  * guarded by the snapshot they read (compare-and-set). The full schema is in README「共用人物记录」.
  */
 export const CHARACTER_LIBRARY_VERSION = 4
-const TEXT = ['name', 'match', 'consistencyText']
-const OUTFIT_TEXT = ['name', 'upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'negative', 'consistencyText']
+const TEXT = ['name', 'match', 'consistencyText', 'imagePrompt']
+const OUTFIT_TEXT = ['name', 'upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'negative', 'consistencyText', 'imagePrompt']
 const IMAGES = ['referenceImage', 'characterOutfitImage']
 const fail = (code, message) => Object.assign(new Error(message), { code })
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -28,9 +29,10 @@ function images(value, names, label) {
 
 /** The shared subset another editor may write; image-plugin-only fields (cards, inject, formCues…) stay untouched. */
 function checkedPatch(patch, traitKeys) {
-  only(patch, [...TEXT, 'figureId', 'figurePackId', 'traits', 'referenceImage', 'outfits'], 'patch')
+  only(patch, [...TEXT, 'figureId', 'figurePackId', 'traits', 'referenceImage', 'outfits', 'comfyLoras'], 'patch')
   texts(patch, TEXT, 'patch')
   images(patch, ['referenceImage'], 'patch')
+  if (Object.hasOwn(patch, 'comfyLoras') && (!Array.isArray(patch.comfyLoras) || normalizeCharacterLoras(patch.comfyLoras).length !== patch.comfyLoras.length)) throw fail('INVALID_ARGUMENT', 'comfyLoras 需要有效的工作流、文件名和强度')
   if (Object.hasOwn(patch, 'name') && !patch.name.trim()) throw fail('INVALID_ARGUMENT', 'patch.name 不能为空')
   if (Object.hasOwn(patch, 'figureId') && (typeof patch.figureId !== 'string' || !patch.figureId || patch.figureId.length > 64)) throw fail('INVALID_ARGUMENT', 'patch.figureId 必须是素材库人物 ID')
   if (Object.hasOwn(patch, 'figurePackId') && (typeof patch.figurePackId !== 'string' || !patch.figurePackId || patch.figurePackId.length > 128)) throw fail('INVALID_ARGUMENT', 'patch.figurePackId 必须是素材包 ID')

@@ -231,7 +231,7 @@ test('真实 runtime 上传不可变快照并保留编译后的完整 prompt gra
 
 test('无接图节点、多 LoadImage 未显式绑定、图片多于绑定都在上传和 prompt 前失败', { timeout: 20000 }, async t => {
   const scenarios = [
-    ['no-load-image', workflow({ loaders: [] }), false, /没有 LoadImage/],
+    ['no-load-image', workflow({ loaders: [] }), false, /没有图片加载字段/],
     ['ambiguous-load-images', workflow({ loaders: ['8', '9'] }), false, /无法判断.*referenceImages/],
     ['too-many-images', workflow({ loaders: ['8'] }), true, /只有 1 个.*有 2 张/],
   ]

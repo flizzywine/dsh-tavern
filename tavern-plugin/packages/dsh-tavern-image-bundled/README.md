@@ -1,5 +1,16 @@
 # DSH Tavern Image
 
+
+## 生图工作台与升级兼容
+
+新安装默认提供一个可编辑的「模块化模板」：生成规则、画面描述、角色与服装引用、画风和词条都在同一模板里编辑。生图时选择模板或随机模板；模板可以绑定渠道／ComfyUI 工作流，默认模板也能保存绑定。节点图只管理底层工作流，不再作为工作台的默认生成选择。
+
+旧安装升级后保留世界书模式和已有设置；可以主动切换到工作台。升级只替换插件代码，不清空世界书、人物及服装库、参考图、渠道、密钥、任务和自定义模板。卡片世界书有独立页面，仅启用卡片生图后显示。
+
+舞台与其他插件继续调用宿主的 `tavern.listImageModels()` / `tavern.generateImage()`；工作台模式的模型 ID 为 `template:<模板ID>`，默认模板为 `template:__default__`。ComfyUI 素材生成与改图共用现有队列、上传、任务恢复和结果保存；可调用图片下方的「改图」或选择图库成品作为输入。通用文本／图片节点识别和动态多图、LoRA 分配不修改原始工作流。
+
+生成结果可额外返回渠道原始 `usage` 和实际返回的 `seed`，未提供时省略。`status().transparent` 仅在能力已知时返回布尔值；自定义中转和 ComfyUI 保持未知。请求 `background: 'transparent'` 时单次任务保留 PNG，不修改用户的全局 JPEG 设置，也不保证任意工作流会自动去背景。
+
 给 DSH Tavern 用的剧情配图插件。它读取已经完成的正文，挑选适合画成插图的场景，再交给你配置的生图服务生成，按剧情位置插回消息里。
 
 可以用本地 ComfyUI、SD WebUI / Forge，也可以接 NovelAI、OpenAI Images、Gemini 等渠道，或新增自定义 API 渠道并选择 AtlasCloud 等协议使用在线服务。人物资料、画风、提示词规则和图片记录在同一个面板里管理，适合给长篇角色扮演和故事配图。
@@ -10,7 +21,7 @@
 - **少画没有必要的图。** 智能选图允许规划模型跳过没有独立画面的回合。想给某轮补图时，手动生图仍然可用。
 - **人物资料可以反复使用。** 外貌和服装集中维护，按当前卡片筛选角色；长篇中明确发生的永久外貌变化可以另存历史，减少前后提示词不一致。
 - **参考图与文字可以配合使用。** 支持参考图的内置渠道和自定义 API 渠道可按本张出场角色和所穿服装上传参考图；有图的对象以图约束固定外观，缺图的对象仍用文字，不把整个人物库发送出去。
-- **提示词格式与规则分别维护。** 标签、自然语言、混合、结构化自然语言各有独立世界书；结构化模式默认中文分节，也可修改其规则。
+- **提示词规则可以按模板维护。** 工作台在模板内编辑格式、规则和资料模块；旧世界书模式继续按标签、自然语言、混合、结构化自然语言分别保存规则。
 - **写故事和画图可以用不同的模型。** 正文模型负责剧情，规划模型负责画什么、插在哪里、怎么写提示词，生图渠道负责出图。三者可以分别选择。
 - **本地和在线服务都能用。** ComfyUI 可以直接选模型，也可以导入自己的工作流；换到在线渠道后，人物库、画风和正文配图流程仍可使用。
 
@@ -24,7 +35,7 @@
 
 安装器默认使用 `%USERPROFILE%\.dsh` 下的 `tavern` Profile；可通过 `-Profile` 指定另一个**已经存在**的 Profile。安装器只安装插件源码，不运行仓库脚本；它调用 DSH 官方 CLI 的 `plugin add`，附带 `--ignore-scripts`，由 DSH 将 `dsh-tavern-image` 依赖、`node_modules` 链接和 bundle 一起登记。若目标目录或 Profile 中已有 canonical 注册，或 Profile 仍登记旧包名 `dsh-tavern-comfy`，安装器会停止，不覆盖已有内容或制造双重加载；更新已安装插件请用插件自己的更新页，旧注册迁移见下文。
 
-已发布的离线安装包可从 [GitHub 发布页](https://github.com/weixinlll/dsh-tavern-image/releases)下载。解压后双击 `Install-DshTavernImage.cmd`，安装器直接使用包内源码，不必再从 GitHub 下载。发布页也提供独立源码包和 SHA-256 校验文件。请核对发布版本；需要最新的 2.5.3 修复时，可用下方的源码 ZIP 安装方式。
+已发布的离线安装包可从 [GitHub 发布页](https://github.com/weixinlll/dsh-tavern-image/releases)下载。解压后双击 `Install-DshTavernImage.cmd`，安装器直接使用包内源码，不必再从 GitHub 下载。发布页也提供独立源码包和 SHA-256 校验文件。请核对发布版本；请使用与目标版本匹配的源码包；Tavern 内置副本随 Tavern 更新。
 
 也可以在 GitHub 仓库页选择 **Code → Download ZIP**，解压后双击 `scripts\Install-DshTavernImage.cmd`（同目录有 `install-plugin.ps1`）。浏览器下载 [GitHub Archive ZIP](https://github.com/weixinlll/dsh-tavern-image/archive/refs/heads/master.zip) 或 [codeload ZIP](https://codeload.github.com/weixinlll/dsh-tavern-image/zip/refs/heads/master) 后，可以在 PowerShell 中指定文件：
 
@@ -118,7 +129,7 @@ if ([IO.Path]::GetExtension($dshCli) -eq '.cmd') {
 if ($LASTEXITCODE -ne 0) { throw 'DSH 官方 CLI 未能登记新包；保留备份并修复 CLI 后再继续。' }
 ~~~
 
-把 `$source` 改成 2.9.1 候选仓库目录。上述复制只替换程序、两个只读 seed 和发行文件，保留原目录中的 `config.json`、`definitions.json`、`worldbook-outfits.json`、`workflows`、缓存及历史数据；整份备份在确认迁移成功前不要删除。若旧目录叫 `dsh-tavern-comfy`，先安全改名后再运行本步骤。其他 Profile 请把命令中的 `tavern` 改成对应名称。确认 CLI 成功后检查 Profile 只登记 `dsh-tavern-image`，再完整启动 DSH。安装器遇到旧登记时会停止并给出官方 `plugin remove` 指引；它不会替你编辑 Profile 或覆盖现有插件目录。若官方 CLI/pnpm 操作失败，保留备份并先修复官方包管理器，不要手改 bundle 或用裸 `pnpm add` 冒充完成注册。
+把 `$source` 改成待安装版本的候选源码目录。上述复制只替换程序、两个只读 seed 和发行文件，保留原目录中的 `config.json`、`definitions.json`、`worldbook-outfits.json`、`workflows`、缓存及历史数据；整份备份在确认迁移成功前不要删除。若旧目录叫 `dsh-tavern-comfy`，先安全改名后再运行本步骤。其他 Profile 请把命令中的 `tavern` 改成对应名称。确认 CLI 成功后检查 Profile 只登记 `dsh-tavern-image`，再完整启动 DSH。安装器遇到旧登记时会停止并给出官方 `plugin remove` 指引；它不会替你编辑 Profile 或覆盖现有插件目录。若官方 CLI/pnpm 操作失败，保留备份并先修复官方包管理器，不要手改 bundle 或用裸 `pnpm add` 冒充完成注册。
 
 **1.2.0 及更早版本**若通过 Git 安装，可先检查 `git status` 和分支、备份本地改动并退出 DSH，再把旧远端改到官方仓库并快进更新。出现本地改动或冲突时停止，不要强制覆盖。更新后按上面步骤改名并重新登记 link。配置、人物资料和历史记录留在原目录；若新旧目录都存在，先核实备份，不要合并或覆盖。
 
@@ -427,6 +438,7 @@ NovelAI 原生协议支持分角色提示词；启用世界书第 **11 条「分
 | `dsh-tavern-image/prompts` | 提示词格式选择与组合；可在浏览器使用 |
 | `dsh-tavern-image/providers` | 服务端底层协议调用、平台任务恢复及连接测试 |
 | `dsh-tavern-image/client/transport` | 自定义前端复用 JSON 请求、只读重试与取消；不加载 React 和默认界面 |
+| `dsh-tavern-image/modules` | 服务端注册模板扩展模块、字段定义与异步解析；提供 TypeScript 类型 |
 
 例如，一个只提供在线出图能力、没有设置页和图库的服务：
 
@@ -442,9 +454,47 @@ export function createDrawingFeature(getConfig) {
 }
 ~~~
 
-`getConfig()` 返回调用方自己的 `imageBackend/activeImageChannel/imageChannels/maxImageBytes`，渠道可先用 `normalizeChannels` 规范化。`draw` 接受 `prompt/modelId/references/width/height/background/quality/signal`，返回 `{ data: Uint8Array, mediaType }`。出图前快照选中渠道，不修改全局默认；模型目录不读取凭据。`generation` 和 `library` 附带 TypeScript 类型定义，旧 `stageImageProvider/imageLibraryProvider` 名称继续兼容。
+`getConfig()` 返回调用方自己的 `imageBackend/activeImageChannel/imageChannels/maxImageBytes`，渠道可先用 `normalizeChannels` 规范化。`draw` 接受 `prompt/modelId/references/width/height/background/quality/signal`，返回 `{ data: Uint8Array, mediaType, usage?, seed? }`。出图前快照选中渠道，不修改全局默认；模型目录不读取凭据。`generation`、`library`、`modules` 和 `client/transport` 附带 TypeScript 类型定义，旧 `stageImageProvider/imageLibraryProvider` 名称继续兼容。
 
 独立适配器不登记工具、剧情钩子、HTTP 路由、图库或后台定时器，也不替调用方管理配置、并发、图片持久化和付费任务状态。ComfyUI 的工作流、排队与恢复继续由完整插件的任务引擎管理。需要现成队列和任务记录时复用运行中的插件；自己调用底层适配器时应保留取消信号和 `requestMayHaveSucceeded`，不自动重试结果不确定的付费请求。
+
+### 模板扩展模块
+
+玩家可在模板中添加「自制模块」，填写正面词、负面词、生成要求、触发关键词，以及可选的生成参数和节点参数 JSON。文字可使用 `{{scene}}`、`{{usage}}` 和模板声明的 `{{变量名}}`／`{{input.变量名}}`。关键词留空时始终生效；填写后仅在场景文本匹配时生效。
+
+其他服务端插件可从 `dsh-tavern-image/modules` 注册模块，让模板编辑器按字段定义显示输入项：
+
+~~~js
+import { registerTemplateModule } from 'dsh-tavern-image/modules'
+
+export function apply(ctx) {
+  ctx.effect(() => registerTemplateModule({
+    id: 'example.lighting',
+    name: '场景光线',
+    fields: [
+      { key: 'color', label: '光线颜色', type: 'text', default: 'amber' },
+      { key: 'steps', label: '采样步数', type: 'number', min: 1, max: 100, default: 20 },
+    ],
+    async resolve({ values, scene, inputs, signal }) {
+      signal?.throwIfAborted()
+      return {
+        positive: `${values.color} lighting`,
+        negative: 'watermark',
+        rules: '保持场景中人物的当前动作',
+        parameters: { steps: values.steps },
+      }
+    },
+  }))
+}
+~~~
+
+模块标识采用 `插件名.模块名`；字段支持 `text`、`textarea`、`number`、`boolean`、`select`、`json`。`resolve` 接收场景、用途、渠道类型、模板输入、所选人物及资料和本模块的值；返回正面词、负面词、生成要求及可选的 `parameters`、`workflowValues`。解析函数在服务端运行，模板 JSON 只保存模块 ID 和数据，界面只接收字段定义。注册函数返回卸载函数，插件卸载时应调用。
+
+`parameters` 支持 `seed/steps/cfg/width/height`，尺寸须同时提供宽高；调用方明确指定的种子或尺寸优先。`workflowValues` 为 `[{ node, input, value }]`，只覆盖本次 ComfyUI 工作流中已有的字面输入；连接到其他节点的输入需调整上游节点。保存的工作流保持原样。
+
+已启用的未知模块会保留 ID 和所有设置，生成时提示加载对应插件或停用该模块；停用的模块跳过执行。重新保存模板、切换提示词系统或重启均保留模块的数据。
+
+直接组合提示词时，异步模块使用 `composePluginImagePromptAsync`；直接解析模板使用 `materializeTemplateModulesAsync`。同步入口遇到异步模块时会提示改用异步入口。解析结果中的参数、节点覆盖和 trace 供调用方处理；需要现成队列、任务记录和图片保存时，使用 Tavern 的生图接口。
 
 ### 前后端维护边界
 
@@ -466,7 +516,7 @@ Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图�
 
 ## 兼容与许可
 
-当前本地体验候选为 **2.9.1**（未发布）。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
+当前 Tavern 内置生图插件版本为 **3.13.1**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
 
 在 DSH 0.2.1-rc.2 + Tavern 3.0.0 上核对过：插件 bundle 正常加载（宿主加载器返回 0 个被跳过的包），本插件调用的 14 个 Tavern 接口（`attach`、`update`、`remove`、`list`、`getTurn`、`readTurnData`、`saveTurnData`、`promptSection`、`onTurnSettled`、`onGameRemoved`、`onTimelineChanged`、`getCardContext`、`backgroundModel`、`apiVersion`）在 Tavern 3.0 中全部保留，3.0 相对 2.7 的接口变化是纯新增（例如 `versionSignal`）。
 

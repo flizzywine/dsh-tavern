@@ -34,7 +34,7 @@
       }, children)
     }
 
-    function CardGalleryPage() {
+    function CardGalleryPage({ onEdit } = {}) {
       const S = CARD_GALLERY_S
       const API = CARD_GALLERY_API
       const [items, setItems] = useState(null)
@@ -168,7 +168,7 @@
       }
 
       const tile = item => {
-        const caption = [item.preset || '默认画风', item.channel, item.size].filter(Boolean).join(' · ')
+        const caption = [item.preset || '默认画风', item.channel, item.size, Number.isSafeInteger(item.seed) ? 'Seed ' + item.seed : ''].filter(Boolean).join(' · ')
         return h('div', { key: item.id, style: GALLERY_TILE },
           h('button', { type: 'button', onClick: () => preview(item), title: '查看大图',
             style: { display: 'block', width: '100%', padding: 0, border: 0, background: 'none', cursor: 'zoom-in' } },
@@ -179,6 +179,7 @@
               style: { padding: '3px 5px', flex: '1 0 auto' } }, '提示词'),
             h(CardGalleryButton, { onClick: () => copyText(item.negative, '负面词'), title: '复制负面词',
               style: { padding: '3px 5px', flex: '1 0 auto' } }, '负面'),
+            onEdit ? h(CardGalleryButton, { onClick: () => onEdit(item), style: { padding: '3px 5px' } }, '图生图') : null,
             h(CardGalleryButton, { danger: true, onClick: () => remove(item.id), title: '删除图片和记录',
               style: { padding: '3px 5px' } }, '删除'),
           ),

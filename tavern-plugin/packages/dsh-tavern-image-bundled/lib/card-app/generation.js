@@ -1,6 +1,9 @@
+import { generationTemplates, selectGenerationConfig, usesWorldbook } from '../generation-selection.js'
+import { comfyReferenceCapacity } from '../comfy-dynamic.js'
+import { comfyLoadImageBindings } from '../comfy-reference-images.js'
 import { activeChannel } from '../image-channels.js'
 import { effectiveImageProvider, imageReferenceLimit } from '../image-provider-capabilities.js'
-import { resolvePromptMode } from '../prompt-presets.js'
+import { promptConfigForTarget, resolvePromptMode } from '../prompt-presets.js'
 
 export const SEED_CONTROLS = ['randomize', 'fixed', 'increment', 'decrement']
 export const CARD_SIZES = { 竖图: { width: 832, height: 1216 }, 横图: { width: 1216, height: 832 }, 方图: { width: 1024, height: 1024 } }
@@ -16,6 +19,15 @@ function select(items, key, label, names) {
 
 /** One-request configuration. The shared live configuration is never changed. */
 export function cardSelection(config, workflows, args = {}) {
+  let selectedTemplate = null
+  if (!usesWorldbook(config)) {
+    const purpose = args.sourceImages?.length ? 'edit' : 'generate'
+    const named = args.template ? select(generationTemplates(config, purpose), String(args.template), '模板', ['id', 'name']) : null
+    const selected = selectGenerationConfig(config, workflows, { templateId: args.templateId || named?.id, purpose })
+    config = selected.config; selectedTemplate = selected.template
+    if (selected.workflow) args = { ...args, channel: 'comfyui', workflow: selected.workflow.id }
+    else if (selected.target?.kind === 'channel') args = { ...args, channel: config.activeImageChannel, workflow: '' }
+  }
   const next = structuredClone(config)
   const wanted = String(args.channel || '').trim()
   const local = wanted === 'comfyui' || (!wanted && config.imageBackend === 'comfyui')
@@ -58,7 +70,7 @@ export function cardSelection(config, workflows, args = {}) {
     next.imageChannels = next.imageChannels.map(item => item.id === channel.id ? { ...item, options: { ...item.options, sampler: args.sampler } } : item)
   }
   const backend = channel ? effectiveImageProvider(channel) : ['comfyui', workflow.label, ...Object.values(workflow.prompt || {}).map(node => node.inputs?.unet_name || node.inputs?.ckpt_name || '')].join(' ')
-  const promptMode = resolvePromptMode(next, backend)
+  const promptMode = resolvePromptMode(promptConfigForTarget(next, workflow, channel), backend)
   const supportsSeed = channel ? seedProviders.has(effectiveImageProvider(channel)) && channel.options?.protocol !== 'chat' : Boolean(workflow.bindings?.seed?.length)
   if (!supportsSeed && (args.seed !== undefined || args.seed_control)) throw fail('当前渠道不提供种子控制，已停止提交')
   const seedLimit = local ? 2 ** 50 : effectiveImageProvider(channel) === 'qwen' ? 2 ** 31 : 2 ** 32
@@ -75,7 +87,7 @@ export function cardSelection(config, workflows, args = {}) {
   const configuredSize = channel?.options
   const size = toPixels(args.size || (local ? '__workflow__' : Number(configuredSize?.sizeWidth) > 0 && Number(configuredSize?.sizeHeight) > 0
     ? configuredSize.sizeWidth + 'x' + configuredSize.sizeHeight : config.imageSize || '竖图'))
-  return { config: next, workflow, size, promptMode, supportsSeed, seedLimit, maxReferences: channel ? imageReferenceLimit(channel) : (workflow.bindings?.referenceImages?.length || 0),
+  return { config: next, template: selectedTemplate, workflow, size, promptMode, supportsSeed, seedLimit, maxReferences: channel ? imageReferenceLimit(channel) : comfyReferenceCapacity(workflow, comfyLoadImageBindings(workflow)),
     channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id,
     preset: (next.stylePresets || []).find(item => item.enabled !== false && String(item.id) === String(next.activePreset)) || null }
 }
@@ -102,8 +114,9 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
   signal?.addEventListener('abort', abort, { once: true })
   try {
     const created = await engine.startJob({ tag: prompt, rawTag: prompt, size: picked.size, explicitSize: true, seed: args.seed,
-      sessionId, key, negative: args.negative || '', generationMode: mode, subjects: args.subjects, characters: args.characters },
-    { cardRequest: true, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (signal?.aborted) abort() } })
+      sessionId, key, negative: args.negative || '', generationMode: mode, subjects: args.subjects, characters: args.characters,
+      assetBackground: args.background, assetQuality: args.quality, templateId: picked.template?.id || args.templateId, imagePurpose: args.sourceImages?.length ? 'edit' : 'generate', promptUsage: args.promptUsage, promptSubjects: args.promptSubjects, inputs: args.inputs, sourceImages: args.sourceImages },
+    { signal, cardRequest: true, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (signal?.aborted) abort() } })
     job ||= engine.getJob(created.id)
     await onJob?.(created)
     const deadline = Date.now() + 10 * 60_000
@@ -114,7 +127,7 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
       if (job.state !== 'done') await wait(signal, 250)
     }
     if (job?.state !== 'done') throw Object.assign(new Error(job?.error || '生图未完成，请检查配图记录'), { jobId: job?.id, requestMayHaveSucceeded: Boolean(job?.requestMayHaveSucceeded || job?.cancelMayHaveContinued) })
-    return { jobId: job.id, file: job.file, mediaType: job.mediaType, seed: picked.supportsSeed ? job.seed : undefined,
+    return { jobId: job.id, file: job.file, mediaType: job.mediaType, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), seed: job.resultSeed ?? (picked.supportsSeed ? job.seed : undefined),
       prompt: job.cardPositive ?? (job.submittedPrompt || job.positive), negative: job.cardNegative ?? job.negative,
       negativeInPrompt: job.cardPositive === undefined && job.submittedPrompt !== job.positive, characters: job.cardCharacterPrompts, preset: (picked.preset && picked.preset.name) || '', size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
   } finally { signal?.removeEventListener('abort', abort) }

@@ -1,4 +1,5 @@
 import { STRUCTURED_PROMPT_GUIDANCE } from './prompt-presets.js'
+import { libraryImageDetails, libraryPromptOverride } from './library-prompts.js'
 
 /**
  * 生图规划：把正文交给"图图"（一个后台模型调用），换回一组 <image> 块。
@@ -220,6 +221,7 @@ export function parseImagePlan(text) {
       think: pick('Tag_think', 'think'),
       size: pick('size'),
       prompts: scene,
+      ...(pick('negative_prompt', 'negative') ? { negative: pick('negative_prompt', 'negative') } : {}),
       characters,
       ...parseImageSubjects(body),
     })
@@ -329,7 +331,12 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
     const lines = []
     if (character.referenceImage) lines.push('  有身份参考图（实际图片由插件提供给生图模型；这里仅列可用性，不代表规划模型已看图）')
     if (String(character.consistencyText ?? '').trim()) lines.push('  身份一致性补充：' + clip(character.consistencyText, 700))
+    const raw = libraryPromptOverride(character)
+    if (raw) lines.push('  人物提示词（通过人物名引用）：' + clip(raw, fullTraits ? 700 : 180))
+    const details = clip(libraryImageDetails(character).join('\n'), 180)
+    if (details) lines.push('  人物补充：' + details)
     for (const [key, label] of ROSTER_TRAITS) {
+      if (raw !== null && !fullTraits && key !== 'feature') continue
       const value = clip(traits[key], fullTraits ? 700 : 110)
       if (value) lines.push('  ' + label + '：' + value)
     }
@@ -341,8 +348,10 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
     else if (outfits.length) {
       printedOutfits.push({ name, signature })
       const describe = o => {
+        const raw = libraryPromptOverride(o)
         const bits = [o.upper, o.lower, o.shoes, o.accessory, o.full, o.back].map(v => clip(v, 55)).filter(v => v && !/^(?:none|n\/a|null)$/i.test(v))
-        return (o.name || '未命名') + ' = ' + (bits.join(' / ') || '（未填）')
+        const details = clip(libraryImageDetails(o).join('\n'), 100)
+        return (o.name || '未命名') + ' = ' + ([raw === null ? bits.join(' / ') : clip(raw, 180), details].filter(Boolean).join(' / ') || '（未填）')
       }
       if (outfits.length <= ROSTER_FULL_OUTFITS) {
         // 「常穿」标在描述后面，免得规划把它当成服装名的一部分抄进宏里。
@@ -377,14 +386,14 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
 }
 
 /** 拼规划用的 system：世界书规则 + 角色清单 + 张数 + 额外叮嘱。 */
-export function buildPlannerSystem({ rules, dynamicRules = '', roster, rosterIndex = '', count, extra, context, smartSelection = false, characterUpdates = false, force = false, promptMode = '' }) {
+export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '', roster, rosterIndex = '', count, extra, context, smartSelection = false, characterUpdates = false, force = false, promptMode = '', compactWorldbook = false }) {
   const parts = []
   const structured = promptMode === 'structured'
   // Keep this resident prefix byte-for-byte stable across story, roster and count changes.
   parts.push('你是"图图"，一个视觉提示词编译中枢。下面是你必须遵守的全部规则。')
   if (rules) parts.push(rules)
   if (extra) parts.push(extra)
-  if (structured && !String(extra ?? '').includes(STRUCTURED_PROMPT_GUIDANCE)) parts.push(STRUCTURED_PROMPT_GUIDANCE)
+  if (structured && !compactWorldbook && !String(extra ?? '').includes(STRUCTURED_PROMPT_GUIDANCE)) parts.push(STRUCTURED_PROMPT_GUIDANCE)
   parts.push([
     structured ? '尺度与事实要求：忠实用中文自然语言描述正文当下明确的可见状态，不把画面强制改写成英文标签。'
       : '尺度要求（重要）：正文里出现的裸露、性爱、情色、nsfw 内容必须原样转译成对应的 NSFW tag，',
@@ -402,6 +411,7 @@ export function buildPlannerSystem({ rules, dynamicRules = '', roster, rosterInd
   ].join('\n'))
   if (structured) parts.push('结构化分节写在每个 <image> 的 <prompts> 内，保持中文自然段与换行；分节可由世界书调整，但必须保留完整闭合的 image/regex/prompts 外层 XML 协议，以便逐图流式提交。不要将分节正文改成 JSON，也不要输出 Markdown 代码围栏。')
   parts.push('<本轮上下文>')
+  if (visualEntries) parts.push(visualEntries)
   if (dynamicRules) parts.push('以下按正文触发的世界书规则必须遵守：\n\n' + dynamicRules)
   if (context) parts.push('以下是当前卡片的设定与本次正文命中的世界书条目，写画面时必须以它为准：\n\n' + context)
   if (roster) {
@@ -481,7 +491,12 @@ export function normalizePrompts(text, definitions, context = {}) {
   // 开关（默认关闭）：只有调用方明确打开时才跳过中文清理。
   // ComfyUI 只是执行器，编码器由工作流决定 —— Qwen-Image、FLUX.1 Krea(qwen3vl) 这类
   // 中文原生编码器读中文长句更准，但此前没有任何绕过的办法；默认仍按原规则删中文。
-  const allowChinese = context?.allowChinese === true
+  const customChinese = record => {
+    return [libraryPromptOverride(record), ...libraryImageDetails(record)].some(prompt => prompt && /[\u3400-\u9fff]/.test(prompt) && out.includes(prompt))
+  }
+  const allowChinese = context?.allowChinese === true || (backend.toLowerCase() === 'comfyui' && context?.style === 'natural' &&
+    /[\u3400-\u9fff]/.test(out) && ((definitions?.characters ?? []).some(person => customChinese(person) || (person?.outfits ?? []).some(customChinese)) ||
+      (definitions?.outfits ?? []).some(customChinese)))
   const shouldCleanChinese = !allowChinese && (!backend || backend.toLowerCase() === 'comfyui')
   if (allowChinese && context?.style === 'natural') {
     // 中文整句写法：单独写在开头或人物句前面的中文名（「殷雪, 画面中的女子是……」）对画面没用，
@@ -557,7 +572,7 @@ export function dedupeTags(text) {
 }
 
 /** 真正调一次模型，把流式文本收完。 */
-export async function runPlanner(llm, { provider, model, system, text, maxTokens = 12000, temperature = 1, signal, onDelta, images, reasoningEffort }) {
+export async function runPlanner(llm, { provider, model, system, text, maxTokens = 12000, temperature = 1, signal, onDelta, images, reasoningEffort, sessionId }) {
   signal?.throwIfAborted()
   if (!llm || typeof llm.stream !== 'function') throw new Error('当前 DSH 没有可用的 llm 服务')
   if (!provider || !model) throw new Error('还没在控制台里选规划用的模型')
@@ -597,6 +612,7 @@ export async function runPlanner(llm, { provider, model, system, text, maxTokens
     } catch { /* if capability lookup is unavailable, retain the DSH default */ }
   }
   const chunks = llm.stream({
+    ...(sessionId ? { sessionId: String(sessionId) } : {}),
     provider,
     model,
     ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),

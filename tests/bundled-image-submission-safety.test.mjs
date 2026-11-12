@@ -1,3 +1,5 @@
+import { normalizePromptUsage } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-structure.js'
+import { usesWorldbook } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/generation-selection.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -140,7 +142,7 @@ async function drainHarness({ failRequiredWrite = 0, localFailure = '', stop = '
   const context = {
     imageDisposed: false, imageRunning: 0,
     imageQueue: [{ job, channel, compiled: { positive: '使用参考图1', negative: '', size: { width: 64, height: 64 } }, maxImageBytes: 1024 * 1024 }],
-    config: { imageConcurrency: 1 }, jobs: new Map([[job.id, job]]),
+    imageOutputConfig: () => ({}), config: { imageConcurrency: 1 }, jobs: new Map([[job.id, job]]),
     persistJobs: async (options = {}) => {
       if (options.required) {
         events.push('required-write-' + ++requiredWrites)
@@ -239,7 +241,7 @@ test('同 key 已取消记录只要任一已提交风险标记存在就拒绝重
   // channel/model/compiler work. The sentinel denotes reaching a new job path.
   const preamble = section('async function createJob(', '      const channel = forceWorkflow')
   const invoke = existing => vm.runInNewContext(preamble + 'return "new-job-path"; }\ncreateJob;', {
-    config: {}, activeArtistText: () => ({ text: '' }), findJob: () => existing, publicJob: job => ({ id: job.id, state: job.state }),
+    normalizePromptUsage, usesWorldbook, config: { promptSystem: 'worldbook' }, activeArtistText: () => ({ text: '' }), findJob: () => existing, publicJob: job => ({ id: job.id, state: job.state }),
   })({ key: 'same-scene-key', tag: '人物肖像' })
   for (const flag of ['requestStarted', 'cancelMayHaveContinued', 'requestMayHaveSucceeded']) await t.test(flag, async () => {
     const old = trackedJob({ state: 'cancelled', requestStarted: false, cancelMayHaveContinued: false, requestMayHaveSucceeded: false, [flag]: true })

@@ -1,8 +1,15 @@
 import { effectiveImageProvider } from './image-provider-capabilities.js'
+import { activePromptBlocks, applyStructurePositive, normalizePromptStructure, structureGuidance, structureNegative } from './prompt-structure.js'
+export { normalizePromptStructure } from './prompt-structure.js'
 
 export const PROMPT_FORMATS = Object.freeze(['tags', 'natural', 'mixed', 'structured'])
 const MODES = new Set(['auto', ...PROMPT_FORMATS])
 export const STRUCTURED_PROMPT_SECTIONS = Object.freeze(['人物与表情', '服装', '动作', '环境', '镜头与光线', '风格', '约束'])
+export const BASIC_IMAGE_WORLDBOOK = [
+  '根据正文当下可见事实写一个可同时成立的定格姿态；不为解释光线新增窗帘、开口、掀布或光源，不擅自改设画风。',
+  '正文出现人物库角色时，使用库中的准确姓名引用，例如 ${"name":"角色名"}$；确知使用库内某套服装时可加 "outfit"。未知人物按正文描述。',
+  '有参考图时，参考图编号和绑定由插件处理；仅写本张可见的状态和动作。',
+].join('\n')
 export const STRUCTURED_PROMPT_GUIDANCE = [
   '使用结构化中文自然语言写画面提示词，标题和描述都使用中文，不堆砌英文标签。',
   '默认可按以下分节组织：' + STRUCTURED_PROMPT_SECTIONS.join('、') + '。没有内容的节可以省略，不增加任务宣告段。',
@@ -15,11 +22,45 @@ export const STRUCTURED_PROMPT_GUIDANCE = [
   '约束只保留本张需要且可执行的限制，明确人数、对象或允许的陈设范围，不写“不添加不存在的道具”等无指向要求。内部优先级、生成规则和未发生的湿衣、破损等示例不输出到画面提示词；实际发生的变化直接写成当前状态。',
   '保持自然段、列表、标点和有意义的重复，不把不同人物的相同特征全局去重。',
 ].join('\n')
-const MAX_PRESETS = 60
+export const MAX_PROMPT_PRESETS = 200
 const MAX_TEXT = 4000
 
 /** Built-in profiles describe visual intent, not a particular model or quality score. */
+export const EXAMPLE_PROMPT_PRESET = {
+  id: 'cinematic-example', name: '电影叙事', independent: true,
+  structure: { format: 'structured', targets: [], blocks: [
+    { kind: 'scene', title: '场景', text: '' },
+    { kind: 'style', title: '画风', text: '电影叙事风格。用前后景体现空间层次，光线来自场景中可见或合理的光源。' },
+  ] },
+}
+export const STRUCTURED_PROMPT_TEMPLATE = {
+  id: 'structured-template', name: '结构化模板', independent: true,
+  structure: { format: 'structured', targets: [], blocks: [
+    { kind: 'output', title: '生成方式', format: 'structured', text: BASIC_IMAGE_WORLDBOOK + '\n用中文自然段描述一个定格画面。只写正文已确立的可见细节，省略没有依据的内容。按照下方分节组织，不复述生成要求。' },
+    { kind: 'library', title: '角色与服装引用', text: '先识别画面里实际出场的人，再引用该人物和当前服装。' },
+    { kind: 'section', title: '人物与表情', text: '写明出场人物、位置和可见表情。' },
+    { kind: 'section', title: '服装', text: '描述本场实际穿着，保留正文明确的变化。' },
+    { kind: 'section', title: '动作', text: '只描述同一瞬间可同时成立的姿态、朝向和交互。' },
+    { kind: 'section', title: '环境', text: '描述已有场景、可见道具和前后景关系。' },
+    { kind: 'section', title: '镜头与光线', text: '描述景别、构图和有依据的光线方向。' },
+    { kind: 'style', title: '画风', text: '' },
+    { kind: 'entries', title: '词条库', entryGroup: '', text: '' },
+  ] },
+}
+export const DEFAULT_MODULAR_TEMPLATE = {
+  name: '模块化模板', independent: true,
+  structure: { format: 'auto', targets: [], blocks: [
+    { kind: 'output', title: '生成方式', format: 'auto', text: '依据当前画面的可见事实，按主体与关系、一个可同时成立的定格姿态、场景、构图与光线组织提示词。多人要写清谁在做什么，人物朝向、道具归属和服装状态符合当前时点。角色与服装优先引用库中已确认的资料；未给出的发色、瞳色、性别、年龄、服装、物件和动作不猜测，不为解释光线新增窗帘、开口、掀布或光源。不得改变人物朝向、动作、天气或时段；没有时间依据就不写白天、夜晚。画风只来自启用的画风模块，不擅自改设画风；画风模块为空时不写画风、媒介或画师，不自行加入写实、电影、动漫等风格。允许选择有利于主体的景别与构图。使用当前生图模型适合的表达；缺少依据的内容省略，不为填满分节而补写。正面只写可见画面，不写规则解释或 Negative 清单；正文明确要求排除的内容写到同一 image 的 <negative_prompt>，没有排除要求则省略。' },
+    { kind: 'scene', title: '画面描述', text: '' },
+    { kind: 'library', title: '角色与服装引用', text: '只引用实际出场的人物和本场穿着。' },
+    { kind: 'style', title: '画风', text: '' },
+    { kind: 'entries', title: '词条库', text: '', entryGroup: '' },
+  ] },
+}
+
 export const BUILTIN_PROMPT_PRESETS = [
+  STRUCTURED_PROMPT_TEMPLATE,
+  EXAMPLE_PROMPT_PRESET,
   {
     id: 'portrait-editorial', name: '杂志人像',
     structuredPositive: '采用杂志人像的视觉风格：构图有意图，姿态自然且富有表现力，面部清楚可读。以柔和、有方向的主光配合轻微补光，保留皮肤与织物的真实质感，控制色彩，让主体与背景清晰分离。',
@@ -81,13 +122,16 @@ function id(value) { return clean(value, 80).replace(/[^a-zA-Z0-9_-]/g, '-') }
 export function normalizePromptPresets(input) {
   if (!Array.isArray(input)) return []
   const seen = new Set(BUILTIN_PROMPT_PRESETS.map(item => item.id))
-  return input.filter(item => item && typeof item === 'object').slice(0, MAX_PRESETS).map((item, index) => {
+  return input.filter(item => item && typeof item === 'object').slice(0, MAX_PROMPT_PRESETS).map((item, index) => {
     let presetId = id(item.id) || `custom-${index + 1}`
     while (seen.has(presetId)) presetId = `${presetId}-${index + 1}`
     seen.add(presetId)
+    const structure = normalizePromptStructure(item.structure)
     return {
       id: presetId,
       name: clean(item.name, 80) || `Prompt profile ${index + 1}`,
+      ...(typeof item.project === 'string' && clean(item.project, 60) ? { project: clean(item.project, 60) } : {}),
+      ...(item.independent === true ? { independent: true } : {}),
       positive: clean(item.positive),
       negative: clean(item.negative, 2000),
       // Optional backend-specific text can refine a custom profile without silently setting API parameters.
@@ -97,15 +141,55 @@ export function normalizePromptPresets(input) {
       structuredPositive: clean(item.structuredPositive),
       structuredNegative: clean(item.structuredNegative, 2000),
       enabled: item.enabled !== false,
+      ...(structure ? { structure } : {}),
     }
   })
 }
 
+export function promptConfigForTarget(config, workflow = null, channel = null) {
+  if (config.promptSystem === 'worldbook') {
+    // Older installs used plain visual presets alongside worldbook rules.
+    // Only modular templates belong exclusively to the workbench.
+    const presets = (Array.isArray(config.promptPresets) ? config.promptPresets : []).filter(preset => !preset?.structure)
+    const selected = [...BUILTIN_PROMPT_PRESETS.filter(preset => !preset.structure), ...presets]
+      .find(preset => preset?.id === config.activePromptPreset && preset.enabled !== false)
+    return { ...config, activePromptPreset: selected?.id || '', promptPresets: presets, promptDefault: null, resolvedPromptTemplate: undefined }
+  }
+  const presets = Array.isArray(config.promptPresets) ? config.promptPresets : []
+  const kind = workflow ? 'workflow' : 'channel'
+  const targetId = workflow ? workflow.id : channel?.id || (config.imageBackend !== 'comfyui' ? config.activeImageChannel : '')
+  const bound = targetId && presets.find(preset => preset?.enabled !== false && Array.isArray(preset?.structure?.targets) &&
+    preset.structure.targets.some(target => target?.kind === kind && target.id === targetId))
+  const selected = config.promptSelectionResolved ? (config.activePromptPreset ? presets.find(item => item.id === config.activePromptPreset && item.enabled !== false) : config.promptDefault) : bound || (config.activePromptPreset ? presets.find(preset => preset && preset.id === config.activePromptPreset && preset.enabled !== false) : config.promptDefault)
+  const structure = normalizePromptStructure(selected?.structure)
+  if (!structure) return config
+  return { ...config, activePromptPreset: selected === config.promptDefault ? '' : selected.id, promptMode: structure.format }
+}
+
+export function normalizeDefaultPromptTemplate(value) {
+  if (value === null) return null
+  if (!value || typeof value !== 'object') return undefined
+  const [preset] = normalizePromptPresets([{ ...value, id: 'fallback', name: clean(value.name, 80) || '默认模板', enabled: true }])
+  if (!preset?.structure) return undefined
+  return { ...preset, structure: { ...preset.structure } }
+}
+
+/** Read the custom template for a channel or workflow without starting a generation. */
+export function resolvePromptTemplate(config, { workflow, channel } = {}) {
+  const preset = effectivePromptPreset(promptConfigForTarget(config, workflow, channel))
+  return preset?.structure ? { id: preset.id, name: preset.name, ...preset.structure } : null
+}
+
 export function effectivePromptPreset(config = {}) {
-  const custom = normalizePromptPresets(config.promptPresets)
-  const presets = [...BUILTIN_PROMPT_PRESETS, ...custom]
   const selected = String(config.activePromptPreset ?? '')
-  return presets.find(item => item.id === selected && item.enabled !== false) ?? null
+  const resolved = config.resolvedPromptTemplate
+  if (resolved && (selected ? resolved.id === selected : resolved.id === 'fallback')) return resolved
+  if (!selected) return normalizeDefaultPromptTemplate(config.promptDefault) ?? null
+  const builtin = BUILTIN_PROMPT_PRESETS.find(item => item.id === selected)
+  if (builtin) return builtin
+  const direct = Array.isArray(config.promptPresets) && config.promptPresets.find(item => item?.id === selected)
+  if (direct) return direct.enabled === false ? null : normalizePromptPresets([direct])[0]
+  return normalizePromptPresets(config.promptPresets).find(item => item.id === selected && item.enabled !== false) ?? null
 }
 
 export function validPromptPresetId(config = {}, value = config.activePromptPreset) {
@@ -169,7 +253,7 @@ export function formatPromptForBackend(text, backend = '', mode = 'tags') {
 }
 
 function textForMode(preset, mode) {
-  if (!preset) return ''
+  if (!preset || preset.independent) return ''
   if (mode === 'tags') return preset.tagPositive || preset.positive
   if (mode === 'natural') return preset.naturalPositive || preset.positive
   if (mode === 'structured') return preset.structuredPositive || preset.naturalPositive || preset.positive
@@ -177,21 +261,25 @@ function textForMode(preset, mode) {
 }
 
 /** Returns a short clause for the existing planner call; never performs an extra model call. */
-export function getPromptGuidance(config = {}, backend = '') {
+export function getPromptGuidance(config = {}, backend = '', { compact = false, usage } = {}) {
   const preset = effectivePromptPreset(config)
   const mode = resolvePromptMode(config, backend)
   const clauses = []
   if (mode === 'structured') {
-    clauses.push(STRUCTURED_PROMPT_GUIDANCE)
-    if (preset) {
+    if (!compact && !preset?.structure && config.promptDefault !== null) clauses.push(STRUCTURED_PROMPT_GUIDANCE)
+    else if (!preset?.structure && config.promptDefault !== null) {
+      clauses.push('用中文自然语言，按需要使用以下分节：' + STRUCTURED_PROMPT_SECTIONS.join('、') + '。标题使用【分节名】，空白分节省略。')
+    } else if (!activePromptBlocks(preset?.structure, usage).some(block => block.kind === 'section')) clauses.push('用中文自然语言描述画面。')
+    if (preset && !preset.independent) {
       const visual = textForMode(preset, mode)
       if (visual) clauses.push(`视觉预设「${preset.name}」：${visual}\n将此作为构图、光线、材质与风格指导，保留正文的主体、动作和事实；按世界书的相应分节表达。`)
       const negative = preset.structuredNegative || preset.negative
       if (negative) clauses.push('需要避免的视觉问题：' + negative)
     }
-    return clauses.join('\n')
+    clauses.push(structureGuidance(preset?.structure, mode, usage))
+    return clauses.filter(Boolean).join('\n')
   }
-  if (preset) {
+  if (preset && !preset.independent) {
     const visual = textForMode(preset, mode)
     clauses.push(`Apply the selected visual profile “${preset.name}”: ${visual}. Keep the scene-specific subject and action from the request; use these as composition, lighting, material, and style guidance.`)
     if (preset.negative) clauses.push(`Avoid these visual problems where applicable: ${preset.negative}.`)
@@ -201,23 +289,51 @@ export function getPromptGuidance(config = {}, backend = '') {
     : mode === 'natural'
       ? 'Write positive and negative image prompts as clear natural-language visual descriptions, not comma-separated tag piles. Do not invent quality scores, artist names, model names, or unsupported parameters.'
       : 'Use a readable mixed prompt: a concise natural-language scene description followed by a few useful visual tags. Do not invent quality scores, artist names, model names, or unsupported parameters.')
-  return clauses.join('\n')
+  if (/comfyui/i.test(backend) && config.allowChinesePrompt !== true && !acceptsChinese(backend)) {
+    clauses.push('The image text encoder requires English: write the contents of <prompts> and negative prompts in English, including both prose and tags. Keep Chinese only in regex/title metadata and literal library macros or IDs. Translate the scene faithfully; do not silently omit facts.')
+  }
+  clauses.push(structureGuidance(preset?.structure, mode, usage))
+  return clauses.filter(Boolean).join('\n')
+}
+
+function structureWithStyles(structure, config, usage, mode) {
+  const linked = activePromptBlocks(structure, usage).filter(block => block.kind === 'style' && block.styleId)
+  if (!linked.length || !Array.isArray(config.stylePresets)) return structure
+  const styles = new Map(config.stylePresets.filter(style => style?.enabled !== false && style?.id != null)
+    .map(style => [String(style.id), style]))
+  const resolved = new Set()
+  const blocks = structure.blocks.flatMap(block => {
+    if (!linked.includes(block)) return [block]
+    const style = styles.get(block.styleId)
+    if (!style || resolved.has(block.styleId)) return [block]
+    resolved.add(block.styleId)
+    const separator = mode === 'tags' ? ', ' : mode === 'structured' ? '\n' : '. '
+    const text = [String(style.artist ?? '').trim(), block.text].filter(Boolean).join(separator)
+    const negative = String(style.negative ?? '').trim()
+    return [{ ...block, text }, ...(negative ? [{ kind: 'negative', text: negative }] : [])]
+  })
+  return { ...structure, blocks }
 }
 
 /** Deterministically adds active profile guidance to a finished prompt for both direct and planned jobs. */
-export function composePresetText(text, config = {}, backend = '') {
+export function composePresetText(text, config = {}, backend = '', { maxLength = 12000, usage } = {}) {
   const preset = effectivePromptPreset(config)
   const mode = resolvePromptMode(config, backend)
+  const structure = structureWithStyles(preset?.structure, config, usage, mode)
   const addition = textForMode(preset, mode)
-  if (mode === 'structured') return appendStructuredSection(text, '风格补充', addition)
-  const base = clean(text, 12000)
+  if (mode === 'structured') return appendStructuredSection(applyStructurePositive(String(text ?? '').trim(), structure, mode, usage), '风格补充', addition)
+  const base = applyStructurePositive(clean(text, maxLength), structure, mode, usage)
   if (!addition || base.toLowerCase().includes(addition.toLowerCase())) return base
   return [base, addition].filter(Boolean).join(mode === 'tags' ? ', ' : '. ')
 }
 
-export function promptPresetNegative(config = {}, backend = '') {
+export function promptPresetNegative(config = {}, backend = '', usage) {
   const preset = effectivePromptPreset(config)
-  return (resolvePromptMode(config, backend) === 'structured' ? preset?.structuredNegative || preset?.negative : preset?.negative) ?? ''
+  const mode = resolvePromptMode(config, backend)
+  const structured = mode === 'structured'
+  const structure = structureWithStyles(preset?.structure, config, usage, mode)
+  return [preset?.independent ? '' : structured ? preset?.structuredNegative || preset?.negative : preset?.negative, ...structureNegative(structure, usage)]
+    .filter(Boolean).join(structured ? '\n\n' : ', ')
 }
 
 /** Append an isolated addendum; never rewrite a user's custom section layout. */
@@ -245,16 +361,21 @@ export function combineStructuredPrompt(positive, negative) {
  * Return separate channels for inspection/native APIs and `combined` for APIs
  * accepting only one prompt. Do not combine `combined` with `negative` again.
  */
-export function composeStructuredPrompt({ text = '', config = {}, artist = '', artistPosition = 'prefix', positive = '', negative = '', referenceText = '' } = {}) {
+export function composeStructuredPrompt({ text = '', config = {}, artist = '', artistPosition = 'prefix', positive = '', negative = '', referenceText = '', definitionAdditions = [], usage } = {}) {
   const preset = effectivePromptPreset(config)
-  let composed = String(text ?? '').trim()
+  const structure = structureWithStyles(preset?.structure, config, usage, 'structured')
+  let composed = applyStructurePositive(String(text ?? '').trim(), structure, 'structured', usage)
+  const libraryText = definitionAdditions.filter(Boolean).join('\n\n')
+  composed = preset?.structure
+    ? appendStructuredSection(composed, '素材库补充', libraryText)
+    : [composed, libraryText].filter(Boolean).join('\n\n')
   composed = appendStructuredSection(composed, '风格补充', artist, { position: artistPosition })
   composed = appendStructuredSection(composed, '视觉预设补充', textForMode(preset, 'structured'))
   composed = appendStructuredSection(composed, '画面补充', positive)
-  composed = appendStructuredSection(composed, '手动补充', config.promptManualPositive)
+  composed = appendStructuredSection(composed, '手动补充', preset?.independent ? '' : config.promptManualPositive)
   const references = appendStructuredSection('', '参考图对应与一致性', referenceText)
   if (references) composed = [references, composed.replace(references, '').trim()].filter(Boolean).join('\n\n')
-  const constraints = [preset?.structuredNegative || preset?.negative, config.promptManualNegative, negative]
+  const constraints = [preset?.independent ? '' : preset?.structuredNegative || preset?.negative, ...structureNegative(structure, usage), preset?.independent ? '' : config.promptManualNegative, negative]
     .map(value => String(value ?? '').trim()).filter(Boolean).join('\n\n')
   return { positive: composed, negative: constraints, combined: combineStructuredPrompt(composed, constraints) }
 }

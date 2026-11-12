@@ -35,3 +35,10 @@ export function imageReferenceLimit(channel) {
 export function supportsImageTaskResume(channel) {
   return resumableProtocols.has(effectiveImageProvider(channel))
 }
+
+/** Only advertise alpha support when the endpoint and model are known. */
+export function imageTransparency(channel) {
+  if (effectiveImageProvider(channel) !== 'openai' || !channel?.model) return undefined
+  try { if (new URL(channel.baseUrl || 'https://api.openai.com/v1').origin !== 'https://api.openai.com') return undefined } catch { return undefined }
+  return String(channel.model).startsWith('gpt-image-')
+}

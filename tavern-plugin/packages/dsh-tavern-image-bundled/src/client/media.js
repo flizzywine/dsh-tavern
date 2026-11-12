@@ -393,7 +393,7 @@
       // TavernPluginMediaItem 会统一追加 figcaption；这里保留 alt 和预览标题即可。
       // 手机上手指出得准才行：按钮给足触控高度（38px 起），滑块在小屏上占更多宽度。
       const barBtn = { padding: '8px 14px', minHeight: '38px', fontSize: '12px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'transparent', color: '#dbe3ee', cursor: 'pointer' }
-      return h('div', { style: wrapStyle },
+      return h('div', { style: wrapStyle, 'data-dti-inline-picture': '' },
         widthBarOpen ? h('div', {
           style: { position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: '12px', zIndex: 2147483002, display: 'flex', gap: '8px', alignItems: 'center', padding: '10px 12px', paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))', borderRadius: '12px', background: 'rgba(23,26,33,.97)', border: '1px solid rgba(120,140,170,.4)', boxShadow: '0 12px 32px rgba(0,0,0,.5)', color: '#dbe3ee', fontSize: '12px', maxWidth: '96vw', flexWrap: 'wrap', boxSizing: 'border-box' },
         },
@@ -448,6 +448,9 @@
           },
           onTouchMove: cancelPress,
         }) : placeholder,
+        quietStatus && showImage ? h('div', { style: { display: 'flex', gap: 8, marginTop: 4 } },
+          h('button', { type: 'button', onClick: () => openEditorFor(displayJobId, title, displayMediaContext) }, '查看提示词'),
+          h('button', { type: 'button', onClick: () => openImageEditFor(displayJobId, title) }, '改图')) : null,
         imgError ? h('div', { style: noteStyle }, imgRetry >= 20 ? '图取不到（' + imgError + '）　' : '正在取回…（第 ' + imgRetry + ' 次）', imgRetry >= 20 ? h('button', { type: 'button', onClick: () => { setImgError(''); setImgRetry(0); setImgNonce(x => x + 1) } }, '重新读取') : null) : null,
         quietStatus ? null : h('div', { style: { ...noteStyle, marginTop: '4px' }, role: 'status', 'aria-live': 'polite' },
           taskState === 'uncertain' ? (queryUnavailable

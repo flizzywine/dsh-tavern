@@ -177,7 +177,7 @@ export function createMediaActions({
         ...(job.channelId || task.input.channelId ? { channelId: job.channelId || task.input.channelId } : {}),
         replacement: { ...(current.data?.replacement || {}), jobId: task.jobId, state: 'ready', error: '', finishedAt: Date.now() },
       }
-      await tavern.update(current.id, { status: 'ready', attachment, progress: 1, error: '', data, prompt: String(job.params?.rawTag || job.params?.tag || job.positive || task.input.prompt || '').slice(0, 12000) })
+      await tavern.update(current.id, { status: 'ready', attachment, progress: 1, error: '', data, actions: [{ id: 'image-edit', label: '改图' }], prompt: String(job.params?.rawTag || job.params?.tag || job.positive || task.input.prompt || '').slice(0, 12000) })
     } catch (error) {
       if (!task.controller.signal.aborted) await finishFailure(task, error?.uncertain ? 'uncertain' : 'failed', error)
       else await finishStopped(task)
