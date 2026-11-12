@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e569b80b7ab2a92cca052ad6ba40e6cd6a2bfdc0",
-  "releaseSequence": 1560,
+  "revision": "eacb5eed9902d5352cb5fd3c2439e69dbccc0203",
+  "releaseSequence": 1561,
   "version": "3.3.0",
   "files": [
     {
@@ -1051,8 +1051,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "52b1ea554124a95f7e84dd07a84c995764bcbce146d57c1addf4a5a4f38ca5a6",
-      "size": 6215804
+      "sha256": "e9d303d93f35d93726b9c3b73cb5e27f3e7d05fa9aedcbae62dec9e0ae44dced",
+      "size": 6219175
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7976,8 +7976,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "052d98d9211f7decc2ae92bffaf8c398519f1a22d7c4b4c3fac63591ed9a9900",
-      "size": 3642943
+      "sha256": "2ff329e251da0d46b46f87f3f1be972dfff18815014031877c1ec29f1eb4d1d1",
+      "size": 3642813
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8911,8 +8911,8 @@
     },
     {
       "path": "tavern-plugin/prompts/candidate-story.md",
-      "sha256": "17f10f64d722e0ecbaf45f5c21a094e8108ba9830aab19a721105d4144716a44",
-      "size": 1153
+      "sha256": "6c3f4b9365cc2b02eea8fa9007ad5131d9b81ee986fc01ff631fc73e75659025",
+      "size": 1323
     },
     {
       "path": "tavern-plugin/prompts/card-personas/editor.md",
@@ -9186,9 +9186,9 @@
     }
   ],
   "archive": {
-    "commit": "e73ed41c4e21517d8d3c659e06d9f5eb401d22b5",
+    "commit": "b33489f231cff771faf314feedca3f8eeaf956e4",
     "path": "runtime.zip",
-    "sha256": "eb504513e7cc08ce935eb0b5fa30ff7e303998bf3fa29802340176a093ec2cfa",
-    "size": 16329984
+    "sha256": "8d7d20b506c2edbc826002e6a21b0e6f6d61e949e95bebc9910ac6d0ca4f6588",
+    "size": 16331019
   }
 }
