@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d7fa6aeed109a9d0366c90b56ca6d0a8a2d0a4cf",
-  "releaseSequence": 1528,
+  "revision": "f4523dba47e35fbc657f53c29bdc46a9fbff5334",
+  "releaseSequence": 1529,
   "version": "3.3.0",
   "files": [
     {
@@ -4471,8 +4471,33 @@
     },
     {
       "path": "tavern-plugin/lib/vendor/runtime-assets/SOURCES.md",
-      "sha256": "4749483c33770874c57e24543a69195457b22f6177b41c598fe33c1a1593e0a7",
-      "size": 1040
+      "sha256": "7d8d8019bc943a29ea2543d0dd5388689f2f4dc51bf5d58b6987d45b72c81906",
+      "size": 1263
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/stage-kit/components.js",
+      "sha256": "2edc3f8ffb0cec81db351ad38bb89f9f81bedf20b0682a11d07ba249d96a1c87",
+      "size": 21795
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/stage-kit/core.js",
+      "sha256": "89f0a6adab5b9eb38b8752901bad31ef6918542df4fc1a3e3b9b97a0b41e6da8",
+      "size": 6370
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/stage-kit/index.js",
+      "sha256": "f167ede9f50fe6d2f030b2ed28955d6c7bd5839b6e52a56f3aef988f4d07613b",
+      "size": 811
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/stage-kit/particles.js",
+      "sha256": "9f25217d0fe05a16e70c8fc1be8d3a4d31ec3e3e9a7a2ba6bdbf542f1bde9724",
+      "size": 7766
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/stage-kit/three.js",
+      "sha256": "539ef796d61c8252593a39dbeddc6840f4c1bd68cc692ab3057164f152d86a69",
+      "size": 3080
     },
     {
       "path": "tavern-plugin/lib/vendor/runtime-assets/tailwind/index.global.js",
@@ -4483,6 +4508,151 @@
       "path": "tavern-plugin/lib/vendor/runtime-assets/tailwind/LICENSE",
       "sha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
       "size": 1071
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/controls/OrbitControls.js",
+      "sha256": "d8dabb245d56decc0352072c9022dc872516664669d74a027d37534bb7da3dec",
+      "size": 40755
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/environments/RoomEnvironment.js",
+      "sha256": "f60e95175fd9273f433c5b5c4b5deb407e3b50257c90c73054d9845a45c6a97d",
+      "size": 4956
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/geometries/RoundedBoxGeometry.js",
+      "sha256": "90651ef95330cb161a69168cc7eb498df581abbcddd30bf981023b830e9e6303",
+      "size": 6468
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/loaders/GLTFLoader.js",
+      "sha256": "4455ef5d3e1daf546988230efec924561a50a0877e8d93cb913c9229c70d6406",
+      "size": 117571
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/loaders/HDRLoader.js",
+      "sha256": "f63ee10a1427cf4b3a579e88cc3b7a89a6c5fa509b3c103bf5ad5ac5021b860d",
+      "size": 12080
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/loaders/RGBELoader.js",
+      "sha256": "6c08f9c441040a61a188ad7711078da4df48f8c5ac3b3725dd6f10ac9ff81162",
+      "size": 268
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/math/SimplexNoise.js",
+      "sha256": "68f3e5b1d8665647ddc0027a404ff8b4366ad48bef4bd5aae163b316e832c912",
+      "size": 15130
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/misc/GPUComputationRenderer.js",
+      "sha256": "f77b268e241bf349219011707a5c2c50eb93beb127e78c1b2a03b68d160425e8",
+      "size": 14161
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/objects/Sky.js",
+      "sha256": "13cc8e548d51139a6a047c4e2931b7cf9ac2f8a2e916b2c9c3d094b8cccfb6c5",
+      "size": 11527
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/objects/Water.js",
+      "sha256": "0722b7ab3567875c79f8351586833c805c744e59eb0db978d2490bf06e7d2c7c",
+      "size": 12895
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/AfterimagePass.js",
+      "sha256": "349744c79c13fe0d239369087bce027bb8ac82e9759d3f879cd808966b313162",
+      "size": 4382
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/EffectComposer.js",
+      "sha256": "bf63a596de7f5ea40d1e3fa48b524bb5a7af2390f48aad2bb7ceb045e9a00460",
+      "size": 8495
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/FilmPass.js",
+      "sha256": "0a0a94c33d881df8c0941100f86970a99ab1d8d36f4f612d9a76f689511c73d5",
+      "size": 2678
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/MaskPass.js",
+      "sha256": "029ceedf4fe8f8f1334822ecbefe2b944d013b333ad0ea4e181e85cef9f92f69",
+      "size": 4666
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/OutputPass.js",
+      "sha256": "920301ffea7d9c732fcc62ac5f67ae0d9e2846b26632e9ad4ea21a4f13331d17",
+      "size": 4178
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/Pass.js",
+      "sha256": "17a7e8869da1d8e9875bc95ba3ad31f473e529291ec6c1d85cad6e63ca9f656e",
+      "size": 4184
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/RenderPass.js",
+      "sha256": "3099477c7960bae6c7838ec42fec10c312d746bc5adf6c22833c71415fd9d152",
+      "size": 4274
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/ShaderPass.js",
+      "sha256": "5a7074b23cb8469b66bc7574cdd132b695ef355ba420133c4a30d555be4da84e",
+      "size": 3222
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/postprocessing/UnrealBloomPass.js",
+      "sha256": "2ba089eadbcbaf408cd03473885c4a642a692e10762b481a216d79a3de7b4e88",
+      "size": 15391
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/shaders/AfterimageShader.js",
+      "sha256": "3ff95e9bdf247a1cd413032942848ef9ff33e3a4268bbf1755dc77dc222bee44",
+      "size": 1027
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/shaders/CopyShader.js",
+      "sha256": "e799d88c02cf0b45dd10774a792647d7748ed4877a5b2a9000054905534985d0",
+      "size": 708
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/shaders/FilmShader.js",
+      "sha256": "5004517c640dcb83cf7466163716cdbd4252eec2cf0b080961b46d53fc795ed3",
+      "size": 1206
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/shaders/LuminosityHighPassShader.js",
+      "sha256": "b64bf9ab781f172c7ef7abf52972d7a85d4b9a476484f2da5ac176f3eddd03c0",
+      "size": 1292
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/shaders/OutputShader.js",
+      "sha256": "9418977ba0ea14b5cfd99dfb37a0a783f15d96b1bf0ddfc6d725c849023b6a6e",
+      "size": 1855
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/utils/BufferGeometryUtils.js",
+      "sha256": "23ac0b65f67bb98eb810baa424a9f4b7a0c4d341b557304c75fc3c7256ecf6bd",
+      "size": 37715
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/addons/utils/SkeletonUtils.js",
+      "sha256": "ad4bc15ed1d0f57686812a8254651ca1c341f9ef2019b37103e2c51cbb4b405c",
+      "size": 11538
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/build/three.core.js",
+      "sha256": "9edde002b066a9a05676a6127f67735b62baf399bdea529f2f7e31657da769e6",
+      "size": 1458113
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/build/three.module.js",
+      "sha256": "9052042d676cb0fdc1ddfefe193053f34b7ac0513a616fdac4535d49987812ea",
+      "size": 662772
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/three/LICENSE",
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc",
+      "size": 1081
     },
     {
       "path": "tavern-plugin/lib/vendor/runtime-assets/vue-router/LICENSE",
@@ -8771,9 +8941,9 @@
     }
   ],
   "archive": {
-    "commit": "7a4fd52ef283ec7b82dab1f6f915109c5c48ee05",
+    "commit": "d9f72bd7a36960141e4c381044e35cd15562987d",
     "path": "runtime.zip",
-    "sha256": "059e913780038302bf5e09e188428f4a8396cddbb13661a1994f0de370a94704",
-    "size": 15502384
+    "sha256": "ec5a316ddb73f086975f788b5e8c716d71e3eaa5645ad0ead0f8c9f0198d5faa",
+    "size": 16029799
   }
 }
