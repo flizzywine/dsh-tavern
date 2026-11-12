@@ -4,6 +4,7 @@ import { assertFrozenStageRequest } from '../domain/stage-shared-context.js'
 import { createImportContextPreparation, needsImportContextPreparation } from '../domain/import-context-preparation.js'
 import { createStoryCompactionRequest, nativelyRetainedRounds, retainRecentStoryRounds, storyVolumeMerge, storyVolumePlan, usesStoryCompaction } from '../domain/story-compaction.js'
 import { installCompactionRequestProjection } from '../domain/compaction-request.js'
+import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
@@ -58,11 +59,14 @@ export function registerModelStreamHooks({
   })
   // Whether a session is a Tavern game: its header answers that, not its history.
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
+  const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
+  // Compaction keeps its newest replies after the summary, behind a prefix they were not signed against.
+  installPrefixBoundReasoningProjection(ctx, { ownsSession, session: id => sessionStore.get(id) || agentRegistry.get(id)?.session || backgroundAgentRunner.requestSession(id) })
   installWorkspaceInstructionPresentation(ctx, async sessionId => {
     if (backgroundAgentRunner.owns(sessionId)) return true
     return isGame(sessionId)
   })
-  installCompactionRequestProjection(ctx, async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId), async request => {
+  installCompactionRequestProjection(ctx, ownsSession, async request => {
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
     const head = await chatHeaderForSession(str(request.sessionId), [])
