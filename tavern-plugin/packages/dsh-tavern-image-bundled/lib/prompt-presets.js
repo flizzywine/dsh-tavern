@@ -113,6 +113,34 @@ export const BUILTIN_PROMPT_PRESETS = [
   },
 ]
 
+/** Read-only presets supplied by server-side plugins at runtime; never persisted with user settings. */
+const registeredPresets = new Map()
+
+/** Register a plain style preset. Ids are namespaced (`plugin.name`), so they never collide with built-in or saved ids. */
+export function registerPromptPreset(definition) {
+  const presetId = String(definition?.id ?? '')
+  if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/.test(presetId) || presetId.length > 80) throw new Error('预设标识需采用「插件名.预设名」格式：' + presetId)
+  if (registeredPresets.has(presetId)) throw new Error('预设标识已注册：' + presetId)
+  const preset = { id: presetId, name: clean(definition.name, 80) || presetId, source: clean(definition.source, 80) || presetId.split('.')[0], registered: true,
+    positive: clean(definition.positive), negative: clean(definition.negative, 2000), tagPositive: clean(definition.tagPositive),
+    naturalPositive: clean(definition.naturalPositive), mixedPositive: clean(definition.mixedPositive),
+    structuredPositive: clean(definition.structuredPositive), structuredNegative: clean(definition.structuredNegative, 2000) }
+  registeredPresets.set(presetId, preset)
+  return () => { if (registeredPresets.get(presetId) === preset) registeredPresets.delete(presetId) }
+}
+
+export function listRegisteredPromptPresets() {
+  return [...registeredPresets.values()].map(preset => ({ ...preset }))
+}
+
+/** Select a preset for one request without touching saved settings. Unknown or disabled ids are an error, never a silent fallback. */
+export function withPromptPreset(config, presetId) {
+  if (presetId === undefined) return config
+  const selected = { ...config, activePromptPreset: String(presetId), promptSelectionResolved: true, resolvedPromptTemplate: undefined }
+  if (!effectivePromptPreset(selected)) throw new Error('找不到画风预设：' + presetId + '（未注册、已卸载或已停用）')
+  return selected
+}
+
 const TAG_BACKENDS = new Set(['comfyui', 'novelai', 'stable-diffusion', 'sd', 'sdwebui', 'forge', 'automatic1111'])
 const NATURAL_BACKENDS = new Set(['openai', 'gemini', 'gemini-chat', 'grok', 'seedream', 'qwen', 'atlascloud'])
 
@@ -151,7 +179,7 @@ export function promptConfigForTarget(config, workflow = null, channel = null) {
     // Older installs used plain visual presets alongside worldbook rules.
     // Only modular templates belong exclusively to the workbench.
     const presets = (Array.isArray(config.promptPresets) ? config.promptPresets : []).filter(preset => !preset?.structure)
-    const selected = [...BUILTIN_PROMPT_PRESETS.filter(preset => !preset.structure), ...presets]
+    const selected = [...BUILTIN_PROMPT_PRESETS.filter(preset => !preset.structure), ...registeredPresets.values(), ...presets]
       .find(preset => preset?.id === config.activePromptPreset && preset.enabled !== false)
     return { ...config, activePromptPreset: selected?.id || '', promptPresets: presets, promptDefault: null, resolvedPromptTemplate: undefined }
   }
@@ -187,6 +215,8 @@ export function effectivePromptPreset(config = {}) {
   if (!selected) return normalizeDefaultPromptTemplate(config.promptDefault) ?? null
   const builtin = BUILTIN_PROMPT_PRESETS.find(item => item.id === selected)
   if (builtin) return builtin
+  const registered = registeredPresets.get(selected)
+  if (registered) return registered
   const direct = Array.isArray(config.promptPresets) && config.promptPresets.find(item => item?.id === selected)
   if (direct) return direct.enabled === false ? null : normalizePromptPresets([direct])[0]
   return normalizePromptPresets(config.promptPresets).find(item => item.id === selected && item.enabled !== false) ?? null
@@ -195,6 +225,7 @@ export function effectivePromptPreset(config = {}) {
 export function validPromptPresetId(config = {}, value = config.activePromptPreset) {
   const selected = String(value ?? '')
   if (!selected) return ''
+  if (registeredPresets.has(selected)) return selected
   return [...BUILTIN_PROMPT_PRESETS, ...normalizePromptPresets(config.promptPresets)].some(item => item.id === selected && item.enabled !== false) ? selected : ''
 }
 

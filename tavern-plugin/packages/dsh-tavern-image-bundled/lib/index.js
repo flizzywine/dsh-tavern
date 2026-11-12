@@ -61,7 +61,7 @@ import { createDownloadPackage, PLUGIN_DOWNLOADS } from './download-package.js'
 import { createMediaActions } from './media-actions.js'
 import { applyCharacterSnapshot, boundCharacterSnapshot, emptyCharacterSnapshot, mergeCharacterUpdates } from './character-history.js'
 import { getPromptGuidance, acceptsChinese } from './prompt-presets.js'
-import { BASIC_IMAGE_WORLDBOOK, STRUCTURED_PROMPT_SECTIONS, PROMPT_FORMATS, MAX_PROMPT_PRESETS, DEFAULT_MODULAR_TEMPLATE, STRUCTURED_PROMPT_TEMPLATE, BUILTIN_PROMPT_PRESETS, normalizePromptPresets, normalizeDefaultPromptTemplate, resolvePromptMode, composePresetText, promptPresetNegative, effectivePromptPreset, validPromptPresetId, promptBackendContext, promptConfigForTarget } from './prompt-presets.js'
+import { BASIC_IMAGE_WORLDBOOK, STRUCTURED_PROMPT_SECTIONS, PROMPT_FORMATS, MAX_PROMPT_PRESETS, DEFAULT_MODULAR_TEMPLATE, STRUCTURED_PROMPT_TEMPLATE, BUILTIN_PROMPT_PRESETS, normalizePromptPresets, normalizeDefaultPromptTemplate, resolvePromptMode, composePresetText, promptPresetNegative, effectivePromptPreset, validPromptPresetId, promptBackendContext, promptConfigForTarget, listRegisteredPromptPresets, withPromptPreset } from './prompt-presets.js'
 import { transcodeImageOutputAsync, isBlankImage } from './image-output.js'
 import { compactComfySchema, comfyWorkflowFields, comfyPromptMarkers, applyComfyPromptMarkers, withComfyPromptMarkers, validateComfyTextBindings } from './comfy-inputs.js'
 import { comfyLoadImageBindings, applyComfyReferenceImages, validateComfyImageBindings } from './comfy-reference-images.js'
@@ -3701,7 +3701,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           styleNegative: String(config.styleNegative ?? ''),
           promptPresets: normalizePromptPresets(config.promptPresets),
           promptPresetLibrary: BUILTIN_PROMPT_PRESETS.filter(item => item === STRUCTURED_PROMPT_TEMPLATE ||
-            item.id === config.activePromptPreset),
+            item.id === config.activePromptPreset).concat(listRegisteredPromptPresets()),
           promptDefaultSections: STRUCTURED_PROMPT_SECTIONS,
           promptDefaultEditable: true,
           promptWorkbench: true,
@@ -5839,7 +5839,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         try { maxReferences = comfyReferenceCapacity(workflow, comfyLoadImageBindings(workflow)) } catch (error) { reason = error.message }
         return { id: 'comfyui:' + workflow.id, label: 'ComfyUI · ' + workflow.label, workflowId: workflow.id, ready: !reason, ...(reason ? { reason } : {}), model: workflow.label, maxReferences }
       }),
-      generateComfyAsset: generateAsset,
+      generateComfyAsset: ({ promptPreset, ...request }) => generateAsset({ ...request, generationConfig: withPromptPreset(config, promptPreset) }),
       templateModels: templateModels,
       generateTemplateAsset: generateTemplateAsset,
       cardWorkflows: () => usable(),
