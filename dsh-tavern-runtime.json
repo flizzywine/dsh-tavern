@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8a9be2dc3c7f64dab9f3d16510ce04e97c575716",
-  "releaseSequence": 1545,
+  "revision": "ed1caedebba6257cf6c36330fff51f71207ab14a",
+  "releaseSequence": 1546,
   "version": "3.3.0",
   "files": [
     {
@@ -1611,8 +1611,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-writes.js",
-      "sha256": "45b53ced33ed5ec7093e5ef0d7bbfca24e8c592946015c95f05e2760bf32dbb8",
-      "size": 5101
+      "sha256": "f6ee72e8e495e1fb06cdcb8ebcfc60d9d3364f69b98047a471541fea830648dc",
+      "size": 5174
     },
     {
       "path": "tavern-plugin/lib/domain/cjk-compaction.js",
@@ -9176,9 +9176,9 @@
     }
   ],
   "archive": {
-    "commit": "751d5355adbe4e834a8a7f075d3f0cc7f8e511f5",
+    "commit": "611a09a03669a5ad58f30a02c956b02206e58eed",
     "path": "runtime.zip",
-    "sha256": "7246dc86863240e827d01b8c0756087d0e66f9293303481b90005dd8d6e23ae2",
-    "size": 16312343
+    "sha256": "937e4c89e84e2a6290f1787654a9252c81c8a5f1efce5294d55b6fb8c91676e0",
+    "size": 16312366
   }
 }
