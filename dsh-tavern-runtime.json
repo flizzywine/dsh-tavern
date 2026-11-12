@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6ea43056b82fdd0d49e245a92455fa7926f2b47a",
-  "releaseSequence": 1568,
+  "revision": "3929c749da4720831fd5fc388799449b7f115a28",
+  "releaseSequence": 1569,
   "version": "3.3.0",
   "files": [
     {
@@ -1556,8 +1556,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-field-transaction.js",
-      "sha256": "a2082e382a157f3bc583cb878e60dbd88446718a342cebe2e910a3fc88230de0",
-      "size": 1946
+      "sha256": "34fa1177779810b1ae6e871385dc6dd522d98c108d4020ac09a149ea42d94867",
+      "size": 2402
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import-service.js",
@@ -1586,13 +1586,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-journal-store.js",
-      "sha256": "544e78b2e8333196124272af17fcf80a1872abc8478f058c7cdf2091f70966d4",
-      "size": 46136
+      "sha256": "5bee784e16a826b9f6e05725eead3c41d0b78158e59aa657b3819cd2b69213ad",
+      "size": 46938
     },
     {
       "path": "tavern-plugin/lib/domain/chat-persistence.js",
-      "sha256": "0fef707aa24cb1ca2211741f8336b190d0d9c52a31a42836e02946010fd22c2c",
-      "size": 20062
+      "sha256": "2ce535b0b85b4292c59683349e47393c85df379030939bc6224cb930ff6b0a09",
+      "size": 20415
     },
     {
       "path": "tavern-plugin/lib/domain/chat-reads.js",
@@ -2536,8 +2536,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/native-conversation-storage.js",
-      "sha256": "fc4fcdaa4940a2a4811aa269ffd4a889372d5742dea5e468e4c477392959b0dc",
-      "size": 54098
+      "sha256": "fbc50fbda74b96f2f618397eda9b7a9116cda78e63f2e70887a58ceceb3285a3",
+      "size": 54110
     },
     {
       "path": "tavern-plugin/lib/domain/native-opening.js",
@@ -3711,8 +3711,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "aef97f4c4033ffd7a9e8f542a1762e69319d59c5dde42f2c4d93e7cb5f18b67f",
-      "size": 81280
+      "sha256": "86731fa16e8ac2ee4f82a2a4b8045a7a52e073401c042b6a0bfb034f32826af3",
+      "size": 81832
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -4056,8 +4056,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "70340600df6d63efef2387dcd0d211df9dc7118ed803c2c0123abc7347dc235d",
-      "size": 294412
+      "sha256": "2f9c774d5a0de6e6812b58a846fde626e3863fbf14d4738825f286f05fc8efae",
+      "size": 294462
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9181,9 +9181,9 @@
     }
   ],
   "archive": {
-    "commit": "5d30d145e9843e1425ab92301ad987f59cee2266",
+    "commit": "4c9a98d2a4c1ac48812dcf525cb605d0c70d186b",
     "path": "runtime.zip",
-    "sha256": "ec75866818b88cce8e0e3d4e07e0c7410309f6f3f67c08f64d366f3fb91df3fc",
-    "size": 16329201
+    "sha256": "0df71ed9d91684c6a07f48b606cbd20e103f40613396575d7e685fe5c81a9f84",
+    "size": 16330090
   }
 }
