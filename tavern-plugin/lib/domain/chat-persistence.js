@@ -32,6 +32,11 @@ function same(left, right) {
 // timeline stay strict.
 const MONOTONIC_STAMPS = new Set(['timeline.updatedAt'])
 
+/** A path that is one of those stamps, or a root one: never a competing edit. */
+export function chatStampPath(path) {
+  return path.length === 1 ? path[0] === STORAGE_REVISION || path[0] === 'updatedAt' : MONOTONIC_STAMPS.has(path.join('.'))
+}
+
 function conflict(chatId, path) {
   const error = new Error('Tavern Chat 已被另一项操作修改，拒绝覆盖冲突字段：' + (path || '<root>'))
   error.code = 'DSH_TAVERN_CHAT_CONFLICT'
@@ -390,5 +395,6 @@ export function createChatPersistence(options = {}) {
     await records.remove(chatId)
   }
 
-  return Object.freeze({ read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, writeHeader, update, version, remove })
+  const writersSince = (chatId, revision) => records.writersSince?.(chatId, revision) ?? []
+  return Object.freeze({ read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, writeHeader, update, version, remove, writersSince })
 }

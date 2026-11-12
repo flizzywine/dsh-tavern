@@ -1,3 +1,4 @@
+import {STORY_ROW_FIELDS} from './chat-field-transaction.js'
 import {createHash} from 'node:crypto'
 import {ScenePrefixHash} from './scene-prefix-hash.js'
 import {projectTavernHelperContext,projectTavernHelperMessage} from './tavern-helper-context.js'
@@ -759,7 +760,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   for(let position=retained;position<next.messages.length;position++)append.push(await encode(id,next.messages[position],undefined,undefined,t))
   const changedMessageIndices=edits.map(edit=>edit.position)
   let sceneFrom=from
-  for(const [position,mutations] of grouped)if(mutations.some(change=>!change.path.length||['role','turn','greeting','text','sourceText','swipeId','swipes'].includes(change.path[0])))sceneFrom=Math.min(sceneFrom,position)
+  for(const [position,mutations] of grouped)if(mutations.some(change=>!change.path.length||STORY_ROW_FIELDS.includes(change.path[0])))sceneFrom=Math.min(sceneFrom,position)
   let sceneIndexRef=view.state.sceneIndexRef
   // Older writers know image keys but not display metadata. Never bless their
   // retained display state on a variable-only write; a body rebuild repairs it.

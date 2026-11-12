@@ -3665,6 +3665,7 @@ export async function apply(ctx) {
       readChatSlice: chatSliceForSession,
       readChangedSlice: chatPersistence.readChangedSlice,
       readWindow: chatPersistence.readWindow,
+      writersSince: chatPersistence.writersSince,
       patchChat,
       updateCard,
       createCard: createWorkspaceCard

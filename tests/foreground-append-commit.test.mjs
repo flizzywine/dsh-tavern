@@ -51,6 +51,7 @@ async function app(t, chat, scoped, template = false) {
       readChatSlice: createSessionSliceReader({ links: async () => ({ [chat.sessionId]: chat.id }), readSlice: persistence.readSlice }),
       readChangedSlice: persistence.readChangedSlice,
       readWindow: persistence.readWindow,
+      writersSince: persistence.writersSince,
       async patchChat(...args) { calls.patch++; await beforePatch?.(); beforePatch = null; return persistence.patch(...args) }
     } : {})
   }
@@ -187,6 +188,7 @@ test('准备正文时改写历史正文：拒绝旧帧，即使楼层数量不�
     assert.equal(error.conflict.reason, 'message-changed')
     assert.equal(error.conflict.index, 1)
     assert.ok(error.conflict.currentRevision > error.conflict.revision)
+    assert.deepEqual(error.conflict.writers.map(writer => writer.source), ['tavern-helper.messages'], '写明期间写入的来源')
     return true
   })
   const saved = await scoped.stored()
@@ -240,6 +242,41 @@ test('上一楼层的显示捕获和回退记录版本戳不作废正文准备',
   const saved = await scoped.stored()
   assert.deepEqual(saved.messages[23].displayRuntime, receipt)
   assert.equal(saved.messages.length, 26)
+})
+
+test('准备正文期间其他部分写入的字段与准备合并，本轮照常进行', async t => {
+  const scoped = await app(t, base(history(12, () => true)), true)
+  await scoped.play(13)
+  const others = [
+    { op: 'set', path: ['candidates'], value: { messageId: 'm', choices: [{ text: '去天台' }] } },
+    { op: 'set', path: ['taskMailbox'], value: { tasks: { c1: { kind: 'candidate', status: 'running' } } } },
+    { op: 'set', path: ['timeline', 'updatedAt'], value: 999999 },
+    { op: 'set', path: ['tavernScriptPrompts'], value: { p1: { content: '提示' } } },
+    { op: 'set', path: ['messages', 25, 'tavernPluginData'], value: { is_ejs_processed: [true] } },
+    { op: 'set', path: ['messages', 25, 'stageDirectionRunning'], value: true }
+  ]
+  scoped.beforePatch(async () => {
+    const { _storageRevision } = (await scoped.persistence.readSlice('chat-1')).chat
+    assert.ok(await scoped.persistence.patch('chat-1', _storageRevision, others, { source: 'test.concurrent-others' }))
+  })
+  assert.equal((await scoped.turns.prepare({ sessionId: 's', turn: 14, userText: '再继续' })).ready, true)
+  const saved = await scoped.stored()
+  assert.equal(saved.messages.length, 28)
+  assert.equal(saved.messages[27].placeholder, true)
+  for (const change of others) assert.deepEqual(change.path.reduce((value, key) => value[key], saved), change.value, change.path.join('.'))
+})
+
+test('准备正文期间另一轮提交或回退：拒绝旧帧', async t => {
+  const scoped = await app(t, base(history(12, () => true)), true)
+  await scoped.play(13)
+  scoped.beforePatch(async () => {
+    const { _storageRevision, timeline } = (await scoped.persistence.readSlice('chat-1')).chat
+    assert.ok(await scoped.persistence.patch('chat-1', _storageRevision, [
+      { op: 'set', path: ['timeline', 'revision'], value: timeline.revision + 1 }
+    ], { source: 'rollback' }))
+  })
+  await assert.rejects(scoped.turns.prepare({ sessionId: 's', turn: 14, userText: '再继续' }), { code: 'TAVERN_PREPARE_CONFLICT' })
+  assert.equal((await scoped.stored()).messages.length, 26)
 })
 
 test('Helper 写入时保留其他楼层的并发变量变更', async t => {
