@@ -3477,7 +3477,7 @@ function versionsOf(jobId) {
               h('button', { type: 'button', style: S.tab(selected === item.id), 'aria-pressed': selected === item.id,
                 onClick: () => { select(item.id); setMessage('') } },
                 h('strong', null, item.name || '未命名'),
-                h('small', null, !item.id ? '默认' : item.scope === 'builtin' ? '内置' : item.project || '未分组'))))
+                h('small', null, !item.id ? '默认' : item.scope === 'builtin' ? item.source || '内置' : item.project || '未分组'))))
               : h('li', { style: STRUCTURE_MUTED }, '没有匹配的模板')),
             h('div', { style: S.row, className: 'dti-template-filters' },
               h('button', { type: 'button', style: buttonStyle, disabled: draft.length >= limit, onClick: () => append(null, true) }, '新建空白模板')),

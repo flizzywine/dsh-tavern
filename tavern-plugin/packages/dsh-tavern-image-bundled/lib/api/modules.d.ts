@@ -24,6 +24,14 @@ export interface MaterializedModules {
 }
 /** Register from a server-side plugin; dispose on plugin unload. The editor receives only the field schema. */
 export function registerTemplateModule(definition: TemplateModuleDefinition): () => void;
+export interface PromptPresetDefinition {
+  /** Namespaced as plugin.name, so it never collides with built-in or saved presets. */
+  id: string; name: string; source?: string; positive?: string; negative?: string;
+  tagPositive?: string; naturalPositive?: string; mixedPositive?: string; structuredPositive?: string; structuredNegative?: string;
+}
+/** Register a read-only style preset from a server-side plugin; dispose on plugin unload. Users can select it but not edit it. */
+export function registerPromptPreset(definition: PromptPresetDefinition): () => void;
+export function listRegisteredPromptPresets(): Array<PromptPresetDefinition & { source: string; registered: true }>;
 export function listTemplateModules(): Array<Omit<TemplateModuleDefinition, 'resolve'>>;
 export function normalizeModuleValues(value: unknown): Record<string, ModuleValue>;
 export function materializeTemplateModules(structure: object | undefined, context?: Partial<ModuleContext>): MaterializedModules;

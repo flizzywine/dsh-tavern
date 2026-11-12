@@ -454,7 +454,7 @@ export function createDrawingFeature(getConfig) {
 }
 ~~~
 
-`getConfig()` 返回调用方自己的 `imageBackend/activeImageChannel/imageChannels/maxImageBytes`，渠道可先用 `normalizeChannels` 规范化。`draw` 接受 `prompt/modelId/references/width/height/background/quality/signal`，返回 `{ data: Uint8Array, mediaType, usage?, seed? }`。出图前快照选中渠道，不修改全局默认；模型目录不读取凭据。`generation`、`library`、`modules` 和 `client/transport` 附带 TypeScript 类型定义，旧 `stageImageProvider/imageLibraryProvider` 名称继续兼容。
+`getConfig()` 返回调用方自己的 `imageBackend/activeImageChannel/imageChannels/maxImageBytes`，渠道可先用 `normalizeChannels` 规范化。`draw` 接受 `prompt/modelId/promptPreset/references/width/height/background/quality/signal`，返回 `{ data: Uint8Array, mediaType, usage?, seed? }`。出图前快照选中渠道，不修改全局默认；模型目录不读取凭据。`generation`、`library`、`modules` 和 `client/transport` 附带 TypeScript 类型定义，旧 `stageImageProvider/imageLibraryProvider` 名称继续兼容。
 
 独立适配器不登记工具、剧情钩子、HTTP 路由、图库或后台定时器，也不替调用方管理配置、并发、图片持久化和付费任务状态。ComfyUI 的工作流、排队与恢复继续由完整插件的任务引擎管理。需要现成队列和任务记录时复用运行中的插件；自己调用底层适配器时应保留取消信号和 `requestMayHaveSucceeded`，不自动重试结果不确定的付费请求。
 
@@ -496,6 +496,29 @@ export function apply(ctx) {
 
 直接组合提示词时，异步模块使用 `composePluginImagePromptAsync`；直接解析模板使用 `materializeTemplateModulesAsync`。同步入口遇到异步模块时会提示改用异步入口。解析结果中的参数、节点覆盖和 trace 供调用方处理；需要现成队列、任务记录和图片保存时，使用 Tavern 的生图接口。
 
+
+### 登记画风预设
+
+调用方已经写好完整提示词、只想换一套画风时，可从 `dsh-tavern-image/modules` 登记只读预设，并在生成时用 `promptPreset` 指定：
+
+~~~js
+import { registerPromptPreset } from 'dsh-tavern-image/modules'
+
+export function apply(ctx) {
+  ctx.effect(() => registerPromptPreset({
+    id: 'example.flat-sheet',
+    name: '平涂设定',
+    positive: 'flat colors, clean lineart, plain white background',
+    negative: 'busy background',
+  }))
+}
+
+// 之后：images.generate({ prompt, promptPreset: 'example.flat-sheet' })
+~~~
+
+预设标识采用 `插件名.预设名`，不会与内置或用户保存的预设重名；可选 `tagPositive/naturalPositive/mixedPositive/structuredPositive/structuredNegative` 按渠道类型细化。登记的预设出现在模板列表里，标注来源，用户可以选择、不能编辑，也不写入用户设置。注册函数返回卸载函数，插件卸载时应调用。
+
+`promptPreset` 只影响这一次生成，可填内置、用户保存或登记的预设标识，优先于当前选中的预设和工作台默认模板（显式的 `templateId`/`modelId` 模板仍按模板生成）；标识不存在、已卸载或已停用时直接报错，不退回当前预设。不传时行为与以前相同。
 ### 前后端维护边界
 
 浏览器源码在 `src/client/`：`main.js` 负责宿主注册，`media.js` 负责图片与提示词编辑，`settings-fields.js/settings.js` 负责设置，`card-worldbook.js/card-gallery.js` 负责工作台。`lib/client/transport.js` 只处理请求与取消；协议和参考图能力与后端共用 `lib/image-provider-capabilities.js`。前端通过 HTTP 交换数据，不直接引用服务端配置、凭据、文件存储或任务实现。

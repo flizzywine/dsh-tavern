@@ -1,4 +1,5 @@
 /** Shared extension contract. JSON templates store values; installed plugins supply code. */
+export { registerPromptPreset, listRegisteredPromptPresets } from './prompt-presets.js'
 const modules = new Map()
 const fieldTypes = new Set(['text', 'textarea', 'number', 'boolean', 'select', 'json'])
 const copy = value => value == null ? value : JSON.parse(JSON.stringify(value))
