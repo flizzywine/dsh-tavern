@@ -155,6 +155,16 @@ test('resources kept in the card\'s variables: read between turns, chained withi
   assert.throws(() => runCheckAction(kept, records, { action: 'status' }, 1, { variables: vars, turn: 4 }), /has charm, which is not one of/)
 })
 
+// The card was updated mid-game and now declares a resource the game's earlier records never had.
+test('a resource added to the rules after a game\'s records starts at its initial value', () => {
+  const records = [JSON.parse(JSON.stringify(runCheckAction(rules, [], { action: 'adjust', changes: [{ resource: 'harm', add: 2 }], reason: 'Fell' }, 1)))]
+  const grown = compileRules({ ...RULES, resources: { ...RULES.resources, stage: { label: 'Stage', initial: 2, min: 0, max: 4 } },
+    checks: { ...RULES.checks, advance: { label: 'Advance', outcomes: [{ id: 'on', label: 'On' }], effects: [{ resource: 'stage', add: '1' }] } } })
+  const next = runCheckAction(grown, records, { action: 'roll', check: 'advance', reason: 'r', stakes: 's' }, 1)
+  assert.deepEqual(next.changes, [{ resource: 'stage', label: 'Stage', from: 2, to: 3 }])
+  assert.equal(next.state.resources.harm, 2, 'what the records had is kept')
+})
+
 test('core reader: a tool\'s results on the current surface and the running turn only', () => {
   const events = [
     { seq: 1, type: 'tool/call', data: { turn: 2, callId: 'a', name: 'tavern_check' } },
