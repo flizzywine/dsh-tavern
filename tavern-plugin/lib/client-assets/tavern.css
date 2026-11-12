@@ -3306,6 +3306,10 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) {
     position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
     padding-top: max(12px, env(safe-area-inset-top, 0px));
+    /* 抽屉底部还有宿主自己的一行「设置」（宿主侧栏 footArea 排在 regionArea 之后）。
+       整屏侧栏按视口铺开，版本行和更新状态会压到那行上面；这里让出宿主实测的底栏高度
+       （sidebar.js 写入 --dsh-tavern-host-foot-inset，宿主版本、账号状态不同高度也不同）。 */
+    padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + max(12px, env(safe-area-inset-bottom, 0px)));
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse {
     position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;

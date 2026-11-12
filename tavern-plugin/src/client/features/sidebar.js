@@ -137,6 +137,45 @@
 				fit();
 				return function () { observer.disconnect(); };
 			}, [openingPicker, picking]);
+			// 手机端侧栏整屏 fixed（见 tavern.css），宿主的侧栏底部还留着「设置」那一行
+			// （宿主 footArea 排在 regionArea 之后），整屏侧栏的版本行和更新状态会压到它上面。
+			// 宿主底栏高度随宿主版本和账号状态变化，量出来写进变量，让侧栏底部自己让位。
+			React.useEffect(function () {
+				if (collapsed || typeof document === "undefined" || typeof window === "undefined") return function () {};
+				const root = document.documentElement;
+				let frame = 0;
+				let watching = null;
+				const observer = typeof ResizeObserver === "function" ? new ResizeObserver(function () { schedule(); }) : null;
+				function settle(inset) {
+					if (inset > 0) root.style.setProperty("--dsh-tavern-host-foot-inset", inset + "px");
+					else root.style.removeProperty("--dsh-tavern-host-foot-inset");
+				}
+				function measure() {
+					frame = 0;
+					const own = document.querySelector(".dsh-tavern-sidebar:not(.collapsed)");
+					const region = own && own.closest ? own.closest('[data-slot="sidebar.workspaces"]') : null;
+					const host = region ? region.parentElement : null;
+					// 桌面端侧栏不是 fixed（宿主 regionArea 自己让出了底栏），这时不需要让位。
+					if (!own || !host || window.getComputedStyle(own).position !== "fixed") { settle(0); return; }
+					settle(Math.max(0, Math.round(window.innerHeight - host.getBoundingClientRect().bottom)));
+					if (observer && watching !== host) {
+						if (watching) observer.unobserve(watching);
+						watching = host;
+						observer.observe(host);
+					}
+				}
+				function schedule() { if (!frame) frame = window.requestAnimationFrame(measure); }
+				measure();
+				window.addEventListener("resize", schedule);
+				if (window.visualViewport) window.visualViewport.addEventListener("resize", schedule);
+				return function () {
+					window.removeEventListener("resize", schedule);
+					if (window.visualViewport) window.visualViewport.removeEventListener("resize", schedule);
+					if (observer) observer.disconnect();
+					if (frame) window.cancelAnimationFrame(frame);
+					root.style.removeProperty("--dsh-tavern-host-foot-inset");
+				};
+			}, [collapsed]);
 
 			const [chatImport, setChatImport] = React.useState(null);
 			// 批量导入逐份进行，用它告诉用户停在第几份。
