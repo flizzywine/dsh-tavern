@@ -197,6 +197,10 @@ export function alignEdit(base, edit, options = {}) {
       }
       best = local
     }
+    // An edit already on the base's canvas (a Dot frame, a crop mapped back) stays put unless a move fits it better: the
+    // search never tries the identity exactly once the coarse level drifted off it.
+    const still = alignmentCostSmooth(sb, se, base.width, base.height, 0, 0, 1, step)
+    if (still <= best.cost) best = { dx: 0, dy: 0, scale: 1, cost: still }
   }
   const identity = alignmentCost(signal(base), signal(edit), base.width, base.height, 0, 0, 1, Math.max(1, Math.round(Math.sqrt(base.width * base.height / 160000))))
   return { dx: best.dx, dy: best.dy, scale: best.scale, cost: best.cost, identityCost: identity, image: warpImage(edit, best.dx, best.dy, best.scale) }
@@ -335,9 +339,14 @@ export function extractBlinkPatch(base, alignedEdit, hints = {}, options = {}) {
   if (eyeH > eyeW * 1.2) warnings.push(`eye-shape: changed region ${eyeW}x${eyeH} is taller than wide`)
   if (hints.mouth && reachesMouth(labels, width, height, new Set(cluster.map(c => c.id)), hints.mouth)) warnings.push('eye-position: changed region reaches the mouth')
   // Patch mask: the cluster's own pixels at the soft threshold, hole-filled, dilated and feathered.
+  // options.include: declared regions [{rect:[x,y,w,h], mask?}] (canvas pixels, rect-sized mask selecting by
+  // nonzero red and alpha) join the patch in full, even where the edit equals the base; the feather falls off outside them.
+  const include = o.include || []
   const margin = Math.max(o.margin, Math.round(0.12 * eyeH)) + o.dilate + o.feather
-  const rx = Math.max(0, eye.x0 - margin), ry = Math.max(0, eye.y0 - margin)
-  const rw = Math.min(width, eye.x1 + margin + 1) - rx, rh = Math.min(height, eye.y1 + margin + 1) - ry
+  let x0 = eye.x0 - margin, y0 = eye.y0 - margin, x1 = eye.x1 + margin, y1 = eye.y1 + margin
+  for (const { rect: [l, t, w, h] } of include) { x0 = Math.min(x0, l - o.feather); y0 = Math.min(y0, t - o.feather); x1 = Math.max(x1, l + w - 1 + o.feather); y1 = Math.max(y1, t + h - 1 + o.feather) }
+  const rx = Math.max(0, x0), ry = Math.max(0, y0)
+  const rw = Math.min(width, x1 + 1) - rx, rh = Math.min(height, y1 + 1) - ry
   const ids = new Set(cluster.map(c => c.id))
   let mask = new Uint8Array(rw * rh)
   for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) if (ids.has(labels[(y + ry) * width + x + rx])) mask[y * rw + x] = 1
@@ -357,20 +366,25 @@ export function extractBlinkPatch(base, alignedEdit, hints = {}, options = {}) {
   }
   for (let q = 0; q < mask.length; q++) if (!outside[q]) mask[q] = 1
   if (o.dilate) mask = morph(mask, rw, rh, o.dilate, true)
+  const forced = new Uint8Array(rw * rh)
+  for (const { rect: [l, t, w, h], mask: m } of include) for (let y = t; y < t + h; y++) for (let x = l; x < l + w; x++) {
+    const s = ((y - t) * w + x - l) * 4
+    if (!m || (m.data[s] && m.data[s + 3])) { const q = (y - ry) * rw + x - rx; forced[q] = 1; mask[q] = 1 }
+  }
   const soft = new Float32Array(rw * rh)
   for (let q = 0; q < mask.length; q++) soft[q] = mask[q]
   const blurred = o.feather ? boxBlur(soft, rw, rh, o.feather) : soft
-  const patch = blankImage(rw, rh)
+  const patch = blankImage(rw, rh), coverage = new Float32Array(rw * rh)
   let covered = 0
   for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
-    const q = y * rw + x, s = ((y + ry) * width + x + rx) * 4, d = q * 4, m = Math.min(1, blurred[q])
+    const q = y * rw + x, s = ((y + ry) * width + x + rx) * 4, d = q * 4, m = forced[q] ? 1 : Math.min(1, blurred[q])
     if (m <= 0.004) continue
-    covered++
+    covered++; coverage[q] = m
     patch.data[d] = alignedEdit.data[s]; patch.data[d + 1] = alignedEdit.data[s + 1]; patch.data[d + 2] = alignedEdit.data[s + 2]
     patch.data[d + 3] = Math.round(m * Math.min(alignedEdit.data[s + 3], Math.max(base.data[s + 3], alignedEdit.data[s + 3])))
   }
   stats.coverage = covered / (rw * rh)
-  return { ok: warnings.length === 0, warnings, rect: [rx, ry, rw, rh], patch, stats, diff }
+  return { ok: warnings.length === 0, warnings, rect: [rx, ry, rw, rh], patch, coverage, stats, diff }
 }
 function boxBlur(values, width, height, radius) {
   const tmp = new Float32Array(values.length), out = new Float32Array(values.length), size = radius * 2 + 1
@@ -398,6 +412,23 @@ export function compositePatch(base, patch, rect, blend = 'over') {
     const ba = out.data[d + 3] / 255, oa = a + ba * (1 - a)
     for (let c = 0; c < 3; c++) out.data[d + c] = Math.round((patch.data[s + c] * a + out.data[d + c] * ba * (1 - a)) / oa)
     out.data[d + 3] = Math.round(oa * 255)
+  }
+  return out
+}
+// The complete rect a blend:"replace" blink installs: the base crop with the aligned edit mixed in by the patch coverage,
+// alpha included and colour weighted by alpha (an "over" of the patch would raise a semi-opaque face's alpha, 253 -> 254).
+// Coverage 1 gives the edit's own bytes. A pixel left transparent (no alpha on either side) has no colour to mix and keeps
+// the base's bytes, as the blink's closed frame keeps them (composeBlink), so the patch replayed on the base gives that frame
+// byte for byte (shigure circus-pony crying: two transparent pixels by the patch edge came out RGB 0, PATCH_MISMATCH).
+// result: makeBlinkPatch's ({rect, coverage, aligned}).
+export function replacementRect(base, result) {
+  const [rx, ry, rw, rh] = result.rect, out = cropImage(base, rx, ry, rw, rh), edit = result.aligned
+  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+    const m = result.coverage[y * rw + x]
+    if (!m) continue
+    const d = (y * rw + x) * 4, s = ((y + ry) * base.width + x + rx) * 4, ba = out.data[d + 3] * (1 - m), ea = edit.data[s + 3] * m, a = ba + ea
+    if (a) for (let c = 0; c < 3; c++) out.data[d + c] = Math.round((out.data[d + c] * ba + edit.data[s + c] * ea) / a)
+    out.data[d + 3] = Math.round(a)
   }
   return out
 }

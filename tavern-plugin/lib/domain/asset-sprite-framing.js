@@ -90,11 +90,18 @@ export function measureSpriteAlpha(bytes) {
   return {maxAlpha,haze:{pixels:haze,outsidePixels:outside,fraction},basis:`solid mask alpha>${HAZE_ALPHA_MAX} grown ${SOLID_MASK_GROW} px; haze alpha 1..${HAZE_ALPHA_MAX} outside it`,pass:!warnings.length,warnings}
 }
 // --clean-haze (opt-in): haze alpha outside the solid figure mask becomes 0. Colour and the figure are untouched.
-export function cleanSpriteHaze(bytes) {
+export function cleanSpriteHaze(bytes,{clearTransparentRgb=true}={}) {
   const image = decodeAssetRgba(bytes), mask = solidMask(image)
   let pixels = 0
   for (let p = 0; p < mask.length; p++) if (!mask[p] && image.data[p*4+3] >= 1 && image.data[p*4+3] <= HAZE_ALPHA_MAX) { image.data[p*4+3] = 0; pixels++ }
-  return {bytes:pixels ? encodeAssetRgba(image) : bytes,cleaned:{pixels,alphaMax:HAZE_ALPHA_MAX,maskGrowPx:SOLID_MASK_GROW}}
+  let transparentColors = 0
+  for (let i=0;i<image.data.length;i+=4) {
+    if (clearTransparentRgb && image.data[i+3]===0 && (image.data[i]||image.data[i+1]||image.data[i+2])) {
+      image.data.fill(0,i,i+3)
+      transparentColors++
+    }
+  }
+  return {bytes:pixels || transparentColors ? encodeAssetRgba(image) : bytes,cleaned:{pixels,alphaMax:HAZE_ALPHA_MAX,maskGrowPx:SOLID_MASK_GROW}}
 }
 // A figure pixel at or above this alpha is meant to be opaque: models leave the whole figure at 250..254, which lets
 // the stage show through it on dark backgrounds.
