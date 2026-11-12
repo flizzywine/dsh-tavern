@@ -468,7 +468,19 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const match=/copied pack: ([0-9a-f-]{36})/i.exec(String(error?.message||''));
     return match?{packId:match[1]}:null;
   }
-  function WidgetCopyMenu({card,pack,asset,onCopied,onError}) {
+  // 删除单条素材 — the name row's ⋯ › 删除… on every kind (背景 / CG / 物品 / 音乐 / 音效 / 环境音 / 模组 / 舞台皮肤 …). remove(kind, id) is
+  // the one CAS write (PackModal removeEntry). A just-created entry nothing has been put into (no file, no 触发词, no 使用情景)
+  // is removed at once; anything else asks first. Returns close => MenuItem, so a kind's own menu (替换媒体…, 复制…) can list it.
+  const entryIsBlank=asset=>asset.pendingMedia===true&&asset.media==null&&!asset.variants&&!asset.directorNote&&!asset.recall?.keywords?.length;
+  function entryRemoveItem({asset,pack,remove,ask,onError}) {
+    const run=()=>Promise.resolve(remove(asset.kind,asset.id)).catch(e=>onError(errorText(e)));
+    return close=>h(MenuItem,{key:'remove',danger:true,onClick:()=>{close();if(entryIsBlank(asset))run();
+      else ask({title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true,onConfirm:run});}},'删除…');
+  }
+  function EntryMoreMenu({asset,busy,items}) {
+    return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),content:close=>items(close)});
+  }
+  function WidgetCopyMenu({card,pack,asset,extra,onCopied,onError}) {
     const [copying,setCopying]=React.useState(false),[busy,setBusy]=React.useState(false);
     const bound=card.ext.assetBindings.boundPackIds,targets=(card.packs||[]).filter(p=>p?.manifest&&bound.includes(p.manifest.id)&&p.manifest.id!==pack.manifest.id);
     async function copy(target){
@@ -488,7 +500,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     }
     return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:()=>{setCopying(false);toggle();}}),
       content:close=>copying?h(PackTargetMenu,{packs:targets,exclude:pack.manifest.id,close,onPick:copy}):
-        h(MenuItem,{onClick:()=>setCopying(true)},h(Glyph,{name:'copy'}),h('span',null,'复制到本卡素材包…'))});
+        h(React.Fragment,null,h(MenuItem,{onClick:()=>setCopying(true)},h(Glyph,{name:'copy'}),h('span',null,'复制到本卡素材包…')),extra&&extra(close))});
   }
   // one 演出风格 — 名称 (the title), 状态 (启用 / 关闭) and 正文 (an inline field
   // that keeps line breaks), each saved as it is committed. No hero, 触发词 or 详情: nothing reads them for a style.
@@ -528,14 +540,12 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   const entryHelp=(label,text)=>text?h(Help,{text,label:label+' 说明'}):null;
   function EntryDetail({binding,pack,packs=[],asset,commit,audio,gen,uploadBackground,uploadVariant,card=null,onOpenPack,onCategory,remove,busy,back=null,fresh=false}) {
     const packId=pack.manifest.id,kind=asset.kind,[error,setError]=React.useState(''),lampless=LAMPLESS_KINDS.includes(kind),stateless=STATELESS_KINDS.includes(kind);
-    // ⋯ › 删除 for a standalone 舞台皮肤, after a confirmation (remove(kind, id) is one CAS write).
+    // ⋯ › 删除… on every kind's name row (entryRemoveItem); the confirmation dialog it opens is this one.
     const [confirm,setConfirm]=React.useState(null);
-    const removeMenu=remove&&stateless&&h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
-      content:close=>h(MenuItem,{danger:true,onClick:()=>{close();setConfirm({title:'删除舞台皮肤「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除。以它为默认舞台皮肤的卡改回经典皮肤。',confirmLabel:'删除',danger:true,
-        onConfirm:()=>Promise.resolve(remove(kind,asset.id)).catch(e=>setError(errorText(e)))});}},'删除')});
+    const removeItem=remove&&entryRemoveItem({asset,pack,remove,ask:setConfirm,onError:message=>setError(message)});
     const write=update=>{setError('');return commit(kind,asset.id,update).catch(e=>setError(errorText(e)));};
     const [copyIssue,setCopyIssue]=React.useState(null);
-    const copyMenu=kind==='widgets'&&card?.writer?.cardOp&&card.path&&card.ext?.assetBindings&&h(WidgetCopyMenu,{card,pack,asset,
+    const copyMenu=kind==='widgets'&&card?.writer?.cardOp&&card.path&&card.ext?.assetBindings&&h(WidgetCopyMenu,{card,pack,asset,extra:removeItem,
       onCopied:(packId,itemId)=>{setCopyIssue(null);onOpenPack?.(packId,'widgets',itemId);},onError:(text,packId)=>setCopyIssue(text?{text,packId}:null)});
     const [variantChoice,setVariant]=React.useState(undefined),selected=asset.variants&&(assetVariantRow(asset.variants,variantChoice)||assetVariantRow(asset.variants));
     const content=selected?selected.content:asset,view={...asset,...content};delete view.variants;
@@ -571,7 +581,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const performancePacks=useFullPacksOfKinds(binding,kind==='timers'?(packs.length?packs:[pack]).map(p=>p?.manifest?.id===packId?pack:p):[],['performances']);
     // on a phone (ack) the name row carries the sub-page ‹ and leads the page.
     const title=h('div',{className:'ap-detail-title'+(back?' ap-subhead':'')},back&&h(SubpageBack,back),h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:asset.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>write(c=>({...c,name:v.trim()}))}),
-        copyMenu||removeMenu||(!asset.variants&&!!hash&&VARIANT_MEDIA_KINDS.includes(kind)&&uploadVariant&&h(MediaReplaceMenu,{asset,busy,onError:setError,upload:(id,file)=>uploadVariant(kind,asset.id,id,file)}))||null);
+        copyMenu||((!asset.variants&&!!hash&&VARIANT_MEDIA_KINDS.includes(kind)&&uploadVariant)?h(MediaReplaceMenu,{asset,busy,onError:setError,extra:removeItem,upload:(id,file)=>uploadVariant(kind,asset.id,id,file)}):removeItem&&h(EntryMoreMenu,{asset,busy,items:removeItem})));
     // on every size the name row leads the pane, above the preview / player,
     // and is the only place the name is shown (the player card dropped its own title).
     return h('div',{className:'ap-detail-pane','data-disabled':asset.enabled===false||undefined},title,h(ErrorBox,{error}),hero,
@@ -656,11 +666,11 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
       content:close=>[...times.map(([id,name])=>h(MenuItem,{key:id,onClick:()=>{close();add(id);}},name)),h(MenuItem,{key:'new',onClick:()=>{close();add();}},'新变体')]});
   }
   // A media entry without a table replaces its one file from the name row's ⋯ (替换媒体…); with a table each chip has its own.
-  function MediaReplaceMenu({asset,busy,upload,onError}) {
+  function MediaReplaceMenu({asset,busy,upload,onError,extra}) {
     const input=React.useRef(null);
     return h(React.Fragment,null,
       h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
-        content:close=>h(MenuItem,{onClick:()=>{close();input.current?.click?.();}},'替换媒体…')}),
+        content:close=>h(React.Fragment,null,h(MenuItem,{onClick:()=>{close();input.current?.click?.();}},'替换媒体…'),extra&&extra(close))}),
       h('input',{ref:input,type:'file',hidden:true,tabIndex:-1,accept:AUDIO_KINDS.includes(asset.kind)?AUDIO_ACCEPT:IMAGE_ACCEPT,
         onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)Promise.resolve(upload(undefined,file)).catch(error=>onError(errorText(error)));}}));
   }

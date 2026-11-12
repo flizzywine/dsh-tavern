@@ -1193,6 +1193,11 @@ function GalStage(props) {
         .flatMap(member => !figureLayout ? [member] : member.id in figureLayout.x ? [{...member, x:figureLayout.x[member.id]}] : []);
     const spriteFallbacks = useGalSpriteFallbacks(sessionId, stageViews.speaker.fallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
     // the host projected an on-stage Live2D figure down to its sprite (no Core).
+    // 「人物重名」: read again whenever the card's figures or their pack revisions change (a rename, an alias removed, a
+    // pack switched off), not on every page: the projection's avatars list every enabled figure of the card's packs, each
+    // with its pack revision. A figure in the notice leaves the stage for its page in 素材库 (as 回想's 编辑).
+    const nameConflicts = useGalNameConflicts(sessionId, JSON.stringify((accepted.avatars || []).map(figure => [figure.ref?.packId || '', figure.ref?.figureId || figure.alias, figure.revision || ''])));
+    const openConflictFigure = figure => { const open = stageViews.notices.openLibrary; props.onExit(); if (open) void open(sessionId, {packId:figure.packId, kind:'figures', figureId:figure.figureId}); };
     const live2dMissing = pack.characters.some(figure => figure.diagnostics?.includes('live2d-core-missing') && castMembers.some(member => member.id === figure.alias));
     const live2dRequest = React.useCallback((method, args) => rpc(method, args, sessionId), [sessionId]);
     // Who the stage draws (a figure or its stand-in): the box anchors to them, and a skin's off-stage face rule reads it.
@@ -1432,8 +1437,8 @@ function GalStage(props) {
                 h("button", { type: "button", className: "fork-gal-quit", title: "返回主页面", "aria-label": "返回主页面", onClick: props.onExit }, h(Icon, { name: "close", size: 16 }))),
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
-            (interopNotice || awaitingDirection || roundPhase || topVoice || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing || pictureWorking || lateShown) ?
-            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, voice: topVoice, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, pages: pageList, picture: pictureWorking,
+            (interopNotice || awaitingDirection || roundPhase || topVoice || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || nameConflicts.length || live2dMissing || pictureWorking || lateShown) ?
+            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, voice: topVoice, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, pages: pageList, picture: pictureWorking, nameConflicts, onOpenFigure: stageViews.notices.openLibrary ? openConflictFigure : null,
                 pictureReady: lateShown ? { onView: () => { setPictureLate(null); setInserted({key:pictureKey, list:[lateShown.picture], index:0, delta:1, view:true, since:Date.now()}); } } : null,
                 live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
@@ -1632,6 +1637,7 @@ function galAwaitingText(activity) {
 }
 function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
 function useGalVoiceStatus(...args) { return stageViews.notices.useVoiceStatus(...args); }
+function useGalNameConflicts(...args) { return stageViews.notices.useNameConflicts(...args); }
 function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
 // a stage moment's skin cue, or (cue "") the shown skin's palette (returns its
 // cleanup). Pages without the UI sound module (tests, previews) stay silent.
