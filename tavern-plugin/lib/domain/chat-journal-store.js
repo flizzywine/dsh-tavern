@@ -258,8 +258,20 @@ export function createChatJournalStore(options = {}) {
     }
   }
 
-  // Every committed revision, whatever wrote it: save maintenance counts these.
-  function committed(chatId, revision) { options.onCommit?.(chatId, revision) }
+  // Every committed revision, whatever wrote it: save maintenance counts these. The last few
+  // writers of each chat stay in memory, so a writer that lost a race can name the one that won.
+  const recentWriters = new Map()
+  function committed(chatId, revision, source) {
+    const writers = [...(recentWriters.get(chatId) || []), { revision, source: String(source || 'unknown') }].slice(-16)
+    recentWriters.delete(chatId)
+    recentWriters.set(chatId, writers)
+    if (recentWriters.size > 64) recentWriters.delete(recentWriters.keys().next().value)
+    options.onCommit?.(chatId, revision)
+  }
+  /** Who committed this chat's revisions after `revision` (only the recent ones are kept). */
+  function writersSince(chatId, revision) {
+    return (recentWriters.get(chatId) || []).filter(writer => writer.revision > revision)
+  }
   function serialize(chatId, operation) {
     const id = safeChatId(chatId)
     const previous = mutationTails.get(id) || Promise.resolve()
@@ -584,7 +596,7 @@ export function createChatJournalStore(options = {}) {
             const chat=applyIndexedChanges(cached.chat,normalized)
             rememberState(chatId,'native:'+saved.native.view.snapshotCursor.snapshotId,{...saved,chat},rememberChanges(recent,saved.revision,normalized))
           } else if(saved) forgetState(chatId)
-          if (saved && saved.revision !== expectedRevision) committed(chatId, saved.revision)
+          if (saved && saved.revision !== expectedRevision) committed(chatId, saved.revision, metadata.source)
           return saved ? slice(saved.chat,[],metadata.returnProjection).chat : undefined
         }
       }
@@ -603,14 +615,14 @@ export function createChatJournalStore(options = {}) {
         const recent=knownChanges(chatId,state)
         const saved=await native.write(chatId,state,next,changes,metadata.assertCurrent,metadata.worldSelection)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
-        committed(chatId,saved.revision)
+        committed(chatId,saved.revision,metadata.source)
         return slice(next,[],metadata.returnProjection).chat
       }
       if(state.compatible){
         const recent=knownChanges(chatId,state)
         const saved=await compatible.write(chatId,state,next,changes,metadata.assertCurrent)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
-        committed(chatId,saved.revision)
+        committed(chatId,saved.revision,metadata.source)
         return slice(next,[],metadata.returnProjection).chat
       }
       if(state.legacy)await migrateLegacy(paths,state.chat)
@@ -626,7 +638,7 @@ export function createChatJournalStore(options = {}) {
       rememberState(chatId, await version(chatId), {...state,chat:next,revision:frame.revision,legacy:false,
         snapshot:rotated?.background ? state.snapshot : rotated || state.snapshot,open:rotated ? null : open,openFrameCount:rotated ? 0 : state.openFrameCount+1,openInvalidLine:0},
         rememberChanges(recentChanges, frame.revision, changes))
-      committed(chatId,frame.revision)
+      committed(chatId,frame.revision,metadata.source)
       return slice(next,[],metadata.returnProjection).chat
     })
   }
@@ -679,14 +691,14 @@ export function createChatJournalStore(options = {}) {
         const recent=knownChanges(chatId,currentState)
         const saved=await native.write(chatId,currentState,next,changes,metadata.assertCurrent,metadata.worldSelection)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
-        committed(chatId,saved.revision)
+        committed(chatId,saved.revision,metadata.source)
         return copyJsonTree(next)
       }
       if(currentState.compatible){
         const recent=knownChanges(chatId,currentState)
         const saved=await compatible.write(chatId,currentState,next,changes,metadata.assertCurrent)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
-        committed(chatId,saved.revision)
+        committed(chatId,saved.revision,metadata.source)
         return copyJsonTree(next)
       }
       if (currentState.legacy) await migrateLegacy(paths, current)
@@ -715,7 +727,7 @@ export function createChatJournalStore(options = {}) {
         snapshot: rotated?.background ? currentState.snapshot : rotated || currentState.snapshot, open: rotated ? null : open,
         openFrameCount: rotated ? 0 : currentState.openFrameCount + 1, openInvalidLine: 0 },
         rememberChanges(recentChanges, revision, changes))
-      committed(chatId, revision)
+      committed(chatId, revision, metadata.source)
       return copyJsonTree(next)
     })
   }
@@ -785,5 +797,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot, writersSince })
 }

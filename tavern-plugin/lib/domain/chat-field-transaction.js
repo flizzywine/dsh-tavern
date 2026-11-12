@@ -27,6 +27,14 @@ export function rebaseChatChanges(changes, concurrent) {
   return pending
 }
 
+// What a floor says in the story. Its other fields are written beside it by other parts of
+// Tavern (variables, template display, stage direction, settlement checkpoints, display captures).
+export const STORY_ROW_FIELDS = Object.freeze(['role', 'turn', 'greeting', 'text', 'sourceText', 'swipes', 'swipeId'])
+
+export function sameChatMessageStory(before, current) {
+  return STORY_ROW_FIELDS.every(key => isDeepStrictEqual(before[key], current[key]))
+}
+
 export function sameChatMessageIdentity(before, current, index) {
   // Native storage assigns this deterministic UID on the first variable write.
   return Boolean(before && current && (before.messageUid
