@@ -476,7 +476,10 @@ try {
 
   await page.getByRole('button', { name: '返回概览', exact: true }).click()
   await characterTile.locator('img').waitFor()
-  assert.ok(await characterTile.locator('img').evaluate(img => img.decode().then(() => img.naturalWidth)))
+  // The tile is loading=lazy: decode() on a lazy image whose load has not started rejects with EncodingError, so wait for it.
+  assert.ok(await characterTile.locator('img').evaluate(img => (img.complete ? Promise.resolve() : new Promise((resolve, reject) => {
+    img.addEventListener('load', resolve, { once: true }); img.addEventListener('error', reject, { once: true })
+  })).then(() => img.decode()).then(() => img.naturalWidth)))
   const bounds = await characterTile.boundingBox()
   assert.ok(bounds && bounds.width <= 92 && Math.abs(bounds.width - bounds.height) <= 1, 'character thumbnail stays compact and square')
   await page.getByLabel('人物概览').screenshot({ path: join(tmpdir(), 'dsh-image-character-grid.png') })
