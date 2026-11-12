@@ -164,3 +164,21 @@ test('有要求的同轮并发显式 busy；无要求手动重画仍替换自动
     bridge.dispose()
   }
 })
+
+test('beforeImagePlan: planning a turn waits for the host to release it, then reads the turn again', async t => {
+  const order = []
+  let release
+  const tavern = { ...mockTavern(), async getTurn(input) { order.push('getTurn'); return mockTavern().getTurn(input) },
+    beforeImagePlan(input) { order.push(['gate', input.gameId, input.turn, input.manual, input.signal instanceof AbortSignal]); return new Promise(resolve => { release = resolve }) } }
+  const fixture = await imagePluginFixture(t, { tavern, llm: planner({ onCall: () => order.push('plan') }) })
+  const runtime = await fixture.start()
+  const drawing = runtime.request('draw-turn', { gameId: 'game-1', turn: 1 })
+  for (let i = 0; i < 200 && !release; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(release, 'the gate was asked')
+  assert.ok(!order.includes('plan'), 'nothing is planned before the host releases the turn')
+  release()
+  assert.equal((await drawing).status, 200)
+  const gate = order.findIndex(step => Array.isArray(step))
+  assert.deepEqual(order[gate], ['gate', 'game-1', 1, true, true])
+  assert.ok(order.indexOf('getTurn', gate) > gate && order.indexOf('plan') > order.indexOf('getTurn', gate), JSON.stringify(order))
+})

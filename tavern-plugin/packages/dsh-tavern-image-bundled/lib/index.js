@@ -2894,6 +2894,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const bodyAnchorText = anchorText(body)
       const mountInBody = mount => { const needle = anchorText(mount); return needle.length >= 2 && bodyAnchorText.includes(needle) }
       const missingMounts = new Set()
+      const heldBack = []
       const characterWarnings = () => {
         const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
         return [...unmatchedCharacters.values()].map(({ asked, ambiguous }) => {
@@ -2902,7 +2903,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             && [c.id, c.name, ...splitTags(c.match)].some(alias => norm(alias) && norm(alias) === norm(asked)))
           if (elsewhere) return '「' + (elsewhere.name || asked) + '」在人物库里绑定的是别的卡，这次没用上她的外貌；在人物库里给她勾上这张卡即可'
           return '「' + asked + '」不在人物库里，长相每张会不一样；把她加进人物库能固定外貌'
-        }).slice(0, 4).concat(missingMounts.size ? ['有 ' + missingMounts.size + ' 张图的挂载句无法精确匹配，没有画（例如「' + [...missingMounts][0] + '」）；确认正文与挂载句一致后可重试'] : [])
+        }).slice(0, 4).concat(missingMounts.size ? ['有 ' + missingMounts.size + ' 张图的挂载句无法精确匹配，没有画（例如「' + [...missingMounts][0] + '」）；确认正文与挂载句一致后可重试'] : []).concat(heldBack)
       }
       const legacyEntries = usesWorldbook(cfg) ? (await loadWorldbook(plannerMode)).entries : []
       const plannerContext = selectPlannerContext({
@@ -3081,6 +3082,12 @@ function createRuntime(ctx, overrides, logger, deps) {
               const T = diag.text
               diag.record(traceId, 'image-adopted', { mount: T(image.mount), size: image.size ?? null, prompts: T(image.prompts), adoptedAtStreamChars: streamed.length }, { imageIndex })
               diag.record(traceId, 'macro-expansion', { macros: macros.map(m => ({ ...m, origins: (m.origins ?? []).map(o => ({ ...o, text: T(o.text) })) })), expanded: T(expandedScene), normalized: T(normalizedTag) }, { imageIndex })
+            }
+            // 可选的宿主口子：出这张图之前由宿主放行；宿主说跳过就不出这张，原因写进这一轮的提示。没有这个口子就照旧。
+            if (sessionId && typeof deps.tavern?.beforeImageGenerate === 'function') {
+              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: image.subjects || [], manual: Boolean(manual), signal: task.controller.signal })
+              task.controller.signal.throwIfAborted()
+              if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
             }
             const job = await startJob({
               tag: normalizedTag,
