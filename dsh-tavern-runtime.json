@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "eacb5eed9902d5352cb5fd3c2439e69dbccc0203",
-  "releaseSequence": 1561,
+  "revision": "5494a500d04d9287fb0f5469e0a8c39ba4631422",
+  "releaseSequence": 1562,
   "version": "3.3.0",
   "files": [
     {
@@ -1641,8 +1641,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/compaction-request.js",
-      "sha256": "4b3885313d9d5171f8749004c54069bfcbc9c909886e446aaf3a219980ffa486",
-      "size": 5736
+      "sha256": "058ceffe6bd2b0b07b48b76467f7247d086c8164f76615de473c0e5e0436379b",
+      "size": 5290
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
@@ -2773,6 +2773,11 @@
       "path": "tavern-plugin/lib/domain/posture-submission.js",
       "sha256": "8f64403010ecc65ef70d44c8c4ac237ab02dc3006bc1879b4d30f80d2964f9e1",
       "size": 1966
+    },
+    {
+      "path": "tavern-plugin/lib/domain/prefix-bound-reasoning.js",
+      "sha256": "cc69b42aa3d766a2159ca4f96c263b5d2798ba2e6fdb77055150b4c4111ba600",
+      "size": 4159
     },
     {
       "path": "tavern-plugin/lib/domain/presentation-observers.js",
@@ -3966,8 +3971,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "aab2be5e11fc2a83c875223782673350a2bc96fe07003bb6ea7e07ca84b9b559",
-      "size": 17376
+      "sha256": "37c3198e20c10ff22a04258a4066ba229242ec097b01dd34b1c7699d7fec24ba",
+      "size": 17785
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -9186,9 +9191,9 @@
     }
   ],
   "archive": {
-    "commit": "b33489f231cff771faf314feedca3f8eeaf956e4",
+    "commit": "0289b055a051ffa5bfdd34716f564762a3e04768",
     "path": "runtime.zip",
-    "sha256": "8d7d20b506c2edbc826002e6a21b0e6f6d61e949e95bebc9910ac6d0ca4f6588",
-    "size": 16331019
+    "sha256": "883051936a7538d6d451f8934d65f5c1cad91887d95ad46f0dcc1cfec4716a1f",
+    "size": 16332831
   }
 }
