@@ -118,13 +118,13 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均进�
     assert.match(packet.text, /最新Guide/)
     assert.match(packet.text, /最新姿势/)
     assert.match(packet.text, /本轮候选意见/)
-    assert.ok(packet.text.endsWith(index < 2 ? '每轮末尾要求' : '修改后的末尾要求'))
+    assert.ok(packet.text.endsWith((index < 2 ? '每轮末尾要求' : '修改后的末尾要求') + '\n</post_history>'))
   }
   await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: 'background', task: 'settlement', selection: { provider: 'test', model: 'fake' }, system: '结算规则', messages: [], backgroundContext: '不应带入的候选背景', systemPromptText: '不应带入的系统要求', postHistoryText: '不应带入的末尾要求' })
   assert.equal(packets.at(-1).system, stableSystem, '结算与候选切换不得改写 system 前缀')
   assert.equal(packets.at(-1).text.split('结算规则').length - 1, 1)
   assert.doesNotMatch(packets.at(-1).system, /不应带入/)
-  assert.match(packets.at(-1).system, /仅用于候选文本/)
+  assert.match(packets.at(-1).system, /<card_system_scope>\nThe card system prompt below only governs choice text;[^\n]*\n<\/card_system_scope>\n\n<card_system>\n/)
   assert.match(packets.at(-1).system, /固定背景A/)
   assert.equal(events.filter(event => event.type === 'dsh-tavern/stable-prefix').length, 0)
   assert.equal(events.filter(event => event.type === 'user/message' && event.data.id === 'tavern-session-prefix:background').length, 1)
@@ -471,7 +471,7 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
     assert.match(results.at(-1), /不允许调用 anchor_submit/)
     assert.equal(pluginCalls.length, 1)
     assert.doesNotMatch(texts[1], /Plugin settlement tasks/)
-    assert.match(texts[1], /【插件附加的候选要求】[\s\S]*parent 候选多给探索选项/)
+    assert.match(texts[1], /<plugin_task>\n## Plugin choice requirements[\s\S]*parent 候选多给探索选项/)
   } finally { await runner.dispose() }
 })
 
@@ -508,7 +508,7 @@ test('插件后台任务：独立的一次性会话，插件工具注册在这�
     assert.equal(result.text, '推演完成')
     assert.deepEqual(calls, [{ name: 'world_advance', arguments: { days: 15 } }])
     assert.match(results[1], /不允许调用 posture_submit/)
-    assert.match(texts[0], /任务类型：插件任务[\s\S]*【任务要求】\n按日期推进世界/)
+    assert.match(texts[0], /Task type: plugin task[\s\S]*<task_requirements>\n按日期推进世界/)
     assert.equal(registered.has('world_advance'), false, '任务结束后撤销插件工具')
 
     // A model that keeps calling a tool this task refuses is stopped, not left to loop until the timeout.

@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 
-for (const task of ['settlement', 'image', 'phone']) test(task + ' 复用会话时置顶最新指令且清空后移除', async () => {
+for (const task of ['settlement', 'image', 'plugin']) test(task + ' 复用会话时置顶最新指令且清空后移除', async () => {
   let assemble, completeSection, pending, text = '第一版'
   const seen = []
   const session = { id: task, header: {}, events: [], append(type, data) { this.events.push({ type, data }) } }

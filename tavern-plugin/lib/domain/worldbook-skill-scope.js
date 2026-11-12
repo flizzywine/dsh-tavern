@@ -4,7 +4,7 @@ export async function resolveWorldbookSkillChat(agent, { background, readChat })
   if (!sessionId) return null
   const request = background.activeRequestContext(sessionId)
   if (background.owns(sessionId) && !request) return null
-  if (request && ['phone', 'stage-director'].includes(request.task)) return null
+  if (request?.task === 'stage-director') return null
   const owner = request?.parentSessionId || sessionId
   if (!owner) return null
   const chat = await readChat(owner)

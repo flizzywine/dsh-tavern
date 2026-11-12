@@ -122,7 +122,7 @@ export function createRequestPerformance({ now = () => performance.now(), wall =
       const row = context.getStore()
       if (row) {
         row.activity = { foregroundRunning: foregroundRunning === true, backgroundBusy: backgroundBusy === true,
-          backgroundRole: ['candidate', 'settlement', 'worldbook-filter', 'style-reference', 'image', 'phone'].includes(backgroundRole) ? backgroundRole : '' }
+          backgroundRole: ['candidate', 'settlement', 'worldbook-filter', 'style-reference', 'image'].includes(backgroundRole) ? backgroundRole : '' }
         if (viewRebuild === 'window' || viewRebuild === 'full' || viewRebuild === 'dirty' || viewRebuild === 'cache') row.viewRebuild = viewRebuild
         if (Number.isSafeInteger(helperMessageCount) && helperMessageCount >= 0) row.helperMessageCount = helperMessageCount
       }
