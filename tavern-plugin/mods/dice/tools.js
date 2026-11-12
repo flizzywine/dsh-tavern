@@ -1,4 +1,5 @@
 import { rollDice } from './dice.js'
+import { CHECK_TOOL, createCheckTool } from './check-tool.js'
 
 export const DICE_TOOL = {
   name: 'tavern_roll',
@@ -43,4 +44,4 @@ export function createDiceTool({ activeTurnOf, chatForSession, isBackground, aut
 }
 
 // The mod's foreground tools (lib/mod-tools.js).
-export default [{ name: DICE_TOOL.name, create: createDiceTool }]
+export default [{ name: DICE_TOOL.name, create: createDiceTool }, { name: CHECK_TOOL.name, create: createCheckTool }]
