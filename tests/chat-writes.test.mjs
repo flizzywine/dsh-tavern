@@ -42,3 +42,13 @@ test('各类写入保留通知顺序与 mailbox、压缩、Skill 的原有豁免
     }
   }
 })
+
+test('a manual variable edit patch does not queue compaction; an ordinary patch still does', async () => {
+  const { writes, events } = fixture()
+  for (const source of ['variables.edit.begin', 'variables.edit.commit', 'variables.edit.cancel', 'variables.edit.recover']) {
+    await writes.patch('chat', 2, [{ op: 'set', path: ['messages', 0, 'variables', 0], value: { hp: 3 } }], { source })
+  }
+  assert.deepEqual(events.filter(([name]) => name === 'compaction'), [])
+  await writes.patch('chat', 2, [], { source: 'ordinary' })
+  assert.deepEqual(events.filter(([name]) => name === 'compaction'), [['compaction', 'session']])
+})
