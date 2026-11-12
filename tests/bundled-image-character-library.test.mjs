@@ -69,6 +69,20 @@ test('reference images and pack-scoped figure associations persist in the real p
   assert.equal((await files.read('definitions.json')).version, 4)
 })
 
+test('a record can be unlinked from its figure or deleted, both guarded by the snapshot', async t => {
+  const { files, runtime, library } = await fixture(t, { definitions: { characters: [...definitions.characters, { id: 'd', name: '路人', traits: {}, outfits: [] }] } })
+  const linked = (await library.patchCharacter({ characterId: 'c', expected: library.getCharacter({ characterId: 'c' }).character, patch: { figureId: 'figure', figurePackId: 'pack-a' } })).character
+  await assert.rejects(library.patchCharacter({ characterId: 'c', expected: linked, patch: { figureId: null } }), { code: 'INVALID_ARGUMENT' })
+  const unlinked = (await library.patchCharacter({ characterId: 'c', expected: linked, patch: { figureId: null, figurePackId: null } })).character
+  assert.equal(Object.hasOwn(unlinked, 'figureId') || Object.hasOwn(unlinked, 'figurePackId'), false)
+  assert.equal(unlinked.traits.face, '原来的外貌')
+  assert.throws(() => library.getCharacter({ figureId: 'figure', figurePackId: 'pack-a' }), { code: 'NOT_FOUND' })
+  await assert.rejects(library.deleteCharacter({ characterId: 'c', expected: linked }), { code: 'REVISION_CONFLICT' })
+  assert.deepEqual(await library.deleteCharacter({ characterId: 'c', expected: unlinked }), { deleted: 'c' })
+  await runtime.request('reload', {})
+  assert.deepEqual((await files.read('definitions.json')).characters.map(c => c.id), ['d'])
+  assert.throws(() => library.getCharacter({ characterId: 'c' }), { code: 'NOT_FOUND' })
+})
 test('failed and refused writes leave memory untouched and do not poison the next write', async () => {
   let current, failure = 'throw'
   const store = createDefinitionsStore({ initial: definitions, onCommit: value => { current = value },

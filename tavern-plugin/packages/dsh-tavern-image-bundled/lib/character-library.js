@@ -34,9 +34,11 @@ function checkedPatch(patch, traitKeys) {
   images(patch, ['referenceImage'], 'patch')
   if (Object.hasOwn(patch, 'comfyLoras') && (!Array.isArray(patch.comfyLoras) || normalizeCharacterLoras(patch.comfyLoras).length !== patch.comfyLoras.length)) throw fail('INVALID_ARGUMENT', 'comfyLoras 需要有效的工作流、文件名和强度')
   if (Object.hasOwn(patch, 'name') && !patch.name.trim()) throw fail('INVALID_ARGUMENT', 'patch.name 不能为空')
-  if (Object.hasOwn(patch, 'figureId') && (typeof patch.figureId !== 'string' || !patch.figureId || patch.figureId.length > 64)) throw fail('INVALID_ARGUMENT', 'patch.figureId 必须是素材库人物 ID')
-  if (Object.hasOwn(patch, 'figurePackId') && (typeof patch.figurePackId !== 'string' || !patch.figurePackId || patch.figurePackId.length > 128)) throw fail('INVALID_ARGUMENT', 'patch.figurePackId 必须是素材包 ID')
+  // null for both ends a link; the record stays as an ordinary one.
+  if (Object.hasOwn(patch, 'figureId') && patch.figureId !== null && (typeof patch.figureId !== 'string' || !patch.figureId || patch.figureId.length > 64)) throw fail('INVALID_ARGUMENT', 'patch.figureId 必须是素材库人物 ID，或 null 表示断开')
+  if (Object.hasOwn(patch, 'figurePackId') && patch.figurePackId !== null && (typeof patch.figurePackId !== 'string' || !patch.figurePackId || patch.figurePackId.length > 128)) throw fail('INVALID_ARGUMENT', 'patch.figurePackId 必须是素材包 ID，或 null 表示断开')
   if (patch.figureId && !patch.figurePackId) throw fail('INVALID_ARGUMENT', '关联人物必须指定素材包 ID')
+  if ((patch.figureId === null) !== (patch.figurePackId === null)) throw fail('INVALID_ARGUMENT', '断开关联时 figureId 与 figurePackId 都设为 null')
   if (Object.hasOwn(patch, 'traits')) { only(patch.traits, traitKeys, 'patch.traits'); texts(patch.traits, traitKeys, 'patch.traits') }
   if (Object.hasOwn(patch, 'outfits')) {
     if (!Array.isArray(patch.outfits)) throw fail('INVALID_ARGUMENT', 'patch.outfits 必须是数组（按 id 合并）')
@@ -65,6 +67,7 @@ function merged(character, patch) {
       .concat(patch.outfits.filter(outfit => !character.outfits.some(item => item.id === outfit.id)))
   }
   for (const item of [next, ...next.outfits]) for (const key of IMAGES) if (item[key] === null) delete item[key]
+  for (const key of ['figureId', 'figurePackId']) if (next[key] === null) delete next[key]
   return next
 }
 
@@ -105,6 +108,16 @@ export function createCharacterLibrary({ getDefinitions, updateDefinitions, norm
         return { ...definitions, characters: [...definitions.characters, next] }
       })
       return snapshot(next)
+    },
+    /** Removes a record, guarded by the snapshot like a patch. */
+    async deleteCharacter({ characterId, expected } = {}) {
+      const seen = structuredClone(expected)
+      await updateDefinitions(definitions => {
+        const current = find({ characterId }, definitions)
+        if (!isDeepStrictEqual(current, seen)) throw fail('REVISION_CONFLICT', '人物已在别处修改，请重新读取后再改')
+        return { ...definitions, characters: definitions.characters.filter(item => item !== current) }
+      })
+      return { deleted: characterId }
     },
     /** bytes → the descriptor stored in referenceImage / characterOutfitImage (same store as the 人物库 upload). */
     async putReferenceImage({ data, mediaType, name } = {}) {
