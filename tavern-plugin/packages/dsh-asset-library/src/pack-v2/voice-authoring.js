@@ -48,7 +48,8 @@ export function createVoiceAuthoring({assetRoot,storage,run,load,edit,cas,limits
   }
   // A stored voice (a template, or a legacy reading voice) becomes a new voice of the pack, assigned to the figure with its
   // binding; its reference clips are copied into the pack.
-  function assignStored(input, item, missing) {
+  // ownName: the copy is named after the figure it now belongs to (a reading voice kept the name of the voice it was copied from).
+  function assignStored(input, item, missing, ownName = false) {
     return edit(input,async (manifest,files) => {
       const stored = item(await index())
       check(stored,missing[0],missing[1],'VOICE_NOT_FOUND')
@@ -69,6 +70,7 @@ export function createVoiceAuthoring({assetRoot,storage,run,load,edit,cas,limits
       }
       ;(manifest.voiceLibrary ||= {version:1,voices:{}}).voices[voiceId] = voiceSpec
       const name = 'figures/' + input.figureId + '.json', figure = readDocument(files.get(name))
+      if (ownName) voiceSpec.name = figure.name
       figure.voice = {...structuredClone(stored.binding),voice:voiceId}; retainVoiceEmotionPointers(figure,manifest); files.set(name,jsonBytes(figure))
       return {voiceId}
     })
@@ -77,7 +79,7 @@ export function createVoiceAuthoring({assetRoot,storage,run,load,edit,cas,limits
     // One-time (dsh-tavern-stage reading-voice-migration.js): 通用声音 / 旁白's voices kept here before they became pointers
     // at figures (tts.reading general / narrator .figure). Listed, each own voice assigned to a figure, then dropped.
     legacyReadingVoices() { return run([],async () => Object.values((await index()).readings || {}).map(item => structuredClone(item.link ? {id:item.id,link:item.link} : {id:item.id,voiceSpec:item.voiceSpec,binding:item.binding}))) },
-    assignLegacyReadingVoice(input) { return assignStored(input,data => data.readings?.[input.readingId]?.voiceSpec && data.readings[input.readingId],['$.readingId','Reading voice missing']) },
+    assignLegacyReadingVoice(input) { return assignStored(input,data => data.readings?.[input.readingId]?.voiceSpec && data.readings[input.readingId],['$.readingId','Reading voice missing'],true) },
     dropLegacyReadingVoices() {
       return run([],async () => {
         const data = await index(), dropped = Object.keys(data.readings || {}).length

@@ -719,10 +719,12 @@ export function createAssetPackService(options) {
         return install(await verify(manifest,new Map(),undefined,true),null)
       })
     },
+    // input.id: host-only (the RPC allowlist has no id), for a pack known by a fixed id (the 系统设置包, dsh-presentation-protocol/src/system-pack.cjs).
     createPack(input) {
-      const id = randomUUID()
+      const id = input.id === undefined ? randomUUID() : validateUuid(input.id)
       return run([id], async () => {
         cas(null, input.expectedRevision)
+        if (input.id !== undefined) check(!(await metadata(id)), '$.id', 'Pack already exists', 'DUPLICATE_ID')
         const manifest = blankManifest(id,input.name,input.description)
         manifest.contentHash = await computeContentHash(manifest)
         // Just sealed here: validate the structure without recomputing the digest.

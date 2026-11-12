@@ -4244,6 +4244,28 @@ window.__ModuleLoader__.load({
 		  return {outfits, ...(outfits.length ? {} : {heightCm: null})};
 		};
 		if (typeof window === 'undefined' && typeof module !== 'undefined' && module.exports) module.exports = figureOutfitRemoval;
+		// 系统设置包: the one asset pack holding what the system itself falls back on — today the figures 通用声音 and
+		// 旁白声音 speak with. Single authority: the pack and each entry are known by these fixed ids, never by
+		// name; the host rebuilds a missing pack, and adds an entry it does not have yet, from the defaults here
+		// (dsh-tavern-stage/lib/system-pack.js), so pointers at them stay valid. The library retires a deleted figure's id, so the
+		// client offers no 删除人物 for these figures. A feature that needs a default asset adds its entry here instead of making a pack of its own.
+		const SYSTEM_PACK = Object.freeze({
+		  id:'a6048e6c-e74d-4ef8-ab6f-1162d97659ed',
+		  name:'系统设置（请勿删除）',
+		  description:'系统自己要用的兜底素材：通用声音和旁白声音用的就是这里的人物，可以改它们的声音。删掉这个包会按默认内容重建，改过的声音会丢失。这个包不用对卡启用。',
+		});
+		// The figures: role → fixed figure id; their default voice is the browser's own, read in 中文.
+		const SYSTEM_FIGURES = Object.freeze({
+		  general:Object.freeze({id:'0e6bd60d-c6c2-4739-b863-d423ac190bc2', name:'通用声音'}),
+		  narrator:Object.freeze({id:'fc8d9412-c610-4ffe-a823-8e54b138c508', name:'旁白声音'}),
+		});
+		const systemFigureDefault = role => ({
+		  figure:{schemaVersion:1, name:SYSTEM_FIGURES[role].name, aliases:[], enabled:true, outfits:[]},
+		  voiceSpec:{name:SYSTEM_FIGURES[role].name, language:'zh', defaultSource:'main', sources:{main:{kind:'preset', provider:'browser'}}},
+		});
+		// Whether a pack (or one figure of it) is a system entry, which the host rebuilds when it goes missing.
+		const isSystemEntry = (packId, figureId) => packId === SYSTEM_PACK.id && (figureId === undefined || Object.values(SYSTEM_FIGURES).some(f => f.id === figureId));
+		if (typeof window === 'undefined' && typeof module !== 'undefined' && module.exports) module.exports = {SYSTEM_PACK, SYSTEM_FIGURES, systemFigureDefault, isSystemEntry};
 		// one pure avatar resolver for transcript, stage faces and pack UI.
 		// Precedence per emotion (owner, card-centric merge): an uploaded avatar image for that emotion, then the crop of
 		// that emotion's own sprite state (manual state > manual outfit > auto > default crop), then the outfit's calm
@@ -5620,7 +5642,8 @@ window.__ModuleLoader__.load({
 		  function Impact({binding,packId}) {
 		    const state=useLoad(binding,()=>binding.rpc('getAssetPackDependencies',{packId}),[packId]);
 		    const lose='删除后，用到它的卡会少掉里面的素材，不会自动换成别的。',used=state.value?.available?state.value.count>0:null;
-		    return h('p',{className:'ap-impact',role:'status'},binding.globalEnabledPackIds?.includes(packId)?'它现在对所有卡启用。'+lose:used===false?'现在没有卡在用它。':used?'有卡正在用它。'+lose:lose);
+		    const voices=readingLossText(useReadingPointers(binding).value,packId);
+		    return h('p',{className:'ap-impact',role:'status'},(binding.globalEnabledPackIds?.includes(packId)?'它现在对所有卡启用。'+lose:used===false?'现在没有卡在用它。':used?'有卡正在用它。'+lose:lose)+voices);
 		  }
 		  // panel language — hairlines instead of boxes. Neither 素材库 nor 舞台设置 has a
 		  // basic/advanced split (option A).
@@ -6442,8 +6465,8 @@ window.__ModuleLoader__.load({
 		      } else result=await binding.service.copyItems({sourcePackId:packId,itemRefs,target:{newPackName:target.name}});
 		      stopSelect();setNotice({text:'已复制 '+ids.length+' 项到「'+target.name+'」',packId:result?.packId||target.packId});onPacksChanged?.();
 		    });
-		    // the figure page's ⋯ — 复制到… (copyItems) and 删除人物 (removeFigure, on the CAS queue).
-		    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),
+		    // the figure page's ⋯ — 复制到… (copyItems) and 删除人物 (removeFigure, on the CAS queue; none for a system figure).
+		    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),systemFigure:isSystemEntry(packId,id),
 		      removeEmotion:emotionId=>enqueue(c=>binding.service.removeFigureEmotion({packId,expectedRevision:c.revision,figureId:id,emotionId})),
 		      // mark / unmark one outfit × 差分 as 「不需要（用默认图）」 on the CAS
 		      // queue. A conflict is not retried (the owner decides on what is current): the snapshot is reloaded and the error shown.
@@ -6463,7 +6486,8 @@ window.__ModuleLoader__.load({
 		          return {snapshot:c};
 		        } catch(error) { latest.current=c;state.setValue(c);throw error; }
 		      }),
-		      remove:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
+		      // a figure of the 系统设置包 is not deleted here: the library retires a deleted figure's id, so it could not come back.
+		      remove:isSystemEntry(packId,id)?null:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
 		    const automaticChanged=()=>{changed.current=true;setSel(null);setDetail(false);state.reload();onPacksChanged?.();};
 		    const actions=usePackActions(binding,{onRemoved:()=>{changed.current=true;close();},onChanged:()=>onPacksChanged?.()});
 		    const menu=pack&&h(Popover,{label:name+' 操作',trigger:({toggle:t,open})=>h(IconButton,{icon:'more',label:'更多操作 '+name,'aria-expanded':open,disabled:actions.work.busy,onClick:t}),content:closeMenu=>h(React.Fragment,null,
@@ -8883,7 +8907,9 @@ window.__ModuleLoader__.load({
 		    return h(Popover,{label:'人物操作',className:'ap-figure-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'人物操作 '+figure.name,'aria-expanded':open,onClick:()=>{setCopying(false);toggle();}}),
 		      content:close=>copying?h(PackTargetMenu,{packs:actions.packs||[],exclude:actions.packId,close,onPick:target=>actions.copy(target)}):h(React.Fragment,null,
 		        actions?.copy&&h(MenuItem,{onClick:()=>setCopying(true)},'复制到…'),
-		        actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'))});
+		        actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'),
+		        // a 系统设置 figure (通用声音 / 旁白声音) is not deleted: its id could not be used again, so it could not be rebuilt. Said in the item itself (touch has no hover).
+		        actions?.systemFigure&&h(MenuItem,{disabled:true},'系统设置里的人物，不能删除'))});
 		  }
 		  const BASIC_HELP='人物本身的资料，所有服装共用。';
 		  // 方案甲: a deleted figure's 配图 外貌 either stays as an ordinary 人物库 record (the host ends the link) or goes with it.
@@ -9235,8 +9261,8 @@ window.__ModuleLoader__.load({
 		    // the one LampMenu, read as 「● 绿灯 ⌄」 (was the segmented LampSwitch).
 		    const enable=h('span',{className:'ap-figure-lamp-slot'},h(LampMenu,{label:'人物灯',named:true,mode:outfitLamp(figure),onChange:mode=>write(f=>mode==='off'?{enabled:false}:{enabled:true,recall:{...f.recall,mode}})}));
 		    const paneRef=React.useRef(null),[automaticReview,setAutomaticReview]=React.useState(false);
-		    const imageChoice=React.useRef(null);
-		    const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
+		    const imageChoice=React.useRef(null),reading=useReadingPointers(binding).value;
+		    const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。'+readingLossText(reading,pack.manifest.id,figure.id),confirmLabel:'删除',danger:true,
 		      children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice}),
 		      onConfirm:async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();}});};
 		    const more=(figureActions?.copy||figureActions?.remove)&&h(FigureMoreMenu,{figure,actions:figureActions,onRemove:removeFigure});
@@ -10728,6 +10754,14 @@ window.__ModuleLoader__.load({
 		  // re-read on its events; point(role, ref|null) writes one through setReading (the plugin checks it once there).
 		  const READING_ROLES=[{id:'general',label:'通用声音'},{id:'narrator',label:'旁白声音'}];
 		  const samePointer=(a,b)=>!!a&&!!b&&a.packId===b.packId&&a.figureId===b.figureId;
+		  // What a delete confirmation adds about 通用声音 / 旁白声音: the 系统设置包 (dsh-presentation-protocol/src/system-pack.cjs) is rebuilt from its default, so
+		  // the edits go (its own figures have no 删除人物); any other pack or figure they point at leaves them silent.
+		  const readingUsers=(reading,packId,figureId)=>READING_ROLES.filter(r=>{const f=reading?.[r.id]?.figure;return !!f&&f.packId===packId&&(figureId===undefined||f.figureId===figureId);}).map(r=>r.label);
+		  const readingLossText=(reading,packId,figureId)=>{
+		    if(figureId===undefined&&isSystemEntry(packId))return '这是系统设置包：删掉后会按默认内容重建，改过的声音会丢失。';
+		    const users=readingUsers(reading,packId,figureId);
+		    return users.length?users.join('、')+'正在用'+(figureId===undefined?'它里面的人物':'它的声音')+'，删除后'+(users.length>1?'它们':'它')+'不出声，要在素材库里另选人物。':'';
+		  };
 		  function useReadingPointers(binding){
 		    const tts=binding?.tts?.call?binding.tts:null,[tick,setTick]=React.useState(0);
 		    React.useEffect(()=>tts?.subscribe?.(()=>setTick(n=>n+1)),[tts]);
