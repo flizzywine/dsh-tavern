@@ -4505,6 +4505,7 @@ export async function apply(ctx) {
       activeTurnOf,
       chatForSession,
       isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
+      readChatCard,
       cardResponseTest,
       foregroundRecallScopes,
       recallHistoryForSession,
