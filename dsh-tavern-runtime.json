@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "098cc0f5a7809427c4430299efad964f1029b192",
-  "releaseSequence": 1554,
+  "revision": "fe15712e372bd4d8ba66c291ae4727e27e294c67",
+  "releaseSequence": 1555,
   "version": "3.3.0",
   "files": [
     {
@@ -1051,8 +1051,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "53c9b0e34479a260c36c62f936ed577151c662506152ba6d93ae5e66b8f5d2f4",
-      "size": 6210286
+      "sha256": "43b80aaa2e158b7b982337d5d0b9136892c818fbebe4000da55294f586f8a0ce",
+      "size": 6214020
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6436,8 +6436,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "699e5bcbe56edea2e456f1dbdcba11dec25cb558a390fe43582b23d00048a8ae",
-      "size": 101285
+      "sha256": "ab138df88be154a28d877661136f904366a6b80bdbffc35a9793a9afed780b8b",
+      "size": 101606
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -6511,8 +6511,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/voice-authoring.js",
-      "sha256": "bb7138c01e334866308842fdb60759fff54324d31e3ba28697f18b3dfbabe430",
-      "size": 9470
+      "sha256": "0f817596ca91b8295431cd713565c79eddf53050a88c5049ab263e9de106ba58",
+      "size": 9672
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/schema/atlas.schema.json",
@@ -7058,6 +7058,11 @@
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/stage-video.cjs",
       "sha256": "264640369caf76bc9264780c396d7669446b089e52a609f5781367632d30f1cd",
       "size": 5355
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-presentation-protocol/src/system-pack.cjs",
+      "sha256": "8986a0152b414e0bcc756032602c0371749a1cbcf49b79ad7dc8a9299efb8326",
+      "size": 2009
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/text-marks.cjs",
@@ -7911,8 +7916,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/asset-runtime.js",
-      "sha256": "edc11ee6d1f331d876a6c30b7ef2ecba34574b2fb38e32cd88516857fbe90764",
-      "size": 9210
+      "sha256": "182ba0a669bb7f46871d457c19de73d020b648d2d16081b3dd1cad0b02559d5d",
+      "size": 9828
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js",
@@ -8316,8 +8321,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/reading-voice-migration.js",
-      "sha256": "712868bf4ad4ca1ba29a282861083bca0df2c72b6ed948bae4cce326631bbb99",
-      "size": 2375
+      "sha256": "53dd5c36e73a72c8b87942c2516a1a07604ec02c55d8728ed46a0a5c8aba5ccb",
+      "size": 2331
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/requests.js",
@@ -8353,6 +8358,11 @@
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/story-observer.js",
       "sha256": "73ddaf7407a35cb6385ffc20845cfa86a5c0d45690b70647aceb4b3d8f16c80e",
       "size": 4373
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/system-pack.js",
+      "sha256": "a2e03177aac81197cb5dd28e7a2de85b1b8d6d91e2170069f3e7665fd03a3a4c",
+      "size": 2697
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/voice-backfill.js",
@@ -9171,9 +9181,9 @@
     }
   ],
   "archive": {
-    "commit": "ab0fb226c40942b45cfa91ebf5d698cfa6ea8fa4",
+    "commit": "b96654adb79688999946647db74b464c8f01e3a7",
     "path": "runtime.zip",
-    "sha256": "b4345a7a0a09a28ac44e22c4833eaa55a15e339742765d5cab05a683c84b1342",
-    "size": 16321263
+    "sha256": "94a1095ff814d81a79a337fbe9f8a615d6a770c89b6ad98bd298c7c4b10d834d",
+    "size": 16325886
   }
 }
