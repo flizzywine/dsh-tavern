@@ -38,8 +38,8 @@ export function stageTimerFacts(chat,turn) {
 }
 
 // readChat(sessionId, turn) reads the chat through `turn` (the stage's own round view); without a turn, through the latest.
-export function createStageTimerService({stage,readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,publish=()=>{},now,owner,progressFlushMs}) {
-  const clock=createStageTimerClock({stage,readChat,readDirection,patchChat,enabled,controllerEnabled,publish,now,owner,savedBudget:stageTimerSaved,progressFlushMs})
+export function createStageTimerService({stage,readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,now,owner,progressFlushMs}) {
+  const clock=createStageTimerClock({stage,readChat,readDirection,patchChat,enabled,controllerEnabled,now,owner,savedBudget:stageTimerSaved,progressFlushMs})
   async function snapshot(args) {
     const chat=clock.overlay(args.sessionId,await readChat(args.sessionId,args.turn))
     if(!chat || !await enabled(chat))return {enabled:false,timer:null}

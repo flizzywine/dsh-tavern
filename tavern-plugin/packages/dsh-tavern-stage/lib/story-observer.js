@@ -20,7 +20,6 @@ export function createStageStoryObserver({settlementQueued, modService, stageDir
       const projection = await chatPersistence.readSceneImageState(saved.id)
       if (!signal?.aborted && projection) return stageDirector.observe({...saved, messages:projection.messages})
     },
-    disconnected:ids => modService.disconnected(ids),
     async beginReply(sessionId,turn,signal) {
       if (!Number.isSafeInteger(turn)) return null
       // The streaming round body (getRoundBody) is the stage's alone: a card without one reads no stage view and

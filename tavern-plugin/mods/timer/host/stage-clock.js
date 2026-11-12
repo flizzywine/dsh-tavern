@@ -10,7 +10,7 @@ import {timerClockSample,timerClockRemaining,timerClockFrozen} from '../timer-cl
 // change writes at once and carries the held progress with it.
 export const STAGE_TIMER_PROGRESS_FLUSH_MS=20000
 // stage: the stage's read helpers handed to the extension (fold, readScope, markRead; lib/module.js stageExtensions.start).
-export function createStageTimerClock({stage,readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,publish=()=>{},now,owner=randomUUID(),savedBudget,progressFlushMs=STAGE_TIMER_PROGRESS_FLUSH_MS}) {
+export function createStageTimerClock({stage,readChat,readDirection,patchChat,enabled,controllerEnabled=async()=>true,now,owner=randomUUID(),savedBudget,progressFlushMs=STAGE_TIMER_PROGRESS_FLUSH_MS}) {
   const epoch=Date.now(),start=performance.now()
   now ||= ()=>Math.floor(epoch+performance.now()-start)
   const sessions=new Map(),pending=new Map(),field='stageTimerV1'
@@ -183,7 +183,6 @@ export function createStageTimerClock({stage,readChat,readDirection,patchChat,en
       timer?.unref?.()
       pending.set(args.sessionId,{...hold,timer})
     }
-    if(event)await publish({sessionId:args.sessionId,event})
     result.now=now()
     return result
   }

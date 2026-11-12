@@ -3,7 +3,7 @@ import contract from '../../../packages/dsh-presentation-protocol/src/mod-contra
 import {validateModManifest} from './manifest.js'
 import {assertModCurrent} from './permissions.js'
 const {modCheck:check, modFreeze, modJson, modResultError} = contract
-const hooks = ['prepare','command','settled','dispose','event']
+const hooks = ['prepare','command','settled','dispose']
 
 // The caller supplies application imports, never modules or paths obtained from an archive.
 export function createBuiltinModRegistry(releases) {
@@ -11,8 +11,7 @@ export function createBuiltinModRegistry(releases) {
   for (const release of releases) {
     const manifest=validateModManifest(release.manifest),files=new Map()
     check(!entries.has(manifest.id),'$.id','Duplicate built-in mod')
-    check(Object.keys(release.module).every(key=>hooks.includes(key) || ['configure','commandSchema','validateCommand'].includes(key)) && ['configure','commandSchema','validateCommand'].every(key=>release.module[key]===undefined || typeof release.module[key]==='function') && hooks.every(key=>key==='event' && release.module[key]===undefined || typeof release.module[key]==='function'),'$.runtime','Invalid first-party module')
-    check(!manifest.subscriptions?.length || typeof release.module.event==='function','$.subscriptions','Subscriptions require an event callback')
+    check(Object.keys(release.module).every(key=>hooks.includes(key) || ['configure','commandSchema','validateCommand'].includes(key)) && ['configure','commandSchema','validateCommand'].every(key=>release.module[key]===undefined || typeof release.module[key]==='function') && hooks.every(key=>typeof release.module[key]==='function'),'$.runtime','Invalid first-party module')
     for (const file of manifest.files) {
       const bytes=Buffer.from(release.files.get(file.path) || [])
       check(bytes.length===file.size && release.files.has(file.path),'$.files','Incomplete built-in release')

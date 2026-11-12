@@ -13,7 +13,7 @@ export function createTimerExtension(core) {
     // The clock reads the latest round's view; its latest saved timer may sit on an earlier round, read with that round.
     readDirection:async (chat,turn)=>stageDirector.get(stage.readCarries(chat,turn) ? chat : await readRoundView(chat.sessionId,turn),turn,null,{readOnly:true}),patchChat:chatPersistence.patch,
     enabled:chat=>managedModManagement.enabled({modId:TIMER_MOD_ID,cardPath:chat.cardPath}),
-    controllerEnabled:stageControllerEnabled,publish:({sessionId,event})=>modService.stageEvent(sessionId,event)})
+    controllerEnabled:stageControllerEnabled})
 
   // The performance a reached timeup names (its onTimeup ref), resolved for the asking page.
   async function reaction(args,authority) {

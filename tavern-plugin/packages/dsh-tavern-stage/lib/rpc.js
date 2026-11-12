@@ -385,17 +385,6 @@ return assetEngineSettings.exportPreset(args || {})
         return await stageDirector.preview(chat, Number(args?.turn) || 0, await dialogueBubbles.read(chat.cardPath))
 
     },
-    async getModStageViews(args, method, serverTemplate, authority) {
-      const { modService, str } = deps
-return modService.stageViews(str(args?.sessionId),authority)
-    },
-    async notifyModPresentation(args, method, serverTemplate, authority) {
-      const { modService } = deps
-
-        const {sessionId,_performance,_traceId,...input}=args || {}
-        return modService.presentation(sessionId,input,authority)
-
-    },
     async getRoundBody(args, method, serverTemplate, authority) {
       const { activeRoundBodies, activeTurnOf, agentRegistry, readChatCard, readRoundView, replyDisplayForChat, view } = deps
 

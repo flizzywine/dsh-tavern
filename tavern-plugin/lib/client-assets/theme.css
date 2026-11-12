@@ -6169,11 +6169,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
   .ap-model-head > .ap-model-col { padding: 0; }
 }
 
-.fork-mod-ui-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; max-width: 100%; }
-.fork-mod-ui-layer[data-band="stage-overlay"] { z-index: 2; }
-.fork-mod-ui-layer[data-band="presentation"] { z-index: 4; }
-.fork-mod-ui-layer[data-band="audience"] { z-index: 5; }
-.fork-mod-ui-layer[data-input="regions"] [data-mod-input] { pointer-events: auto; }
 /* ==== fork horizontal scrollers ==== */
 /* scrollbars are hidden everywhere (shell.css), and on PC no box
    may be reachable only by a sideways wheel. Every rule that lets a box scroll sideways is registered here

@@ -16,7 +16,6 @@ import {resolveBoundConfig} from '../../../lib/domain/mod-system.js'
 import {createModConfigHost,createModConfigStageReader} from './mod-config-host.js'
 import {createModConfigFiles} from './mod-config.js'
 import {createModStagePort} from './mod-stage.js'
-import {createModelStreamTiming} from './domain/mods/models.js'
 import {managedConfigStore} from './mod-system-execution.js'
 import {createStageDirector} from './domain/stage-director.js'
 import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
@@ -45,7 +44,7 @@ import {registerStageWorkbench} from './workbench/index.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
-  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
+  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
   // Pack-driven writer updates belong to the stage lifetime, including rollback.
   ctx.inject(['assetLibrary'], child => {
     const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
@@ -87,42 +86,12 @@ export async function createStageModule(core) {
     ...new Set([...directorCommands.definitions.map(row=>row.name.split('.')[0]),'perform'])].map(row=>typeof row==='string'?{dsl:{verb:row}}:row)
   let modConfigHost
   const workbenchAuthority=Object.freeze({})
-  let modViewVersion=0
   modService=createBuiltinModService({workbenchAuthority,management:managedModManagement,readCard:readModCard,
     config:{values:(...args)=>modConfigHost.values(...args),bindings:(...args)=>modConfigHost.bindings(...args),
       managedRequest:async chat=>managedModManagement.request(chat,{sources:modConfigHost.sources,context:await modConfigHost.context({sessionId:chat.sessionId})}),
       // the phone reads which layer supplied a value and that layer's uploaded files.
       resolved:(...args)=>modConfigHost.resolved(...args),readFile:(...args)=>modConfigHost.readFile(...args)},
-    models:{
-      describe:async({modId,slotId,sessionId,slot})=>{
-        const explicit=(await readTavernSettings()).modModels[modId]?.[slotId],chosen=await resolveSlot(modId,slotId,sessionId,slot)
-        let available=false
-        if(chosen)try {await llm.resolveCallConfig(chosen);available=true}catch{}
-        return {selection:explicit?'explicit':'follow-'+slot.fallback,provider:chosen?.provider || null,model:chosen?.model || null,label:chosen?.model || (slot.fallback==='background'?'跟随后台':'跟随前台'),available}
-      },
-      select:async({modId,slotId,sessionId,slot})=>{
-        const chosen=await resolveSlot(modId,slotId,sessionId,slot)
-        if(!chosen)throw new Error('请在全局模型设置中选择模组模型')
-        await llm.resolveCallConfig(chosen)
-        return chosen
-      },
-      busy:async (sessionId,purpose)=>purpose!=='comments' && (await sessionActivity(sessionId))?.busy===true,
-      run:async input=>{
-        const chat=await chatForSession(input.sessionId)
-        const record=await modelRequestLog.record({chat,context:{scope:'background',task:'mod.'+input.modId+'.'+input.slotId,turn:chat.messages?.at(-1)?.turn || 0},options:{...input,signal:undefined,onText:undefined}})
-        try {
-          const timing=createModelStreamTiming()
-          const result=await callModel({...input,returnUsage:true,onText:text=>{timing.text(text);input.onText?.(text)}})
-          await modelRequestLog.complete({chatId:chat.id,id:record.id,text:result.output,finish:{kind:'stop',timing:timing.finish(),...(result.usage?{usage:result.usage}:{})}})
-          return result
-        } catch(error) {
-          await modelRequestLog.complete({chatId:chat.id,id:record.id,error:String(error.message),interrupted:input.signal.aborted})
-          throw error
-        }
-      },
-    },
-    coreCommands:coreModCommands,connected:sessionId=>sessionSignals.connected(sessionId),
-    assetSnapshot:assetRuntime.snapshot,publishView:(sessionId,snapshot)=>sessionSignals.publish(sessionId,{kind:'mod-view',sessionId,version:String(++modViewVersion),snapshot}),
+    coreCommands:coreModCommands,
     stage:createModStagePort({readChat:readStageChat,readTurn:(sessionId,turn)=>readRoundView(sessionId,turn),readSource:(sessionId,turn)=>readStageChat.view(sessionId,{turn,sourceOnly:true}),updateChat:rawUpdateChat,readCard:readModCard,publish:event=>sessionSignals.publish(event.sessionId,event)}),
     onLog:event=>event.kind==='mod-delivery'?ctx.logger.debug('%s',JSON.stringify(event)):console.info('dsh-tavern:',JSON.stringify(event)),onChange:()=>assetRuntime.invalidate(),onError:error=>ctx.logger.warn('MOD_CALLBACK_FAILED %s',JSON.stringify({code:error?.code || 'MOD_RUNTIME_FAILED',message:error?.message,stack:error?.stack})),variables:{
       // Mod admission needs operation facts and message coordinates, not rollback checkpoints.
@@ -130,8 +99,7 @@ export async function createStageModule(core) {
       readWindow:chatPersistence.readWindow,readRevision:chatPersistence.readRevision,timeline:storyTimeline,patch:patchChat,
       execute:input=>tavernScriptHostAdapter.editMvuVariables(input),availability:sessionId=>tavernScriptDispatch.status(sessionId),
     }})
-  const offModAssets=assetRuntime.subscribe(()=>modService.assetsChanged())
-  ctx.effect(()=>()=>{offModAssets();modService.dispose()})
+  ctx.effect(()=>()=>modService.dispose())
   ctx.provide('tavernManagedModules', Object.freeze({
     apiVersion:managedModManagement.modHost.apiVersion,
     register(owner,manifest,implementation) {

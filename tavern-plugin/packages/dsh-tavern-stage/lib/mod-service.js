@@ -4,10 +4,7 @@ async function timedRead(name,task) {
   const start=performance.now()
   try {return await task()} finally {if(readTiming.hasSubscribers)readTiming.publish({name:'mod.'+name,durationMs:performance.now()-start})}
 }
-import {createModModelTasks} from './domain/mods/models.js'
 import {createSettledModSource} from '../../../lib/mod-source.js'
-import {createModSessionEvents} from '../../../lib/mod-events.js'
-import {createModEventCatalogue} from '../../../lib/mod-event-catalogue.js'
 import {isDeepStrictEqual as equal} from 'node:util'
 import {managedExecutionView} from './mod-system-execution.js'
 import {createFirstPartyMods} from '../../../lib/mod-builtins.js'
@@ -34,10 +31,8 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,management,readCard,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
-  let service,library,runtime,sessionEvents,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
-  const modelTasks=models?createModModelTasks(models):null
-  const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
+export function createBuiltinModService({workbenchAuthority,management,readCard,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
+  let service,library,runtime,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   let grammarRevision,grammarCommands
   const proofs=new Map(),prepared=new Map(),settlements=new Map(),notified=new WeakMap(),commands=new WeakMap(),recovering=new Set(),correcting=new Map()
   const corrections=stage?createModStageCorrections({...stage,log:onLog}):null
@@ -93,7 +88,6 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     },
   }:undefined
   async function sourceCurrent(context,head) {
-    if(context.sessionEvent)return sessionEvents.sourceCurrent(context,head)
     const proof=proofs.get(context.gameId)
     if(!current(context) || !head || head.timeline.branchId!==context.source.branchId)return false
     const at=head.messages.findLastIndex(row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===context.turn)
@@ -101,7 +95,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     const page=await variables.readWindow(head.id,{limit:1,before:at+1,revision:head._storageRevision})
     return page?.revision===head._storageRevision && equal(sourceValue(page.chat.messages[0]),proof.value)
   }
-  function invalidate() {epoch++;dirty=true;runtime?.dispose();sessionEvents?.dispose();modelTasks?.invalidate();eventCatalogue?.clear();prepared.clear();onChange()}
+  function invalidate() {epoch++;dirty=true;runtime?.dispose();prepared.clear();onChange()}
   // A settings save invalidates once, after it has returned (not mid-write on the serial lane).
   let writingSettings=false
   const unsubscribe=management.settings.subscribe(()=>{if(!writingSettings)invalidate()})
@@ -114,13 +108,6 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     dirty=false
     const variablePort=createModVariablePort({...variables,sourceCurrent,prepareCommit:input=>service.variableCommit(input),onError})
     settledSource=variables && stage?.source?createSettledModSource({...variables,source:stage.source}):null
-    sessionEvents=variables && stage?.source?createModSessionEvents({library,builtins:builtin,readCard,config,...variables,source:stage.source,
-      variables:()=>variablePort,epoch:()=>epoch,connected,onError,modelTasks,presentation:stage.presentation,
-      catalogues:eventCatalogue?.read,publishView,modelStatus:async(manifest,sessionId)=>Object.fromEntries(await Promise.all((manifest.modelSlots || []).map(async slot=>{
-        if(models?.describe)return [slot.id,await models.describe({modId:manifest.id,slotId:slot.id,sessionId,slot})]
-        try {const chosen=await models?.select({modId:manifest.id,slotId:slot.id,sessionId,slot});return [slot.id,{selection:'follow-foreground',provider:chosen?.provider || null,model:chosen?.model || null,label:chosen?.model || slot.label,available:!!chosen?.provider && !!chosen?.model}]}
-        catch{return [slot.id,{selection:'follow-foreground',provider:null,model:null,label:slot.label,available:false}]}
-      })))}):null
     runtime=createModHostRuntime({library,builtins:builtin,sourceCurrent:current,coreCommands,
       onError:diagnostic=>onLog({kind:'mod-runtime-failure',...diagnostic}),
       readText:async(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name)?.toString('utf8'),
@@ -197,31 +184,19 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     }
   }
   return service=Object.freeze({invalidate,
-    assetsChanged(){eventCatalogue?.clear();sessionEvents?.refresh()},
     async installBuiltinAssets(owner) {
       for(const pack of (await builtins).assetPacks?.() || []) {
         if(!active)return
         await owner.ensureBuiltinPack(pack)
       }
     },
-    stageViews(sessionId,authority) {
-      check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
-      return run(()=>sessionEvents?.views(sessionId) || {views:[]})
-    },
     // Only enabled installed mods contribute rows to the shared model settings.
     modelSlots:()=>run(()=>library.active().flatMap(manifest=>(manifest.modelSlots || []).map(slot=>({...slot,modId:manifest.id,modName:manifest.name})))),
-    presentation(sessionId,input,authority) {
-      check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
-      return run(()=>sessionEvents?.presentation(sessionId,input) || {accepted:true})
-    },
-    stageEvent(sessionId,event) {return run(()=>sessionEvents?.stageEvent(sessionId,event))},
     // A first-party mod's declared image files (manifest builtinAssets type image) as data URLs (a mod's built-in looks).
     async builtinImages(modId) {
       const builtin=await builtins,manifest=builtin.manifest(modId),files=builtin.files(modId)
       return Object.fromEntries(manifest.builtinAssets.filter(row=>row.type==='image').map(row=>[row.id,'data:image/'+(row.path.endsWith('.svg')?'svg+xml':row.path.split('.').pop())+';base64,'+files.get(row.path).toString('base64')]))
     },
-    disconnected(ids) {sessionEvents?.disconnected(ids)},
-    async eventsIdle(){await tail;await sessionEvents?.idle()},
     async manifests() {
       check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')
       await management.ready
@@ -278,7 +253,6 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     },validateSource)},
     enabled:cardPath=>readSnapshot('enabled',async library=>{const card=await readCard(cardPath);return !!card && library.active(card.meta.id).length>0}),
     observe(chat,{metadataOnly=false}={}) {
-      try {if(!dirty)sessionEvents?.observe(chat);else void run(()=>sessionEvents?.observe(chat)).catch(onError)}catch(error){onError(error)}
       const proof=proofs.get(chat.sessionId)
       if(!proof)return
       const message=messageAt(chat,proof.turn)
@@ -304,7 +278,6 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       // In-flight previews may inspect only an admitted body operation, never execute mod hooks.
       const body=streamSource && chat.timeline?.operations?.[streamSource.operationId]
       check(isCurrent() && (streamSource ? preview && body?.kind==='body' && body.status==='running' && Number(body.turn)===turn : message),'$.source','Director source changed','MOD_SOURCE_STALE')
-      if(!preview)eventCatalogue?.remember(chat.sessionId,key,assetCatalogue)
       const cacheKey=JSON.stringify([chat.sessionId,key,version,stageState,assetCatalogue?.revisions,assetCatalogue?.candidates.props,assetCatalogue?.candidates.performances,assetCatalogue?.candidates.audience,assetCatalogue?.candidates.timers])
       // a preview names each mod by its registered display name (提示词 › 模组 labels).
       const names=Object.fromEntries(enabled.map(manifest=>[manifest.id,installed.mods[manifest.id].name]))
@@ -375,7 +348,6 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       }
     },
     async settled(before,after,target,result) {
-      sessionEvents?.settlement(before.sessionId,{revision:String(after?._storageRevision || before._storageRevision),status:result?.receipt?.status || 'skipped',turn:Number(target.message.turn || 1)})
       if(!['updated','unchanged'].includes(result?.receipt?.status)) {onLog({code:'MOD_SETTLEMENT_IGNORED',status:result?.receipt?.status || 'skipped'});return}
       if(!active || !after || !result.variables)return
       await run(()=>null)
@@ -451,6 +423,6 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         if(snapshot)await correct(snapshot)
       })().catch(onError).finally(()=>recovering.delete(id))})
     },
-    dispose() {active=false;runtime?.dispose();sessionEvents?.dispose();modelTasks?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
+    dispose() {active=false;runtime?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
   })
 }

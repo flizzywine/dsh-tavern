@@ -1,4 +1,3 @@
-import {MOD_EVENTS} from './events.js'
 import directorCommands from '../../../packages/dsh-presentation-protocol/src/director-commands.cjs'
 import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 import widgetContract from '../../../src/client/widget-contracts.cjs'
@@ -150,15 +149,6 @@ export function validateModManifest(input) {
     modJson(input)
     const value = structuredClone(input), at = '$'
     shape(value, ['format','schemaVersion','id','name','summary','relevance','i18n','ui','version','apiVersion','dependencies','permissions','variableSlots','commands','prompts','settingsSchema','packSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission','subscriptions','modelSlots','uiLayers','provides','consumes'], ['format','schemaVersion','id','name','summary','relevance','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission'], at)
-    if(value.subscriptions!==undefined) {
-      list(value.subscriptions,'$.subscriptions',MOD_EVENTS.length)
-      const events=new Set()
-      for(const row of value.subscriptions) {
-        shape(row,['event','delivery'])
-        check(MOD_EVENTS.includes(row.event) && !events.has(row.event) && ['active','lifecycle'].includes(row.delivery),'$.subscriptions')
-        events.add(row.event)
-      }
-    }
     check(text(value.relevance,120) && value.relevance.trim() === value.relevance && !/[\r\n]/.test(value.relevance), '$.relevance', 'Expected a single-line relevance description, at most 120 characters')
     check(text(value.summary) && modHelp(value.summary), '$.summary', 'Expected one-sentence summary')
     check(value.format === 'dsh-mod' && value.schemaVersion === 2 && value.apiVersion === 1, at, 'Unsupported mod API or format')
