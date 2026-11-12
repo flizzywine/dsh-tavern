@@ -2333,6 +2333,7 @@ export async function apply(ctx) {
     trace: requestPerformance,
     timeline: storyTimeline,
     snapshots: playCardSnapshots,
+    pluginDataStore,
     userPreferenceProfile,
     presets: runtimePresets,
     settings: readTavernSettings,

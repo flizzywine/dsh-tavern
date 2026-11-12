@@ -1731,6 +1731,32 @@ export function createTavernPluginApi(deps) {
     return gamePlugins(gameId)
   }
 
+  /** Restore a game's plugin settings from saved default template values (card-owned plugins reset to declared defaults). */
+  async function resetGamePluginSettings(gameId, defaultValues = {}) {
+    const { game, disabled } = await choicesFor(gameId)
+    if (!game) throw new Error('这一局不存在或不是游玩对话')
+    if (!deps.data?.updateSettings) return gamePlugins(gameId)
+    const activeDefs = Array.from(gameSettingDefs.values()).filter(entry => !disabled.has(entry.owner))
+    await deps.data.updateSettings(game.chatId, settings => {
+      const nextValues = {}
+      for (const [owner, vals] of Object.entries(defaultValues || {})) {
+        if (vals && typeof vals === 'object' && !Array.isArray(vals)) nextValues[owner] = { ...vals }
+      }
+      for (const entry of activeDefs) {
+        const source = entry.card ? {} : (defaultValues?.[entry.owner] || {})
+        nextValues[entry.owner] = settingValues(entry, source)
+      }
+      settings.values = nextValues
+    })
+    const stored = (await deps.data.readSettings(game.chatId).catch(() => null))?.values || {}
+    for (const entry of activeDefs) {
+      const values = settingValues(entry, stored[entry.owner])
+      dispatch(Array.from(settingHandlers).filter(item => item.owner === entry.owner), { gameId: game.sessionId, values }, '本局配置项', disabled)
+      deps.settingsChanged?.(game.sessionId, entry.owner)
+    }
+    return gamePlugins(gameId)
+  }
+
   /** One plugin's settings in a game, for its page side; null when it declared none. */
   async function pluginGameSettings(gameId, owner) {
     const entry = gameSettingDefs.get(String(owner))
@@ -2068,5 +2094,5 @@ export function createTavernPluginApi(deps) {
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
     },
     speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
-    runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })
+    runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, resetGamePluginSettings, pluginGameSettings })
 }

@@ -6,7 +6,8 @@ import { projectAgentContent, projectOpeningCommit } from './runtime-content-pro
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
-import { normalizeConfiguredBackgroundTasks, normalizePlayDefaults } from './tavern-settings.js'
+import { normalizeDisabledForegroundTools } from './foreground-tools.js'
+import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
 import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse } from './reply-prose.js'
@@ -204,6 +205,15 @@ export function createConversationInitialization(options) {
     chat.conversationFeaturesVersion = 1
     chat.backgroundModelSelection = groupOfMode(chat.mode) === 'play' ? normalizeBackgroundModel(currentSettings.defaultBackgroundModel) : null
     chat.disabledWritingSkills = groupOfMode(chat.mode) === 'play' ? [...(currentSettings.defaultDisabledWritingSkills || [])] : []
+    chat.disabledForegroundTools = groupOfMode(chat.mode) === 'play' ? normalizeDisabledForegroundTools(currentSettings.defaultDisabledForegroundTools) : []
+    if (groupOfMode(chat.mode) === 'play') {
+      const bodyDefaults = normalizeDefaultBodyGeneration(currentSettings.defaultBodyGeneration)
+      if (bodyDefaults.mode !== 'inherit') {
+        chat.storyGenerationMode = bodyDefaults.mode
+        chat.storyGenerationProvider = bodyDefaults.provider
+      }
+      if (typeof bodyDefaults.hostRegex === 'boolean') chat.storyPluginOutputRegex = bodyDefaults.hostRegex
+    }
     chat.backgroundConfigVersion = 1
     chat.backgroundTasks = normalizeConfiguredBackgroundTasks(groupOfMode(chat.mode) === 'play' ? defaults.backgroundTasks : {})
     chat.mvu = usesMvu ? {
@@ -314,6 +324,16 @@ export function createConversationInitialization(options) {
       : group === 'card' ? currentSettings.defaultWorkbenchModel || currentSettings.defaultForegroundModel : null
     if (openingTarget && defaultModel) await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel))
     await trace.stage('publish', () => chats.publish(chat))
+    if (group === 'play' && options.pluginDataStore?.updateSettings) {
+      const defaultPluginValues = normalizeDefaultPluginGameSettings(currentSettings.defaultPluginGameSettings)
+      if (Object.keys(defaultPluginValues).length > 0) {
+        await options.pluginDataStore.updateSettings(chat.id, s => {
+          for (const [owner, vals] of Object.entries(defaultPluginValues)) {
+            if (!s.values[owner]) s.values[owner] = { ...vals }
+          }
+        })
+      }
+    }
     if (hasSession) await trace.stage('nativeAppend', () => appendNativeOpening(sessionId, chat, card, openingTarget))
     // Match the client's first getSession resource contract. The startChat view
     // can then seed Helper iframes without a second RPC just for resource handles.

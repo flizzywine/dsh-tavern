@@ -6,6 +6,26 @@ function createConversationSettingsModule({
     UserPreferenceProfileTab, TavernConversationWritingSkills, backgroundModelLabel
 }) {
     const tavernSettingsSessionReads = new Map();
+    const tavernSettingsPendingWrites = new Map();
+    function trackTavernSettingsWrite(sessionId, promise) {
+        let pending = tavernSettingsPendingWrites.get(sessionId);
+        if (!pending) {
+            pending = new Set();
+            tavernSettingsPendingWrites.set(sessionId, pending);
+        }
+        const cleanup = () => {
+            pending.delete(promise);
+            if (!pending.size && tavernSettingsPendingWrites.get(sessionId) === pending) tavernSettingsPendingWrites.delete(sessionId);
+        };
+        pending.add(promise);
+        promise.then(cleanup, cleanup);
+        return promise;
+    }
+    async function flushTavernSettingsWrites(sessionId) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const pending = tavernSettingsPendingWrites.get(sessionId);
+        if (pending && pending.size) await Promise.allSettled([...pending]);
+    }
     function readTavernSettingsSession(sessionId) {
             const pending = tavernSettingsSessionReads.get(sessionId);
             if (pending) return pending;
@@ -26,7 +46,7 @@ function createConversationSettingsModule({
         React.useEffect(() => { refresh(true).catch(err => setError(String(err.message || err))); }, []);
         async function change(path) {
             setBusy(true); setError(""); setNotice("");
-            try { await rpc("applyConversationPreset", { sessionId: props.sessionId, path }, props.sessionId); await refresh(); setNotice("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["presets", "sessions"], "presets"); }
+            try { await trackTavernSettingsWrite(props.sessionId, rpc("applyConversationPreset", { sessionId: props.sessionId, path }, props.sessionId)); await refresh(); setNotice("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["presets", "sessions"], "presets"); }
             catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
@@ -43,7 +63,7 @@ function createConversationSettingsModule({
         async function save(value) {
             if (busy || value === name) return;
             setBusy(true); setStatus("保存中…");
-            try { const result = await rpc("setPlayerName", { userName: value }, props.sessionId); setName(result.playerName || "你"); setStatus("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["sessions"], "play-controls"); }
+            try { const result = await trackTavernSettingsWrite(props.sessionId, rpc("setPlayerName", { userName: value }, props.sessionId)); setName(result.playerName || "你"); setStatus("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["sessions"], "play-controls"); }
             catch (err) { setStatus("保存失败：" + err.message); }
             finally { setBusy(false); }
         }
@@ -64,7 +84,7 @@ function createConversationSettingsModule({
         async function save(patch) {
             setBusy(true); setError("");
             const selection = Object.hasOwn(patch, "hostRegex") ? {} : { mode: data.mode, provider: data.provider };
-            try { setData(await rpc("setBodyGenerationSettings", { sessionId: props.sessionId, ...selection, ...patch }, props.sessionId)); }
+            try { setData(await trackTavernSettingsWrite(props.sessionId, rpc("setBodyGenerationSettings", { sessionId: props.sessionId, ...selection, ...patch }, props.sessionId))); }
             catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
@@ -95,7 +115,7 @@ function createConversationSettingsModule({
         React.useEffect(function () { void load(); }, [load]);
         async function change(payload) {
             setBusy(true); setError("");
-            try { setData((await rpc("setGamePlugin", payload, props.sessionId)).plugins); }
+            try { setData((await trackTavernSettingsWrite(props.sessionId, rpc("setGamePlugin", payload, props.sessionId))).plugins); }
             catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
@@ -156,7 +176,7 @@ function createConversationSettingsModule({
             const previous = disabled;
             setDisabled(next); setBusy(true); setError(""); setNotice("");
             try {
-                const result = await rpc("setConversationBackgroundConfig", { sessionId: props.sessionId, disabledForegroundTools: next }, props.sessionId);
+                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", { sessionId: props.sessionId, disabledForegroundTools: next }, props.sessionId));
                 setDisabled(Array.isArray(result.disabledForegroundTools) ? result.disabledForegroundTools : next);
                 setNotice("已保存，下一轮生效");
                 invalidateView(props.sessionId);
@@ -186,21 +206,76 @@ function createConversationSettingsModule({
         const h = React.createElement;
         const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
         const mode = useTavernSessionMode(owner);
+        const playable = isPlayMode(mode);
+        const [templateAction, setTemplateAction] = React.useState("");
+        const [templateNotice, setTemplateNotice] = React.useState("");
+        const [templateError, setTemplateError] = React.useState("");
+        const [reloadKey, setReloadKey] = React.useState(0);
+        React.useEffect(() => {
+            setTemplateAction("");
+            setTemplateNotice("");
+            setTemplateError("");
+        }, [owner]);
+        async function saveAsDefaultTemplate() {
+            if (templateAction || !playable) return;
+            setTemplateAction("save");
+            setTemplateNotice("");
+            setTemplateError("");
+            try {
+                await flushTavernSettingsWrites(owner);
+                const result = await rpc("saveConversationSettingsAsDefaultTemplate", { sessionId: owner }, owner);
+                const warnings = Array.isArray(result?.warnings) && result.warnings.length ? "（" + result.warnings.join("；") + "）" : "";
+                setTemplateNotice("已保存目前设置为默认模板" + warnings);
+                if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+                notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
+            } catch (err) {
+                setTemplateError(String(err?.message || err));
+            } finally {
+                setTemplateAction("");
+            }
+        }
+        async function restoreDefaultTemplate() {
+            if (templateAction || !playable) return;
+            setTemplateAction("restore");
+            setTemplateNotice("");
+            setTemplateError("");
+            try {
+                await flushTavernSettingsWrites(owner);
+                const result = await rpc("restoreConversationSettingsFromDefaultTemplate", { sessionId: owner }, owner);
+                tavernSettingsSessionReads.delete(owner);
+                setReloadKey(value => value + 1);
+                invalidateView(owner);
+                notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
+                const warnings = Array.isArray(result?.warnings) && result.warnings.length ? "（" + result.warnings.join("；") + "）" : "";
+                setTemplateNotice("已恢复默认模板" + warnings);
+            } catch (err) {
+                setTemplateError(String(err?.message || err));
+            } finally {
+                setTemplateAction("");
+            }
+        }
+        const scopeKey = owner + (reloadKey ? ":r" + reloadKey : "");
         return h("aside", { className: "dsh-tavern-status dsh-local-settings", "aria-label": "本局设置" },
-            h("div", { className: "dsh-tavern-status-head" }, h("strong", null, "本局设置")),
-            h("div", { className: "dsh-tavern-status-body" }, isPlayMode(mode) ? h(React.Fragment, null,
+            h("div", { className: "dsh-tavern-status-head" },
+                h("strong", null, "本局设置"),
+                playable ? h("div", { className: "dsh-tavern-library-head-actions dsh-local-settings-head-actions" },
+                    h("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "保存目前设置为默认模板", disabled: Boolean(templateAction), onClick: () => void saveAsDefaultTemplate() }, templateAction === "save" ? "保存中…" : "保存目前设置为默认模板"),
+                    h("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "恢复默认模板", disabled: Boolean(templateAction), onClick: () => void restoreDefaultTemplate() }, templateAction === "restore" ? "恢复中…" : "恢复默认模板")) : null),
+            h("div", { className: "dsh-tavern-status-body" }, playable ? h(React.Fragment, null,
+                templateError ? h("p", { role: "alert", className: "dsh-local-template-status is-error" }, "操作失败：" + templateError)
+                    : templateNotice ? h("p", { role: "status", className: "dsh-local-template-status" }, templateNotice) : null,
                 h("p", { className: "dsh-local-intro" }, "仅影响本局，修改后自动保存，已有对话和变量会保留。"),
                 h("p", { className: "dsh-local-warning dsh-local-intro" }, "切换预设、长期偏好、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。"),
                 h("section", { className: "dsh-local-section" }, h("h3", null, "游玩"),
-                    h(TavernLocalPlayerName, { key: owner + ":name", sessionId: owner }),
-                    h(TavernConversationPreset, { key: owner + ":preset", sessionId: owner }),
-                    h(UserPreferenceProfileTab, { key: owner + ":profile", scope: { sessionId: owner }, conversationOnly: true })),
-                h(TavernConversationBackgroundModel, { key: owner, sessionId: owner }),
-                h(TavernBodyGenerationSettings, { key: owner + ":body-generation", sessionId: owner }),
-                h(TavernConversationPluginSettings, { key: owner + ":plugin-settings", sessionId: owner }),
+                    h(TavernLocalPlayerName, { key: scopeKey + ":name", sessionId: owner }),
+                    h(TavernConversationPreset, { key: scopeKey + ":preset", sessionId: owner }),
+                    h(UserPreferenceProfileTab, { key: scopeKey + ":profile", scope: { sessionId: owner }, conversationOnly: true })),
+                h(TavernConversationBackgroundModel, { key: scopeKey, sessionId: owner }),
+                h(TavernBodyGenerationSettings, { key: scopeKey + ":body-generation", sessionId: owner }),
+                h(TavernConversationPluginSettings, { key: scopeKey + ":plugin-settings", sessionId: owner }),
                 h("details", { className: "dsh-local-advanced" }, h("summary", null, "高级"),
-                    h(TavernConversationTools, { key: owner + ":tools", sessionId: owner }),
-                    h(TavernConversationWritingSkills, { key: owner + ":skills", sessionId: owner }))) : h("p", null, "请选择一个游玩对话。")));
+                    h(TavernConversationTools, { key: scopeKey + ":tools", sessionId: owner }),
+                    h(TavernConversationWritingSkills, { key: scopeKey + ":skills", sessionId: owner }))) : h("p", null, "请选择一个游玩对话。")));
     }
 
     function TavernConversationSettingsAction(props) {
@@ -248,7 +323,7 @@ function createConversationSettingsModule({
             if (busy || !loaded) return;
             setBusy(true); setError(""); setNotice("");
             try {
-                const result = await rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId, backgroundModel: selection }, patch), props.sessionId);
+                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId, backgroundModel: selection }, patch), props.sessionId));
                 setSlotState(current=>({...current,values:result.modModels || {}}));
                 setSelection(result.backgroundModel); setTasks(result.backgroundTasks); setFeatures({ ...features, webSearchEnabled: result.webSearchEnabled });
                 setNotice("已保存");

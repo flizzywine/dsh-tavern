@@ -1,6 +1,33 @@
 import { compactionPolicy } from './auto-compaction.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
+import { normalizeDisabledForegroundTools } from './foreground-tools.js'
+
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+export function normalizeDefaultBodyGeneration(value) {
+  const input = object(value)
+  const mode = ['host', 'plugin-direct', 'plugin-tool-call'].includes(input.mode) ? input.mode : 'inherit'
+  const provider = typeof input.provider === 'string' ? input.provider.slice(0, 300) : ''
+  const hostRegex = typeof input.hostRegex === 'boolean' ? input.hostRegex : null
+  return { mode: mode.startsWith('plugin-') && !provider.trim() ? 'inherit' : mode, provider, hostRegex }
+}
+
+export function normalizeDefaultPluginGameSettings(value) {
+  const result = {}
+  for (const [owner, fields] of Object.entries(object(value))) {
+    if (!owner || owner.length > 200 || RESERVED_KEYS.has(owner) || !fields || typeof fields !== 'object' || Array.isArray(fields)) continue
+    const normalized = {}
+    for (const [key, item] of Object.entries(fields)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/.test(key) || RESERVED_KEYS.has(key)) continue
+      if (typeof item === 'boolean' || (typeof item === 'number' && Number.isFinite(item)) || (typeof item === 'string' && item.length <= 500)) {
+        normalized[key] = item
+      }
+    }
+    if (Object.keys(normalized).length > 0) result[owner] = normalized
+  }
+  return result
+}
 
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -243,6 +270,29 @@ export function applyTavernSettingsPatch(current, patch) {
     const disabled = Array.isArray(next.defaultDisabledWritingSkills) ? next.defaultDisabledWritingSkills : []
     next.defaultDisabledWritingSkills = enabled ? disabled.filter(value => value !== name) : [...new Set([...disabled, name])]
   }
+  if (Object.hasOwn(input, 'defaultDisabledWritingSkills')) {
+    if (!Array.isArray(input.defaultDisabledWritingSkills) || input.defaultDisabledWritingSkills.some(name => typeof name !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))) throw new Error('无效的写作 Skill 配置')
+    next.defaultDisabledWritingSkills = [...new Set(input.defaultDisabledWritingSkills)]
+  }
+  if (Object.hasOwn(input, 'defaultDisabledForegroundTools')) {
+    if (!Array.isArray(input.defaultDisabledForegroundTools)) throw new Error('前台工具默认配置无效')
+    next.defaultDisabledForegroundTools = normalizeDisabledForegroundTools(input.defaultDisabledForegroundTools)
+  }
+  if (Object.hasOwn(input, 'defaultBodyGeneration')) {
+    const body = input.defaultBodyGeneration
+    if (body !== null && (typeof body !== 'object' || Array.isArray(body))) throw new Error('默认正文生成设置无效')
+    if (body !== null) {
+      if (Object.hasOwn(body, 'mode') && !['inherit', 'host', 'plugin-direct', 'plugin-tool-call'].includes(body.mode)) throw new Error('正文生成方式无效')
+      if (Object.hasOwn(body, 'provider') && (typeof body.provider !== 'string' || body.provider.length > 300)) throw new Error('正文生成插件标识无效')
+      if (Object.hasOwn(body, 'hostRegex') && body.hostRegex !== null && typeof body.hostRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
+      if (body.mode?.startsWith('plugin-') && !body.provider?.trim()) throw new Error('请先选择正文生成插件')
+    }
+    next.defaultBodyGeneration = normalizeDefaultBodyGeneration(body)
+  }
+  if (Object.hasOwn(input, 'defaultPluginGameSettings')) {
+    if (input.defaultPluginGameSettings !== null && (typeof input.defaultPluginGameSettings !== 'object' || Array.isArray(input.defaultPluginGameSettings))) throw new Error('默认插件本局设置无效')
+    next.defaultPluginGameSettings = normalizeDefaultPluginGameSettings(input.defaultPluginGameSettings)
+  }
   // polishModel: 精修's own model for every game; null follows each game's story model.
   for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel', 'polishModel']) {
     if (!Object.hasOwn(input, name)) continue
@@ -424,6 +474,9 @@ export function presentTavernSettings(document, defaults) {
     defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings),
     scriptChunkSize: Number.isSafeInteger(object(document).scriptChunkSize) && document.scriptChunkSize >= 100 && document.scriptChunkSize <= 10000 ? document.scriptChunkSize : 500,
     defaultDisabledWritingSkills: Array.isArray(object(document).defaultDisabledWritingSkills) ? object(document).defaultDisabledWritingSkills.filter(name => typeof name === 'string') : [],
+    defaultDisabledForegroundTools: normalizeDisabledForegroundTools(object(document).defaultDisabledForegroundTools),
+    defaultBodyGeneration: normalizeDefaultBodyGeneration(object(document).defaultBodyGeneration),
+    defaultPluginGameSettings: normalizeDefaultPluginGameSettings(object(document).defaultPluginGameSettings),
     modModels: structuredClone(object(document).modModels || {}),
     defaultForegroundModel: normalizeBackgroundModel(object(document).defaultForegroundModel),
     defaultBackgroundModel: normalizeBackgroundModel(object(document).defaultBackgroundModel),

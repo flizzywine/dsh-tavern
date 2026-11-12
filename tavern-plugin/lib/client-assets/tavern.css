@@ -1464,6 +1464,8 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-local-profile summary { cursor: pointer; color: var(--dsw-alias-label-secondary); }
 .dsh-local-profile .dsh-tavern-user-profile-text { max-height: 240px; overflow: auto; padding: 10px; margin-top: 8px; background: var(--dsw-specific-sidebar-fill); border-radius: 8px; }
 .dsh-local-feedback { display: block; font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.dsh-local-settings .dsh-local-template-status { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); }
+.dsh-local-settings .dsh-local-template-status.is-error { color: var(--dsh-tavern-accent-error, #c64545); }
 @container (min-width: 560px) {
   .dsh-local-section > label:not(.dsh-tavern-background-task), .dsh-local-field label { grid-template-columns: minmax(100px, 1fr) minmax(220px, 1.6fr); align-items: center; }
   .dsh-local-profile { grid-template-columns: minmax(100px, 1fr) minmax(220px, 1.6fr); align-items: start; }
@@ -2632,6 +2634,16 @@ select.dsh-tavern-settings-select:disabled { cursor: default; opacity: .55; }
 :is(.dsh-tavern-library, .dsh-tavern-presets, .dsh-tavern-resources, .dsh-tavern-user-profile, .dsh-tavern-card-memory, .dsh-tavern-status:not(.dsh-tavern-status-dashboard)) > .dsh-tavern-status-head .dsh-tavern-library-head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0; }
 .dsh-tavern-card-memory { padding: 0 16px 16px; }
 .dsh-tavern-card-memory > .dsh-tavern-status-head { margin: 0 -16px 14px; }
+.dsh-tavern-status.dsh-local-settings > .dsh-tavern-status-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+}
+.dsh-tavern-status.dsh-local-settings > .dsh-tavern-status-head > strong { white-space: nowrap; }
+.dsh-tavern-status.dsh-local-settings > .dsh-tavern-status-head > .dsh-local-settings-head-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0;
+}
+.dsh-tavern-status.dsh-local-settings > .dsh-tavern-status-head .dsh-tavern-btn {
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+}
 
 /* Buttons: secondary outline by default; .primary solid accent; .danger red text. */
 :is(.dsh-tavern-library, .dsh-tavern-presets, .dsh-tavern-resources, .dsh-tavern-user-profile, .dsh-tavern-card-memory, .dsh-tavern-status:not(.dsh-tavern-status-dashboard)) :is(.dsh-tavern-btn, .dsh-tavern-resource-import) {

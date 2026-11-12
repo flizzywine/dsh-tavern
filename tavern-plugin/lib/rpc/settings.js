@@ -1,6 +1,9 @@
-import { readBackgroundModelReasoning } from '../domain/background-model-selection.js'
+import { normalizeBackgroundModel, readBackgroundModelReasoning } from '../domain/background-model-selection.js'
 import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
 import { configuredBodyGeneration } from '../domain/plugin-body-generation.js'
+import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
+import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
+import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -146,6 +149,157 @@ return { bodyGenerationProviders: await deps.pluginApi?.bodyGenerators?.list(), 
       const [provider] = pluginApi.pricingProviders()
       if (!provider) return { available: false, reason: '没有插件提供模型价格' }
       return await provider.quote(modelSelection(args && args.sessionId))
+    },
+    async saveConversationSettingsAsDefaultTemplate(args) {
+      const sessionId = str(args?.sessionId)
+      const chat = await chatForSession(sessionId)
+      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
+      const currentSettings = await readTavernSettings()
+      const warnings = []
+      const playerName = str(chat.macroState?.userName).trim().slice(0, 80) || '你'
+      const tasks = normalizeConfiguredBackgroundTasks(chat.backgroundTasks)
+      const backgroundModel = normalizeBackgroundModel(chat.backgroundModelSelection)
+      let includeBackgroundModel = true
+      if (backgroundModel !== null && typeof llm?.resolveCallConfig === 'function') {
+        try { await llm.resolveCallConfig(backgroundModel) } catch {
+          includeBackgroundModel = false
+          warnings.push('本局后台模型当前不可用，未更新默认后台模型')
+        }
+      }
+      const disabledForegroundTools = normalizeDisabledForegroundTools(chat.disabledForegroundTools)
+      const disabledWritingSkills = (Array.isArray(chat.disabledWritingSkills) ? chat.disabledWritingSkills : [])
+        .map(canonicalTavernSkillName)
+        .filter(name => typeof name === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))
+      const defaultBodyGeneration = {
+        mode: ['host', 'plugin-direct', 'plugin-tool-call'].includes(chat.storyGenerationMode) ? chat.storyGenerationMode : 'inherit',
+        provider: typeof chat.storyGenerationProvider === 'string' ? chat.storyGenerationProvider : '',
+        hostRegex: typeof chat.storyPluginOutputRegex === 'boolean' ? chat.storyPluginOutputRegex : null
+      }
+      if (defaultBodyGeneration.mode.startsWith('plugin-') && !defaultBodyGeneration.provider.trim()) {
+        defaultBodyGeneration.mode = 'inherit'
+      }
+      const defaultPluginGameSettings = { ...(currentSettings.defaultPluginGameSettings || {}) }
+      const gamePlugins = await deps.pluginApi?.gamePlugins?.(sessionId).catch(() => null)
+      for (const entry of gamePlugins?.settings || []) {
+        if (!entry.card && entry.plugin && entry.values) defaultPluginGameSettings[entry.plugin] = { ...entry.values }
+      }
+      const presetPath = str(chat.runtimePresetSnapshot?.presetPath || chat.runtimePresetPath)
+      if (deps.presetLibrary) {
+        if (presetPath === '') {
+          await deps.presetLibrary.select('')
+        } else {
+          const preset = await deps.presetLibrary.read(presetPath).catch(() => undefined)
+          if (preset && preset.valid === true && preset.recognized === true) await deps.presetLibrary.select(presetPath)
+          else warnings.push('本局预设源文件不可用，未更新默认预设')
+        }
+      }
+      if (userPreferenceProfile) {
+        if (chat.userProfileEnabled === true) {
+          const profileId = str(chat.userProfileId) || 'default'
+          const profileDoc = await userPreferenceProfile.read()
+          if (profileDoc.profiles?.some(item => item.id === profileId && item.hasConfirmed)) {
+            await userPreferenceProfile.manage({ action: 'default', profileId })
+          } else {
+            warnings.push('本局长期偏好不可用，未更新默认长期偏好')
+          }
+        } else {
+          await userPreferenceProfile.manage({ action: 'default', profileId: '' })
+        }
+      }
+      const patch = {
+        defaultPlaySettings: {
+          playerName,
+          backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true },
+          webSearchEnabled: chat.webSearchEnabled === true
+        },
+        defaultDisabledForegroundTools: disabledForegroundTools,
+        defaultDisabledWritingSkills: disabledWritingSkills,
+        defaultBodyGeneration,
+        defaultPluginGameSettings,
+        ...(includeBackgroundModel ? { defaultBackgroundModel: backgroundModel } : {})
+      }
+      const settings = await updateTavernSettings(patch)
+      return { saved: true, warnings, settings }
+    },
+    async restoreConversationSettingsFromDefaultTemplate(args) {
+      const sessionId = str(args?.sessionId)
+      let chat = await chatForSession(sessionId)
+      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
+      if ((await sessionActivity?.(sessionId))?.busy || agentRegistry?.get(sessionId)?.phase?.kind === 'running') {
+        throw new Error('请等待当前生成和后台任务完成后再恢复默认模板')
+      }
+      const settings = await readTavernSettings()
+      const defaults = settings.defaultPlaySettings
+      const warnings = []
+      let presetSnapshot = null
+      if (deps.presetLibrary && deps.runtimePresets) {
+        const presetCatalog = await deps.presetLibrary.catalog()
+        const defaultPresetPath = str(presetCatalog?.activePresetPath)
+        if (defaultPresetPath !== '') {
+          try { presetSnapshot = await deps.runtimePresets.fullSnapshot(defaultPresetPath) } catch {
+            presetSnapshot = null
+            warnings.push('默认预设不可用，已切换为不使用酒馆预设')
+          }
+        }
+      }
+      let bodyDefaults = normalizeDefaultBodyGeneration(settings.defaultBodyGeneration)
+      if (bodyDefaults.mode !== 'inherit' && bodyDefaults.mode !== 'host' && deps.pluginApi?.bodyGenerators?.require) {
+        try { await deps.pluginApi.bodyGenerators.require(bodyDefaults.provider, chat.sessionId) } catch {
+          bodyDefaults = { ...bodyDefaults, mode: 'inherit', provider: '' }
+          warnings.push('默认正文生成插件不可用，已恢复为跟随全局设置')
+        }
+      }
+      if (typeof deps.setPlayerName === 'function') {
+        await deps.setPlayerName(sessionId, defaults.playerName)
+        chat = await chatForSession(sessionId)
+        if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
+      }
+      let preferencePatch = {}
+      if (userPreferenceProfile && playCardSnapshots) {
+        const profileDoc = await userPreferenceProfile.read()
+        const defaultProfileId = str(profileDoc?.defaultProfileId)
+        const canEnableProfile = defaultProfileId !== '' && Boolean(profileDoc?.profiles?.some(item => item.id === defaultProfileId && item.hasConfirmed))
+        if (defaultProfileId !== '' && !canEnableProfile) warnings.push('默认长期偏好不可用，已切换为不使用长期偏好')
+        if (canEnableProfile || chat.userProfileEnabled === true) {
+          if (!str(chat.cardContextSnapshot) && typeof deps.readChatCard === 'function') {
+            const card = await deps.readChatCard(chat).catch(() => null)
+            if (card) {
+              await playCardSnapshots.ensure(chat, card)
+              chat = await chatForSession(sessionId)
+            }
+          }
+          preferencePatch = await playCardSnapshots.preferenceReplacement(chat, canEnableProfile, canEnableProfile ? defaultProfileId : undefined)
+        }
+      }
+      await updateChat(chat.id, current => {
+        if ((current.messages || []).length !== (chat.messages || []).length) throw new Error('当前游戏已变化，请刷新后重试')
+        if (typeof deps.setPlayerName !== 'function') {
+          current.macroState = { local: {}, global: {}, ...current.macroState, userName: defaults.playerName }
+        }
+        current.runtimePresetSnapshot = presetSnapshot
+        current.runtimePresetPath = str(presetSnapshot?.presetPath)
+        Object.assign(current, preferencePatch)
+        current.backgroundConfigVersion = 1
+        current.conversationFeaturesVersion = 1
+        current.backgroundModelSelection = normalizeBackgroundModel(settings.defaultBackgroundModel)
+        current.backgroundTasks = normalizeConfiguredBackgroundTasks(defaults.backgroundTasks)
+        current.webSearchEnabled = defaults.webSearchEnabled === true
+        current.disabledForegroundTools = normalizeDisabledForegroundTools(settings.defaultDisabledForegroundTools)
+        current.disabledWritingSkills = [...(settings.defaultDisabledWritingSkills || [])]
+        if (bodyDefaults.mode === 'inherit') {
+          delete current.storyGenerationMode
+          delete current.storyGenerationProvider
+        } else {
+          current.storyGenerationMode = bodyDefaults.mode
+          current.storyGenerationProvider = bodyDefaults.provider
+        }
+        if (bodyDefaults.hostRegex === null) delete current.storyPluginOutputRegex
+        else current.storyPluginOutputRegex = bodyDefaults.hostRegex
+        return current
+      }, { source: 'settings.restore-default-template' })
+      deps.invalidateTavernSkills?.()
+      await deps.pluginApi?.resetGamePluginSettings?.(sessionId, settings.defaultPluginGameSettings || {})
+      return { restored: true, warnings }
     },
   }
   handlers.getConversationBackgroundConfig = handlers.getConversationBackgroundModel
