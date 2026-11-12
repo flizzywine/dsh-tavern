@@ -253,6 +253,30 @@ test('beforeImageGenerate: the host releases each picture with its subjects, or 
     if (skip) assert.ok(JSON.stringify(result.body).includes('not ready yet'), 'the reason reaches the turn warnings')
   })
 })
+test('beforeImageGenerate: a plan that names its people only by roster macro, without <subjects>, still waits for them', async t => {
+  const calls = [], asked = []
+  let runtime, referenceImage
+  // As planners often write it: the person is named only by macro, the <subjects> block is left out.
+  const output = '<images><image><regex>林月站在窗边。</regex><prompts>${"name":"林月","angle":"from front"}$ standing by the window.</prompts></image></images>'
+  globalThis.fetch = atlasMock(calls)
+  const tavern = { async beforeImageGenerate({ subjects }) {
+    asked.push(subjects.map(subject => subject.characterId))
+    // The host prepares the reference of whoever the picture is drawn with before releasing it.
+    if (subjects.some(subject => subject.characterId === 'lin')) {
+      referenceImage = (await runtime.request('reference-image', { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: 'new-reference.png' })).body.referenceImage
+      assert.equal((await runtime.request('definitions', { definitions: { characters: [{ ...structuredClone(character), referenceImage }] } })).status, 200)
+    }
+    return {}
+  } }
+  const fixture = await imagePluginFixture(t, { tavern, definitions: { characters: [character] }, config: { generationMode: 'auto', promptMode: 'structured' }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+  runtime = await fixture.start()
+  const result = await runtime.request('plan', { text: '林月站在窗边。', messageId: 'turn-macro-only', count: 1, manual: true, sessionId: 'game-1' })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  assert.deepEqual(asked, [['lin']], 'the host is told the person the picture will be drawn with')
+  const job = await runtime.terminal(result.body.plans[0].jobId)
+  assert.equal(job.state, 'done', job.error)
+  assert.equal(job.references?.[0]?.image.id, referenceImage.id, 'the picture is drawn with the reference the host prepared')
+})
 test('a waiting picture uses the reference added by the host while other pictures can proceed', async t => {
   let release, entered = false
   const ready = new Promise(resolve => { release = resolve })
