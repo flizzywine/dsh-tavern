@@ -25,6 +25,10 @@ test('registered tool returns full hidden record, gates execution and keeps sche
   assert.equal(JSON.stringify(registered.find(tool => tool.name === 'tavern_roll')), JSON.stringify(defineTool(createDiceTool(deps))), 'registered from the mod with the same schema')
   await registered.find(tool => tool.name === 'tavern_roll').execute(args, exec)
   assert.deepEqual(authorized, [['dsh.dice', 'story']], 'authorized under its own mod')
+  let context
+  registerGameplayTools({ ...deps, modTools: [{ modId: 'dsh.test', name: 'tavern_test_mod', create: value => (context = value, createDiceTool(value)) }],
+    authorizeMod: async () => true, markModToolUsed: async () => {}, tools: { register: () => {} } })
+  assert.deepEqual(context.variables({ messages: [{ turn: 1, variables: [{ stat_data: { hp: 3 } }] }, { role: 'tavern-helper' }] }), { hp: 3 }, 'a mod tool reads the latest saved variables')
   const tool = createDiceTool(deps)
   const schema = JSON.stringify(defineTool(tool))
   assert.equal(tool.isConcurrencySafe(), false)

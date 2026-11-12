@@ -1,6 +1,7 @@
 import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, renderHistoryRecall } from '../domain/history-recall.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshParameterFields } from '../domain/dsh-tool-schema.js'
+import { currentVariableSnapshot } from '../domain/read-variables.js'
 
 export function registerGameplayTools({
   modTools = [],
@@ -14,9 +15,11 @@ export function registerGameplayTools({
   recallHistoryForSession,
   tools,
 }) {
-  // The mods' foreground tools (lib/mod-tools.js), each authorized and marked under its own mod.
+  // The mods' foreground tools (lib/mod-tools.js), each authorized and marked under its own mod; variables(chat) is the
+  // game's latest saved MVU stat_data (the reader tavern_read_variables uses).
   for (const tool of modTools) tools.register(defineTool(tool.create({ activeTurnOf, chatForSession, isBackground,
-    authorize: chat => authorizeMod(tool.modId, chat), markUsed: chat => markModToolUsed(chat, tool.name) })))
+    authorize: chat => authorizeMod(tool.modId, chat), markUsed: chat => markModToolUsed(chat, tool.name),
+    variables: chat => currentVariableSnapshot(chat).snapshot })))
   tools.register(defineTool({
     name: 'tavern_test_response',
     description: '用正式游玩 API 为已保存人物卡创建独立测试存档，按保存的案例逐轮调用模型并检查拒绝信号。configure 保存案例，start 启动，status 查询（最多等待 10 秒），cancel 停止。最长 5 分钟；真实调用产生费用。不支持浏览器脚本卡。未发现拒绝不等于内容合规。',
