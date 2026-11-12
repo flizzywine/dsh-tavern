@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b798e24a51263fc7d87cf0744025ee4cf900bcbe",
-  "releaseSequence": 1544,
+  "revision": "8a9be2dc3c7f64dab9f3d16510ce04e97c575716",
+  "releaseSequence": 1545,
   "version": "3.3.0",
   "files": [
     {
@@ -1311,8 +1311,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-generation.js",
-      "sha256": "e3a0c682a7e3d31855e21aa4bf3cdb45288c1c0e323adf7c0005218f83921535",
-      "size": 30210
+      "sha256": "963027411e73e8e22b8662b014639122a0b22c5f99a0c098099c06f6a2fea244",
+      "size": 30499
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-script-context.js",
@@ -9176,9 +9176,9 @@
     }
   ],
   "archive": {
-    "commit": "3c94de90fca4e1692d95f0c46c06abcfaab0cfe4",
+    "commit": "751d5355adbe4e834a8a7f075d3f0cc7f8e511f5",
     "path": "runtime.zip",
-    "sha256": "6aa369c8c01ca3e044cd0af866be04ad654e3af182703eea472ab94c52126f79",
-    "size": 16312215
+    "sha256": "7246dc86863240e827d01b8c0756087d0e66f9293303481b90005dd8d6e23ae2",
+    "size": 16312343
   }
 }
