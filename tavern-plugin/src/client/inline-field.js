@@ -126,8 +126,11 @@ function useInlinePopup() {
             setPlace(p => p && p.top === next.top && p.left === next.left && p.maxHeight === next.maxHeight ? p : next);
         };
         update(); window.addEventListener("resize", update); window.addEventListener("scroll", update, true);
-        return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
-    }, [open, floating]);
+        // the list grows or shrinks while typing: measure again whenever the popup changes size, not only on open / scroll.
+        const watch = typeof ResizeObserver === "function" && pop.current ? new ResizeObserver(update) : null;
+        if (watch) watch.observe(pop.current);
+        return () => { if (watch) watch.disconnect(); window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
+    }, [open, floating, Boolean(place)]);
     React.useEffect(function () {
         // A portalled menu is hidden until measured; focusing it earlier silently fails.
         const node = pop.current; if (!open || (floating && !place) || !node || !node.querySelector) return;
