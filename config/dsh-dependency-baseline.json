@@ -302,5 +302,11 @@
   ],
   "tavern-plugin/src/client/modules/story-external-history.js": [
     "@deepseek-ai/dsh-client-ui-conversation/client"
+  ],
+  "bin/repair-session-log.mjs": [
+    "@deepseek-ai/dsh-session-format-catalog"
+  ],
+  "tavern-plugin/lib/domain/session-log-repair.js": [
+    "@deepseek-ai/dsh-system-prompt"
   ]
 }
