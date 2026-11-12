@@ -40,4 +40,4 @@ function useStage({sessionId,reducedMotion,blocked}) {
 }
 return {useStage,dispose(){if(disposed)return;disposed=true;const errors=[];for(const release of [...releases]){try{release();}catch(error){errors.push(error);}}if(errors.length)throw new AggregateError(errors,'Textcard stage cleanup failed');}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextcard};
+module.exports = {createStageTextcard};

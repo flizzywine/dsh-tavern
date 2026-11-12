@@ -1,12 +1,18 @@
 // Feature factories run once per view scope, after the scene and shared surfaces exist.
 // Factories return named views; own() ties resources and CSS to the view's rollback/disposal.
+// backlog: optional 履历 row projections by the renderer name a performance declaration gives (backlog-rows.cjs).
 function createStageFeatures() {
     const features=new Map();
     return {
-        register(id,{views,css}){
+        register(id,{views,css,backlog}){
             if(features.has(id))throw new Error('Stage feature already registered: '+id);
-            const feature={views,css};features.set(id,feature);
+            const feature={views,css,backlog};features.set(id,feature);
             return ()=>{if(features.get(id)===feature)features.delete(id);};
+        },
+        backlogRenderers(){
+            const renderers={};
+            for(const feature of features.values())Object.assign(renderers,feature.backlog);
+            return renderers;
         },
         mount(context){
             const {document,own,views}=context;

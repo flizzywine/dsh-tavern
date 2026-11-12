@@ -5,7 +5,7 @@ function invalidate(){if(!disposed){textcardCenterCache.clear();textcardInkCache
 // Full-width CJK punctuation sits on one side of its em box (「？」 at the end of 「真的？」), and letter-spacing adds a
 // trailing gap: the layout box is centred, the ink is not. Each [data-tc-center] block is measured glyph by glyph —
 // layout position from a DOM Range; ink bounds from canvas measureText (actualBoundingBox*) for horizontal and upright
-// glyphs, and from the generated vert/vrt2 table (textcard-vert-ink.cjs, bin/textcard-vert-ink.py) for
+// glyphs, and from the generated vert/vrt2 table (vert-ink.cjs, bin/textcard-vert-ink.py) for
 // tategaki punctuation, whose rotated/shifted form canvas cannot see — and moved with `translate` so its ink box is
 // centred on the block's layout box (the sample's ink centring). `halt` / `text-spacing-trim` do not fix ？！.
 function textcardVertInk(style, ch) {
@@ -127,4 +127,4 @@ return {center:textcardCenter,offset:textcardCenterOffset,vertical:textcardVertI
     fonts?.removeEventListener?.('loadingdone',invalidate);
 }};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextcardCenter};
+module.exports = {createStageTextcardCenter};

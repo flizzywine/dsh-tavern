@@ -4,7 +4,7 @@ let disposed=false;const localFonts=new Set();
 // TEXTCARD_FACE is the one place that picks the card face. `library`: a font-library id, registered on demand, full font (no per-sample subset).
 // `local`: installed full / PostScript names tried first through local(), for trying faces that are not in the library
 // (never shipped); one installed face serves every card weight, like the single-weight HGP明朝B of the 物語 cards.
-// If none is installed the library face is used. The tategaki punctuation table (textcard-vert-ink.cjs) was
+// If none is installed the library face is used. The tategaki punctuation table (vert-ink.cjs) was
 // generated from the library's Noto Serif SC and applies only while that face renders.
 const TEXTCARD_FACE = Object.freeze({library: 'noto-serif-sc', local: Object.freeze([])});
 const TEXTCARD_LOCAL_FAMILY = 'DSH Textcard Local';
@@ -39,4 +39,4 @@ function textcardFontsLoaded(plan) {
 
 return {ensure:textcardFonts,ready:textcardFontsReady,loaded:textcardFontsLoaded,dispose(){if(disposed)return;disposed=true;textcardFamily=null;textcardFamilyValue=undefined;for(const font of localFonts)document.fonts.delete(font);localFonts.clear();}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextcardFonts};
+module.exports = {createStageTextcardFonts};

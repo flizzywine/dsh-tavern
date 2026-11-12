@@ -908,7 +908,7 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
   --gal-empty-accent: #9572cc;
   --gal-empty-surface: #1d1630;
   --gal-empty-deep: #0e0b16;
-  /* 「文字演出」 flat card palette and faces (textcard.css); story content, not UI chrome.
+  /* 「文字演出」 flat card palette and faces (mods/textcard/client/stage.css); story content, not UI chrome.
      The renderer swaps in the face TEXTCARD_FACE picks (--tc-mincho; default: the library's full Noto Serif SC) once registered. */
   --gal-tc-ink: #171517; --gal-tc-paper: #f4eee1; --gal-tc-vermilion: #b52e31; --gal-tc-gold: #d3ae45;
   --gal-tc-mincho: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;

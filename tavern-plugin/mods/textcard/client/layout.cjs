@@ -205,4 +205,4 @@ function textcardFit(card) {
 
 return {textcardNode,textcardReadable,textcardFit,textcardPaints};
 }
-if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageTextcardLayout};
+module.exports = {createStageTextcardLayout};

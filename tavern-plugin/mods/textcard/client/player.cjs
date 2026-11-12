@@ -145,4 +145,4 @@ function createTextcardPlayer({doc = document, now = () => performance.now(), ra
 
 return {create(options){const player=createTextcardPlayer(options);const release=player.dispose;player.dispose=()=>{players.delete(player);release();};if(closed)player.dispose();else players.add(player);return player;},dispose(){if(closed)return;closed=true;const errors=[];for(const player of [...players]){try{player.dispose();}catch(error){errors.push(error);}}if(errors.length)throw new AggregateError(errors,'Textcard players cleanup failed');}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextcardPlayers};
+module.exports = {createStageTextcardPlayers};

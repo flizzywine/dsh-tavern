@@ -52,7 +52,7 @@ const TEXTCARD_INTENSITY = {
 };
 
 // The styles (contract ids; CATALOGUE.md numbering, #17–21 and #24 out of scope). Fields:
-//   cat     catalogue number        layout  renderer template (textcard-stage.js TEXTCARD_LAYOUTS)
+//   cat     catalogue number        layout  renderer template (layout.cjs TEXTCARD_LAYOUTS)
 //   tag     履历 label              bg      default ground (palette name or 'figure')
 //   type    {face: mincho|mono, size}       motif   layout decoration
 //   timing  TEXTCARD_TIMING key     seq     single | sequence | pair | build | colour | split | morph
@@ -270,5 +270,5 @@ function textcardPeak(times, windowMs = 1000) {
     return best;
 }
 
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {TEXTCARD_STYLES, TEXTCARD_TIMING, TEXTCARD_INTENSITY, TEXTCARD_PALETTE,
+module.exports = {TEXTCARD_STYLES, TEXTCARD_TIMING, TEXTCARD_INTENSITY, TEXTCARD_PALETTE,
     TEXTCARD_GATE, TEXTCARD_REDUCED, TEXTCARD_COLOUR_F, TEXTCARD_MORPHS, TEXTCARD_FPS, planTextcard, textcardHistory, createTextcardGate, textcardPeak, textcardPick};

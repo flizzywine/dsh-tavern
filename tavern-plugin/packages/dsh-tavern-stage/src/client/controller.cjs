@@ -867,7 +867,7 @@ function GalStage(props) {
     function input(delta) {
         if (hidden) { setHidden(false); return; }
         if (controlsInput.consumeInterrupted()) return;
-        if (textcard.skip()) return; // input during a 文字演出 card ends the card (textcard-stage.js)
+        if (textcard.skip()) return; // input during a 文字演出 card ends the card (mods/textcard/client/card.cjs)
         // while the line waits for this page's blocking performances, an input skips
         // them (a title ends, a combination's phase lands on its sustained state) and the line starts at once; it does not turn
         // the page. Nothing skips the loader here (the entrance takes its own clicks).

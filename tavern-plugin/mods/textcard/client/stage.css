@@ -1,4 +1,4 @@
-/* 「文字演出」 full-screen text cards (textcard-stage.js).
+/* 「文字演出」 full-screen text cards (card.cjs).
    Flat palette cards with hard cuts — no fades in any mode. Colours come only from --tc-bg / --tc-fg, which the
    renderer sets from the --gal-tc-* palette tokens (theme.css stage UI tokens) or the speaker's 形象色. */
 .fork-tc-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; container-type: size; }
