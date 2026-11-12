@@ -10,6 +10,11 @@ const TASK_PROMPT_PROSE = Object.freeze({
   p002: "\n\nThe extra requirements don't change the ",
   p003: "script direction, ",
   p004: "-choice count or type rules.",
+  p005: "\n\nChoice point: story revision ",
+  p006: "; latest story turn ",
+  p007: ". Continue from the end of the latest story text with its current identities, names, place and time; don't roll renamed or finished plot back to the card's opening.",
+  p008: "\nPlayer's name in this session: ",
+  p009: " (if the story has clearly renamed them, the latest story wins).",
   p010: "If a long-term character design truly needs creating, completing or revising, load character-design with skill in this background agent and use the character design tools per the Skill; no other agent is needed. Then submit the choices."
 })
 
@@ -118,9 +123,9 @@ function validatedChoices(source, scriptMode, logger) {
   return actions.slice(0, 4).concat(scenes.slice(0, 1))
 }
 
-function buildMessages(chat, card, selection, now, limit = 6) {
+function buildMessages(chat, card, selection, now, limit = 3) {
   const source = [], history=chat.messages || []
-  for(let index=history.length-1;index>=0 && source.length<Math.max(1,Number(limit)||6);index--){
+  for(let index=history.length-1;index>=0 && source.length<Math.max(1,Number(limit)||3);index--){
     const message=history[index]
     if(message?.role!=='assistant')continue
     const text=messageText(message,card,chat)
@@ -394,13 +399,13 @@ export function createCandidateGenerator(options) {
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = PROMPT_PROSE.p001
     if (guidance !== '') request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + (scriptMode ? TASK_PROMPT_PROSE.p003 : '') + (scriptMode ? 1 : 5) + TASK_PROMPT_PROSE.p004
-    // Only a session that actually read this revision may skip the newest body: a null mark
-    // means the resident agent never saw it, and Number(null) must not read as revision 0.
-    const syncedRevision = participantRequest.syncedRevision
-    const hasSyncedRevision = syncedRevision !== null && syncedRevision !== undefined && Number.isFinite(Number(syncedRevision))
-    const backgroundAlreadySynced = persistentSessionId !== '' && hasSyncedRevision
-      && Number(syncedRevision) === Number(taskRun.basedOn.revision)
-    const recentMessages = backgroundAlreadySynced ? [] : buildMessages(chat, card, selection, now, persistentSessionId !== '' ? 1 : 6)
+    // A synced participant revision records task commits, not delivery of story text.
+    // Always anchor choices in the current timeline, even in a persistent background session.
+    const recentMessages = buildMessages(chat, card, selection, now)
+    request += TASK_PROMPT_PROSE.p005 + taskRun.basedOn.revision +
+      TASK_PROMPT_PROSE.p006 + (chat.messages?.findLast(message => message.role === 'assistant')?.turn || 0) +
+      TASK_PROMPT_PROSE.p007
+    if (chat.macroState?.userName) request += TASK_PROMPT_PROSE.p008 + chat.macroState.userName + TASK_PROMPT_PROSE.p009
     const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',

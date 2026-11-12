@@ -73,7 +73,8 @@ export function nativelyRetainedRounds(session, request) {
 
 const lineOf = unit => {
   if (unit.text !== undefined) return unit.text
-  if (unit.message?.role === 'system') return ''
+  // Derived settings and tool results are not player actions or story prose.
+  if (!isPlayerMessage(unit.message) && unit.message?.role !== 'assistant') return ''
   const text = textOf(unit.message)
   return text === '' ? '' : (unit.message.role === 'user' ? '[玩家]\n' : '[正文]\n') + text
 }

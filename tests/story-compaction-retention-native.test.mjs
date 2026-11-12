@@ -88,3 +88,25 @@ test('real DSH: the summarizer receives the story prompt, not DSH\'s own directi
   await new BasicCompactionEngine(h.ctx, { auto: false, maxTokens: 4096 }).compactNow(agent, new AbortController().signal)
   assert.deepEqual(instructions, ['剧情压缩提示词'])
 })
+
+const text = value => [{ type: 'text', text: value }]
+const player = (id, value) => ({ id, role: 'user', content: text(value) })
+const story = (id, value) => ({ id, role: 'assistant', content: text(value) })
+
+// A tool result (DSH 0.2 role 'tool') is not story prose, and plugin-injected settings are not a player action.
+test('the kept rounds hold only player actions and story prose, not tool results or derived settings', () => {
+  const messages = [
+    player('u1', '第1轮行动'), story('a1', '第1轮正文'),
+    player('u2', '第2轮行动'),
+    { id: 's2', role: 'user', source: { kind: 'plugin:dsh-tavern' }, content: text('<turn_settings>派生设置：对话气泡开启</turn_settings>') },
+    { id: 't2', role: 'tool', toolCallId: 'call-1', content: text('{"ok":true,"variables":{"hp":3}}') },
+    story('a2', '第2轮正文'),
+    player('u3', '第3轮行动'), story('a3', '第3轮正文'),
+    { id: 'c', role: 'user', content: text('请压缩') }
+  ]
+  const { appendix, kept } = retainRecentStoryRounds({ purpose: 'compaction', messages }, 2)
+  assert.equal(kept, 2)
+  assert.match(appendix, /第2轮正文/)
+  assert.doesNotMatch(appendix, /"ok":true/, 'tool results are not story prose')
+  assert.doesNotMatch(appendix, /派生设置/, 'plugin-injected settings are not a player action')
+})

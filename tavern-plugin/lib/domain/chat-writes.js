@@ -30,7 +30,8 @@ export function createChatWrites({ persistence, isDeleted, candidatesChanged, sy
     if (kind !== 'update' || source !== 'writing-skill.switch') {
       syncTemplates(saved, metadata)
       // Header/patch writers historically schedule even for compaction sources.
-      if (kind === 'header' || kind === 'patch' || !source.startsWith('compaction.')) {
+      if ((kind === 'header' || kind === 'patch' || !source.startsWith('compaction.'))
+        && (kind !== 'patch' || !source.startsWith('variables.edit.'))) {
         queueCompaction(saved.sessionId)
       }
     }

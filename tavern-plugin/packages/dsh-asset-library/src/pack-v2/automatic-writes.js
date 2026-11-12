@@ -133,6 +133,11 @@ function retireVoices(manifest, files, voices) {
 
 // Host capabilities bind a committed source and its planner to one immutable request.
 // Only review operations are suitable for the browser control transport.
+// A card's 自动素材 pack: the one whose autoWrite names the card (made by its first automatic write, named after the card).
+// Everything written for a card automatically goes there (自动素材's figures, 场景生图's CG), never into a pack the owner made.
+const routedPack = (packs, card) => packs.find(pack => pack.local.autoWrite?.cardId === card.cardId)
+const automaticPackName = cardName => cardName + ' · 自动素材'
+
 export function createAutomaticWriteMethods({run, readRun, all, load, metadata, verify, storage, cards, nextLocal, emit, blankManifest, createFigure, cas, now, limits, evictMetadata, globalPackIds = () => [], figureImageExtras = async () => ({})}) {
   const authorities = new WeakMap()
   const clone = structuredClone
@@ -306,7 +311,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
             // A bound or global pack that is not installed is no catalogue to plan against (a shared card, a deleted pack):
             // the card is exactly one 自动素材 is for, so it is named (missingPackIds) and the automatic pack is still written.
             const named = [...new Set([...identity.boundPackIds,...globalEnabledPackIds])], ids = named.filter(id => packs.some(pack => pack.manifest.id === id))
-            const routed = packs.find(pack => pack.local.autoWrite?.cardId === card.cardId)
+            const routed = routedPack(packs, card)
             return {card, globalEnabledPackIds, missingPackIds:named.filter(id => !ids.includes(id)), packs:clone(packs.filter(pack => ids.includes(pack.manifest.id)).map(pack => ({manifest:pack.manifest,figures:pack.figures,revision:pack.local.revision}))),
               detached:!!routed && !identity.boundPackIds.includes(routed.manifest.id), target:routed ? {packId:routed.manifest.id,expectedRevision:routed.local.revision} : null}
           })
@@ -339,7 +344,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         const card = await cards.snapshot({path:request.path})
         check(card.raw && card.revision === request.expectedCardRevision, '$.expectedCardRevision', 'Card changed', 'REVISION_CONFLICT')
         const identity = cards.inspectRaw(card.raw), packs = await all()
-        const routed = packs.find(pack => pack.local.autoWrite?.cardId === card.cardId)
+        const routed = routedPack(packs, card)
         if (routed && !identity.boundPackIds.includes(routed.manifest.id)) return result(routed, card.revision)
         check((request.target?.packId || null) === (routed?.manifest.id || null), '$.target', 'Automatic target changed', 'REVISION_CONFLICT')
         if (routed) cas(routed, request.target.expectedRevision)
@@ -363,7 +368,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         const images = await readImages(request.images, writer)
         const before = routed ? await load(routed.manifest.id) : null
         const packId = before?.manifest.id || randomUUID()
-        const manifest = before ? clone(before.manifest) : blankManifest(packId, identity.name + ' · 自动素材')
+        const manifest = before ? clone(before.manifest) : blankManifest(packId, automaticPackName(identity.name))
         const files = new Map(before?.files || []), hashed = new Map(), writeId = randomUUID(), at = new Date(now()).toISOString(), diffs = []
         const loaded = new Map()
         const sources = async id => {
@@ -401,8 +406,27 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         return result({...pack,local}, cardRevision, entry, 'committed')
       })
     },
-    listAutomaticWrites({packId, cursor = 0, limit = 50}) {
-      validateUuid(packId)
+    // The card's 自动素材 pack for a writer outside the figure receipts (场景生图's CG, scene-cg.js): {packId} while it is bound
+    // to the card; made empty and bound when the card has none and `create`; null when the owner unbound it (nothing automatic
+    // goes into the card then).
+    cardAutomaticPack({path, create = false}) {
+      return run([], async () => {
+        const card = await cards.snapshot({path})
+        check(card.raw, '$.path', 'Card unavailable', 'NOT_FOUND')
+        const identity = cards.inspectRaw(card.raw), packs = await all(), routed = routedPack(packs, card)
+        if (routed) return identity.boundPackIds.includes(routed.manifest.id) ? {packId:routed.manifest.id} : null
+        if (!create) return null
+        const packId = randomUUID(), manifest = blankManifest(packId, automaticPackName(identity.name)), files = new Map()
+        await sealPack(manifest, files, null, new Map())
+        const pack = await verify(manifest, files, null, true), local = nextLocal(undefined)
+        local.autoWrite = {cardId:card.cardId, createdName:manifest.name}
+        validatePackIdentities([...packs.map(other => other.manifest), manifest])
+        await cards.withBoundPack({path, expectedRevision:card.revision, packId}, transaction => storage.publishMany([{pack, local}], transaction))
+        evictMetadata(packId); emit({...pack, local}, null)
+        return {packId}
+      })
+    },
+    listAutomaticWrites({packId, cursor = 0, limit = 50}) {      validateUuid(packId)
       check(Number.isSafeInteger(cursor) && cursor >= 0 && Number.isSafeInteger(limit) && limit > 0 && limit <= 100, '$.cursor')
       return run([packId], async () => {
         const pack = await metadata(packId)

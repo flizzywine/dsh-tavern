@@ -169,6 +169,8 @@ export interface AssetPackService extends CatalogueService {
     dispose(): void;
   };
   writeAutomaticItems(input: AutomaticWriteInput, authority: AutomaticWriteAuthority): Promise<AutomaticWriteResult>;
+  /** In-process only. The card's 自动素材 pack (its autoWrite names the card): null when the owner unbound it, or when it has none and not create (then it is made empty and bound). */
+  cardAutomaticPack(input: {path: string; create?: boolean}): Promise<{packId: string} | null>;
   listAutomaticWrites(input: {packId: string; cursor?: number; limit?: number}): Promise<{revision: string; entries: AutomaticWriteEntry[]; nextCursor: number | null}>;
   reviewAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: AutomaticWriteEntry['status']; revision: string}>;
   undoAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: 'undone'; revision: string; refs: Array<FigureRef & {kind: 'figures'}>}>;

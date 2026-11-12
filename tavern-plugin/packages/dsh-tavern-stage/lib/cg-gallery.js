@@ -118,6 +118,14 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
       const unlocked = await read(cardId), key = assetRefKey(ref), rest = unlocked.filter(item => assetRefKey(item) !== key)
       if (rest.length !== unlocked.length) await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked:rest})
     }),
+    unlocked:read,
+    // scene-cg.js relocate: unlocks follow pictures that moved to another pack ([from, to] ref pairs).
+    move:(cardId,pairs) => cardStorage.withCardLock(cardId,async () => {
+      const to = new Map(pairs.map(([from,next]) => [assetRefKey(from),next])), seen = new Set(), unlocked = []
+      for (const ref of (await read(cardId)).map(ref => to.get(assetRefKey(ref)) || ref)) if (!seen.has(assetRefKey(ref))) { seen.add(assetRefKey(ref)); unlocked.push(ref) }
+      unlocked.sort((a,b) => assetRefKey(a).localeCompare(assetRefKey(b),'en'))
+      await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked})
+    }),
     remove:cardId => cardStorage.withCardLock(cardId,() => profileData.remove(file(cardId)))
   }
 }

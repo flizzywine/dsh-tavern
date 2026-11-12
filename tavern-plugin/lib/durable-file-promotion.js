@@ -48,6 +48,13 @@ export function createDurableFilePromotion(options = {}) {
     const pid = Number(owner && owner.pid)
     if (Number.isSafeInteger(pid) && pid > 0 && !processIsAlive(pid)) return true
     let createdAt = Number(owner && owner.createdAt)
+    // The owner record is written right after the lock is created and is not fsynced:
+    // a lock without one is either being created this moment or was left by a system
+    // crash. Its age decides, even for stores whose live locks never go stale by age.
+    if (!owner) {
+      try { createdAt = Number((await stat(lockPath)).mtimeMs) } catch { return false }
+      return Date.now() - createdAt > Math.min(writeLockStaleMs, WRITE_LOCK_STALE_MS)
+    }
     if (!Number.isFinite(createdAt) || createdAt <= 0) {
       try { createdAt = Number((await stat(lockPath)).mtimeMs) } catch { return false }
     }
@@ -73,8 +80,9 @@ export function createDurableFilePromotion(options = {}) {
     }
     if (!handle) throw new Error(`无法取得 Tavern 写入锁：${target}`)
     try {
+      // Exclusion comes from the file existing; its owner record only helps recover a
+      // dead writer's lock, so it is not fsynced (see staleWriteLock).
       await handle.writeFile(JSON.stringify({ pid: process.pid, writerId, createdAt: Date.now() }) + '\n', 'utf8')
-      await handle.sync()
       return await operation()
     } finally {
       await handle.close().catch(function () {})
