@@ -52,3 +52,35 @@ test('an entrance whose load never becomes ready drops after its bound, never a 
   assert.equal(result.stageAttr,undefined,'the entrance is dropped');assert.equal(result.gate.phase,'slow','the plain veil shows the load gate')
  }finally{await act(async()=>root.unmount());module.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
 })
+test('an entrance held behind a title page waits unstarted and plays its video once released (潜入月读 after 继续, owner 11-12)',async()=>{
+ const dom=new JSDOM('<div id="root"></div>'),before=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
+ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
+ const timers=new Map(),ports=[],players=[];let next=0,result
+ dom.window.setTimeout=(fn,ms)=>{timers.set(++next,{fn,ms});return next};dom.window.clearTimeout=id=>timers.delete(id)
+ dom.window.requestAnimationFrame=()=>++next;dom.window.cancelAnimationFrame=()=>{}
+ dom.window.ResizeObserver=class{observe(){}disconnect(){}}
+ const video={player(host,source){const player={host,source,synced:[],ready:Promise.resolve(true),playable:Promise.resolve(),sync(event){this.synced.push(event)},pause(){},dispose(){this.disposed=true}};players.push(player);return player}}
+ const module=createStageEntrancePresentation({React,window:dom.window,renderer:{supported:()=>true,start(_canvas,_run,_size,onEvent){const port={onEvent,messages:[],input(data){this.messages.push(data)},size(){},stop(){}};ports.push(port);return port}},media:{},video,contract:{stageEntranceDuration:()=>6800},safety:()=>({}),reading:{get:()=>({})}})
+ const store={},film={bundleKey:'film',entry:'film.webm',durationMs:6808}
+ const entrance={document:{layers:{video:{asset:'film'}},phases:[],palette:{base:'#000000'},background:'base'},video:film}
+ function View(){result=module.useEntrance(store,entrance,{phase:'revealing',visible:false});return result.element}
+ const root=createRoot(dom.window.document.getElementById('root'))
+ try{
+  await act(async()=>root.render(React.createElement(View)))
+  await act(async()=>result.hold())
+  for(const player of players)assert.equal(player.disposed,true,'a player made before the hold is gone')
+  const made=players.length
+  assert.equal(result.element,null);assert.equal(dom.window.document.querySelector('.fork-gal-entrance'),null)
+  assert.equal(result.active,true,'held, it still owns this visit');assert.equal(result.gate.visible,false,'the stage stays hidden behind the page')
+  for(const timer of [...timers.values()])await act(async()=>timer.fn())
+  assert.equal(result.active,true,'no drop timer runs while held')
+  await act(async()=>result.release())
+  assert.ok(dom.window.document.querySelector('.fork-gal-entrance .fork-gal-entrance-video'),'the entrance and its video layer are mounted')
+  const player=players.at(-1);assert.ok(players.length>made);assert.equal(player.source,film);assert.equal(player.disposed,undefined)
+  assert.ok(player.host.classList.contains('fork-gal-entrance-video'))
+  const port=ports.at(-1);assert.ok(port,'the timeline starts once the video can play')
+  await act(async()=>port.onEvent({type:'video',time:0.5,rate:1,alpha:1}))
+  assert.deepEqual(player.synced.at(-1),{type:'video',time:0.5,rate:1,alpha:1},'the video follows the running timeline')
+  assert.ok(port.messages.some(m=>m.video),'the drawn layers hand over to the video')
+ }finally{await act(async()=>root.unmount());module.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
+})

@@ -1,4 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto'
+import path from 'node:path'
 import publication from '../../../../shared/asset-image-publication.cjs'
 import sprites from '../../../../shared/sprite-emotions.cjs'
 import {imageKind,audioKind,imageDimensions} from '../../../dsh-asset-library/lib/pack-v2/media.js'
@@ -234,7 +235,35 @@ async function generation(c) {
   }
   return c.rpc({status:'getAssetGenerationJob',cancel:'cancelAssetGenerationJob',reject:'rejectAssetCandidate','retry-save':'retryAssetCandidateSave',list:'listAssetCandidates'}[r.action],args)
 }
-const handlers={assets_read:assetsRead,assets_patch:assetsPatch,media_upload:upload,assets_transfer:transfer,stage_read:stage,stage_patch:stage,mods_read:mods,mods_patch:mods,voice_read:voice,voice_patch:voice,asset_generation:generation}
+// Scripts (剧本) and the card's Helper scripts go to the core's own owners: its script store, Script Continuity
+// (reads; the one cursor writer is scriptNavigation) and the machine-local Helper mutes.
+async function script(c) {
+  const r=c.input,core=c.core,cardPath=c.chat.cardPath
+  if(r.action==='info'||r.action==='read') {
+    const script=await core.readScript(r.path||cardPath)
+    const result=core.scriptContinuity.inspect({script,state:null,request:{...omit(r,'action','path'),kind:r.action}})
+    if(r.action==='info')return {script:script===undefined?result:{...result,path:script.path}}
+    return {...omit(result,'chunks','matchOrder'),chunks:result.chunks.map(chunk=>({id:chunk.id,number:chunk.order+1,text:chunk.text}))}
+  }
+  if(r.action==='import') {
+    const bytes=await c.files.read(r.file,16*1024**2),name=r.title||path.basename(r.file)
+    return {script:await core.importScript(cardPath,/\.epub$/i.test(r.file)?{name,fileB64:bytes.toString('base64'),type:'application/epub+zip'}:{name,text:new TextDecoder('utf-8',{fatal:true}).decode(bytes)})}
+  }
+  if(r.action==='bind')return {script:await core.bindScript(cardPath,r.path)}
+  if(r.action==='unbind')return core.deleteScript(cardPath)
+  if(r.action==='helpers'||r.action==='mute') {
+    const helperScripts=(await core.readCardExtensions(cardPath,c.chat,true))?.helperScripts
+    if(r.action==='mute') {
+      if(!(await core.cardScripts.list(helperScripts,cardPath)).scripts.some(row=>row.id===r.id))throw featureError('INVALID_INPUT','$.id','Use a script id from helpers.')
+      await core.cardScripts.setMuted(cardPath,r.id,r.muted)
+    }
+    return {cardName:c.chat.cardName,cardId:await core.resolveCardId(cardPath),...await core.cardScripts.list(helperScripts,cardPath)}
+  }
+  const sessionId=await c.play(r.playRef),args={...omit(r,'action','playRef'),sessionId}
+  if(r.action==='browse')return core.scriptNavigation.browse(sessionId,r.position)
+  return core.scriptNavigation[r.action==='point'?'point':'setChunkSize'](sessionId,args)
+}
+const handlers={assets_read:assetsRead,assets_patch:assetsPatch,media_upload:upload,assets_transfer:transfer,stage_read:stage,stage_patch:stage,mods_read:mods,mods_patch:mods,voice_read:voice,voice_patch:voice,asset_generation:generation,script_manage:script}
 export async function runWorkbenchAction(name,context) {
   if(!handlers[name])throw featureError('UNKNOWN_FIELD','$.tool')
   return handlers[name]({...context,name})
