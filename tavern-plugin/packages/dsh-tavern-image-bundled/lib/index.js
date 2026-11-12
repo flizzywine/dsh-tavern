@@ -3083,8 +3083,17 @@ function createRuntime(ctx, overrides, logger, deps) {
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
             const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
-            for (const [key, alias] of ambiguousAliases(pictureScope.characters)) {
-              if (!unmatchedCharacters.has(key) && containsNameToken(sceneText, alias)) unmatchedCharacters.set(key, { asked: alias, ambiguous: true })
+            const ambiguous = ambiguousAliases(pictureScope.characters)
+            for (const [key, alias] of ambiguous) {
+              // A shared short name inside a unique full name isn't an unresolved mention.
+              let unresolved = sceneText.toLowerCase()
+              const unique = (pictureScope.characters ?? []).filter(character => character?.enabled !== false)
+                .flatMap(character => [character.name, character.id, ...splitTags(character.match)])
+                .map(value => String(value ?? '').trim().toLowerCase())
+                .filter(value => value.length > key.length && value.includes(key) && !ambiguous.has(value))
+                .sort((a, b) => b.length - a.length)
+              for (const name of unique) unresolved = unresolved.split(name).join('')
+              if (!unmatchedCharacters.has(key) && containsNameToken(unresolved, alias.toLowerCase())) unmatchedCharacters.set(key, { asked: alias, ambiguous: true })
             }
             const characters = planCharacters.map(item => ({ prompt: planningGenerationMode === 'reference' ? item.prompt : expandOne(item.prompt), centers: String(item.centers ?? '').trim(), uc: String(item.uc ?? '').trim() })).filter(item => item.prompt)
             if (traceId) {

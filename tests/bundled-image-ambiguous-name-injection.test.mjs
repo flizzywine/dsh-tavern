@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
 import { injectDefinitions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const person = (id, name, match, face) => ({ id, name, match, enabled: true, traits: { face } })
@@ -30,4 +31,21 @@ test('distinct records with exactly the same full name are ambiguous', () => {
   const { text, hits } = run('安娜站在窗边', [person('anna-a', '安娜', 'Anna A', 'red hair'), person('anna-b', '安娜', 'Anna B', 'blue hair')])
   assert.deepEqual(hits, [])
   assert.doesNotMatch(text, /red hair|blue hair/)
+})
+
+
+test('planner warns for a shared short name, but a unique full name is resolved without that warning', async t => {
+  const fixture = await imagePluginFixture(t, { definitions: { characters: [a, b] }, llm: { async *stream({ messages }) {
+    const text = (messages?.at(-1)?.content || []).map(part => part.text || '').join('')
+    const scene = text.includes('鹿目圆') ? '鹿目圆站在窗边。' : '鹿目站在窗边。'
+    yield { type: 'text-delta', text: '<images><image><regex>' + scene + '</regex><prompts>' + scene + '</prompts></image></images>' }
+  } } })
+  globalThis.fetch = async (url) => url.endsWith('/generateImage') ? imageJson({ data: { id: 'done', status: 'completed', outputs: ['https://images.example.test/result.png'] } }) : new Response(IMAGE_PNG)
+  const runtime = await fixture.start()
+  for (const [name, warn] of [['鹿目圆', false], ['鹿目', true]]) {
+    const result = await runtime.request('plan', { text: name + '站在窗边。', messageId: 'name-warning-' + name, count: 1, manual: true })
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    assert.equal(result.body.plans.length, 1, JSON.stringify(result.body))
+    assert.equal((result.body.plan.characterWarnings || []).some(text => text.includes('不止一个人')), warn, JSON.stringify(result.body))
+  }
 })
