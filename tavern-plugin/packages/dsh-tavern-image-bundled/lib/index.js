@@ -739,7 +739,7 @@ function ambiguousAliases(characters) {
       const key = alias.toLowerCase()
       if (!owners.has(key)) owners.set(key, { alias, people: [] })
       const entry = owners.get(key)
-      if (!entry.people.some(other => other === character || sameCharacterFamily(character, other))) entry.people.push(character)
+      if (!entry.people.some(other => other === character || other.id && other.id === character.id || other.name !== character.name && sameCharacterFamily(character, other))) entry.people.push(character)
     }
   }
   return new Map([...owners].filter(([, entry]) => entry.people.length > 1).map(([key, entry]) => [key, entry.alias]))

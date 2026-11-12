@@ -26,3 +26,8 @@ test('forms of one character are not ambiguous', () => {
   const { text } = run('殷雪站在窗边', [human, fox])
   assert.match(text, /silver hair/)
 })
+test('distinct records with exactly the same full name are ambiguous', () => {
+  const { text, hits } = run('安娜站在窗边', [person('anna-a', '安娜', 'Anna A', 'red hair'), person('anna-b', '安娜', 'Anna B', 'blue hair')])
+  assert.deepEqual(hits, [])
+  assert.doesNotMatch(text, /red hair|blue hair/)
+})
