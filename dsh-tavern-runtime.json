@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e2b7471f9356b1f17aded3e361fcb96f329b6483",
-  "releaseSequence": 1563,
+  "revision": "2092dfb4894485ded0540796d732abfa1ed6f019",
+  "releaseSequence": 1564,
   "version": "3.3.0",
   "files": [
     {
@@ -1211,8 +1211,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/background-pipeline.js",
-      "sha256": "24ec41a1ada2952c2488271c8b2621db845a2c40fe374bd16bd33d47bc99e24f",
-      "size": 6189
+      "sha256": "cfc17c9b3c5c6518c43e15e3e49de5aecce389f0e388824f1752cc34b658eb39",
+      "size": 6174
     },
     {
       "path": "tavern-plugin/lib/domain/background-progress.js",
@@ -1321,8 +1321,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-script-context.js",
-      "sha256": "3575b9e7190843b2e7a539411bcdca7d3ee89a794ef3e2f546b96380618f5809",
-      "size": 2883
+      "sha256": "3424ca55e94fc44fa6dca675d28719b625a4625f22b8fcd571c94c0510a73f19",
+      "size": 2350
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-selection.js",
@@ -1496,8 +1496,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-system-prompt.js",
-      "sha256": "06062f83397b17605d398561f559012ec780ad78d94c7bf9966323cc48e2a04a",
-      "size": 3120
+      "sha256": "e92ee48ebaa9785c3309e0d567d8a0375e7d84ff2bd0311f0893cd64de756607",
+      "size": 2912
     },
     {
       "path": "tavern-plugin/lib/domain/card-text-replace.js",
@@ -1646,8 +1646,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
-      "sha256": "f6923e5f51ffadc7a14642b9876fa28fc03e0df0036a7164dfa2ca128504c8c7",
-      "size": 13592
+      "sha256": "7e5111362073c567c077169fb1056829c6731ac45bf4cc3aa3a36048a7dc7b98",
+      "size": 13071
     },
     {
       "path": "tavern-plugin/lib/domain/context-turns.js",
@@ -1876,8 +1876,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-frame-session-adapter.js",
-      "sha256": "d95e83d96daf6fa0799dac4f74a5f4181e6b672539e712fef496d5efb06283c3",
-      "size": 5694
+      "sha256": "57fef10022eb8c90bccd7f7eedceef3b65c30790713b6a1afcab9a05bd168c0c",
+      "size": 5626
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-handoff.js",
@@ -1886,8 +1886,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "7e9be96f5875495ad088f3c19dff983ea998dad451b0d901e1a85bde00268cb5",
-      "size": 34082
+      "sha256": "235fccbc9f4f60c1af28c7f1b06b5c8efc9dce153caeb7216178b1cd590d197d",
+      "size": 34183
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3136,8 +3136,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-stable-prefix.js",
-      "sha256": "42de40072e38b8920d69cb54bf552e0af3c4bda3c73a41a01b31e708095035aa",
-      "size": 9468
+      "sha256": "1ad0c945e0d4f998737f1e1a4114f5beccbeafe03fe557680c8148c66679e033",
+      "size": 9323
     },
     {
       "path": "tavern-plugin/lib/domain/session-surface-mutations.js",
@@ -3441,8 +3441,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/system-append.js",
-      "sha256": "fde4391c527951ad6ad079504d643aff05ceb9e4b187695267aab23d7c81f6f4",
-      "size": 491
+      "sha256": "e4806e786e3e322978d80c570f864f69033976ada240c3b15e2affe21a0be57a",
+      "size": 407
     },
     {
       "path": "tavern-plugin/lib/domain/system-prompt-documents.js",
@@ -3711,8 +3711,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "b6556bccc45205f8d69495c021da745549c5c56b930c5a0c75f798f33adeae0d",
-      "size": 80730
+      "sha256": "ce0eef6650f3a16b9a6be2940878efe64b67afbb2e0f7bdf05ab6f300bd5a0e6",
+      "size": 80440
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -3916,8 +3916,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-snapshot.js",
-      "sha256": "12152713aa484409acc08722a187064b521546fd2a92e302df3e48115e0499ec",
-      "size": 3306
+      "sha256": "05ad6110e79ae411a2d9b0d0f4b047661d6737f9c16c3c61c9b7cf70b4a02585",
+      "size": 3255
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-strategies.js",
@@ -9191,9 +9191,9 @@
     }
   ],
   "archive": {
-    "commit": "61ab2c3c904b836a8c9c08a692235ff889822a46",
+    "commit": "cfc739e8faebcd4c3844da4ccac8c8a4ac15ca5a",
     "path": "runtime.zip",
-    "sha256": "5de2c39ffb3b477e995567e56896d75e527b1c364b1723e5d19fe89edddcdc89",
-    "size": 16332830
+    "sha256": "9609409850a6468fde097883f491f32dc3f14da077d9e8bbf9306bce7891eed9",
+    "size": 16332826
   }
 }
