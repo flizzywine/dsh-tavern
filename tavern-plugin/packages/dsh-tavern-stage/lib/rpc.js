@@ -3,10 +3,10 @@ import { widgetSourceRounds } from './domain/widget-window-projection.js'
 import {projectStageLease} from './domain/stage-lease-projection.js'
 import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
-import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
-// The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.
+// The stage's requests: director, asset packs, figures and voices, widgets, mods, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
-// A dsh.phone message mark: the phone reads in full only the earlier rounds whose record binds a phone view and marks one.
+// A source mod's mark (modService.sources, mod-source-views.js): the phone reads in full only the earlier rounds whose record
+// binds its view and marks one.
 export function createStageHandlers(deps) {
   const { ctx } = deps
   return {
@@ -77,31 +77,6 @@ return {invalidated:widgetVariables.invalidate(args)}
       const { modService } = deps
 return {kinds:modService.performanceKinds()}
     },
-    async updateStageTimer(args, method, serverTemplate, authority) {
-      const { stageTimer } = deps
-return method==='getStageTimer'?stageTimer.read(args):stageTimer.update(args)
-    },
-    async getStageTimerLooks(args, method, serverTemplate, authority) {
-      const { modService } = deps
-return modService.builtinImages('dsh.timer')
-    },
-    async getStageTimerReaction(args, method, serverTemplate, authority) {
-      const { STAGE_TIMER_FIELD, assetEngineSettings, assetRuntime, cardStageSwitch, readRoundView, stageDirector } = deps
-
-        const chat=await readRoundView(args.sessionId,args.turn)
-        if(!chat)return {status:'unavailable'}
-        const direction=await stageDirector.get(chat,Number(args.turn),null,{readOnly:true})
-        if(JSON.stringify(direction.token)!==JSON.stringify(args.expectedDirectionToken))return {status:'stale'}
-        const message=chat.messages.findLast(row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===Number(args.turn))
-        const event=message?.[STAGE_TIMER_FIELD]?.events?.find(row=>row.id===args.eventId),ref=event?.onTimeup
-        if(!ref || !await cardStageSwitch(chat.cardPath,'performance'))return {status:'unavailable'}
-        const consumer=await assetRuntime.consumer(chat,authority?.origin)
-        if(!consumer?.presentation.available() || !consumer.allowedPackIds.includes(ref.packId))return {status:'unavailable'}
-        const metadata=await consumer.presentation.performanceMetadata([ref])
-        const performance=await consumer.presentation.performance({ref,instanceKey:[event.id],phase:'entry'},{snapshots:metadata,engine:assetEngineSettings.read().values,isCurrent:()=>true})
-        return performance.unavailable?{status:'unavailable'}:{status:'ready',performance}
-
-    },
     async getStageItems(args, method, serverTemplate, authority) {
       const { cardStageSwitch, readCardWorkspace, readRoundView, stageDirector } = deps
 
@@ -135,83 +110,6 @@ return cgGallery.list(args,authority?.origin)
       const { cgGallery } = deps
 return cgGallery.ack(args,authority?.origin)
     },
-    async getStagePhoneThreads(args, method, serverTemplate, authority) {
-      const { readStageChat, stagePhoneDirectory } = deps
-
-        const chat=await readStageChat.view(args.sessionId)
-        return chat?stagePhoneDirectory(chat):{enabled:false,contacts:[],threads:[]}
-
-    },
-    // one contact's call, its own context window.
-    async phoneCallStart(args, method, serverTemplate, authority) {
-      return deps.phoneCallHost.startByContact({sessionId:args.sessionId, contactId:String(args.contactId || ''), origin:authority?.origin, at:args.at})
-    },
-    async phoneCallHear(args) {
-      const { phoneCallHost } = deps
-      return phoneCallHost.hear({audio:args.audio, language:args.language})
-    },
-    async phoneCallTurn(args) {
-      const { phoneCallHost, readStageChat } = deps
-      const said = String(args.said || '').trim()
-      if (!said) throw new Error('没有听清')
-      // The call is anchored to the latest round; its recent-story section reads its own view.
-      // note: the camera's quiet line for the model (FaceTime), never in the transcript.
-      const note = typeof args.note === 'string' ? args.note.slice(0, 200) : ''
-      return phoneCallHost.calls.turn({sessionId:args.sessionId, callId:args.callId, said, note, cue:args.cue === true, timing:args.timing, chat:await readStageChat.view(args.sessionId,{configOnly:true})})
-    },
-    // the call turned into a video call (its record), and a call
-    // party's stage figure (`who`: a contact id or 'self') in the outfit of the page it was made from and the clause's mood.
-    async phoneCallVideo(args) {
-      return deps.phoneCallHost.calls.video({sessionId:args.sessionId, callId:args.callId})
-    },
-    async phoneCallFigure(args, method, serverTemplate, authority) {
-      const at = args.at && Number.isSafeInteger(args.at.turn) && args.at.turn > 0 ? {turn:args.at.turn, ...(Number.isSafeInteger(args.at.para) && args.at.para > 0 ? {para:args.at.para} : {})} : null
-      return deps.phoneCallHost.figure({sessionId:args.sessionId, who:String(args.who || ''), emotion:typeof args.emotion === 'string' && args.emotion ? args.emotion : undefined, at, origin:authority?.origin})
-    },
-    async phoneCallPoll(args) {
-      const { phoneCallHost } = deps
-      return phoneCallHost.calls.poll({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, says:Number(args.says) || 0, subs:Number(args.subs) || 0, waitMs:Number(args.waitMs) || 0})
-    },
-    async phoneCallAlive(args) {
-      return deps.phoneCallHost.calls.alive({sessionId:args.sessionId, callId:args.callId})
-    },
-    // her cached greeting sounded as she picked up: it enters the call's record
-    async phoneCallGreeted(args) {
-      return deps.phoneCallHost.calls.greeted({sessionId:args.sessionId, callId:args.callId})
-    },
-    async phoneCallTtsRequested(args, method, serverTemplate, authority) {
-      return deps.phoneCallHost.calls.ttsRequested({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, origin:authority?.origin})
-    },
-    async phoneCallHeard(args) {
-      return deps.phoneCallHost.calls.heard({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, heard:args.heard, timing:args.timing})
-    },
-    async phoneCallInterrupt(args) {
-      const { phoneCallHost } = deps
-      return phoneCallHost.calls.interrupt({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, heard:args.heard, timing:args.timing, retract:args.retract === true})
-    },
-    async phoneCallEnd(args) {
-      const { phoneCallHost } = deps
-      return phoneCallHost.calls.end({sessionId:args.sessionId, callId:args.callId, turnId:args.turnId, heard:args.heard, timing:args.timing})
-    },
-    async phoneCallThreads(args, method, serverTemplate, authority) {
-      const { phoneCallHost, readStageChat } = deps
-      // Dev diagnostics: each phase's wall time, logged and returned as `timing`.
-      const started = performance.now(), timing = {}
-      const timed = async (name, work) => { const at = performance.now(); try { return await work } finally { timing[name] = Math.round(performance.now() - at) } }
-      const chat = await timed('chatMs', readStageChat.view(args.sessionId,{configOnly:true}))
-      // The call button shows only where calls can work: local speech recognition answering (started here when it is set
-      // up but not running; `starting` asks the page to look again). `voices`: the phone's 电话 app also asks which
-      // contacts have a voice to call with.
-      const readiness = chat ? await timed('readinessMs', phoneCallHost.readiness()) : {available:false}
-      if (!chat) return {threads:{}, ...readiness}
-      const [calls, facts] = await Promise.all([timed('callsMs', phoneCallHost.calls.threads({chat})),
-        args.voices === true ? timed('contactsMs', phoneCallHost.directoryFacts(args.sessionId, authority?.origin)) : null])
-      timing.totalMs = Math.round(performance.now() - started)
-      if (facts) { timing.contacts = Object.keys(facts.voices).length; console.info('[dsh-tavern.phone-directory]', JSON.stringify(timing)) }
-      // The 电话 app opened: the contacts called before in this chat get their pick-up greeting ready in idle time.
-      if (facts) phoneCallHost.wantGreetings({sessionId:args.sessionId, origin:authority?.origin, contactIds:Object.keys(calls.threads).filter(id => facts.voices[id])})
-      return {...calls, ...(facts || {}), ...readiness, timing}
-    },
     async getStagePhonePresentation(args, method, serverTemplate, authority) {
       const { modService, readRoundOps, readRoundView, stageDirector } = deps
 
@@ -220,7 +118,7 @@ return cgGallery.ack(args,authority?.origin)
         // every other floor stays an identity row.
         const marks=await readRoundOps(args.sessionId,args.turn,20)
         if(!marks)return {status:'revoked',widgets:[]}
-        const rounds=phoneRounds(marks.records)
+        const rounds=modService.sources.rounds(marks.records)
         const read=()=>readRoundView(args.sessionId,args.turn,rounds)
         const chat=await marks.view(rounds)
         if(!chat)return {status:'revoked',widgets:[]}
@@ -234,12 +132,12 @@ return cgGallery.ack(args,authority?.origin)
           // floor without a record has no phone view.
           if(turn!==args.turn && !rounds.includes(turn))continue
           const candidate=turn===args.turn?direction:await stageDirector.get(chat,turn,null,{readOnly:true})
-          const record=candidate.record || candidate.preview,bound=record?.binding.mods?.sourceViews?.phone
+          const record=candidate.record || candidate.preview,bound=modService.sources.bound(record)?.view
           if(!bound)continue
           let used=false
           for(const entry of record.entries) {
             if(entry.at>candidate.through || turn===args.turn && entry.at>args.at)continue
-            if(entry.ops.some(phoneMark)) {view ||= bound;used=true}
+            if(entry.ops.some(modService.sources.marks)) {view ||= bound;used=true}
           }
           if(used)found.push({turn,token:candidate.token})
         }
@@ -251,7 +149,7 @@ return cgGallery.ack(args,authority?.origin)
           for(const source of found)if(JSON.stringify((await stageDirector.get(latest,source.turn,null,{readOnly:true})).token)!==JSON.stringify(source.token))return false
           return true
         }
-        const widgets=view?await modService.readPhonePresentation({chat,direction,at:args.at,view}):[]
+        const widgets=view?await modService.readSourcePresentation({chat,direction,at:args.at,view}):[]
         return await authorizeSource()?{status:'ready',widgets}:{status:'stale',widgets:[]}
 
     },
@@ -289,7 +187,7 @@ return cgGallery.ack(args,authority?.origin)
         if (current?.stageDirectionAssetPacks?.binding?.mods?.sourceViews) void (async () => {
           const marks=await readRoundOps(args.sessionId,turn,20)
           if (!marks) return
-          const marked=[...new Set([...phoneRounds(marks.records),...widgetSourceRounds(marks.records)])]
+          const marked=[...new Set([...deps.modService.sources.rounds(marks.records),...widgetSourceRounds(marks.records)])]
           if (marked.length) await marks.view(marked)
         })().catch(() => {})
         const performanceEnabled=!!chat && await cardStageSwitch(chat.cardPath,'performance')
@@ -298,7 +196,7 @@ return cgGallery.ack(args,authority?.origin)
           readCountdown:async ({direction,at}) => stageTimer.read({sessionId:args.sessionId,turn:Number(args.turn),at,expectedDirectionToken:direction.token,mode:args.history?'history':'live'}),
           readModSources:async ({direction,at,state}) => {
             const chat=await read()
-            return chat?modService.readPhonePresentation({chat,direction,at,state}):[]
+            return chat?modService.readSourcePresentation({chat,direction,at,state}):[]
           },
           readPlayback:async () => (await read())?.messages.find(m => m.role === 'assistant' && Number(m.turn || (m.greeting ? 1 : 0)) === Number(args.turn))?.[STAGE_PLAYBACK_FIELD],
           writePlayback:async (direction,metadata,assetRevision) => {
@@ -485,17 +383,6 @@ return assetEngineSettings.exportPreset(args || {})
         const chat = await chatForSession(str(args && args.sessionId))
         if (!chat) throw new Error('找不到当前对话')
         return await stageDirector.preview(chat, Number(args?.turn) || 0, await dialogueBubbles.read(chat.cardPath))
-
-    },
-    async getModStageViews(args, method, serverTemplate, authority) {
-      const { modService, str } = deps
-return modService.stageViews(str(args?.sessionId),authority)
-    },
-    async notifyModPresentation(args, method, serverTemplate, authority) {
-      const { modService } = deps
-
-        const {sessionId,_performance,_traceId,...input}=args || {}
-        return modService.presentation(sessionId,input,authority)
 
     },
     async getRoundBody(args, method, serverTemplate, authority) {

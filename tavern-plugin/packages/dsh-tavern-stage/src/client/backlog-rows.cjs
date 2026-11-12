@@ -1,4 +1,4 @@
-function createStageBacklogRows({voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, textcard:textcardHistory, pointer:stagePerformancePointer}) {
+function createStageBacklogRows({voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, renderers, pointer:stagePerformancePointer}) {
 function galUserText(content) {
     if (typeof content === "string") return content;
     if (!Array.isArray(content)) return "";
@@ -71,13 +71,10 @@ const BACKLOG_RENDERERS = {
         return {tag:{gain:'获得',lose:'失去'}[item.action] || '展示', place:'after',
             text:item.name + (item.variantName ? ' · ' + item.variantName : '') + (item.action !== 'show' && item.count != null ? ' ×' + item.count : '')};
     },
-    textcard(performance) {
-        const card = textcardHistory(performance.payload);
-        // Explicit placement survives pagination; unmarked historical cards still precede their paragraph.
-        return card && {tag:card.tag, parts:card.parts, place:performance.payload.placement === 'after' ? 'end' : 'before'};
-    },
     title: event => ({tag:'报幕', text:String(event.value), place:'before'}),
     dice: roll => ({roll, place:'lead'}),
+    // the mods' stage features add theirs (features.cjs backlogRenderers).
+    ...renderers,
 };
 // declaration: the registry entry; record: what the stage played; target: {turn, id} - the row's identity in its round.
 function backlogPerformanceEntry(declaration, record, target) {

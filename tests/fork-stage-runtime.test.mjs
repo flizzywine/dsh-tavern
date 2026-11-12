@@ -1,5 +1,6 @@
 // resource readiness is per background/figure slot, not a visual transaction.
 import test from 'node:test'
+import {phoneBeatKernel} from './helpers/phone-source-beat.mjs'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {readFileSync} from 'node:fs'
@@ -369,7 +370,7 @@ test('runtime kernel runs in an isolated browser realm with explicit collaborato
   const isolated = factory({
     performanceStateKernel: require('../tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs'),
     modProjectionKernel: require('../tavern-plugin/src/client/mod-projection.cjs'),
-    phoneBeatKernel: require('../tavern-plugin/src/client/phone-beat.cjs'),
+    phoneBeatKernel,
     performanceKindsKernel: require('../tavern-plugin/src/client/stage-performance-kinds.cjs'),
   })
   let local = createStageRuntimeState(), remote = isolated.createStageRuntimeState()

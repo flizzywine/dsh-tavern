@@ -22,7 +22,7 @@ export function createRequestPerformance({ now = () => performance.now(), wall =
   let active = 0
   // Requests whose reads are traced: the stage's first view, and the stage readers of one round.
   const coldMethods = new Set(['getStageDirection', 'getDialogueBubbles', 'getAssetPackPresentation', 'getStageMusicTracks', 'getStageBackgrounds', 'startup-history',
-    'getStageItems', 'readStageModMedia', 'getStageModHistory', 'getStageTimerReaction', 'getStagePhoneThreads', 'getStagePhonePresentation'])
+    'getStageItems', 'getStageModHistory', 'getStageTimerReaction', 'getStagePhoneThreads', 'getStagePhonePresentation'])
   // Past its first three, a request is logged when it is slow enough to matter for a spike.
   const slowLogMs = 250
   const firstReads = new Map(), reads = channel('dsh.asset.read'), chatReads = channel('dsh.chat.read'), modReads = channel('dsh.mod.read')

@@ -1,39 +1,7 @@
-import {isDeepStrictEqual} from 'node:util'
 import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
-import {validateModManifest} from './manifest.js'
 import {assertModCurrent} from './permissions.js'
 const {modCheck:check, modFreeze, modJson, modResultError} = contract
-const hooks = ['prepare','command','settled','dispose','event']
-
-// The caller supplies application imports, never modules or paths obtained from an archive.
-export function createBuiltinModRegistry(releases) {
-  const entries=new Map()
-  for (const release of releases) {
-    const manifest=validateModManifest(release.manifest),files=new Map()
-    check(!entries.has(manifest.id),'$.id','Duplicate built-in mod')
-    check(Object.keys(release.module).every(key=>hooks.includes(key) || ['configure','commandSchema','validateCommand'].includes(key)) && ['configure','commandSchema','validateCommand'].every(key=>release.module[key]===undefined || typeof release.module[key]==='function') && hooks.every(key=>key==='event' && release.module[key]===undefined || typeof release.module[key]==='function'),'$.runtime','Invalid first-party module')
-    check(!manifest.subscriptions?.length || typeof release.module.event==='function','$.subscriptions','Subscriptions require an event callback')
-    for (const file of manifest.files) {
-      const bytes=Buffer.from(release.files.get(file.path) || [])
-      check(bytes.length===file.size && release.files.has(file.path),'$.files','Incomplete built-in release')
-      files.set(file.path,bytes)
-    }
-    entries.set(manifest.id,{manifest,files,module:Object.freeze({...release.module})})
-  }
-  return Object.freeze({
-    inspect(manifest,files) {
-      const validated=validateModManifest(manifest),builtin=entries.get(validated.id)
-      check(builtin && isDeepStrictEqual(validated,builtin.manifest),'$.runtime','First batch supports only installed application releases','MOD_API_UNSUPPORTED')
-      check(files instanceof Map && files.size===builtin.files.size,'$.files','Unexpected release files')
-      for (const [path,bytes] of builtin.files) check(files.has(path) && Buffer.from(files.get(path)).equals(bytes),'$.files','Modified first-party release: '+path,'MOD_API_UNSUPPORTED')
-      return builtin.manifest
-    },
-    manifest(modId) {const entry=entries.get(modId);check(entry,'$.modId','No built-in release','MOD_API_UNSUPPORTED');return entry.manifest},
-    module(modId) {const entry=entries.get(modId);check(entry,'$.modId','No built-in runtime','MOD_API_UNSUPPORTED');return entry.module},
-    file(modId,path) {const entry=entries.get(modId);check(entry,'$.modId','No built-in release','MOD_API_UNSUPPORTED');const bytes=entry.files.get(path);return bytes?Buffer.from(bytes):null},
-    files(modId) {const entry=entries.get(modId);check(entry,'$.modId','No built-in release','MOD_API_UNSUPPORTED');return new Map([...entry.files].map(([path,bytes])=>[path,Buffer.from(bytes)]))}
-  })
-}
+const hooks = ['prepare','command','dispose']
 
 // timeoutMs bounds the module's own time. Host capability calls (stage.place writes the
 // chat through the serialized persistence gate, which a director checkpoint can occupy for seconds) pause that clock

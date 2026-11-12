@@ -5,10 +5,8 @@
 // (the Story Timeline stays the single truth of what has happened). At dial the host gives the model the latest story
 // rounds and every phone record of the story so far (call-context.js); the story itself is read, never written.
 //
-import { PROMPT_PROSE, bubbleVoiceSwitches } from '../../lib/domain/dialogue-bubbles.js'
-import { prompt } from '../../lib/prompt-catalog.js'
-import { promptSection } from '../../lib/domain/prompt-section.js'
-import { parseBubbles, bubbleSpeechCut, matchBubbleMood, voiceTranslates as languageTranslates, projectVoiceCues } from '../../src/client/bubble-line.cjs'
+// The core helpers (bubble parsing and voice cues, prompt sections and files, the bubble prompt prose) come in `library`, the
+// core's mod library (lib/mod-library.js) the stage service gets as bindings.hostLibrary; this file imports no core path.
 
 const LANGUAGE_NAMES = {ja:'Japanese',zh:'Chinese',en:'English',ko:'Korean',yue:'Cantonese'}
 const CALL_EXAMPLES = {
@@ -19,9 +17,9 @@ const CALL_EXAMPLES = {
 }
 const text = value => typeof value === 'string' ? value : ''
 const compact = (value, max) => text(value).replace(/\s+/g, ' ').trim().slice(0, max)
-export const speechCut = bubbleSpeechCut
 // Foreign subtitles and voice are one paired cue per bubble. Never infer translation alignment from text lengths.
-export function createCallReplyParser({language = 'zh', moods = [], defaultEmotion = 'default', contact = {}, voiceTranslates = languageTranslates(language)} = {}) {
+export function createCallReplyParser({library, language = 'zh', moods = [], defaultEmotion = 'default', contact = {}, voiceTranslates = library.voiceTranslates(language)}) {
+  const {parseBubbles, matchBubbleMood, projectVoiceCues, bubbleSpeechCut} = library
   let source = '', finished = false
   const states = [], segments = []
   function project() {
@@ -81,9 +79,9 @@ export function storyCalls(document, anchor) {
 }
 
 // Her pieces back as the lines she wrote (a line cut for speech is one line again).
-function spokenLines(segments, contact, language) {
+function spokenLines(segments, contact, language, {voiceTranslates, projectVoiceCues}) {
   const lines = []
-  const foreign = contact.voiceRules?.voiceTranslates ?? languageTranslates(language)
+  const foreign = contact.voiceRules?.voiceTranslates ?? voiceTranslates(language)
   let said = '', mood = ''
   const line = sub => (contact.moods?.find(row => row.id === mood)?.label || '') + '|[' + (foreign ? sub || projectVoiceCues(said) : said) + ']' + (foreign ? '|[' + said + ']' : '')
   for (const row of segments) {
@@ -100,7 +98,8 @@ const utf8 = value => Buffer.byteLength(String(value || ''), 'utf8')
 
 /** The model request of one call turn: the system prompt and this call's lines as messages. `bytes` measures each part
  * (UTF-8), so a slow first token can be told apart from a large or uncached prompt. */
-export function callRequest({contact, persona, language, playerName, chat, earlier, lines, context = {}}) {
+export function callRequest({library, contact, persona, language, playerName, chat, earlier, lines, context = {}}) {
+  const {dialogueBubbleProse:PROMPT_PROSE, bubbleVoiceSwitches, promptSection, prompt} = library
   const player = playerName || '你'
   // The one 配音语言 rule (bubble-line.cjs): display text is Chinese; a voice language other than 中文 adds voice text.
   const {voiceTranslates:foreign, voiceDirection} = contact.voiceRules || bubbleVoiceSwitches({voice:{enabled:true}}, {voice:true,voiceLang:language,voiceDirection:contact.voiceDirection})
@@ -129,7 +128,7 @@ export function callRequest({contact, persona, language, playerName, chat, earli
   const system = parts.map(([, text]) => text).join('\n\n')
   const messages = []
   for (const line of lines) {
-    const content = line.role === 'player' ? line.text : spokenLines(line.segments, contact, language)
+    const content = line.role === 'player' ? line.text : spokenLines(line.segments, contact, language, library)
     const role = line.role === 'player' ? 'user' : 'assistant'
     if (messages.at(-1)?.role === role) messages.at(-1).content[0].text += '\n' + content
     else messages.push({role, content:[{type:'text', text:content}]})
@@ -151,9 +150,9 @@ export function callRequest({contact, persona, language, playerName, chat, earli
  * A call its page stopped answering for (`aliveMs` without any request: a reload, a closed window) ends by itself, so
  * neither the lease nor the deployment busy signal outlive it.
  */
-export function createPhoneCalls({store, model, serviceState = async () => ({state:'unsupported'}), hold = async () => null, context = async () => ({}), now = Date.now, clock = () => performance.now(), id = () => Math.random().toString(36).slice(2),
+export function createPhoneCalls({library, store, model, serviceState = async () => ({state:'unsupported'}), hold = async () => null, context = async () => ({}), now = Date.now, clock = () => performance.now(), id = () => Math.random().toString(36).slice(2),
   aliveMs = 75000, timer = {set:(fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t }, clear:t => clearTimeout(t)}}) {
-  const calls = new Map()
+  const calls = new Map(), {projectVoiceCues, promptSection} = library
   function touch(call) { timer.clear(call.expiry); call.expiry = timer.set(() => { if (calls.get(call.id) === call) void hangUp(call).catch(() => {}) }, aliveMs) }
   // Every way a call stops: its reply, its expiry and its residency lease go with it.
   function close(call) {
@@ -231,7 +230,7 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
       touch(call)
       try {
         const extra = await context({sessionId, chat, contact, anchor, phase:'start', calls:storyCalls(document, anchor), playerName:playerName || '你'})
-        call.fixed = callRequest({contact:call.contact, language, playerName, lines:[], context:extra})
+        call.fixed = callRequest({library, contact:call.contact, language, playerName, lines:[], context:extra})
         call.selection = extra.selection
       } catch (error) { close(call); throw error }
       return {callId:call.id, contact, language, anchor}
@@ -275,7 +274,7 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
       catch (error) { if (call.turn === turn) stopTurn(call); timing.status = 3; timing.totalMs = since(); await persist(call); throw error }
       controller.signal.throwIfAborted()
       const spoken = call.lines.at(-1), quiet = note ? {...spoken, text:note + '\n' + spoken.text} : spoken
-      const assembled = callRequest({contact:call.contact, language:call.language, playerName:call.playerName, lines:[quiet], context:{turnSections:extra.turnSections}})
+      const assembled = callRequest({library, contact:call.contact, language:call.language, playerName:call.playerName, lines:[quiet], context:{turnSections:extra.turnSections}})
       const prefix = call.messages.reduce((n, row) => n + utf8(row.content[0].text), 0)
       call.messages.push(...assembled.messages)
       const request = {system:call.fixed.system, messages:structuredClone(call.messages), bytes:{...call.fixed.bytes,
@@ -291,7 +290,7 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
         }
         if (events.length) turn.wake()
       }
-      const parser = createCallReplyParser({language:call.language, moods:call.contact.moods, defaultEmotion:call.contact.defaultEmotion, contact:call.contact, voiceTranslates:call.contact.voiceRules?.voiceTranslates})
+      const parser = createCallReplyParser({library, language:call.language, moods:call.contact.moods, defaultEmotion:call.contact.defaultEmotion, contact:call.contact, voiceTranslates:call.contact.voiceRules?.voiceTranslates})
       let whole = ''
       timing.requestMs = since()
       void model({sessionId:call.sessionId,selection:call.selection,system:request.system,messages:request.messages,signal:controller.signal,onText:chunk => {
@@ -306,7 +305,7 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
       }}).then(async () => {
         if (controller.signal.aborted) return
         take(parser.finish(whole))
-        call.messages.push({role:'assistant', content:[{type:'text', text:spokenLines(parser.segments, call.contact, call.language)}]})
+        call.messages.push({role:'assistant', content:[{type:'text', text:spokenLines(parser.segments, call.contact, call.language, library)}]})
         turn.recorded = true
         await persist(call)
       }).catch(error => { if (!controller.signal.aborted) turn.error = String(error?.message || error) })
@@ -358,10 +357,10 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
       if (turn.transcript) turn.transcript.interrupted = true
       if (retract && call.lines.at(-1)?.role === 'player') { call.lines.pop(); call.turn = null }
       // The audible transcript may shrink, but already sent model input never does.
-      if (!turn.recorded && kept.length) call.messages.push({role:'assistant', content:[{type:'text', text:spokenLines(kept, call.contact, call.language)}]})
+      if (!turn.recorded && kept.length) call.messages.push({role:'assistant', content:[{type:'text', text:spokenLines(kept, call.contact, call.language, library)}]})
       call.messages.push({role:'user', content:[{type:'text', text:retract
         ? '（通话说明：刚才是句中停顿，玩家尚未说完；抢先生成的回复没有播出。以下以玩家接下来完整的一句话为准。）'
-        : '（通话说明：玩家打断了回复。实际已开口的内容：' + (spokenLines(kept, call.contact, call.language) || '无') + '；其余内容没有说给玩家听，请接着听玩家说话。）'}]})
+        : '（通话说明：玩家打断了回复。实际已开口的内容：' + (spokenLines(kept, call.contact, call.language, library) || '无') + '；其余内容没有说给玩家听，请接着听玩家说话。）'}]})
       await persist(call)
       return {interrupted:true, kept:kept.length}
     },

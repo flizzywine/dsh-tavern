@@ -3,6 +3,7 @@ import {fixedConfigValues,boundConfigValues} from './mod-system-config.js'
 import {assertSchema,validateModSystem,emptyCardMods,emptyGlobalMods,MOD_HOST_API,modError} from './mod-system-contract.js'
 import performanceKinds from '../../src/client/stage-performance-kinds.cjs'
 import {resolveModOptions} from './mod-system-options.js'
+import {validateModDeclarations} from './mods/declarations.js'
 
 export function resolveSwitch(globalOn,cardValue,skinEnabled) {
   return cardValue!=='off' && (globalOn===true || cardValue==='on' || (cardValue==null && skinEnabled===true))
@@ -11,6 +12,7 @@ export function validateDistributionManifest(value) {
   // Named, fixable messages for a missing or malformed performance declaration come before the generic schema error.
   performanceKinds.createStagePerformanceRegistry([{owner:value?.id,performances:value?.performances}])
   validateModSystem('manifest',value);modRangeBounds(value.hostApi);modVersionMatches(value.version,value.version)
+  validateModDeclarations(value)
   validateDependencyGraph([value])
   for(const edge of [...value.dependencies,...value.conflicts || []])modRangeBounds(edge.range)
   for(const rows of [value.dependencies,value.assetKinds || [],value.coreAssets])if(new Set(rows.map(row=>row.id)).size!==rows.length)throw modError('MOD_INVALID','Duplicate declaration identity',{id:value.id})

@@ -37,3 +37,14 @@ test('client features own views and CSS in each scope, including failed mount ro
  off();remove();second.dispose();assert.equal(styles.size,0)
  assert.equal(mount(4).timer,undefined)
 })
+
+test('client features list their takeover views and answer skipShows and backlog renderers for their own kinds',()=>{
+ const features=createStageFeatures(),document={head:{appendChild(){}},createElement:()=>({dataset:{},remove(){}})}
+ features.register('card',{views:()=>({card:{useStage:()=>null}}),takeover:views=>views.card,skipShows:kind=>kind==='m.card',backlog:{card:()=>({text:'x'})}})
+ features.register('plain',{views:()=>({plain:{}})})
+ const views={};createStageViewScope(own=>{features.mount({own,views,options:{},document});return views})
+ assert.deepEqual(views.takeovers,[views.card])
+ assert.deepEqual([features.skipShows('m.card'),features.skipShows('m.other')],[true,false])
+ assert.deepEqual(Object.keys(features.backlogRenderers()),['card'])
+ assert.throws(()=>createStageViewScope(own=>{features.mount({own,views:{takeovers:[]},options:{},document});return {}}),/Occupied stage view: takeovers/)
+})

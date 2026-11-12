@@ -14,7 +14,7 @@ test('a failing mod callback names the mod and the step; optional lifecycle hook
   assert.equal(failed.error.operation,'command')
   assert.equal(failed.error.message,'example.mod command: bad input')
   assert.deepEqual(seen.map(row=>[row.modId,row.operation,row.message]),[['example.mod','command','bad input']])
-  assert.deepEqual(await runtime.invoke({modId:'example.mod'},'settled',{}),{ok:true,value:null})
+  assert.deepEqual(await runtime.invoke({modId:'example.mod'},'prepare',{}),{ok:true,value:null})
 })
 
 test('asset-ref fields hold one main-library background, and object children may be optional',async()=>{

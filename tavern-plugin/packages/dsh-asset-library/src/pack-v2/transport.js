@@ -31,7 +31,6 @@ const fields = Object.freeze({
   listVoiceCatalogue:[], listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
   deleteVoiceTemplate:['templateId','expectedRevision'], assignVoiceTemplate:['templateId','templateRevision','packId','figureId','expectedRevision'],
   createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates'], removePack:['packId','expectedRevision'],
-  putModMedia:['modId','packId','kind','slot','mime','bytes'], leaseModMedia:['modId','packId','path'],
   putBlob:['packId','expectedRevision','bytes','descriptor'], removeBlob:['packId','expectedRevision','hash'],
   putBundle:['packId','expectedRevision','bundleKey','descriptor','files'], removeBundle:['packId','expectedRevision','bundleKey'],
   copyFigure:['source','target'], copyItems:['sourcePackId','itemRefs','target'],
@@ -92,7 +91,6 @@ async function readBytes(request, maximum, reserve = () => {}, unreserve = () =>
 
 /** Owns one v2 service and its exact authenticated routes. No v1 adapter or disk reader. */
 export function createAssetPackTransport({settings, ...options}) {
-  let modMedia
   const now = options.now || Date.now, limits = {...PACK_LIMITS, ...options.limits}
   const uploads = new Map(), downloads = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
   const outboxBytes = () => [...outbox].reduce((sum,item) => sum + item.size,0)
@@ -191,24 +189,6 @@ export function createAssetPackTransport({settings, ...options}) {
       return lease
     } catch (error) { for (const stop of stops) stop(); core.releaseLease(lease.ticket); throw error }
   }
-  async function leaseModMedia(input) {
-    alive();sweep()
-    check(connection && modMedia,'$','Mod media unavailable','ASSET_UNAVAILABLE')
-    const carrier=connection,epoch=generation
-    await modMedia.read(input)
-    check(connection===carrier && epoch===generation,'$','Transport detached','ASSET_UNAVAILABLE')
-    const ticket=randomBytes(24).toString('base64url'),url=PACK_LEASE_PATH+ticket+'/media',expiresAt=now()+limits.previewTtlMs
-    // Do not pin a multi-MiB buffer for the lease lifetime; read under the current pack authority on demand.
-    const stop=carrier.fetch.register({path:url,methods:['GET','HEAD'],requestBody:'buffered',fetch:request=>guarded(request,async()=>{
-      check(leases.has(ticket),'$','Lease expired','ASSET_UNAVAILABLE')
-      const media=await modMedia.read(input)
-      check(leases.has(ticket),'$','Lease expired','ASSET_UNAVAILABLE')
-      return new Response(request.method==='HEAD'?null:media.bytes,{headers:{'Content-Type':media.mime,'Content-Length':String(media.bytes.length),'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
-    },input.origin)})
-    const lease={ticket,url,expiresAt,resources:[url]}
-    leases.set(ticket,{...lease,stops:[stop]})
-    return lease
-  }
   async function guarded(request, action, expected, widget = false) {
     try { alive(); sweep(); packRequestOrigin(request,expected,widget); return await action() }
     catch (error) { await request.body?.cancel().catch(() => {}); return errorResponse(error) }
@@ -267,8 +247,6 @@ export function createAssetPackTransport({settings, ...options}) {
           result = input.method === 'settings' ? settings.read() : await settings.save(args)
         } else if (input.method === 'discardUpload') result = {released:drop(uploads,args.ticket)}
         else if (input.method === 'releaseLease') result = {released:release(args.ticket)}
-        else if (input.method === 'putModMedia') {check(modMedia,'$','Mod media unavailable','ASSET_UNAVAILABLE');result=await modMedia.put(args)}
-        else if (input.method === 'leaseModMedia') result=await leaseModMedia({...args,origin:packRequestOrigin(request)})
         else if (input.method === 'leaseMedia' || input.method === 'leaseBundle') result = await issue(input.method,{...args,scope:PRINCIPAL,origin:packRequestOrigin(request)})
         else result = await core[input.method](args)
         alive()
@@ -335,8 +313,6 @@ export function createAssetPackTransport({settings, ...options}) {
     for (const item of [...outbox]) removeArchive(item)
   }
   const service = Object.freeze({...core,
-    registerModMedia(owner) {check(!modMedia,'$','Mod media already registered');modMedia=owner;return ()=>{if(modMedia===owner)modMedia=null}},
-    putModMedia:input=>{check(modMedia,'$','Mod media unavailable','ASSET_UNAVAILABLE');return modMedia.put(input)},leaseModMedia,
     leaseMedia:input => issue('leaseMedia',input), leaseBundle:input => issue('leaseBundle',input), leaseWidget:input => issue('leaseWidget',input), releaseLease:release,
     async dispose() { if (!active) return; active = false; detach(); stopChanges(); stopSettings?.(); clearInterval(timer); await thumbnails.dispose(); await core.dispose(); await Promise.all(cleanup) }
   })

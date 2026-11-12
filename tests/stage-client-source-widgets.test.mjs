@@ -18,7 +18,7 @@ function fixture({prepare,...options}={}){
  const context={state:null,refs:new Map()}
  prepare?.(window)
  const plugin=createStageSourceWidgets({React,window,document,storage:window.localStorage,foreground,
-  views:{phoneLayout:{prefs,min:()=>50},admission:{shown:{get:()=>true,settled:()=>Promise.resolve()}},scene:{rects:()=>[]}},
+  views:{sourceDevice:{modId:'dsh.phone',presentation:'getStagePhonePresentation',glyph:'phone',mark:'mark',group:'group',threads:state=>state?.threads,prefs,min:()=>50},admission:{shown:{get:()=>true,settled:()=>Promise.resolve()}},scene:{rects:()=>[]}},
   sessions:()=>({owner:{getWidgetContext(){widgetReads++;return context}}}),sandbox:{theme:()=>null,stopSfx(){},scroll(){}},
   playerErrorText:String,...options})
  const mount=document.querySelector('main'),root=createRoot(mount)

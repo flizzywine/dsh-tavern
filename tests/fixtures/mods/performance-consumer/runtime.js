@@ -5,5 +5,4 @@ export function configure({manifest,catalogue}) {
 export function prepare() { return null }
 // The director transaction already accepted the boundary; this callback does not replay it.
 export async function command(_input,host) { return {accepted:true,state:await host.stage.state.get()} }
-export function settled() { return null }
 export function dispose() {}

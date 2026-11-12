@@ -6,9 +6,11 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 
-test('stage overlay builds and imports with only its own package files and the shared protocol contracts it bundles', async t => {
-  const packages = await mkdtemp(path.join(tmpdir(), 'stage-client-build-'))
-  t.after(() => rm(packages, {recursive:true,force:true}))
+test('stage overlay builds and imports with only its own package files, the shared protocol contracts and the mod stage clients it bundles', async t => {
+  const plugin = await mkdtemp(path.join(tmpdir(), 'stage-client-build-')), packages = path.join(plugin, 'packages')
+  t.after(() => rm(plugin, {recursive:true,force:true}))
+  // The mods' stage clients (mods/<folder>/client/stage.cjs and the own-folder files they require).
+  await cp(new URL('../tavern-plugin/mods/', import.meta.url), path.join(plugin, 'mods'), {recursive:true})
   const root = path.join(packages, 'dsh-tavern-stage')
   const pkg = new URL('../tavern-plugin/packages/dsh-tavern-stage/', import.meta.url)
   // The sibling protocol package: build.mjs inlines the stage-only contracts (stage-entrance.cjs, and card-stage-mode.cjs for
@@ -21,7 +23,6 @@ test('stage overlay builds and imports with only its own package files and the s
   await mkdir(path.join(root,'lib/client'),{recursive:true})
   await copyFile(new URL('lib/client-assets.js',pkg),path.join(root,'lib/client-assets.js'))
   await copyFile(new URL('lib/client/skin-overlay-timing.cjs',pkg),path.join(root,'lib/client/skin-overlay-timing.cjs'))
-  await copyFile(new URL('lib/client/timer-clock.cjs',pkg),path.join(root,'lib/client/timer-clock.cjs'))
   for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('lib/client/'+name,pkg),path.join(root,'lib/client',name))
   const run = args => spawnSync(process.execPath,[path.join(root,'build.mjs'),...args],{encoding:'utf8'})
   const built = run([])
@@ -31,7 +32,7 @@ test('stage overlay builds and imports with only its own package files and the s
   assert.equal(typeof module.createSkinOverlayPlayer,'function')
   assert.equal(typeof module.createDecorativeScript,'function')
   assert.equal(run(['--check']).status,0)
-  for (const name of ['entry.js','navigation.cjs','text.cjs','themes.css','phone.css']) {
+  for (const name of ['entry.js','navigation.cjs','text.cjs','themes.css','source-widgets.css']) {
     const file = path.join(root,'src/client',name)
     await writeFile(file,(await readFile(file,'utf8')).replace(/\r?\n/g,'\r\n'))
   }

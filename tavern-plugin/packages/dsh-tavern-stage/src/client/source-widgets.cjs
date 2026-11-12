@@ -2,7 +2,8 @@
 function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
 const {character:bubbleCharacter,actor:stageActorCharacter}=characters || {};
-const phoneModPrefs=views.phoneLayout.prefs,phoneModSizeMin=views.phoneLayout.min,phoneModRun=phoneProtocol?.run;
+// The handheld source device (a stage feature's sourceDevice, features.cjs), or null: its widget is laid out and adjusted as a phone.
+const phoneDevice=views.sourceDevice,phoneModPrefs=phoneDevice?.prefs,phoneModSizeMin=phoneDevice?.min,phoneModRun=phoneProtocol?.run;
 const matchMedia=(...args)=>window.matchMedia(...args),getComputedStyle=(...args)=>window.getComputedStyle(...args);
 // Viewport reads must stay live across resize, not be captured at activation.
 let closed=false;const owned=new Set(),timers=new Map(),frames=new Map(),idles=new Map();
@@ -67,7 +68,8 @@ function stageWidgetFacePx(width,dpr) {
 }
 
 // ephemeral reading UI, never a director state or a persisted preference.
-const stageWidgetRefKey = ref => ref.modId==='dsh.phone' ? JSON.stringify([ref.modId,'source']) : JSON.stringify([ref.packId,ref.kind,ref.assetId]);
+const isPhoneRef=ref=>!!phoneDevice && ref?.modId===phoneDevice.modId;
+const stageWidgetRefKey = ref => isPhoneRef(ref) ? JSON.stringify([ref.modId,'source']) : JSON.stringify([ref.packId,ref.kind,ref.assetId]);
 function stageWidgetPresentationState() { return {entries:new Map(), cursor:null, serial:0, liveVisit:false}; }
 function reduceWidgetPresentation(previous, action) {
     const state = {...previous, entries:new Map([...previous.entries].map(([key,item]) => [key,{...item,seen:[...item.seen],pending:[...item.pending]}]))};
@@ -143,7 +145,7 @@ function stageWidgetTextPrefix(text, limit) {
     return result;
 }
 function sourceMark(op,ref) {
-    if(ref.modId==='dsh.phone')return op.op==='mod.command' && op.modId==='dsh.phone' && op.commandId==='mark' ? op.params : null;
+    if(isPhoneRef(ref))return op.op==='mod.command' && isPhoneRef(op) && op.commandId===phoneDevice.mark ? op.params : null;
     return op.op==='widget.source' && op.ref.packId===ref.packId && op.ref.kind===ref.kind && op.ref.assetId===ref.assetId ? op : null;
 }
 const PHONE_PLAYER='$player';
@@ -167,10 +169,10 @@ function phoneModGroups(rows,cursor) {
     const groups=new Map();
     for (const row of [...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>a.turn-b.turn)) {
         const record=row.record;if (!record?.token?.bindingKey) continue;
-        for (const value of Object.values(record.baseline?.modState?.['dsh.phone']?.threads || {})) if (value?.id) groups.set(value.id,value);
+        for (const value of Object.values((phoneDevice && phoneDevice.threads(record.baseline?.modState?.[phoneDevice.modId])) || {})) if (value?.id) groups.set(value.id,value);
         for (const entry of record.entries || []) {
             if (entry.at>record.through || row.turn===cursor.turn && entry.at>cursor.para) continue;
-            for (const op of entry.ops || []) if (op.op==='mod.command' && op.modId==='dsh.phone' && op.commandId==='group' && op.params?.thread) groups.set(op.params.thread,{id:op.params.thread,name:op.params.name,participants:op.params.participants});
+            for (const op of entry.ops || []) if (op.op==='mod.command' && isPhoneRef(op) && op.commandId===phoneDevice.group && op.params?.thread) groups.set(op.params.thread,{id:op.params.thread,name:op.params.name,participants:op.params.participants});
         }
     }
     return groups;
@@ -190,7 +192,7 @@ function phoneModOfLine(message,phones,prefer=[],hint=null) {
 const phoneModAfter=(order,mark)=>Array.isArray(mark) && (order[0]-(Number(mark[0]) || 0) || order[1]-(Number(mark[1]) || 0))>0;
 function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', revealed=false, unavailable=false, limited=false, selected=null, directory=null, reads=null, limits=null, phoneView=null}) {
     const key=value=>value.modId ? JSON.stringify([value.modId,value.packId,value.kind,value.entryId]) : JSON.stringify([value.packId,value.kind,value.assetId]);
-    const phone=ref.modId==='dsh.phone';
+    const phone=isPhoneRef(ref);
     // The phone reads every turn the stage has loaded for it (it loads earlier turns as the reader scrolls up); other source
     // widgets keep their 20-turn window.
     const wanted=key(ref), turns=[...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>b.turn-a.turn).slice(0,phone ? rows.length : 20), playerId=phone && directory?.playerId || null;
@@ -554,7 +556,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
         const mine = life.current;
         setState(old => ({ ...old, status: old.data ? old.status : 'loading' }));
         try {
-            const [data, sources] = await Promise.all([call('getModConfig', { modId: 'dsh.phone', sessionId }), call('listModConfigSources', { sessionId }).catch(() => null)]);
+            const [data, sources] = await Promise.all([call('getModConfig', { modId: phoneDevice.modId, sessionId }), call('listModConfigSources', { sessionId }).catch(() => null)]);
             if (mine !== life.current) return;
             const list = Array.isArray(data.schema) ? data.schema : data.schema && data.schema.fields || [];
             latest.current = data; setState({ status: 'ready', error: '', data, autos: phoneModAutoColours(sources && sources.sources, list) });
@@ -578,10 +580,10 @@ function usePhoneSettings({ sessionId, call: callProp }) {
         queue.current = run.catch(() => null);
         return run;
     };
-    const set = async (key, layer, value) => accept(await call('setModConfig', { modId: 'dsh.phone', sessionId, key, layer, value, expectedRevision: latest.current.revision }));
-    const clear = async (key, layer) => { if (phoneModOwn(latest.current[layer], key)) accept(await call('clearModConfig', { modId: 'dsh.phone', sessionId, key, layer, expectedRevision: latest.current.revision })); };
+    const set = async (key, layer, value) => accept(await call('setModConfig', { modId: phoneDevice.modId, sessionId, key, layer, value, expectedRevision: latest.current.revision }));
+    const clear = async (key, layer) => { if (phoneModOwn(latest.current[layer], key)) accept(await call('clearModConfig', { modId: phoneDevice.modId, sessionId, key, layer, expectedRevision: latest.current.revision })); };
     const upload = async (layer, media) => {
-        const done = await call('uploadModConfigFile', { modId: 'dsh.phone', layer, sessionId, mime: media.mime, data: media.data, expectedRevision: latest.current.revision });
+        const done = await call('uploadModConfigFile', { modId: phoneDevice.modId, layer, sessionId, mime: media.mime, data: media.data, expectedRevision: latest.current.revision });
         latest.current = { ...latest.current, revision: done.revision };
         return done.file.path;
     };
@@ -600,7 +602,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
         let own = file;
         if (from !== layer) {
             // Files belong to their layer: a picture of the other layer is uploaded again (not added to this layer's 照片).
-            const read = await call('readModConfigFile', { modId: 'dsh.phone', layer: from, sessionId, path: file });
+            const read = await call('readModConfigFile', { modId: phoneDevice.modId, layer: from, sessionId, path: file });
             own = await upload(layer, { mime: read.file.mime, data: read.data });
         }
         await set('wallpaper', layer, { fixed: { file: own } });
@@ -628,7 +630,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
     const open = async choice => {
         if (full[choice]) return;
         const { from, file } = phoneModChoice(choice), mine = life.current;
-        const read = await call('readModConfigFile', { modId: 'dsh.phone', layer: from, sessionId, path: file });
+        const read = await call('readModConfigFile', { modId: phoneDevice.modId, layer: from, sessionId, path: file });
         if (mine === life.current) setFull(old => Object.fromEntries([...Object.entries(old).filter(([id]) => id !== choice), [choice, 'data:' + read.file.mime + ';base64,' + read.data]].slice(-PHONE_FULL_KEEP)));
     };
     const request = React.useCallback(message => {
@@ -657,7 +659,7 @@ function usePhoneSettings({ sessionId, call: callProp }) {
             const id = layer + ':' + file;
             if (asked.current.has(id)) continue;
             asked.current.add(id);
-            call('readModConfigFile', { modId: 'dsh.phone', layer, sessionId, path: file })
+            call('readModConfigFile', { modId: phoneDevice.modId, layer, sessionId, path: file })
                 .then(read => phoneModScaled('data:' + read.file.mime + ';base64,' + read.data, PHONE_THUMB, 'image/jpeg', .82))
                 .then(url => { if (mine === life.current) setThumbs(old => ({ ...old, [id]: url })); }, () => { asked.current.delete(id); });
         }
@@ -721,7 +723,7 @@ function stageWidgetPlacePoint(viewport,size,fraction) {
 // keeping its proportions; the
 // incoming banner is exactly as wide as that phone's screen. The view zooms to match and is told the dialogue box's body
 // size, so its message text reads at least as large as the box's at every window size.
-const PHONE_KEY=JSON.stringify(['dsh.phone','source']),PHONE_BANNER_MS=3500,PHONE_GAP=4,PHONE_MIN_WIDTH=160;
+const PHONE_KEY=JSON.stringify([phoneDevice?.modId,'source']),PHONE_BANNER_MS=3500,PHONE_GAP=4,PHONE_MIN_WIDTH=160;
 const PHONE_BEZEL=15,PHONE_SCREEN=265,PHONE_BANNER_HEIGHT=78,PHONE_MAX_ZOOM=3;
 // on a stage this narrow the open phone is the
 // full-bleed sheet - the reader's own phone is the device - and the dialogue box stays hidden under it until it is put away.
@@ -899,7 +901,7 @@ function useWidgetStage(props) {
         (async()=>{
             const items=[];
             for (const ref of missing) {
-                const result=await (props.readWindow || ((args)=>rpc(ref.modId==='dsh.phone'?'getStagePhonePresentation':'getAssetPackPresentation',args,props.sessionId)))({sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})}).catch(()=>null);
+                const result=await (props.readWindow || ((args)=>rpc(isPhoneRef(ref)?phoneDevice.presentation:'getAssetPackPresentation',args,props.sessionId)))({sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})}).catch(()=>null);
                 if (!live) return;
                 if (result?.status==='ready') items.push(...result.widgets);
             }
@@ -917,7 +919,7 @@ function useWidgetStage(props) {
     const historical=props.enabled ? (checked ? grants.items : [...held.current.items.values()].map(item=>({...item,checking:true}))) : [];
     for (const widget of [...available,...historical]) {if (!byRef.has(stageWidgetRefKey(widget.ref))) byRef.set(stageWidgetRefKey(widget.ref),widget);}
     const rows=[...(history?.scope===scope ? history.rows.filter(row=>row.turn<props.turn) : []),currentRow];
-    const hasPhone=[...byRef.values()].some(value=>value.ref?.modId==='dsh.phone' && value.sourceOnly);
+    const hasPhone=[...byRef.values()].some(value=>isPhoneRef(value.ref) && value.sourceOnly);
     const directoryKey=JSON.stringify([scope,props.turn,props.record?.phase,hasPhone]);
     React.useEffect(()=>{
         if (!hasPhone || !props.sessionId) return;
@@ -928,7 +930,7 @@ function useWidgetStage(props) {
     },[directoryKey]);
     const directory=phoneDirectory?.scope===scope ? phoneDirectory.value : null;
     const items=[...byRef].slice(0,64).map(([key,value])=>{
-        const phone=value.ref?.modId==='dsh.phone';
+        const phone=isPhoneRef(value.ref);
         const source=value.sourceOnly ? stageWidgetThread({rows,ref:value.ref,cursor,characters:props.config?.characters,visibleText:text,revealed:props.revealed,limited:history?.limited,unavailable:history?.unavailable,
             ...(phone ? {phoneView:{...phoneView,follow:phoneFollow.current},directory,reads,limits:phoneLimits.scope===readScope ? phoneLimits.values : null} : {})}) : null;
         if (phone && source?.current && source.livePhoneId) phoneFollow.current=source.livePhoneId;
@@ -999,7 +1001,7 @@ function useWidgetStage(props) {
     // (stageWidgetFacePx: the phone's widest width so far on this stage x the screen's pixel ratio), and the card face is asked
     // of the session avatar cache at that size, so her 512 px library face reaches the 200 pt card and the 132 pt call
     // screen sharp instead of as a 64 px thumbnail scaled up four to six times.
-    const phoneOpenWidth=items.find(item=>item.ref.modId==='dsh.phone')?.definition.document.presentation.open.width;
+    const phoneOpenWidth=items.find(item=>isPhoneRef(item.ref))?.definition.document.presentation.open.width;
     const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=window.devicePixelRatio || 1;
     const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : 64;
     const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx/dpr});
@@ -1059,7 +1061,7 @@ function useWidgetStage(props) {
     cursor.currentRef=items.find(item=>item.source?.current)?.key || null;
     // A phone's first look (per chat branch) takes what is already there as read; later messages count as unread.
     const looked=new Set(Object.keys(reads).map(phoneModReadOwner));
-    const unseen=(items.find(item=>item.ref?.modId==='dsh.phone')?.source?.phones || []).filter(row=>!looked.has(row.id) && row.threads.some(thread=>thread.latest));
+    const unseen=(items.find(item=>isPhoneRef(item.ref))?.source?.phones || []).filter(row=>!looked.has(row.id) && row.threads.some(thread=>thread.latest));
     const firstLook=unseen.length ? JSON.stringify([readScope,unseen.map(row=>row.id)]) : '';
     React.useEffect(()=>{if (firstLook) markRead(Object.fromEntries(unseen.flatMap(row=>row.threads.filter(thread=>thread.latest).map(thread=>[phoneModReadKey(row.id,thread.id),thread.latest]))));},[firstLook]);
     const mountedIdentities=items.map(item=>item.identity).sort().join('|');
@@ -1097,10 +1099,10 @@ function useWidgetStage(props) {
     // is still in the pocket, so the first open paints the finished list at once instead of 「还没有对话」 for a second and a
     // half. Other source widgets still read their history when opened. The read is shared and cached per session source.
     const opened=items.find(item=>item.sourceOnly && context.state.entries.get(item.key)?.requestedState==='open');
-    const pocket=opened ? null : items.find(item=>item.sourceOnly && item.ref?.modId==='dsh.phone');
+    const pocket=opened ? null : items.find(item=>item.sourceOnly && isPhoneRef(item.ref));
     const historyFor=opened || pocket;
-    const depth=historyFor?.ref?.modId==='dsh.phone' ? phoneDepth : 19;
-    const historyKey=historyFor ? historyKeyOf(historyFor.key,historyFor.ref?.modId==='dsh.phone') : '';
+    const depth=isPhoneRef(historyFor?.ref) ? phoneDepth : 19;
+    const historyKey=historyFor ? historyKeyOf(historyFor.key,isPhoneRef(historyFor.ref)) : '';
     React.useEffect(()=>{
         // Opening reads again (the session's cached read, rechecked against the turn index), as before.
         if (!historyFor) return;
@@ -1124,7 +1126,7 @@ function useWidgetStage(props) {
         remeasure.current=guardedMeasure;register(()=>{remeasure.current=null;});
         register(()=>window.visualViewport?.removeEventListener('resize',guardedMeasure));window.visualViewport?.addEventListener('resize',guardedMeasure);
     },[props.rootRef,props.film]);
-    const phone=items.find(item=>item.ref.modId==='dsh.phone'),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
+    const phone=items.find(item=>isPhoneRef(item.ref)),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
     const phoneEntry=phone && context.state.entries.get(phone.key),userClosed=Boolean(phoneRun && phoneClosed.current===phoneRun.key);
     // a real phone's banner — only for an incoming message that reaches a closed phone (the
     // first line of a run, or after the reader put the phone away). It slides down, stays ~3.5 s, slides back up and then
@@ -1154,13 +1156,13 @@ function useWidgetStage(props) {
     for (const item of ordered) {
         const entry=context.state.entries.get(item.key),declaration=item.definition.document.presentation;
         let state=entry.requestedState,bounds=null,surface='stage',fill=false,placed=false,phoneZoom=null,phoneBase=null,device=null;
-        const headsUp=item.ref.modId==='dsh.phone' && state==='compact';
-        // The reader's size and place for the phone on this device (phone-layout.js).
-        const phoneLayout=item.ref.modId==='dsh.phone' && geometry && phonePrefs ? phonePrefs[phoneModPrefs.current(geometry.viewport.width)] : null;
+        const headsUp=isPhoneRef(item.ref) && state==='compact';
+        // The reader's size and place for the phone on this device (the phone mod's client/layout.cjs).
+        const phoneLayout=isPhoneRef(item.ref) && geometry && phonePrefs ? phonePrefs[phoneModPrefs.current(geometry.viewport.width)] : null;
         if(headsUp && (!noticeId || noticePhase==='done'))state='hidden';
         if (geometry && state!=='hidden') {
             const viewport=geometry.viewport;
-            const fullPhone=item.ref.modId==='dsh.phone' && state==='open' && handheld;
+            const fullPhone=isPhoneRef(item.ref) && state==='open' && handheld;
             if (fullPhone) device={kind:'phone',safe:safeAreaInsets(props.rootRef.current)};
             // A phone the reader placed (long press or CONFIG) stays that stage phone even where the band above the box is too
             // small for it - then its 100% size is the sheet's (design: on a 1707x960 screen with a tall box the phone
@@ -1169,7 +1171,7 @@ function useWidgetStage(props) {
                 surface='sheet';const box=declaration.open;
                 // Portrait or narrow phone: the view fills the reading area edge to edge (the bundle paints screen only). Elsewhere
                 // the sheet keeps the declared proportions, centred on the dimmed stage.
-                if (fullPhone || portrait && item.ref.modId!=='dsh.phone') {fill=true;bounds={x:viewport.x,y:viewport.y,width:Math.max(box.minWidth,viewport.width),height:Math.max(box.minHeight,viewport.height)};}
+                if (fullPhone || portrait && !isPhoneRef(item.ref)) {fill=true;bounds={x:viewport.x,y:viewport.y,width:Math.max(box.minWidth,viewport.width),height:Math.max(box.minHeight,viewport.height)};}
                 else {
                     const size=stageWidgetSheetSize(viewport,box);
                     bounds={x:viewport.x+Math.max(8,(viewport.width-size.width)/2),y:viewport.y+Math.max(8,(viewport.height-size.height)/2),...size};
@@ -1182,11 +1184,11 @@ function useWidgetStage(props) {
                 const size=phoneModStageSize(geometry,declaration.open,phoneBand.current),zoom=size?.zoom || phoneModStageScale(viewport);
                 const width=Math.min(viewport.width-24,size ? size.width-PHONE_BEZEL*zoom : PHONE_SCREEN*zoom),height=PHONE_BANNER_HEIGHT*zoom;
                 bounds={x:viewport.x+(viewport.width-width)/2,y:viewport.y+10*zoom,width,height};phoneZoom=zoom;
-            } else if (item.ref.modId==='dsh.phone' && state==='open' && !bounds) {
+            } else if (isPhoneRef(item.ref) && state==='open' && !bounds) {
                 // Centred between the top bar and the dialogue box, which stays readable underneath.
                 const size=phoneModStageSize(geometry,declaration.open,phoneBand.current) || (phoneLayout?.place ? stageWidgetSheetSize(viewport,declaration.open) : null);
                 if (size) {
-                    // The reader's size (percent of that band size) and place on this device (phone-layout.js): a smaller phone
+                    // The reader's size (percent of that band size) and place on this device (the phone mod's client/layout.cjs): a smaller phone
                     // stays centred in the band; one too tall for the band is centred on the stage; a dragged phone keeps its spot.
                     const layout=phoneLayout,scale=layout ? layout.size/100 : 1,ratio=declaration.open.aspectRatio || declaration.open.width/declaration.open.height;
                     let width=size.width*scale,height=size.height*scale;
@@ -1197,7 +1199,7 @@ function useWidgetStage(props) {
                     bounds={x,y,width,height};phoneZoom=Math.min(PHONE_MAX_ZOOM,Math.max(.7,width/declaration.open.width));phoneBase=layout ? {width:size.width,height:size.height,size:layout.size,min:phoneModSizeMin(phoneModPrefs.current(viewport.width))} : null;
                 }
             }
-            for (const candidate of state==='open' && !bounds ? (item.ref.modId==='dsh.phone' ? ['compact'] : ['open','compact']) : !bounds ? ['compact'] : []) {
+            for (const candidate of state==='open' && !bounds ? (isPhoneRef(item.ref) ? ['compact'] : ['open','compact']) : !bounds ? ['compact'] : []) {
                 const box=declaration[candidate] || {width:220,height:44,minWidth:120,minHeight:44,anchor:'corner-right'};
                 if (candidate==='compact' && compacts>=(viewport.width<700?1:3)) continue;
                 const sizes=[false,true].map(small=>{
@@ -1237,20 +1239,20 @@ function useWidgetStage(props) {
         if (!audio || audio.token!==eventToken) {context.arrival=(context.arrival || 0)+1;audio={token:eventToken,arrival:eventToken ? eventToken+'#'+context.arrival : eventToken,identity:item.identity,replay:replay ? item.source.current.id : null,fresh:Boolean(!suspended && (replay || entry.pending.some(event=>event.token===eventToken)))};audioEvents.current.set(item.key,audio);}
         if (suspended || props.skipping || audio.identity!==item.identity) audio.fresh=false;
         const playback={mode:props.mode,paused:suspended,eventToken:audio.arrival,fresh:audio.fresh,...(audio.replay ? {replay:audio.replay} : {})};
-        // The open stage phone can be adjusted directly (phone-layout.js usePhoneAdjust): phoneBase is its 100% band size
+        // The open stage phone can be adjusted directly (the phone mod's client/adjust.cjs): phoneBase is its 100% band size
         // and the reader's size percent; unlocked is the one adjust state (CONFIG 「解锁手机位置」 or a long press).
         const adjustable=Boolean(phoneBase && state==='open' && !fill);
         layouts.set(item.key,{...item,presentation,bounds,fill,placed,isReady,failed:failed[item.identity],requestedState:entry.requestedState,playback,banner,phoneZoom,
             phoneBase:adjustable ? phoneBase : null,unlocked:Boolean(adjustable && phonePrefs.unlocked)});
     }
     // The faces follow the open phone's widest width (stageWidgetFacePx): a larger phone or the full-bleed sheet redraws them.
-    const phoneShownWidth=[...layouts.values()].find(layout=>layout.ref.modId==='dsh.phone' && layout.presentation.state==='open')?.presentation.bounds.width || 0;
+    const phoneShownWidth=[...layouts.values()].find(layout=>isPhoneRef(layout.ref) && layout.presentation.state==='open')?.presentation.bounds.width || 0;
     React.useEffect(()=>{if (phoneShownWidth>phoneFaceWidth) setPhoneFaceWidth(phoneShownWidth);},[phoneShownWidth]);
     // A drag or arrow key stores the reader's spot for this view; a null point forgets the widget's spots (reset).
     const place=(key,view,point)=>{
         const layout=layouts.get(key);
-        // The phone's spot is a device preference per layout (phone-layout.js), not a card's.
-        if (layout?.ref.modId==='dsh.phone' && phonePrefs) {
+        // The phone's spot is a device preference per layout (the phone mod's client/layout.cjs), not a card's.
+        if (isPhoneRef(layout?.ref) && phonePrefs) {
             if (!point) phoneModPrefs.update(phoneModPrefs.current(geometry?.viewport.width),{place:null});
             else if (geometry && layout.bounds && layout.presentation.surface==='stage') phoneModPrefs.update(phoneModPrefs.current(geometry.viewport.width),{place:stageWidgetPlaceFraction(geometry.viewport,layout.bounds,point)});
             return;
@@ -1261,11 +1263,11 @@ function useWidgetStage(props) {
         redraw(n=>n+1);
     };
     const clampPlace=(key,point)=>{const box=layouts.get(key)?.bounds;return geometry && box ? stageWidgetPlacePoint(geometry.viewport,box,stageWidgetPlaceFraction(geometry.viewport,box,point)) : point;};
-    // The phone's direct adjust (phone-layout.js): the one unlocked state, and a size percent with, when the phone moved,
+    // The phone's direct adjust (the phone mod's client/layout.cjs): the one unlocked state, and a size percent with, when the phone moved,
     // its new rect (stage units) stored as the place for that size; without a rect an unplaced phone stays centred in its band.
     const adjust=on=>{if (phonePrefs && phonePrefs.unlocked!==on) phoneModPrefs.set({unlocked:on});};
     const resize=(key,size,rect)=>{
-        if (!phonePrefs || !geometry || layouts.get(key)?.ref.modId!=='dsh.phone') return;
+        if (!phonePrefs || !geometry || !isPhoneRef(layouts.get(key)?.ref)) return;
         phoneModPrefs.update(phoneModPrefs.current(geometry.viewport.width),{size,...(rect ? {place:stageWidgetPlaceFraction(geometry.viewport,rect,rect)} : {})});
     };
     // Moving an existing iframe DOM node reloads its browsing context; allocation priority must not reorder mounts.
@@ -1273,19 +1275,19 @@ function useWidgetStage(props) {
     useWidgetVariables(props,projected);
     useWidgetSettingImages(projected);
     useWidgetSettingsFeedback(props,projected,context);
-    const phoneBeat=projected.some(item=>item.ref.modId==='dsh.phone' && item.source?.current);
+    const phoneBeat=projected.some(item=>isPhoneRef(item.ref) && item.source?.current);
     // phone lines are read in the phone (or its banner) while the dialogue box stays up with
     // the last line from outside the phone; only a failed phone gives its line back to the box.
-    const phoneLine=projected.some(item=>item.ref.modId==='dsh.phone' && item.source?.current && !item.failed);
-    const phoneOpen=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.presentation.state==='open' && item.presentation.surface==='stage' && !item.failed);
+    const phoneLine=projected.some(item=>isPhoneRef(item.ref) && item.source?.current && !item.failed);
+    const phoneOpen=!paused && projected.some(item=>isPhoneRef(item.ref) && item.presentation.state==='open' && item.presentation.surface==='stage' && !item.failed);
     // a phone the reader moved off its default spot is read
     // alongside the story, so the stage is not shaded behind it (gal-scene.js phoneShade); the default spot keeps the shade.
-    const phoneShade=phoneOpen && !projected.some(item=>item.ref.modId==='dsh.phone' && item.phoneBase && item.placed);
+    const phoneShade=phoneOpen && !projected.some(item=>isPhoneRef(item.ref) && item.phoneBase && item.placed);
     // The phone is in hand (asked open, before its place is measured): a skin's boxless narration then takes its image band
     // under the phone, as under a shown picture, instead of the centre the phone needs (2026-10-21 「阅读」 chip).
-    const phoneHeld=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.requestedState==='open' && !item.failed);
+    const phoneHeld=!paused && projected.some(item=>isPhoneRef(item.ref) && item.requestedState==='open' && !item.failed);
     // On a real phone the open phone is the device itself: its opaque full-bleed sheet covers the whole stage until it is put away.
-    const covered=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
+    const covered=!paused && projected.some(item=>isPhoneRef(item.ref) && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
     // The stage's pieces (box, top bar, figures) are re-measured every 100 ms while the stage is in view; under that cover only
     // the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
     React.useEffect(()=>{
@@ -1294,7 +1296,7 @@ function useWidgetStage(props) {
         const timer=forkForeground.setInterval(()=>remeasure.current?.(),100);
         return()=>forkForeground.clearInterval(timer);
     },[covered,props.rootRef,props.film]);
-    const claimed=projected.find(item=>item.source?.current && item.ref.modId!=='dsh.phone' && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
+    const claimed=projected.find(item=>item.source?.current && !isPhoneRef(item.ref) && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
     // an open overlay that owns scroll input — a sheet (modal reader)
     // or a held mod device (the phone, which dims the stage behind it). While one is open the stage's wheel gestures (up =
     // 履历, down = next page) stand down; a wheel that lands on the stage around it scrolls that overlay's view instead.

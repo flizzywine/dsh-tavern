@@ -6,7 +6,7 @@ const {modCheck:check}=contract
 // Host-owned whitelist; assets opt into this use, never register or enable a mod. The capability edges come from the
 // installed mods' stage contributions (performanceUses).
 export const PERFORMANCE_CONSUMER='core.performance'
-export const performanceInteropUse=()=>Object.freeze({id:PERFORMANCE_CONSUMER,name:'演出组合',dependencies:{},consumes:modStageContributions().flatMap(row=>row.performanceUses || [])})
+export const performanceInteropUse=()=>Object.freeze({id:PERFORMANCE_CONSUMER,name:'演出组合',consumes:modStageContributions().flatMap(row=>row.performanceUses || [])})
 
 // Trusted static handlers (a contribution's stageControls) produce drafts only. No callback, IO or plugin code runs in the
 // stage transaction.

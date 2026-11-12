@@ -13,5 +13,4 @@ export function configure({manifest,catalogue}) {
 export function validateCommand(_id,params) { validateTimerCommand(params.set ?? 'start',params) }
 export function prepare() { return null }
 export async function command(_input,host) { return {accepted:true,state:await host.stage.state.get()} }
-export function settled() { return null }
 export function dispose() {}

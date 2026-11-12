@@ -1,7 +1,9 @@
-import {variableGuessHints} from '../../lib/domain/variable-bindings/index.js'
-import {withBuiltinPhoneDevice} from './logic.js'
+import {isDeepStrictEqual as same} from 'node:util'
+import {withBuiltinPhoneDevice,phoneDevices} from './logic.js'
+import {phoneSourceView} from './source-view.js'
 import {phoneModMarker,phoneModSourceMarker} from './stage-phone.cjs'
 import {phoneGroup,applyPhoneGroup} from './threads.js'
+import {createPhoneExtension} from './host/extension.js'
 
 // A card's private config pack holds at most 128 files / 16 MiB (asset library), the phone's pictures ≤ 480 KB each.
 export const PHONE_PHOTOS_MAX=30
@@ -9,9 +11,12 @@ export const PHONE_TONES=Object.freeze([{value:'drop',label:'水滴'},{value:'ch
 
 // The phone's part of the director transaction (tavern-plugin/lib/domain/mods/stage-contributions.js).
 export default {
+  // its stage service: the directory and the calls (host/extension.js).
+  hostExtension:createPhoneExtension,
   // Builtins and uploaded settings are presentation resources, never recall candidates.
   catalogue:withBuiltinPhoneDevice,
-  configFields(fields) {
+  // library: the core's mod library (lib/mod-library.js), for its variable guess hints.
+  configFields(fields, {variableGuessHints}) {
     // The settings page names what the player sees on the phone.
     Object.assign(fields.find(row=>row.key==='clockText'),{label:'状态栏时间',guessHints:variableGuessHints.time,ui:{control:'time'}})
     Object.assign(fields.find(row=>row.key==='cutout'),{label:'机型'})
@@ -54,7 +59,11 @@ export default {
   promptState(own,command) {
     return own.threads && command.admission?.phoneGroup ? {threads:own.threads} : undefined
   },
-  sourceMarker:{op:'phone.message',valid:phoneModMarker},
+  // A phone message: the director's mark command makes the text the phone's source; its record binds the phone view
+  // (sourceViews.phone) and the phone presents that mark on its device (mod-source-views.js).
+  sourceMarker:{op:'phone.message',valid:phoneModMarker,command:'mark',view:'phone',viewOf:phoneSourceView,
+    presents:(args,receipt,catalogue)=>args.id==='message' && args.kind==='dsh.phone.message' && same(args.payload?.marker,{op:'phone.message',...receipt.params}) &&
+      phoneDevices(catalogue).some(ref=>same(ref,args.payload?.device))},
   promptActors(own,actor) {
     if(own.threads)for(const thread of Object.values(own.threads))thread.participants=thread.participants.map(id=>id==='$player'?id:actor(id) || id)
     return own

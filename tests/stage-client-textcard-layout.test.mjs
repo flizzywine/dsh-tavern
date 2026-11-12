@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {JSDOM} from 'jsdom'
-const {createStageTextcardLayout}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/textcard-layout.cjs')
+const {createStageTextcardLayout}=createRequire(import.meta.url)('../tavern-plugin/mods/textcard/client/layout.cjs')
 test('textcard templates preserve text, line breaks and compound overrides',()=>{
  const dom=new JSDOM(''),layout=createStageTextcardLayout({})
  try{

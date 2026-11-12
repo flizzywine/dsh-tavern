@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-const {createStagePhoneAdjust}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/phone-adjust.cjs')
+const {createStagePhoneAdjust}=createRequire(import.meta.url)('../tavern-plugin/mods/phone/client/adjust.cjs')
 for(const stop of ['unmount','dispose'])test(`phone long press and pointer callbacks cannot act after ${stop}`,()=>{
   const effects=[],timers=new Map(),listeners=new Map(),actions=[]
   let serial=0

@@ -16,7 +16,6 @@ import {resolveBoundConfig} from '../../../lib/domain/mod-system.js'
 import {createModConfigHost,createModConfigStageReader} from './mod-config-host.js'
 import {createModConfigFiles} from './mod-config.js'
 import {createModStagePort} from './mod-stage.js'
-import {createModelStreamTiming} from './domain/mods/models.js'
 import {managedConfigStore} from './mod-system-execution.js'
 import {createStageDirector} from './domain/stage-director.js'
 import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
@@ -28,8 +27,7 @@ import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
 import {createFigureVoiceAuthoring, countServiceUsers} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
-import {createStagePhoneHost} from './mods/phone/host.js'
-import {createTimerExtension} from './mods/timer/extension.js'
+import {foldAssetPackEntries} from './domain/stage-asset-pack-director.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
 import {createCardPagesService} from './domain/status-panel-service.js'
@@ -46,7 +44,7 @@ import {registerStageWorkbench} from './workbench/index.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
-  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
+  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
   // Pack-driven writer updates belong to the stage lifetime, including rollback.
   ctx.inject(['assetLibrary'], child => {
     const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
@@ -88,42 +86,12 @@ export async function createStageModule(core) {
     ...new Set([...directorCommands.definitions.map(row=>row.name.split('.')[0]),'perform'])].map(row=>typeof row==='string'?{dsl:{verb:row}}:row)
   let modConfigHost
   const workbenchAuthority=Object.freeze({})
-  let modViewVersion=0
   modService=createBuiltinModService({workbenchAuthority,management:managedModManagement,readCard:readModCard,
-    config:{values:(...args)=>modConfigHost.values(...args),bindings:(...args)=>modConfigHost.bindings(...args),
+    config:{values:(...args)=>modConfigHost.values(...args),
       managedRequest:async chat=>managedModManagement.request(chat,{sources:modConfigHost.sources,context:await modConfigHost.context({sessionId:chat.sessionId})}),
       // the phone reads which layer supplied a value and that layer's uploaded files.
       resolved:(...args)=>modConfigHost.resolved(...args),readFile:(...args)=>modConfigHost.readFile(...args)},
-    models:{
-      describe:async({modId,slotId,sessionId,slot})=>{
-        const explicit=(await readTavernSettings()).modModels[modId]?.[slotId],chosen=await resolveSlot(modId,slotId,sessionId,slot)
-        let available=false
-        if(chosen)try {await llm.resolveCallConfig(chosen);available=true}catch{}
-        return {selection:explicit?'explicit':'follow-'+slot.fallback,provider:chosen?.provider || null,model:chosen?.model || null,label:chosen?.model || (slot.fallback==='background'?'跟随后台':'跟随前台'),available}
-      },
-      select:async({modId,slotId,sessionId,slot})=>{
-        const chosen=await resolveSlot(modId,slotId,sessionId,slot)
-        if(!chosen)throw new Error('请在全局模型设置中选择模组模型')
-        await llm.resolveCallConfig(chosen)
-        return chosen
-      },
-      busy:async (sessionId,purpose)=>purpose!=='comments' && (await sessionActivity(sessionId))?.busy===true,
-      run:async input=>{
-        const chat=await chatForSession(input.sessionId)
-        const record=await modelRequestLog.record({chat,context:{scope:'background',task:'mod.'+input.modId+'.'+input.slotId,turn:chat.messages?.at(-1)?.turn || 0},options:{...input,signal:undefined,onText:undefined}})
-        try {
-          const timing=createModelStreamTiming()
-          const result=await callModel({...input,returnUsage:true,onText:text=>{timing.text(text);input.onText?.(text)}})
-          await modelRequestLog.complete({chatId:chat.id,id:record.id,text:result.output,finish:{kind:'stop',timing:timing.finish(),...(result.usage?{usage:result.usage}:{})}})
-          return result
-        } catch(error) {
-          await modelRequestLog.complete({chatId:chat.id,id:record.id,error:String(error.message),interrupted:input.signal.aborted})
-          throw error
-        }
-      },
-    },
-    engineJudge,coreCommands:coreModCommands,connected:sessionId=>sessionSignals.connected(sessionId),
-    assetSnapshot:assetRuntime.snapshot,publishView:(sessionId,snapshot)=>sessionSignals.publish(sessionId,{kind:'mod-view',sessionId,version:String(++modViewVersion),snapshot}),
+    coreCommands:coreModCommands,
     stage:createModStagePort({readChat:readStageChat,readTurn:(sessionId,turn)=>readRoundView(sessionId,turn),readSource:(sessionId,turn)=>readStageChat.view(sessionId,{turn,sourceOnly:true}),updateChat:rawUpdateChat,readCard:readModCard,publish:event=>sessionSignals.publish(event.sessionId,event)}),
     onLog:event=>event.kind==='mod-delivery'?ctx.logger.debug('%s',JSON.stringify(event)):console.info('dsh-tavern:',JSON.stringify(event)),onChange:()=>assetRuntime.invalidate(),onError:error=>ctx.logger.warn('MOD_CALLBACK_FAILED %s',JSON.stringify({code:error?.code || 'MOD_RUNTIME_FAILED',message:error?.message,stack:error?.stack})),variables:{
       // Mod admission needs operation facts and message coordinates, not rollback checkpoints.
@@ -131,8 +99,7 @@ export async function createStageModule(core) {
       readWindow:chatPersistence.readWindow,readRevision:chatPersistence.readRevision,timeline:storyTimeline,patch:patchChat,
       execute:input=>tavernScriptHostAdapter.editMvuVariables(input),availability:sessionId=>tavernScriptDispatch.status(sessionId),
     }})
-  const offModAssets=assetRuntime.subscribe(()=>modService.assetsChanged())
-  ctx.effect(()=>()=>{offModAssets();modService.dispose()})
+  ctx.effect(()=>()=>modService.dispose())
   ctx.provide('tavernManagedModules', Object.freeze({
     apiVersion:managedModManagement.modHost.apiVersion,
     register(owner,manifest,implementation) {
@@ -147,7 +114,7 @@ export async function createStageModule(core) {
   }))
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage-mods',{rows:() => modService.modelSlots()}), 'dsh-tavern: mod model slots')
   const configCards=async()=>Promise.all((await fileResources.list('card')).map(async path=>({path,workspace:await readModCard(path)})))
-  modConfigHost=createModConfigHost({workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,
+  modConfigHost=createModConfigHost({library:core.hostLibrary,workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,
     getAssetLibrary:()=>ctx.get('assetLibrary'),getEngine:()=>({...assetEngineSettings.read(),assetRevision:assetRuntime.revision}),
     getGlobalEnabledPackIds:()=>ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [],
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),readWindow:chatPersistence.readWindow,readRevision:chatPersistence.readRevision,
@@ -261,24 +228,25 @@ export async function createStageModule(core) {
   })), 'dsh-tavern: stage story observations')
   return {modService, managedModManagement, modConfigHost, stageDirector,
     requests(deps, registry) {
-      // The dsh.phone directory and calls read the core's chats, models and speech recognition through the request bindings.
-      const phone = createStagePhoneHost({ctx, readModCard, resolveSlot, managedModManagement, modConfigHost, stageDirector, ...Object.fromEntries(['readCardWorkspace','chatForSession','assetRuntime','profileData','callModel',
-        'readRoundOps','readChatCard','replyDisplayForChat','pluginApi','agentRegistry','backgroundTasks','speech','speechRecognition','readStageChat','readRoundView',
-        'worldbookRecallLog','dialogueBubbles','figureRuntimes'].map(name => [name, deps[name]]))})
+      // The mods' stage services build their requests from these bindings (stage-extensions.js bind) and report their
+      // in-flight work to deployment.
+      deps.stageExtensions.bind(registry, Object.create(deps, {readModCard:{value:readModCard}, resolveSlot:{value:resolveSlot},
+        managedModManagement:{value:managedModManagement}, modConfigHost:{value:modConfigHost}, stageDirector:{value:stageDirector}}))
       ctx.effect(() => {
-        const work = () => ({calls:phone.phoneCallHost.calls.activeCount()})
-        deploymentWork.push(work)
-        return () => {const index = deploymentWork.indexOf(work);if (index >= 0) deploymentWork.splice(index,1)}
-      }, 'dsh-tavern: phone call deployment activity')
-      // Clip export replays a chat's rounds in an isolated page; its history timer reads go back through these requests.
+        const works = deps.stageExtensions.works()
+        deploymentWork.push(...works)
+        return () => {for (const work of works) {const index = deploymentWork.indexOf(work);if (index >= 0) deploymentWork.splice(index,1)}}
+      }, 'dsh-tavern: stage extension deployment activity')
+      // Clip export replays a chat's rounds in an isolated page; its recorded reads go back through these requests and the
+      // mods' stage services (a history timer, the phone's directory).
       const clipExport = createStageClipExport({ctx, deps, stageDirector, modService, deploymentWork,
         cardStageSwitch:core.cardStageSwitch, dialogueBubbles:core.dialogueBubbles, assetEngineSettings:core.assetEngineSettings, live2dFiles:deps.live2dFiles,
-        call:(method, args, authority) => requests.call(method, args, authority)})
+        call:(method, args, authority) => deps.stageExtensions.handles(method) ? deps.stageExtensions.call(method, args, authority) : requests.call(method, args, authority)})
       // 场景生图 pictures become the card's CG entries and 回想 unlocks (scene-cg.js) as each one finishes.
       const sceneCg = createSceneCg({library:() => ctx.get('assetLibrary'), attachments:() => ctx.get('attachments'), chatForSession:deps.chatForSession,
         cardAssetBindings:deps.cardAssetBindings, resolveCard:cardStorage.resolve, cgGallery:deps.cgGallery, removePicture:deps.removePluginPicture})
       ctx.effect(() => deps.pluginApi.onPictureReady(event => sceneCg.sync(event)), 'dsh-tavern: scene CG sync')
-      const requests = createStageRequests(Object.create(deps, {stagePhoneDirectory:{value:phone.stagePhoneDirectory}, phoneCallHost:{value:phone.phoneCallHost}, sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport})
+      const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       ctx.effect(() => registerStageWorkbench({ctx, deps, call:(method, args) => requests.call(method, args, workbenchAuthority)}), 'dsh-tavern: stage workbench tools')
@@ -306,8 +274,11 @@ export function createStageAssets(core) {
   })
   const stageExtensions = createStageExtensions()
   ctx.effect(() => () => stageExtensions.dispose())
-  stageExtensions.register('timer', createTimerExtension)
+  // A mod's own stage service (its stage contribution's hostExtension), under the mod id.
+  for (const contribution of core.modStageContributions()) if (contribution.hostExtension) stageExtensions.register(contribution.modId, contribution.hostExtension)
   ctx.provide('stageExtensions', stageExtensions)
+  // stage: the read helpers a mod's stage service folds and scopes its state with (core.stageReads plus the record fold).
+  const stageModReads = Object.freeze({fold:foldAssetPackEntries,...core.stageReads})
   const assetEngineSettings = createAssetEngineSettings(ctx)
   const getTts = () => ctx.get('tts')
   // A card's stage switch in effect (effectiveCardStage: the card's own setting over the global stageToggles), for the
@@ -345,7 +316,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。
@@ -357,7 +328,6 @@ export function createStageServices(core) {
     return chatId ? chatPersistence.readSessionState(chatId) : null
   }
   const widgetVariables = createWidgetVariableService({
-    prepareCommit:input=>modService.variableCommit(input),
     index: readSessionIndex,
     readWindow: chatPersistence.readWindow, timeline: storyTimeline, patch: patchChat,
     execute: input => tavernScriptHostAdapter.editMvuVariables(input),
@@ -406,6 +376,6 @@ export function createStageServices(core) {
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
 
-  const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery})
+  const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery,stage:core.stageModReads})
   return {widgetVariables, cardPages, cgGallery, ...extensions}
 }

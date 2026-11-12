@@ -3,15 +3,13 @@ import { check } from '../../packages/dsh-presentation-protocol/src/asset-pack-j
 import { createVariableBindingRegistry } from './variable-bindings/index.js'
 import { widgetVariableProvider } from './widget-variable-provider.js'
 import { itemVariableProvider } from './item-variable-provider.js'
-import { modVariableSlots } from './mods/variable-slots.js'
 import { resolveWidgetVariableSnapshot } from './widget-variables.js'
 import { widgetSettlementState } from './widget-variable-transaction.js'
 export { emptyCardVariableBindings, validateVariableTarget, validateCardVariableBindings, variableTargetKey } from './variable-bindings/index.js'
 export const cardVariableRegistry = createVariableBindingRegistry()
 cardVariableRegistry.register(widgetVariableProvider)
 cardVariableRegistry.register(itemVariableProvider)
-cardVariableRegistry.register({id:'mods',label:'模组',slots:({modManifests=[]}={})=>modManifests.flatMap(modVariableSlots)})
-export const validateVariableSlots = (value,packs,previous,modManifests=[]) => cardVariableRegistry.validateSlots(value,{packs,modManifests},previous)
+export const validateVariableSlots = (value,packs,previous) => cardVariableRegistry.validateSlots(value,{packs},previous)
 export const listCardVariableProviders = ({raw,packs,sources,...context}) => cardVariableRegistry.list({raw,context:{packs,...context},sources})
 
 export async function readCardVariableSources({path,indexed,readWindow,readRevision}) {

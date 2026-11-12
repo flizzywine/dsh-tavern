@@ -20,29 +20,8 @@ const exists = file => stat(file).then(() => true, () => false)
 // mods/ imports a mod file), names-mod (code outside mods/ names a first-party mod id), names-part (code outside mods/
 // names a client part a mod registers in client/core.js).
 const PENDING = new Set([
-  'legacy-manifest:dice', 'legacy-manifest:phone', 'legacy-manifest:textcard', 'legacy-manifest:timer',
   'skill:dice', 'skill:phone', 'skill:textcard', 'skill:timer',
-  'import-out:tavern-plugin/mods/phone/call-context.js', 'import-out:tavern-plugin/mods/phone/call.js',
-  'import-out:tavern-plugin/mods/phone/stage.js',
-  'import-in:tavern-plugin/lib/mod-builtins.js',
-  'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js',
-  'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js',
-  'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-clock.js',
-  'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-service.js',
-  'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage.js',
-  'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js',
-  'names-mod:tavern-plugin/lib/domain/user-plugin-install.js', 'names-mod:tavern-plugin/lib/mod-builtins.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/extension.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-clock.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/phone-layout.cjs',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/source-widgets.cjs',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/timer.cjs',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/widgets.cjs',
-  'names-mod:tavern-plugin/src/client/asset-pack-ui.js', 'names-mod:tavern-plugin/src/client/mod-config-pages.js',
-  'names-mod:tavern-plugin/src/client/mod-page.js', 'names-mod:tavern-plugin/src/client/phone-beat.cjs',
+  'names-mod:tavern-plugin/lib/domain/user-plugin-install.js',
 ])
 
 async function walk(directory, skip) {
@@ -76,6 +55,7 @@ test('each mod folder has one valid mod.json whose id, package and entry match t
       const pkg = JSON.parse(await readFile(path.join(folder, 'package.json'), 'utf8'))
       assert.equal(pkg.name, manifest.packageName, name + ': package.json name is the manifest packageName')
       assert.ok(await exists(path.join(folder, manifest.entry)), name + ': entry exists')
+      for (const row of [...manifest.commandPrompts || [], ...manifest.coreAssets]) assert.ok(await exists(path.join(folder, row.path)), name + ': ' + row.path + ' exists')
     } catch (error) {
       found.add('manifest:' + name)
       if (!PENDING.has('manifest:' + name)) throw error

@@ -214,7 +214,7 @@ export function createVariableBindingRegistry() {
     },
     list({raw,context,sources={}}) {
       const schema = analyzeVariableSchema(raw), bindings = dataOf(raw)?.extensions?.dsh_tavern?.variableBindings
-      return [...providers.values()].filter(provider=>!context?.modConfig || provider.id !== 'mods').map(provider => ({id:provider.id,label:provider.label,slots:provider.slots(context).map(slot => resolveSlot(slot,bindings,schema,sources))})).filter(provider => provider.slots.length)
+      return [...providers.values()].map(provider => ({id:provider.id,label:provider.label,slots:provider.slots(context).map(slot => resolveSlot(slot,bindings,schema,sources))})).filter(provider => provider.slots.length)
     },
   }
 }

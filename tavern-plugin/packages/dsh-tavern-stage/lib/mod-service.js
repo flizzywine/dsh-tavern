@@ -4,24 +4,19 @@ async function timedRead(name,task) {
   const start=performance.now()
   try {return await task()} finally {if(readTiming.hasSubscribers)readTiming.publish({name:'mod.'+name,durationMs:performance.now()-start})}
 }
-import {createModModelTasks} from './domain/mods/models.js'
-import {timerCatalogueFragments} from '../../../mods/timer/catalogue.js'
 import {createSettledModSource} from '../../../lib/mod-source.js'
-import {createModSessionEvents} from '../../../lib/mod-events.js'
-import {createModEventCatalogue} from '../../../lib/mod-event-catalogue.js'
 import {isDeepStrictEqual as equal} from 'node:util'
 import {managedExecutionView} from './mod-system-execution.js'
 import {createFirstPartyMods} from '../../../lib/mod-builtins.js'
 import {createModHostRuntime} from '../../../lib/mod-runtime.js'
-import {createModVariablePort} from '../../../lib/mod-variables.js'
 import {compileModPrompts} from '../../../lib/domain/mods/prompts.js'
+import {modStageContribution} from '../../../lib/domain/mods/stage-contributions.js'
 import {modCatalogue,modAssetCatalogue,modTurnActive} from '../../../lib/domain/mods/catalogue.js'
 import {selectModAdmission,modKeepFragments} from '../../../lib/domain/mods/relevance.js'
-import {phoneSourceView} from '../../../mods/phone/source-view.js'
-import {phoneDevices} from '../../../mods/phone/logic.js'
-import {modReadBindings,projectModReadSlots} from '../../../lib/domain/mods/variable-slots.js'
+import {modStageContributions} from '../../../lib/domain/mods/stage-contributions.js'
+import {createModSourceViews} from './mod-source-views.js'
 import {captureStageTarget} from '../../../lib/domain/stage-incremental.js'
-import {createModStageCorrections,admitModSettlement} from '../../../lib/domain/mods/stage-corrections.js'
+import {createModStageCorrections} from '../../../lib/domain/mods/stage-corrections.js'
 import contract from '../../dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check,modShape:shape,modFreeze,modResultError}=contract
 export const MOD_MANAGEMENT_METHODS=Object.freeze(['listMods','getMod','saveModSettings'])
@@ -34,13 +29,11 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
-  let service,library,runtime,sessionEvents,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
-  const modelTasks=models?createModModelTasks(models):null
-  const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
+export function createBuiltinModService({workbenchAuthority,management,readCard,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
+  let service,library,runtime,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   let grammarRevision,grammarCommands
-  const proofs=new Map(),prepared=new Map(),settlements=new Map(),notified=new WeakMap(),commands=new WeakMap(),recovering=new Set(),correcting=new Map()
-  const corrections=stage?createModStageCorrections({...stage,log:onLog}):null
+  const proofs=new Map(),prepared=new Map(),commands=new WeakMap()
+  const corrections=stage?createModStageCorrections(stage):null
   const deliveryLog=(context,command,phase,error)=>onLog({kind:'mod-delivery',sessionId:context.gameId,turn:context.turn,
     sourceKey:context.source.sourceKey,generation:context.source.generation,modId:context.modId,key:command.key,commandId:command.commandId,at:command.at,phase,
     ...(error?{error:{code:error.code || 'MOD_RUNTIME_FAILED',message:String(error.message),...(error.path?{path:error.path}:{})}}:{})})
@@ -67,17 +60,17 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       // a placed kind must be one the mod declared with its backlog and replay (manifest.performances).
       const declared=management.modHost.manifests().find(manifest=>manifest.id===context.modId)?.performances
       check(declared?.some(row=>row.kind===args?.kind),'$.kind','Declare performance kind '+JSON.stringify(args?.kind)+' in manifest.performances with its backlog and replay','MOD_PERMISSION_DENIED')
-      if(context.modId!=='dsh.phone') {
+      // A source mod's placement presents its admitted source mark (sourceMarker.presents); it is not persisted.
+      const source=sourceViews.of(context.modId)
+      if(!source) {
         const result=await corrections.place(context,args,isCurrent)
         deliveryLog(context,context.command,'persisted')
         return result
       }
       const receipt=accepted(context,isCurrent)
-      check(receipt.source==='phone.message' && args.id==='message' && args.kind==='dsh.phone.message' && equal(args.payload?.marker,{op:'phone.message',...receipt.params}) &&
-        phoneDevices(context.catalogue).some(ref=>equal(ref,args.payload?.device)),'$.payload','Phone presentation must reference its admitted source mark','MOD_PERMISSION_DENIED')
+      check(receipt.source===source.op && source.presents(args,receipt,context.catalogue),'$.payload','A source presentation must reference its admitted source mark','MOD_PERMISSION_DENIED')
       return {accepted:true,at:receipt.at}
     },
-    reviseAfterSettlement:corrections.reviseAfterSettlement,
     state:{
       async get(context,isCurrent) {
         const proof=proofFor(context,isCurrent)
@@ -91,16 +84,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       },
     },
   }:undefined
-  async function sourceCurrent(context,head) {
-    if(context.sessionEvent)return sessionEvents.sourceCurrent(context,head)
-    const proof=proofs.get(context.gameId)
-    if(!current(context) || !head || head.timeline.branchId!==context.source.branchId)return false
-    const at=head.messages.findLastIndex(row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===context.turn)
-    if(at<0)return false
-    const page=await variables.readWindow(head.id,{limit:1,before:at+1,revision:head._storageRevision})
-    return page?.revision===head._storageRevision && equal(sourceValue(page.chat.messages[0]),proof.value)
-  }
-  function invalidate() {epoch++;dirty=true;runtime?.dispose();sessionEvents?.dispose();modelTasks?.invalidate();eventCatalogue?.clear();prepared.clear();onChange()}
+  function invalidate() {epoch++;dirty=true;runtime?.dispose();prepared.clear();onChange()}
   // A settings save invalidates once, after it has returned (not mid-write on the serial lane).
   let writingSettings=false
   const unsubscribe=management.settings.subscribe(()=>{if(!writingSettings)invalidate()})
@@ -111,19 +95,11 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     const builtin=await builtins
     library=await managedExecutionView({management,builtins:builtin})
     dirty=false
-    const variablePort=createModVariablePort({...variables,sourceCurrent,prepareCommit:input=>service.variableCommit(input),onError})
     settledSource=variables && stage?.source?createSettledModSource({...variables,source:stage.source}):null
-    sessionEvents=variables && stage?.source?createModSessionEvents({library,builtins:builtin,readCard,config,...variables,source:stage.source,
-      variables:()=>variablePort,epoch:()=>epoch,connected,onError,modelTasks,presentation:stage.presentation,
-      catalogues:eventCatalogue?.read,publishView,modelStatus:async(manifest,sessionId)=>Object.fromEntries(await Promise.all((manifest.modelSlots || []).map(async slot=>{
-        if(models?.describe)return [slot.id,await models.describe({modId:manifest.id,slotId:slot.id,sessionId,slot})]
-        try {const chosen=await models?.select({modId:manifest.id,slotId:slot.id,sessionId,slot});return [slot.id,{selection:'follow-foreground',provider:chosen?.provider || null,model:chosen?.model || null,label:chosen?.model || slot.label,available:!!chosen?.provider && !!chosen?.model}]}
-        catch{return [slot.id,{selection:'follow-foreground',provider:null,model:null,label:slot.label,available:false}]}
-      })))}):null
-    runtime=createModHostRuntime({library,builtins:builtin,engineJudge,sourceCurrent:current,coreCommands,
+    runtime=createModHostRuntime({library,builtins:builtin,sourceCurrent:current,coreCommands,
       onError:diagnostic=>onLog({kind:'mod-runtime-failure',...diagnostic}),
       readText:async(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name)?.toString('utf8'),
-      variablePort,stagePort,sourcePort,
+      stagePort,sourcePort,
     })
   }
   function run(task,name='service') {
@@ -152,75 +128,26 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       : modCatalogue(manifest)]))
   }
   function catalogue(catalogues,settingsByMod) {
-    return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.prompts.some(row=>row.target==='director') || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modId==='dsh.timer' ? timerCatalogueFragments(view) : view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
+    return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.commandPrompts.length || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modStageContribution(modId)?.catalogueFragments?.(view) ?? view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
       const id=ref.assetId ?? ref.entryId,entry=view.packs.find(pack=>pack.id===ref.packId).entries.find(row=>row.id===id)
       return {modId,id:ref.packId+'.'+id,type:'catalogue',source:'library',placement:{section:'director.catalogue',order:0},
         text:JSON.stringify({ref,name:entry.name,...(entry.performanceLevels?{levels:entry.performanceLevels,default:entry.performanceDefault}:{}),...(entry.directorNote?{directorNote:entry.directorNote}:{})})}
     }))
   }
-  async function correct(snapshot) {
-    if(!corrections)return
-    for(const value of snapshot.contexts) {
-      if(!current(value))continue
-      const key=JSON.stringify([value.gameId,value.modId,value.source,value.authority])
-      if(correcting.has(key)) {correcting.get(key).again=true;continue}
-      const flight={again:false};correcting.set(key,flight)
-      try {
-        do {
-          flight.again=false
-          const settlement=await corrections.pending(value)
-          if(!settlement || !current(value))break
-          const only={...snapshot,contexts:[value]}
-          for(const task of runtime.settled(only,settlement)) {
-            const result=await task
-            if(!result.ok)onError(result.error)
-          }
-        } while(flight.again)
-      } catch(error) {onError(error)} finally {correcting.delete(key)}
-    }
-  }
-  function notify(snapshot,fact) {
-    if(!snapshot?.contexts || !fact || notified.get(snapshot)===fact.revision)return
-    const context=snapshot.contexts[0],proof=proofs.get(context.gameId)
-    if(!current(context) || !equal(fact.identity,[proof.branchId,proof.turn,...proof.value]))return
-    notified.set(snapshot,fact.revision)
-    // Each mod owns its read IDs; project separately rather than merging same-named slots.
-    for(const value of snapshot.contexts) {
-      const manifest=snapshot.manifests.find(row=>row.id===value.modId),only={...snapshot,contexts:[value],manifests:[manifest]}
-      const bindings=fact.bindings?.[manifest.id] || {},slots=sources=>projectModReadSlots(manifest,bindings,sources)
-      const settlement={source:value.source,turn:value.turn,status:'ok',settlementRevision:fact.revision,
-        beforeRevision:fact.beforeRevision,afterRevision:fact.revision,before:slots(fact.before),after:slots(fact.after),bindings}
-      if(corrections && manifest.permissions.stage.includes('reviseAfterSettlement')) {
-        void corrections.settlement(value,settlement,()=>current(value),Number(fact.revision)).then(()=>correct(only)).catch(onError)
-      } else for(const task of runtime.settled(only,settlement))void task.then(result=>{if(!result.ok)onError(result.error)}).catch(onError)
-    }
-  }
   return service=Object.freeze({invalidate,
-    assetsChanged(){eventCatalogue?.clear();sessionEvents?.refresh()},
     async installBuiltinAssets(owner) {
       for(const pack of (await builtins).assetPacks?.() || []) {
         if(!active)return
         await owner.ensureBuiltinPack(pack)
       }
     },
-    stageViews(sessionId,authority) {
-      check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
-      return run(()=>sessionEvents?.views(sessionId) || {views:[]})
-    },
     // Only enabled installed mods contribute rows to the shared model settings.
     modelSlots:()=>run(()=>library.active().flatMap(manifest=>(manifest.modelSlots || []).map(slot=>({...slot,modId:manifest.id,modName:manifest.name})))),
-    presentation(sessionId,input,authority) {
-      check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
-      return run(()=>sessionEvents?.presentation(sessionId,input) || {accepted:true})
-    },
-    stageEvent(sessionId,event) {return run(()=>sessionEvents?.stageEvent(sessionId,event))},
-    // A first-party mod's declared image files (manifest builtinAssets type image) as data URLs; e.g. dsh.timer's looks.
+    // A first-party mod's core-asset images (by extension) as data URLs (a mod's built-in looks).
     async builtinImages(modId) {
       const builtin=await builtins,manifest=builtin.manifest(modId),files=builtin.files(modId)
-      return Object.fromEntries(manifest.builtinAssets.filter(row=>row.type==='image').map(row=>[row.id,'data:image/'+(row.path.endsWith('.svg')?'svg+xml':row.path.split('.').pop())+';base64,'+files.get(row.path).toString('base64')]))
+      return Object.fromEntries(manifest.coreAssets.filter(row=>/\.(?:svg|png|webp|jpe?g|gif)$/.test(row.path)).map(row=>[row.id,'data:image/'+(row.path.endsWith('.svg')?'svg+xml':row.path.split('.').pop())+';base64,'+files.get(row.path).toString('base64')]))
     },
-    disconnected(ids) {sessionEvents?.disconnected(ids)},
-    async eventsIdle(){await tail;await sessionEvents?.idle()},
     async manifests() {
       check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')
       await management.ready
@@ -240,7 +167,9 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         try {return await library.saveModSettings(args)} finally {writingSettings=false;invalidate()}
       })
     },
-    readPhonePresentation({chat,direction,at,view}) {
+    // The source view a mod's mark binds, rendered by that mod (sourceViews): the phone of the anchored page.
+    sources:sourceViews,
+    readSourcePresentation({chat,direction,at,view}) {
       const target=direction.target || (direction.record || direction.preview)?.binding?.target
       const validateSource=async()=>{
         if(!stage?.source)return
@@ -253,9 +182,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         check(head?._storageRevision===chat._storageRevision && head.timeline.branchId===expected.branchId,'$.revision','Phone source revision changed','MOD_SOURCE_STALE')
       }
       return readSnapshot('sources',async library=>{
-      const card=await readCard(chat.cardPath),manifest=card && library.active(card.meta.id).find(row=>row.id==='dsh.phone')
-      const record=direction.record || direction.preview
-      view ||= record?.binding.mods?.sourceViews?.phone
+      const record=direction.record || direction.preview,bound=sourceViews.bound(record)
+      const modId=bound?.modId || sourceViews.sources()[0]?.modId
+      const card=await readCard(chat.cardPath),manifest=card && library.active(card.meta.id).find(row=>row.id===modId)
+      view ||= bound?.view
       if(!manifest || !record || at>direction.through)return []
       const catalogue=modCatalogue(manifest)
       const snapshot=await config.managedRequest(chat),builtin=await builtins
@@ -274,13 +204,12 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     },validateSource)},
     enabled:cardPath=>readSnapshot('enabled',async library=>{const card=await readCard(cardPath);return !!card && library.active(card.meta.id).length>0}),
     observe(chat,{metadataOnly=false}={}) {
-      try {if(!dirty)sessionEvents?.observe(chat);else void run(()=>sessionEvents?.observe(chat)).catch(onError)}catch(error){onError(error)}
       const proof=proofs.get(chat.sessionId)
       if(!proof)return
       const message=messageAt(chat,proof.turn)
       if(chat.timeline?.branchId!==proof.branchId || !metadataOnly && (!message || !equal(sourceValue(message),proof.value)))proof.active=false
     },
-    // memo: a caller-owned Map; calls sharing it and the same chat read settings and bindings once.
+    // memo: a caller-owned Map; calls sharing it and the same chat read settings once.
     prepare(chat,turn,{target,preview=false,isCurrent=()=>true,stageState,assetCatalogue,streamSource,memo}) {return run(async()=>{
       const card=await readCard(chat.cardPath),enabled=card ? library.active(card.meta.id) : []
       const installed=library.snapshot(),builtin=await builtins
@@ -300,16 +229,14 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       // In-flight previews may inspect only an admitted body operation, never execute mod hooks.
       const body=streamSource && chat.timeline?.operations?.[streamSource.operationId]
       check(isCurrent() && (streamSource ? preview && body?.kind==='body' && body.status==='running' && Number(body.turn)===turn : message),'$.source','Director source changed','MOD_SOURCE_STALE')
-      if(!preview)eventCatalogue?.remember(chat.sessionId,key,assetCatalogue)
       const cacheKey=JSON.stringify([chat.sessionId,key,version,stageState,assetCatalogue?.revisions,assetCatalogue?.candidates.props,assetCatalogue?.candidates.performances,assetCatalogue?.candidates.audience,assetCatalogue?.candidates.timers])
       // a preview names each mod by its registered display name (提示词 › 模组 labels).
       const names=Object.fromEntries(enabled.map(manifest=>[manifest.id,installed.mods[manifest.id].name]))
-      if(preview && prepared.has(cacheKey) && !prepared.get(cacheKey).restored)return modFreeze({...prepared.get(cacheKey),names})
+      if(preview && prepared.has(cacheKey))return modFreeze({...prepared.get(cacheKey),names})
       const catalogues=catalogueViews(enabled,assetCatalogue)
       const selection=selectModAdmission(enabled,catalogues)
       const selectedModIds=selection.mods.filter(row=>row.selected).map(row=>row.id)
-      const bindings=await once('bindings',async()=>Object.fromEntries(await Promise.all(enabled.map(async manifest=>[manifest.id,config?await config.bindings(manifest,card,chat):modReadBindings(manifest,card.raw || card)]))))
-      const configured=runtime.configure({cardId:card.meta.id,catalogues,bindings,settingsByMod,selectedModIds})
+      const configured=runtime.configure({cardId:card.meta.id,catalogues,settingsByMod,selectedModIds})
       const manifests=enabled.filter(manifest=>selectedModIds.includes(manifest.id) && modTurnActive(manifest,catalogues[manifest.id]) && (!manifest.commands.length || configured.some(command=>command.modId===manifest.id)))
       for(const row of selection.mods)if(row.selected && !manifests.some(manifest=>manifest.id===row.id)){row.selected=false;row.reason=null}
       const capabilities=library.capabilities(manifests.map(manifest=>manifest.id),card?.meta.id)
@@ -317,10 +244,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       for(const fragment of keep)selection.mods.find(row=>row.id===fragment.modId).persistent=true
       if(!manifests.length)return modFreeze({revision:version,manifests:[],contexts:[],commands:[],schemaCommands,grammarRevision,enabledAssetKinds,capabilities,fragments:keep,selection,...(preview?{names}:{})})
       const activeCatalogues=Object.fromEntries(manifests.map(manifest=>[manifest.id,catalogues[manifest.id]]))
-      const sourceViews=activeCatalogues['dsh.phone'] ? {phone:phoneSourceView(activeCatalogues['dsh.phone'])} : {}
+      const turnSourceViews=sourceViews.views(activeCatalogues)
       // Preview never executes a module or makes a model/variable write request.
       if(preview) {
-        return modFreeze({revision:version,manifests,commands:configured,validateCommand:runtime.validateCommand,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews,names,selection,fragments:[...keep,...compileModPrompts(manifests,(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name).toString('utf8'),'director',configured),...catalogue(activeCatalogues,settingsByMod)]})
+        return modFreeze({revision:version,manifests,commands:configured,validateCommand:runtime.validateCommand,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews:turnSourceViews,names,selection,fragments:[...keep,...compileModPrompts(manifests,(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name).toString('utf8'),'director',configured),...catalogue(activeCatalogues,settingsByMod)]})
       }
       proofs.set(chat.sessionId,{key,turn,branchId:target.branchId,value:sourceValue(message),active:true,
         stageState:stageState && modFreeze(structuredClone(stageState)),commands:new Map()})
@@ -329,73 +256,13 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       // Release the management queue before invoking code; disabling remains immediate.
       return async()=>{
         const result=await host.prepare({cardId:card.meta.id,gameId:chat.sessionId,turn,
-          source:{branchId:target.branchId,sourceKey:key,generation:message.stageDirectionGeneration || 0,textVersion:key},authorityEpoch:ownEpoch,catalogueRevision:version,catalogues,bindings,settingsByMod,selectedModIds})
+          source:{branchId:target.branchId,sourceKey:key,generation:message.stageDirectionGeneration || 0,textVersion:key},authorityEpoch:ownEpoch,catalogueRevision:version,catalogues,settingsByMod,selectedModIds})
         check(ownEpoch===epoch && isCurrent(),'$.source','Director source changed','MOD_SOURCE_STALE')
-        const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
+        const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews:turnSourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
         prepared.set(cacheKey,snapshot);while(prepared.size>64)prepared.delete(prepared.keys().next().value)
-        queueMicrotask(()=>{try {notify(snapshot,settlements.get(chat.sessionId));void correct(snapshot)}catch(error){onError(error)}})
         return snapshot
       }
     }).then(value=>typeof value==='function'?value():value)},
-    async variableCommit({before,after,messageId}) {
-      try {
-        const message=before.messages[messageId],swipe=message.swipeId || 0
-        const target={messageId,message,variables:message.variables[swipe]},result={receipt:{status:'updated'},variables:after.messages[messageId].variables[swipe]}
-        const capture=await service.captureSettlement(before,target,result)
-        capture?.(after)
-        return revision=>{void service.settled(before,{...after,_storageRevision:revision},target,result).catch(onError)}
-      } catch(error) {onError(error);return null}
-    },
-    async captureSettlement(before,target,result) {
-      if(!stage || !target || !['updated','unchanged'].includes(result?.receipt?.status) || !result.variables)return null
-      await run(()=>null)
-      const card=await readCard(before.cardPath),manifests=card?library.active(card.meta.id).filter(row=>row.permissions.stage.includes('reviseAfterSettlement')):[]
-      if(!manifests.length)return null
-      const turn=Number(target.message.turn || 1),source=await stage.source(before.sessionId,turn,{branchId:before.timeline.branchId,value:sourceValue(target.message)})
-      const ownEpoch=epoch,grants=new Map(manifests.map(row=>[row.id,library.authority(row.id,card.meta.id)]))
-      const beforeSources={mvu:{available:true,value:structuredClone(target.variables?.stat_data || {})},'helper-chat':{available:true,value:structuredClone(before.variables || {})}}
-      const configuredBindings=Object.fromEntries(await Promise.all(manifests.map(async manifest=>[manifest.id,config?await config.bindings(manifest,card,before,beforeSources):modReadBindings(manifest,card.raw || card)])))
-      return draft=>{
-        if(!active || dirty || ownEpoch!==epoch || draft.timeline.branchId!==source.branchId)return
-        const message=Number.isSafeInteger(target.messageId)?draft.messages[target.messageId]:messageAt(draft,turn)
-        if(!message || !equal(sourceValue(message),sourceValue(target.message)))return
-        const afterSources={mvu:{available:true,value:structuredClone(result.variables.stat_data || {})},'helper-chat':{available:true,value:structuredClone(draft.variables || {})}}
-        const revision=String(draft._storageRevision+1)
-        for(const manifest of manifests) {
-          if(library.authority(manifest.id,card.meta.id)!==grants.get(manifest.id))continue
-          const bindings=configuredBindings[manifest.id],slots=sources=>projectModReadSlots(manifest,bindings,sources)
-          const next=admitModSettlement(message.modCorrections,{modId:manifest.id,source},{source,turn,status:'ok',settlementRevision:revision,
-            beforeRevision:String(before._storageRevision),afterRevision:revision,before:slots(beforeSources),after:slots(afterSources),bindings},Number(revision))
-          if(next){next.revision++;message.modCorrections=next}
-        }
-      }
-    },
-    async settled(before,after,target,result) {
-      sessionEvents?.settlement(before.sessionId,{revision:String(after?._storageRevision || before._storageRevision),status:result?.receipt?.status || 'skipped',turn:Number(target.message.turn || 1)})
-      if(!['updated','unchanged'].includes(result?.receipt?.status)) {onLog({code:'MOD_SETTLEMENT_IGNORED',status:result?.receipt?.status || 'skipped'});return}
-      if(!active || !after || !result.variables)return
-      await run(()=>null)
-      const card=await readCard(before.cardPath)
-      if(!card || !library.active(card.meta.id).length)return
-      const sources=(mvu,helper)=>({mvu:{available:true,value:mvu?.stat_data || {}},'helper-chat':helper===undefined?{available:false}:{available:true,value:helper}})
-      const fact=modFreeze({identity:[before.timeline.branchId,Number(target.message.turn || 1),...sourceValue(target.message)],
-        revision:String(after._storageRevision),beforeRevision:String(before._storageRevision),bindings:Object.fromEntries(await Promise.all(library.active(card.meta.id).map(async manifest=>[manifest.id,config?await config.bindings(manifest,card,before,sources(structuredClone(target.variables),structuredClone(before.variables))):modReadBindings(manifest,card.raw || card)]))),
-        before:sources(structuredClone(target.variables),structuredClone(before.variables)),after:sources(structuredClone(result.variables),structuredClone(after.variables))})
-      settlements.set(before.sessionId,fact);while(settlements.size>64)settlements.delete(settlements.keys().next().value)
-      if(corrections) {
-        const turn=Number(target.message.turn || 1)
-        const source=await stage.source(before.sessionId,turn,{branchId:before.timeline.branchId,value:sourceValue(target.message)})
-        for(const manifest of library.active(card.meta.id).filter(row=>row.permissions.stage.includes('reviseAfterSettlement'))) {
-          const authority=library.authority(manifest.id,card.meta.id),ownEpoch=epoch
-          const context={modId:manifest.id,cardId:card.meta.id,gameId:before.sessionId,turn,source}
-          const bindings=fact.bindings[manifest.id],slots=sources=>projectModReadSlots(manifest,bindings,sources)
-          await corrections.settlement(context,{source:context.source,turn,status:'ok',settlementRevision:fact.revision,
-            beforeRevision:fact.beforeRevision,afterRevision:fact.revision,before:slots(fact.before),after:slots(fact.after),bindings},
-            ()=>active && !dirty && ownEpoch===epoch && library.authority(manifest.id,card.meta.id)===authority,Number(fact.revision))
-        }
-      }
-      queueMicrotask(()=>{for(const snapshot of prepared.values())try {if(snapshot.contexts?.[0]?.gameId===before.sessionId)notify(snapshot,fact)}catch(error){onError(error)}})
-    },
     command:(snapshot,input)=>runtime.command(snapshot,input),
     applied(snapshot,effect) {
       if(!snapshot)return
@@ -419,34 +286,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
           deliveryLog(context,identity,'applied')
           const result=await runtime.command(snapshot,op,{key,at})
           if(!result.ok){deliveryLog(context,identity,'failed',result.error);onError(result.error)}
-          else if(op.modId==='dsh.phone')deliveryLog(context,identity,'source-mark')
+          else if(sourceViews.of(op.modId))deliveryLog(context,identity,'source-mark')
         } catch(error) {deliveryLog(context,identity,'failed',error);throw error}
-        void correct(snapshot)
       }})().catch(error=>onError(error))
     },
-    recover(chat,turn) {
-      const message=messageAt(chat,turn),id=JSON.stringify([chat.sessionId,turn])
-      if(!corrections || !message?.modCorrections || recovering.has(id) || turn!==Math.max(...chat.messages.filter(row=>row.role==='assistant').map(row=>Number(row.turn || 1))))return
-      if([...prepared.values()].some(row=>row.contexts?.[0]?.gameId===chat.sessionId && row.contexts[0].turn===turn))return
-      recovering.add(id)
-      queueMicrotask(()=>{void (async()=>{
-        const target=captureStageTarget(chat,chat.messages.indexOf(message))
-        if(message.modCorrections.source.sourceKey!==target.sourceKey || message.modCorrections.source.generation!==(message.stageDirectionGeneration || 0))return
-        const snapshot=await run(async()=>{
-          const cacheKey=JSON.stringify([chat.sessionId,target.sourceKey,library.snapshot().revision,[]])
-          if(prepared.has(cacheKey))return prepared.get(cacheKey)
-          const card=await readCard(chat.cardPath)
-          if(!card)return null
-          proofs.set(chat.sessionId,{key:target.sourceKey,turn,branchId:target.branchId,value:sourceValue(message),active:true})
-          // Recovery reauthorizes persisted intentions, never reruns prepare/command (or judge/model work).
-          const value=runtime.restore({cardId:card.meta.id,gameId:chat.sessionId,turn,source:message.modCorrections.source,
-            authorityEpoch:epoch,catalogueRevision:library.snapshot().revision})
-          if(value){prepared.set(cacheKey,value);while(prepared.size>64)prepared.delete(prepared.keys().next().value)}
-          return value
-        })
-        if(snapshot)await correct(snapshot)
-      })().catch(onError).finally(()=>recovering.delete(id))})
-    },
-    dispose() {active=false;runtime?.dispose();sessionEvents?.dispose();modelTasks?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
+    dispose() {active=false;runtime?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear()},
   })
 }

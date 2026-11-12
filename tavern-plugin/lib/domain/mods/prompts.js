@@ -5,9 +5,10 @@ const {modCheck:check,modFreeze,modPlacement,modJson} = contract
 export function compileModPrompts(manifests,readText,target='director',commands) {
   const fragments=[]
   for(const manifest of manifests) {
-    for(const prompt of manifest.prompts.filter(prompt=>prompt.target===target && (!commands || !manifest.commands.some(command=>command.promptId===prompt.id) || commands.some(command=>command.modId===manifest.id && command.promptId===prompt.id)))) {
+    // commandPrompts are director rules; a rule that belongs to commands joins only when one of them is admitted.
+    if(target==='director') for(const prompt of manifest.commandPrompts.filter(prompt=>(!commands || !manifest.commands.some(command=>command.promptId===prompt.id) || commands.some(command=>command.modId===manifest.id && command.promptId===prompt.id)))) {
       const text=readText(manifest.id,prompt.path)
-      check(typeof text==='string' && Buffer.byteLength(text)<=65536,'$.prompts','Prompt text unavailable','MOD_RESOURCE_UNAVAILABLE')
+      check(typeof text==='string' && Buffer.byteLength(text)<=65536,'$.commandPrompts','Prompt text unavailable','MOD_RESOURCE_UNAVAILABLE')
       fragments.push({modId:manifest.id,id:prompt.id,type:'prompt',source:prompt.path,text,placement:prompt.placement})
     }
     if(target==='director') for(const command of manifest.commands.filter(row=>!commands || commands.some(command=>command.modId===manifest.id && command.id===row.id)))fragments.push({modId:manifest.id,id:command.id,type:'command',source:'manifest.commands.'+command.id,text:command.dsl.syntax,placement:command.placement})
@@ -43,7 +44,7 @@ export function replaceModPromptSections({manifest,fragments,target,sections}) {
   const replacements=new Map()
   for(const section of sections) {
     check(section && Object.keys(section).every(key=>['id','text'].includes(key)) && typeof section.text==='string','$.sections')
-    check(!replacements.has(section.id) && manifest.prompts.some(prompt=>prompt.id===section.id && prompt.target===target),'$.sections','Undeclared prompt section')
+    check(!replacements.has(section.id) && target==='director' && manifest.commandPrompts.some(prompt=>prompt.id===section.id),'$.sections','Undeclared prompt section')
     replacements.set(section.id,section.text)
   }
   return modFreeze(fragments.map(fragment=>fragment.modId===manifest.id && fragment.type==='prompt' && replacements.has(fragment.id)?{...fragment,text:replacements.get(fragment.id)}:fragment))

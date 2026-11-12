@@ -44,7 +44,8 @@ for (const check of [false, true]) {
     const stage = path.join(root, 'tavern-plugin/packages/dsh-tavern-stage/lib/client')
     await mkdir(stage, {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs', import.meta.url), path.join(stage, 'skin-overlay-timing.cjs'))
-    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/timer-clock.cjs', import.meta.url), path.join(stage, 'timer-clock.cjs'))
+    // The stage build bundles each mod's stage client (mods/<folder>/client) with the own-folder files it requires.
+    await cp(new URL('../tavern-plugin/mods/', import.meta.url), path.join(root, 'tavern-plugin/mods'), {recursive:true})
     for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/'+name,import.meta.url),path.join(stage,name))
     // The stage build inlines the stage-only protocol contracts (stage-entrance.cjs, card-stage-mode.cjs) from the sibling protocol package.
     await mkdir(path.join(root, 'tavern-plugin/packages/dsh-presentation-protocol/src'), {recursive:true})

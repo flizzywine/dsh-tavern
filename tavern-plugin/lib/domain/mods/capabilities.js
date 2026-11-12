@@ -3,28 +3,21 @@ import contract from '../../../packages/dsh-presentation-protocol/src/mod-contra
 const {modCheck:check,modFreeze}=contract
 
 export const missingPolicy = edge => edge.onMissing ?? 'notify'
-const name = manifest => manifest?.i18n?.messages?.[manifest.i18n.defaultLocale]?.[manifest.name] || manifest?.name
+const name = manifest => manifest?.name
 
-// Resolve once from the registry snapshot; callers add their existing round admission, never recall dependencies here.
+// Resolve once from the library snapshot; callers add their existing round admission, never recall dependencies here.
+// The consumers are core uses (mods/interop.js) of capabilities installed mods provide; a mod's own dependencies on
+// another mod resolve in the managed owner (mod-system.js dependencies with operations).
 export function resolveModCapabilities({manifests,enabled,authorized=enabled,admitted=enabled,coreUses=[]}) {
   const installed=new Map(manifests.map(manifest=>[manifest.id,manifest]))
   const active=id=>enabled.includes(id) && authorized.includes(id)
   const results={}
-  for(const consumer of [...manifests,...coreUses]) {
+  for(const consumer of coreUses) {
     const rows=[]
-    if(!coreUses.includes(consumer) && (!active(consumer.id) || !admitted.includes(consumer.id))) {results[consumer.id]=rows;continue}
-    for(const dependency of consumer.dependencies.mods || []) {
-      const provider=installed.get(dependency.id)
-      const reason=!provider?'missing':!active(provider.id)?'disabled':!modVersionMatches(provider.version,dependency.range)?'version':null
-      const policy=missingPolicy(dependency)
-      rows.push({use:'dependency:'+dependency.id,provider:dependency.id,available:!reason,optional:dependency.optional===true,onMissing:policy,
-        ...(reason?{reason,blocked:policy==='error',message:`${name(consumer)}需要的${name(provider) || '辅助模组'}${reason==='missing'?'尚未安装':reason==='disabled'?'尚未开启或授权':'版本暂不兼容'}，${policy==='error'?'相关能力暂时不能使用':'本次将不使用这项增强'}。可在模组设置中调整。`}:{})})
-    }
-    for(const edge of consumer.consumes || []) {
-      const provider=installed.get(edge.provider),provided=provider?.provides?.find(row=>row.id===edge.capability)
-      const dependency=consumer.dependencies.mods?.find(row=>row.id===edge.provider)
+    for(const edge of consumer.consumes) {
+      const provider=installed.get(edge.provider),provided=provider?.provides.find(row=>row.id===edge.capability)
       const reason=!provider?'missing':!active(provider.id)?'disabled':
-        dependency && !modVersionMatches(provider.version,dependency.range) || !provided || !modVersionMatches(provided.version,edge.range)?'version':
+        !provided || !modVersionMatches(provided.version,edge.range)?'version':
         !admitted.includes(provider.id)?'admission':edge.operations.some(op=>!provided.operations.includes(op))?'operations':null
       const policy=missingPolicy(edge)
       const message=reason ? `${name(consumer)}需要的${name(provider) || '辅助模组'}${reason==='missing'?'尚未安装':reason==='disabled'?'尚未开启或授权':reason==='admission'?'本轮没有可用素材':'版本暂不兼容'}，${policy==='error'?'这项联动暂时不能使用':'本次将不使用这项增强'}。可在模组与素材设置中调整。` : null

@@ -908,7 +908,7 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
   --gal-empty-accent: #9572cc;
   --gal-empty-surface: #1d1630;
   --gal-empty-deep: #0e0b16;
-  /* 「文字演出」 flat card palette and faces (textcard.css); story content, not UI chrome.
+  /* 「文字演出」 flat card palette and faces (mods/textcard/client/stage.css); story content, not UI chrome.
      The renderer swaps in the face TEXTCARD_FACE picks (--tc-mincho; default: the library's full Noto Serif SC) once registered. */
   --gal-tc-ink: #171517; --gal-tc-paper: #f4eee1; --gal-tc-vermilion: #b52e31; --gal-tc-gold: #d3ae45;
   --gal-tc-mincho: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
@@ -6325,64 +6325,6 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage.is-ui-hidden > :is(.fork-gal-topbar, .fork-gal-notices, .fork-widget-source-controls),
 .fork-gal-stage.is-ui-hidden > .fork-widget-layer .fork-widget-panel:not([data-presentation="open"]) { visibility: hidden; pointer-events: none; }
 
-/* ==== stage timer (dsh.timer, timer-stage.js) ==== */
-/* The countdown over the scene and the text box art, under the HUD and panels. The look is the mod's resolved options
-   (mod-options.js: the active skin's values and art over the mod's preset), two kinds:
-   pill (the preset) - a HUD pill in the skin's own colours (any skin), top centre, the stopwatch glyph from the mod's
-   default.svg as a mask. plate - the skin's plate image at its placement box (--tm-x/y/w/h) on its canvas (--tm-cw/ch),
-   letterboxed like the game area (--tm-u px per canvas px); digits are cells of the skin's sprite sheet (--tm-cell,
-   --tm-cols x --tm-rows) or plain text; data-art=none: no plate image, the HUD plate colour; data-hide-expired: it hides
-   at the timeup. A reply deadline's last 10 s breathe softly (still under 减少动态) when the options keep that feature.
-   The pause button is the only input; the plate itself lets clicks through to the stage.
-   The skin's drawn art (art.buttons / art.decor, a layer above) is never over the digits: the layer moves by the measured
-   --tm-dx / --tm-dy just past the art (forkTimerClearance, a skin's menu gear over the clock), and past the
-   shared top bar's controls the same way (the wide stage's centred scene chips: the pill docks under their row, every skin).
-   Moving the whole layer keeps its own reference units (cq) unchanged. The layer is the game area under the window's title
-   strip (--fk-area-t, as the skin art), so the plate never sits under the strip either. z 6 after the text box (z 6, whose
-   art may span the stage with corner ornaments): over the box art, under the top bar (7), the drawn buttons' layer when it
-   spans the stage (7; it never overlaps the plate anyway) and the panels (8+). */
-.fork-gal-stage .fork-timer { position: absolute; inset: var(--fk-area-t, 0px) 0 0; z-index: 6; pointer-events: none; container-type: size; translate: var(--tm-dx, 0px) var(--tm-dy, 0px);
-  --tm-u: min(calc(100cqh / var(--tm-ch)), calc(100cqw / var(--tm-cw))); }
-.fork-gal-stage .fork-timer-plate { position: absolute; left: calc(50cqw + (var(--tm-x) - var(--tm-cw) / 2) * var(--tm-u)); top: calc(50cqh + (var(--tm-y) - var(--tm-ch) / 2) * var(--tm-u));
-  width: calc(var(--tm-w) * var(--tm-u)); height: calc(var(--tm-h) * var(--tm-u)); background: var(--tm-plate) 0 0 / 100% 100% no-repeat; pointer-events: auto;
-  transition: visibility 0s; }
-.fork-gal-stage .fork-timer[data-art="none"] .fork-timer-plate { background: var(--gal-ui-hud-plate); border-radius: calc(var(--tm-h) * var(--tm-u) / 2); box-shadow: var(--gal-ui-shadow); }
-.fork-gal-stage .fork-timer-plate > .fork-timer-digits { position: absolute; inset: 0; display: grid; place-items: center; color: var(--gal-ui-hud-ink);
-  font: 600 calc(var(--tm-h) * var(--tm-u) * .45)/1 var(--gal-ui-font); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.fork-gal-stage .fork-timer-glyph { position: absolute; left: calc(var(--gx) * var(--tm-u)); top: calc(var(--gy) * var(--tm-u));
-  width: calc(var(--tm-cell) * var(--tm-u)); height: calc(var(--tm-cell) * var(--tm-u));
-  background: var(--tm-digits) calc(var(--gc) * -1 * var(--tm-cell) * var(--tm-u)) calc(var(--gr) * -1 * var(--tm-cell) * var(--tm-u)) /
-    calc(var(--tm-cols) * var(--tm-cell) * var(--tm-u)) calc(var(--tm-rows) * var(--tm-cell) * var(--tm-u)) no-repeat; }
-.fork-gal-stage .fork-timer[data-hide-expired][data-status="expired"] :is(.fork-timer-plate, .fork-timer-pause) { visibility: hidden; transition-delay: .3s; }
-.fork-gal-stage .fork-timer[data-look="plate"][data-held] .fork-timer-plate { filter: var(--fk-current-dim); }
-.fork-gal-stage .fork-timer[data-look="plate"] .fork-timer-pause { position: absolute; left: calc(50cqw + (var(--tm-x) - var(--tm-cw) / 2) * var(--tm-u) - 34px);
-  top: calc(50cqh + (var(--tm-y) + var(--tm-h) / 2 - var(--tm-ch) / 2) * var(--tm-u) - 15px); }
-.fork-gal-stage .fork-timer-pill { position: absolute; left: 50%; top: 12px; translate: -50% 0; display: inline-flex; align-items: center; gap: 8px; box-sizing: border-box;
-  min-height: 36px; padding: 0 6px 0 12px; border-radius: 999px; background: var(--gal-ui-hud-plate); box-shadow: var(--gal-ui-shadow); color: var(--gal-ui-hud-ink);
-  font: 600 var(--gal-ui-choice-size)/1 var(--gal-ui-font); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: auto; }
-.fork-gal-stage .fork-timer-pill:not(:has(.fork-timer-pause)) { padding-right: 14px; }
-.fork-gal-stage .fork-timer-icon { flex: none; width: 1.05em; height: 1.05em; background: var(--gal-ui-accent); -webkit-mask: var(--tm-icon) center / contain no-repeat; mask: var(--tm-icon) center / contain no-repeat; }
-.fork-gal-stage .fork-timer-label, .fork-gal-stage .fork-timer-state { font-size: var(--gal-ui-meta-size); font-weight: 500; color: var(--gal-ui-hud-ink-idle); }
-.fork-gal-stage .fork-timer-digits { min-width: 3.2ch; text-align: center; letter-spacing: .02em; }
-.fork-gal-stage .fork-timer[data-mode="reply"][data-ticking] .fork-timer-pill { box-shadow: var(--gal-ui-shadow), 0 0 0 2px var(--gal-ui-accent); }
-.fork-gal-stage .fork-timer[data-held] .fork-timer-digits { color: var(--gal-ui-hud-ink-idle); }
-.fork-gal-stage .fork-timer[data-status="expired"] .fork-timer-digits { color: var(--gal-ui-ink-disabled); }
-.fork-gal-stage .fork-timer[data-urgent] :is(.fork-timer-digits, .fork-timer-plate) { animation: fork-timer-breathe 1s ease-in-out infinite; }
-.fork-gal-stage .fork-timer[data-urgent] .fork-timer-digits { color: var(--gal-ui-accent); }
-.fork-gal-stage .fork-timer[data-urgent][data-calm] :is(.fork-timer-digits, .fork-timer-plate) { animation: none; }
-.fork-gal-stage .fork-timer-pause { display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%;
-  background: var(--gal-ui-hud-plate); color: var(--gal-ui-hud-ink); cursor: pointer; pointer-events: auto; clip-path: inset(50%); }
-.fork-gal-stage .fork-timer-pill .fork-timer-pause { background: none; }
-.fork-gal-stage .fork-timer-pause:hover { background: var(--gal-ui-hud-hover); }
-.fork-gal-stage .fork-timer-pause:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
-.fork-gal-stage .fork-timer:is(:hover, :focus-within, [data-held="player"]) .fork-timer-pause { clip-path: none; }
-@media (hover: none) { .fork-gal-stage .fork-timer-pause { clip-path: none; width: 36px; height: 36px; } }
-.fork-gal-stage .fork-timer-notice { position: absolute; left: 50%; top: 56px; translate: -50% 0; padding: 6px 14px; border-radius: 999px; background: var(--gal-ui-hud-plate);
-  color: var(--gal-ui-hud-ink); font: 500 var(--gal-ui-meta-size)/1.4 var(--gal-ui-font); white-space: nowrap; }
-.fork-gal-stage .fork-timer[data-look="plate"] .fork-timer-notice { left: auto; right: calc(50cqw - (var(--tm-x) + var(--tm-w) - var(--tm-cw) / 2) * var(--tm-u));
-  top: calc(50cqh + (var(--tm-y) + var(--tm-h) - var(--tm-ch) / 2) * var(--tm-u) + 4px); translate: none; }
-@media (max-width: 640px) { .fork-gal-stage .fork-timer-pill { top: 52px; } .fork-gal-stage .fork-timer-notice { top: 96px; } }
-/* ==== end stage timer ==== */
 
 /* Stage: on the text box's top edge, out of its flow (the box never moves or re-wraps); details open upward. */
 .fork-gal-stage .fork-gal-box > .fork-roll-list { position: absolute; right: var(--box-pad, 16px); bottom: calc(100% + 8px); z-index: 4; align-items: flex-end; width: max-content; max-width: min(72%, 460px); margin: 0; }

@@ -1,6 +1,5 @@
 import * as runtime from './runtime.js'
 import manifest from './mod.json' with {type:'json'}
-import grammar from './manifest.json' with {type:'json'}
 import {performanceBoundary} from '../../../../tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs'
 
 export const name='dsh-tavern-mod-performance'
@@ -40,5 +39,5 @@ export function planPerformance({state,instanceId,operation,input,config,configu
   return {state:{...state,instances,nextLease},actions}
 }
 export function apply(ctx) {
-  ctx.tavern.registerMod(manifest,{execution:runtime,commands:grammar.commands,plan:planPerformance})
+  ctx.tavern.registerMod(manifest,{execution:runtime,commands:manifest.commands,plan:planPerformance})
 }

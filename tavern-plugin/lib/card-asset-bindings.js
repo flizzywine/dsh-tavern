@@ -49,7 +49,7 @@ export function createOptionalAssetPackConsumer(ctx) {
 }
 
 // The host supplies its existing Card Preparation writer and card queue. No asset I/O.
-export function createCardAssetBoundary({ctx, getEngine, listCards, readWorkspace, updateCard, syncBubbles = async () => {}, readVariableSources = async () => ({}), readCharacterBook = async () => null, modManifests = async () => [], modConfig = false}) {
+export function createCardAssetBoundary({ctx, getEngine, listCards, readWorkspace, updateCard, syncBubbles = async () => {}, readVariableSources = async () => ({}), readCharacterBook = async () => null, modConfig = false}) {
   const consumer = createOptionalAssetPackConsumer(ctx)
   async function workspace(path) {
     check(typeof path === 'string' && (await listCards()).some(card => card.path === path), '$.path', 'Card not found', 'NOT_FOUND')
@@ -99,7 +99,7 @@ export function createCardAssetBoundary({ctx, getEngine, listCards, readWorkspac
       const global = optional(ctx,'assetPackSettings')?.read().values.globalEnabledPackIds || []
       const packs = await snapshots([...(extension?.assetBindings?.boundPackIds || []),...global])
       const sources = sessionId ? await readVariableSources({path,sessionId}) : {}
-      const providers = listCardVariableProviders({raw:card.raw,packs,sources,modConfig,modManifests:await modManifests(),boundPackIds:extension?.assetBindings?.boundPackIds || [],allowedPackIds:[...(extension?.assetBindings?.boundPackIds || []),...global],widgetsEnabled:effectiveCardStage(extension, getEngine?.()).widgets})
+      const providers = listCardVariableProviders({raw:card.raw,packs,sources,modConfig,boundPackIds:extension?.assetBindings?.boundPackIds || [],allowedPackIds:[...(extension?.assetBindings?.boundPackIds || []),...global],widgetsEnabled:effectiveCardStage(extension, getEngine?.()).widgets})
       return {path,revision:cardAssetWorkspaceRevision(card),providers}
     },
     async readCardVariables({path,sessionId,targets}) {
@@ -146,7 +146,7 @@ export function createCardAssetBoundary({ctx, getEngine, listCards, readWorkspac
       if (patch.variableBindings !== undefined) {
         const packs = await snapshots(patch.variableBindings.entries.map(row => row.target.ref?.packId).filter(Boolean))
         if(modConfig)check(!patch.variableBindings.entries.some(row=>row.target.kind==='widgets' && packs.find(pack=>pack.manifest.id===row.target.ref.packId)?.widgets?.[row.target.ref.assetId]?.namespace==='phone'),'$.patch.variableBindings','Use mod config for phone bindings','UNKNOWN_FIELD')
-        validateVariableSlots(patch.variableBindings,packs,readCardAssetExtension(card.raw)?.variableBindings,await modManifests())
+        validateVariableSlots(patch.variableBindings,packs,readCardAssetExtension(card.raw)?.variableBindings)
       }
       // The writer rechecks this token *inside* the existing queue before committing.
       await updateCard(path, {}, undefined, rawOperations, { expectedAssetRevision: expectedRevision })

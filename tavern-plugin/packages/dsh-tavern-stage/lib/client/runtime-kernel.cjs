@@ -28,8 +28,10 @@ const emptyObservation = () => ({flight: null, timer: null, dirty: false, failur
 // to load, no Pixi effect, Live2D motion or timeline - so the next page turn removes it whole and nothing outlives its
 // page. Text cards (文字演出卡片) and titles (报幕) pass and flash by; voice, SE, acts, emotes, screen beats, item shows
 // and other mod performances are consumed unplayed (reason 'skip'); a ritual phase seeks to its sustained state.
-const stageTextcardKind = kind => /^dsh\.textcard(?:\.|$)/.test(kind || '');
-const stageSkipShows = descriptor => descriptor.kind === 'title' || descriptor.kind === 'mod-performance' && stageTextcardKind(descriptor.performance?.kind);
+// The title passes, and so do the kinds the stage marks skipShows: a stage feature's own page-DOM performances (features.cjs
+// skipShows, runtime-ui.cjs SESSION_INPUTS performanceKinds), never a name rule here.
+const stageSkipShows = (kinds, descriptor) => descriptor.kind === 'title' ||
+    descriptor.kind === 'mod-performance' && kinds.find(row => row.kind === descriptor.performance?.kind)?.skipShows === true;
 
 function createStageRuntimeState() {
     return {
@@ -419,7 +421,7 @@ function reduceStageRuntime(previous, event) {
         const page = dwell && after ? pageAt(state.text, cursor.anchor) : null, next = page && state.text.pages[state.text.pages.indexOf(page) + 1];
         // every consumed-without-playing event records why (diagnostics; no replay).
         // skip shows only what stageSkipShows allows; the rest is consumed, never replayed.
-        const reason = late ? 'late' : at < cursor.anchor.para ? 'passed' : cursor.skipping && !stageSkipShows(descriptor) ? 'skip' : !state.opened ? 'stage-closed'
+        const reason = late ? 'late' : at < cursor.anchor.para ? 'passed' : cursor.skipping && !stageSkipShows(state.performanceKinds || performanceKindsKernel.STAGE_PERFORMANCE_CORE, descriptor) ? 'skip' : !state.opened ? 'stage-closed'
             : cursor.mode === 'history' ? (!dwell ? 'history' : (after ? next?.anchor.para === at : cursor.anchor.offset !== 0 && !descriptor.narration) ? 'not-first-page' : null)
             // a narration voice belongs to its own page (stageVoiceDescriptor), reached reading forward like an echo.
             : (after || descriptor.narration ? !cursor.afterEligible : cursor.anchor.offset !== 0 || !cursor.firstPageEligible) ? 'not-first-page' : null;
@@ -440,7 +442,7 @@ function reduceStageRuntime(previous, event) {
         }
         for (const performance of state.director.modPerformances || []) {
             if (performance.at > state.director.through) continue;
-            const after = stageTextcardKind(performance.kind) && performance.payload?.placement === 'after';
+            const after = performance.payload?.placement === 'after';
             if (after && performance.at === state.cursor.anchor.para && state.cursor.mode !== 'history' && state.opened && !late && state.cursor.afterEligible) {
                 const page = pageAt(state.text, state.cursor.anchor), next = state.text.pages[state.text.pages.indexOf(page) + 1];
                 // Echoes wait for the entire anchored paragraph, including its final page, to be revealed.

@@ -1,15 +1,14 @@
-import {readFile} from 'node:fs/promises'
+import {access,readFile} from 'node:fs/promises'
 import {fileURLToPath} from 'node:url'
 import {createManagedModHost} from './domain/mod-system-host.js'
-import {firstPartyModIds} from './mod-system-distributions.js'
+import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distributions.js'
 import {registerModStageContribution} from './domain/mods/stage-contributions.js'
-import timerStage from '../packages/dsh-tavern-stage/lib/mods/timer/stage.js'
-import phoneStage from '../mods/phone/stage.js'
-const stages = {'dsh.timer':timerStage,'dsh.phone':phoneStage}
-// One source per mod folder; its entry comes from its own mod.json.
+import {modDeclarations} from './domain/mods/declarations.js'
+// One source per mod folder: its mod.json, its entry, and its director contribution from its optional stage.js.
 const sources = Object.freeze(await Promise.all(firstPartyModIds.map(async folder => {
-  const directory=new URL('../mods/'+folder+'/',import.meta.url),manifest=JSON.parse(await readFile(new URL('mod.json',directory),'utf8'))
-  return {id:manifest.id,directory,module:await import(new URL(manifest.entry,directory)),stage:stages[manifest.id]}
+  const directory=firstPartyModDirectory(folder),manifest=modDeclarations(JSON.parse(await readFile(new URL('mod.json',directory),'utf8')))
+  const stage=await access(new URL('stage.js',directory)).then(()=>true,()=>false) ? (await import(new URL('stage.js',directory))).default : undefined
+  return {id:manifest.id,directory,manifest,module:await import(new URL(manifest.entry,directory)),stage}
 })))
 // The installed first-party mods' director contributions; core reaches their stage state only through these.
 for (const source of sources) if (source.stage) registerModStageContribution(source.id, source.stage)
@@ -19,18 +18,13 @@ export async function createFirstPartyMods({host}={}) {
     host=createManagedModHost({authorized:sources.map(row=>row.id)})
     for(const source of sources)source.module.apply({tavern:{registerMod:(manifest,implementation)=>host.register(manifest.packageName,manifest,implementation)}})
   }
-  const releases=[]
-  for (const source of sources) {
-    const manifest=JSON.parse(await readFile(new URL('manifest.json',source.directory),'utf8'))
-    const files=new Map(await Promise.all(manifest.files.map(async entry=>[entry.path,await readFile(new URL(entry.path,source.directory))])))
-    releases.push({manifest,files,module:source.module})
-  }
-  const entries=new Map(releases.map(row=>[row.manifest.id,row]))
+  // The director rules and core assets a mod's mod.json names are the files the director and its renders read.
+  const entries=new Map(await Promise.all(sources.map(async ({manifest,directory})=>[manifest.id,{manifest,
+    files:new Map(await Promise.all([...manifest.commandPrompts,...manifest.coreAssets].map(async row=>[row.path,await readFile(new URL(row.path,directory))])))}])))
   // This is a resource catalogue; executable code belongs only to the managed host.
   const resources={manifest:id=>entries.get(id).manifest,module:id=>host.execution(id),file:(id,name)=>entries.get(id).files.get(name),files:id=>new Map(entries.get(id).files)}
   return Object.freeze({...resources,
-    validatePack:(id,pack)=>entries.get(id)?.module.validatePack?.(pack),
-    catalogue:() => sources.map(source=>({id:source.id,name:resources.manifest(source.id).name,version:resources.manifest(source.id).version})),
+    catalogue:() => sources.map(source=>({id:source.id,name:source.manifest.name,version:source.manifest.version})),
     source(id) {const source=sources.find(row=>row.id===id);if(!source)throw Object.assign(new Error('Unknown first-party release'),{code:'MOD_RESOURCE_UNAVAILABLE'});return {kind:'directory',path:fileURLToPath(source.directory)}},
   })
 }

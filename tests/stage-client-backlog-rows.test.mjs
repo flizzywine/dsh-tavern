@@ -31,3 +31,14 @@ test('marked paragraphs join pages and gate voice without changing source rows',
  assert.deepEqual(entries,snapshot)
  assert.deepEqual(rows.backlogLineKindEntries(entries,new Map([[1,{...direction,through:1}]]),kinds),entries)
 })
+test('a mod stage feature supplies its 履历 renderer: the textcard row comes from mods/textcard/client',()=>{
+ const require=createRequire(import.meta.url)
+ const {createStageFeatures}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/features.cjs')
+ const features=createStageFeatures();features.register('textcard',require('../tavern-plugin/mods/textcard/client/stage.cjs'))
+ const rows=createStageBacklogRows({renderers:features.backlogRenderers()})
+ const declaration={kind:'dsh.textcard.card',backlog:{renderer:'textcard',role:'notice'}}
+ const row=payload=>rows.backlogPerformanceEntry(declaration,{payload},{turn:1,id:{performance:'t'}})
+ const after=row({style:'word',parts:['原来你一直都知道。'],placement:'after'})
+ assert.deepEqual([after.parts,after.place,after.role],[['原来你一直都知道。'],'end','notice'])
+ assert.equal(row({style:'word',parts:['冥土']}).place,'before')
+})

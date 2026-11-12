@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-const {TEXTCARD_STYLES,planTextcard,textcardHistory,createTextcardGate,textcardPeak}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/textcard-presets.cjs')
+const {TEXTCARD_STYLES,planTextcard,textcardHistory,createTextcardGate,textcardPeak}=createRequire(import.meta.url)('../tavern-plugin/mods/textcard/client/presets.cjs')
 test('every built-in textcard preset produces a bounded plan and backlog projection',()=>{
  for(const style of Object.keys(TEXTCARD_STYLES)){
   const payload={version:1,style,parts:['第一行','第二行'],steps:['第一行','第二行'],intensity:'standard'}
