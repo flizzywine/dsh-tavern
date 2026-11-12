@@ -202,6 +202,60 @@ function lateReplyLog(shape) {
   return rows
 }
 
+// The host writes its empty system head before the first step. A log that projected a
+// message first (older Tavern seeding, a restored surface) leaves the surface without
+// that head; the next system/message the host appends then makes the whole log unreadable.
+const SYSTEM_SOURCE = { kind: 'system-prompt', plugin: '@deepseek-ai/dsh-system-prompt' }
+
+function headlessLog() {
+  const rows = []
+  const add = (type, data, extra = {}) => { const event = { seq: rows.length, type, time: 1, data, ...extra }; rows.push(event); return event }
+  const user = (turn, text) => add('user/message', { id: 'u' + turn, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' }, turn, step: 1 }, { surfaceOp: 'append' })
+  add('turn/start', { turn: 1 })
+  add('step/start', { turn: 1, step: 1 })
+  user(1, '开场')
+  add('step/end', { turn: 1, step: 1 })
+  add('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  add('turn/start', { turn: 2 })
+  add('step/start', { turn: 2, step: 1 })
+  // The host refreshed the system prompt in history: first surface row that is a system message.
+  add('system/message', { turn: 2, step: 1, message: { id: 'sys2', role: 'system', content: [{ type: 'text', text: '系统提示' }], source: SYSTEM_SOURCE } }, { surfaceOp: 'append' })
+  user(2, '继续')
+  add('step/end', { turn: 2, step: 1 })
+  add('turn/end', { turn: 2, reason: { kind: 'completed' } })
+  return rows
+}
+
+test('a surface that starts without a system head gets one reserved', needsHost, async () => {
+  const { sessionFormatCatalog: catalog } = await import(catalogUrl)
+  const rows = headlessLog()
+  assert.throws(() => open(catalog, rows), /system\/message requires a protected first surface head/)
+  const artifact = { ...open(catalog, []), events: rows }
+  const result = repairCurrentSessionBuffer(encodeCurrentGeneration(artifact, catalog), catalog)
+  assert.equal(result.ok, true, result.reason)
+  assert.equal(result.changed, true)
+  assert.doesNotThrow(() => open(catalog, result.artifact.events))
+  const firstSurface = result.artifact.events.find(event => event.surfaceOp !== undefined)
+  assert.equal(firstSurface.type, 'system/message')
+  assert.equal(firstSurface.surfaceOp, 'append')
+  // Only the reserved head is added; every story row survives with a contiguous seq.
+  assert.equal(result.artifact.events.length, rows.length + 1)
+  assert.deepEqual(result.artifact.events.map(event => event.seq), Array.from({ length: rows.length + 1 }, (_, index) => index))
+  assert.deepEqual(result.artifact.events.filter(event => event.type === 'user/message').map(event => event.data.content[0].text), ['开场', '继续'])
+  // A later system/message the host appends now lands on a protected head.
+  const turn = 3
+  const grown = [
+    ...result.artifact.events,
+    { type: 'turn/start', data: { turn } },
+    { type: 'step/start', data: { turn, step: 1 } },
+    { type: 'system/message', surfaceOp: 'append', data: { turn, step: 1, message: { id: 'sys3', role: 'system', content: [{ type: 'text', text: '系统提示2' }], source: SYSTEM_SOURCE } } },
+    { type: 'user/message', surfaceOp: 'append', data: { id: 'u3', role: 'user', content: [{ type: 'text', text: '再来' }], source: { kind: 'user' }, turn, step: 1 } },
+    { type: 'step/end', data: { turn, step: 1 } },
+    { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } },
+  ].map((row, seq) => ({ time: 1, ...row, seq }))
+  assert.doesNotThrow(() => open(catalog, grown))
+})
+
 test('a settlement copy written before its edit step moves into that step', needsHost, async () => {
   const catalog = await patchedCatalog()
   const rows = lateReplyLog('settlement')
