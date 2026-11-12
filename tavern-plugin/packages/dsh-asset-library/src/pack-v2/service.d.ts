@@ -5,27 +5,76 @@ export declare const PACK_LEASE_PATH: '/api/dsh-asset-library/v2/lease/'
 /** Host-created file references, never accepted from an uploaded archive. */
 export declare class StoredFile { readonly length: number; readonly file?: string; constructor(size: number, file?: string) }
 export interface PackExportSnapshot { manifest: PackManifest; files: Map<string, Uint8Array | StoredFile> }
+export interface PackZipEntry {path: string; size: number; crc: number; method: number; start: number; end: number}
+export declare function packZipPath(value: string): string
+export declare function openPackZip(filename: string): Promise<{entries: PackZipEntry[]; totalSize: number; read(entry: PackZipEntry): Promise<Buffer>; consume(entry: PackZipEntry, destination: import('node:stream').Writable): Promise<void>}>
 /** Stream host-owned buffers or files into an archive. */
 export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string}>): Promise<{size: number; entries: number; uncompressedSize: number}>
 /** Detached export projection; no storage writes. */
 export declare function projectPackFigures<T extends PackExportSnapshot>(packs: T[], excludeFigures: string[]): Promise<{packs: T[]; figures: Array<Figure & {ref: FigureRef}>}>
 type ReadonlyPackValue<T> = T extends object ? {readonly [K in keyof T]: ReadonlyPackValue<T[K]>} : T;
 /** Shared immutable host view. Copy only the fields needed for authoring. */
-export type PackSnapshot = ReadonlyPackValue<{ privateConfig?: true; manifest: PackManifest; figures: Record<string, Figure>; sprites: Record<string, SpriteManifest>; widgets: Record<string,WidgetDocument>; variantDocuments?: Record<string,Record<string,Record<string,unknown>>>; diagnostics?: Array<{ref: AssetRef<'widgets'>; name: string; code: 'WIDGET_UNAVAILABLE'; message: string}>; skins?: Record<string, Record<string, unknown>>; performances?: Record<string, Record<string, unknown>>; revision: string; installedAt: number; updatedAt: number; distribution?: Distribution }>;
+export type PackSnapshot = ReadonlyPackValue<{ automatic?: true; privateConfig?: true; manifest: PackManifest; figures: Record<string, Figure>; sprites: Record<string, SpriteManifest>; widgets: Record<string,WidgetDocument>; variantDocuments?: Record<string,Record<string,Record<string,unknown>>>; diagnostics?: Array<{ref: AssetRef<'widgets'>; name: string; code: 'WIDGET_UNAVAILABLE'; message: string}>; skins?: Record<string, Record<string, unknown>>; performances?: Record<string, Record<string, unknown>>; revision: string; installedAt: number; updatedAt: number; distribution?: Distribution }>;
 export interface PackListError { packId: string; error: {code: string; message: string} }
 export interface ScriptRisk { packId: string; packName: string; path: string; widgetId?: string; widgetName?: string; variables?: {reads: Array<{id: string; source: string; path: string; includesChildren: boolean}>; writes: Array<{id: string; source: string; path: string; ops: string[]; scope?: string; includesChildren: boolean}>} }
 export interface PackChange { packId: string; revision: string | null; kinds: string[]; figures: string[] }
 export interface WidgetDefaultExportWarning { code: 'external-widget-default'; ref: AssetRef; widgetName: string; settingLabel: string; packName: string | null; assetName: string | null }
 export interface StageSetupStatus {path: string; cardId: string; cardRevision: string; libraryRevision: string; boundPackIds: string[]; hasBoundPacks: boolean; hasAssets: boolean; wizardPack: {packId: string; name: string; revision: string} | null; shouldAutoOpen: boolean}
 export interface PackWrite { packId: string; expectedRevision: string }
+export interface AutomaticSource {chatId: string; branchId: string; revision: number; turn: number; messageId: string; bodyOperationId?: string; paragraphIds: string[]}
+export interface AutomaticReadContext {
+  packs: Array<Pick<PackSnapshot, 'manifest' | 'figures' | 'revision'>>;
+  card: {path: string; cardId: string; revision: string; raw: unknown};
+  globalEnabledPackIds: string[];
+}
+/** Figure texts an automatic writer may set (auto-figure: name and aliases only). */
+export interface AutomaticFigureTexts {name?: string; aliases?: string[]; description?: string | null; guidance?: string | null}
+/** auto-cast only: what a figure change may add besides its texts. Images name keys of AutomaticWriteInput.images. */
+export interface AutomaticFigureExtras {
+  voice?: {from: {packId: string; voiceId: string}; language?: string} | {spec: VoiceSpec; language?: string};
+  settei?: {image: string; palette?: Array<{role: string; hex: string; zone: string}>};
+  /** emotion: a 差分 id or label (matchBubbleMood); outfit: an existing outfit key, absent = the first enabled one, else a new 默认. */
+  sprites?: Array<{emotion: string; image: string; outfit?: string}>;
+}
+export type AutomaticCreate = {op: 'create'; kind: 'figures'; value: AutomaticFigureTexts & {name: string; aliases: string[]}} & AutomaticFigureExtras
+export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
+export type AutomaticPatch = {op: 'patch'; kind: 'figures'; ref: FigureRef & {kind: 'figures'}; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
+export type AutomaticChange = AutomaticCreate | AutomaticCopy | AutomaticPatch
+export interface AutomaticWriteInput {
+  path: string; expectedCardRevision: string; target: {packId: string; expectedRevision: string} | null;
+  catalogueRevisions: Array<{packId: string; revision: string}>; requestId: string;
+  source: {kind: string; occurrenceId: string}; changes: AutomaticChange[];
+  /** auto-cast only: PNG bytes by key (letters, digits, _ and -). */
+  images?: Record<string, Uint8Array>;
+}
+export interface AutomaticWriteEntry {
+  writeId: string; requestId: string; writerId: string; at: string; source: AutomaticSource;
+  changes: Array<{ref: FigureRef & {kind: 'figures'}; before: null | Partial<Figure>; after: Partial<Figure>;
+    sprites?: Record<string, {before: SpriteManifest | null; after: SpriteManifest}>; voices?: Record<string, VoiceSpec>}>;
+  status: 'pending' | 'reviewed' | 'undone';
+}
+export interface LibrarySearchResult {
+  query: string; identity: {status: 'resolved'; ref: FigureRef} | {status: 'ambiguous' | 'unknown'};
+  figures: Array<{packId: string; packName: string; revision: string; ref: FigureRef; name: string; aliases: string[]; description?: string; guidance?: string;
+    outfits: number; emotions: number; stage: boolean; voice: {voiceId: string; name: string; guidance?: string} | null; copyable: boolean; match: 'exact' | 'name' | 'text'}>;
+  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; guidance?: string; figures: string[]}>;
+  more: {figures: number; voices: number};
+}
+export interface AutomaticWriteResult {
+  status: 'committed' | 'noop'; packId: string | null; revision: string | null;
+  cardRevision: string; writeId: string | null; refs: Array<FigureRef & {kind: 'figures'}>;
+}
+/** Opaque identity checked by the owning service; JSON copies carry no authority. */
+export type AutomaticWriteAuthority = object;
 export interface VoiceTemplate {templateId:string; revision:string; name:string; voiceSpec:VoiceSpec; binding:Voice}
+/** 通用声音 (`general`), 旁白 (`narrator`) or a card's own 旁白 (`narrator:<cardId>`): a pack-voice-shaped voice with its binding (voice 'voice'). */
 export type VoiceCatalogueRef = {packId:string; voiceId:string} | {templateId:string};
 export interface VoiceCatalogueEntry {ref:VoiceCatalogueRef; name:string; packName?:string; revision:string; voiceSpec:VoiceSpec; binding:Voice}
 export interface PackRemoval { status: 'removed'; packId: string }
 export interface PackMutation { status: 'installed' | 'updated' | 'noop'; snapshot: PackSnapshot }
 export interface FigureDelivery {
   version: 1;
-  figures: Array<{id: string; copyFrom?: string | FigureRef; figure?: Figure; patch?: Partial<Pick<Figure, 'name' | 'aliases' | 'description' | 'enabled' | 'recall' | 'voice'>>}>;
+  figures: Array<{id: string; copyFrom?: string | FigureRef; figure?: Figure; patch?: Partial<Pick<Figure, 'name' | 'aliases' | 'description' | 'guidance' | 'enabled' | 'recall' | 'voice'>>}>;
   voices?: Record<string, VoiceSpec>;
   audio?: Array<{hash: string; descriptor: BlobDescriptor; bytes: Uint8Array}>;
 }
@@ -37,6 +86,8 @@ export interface PackInspection {
   inspectionId: string; uploadHash: string; packId: string; contentHash: string; expectedRevision: string | null;
   choices: ImportDecision[]; expiresAt: number; diff: PackDiff; incoming: Omit<PackSnapshot, 'revision' | 'installedAt' | 'updatedAt'>; current: PackSnapshot | null; conflictFigures: string[]; mapping: PackMapping;
   scriptRisk: ScriptRisk[];
+  /** an update: kept figures whose carried 配图 外貌 (dsh.image-character) differs from their local one; applyImport adoptLooks picks the incoming one */
+  figureLooks: Array<{figureId: string; name: string; local: unknown; incoming: unknown}>;
   distribution?: {sourceId?: string; catalogueUrl?: string; official?: boolean; version?: string; packId?: string; archiveSha256: string; integrity: 'sha256' | 'unverified'};
   merge?: MergeSummary;
 }
@@ -48,14 +99,13 @@ export interface PackLimits { entries: number; entrySize: number; totalSize: num
 export interface CardBundleAdapter {
   snapshot(input: {path: string}): Promise<{path: string; cardId: string; revision: string | null; raw: unknown; cover?: Uint8Array}>;
   inspectRaw(raw: unknown): {raw: unknown; boundPackIds: string[]; modConfigPackId?: string; name?: string};
-  unbindPack?(input: {packId: string}): Promise<void>;
+  unbindPack(input: {packId: string}): Promise<void>;
+  withExistingBoundPack?<T>(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {cardId: string; revision: string}) => Promise<T>): Promise<T>;
   withBoundPack?(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   withConfigPack?(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   remapRaw(raw: unknown, mappings: Array<PackMapping & {from: string}>): unknown;
   /** the same raw with these packs appended to the card's bound packs (card export of global packs). */
   bindRaw(raw: unknown, packIds: string[]): unknown;
-  /** the same raw bound to exactly these packs plus its config pack (a DSH card export with a chosen pack list). */
-  retainRaw(raw: unknown, packIds: string[]): unknown;
   /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
   exportRaw(raw: unknown): unknown;
   withPrepared(input: {path: string; expectedRevision: string | null; raw: unknown; cover?: Uint8Array; packSnapshots?: Array<Omit<PackSnapshot, 'revision' | 'installedAt' | 'updatedAt'>>; disableWidgets?: boolean}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
@@ -89,6 +139,8 @@ export interface PackServiceOptions {
   modValidators?: Iterable<[string, (config: {version: 1; values: Record<string, unknown>}) => void]>;
   /** the globally enabled pack ids (native pack settings); card export may embed them. Default: none. */
   globalEnabledPackIds?: () => string[];
+  /** Native settings writer used to remove global bindings before deleting a pack. */
+  settings?: ReturnType<typeof import('./native-settings.js').createAssetPackSettings>;
   now?: () => number;
   leaseTtlMs?: number;
   maxLeases?: number;
@@ -100,12 +152,26 @@ export interface PackServiceOptions {
 export interface PackSummary {
   packId: string; name: string; description?: string; revision: string; installedAt: number; updatedAt: number;
   distribution?: unknown; diagnostics?: unknown[];
+  /** Local automatic-container marker; never exported with the pack. */ automatic?: true;
   /** Sum of the pack's file sizes. */ bytes: number;
   /** Entries per asset kind, plus `figures`. */ counts: Record<string, number>;
   voices: number;
   /** Up to 8 picture refs (backgrounds / cg / items, enabled first). */ pictures: Array<{kind: string; id: string; hash: string}>;
 }
 export interface AssetPackService extends CatalogueService {
+  /** In-process only. Registration and write capabilities are absent from the control allowlist. */
+  registerAutomaticWriter<Context>(input: {writerId: 'auto-figure' | 'auto-cast'; plan(context: AutomaticReadContext & {source: AutomaticSource; context: Context}): AutomaticChange[] | Promise<AutomaticChange[]>}): {
+    readContext(input: {path: string}): Promise<AutomaticReadContext & {detached: boolean; target: AutomaticWriteInput['target']}>;
+    /** 全库搜索 over every installed pack; read only. */
+    searchLibrary(input: {query: string; limit?: number}): Promise<LibrarySearchResult>;
+    /** Context is ephemeral host evidence (e.g. canonical body), never receipt data. */
+    authorize(input: AutomaticWriteInput, source: AutomaticSource, context?: Context): AutomaticWriteAuthority;
+    dispose(): void;
+  };
+  writeAutomaticItems(input: AutomaticWriteInput, authority: AutomaticWriteAuthority): Promise<AutomaticWriteResult>;
+  listAutomaticWrites(input: {packId: string; cursor?: number; limit?: number}): Promise<{revision: string; entries: AutomaticWriteEntry[]; nextCursor: number | null}>;
+  reviewAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: AutomaticWriteEntry['status']; revision: string}>;
+  undoAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: 'undone'; revision: string; refs: Array<FigureRef & {kind: 'figures'}>}>;
   readonly apiVersion: 2;
   readonly capabilities: readonly string[];
   /** Host-only config namespace; not exposed by the asset editor control RPC. */
@@ -145,6 +211,10 @@ export interface AssetPackService extends CatalogueService {
   saveVoiceTemplate(input: {templateId?:string; expectedRevision:string|null; packId:string; packRevision:string; voiceId:string; binding?:Voice}): Promise<VoiceTemplate>;
   deleteVoiceTemplate(input: {templateId:string; expectedRevision:string}): Promise<{deleted:true}>;
   assignVoiceTemplate(input: PackWrite & {templateId:string; templateRevision:string; figureId:string}): Promise<PackMutation & {voiceId:string}>;
+  /** Host-only, one-time: 通用声音 / 旁白's voices kept before they became figure pointers (tts.reading .figure). */
+  legacyReadingVoices(): Promise<Array<{id:string; voiceSpec:VoiceSpec; binding:Voice} | {id:string; link:{packId:string; figureId:string}}>>;
+  assignLegacyReadingVoice(input: PackWrite & {readingId:string; figureId:string}): Promise<PackMutation & {voiceId:string}>;
+  dropLegacyReadingVoices(): Promise<{dropped:number}>;
   removePack(input: PackWrite): Promise<{status: 'removed'; packId: string}>;
   putBlob(input: PackWrite & {bytes: Uint8Array; descriptor: BlobDescriptor}): Promise<PackMutation & {hash: string; descriptor: BlobDescriptor}>;
   copyFigure(input: {source: FigureRef; target: PackWrite}): Promise<PackMutation & {figureId: string}>;
@@ -175,12 +245,13 @@ export interface AssetPackService extends CatalogueService {
   inspectImportFile(input: {file: string; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
   inspectCardBundleFile(input: {file: string; path: string}): Promise<CardBundleInspection>;
   inspectImport(input: {bytes: Uint8Array; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
-  applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
+  applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
   exportPack(input: PackWrite): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
   exportPacks(input: {packs: PackWrite[]}): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;
   /** Host-only export callback; absent from the remote method table. */
-  /** packIds: the chosen packs (default: every bound pack); the exported card stays bound to them plus keepPackIds only. */
-  withCardExport<T>(input: {path: string; expectedRevision?: string; packIds?: string[]; keepPackIds?: string[]}, consume: (snapshot: {path: string; revision: string; raw: Record<string, unknown>; packs: PackExportSnapshot[]}) => Promise<T>): Promise<T>;
+  /** packIds: the packs to embed (default: every bound pack). The exported card stays bound to every pack it binds;
+   * bound packs not embedded are dependencies (contentHash null when this library lacks the pack). */
+  withCardExport<T>(input: {path: string; expectedRevision?: string; packIds?: string[]; keepPackIds?: string[]}, consume: (snapshot: {path: string; revision: string; raw: Record<string, unknown>; packs: PackExportSnapshot[]; dependencies: {id: string; title: string; contentHash: string | null}[]}) => Promise<T>): Promise<T>;
   exportCardBundle(input: {path: string; expectedRevision: string; packIds: string[]}): Promise<PackArchive & {dependencies: CardBundleInspection['dependencies']}>;
   inspectCardBundleUrl(input: {path: string; url: string}): Promise<CardBundleInspection>;
   inspectCardBundle(input: {path: string; bytes: Uint8Array}): Promise<CardBundleInspection>;

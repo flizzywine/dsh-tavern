@@ -2,9 +2,11 @@ import { assertJson, check, shape, text, integer, bool, oneOf, version, array, u
 import { validateSpriteManifest, spriteResourcePaths } from './sprite.js'
 import { validateStateImagePools } from './state-image-pools.js'
 import imageContract from '../shared/sprite-images.cjs'
+import figureScale from '../shared/figure-scale.cjs'
 import { validateRecall } from './manifest.js'
 import {figureNameKey} from './figure-names.js'
 import {validateCopiedFrom} from './copied-from.js'
+import {validateAutomaticWrite} from './automatic-write.js'
 import { validateSpineOutfit } from './spine.js'
 
 // no 优先级 — the lamp mode is the whole figure recall.
@@ -14,7 +16,7 @@ export function validateFigureRecall(value, path = '$') {
   return value
 }
 import { validateVoiceBinding, voiceReferences } from '../shared/voice-schema.js'
-import { validateFigureEmotions, figureSingleImage, validateOutfitEmotions } from './figure-emotions.js'
+import { validateFigureEmotions, figureSingleImage, figureDefaultEmotion, validateOutfitEmotions } from './figure-emotions.js'
 import { validateIdentitySettei } from './identity-settei.js'
 export { validateVoice } from './figure-voice.js'
 export { validateFigureEmotions, figureSingleImage, figureEmotionRows, figureOutfitEmotionRows } from './figure-emotions.js'
@@ -25,7 +27,7 @@ function avatarCrop(value, path) {
 }
 export function validateAnatomy(value, path = '$') {
   const coordinates = ['figureTop', 'headTop', 'chin', 'feet', 'visibleBottom', 'supportX']
-  shape(value, [...coordinates, 'cheeks', 'faceRect', 'visibleFraction', 'headsPerBody', 'poseHeightRatio', 'headRatio', 'assetScale', 'posture', 'crop', 'source'], [...coordinates, 'poseHeightRatio', 'headRatio', 'posture', 'crop', 'source'], path)
+  shape(value, [...coordinates, 'cheeks', 'faceRect', 'visibleFraction', 'headsPerBody', 'headHeightRatio', 'poseHeightRatio', 'headRatio', 'assetScale', 'posture', 'crop', 'source'], [...coordinates, 'poseHeightRatio', 'headRatio', 'posture', 'crop', 'source'], path)
   for (const key of coordinates) check(Number.isFinite(value[key]), path + '.' + key)
   if (value.cheeks !== undefined) {
     const p = path + '.cheeks', cheeks = value.cheeks
@@ -40,6 +42,7 @@ export function validateAnatomy(value, path = '$') {
   for (const key of ['visibleFraction', 'headsPerBody', 'poseHeightRatio', 'headRatio', 'assetScale']) if (value[key] !== undefined) check(Number.isFinite(value[key]) && value[key] > 0, path + '.' + key)
   oneOf(value.posture, ['standing', 'seated'], path + '.posture')
   check(value.poseHeightRatio >= 0.01 && value.poseHeightRatio <= 4 && value.headRatio <= 4, path, 'Invalid anatomy ratio')
+  if (value.headHeightRatio !== undefined) check(Number.isFinite(value.headHeightRatio) && value.headHeightRatio >= 0.01 && value.headHeightRatio <= 4, path + '.headHeightRatio')
   if (value.assetScale !== undefined) check(value.assetScale >= 0.25 && value.assetScale <= 2, path + '.assetScale')
   oneOf(value.crop, ['full', 'thigh', 'waist', 'chest', 'custom'], path + '.crop')
   oneOf(value.source, ['calibrated', 'measured', 'estimated'], path + '.source')
@@ -47,6 +50,25 @@ export function validateAnatomy(value, path = '$') {
   const fraction = (value.visibleBottom - value.figureTop) / (value.feet - value.figureTop)
   check(value.crop !== 'full' || Math.abs(fraction - 1) < 1e-6, path + '.crop')
   if (value.visibleFraction !== undefined) check(Math.abs(fraction - value.visibleFraction) < 1e-6, path + '.visibleFraction')
+}
+// The first enabled outfit and its default image are the stable, authored reference.
+export function figureHeadReference(figure) {
+  const outfit = figure.outfits.find(o => o.enabled)
+  const forms = ['live2d', 'spine', 'sprite', 'avatar']
+  const form = forms.slice(forms.indexOf(figure.appearance)).find(f => f === 'avatar' || outfit?.[f])
+  const emotion = figureDefaultEmotion(figure, outfit)
+  const image = outfit?.sprite?.imagePools ? imageContract.stateImageId(outfit, emotion) : emotion
+  return form === 'sprite' ? outfit.sprite.anatomy?.[image] : outfit?.[form]?.anatomy
+}
+function validateHeadRelativeAnatomies(figure, path) {
+  const all = figure.outfits.flatMap(o => [...Object.values(o.sprite?.anatomy || {}), o.live2d?.anatomy, o.spine?.anatomy].filter(Boolean))
+  const targets = all.filter(a => a.headHeightRatio !== undefined)
+  if (!targets.length) return
+  const reference = figureHeadReference(figure)
+  for (const anatomy of targets) {
+    const error = figureScale.packHeadRelativeAnatomyError(anatomy, reference)
+    check(!error, path, error)
+  }
 }
 export function validateAvatarFaceAnchors(value, path = '$') {
   record(value, path, (rect, p, hash) => {
@@ -58,10 +80,12 @@ export function validateAvatarFaceAnchors(value, path = '$') {
 }
 export function validateFigure(value, path = '$', voiceLibrary) {
   assertJson(value)
-  shape(value, ['schemaVersion', 'id', 'name', 'aliases', 'description', 'remark', 'enabled', 'recall', 'appearance', 'identityAppearance', 'identitySettei', 'heightCm', 'heightBasis', 'elevationCm', 'imageColor', 'autoColor', 'emotions', 'voice', 'outfits', 'extensions'], ['schemaVersion', 'id', 'name', 'enabled', 'recall', 'appearance', 'outfits'], path)
+  shape(value, ['schemaVersion', 'id', 'name', 'aliases', 'description', 'guidance', 'remark', 'enabled', 'recall', 'appearance', 'identityAppearance', 'identitySettei', 'heightCm', 'heightBasis', 'elevationCm', 'imageColor', 'autoColor', 'emotions', 'voice', 'outfits', 'extensions'], ['schemaVersion', 'id', 'name', 'enabled', 'recall', 'appearance', 'outfits'], path)
   check([1,2].includes(value.schemaVersion), path + '.schemaVersion', 'Unsupported schemaVersion', 'UNSUPPORTED_SCHEMA_VERSION'); validateUuid(value.id, path + '.id'); text(value.name, path + '.name'); bool(value.enabled, path + '.enabled')
   if (value.remark !== undefined) check(typeof value.remark === 'string', path + '.remark')
   if (value.description !== undefined) check(typeof value.description === 'string' && value.description.length <= 1000, path + '.description')
+  // 使用情景 (owner 11-08): who the figure is for the story - the speaker list and the background judge read it.
+  if (value.guidance !== undefined) check(typeof value.guidance === 'string' && value.guidance.length <= 1000, path + '.guidance')
   // Figure names are identity and recall evidence; outfits retain their own trigger words.
   validateFigureRecall(value.recall, path + '.recall')
   oneOf(value.appearance, ['live2d', 'spine', 'sprite', 'avatar'], path + '.appearance')
@@ -83,6 +107,7 @@ export function validateFigure(value, path = '$', voiceLibrary) {
   if(voiceLibrary)for(const row of value.emotions||[])if(row.voiceEmotion!==undefined)check(voiceLibrary.voices[value.voice?.voice]?.emotions?.[row.voiceEmotion],path+'.emotions','Unknown voice emotion','MISSING_DEPENDENCY')
   if (value.extensions !== undefined) extensions(value.extensions, path + '.extensions')
   validateCopiedFrom(value.extensions,'figures',path + '.extensions')
+  validateAutomaticWrite(value.extensions?.['dsh.automatic-write'], path + '.extensions.dsh.automatic-write')
   if (value.extensions?.['dsh.avatar-face-anchors'] !== undefined) {
     const anchors = value.extensions['dsh.avatar-face-anchors'], p = path + '.extensions.dsh.avatar-face-anchors'
     validateAvatarFaceAnchors(anchors, p)
@@ -138,6 +163,7 @@ export function validateFigure(value, path = '$', voiceLibrary) {
       if (figureSingleImage(value) && !(value.schemaVersion === 2 && outfit.sprite)) check(state === figureSingleImage(value), q, 'A single image has one avatar', 'MISSING_DEPENDENCY')
     })
   })
+  validateHeadRelativeAnatomies(value, path + '.outfits')
   if (!value.outfits.length) check(value.heightCm === undefined, path + '.heightCm', 'Voice-only figure has no height')
   return value
 }

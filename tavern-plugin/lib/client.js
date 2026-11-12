@@ -49169,7 +49169,7 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
                 if (!figureNumber(raw[key], -65536, 65536)) throw new Error("Invalid figure coordinate: " + key);
                 out[key] = raw[key];
             }
-            for (const [key, lo, hi] of [["poseHeightRatio", 0.01, 4], ["visibleFraction", 0.001, 1], ["headsPerBody", 1, 20], ["confidence", 0, 1]]) if (raw[key] != null) {
+            for (const [key, lo, hi] of [["headHeightRatio", 0.01, 4], ["poseHeightRatio", 0.01, 4], ["visibleFraction", 0.001, 1], ["headsPerBody", 1, 20], ["confidence", 0, 1]]) if (raw[key] != null) {
                 if (!figureNumber(raw[key], lo, hi)) throw new Error("Invalid figure ratio: " + key);
                 out[key] = raw[key];
             }
@@ -49364,6 +49364,10 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
             const g = figureGeometry(metrics, heightBasis);
             if (g.reason) throw new Error("Invalid pack anatomy: " + g.reason);
             const out = { source, posture: metrics.posture, crop: metrics.crop, poseHeightRatio: g.ratio, assetScale };
+            if (metrics.headHeightRatio != null) {
+                if (!figureNumber(metrics.headHeightRatio, 0.01, 4)) throw new Error("Invalid headHeightRatio");
+                out.headHeightRatio = metrics.headHeightRatio;
+            }
             for (const key of ["figureTop", "headTop", "chin", "visibleBottom"]) if (metrics[key] != null) out[key] = metrics[key] / canvas[1];
             out.headTop ??= (metrics.faceRect?.[1] ?? metrics.figureTop) / canvas[1];
             out.chin ??= metrics.faceRect ? (metrics.faceRect[1] + metrics.faceRect[3]) / canvas[1] : out.headTop + (g.bodySpan / canvas[1]) * figureHeadShare(heightBasis);
@@ -49374,6 +49378,27 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
             out.supportX = (metrics.supportX ?? canvas[0] / 2) / canvas[0];
             out.headRatio = (g.feet - (metrics.headTop ?? metrics.faceRect?.[1] ?? metrics.figureTop)) / g.bodySpan * g.ratio * assetScale;
             return out;
+        }
+        // Ingress owns admission; runtime projection only derives already validated anatomy.
+        function packHeadRelativeAnatomyError(anatomy, reference) {
+            if (anatomy?.headHeightRatio === undefined) return null;
+            const measured = a => a && ["calibrated", "measured"].includes(a.source) && !figureDerivedHead(a)
+                && [a.headTop, a.chin, a.figureTop, a.feet, a.visibleBottom].every(Number.isFinite)
+                && a.headTop >= a.figureTop && a.chin > a.headTop && a.chin <= a.visibleBottom
+                && a.feet === a.visibleBottom && a.feet > a.figureTop;
+            if (!figureNumber(anatomy.headHeightRatio, 0.01, 4) || !measured(anatomy) || !measured(reference) || reference.headHeightRatio !== undefined)
+                return "Head-relative sizing requires measured full-body anatomy and an untargeted reference";
+            const {poseHeightRatio, headRatio} = packHeadRelativeAnatomy(anatomy, reference);
+            if (!figureNumber(poseHeightRatio, 0.01, 4) || !figureNumber(headRatio, Number.MIN_VALUE, 4)) return "Head-relative sizing exceeds anatomy ratio bounds";
+            return null;
+        }
+        function packHeadRelativeAnatomy(anatomy, reference) {
+            if (anatomy?.headHeightRatio == null) return anatomy;
+            const poseHeightRatio = anatomy.headHeightRatio * reference.poseHeightRatio * (reference.assetScale ?? 1) / (anatomy.assetScale ?? 1)
+                * (reference.chin - reference.headTop) / (reference.feet - reference.figureTop)
+                * (anatomy.feet - anatomy.figureTop) / (anatomy.chin - anatomy.headTop);
+            const headRatio = (anatomy.feet - anatomy.headTop) / (anatomy.feet - anatomy.figureTop) * poseHeightRatio * (anatomy.assetScale ?? 1);
+            return {...anatomy, poseHeightRatio, headRatio};
         }
         function packEstimatedAnatomy(metrics, canvas, heightBasis = "standing") {
             if (!metrics || metrics.invalid) return null;
@@ -49425,7 +49450,7 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
             if (m.faceRect) m.faceRect = m.faceRect.map((v, i) => v * canvas[i % 2]);
             return {sourceSha: input.source, canvas, status: "confirmed", override: m};
         }
-        if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { packAnatomy, packEstimatedAnatomy, packFigureAnatomy, packFigureRecord, figureHeadShare, figureDerivedHead, figureKnowsBody, FIGURE_ALGORITHM, FIGURE_DISPLAY, figurePixelsPerCm, figureGroundY, figureInput, figureCatalog, figureDirection, figureCarry, figureSceneCut, figureRatio, figureDisplayCm, figureSceneFrame, figureSceneUpdate, figureCharacter, figureMetrics, figureGeometry, normalizeFigureExtension, figurePatch, resolveFigureSizing, figureMixedWarning, figureSlot, figureSource, measureFigureAlpha };
+        if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { packHeadRelativeAnatomyError, packHeadRelativeAnatomy, packAnatomy, packEstimatedAnatomy, packFigureAnatomy, packFigureRecord, figureHeadShare, figureDerivedHead, figureKnowsBody, FIGURE_ALGORITHM, FIGURE_DISPLAY, figurePixelsPerCm, figureGroundY, figureInput, figureCatalog, figureDirection, figureCarry, figureSceneCut, figureRatio, figureDisplayCm, figureSceneFrame, figureSceneUpdate, figureCharacter, figureMetrics, figureGeometry, normalizeFigureExtension, figurePatch, resolveFigureSizing, figureMixedWarning, figureSlot, figureSource, measureFigureAlpha };
         // candidates only. Loading a scene never persists or confirms calibration.
         const figureCandidateCache = new Map();
         function figureCached(key, measure) {

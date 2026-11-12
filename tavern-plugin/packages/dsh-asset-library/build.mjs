@@ -33,6 +33,7 @@ emit(skinSchemaPath, skinSchemaText.replace(/("derived":\s*\{\s*"type": "array",
 // The protocol package is their sole maintained source; --check covers both copies.
 emit(join(root,'src/shared/figure-mouth.cjs'), '// Generated from Tavern shared/figure-mouth.cjs by build.mjs; do not edit.\n' + readFileSync(join(root,'../../shared/figure-mouth.cjs'),'utf8'))
 for (const [source, target] of [
+  ['figure-scale.cjs', 'shared/figure-scale.cjs'],
   ['figure-resolution.cjs', 'shared/figure-resolution.cjs'],
   ['media-resolution.cjs', 'shared/media-resolution.cjs'],
   ['voice-schema.js', 'shared/voice-schema.js'],

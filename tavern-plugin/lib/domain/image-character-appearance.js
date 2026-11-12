@@ -1,5 +1,66 @@
 // A figure's 外貌 lives in the 配图 人物库 record (schema 4, per view). Asset generation draws standing, clothed,
 // front-facing pictures, so it reads the front SFW views and the outfit's front parts.
+import { normalizeCatalogueText } from './asset-pack-lexical.js'
+import { IMAGE_CHARACTER_TRAITS } from './plugin-image-catalog.js'
+
+// A pack that leaves this library (export, copy) carries each figure's record 外貌 as this figure extension; the host moves
+// it back into a record when the pack is written here (appearanceMove), so an installed pack never keeps a second copy.
+export const IMAGE_CHARACTER_EXTENSION = 'dsh.image-character'
+const OUTFIT_TEXT = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'negative']
+const said = value => typeof value === 'string' && value.trim() ? value.trim() : ''
+
+/** The figure extension of a record's 外貌: its non-empty views and outfit texts (reference images stay behind: the
+ *  人物库 offers no way to read them). null when the record has no text. */
+export function imageCharacterExtension(character) {
+  const traits = Object.fromEntries(IMAGE_CHARACTER_TRAITS.filter(key => said(character.traits?.[key])).map(key => [key, said(character.traits[key])]))
+  const outfits = (character.outfits || []).map(outfit => ({ id: outfit.id, ...(outfit.name ? { name: outfit.name } : {}),
+    ...Object.fromEntries(OUTFIT_TEXT.filter(key => said(outfit[key])).map(key => [key, said(outfit[key])])) }))
+    .filter(outfit => OUTFIT_TEXT.some(key => outfit[key]))
+  return Object.keys(traits).length || outfits.length ? { ...(Object.keys(traits).length ? { traits } : {}), ...(outfits.length ? { outfits } : {}) } : null
+}
+
+// An actor key a migration kept among a figure's 触发词 (lowercase slug such as homura_megane): an identity for old
+// chats, not a name anybody writes (the figure page hides the same words).
+export const internalAliasCode = word => /^[a-z][a-z0-9_]*$/.test(String(word))
+const readableLatin = word => /^[a-z][a-z0-9 .'-]*$/i.test(word) && !internalAliasCode(word)
+const hasHan = text => /\p{Script=Han}/u.test(text)
+// The 人物库 finds a person in prompt text by alias: one with a Chinese character as a substring, any other between
+// non-ASCII-word characters (so kana run on inside kana, as there).
+const namedIn = word => {
+  const key = normalizeCatalogueText(word)
+  if (hasHan(key)) return text => text.includes(key)
+  const pattern = new RegExp('(?<![A-Za-z0-9_])' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])')
+  return text => pattern.test(text)
+}
+
+/** The 配图 人物库 aliases of a figure: its 触发词 that name only this figure — not an actor key, and not found in any
+ *  other figure's name or 触发词 (`others`, the whole library: the 人物库 matches every record in every game, so a word
+ *  that names two people would bring both into a picture) — with the first readable Latin name first, which the 人物库
+ *  writes as the person's name in English prompts. One 触发词 list; this is its 生图 view.
+ *  The planner model could tell shared names apart; the 人物库's own lookups after it (按名字补外貌, macro names) cannot,
+ *  and both read this one field. Once the 配图 plugin keys those lookups on stable_id (contrib PR, REPORT §11), shared
+ *  words go back in (owner/lead 11-09, decision B). */
+export function imageAliasesFromFigure(figure, others) {
+  const taken = others.flatMap(other => [other.name, ...(other.aliases || []).filter(word => !internalAliasCode(word))]).map(normalizeCatalogueText)
+  const own = (figure.aliases || []).filter(word => !internalAliasCode(word) && !taken.some(namedIn(word)))
+  const latin = own.find(readableLatin)
+  return latin ? [latin, ...own.filter(word => word !== latin)] : own
+}
+
+/** What a linked record's name and aliases must become (方案甲: the figure is their one home, the record shows them);
+ *  null when they already match. */
+export function identityPatchFromFigure(character, figure, others) {
+  const match = imageAliasesFromFigure(figure, others).join(', ')
+  const patch = { ...(character.name !== figure.name ? { name: figure.name } : {}), ...(character.match !== match ? { match } : {}) }
+  return Object.keys(patch).length ? patch : null
+}
+
+/** Does one of `figure`'s 触发词 also name a figure in `changed` (so a change there can change this figure's 人物库 aliases)? */
+export function aliasesMeet(figure, changed) {
+  const texts = changed.flatMap(other => [other.name, ...(other.aliases || [])]).map(normalizeCatalogueText)
+  return (figure.aliases || []).some(word => !internalAliasCode(word) && texts.some(namedIn(word)))
+}
+
 const joined = values => values.map(value => typeof value === 'string' ? value.trim() : '').filter(Boolean).join('；')
 
 export function appearanceFromImageCharacter(character, outfitKey) {
@@ -11,13 +72,55 @@ export function appearanceFromImageCharacter(character, outfitKey) {
 }
 
 /** The first 人物库 record of a figure: its names, its 外貌 text and its outfits' text (identityAppearance → face,
- *  outfitAppearance → upper, as the 人物库 reads its own single-text legacy fields). */
-export function imageCharacterFromFigure(figure, packId) {
+ *  outfitAppearance → upper, as the 人物库 reads its own single-text legacy fields). `others`: the library's other figures. */
+export function imageCharacterFromFigure(figure, packId, others = []) {
   return {
-    name: figure.name, match: (figure.aliases || []).join(', '), figureId: figure.id, ...(packId ? { figurePackId: packId } : {}),
+    name: figure.name, match: imageAliasesFromFigure(figure, others).join(', '), figureId: figure.id, ...(packId ? { figurePackId: packId } : {}),
     ...(figure.identityAppearance ? { traits: { face: figure.identityAppearance } } : {}),
     outfits: figure.outfits.map(outfit => ({ id: outfit.key, name: outfit.label, ...(outfit.outfitAppearance ? { upper: outfit.outfitAppearance } : {}) })),
   }
+}
+
+/** 方案甲: 外貌 a written pack carries moves into the figure's record — the export extension (another library's record:
+ *  imports, copies) and older single texts (identityAppearance → face, outfitAppearance → upper; older packs, dsh-assets
+ *  installs). It fills what the record lacks — the record's own text always wins; carried text that differs is listed
+ *  under `dropped` — and leaves the pack (`figure`: the patch that clears it). null when the pack carries none.
+ *  `replace` (an update whose preview chose 「用导入的外貌」): the carried 外貌 becomes the record's — what it lacks is
+ *  cleared — instead of filling gaps. */
+export function appearanceMove(character, figure, { replace = false } = {}) {
+  const carried = figure.extensions?.[IMAGE_CHARACTER_EXTENSION]
+  const traits = { ...(said(figure.identityAppearance) ? { face: said(figure.identityAppearance) } : {}), ...carried?.traits }
+  const wears = new Map(figure.outfits.filter(outfit => said(outfit.outfitAppearance)).map(outfit => [outfit.key, { upper: said(outfit.outfitAppearance) }]))
+  for (const { id, name: _, ...text } of carried?.outfits || []) wears.set(id, { ...wears.get(id), ...text })
+  if (!carried && !Object.keys(traits).length && !wears.size) return null
+  const dropped = [], fill = {}, outfits = []
+  if (replace) {
+    for (const key of IMAGE_CHARACTER_TRAITS) if (said(character.traits?.[key]) !== said(traits[key])) fill[key] = said(traits[key])
+    for (const id of new Set([...character.outfits.map(item => item.id), ...wears.keys()])) {
+      const own = character.outfits.find(item => item.id === id), text = wears.get(id) || {}
+      const label = figure.outfits.find(outfit => outfit.key === id)?.label || carried?.outfits?.find(outfit => outfit.id === id)?.name
+      const set = Object.fromEntries(OUTFIT_TEXT.filter(key => said(own?.[key]) !== said(text[key])).map(key => [key, said(text[key])]))
+      if (Object.keys(set).length) outfits.push({ id, ...(own || !label ? {} : { name: label }), ...set })
+    }
+  } else for (const [key, text] of Object.entries(traits)) {
+    const own = said(character.traits?.[key])
+    if (!own) fill[key] = text
+    else if (own !== text) dropped.push({ field: key, text })
+  }
+  if (!replace) for (const [id, text] of wears) {
+    const own = character.outfits.find(item => item.id === id), add = {}
+    for (const [key, value] of Object.entries(text)) {
+      if (!said(own?.[key])) add[key] = value
+      else if (said(own[key]) !== value) dropped.push({ field: key, outfit: id, text: value })
+    }
+    const label = figure.outfits.find(outfit => outfit.key === id)?.label || carried?.outfits?.find(outfit => outfit.id === id)?.name
+    if (Object.keys(add).length) outfits.push({ id, ...(own || !label ? {} : { name: label }), ...add })
+  }
+  const record = { ...(Object.keys(fill).length ? { traits: fill } : {}), ...(outfits.length ? { outfits } : {}) }
+  const { [IMAGE_CHARACTER_EXTENSION]: _, ...extensions } = figure.extensions || {}
+  return { record: Object.keys(record).length ? record : null, dropped,
+    figure: { identityAppearance: null, outfits: figure.outfits.map(({ outfitAppearance, ...outfit }) => outfit),
+      ...(carried ? { extensions: Object.keys(extensions).length ? extensions : null } : {}) } }
 }
 
 /** Linking an existing record fills only what it lacks; the record's own text always wins. */
@@ -39,5 +142,6 @@ export async function findFigureImageCharacter(api, { packId, figureId }) {
   }))
   const linked = reads.filter(Boolean)
   if (linked.length > 1) throw Object.assign(new Error('这个人物关联了多个人物库记录，请先在配图人物库中检查关联'), { code: 'INVALID_ARGUMENT' })
-  return linked.length ? { ...linked[0], status: 'linked' } : { status: 'unlinked', libraries }
+  // deletes: the library can delete a record (deleteCharacter), so removing the figure may take its 外貌 along
+  return linked.length ? { ...linked[0], status: 'linked', deletes: libraries.find(item => item.providerId === linked[0].providerId)?.deletes === true } : { status: 'unlinked', libraries }
 }

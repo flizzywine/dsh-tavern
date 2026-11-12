@@ -89,7 +89,8 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
       ext.assetBindings.boundPackIds = [...ext.assetBindings.boundPackIds, ...packIds.filter(id => !boundIds.has(id))]
       return inspectRaw(value).raw
     },
-    // a DSH card export with a chosen pack list: the exported card stays bound to exactly those packs (and its config pack).
+    // a DSH card export with a chosen scope: the exported card stays bound to exactly those packs (and its config pack).
+    // Its 「使用皮肤」 always goes with it: on an install without that skin's pack the card falls back (cardStageSkin).
     retainRaw(raw, packIds) {
       const value = inspectRaw(raw).raw, ext = rawData(value).extensions?.dsh_tavern
       if (!ext?.assetBindings) return value
@@ -117,6 +118,17 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
           await writeWorkspace(path,change.card)
         })
       }
+    },
+    // Existing bindings need the card fence, not a second commit proof.
+    async withExistingBoundPack({path,expectedRevision,packId},publish) {
+      const item = await target(path)
+      return withCardLock(item.cardId,async () => {
+        const before = await readWorkspace(path)
+        check(before && revision(before) === expectedRevision,'$.expectedRevision','Card changed','REVISION_CONFLICT')
+        const boundPackIds = readCardAssetExtension(before.raw)?.assetBindings?.boundPackIds || []
+        check(boundPackIds.includes(packId),'$.packId','Pack is no longer bound','ASSET_UNAVAILABLE')
+        return publish({cardId:item.cardId,revision:revision(before)})
+      })
     },
     async withBoundPack({path,expectedRevision,packId},publish) {
       const item = await target(path)

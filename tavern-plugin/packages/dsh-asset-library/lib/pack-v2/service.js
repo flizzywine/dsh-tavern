@@ -23,7 +23,7 @@ const CARD_URL_DEADLINE_MS = 20 * 60000
 import { assertPublicPackChain } from './public-export.js'
 import { createSimpleSprite } from './simple-sprite.js'
 import { cardMaterialPack, cardMaterialProjection } from './card-material.js'
-import { trimAuthoringImages } from './image-closure.js'
+import { trimAuthoringImages, retireFigureBundles } from './image-closure.js'
 import { applyStateImageMapping, retainPublishedStateImages } from './state-images.js'
 import {applyResolutionWrites} from './resolution-write.js'
 import { removeFigureEmotion } from './remove-figure-emotion.js'
@@ -32,6 +32,7 @@ import {readCopyMouthDebt, copiedMouthDebt, retireLocalMouthDebt} from './copied
 import { copyPackItems } from './copy-items.js'
 import { mergePackContents } from './merge-packs.js'
 import {createStageSetupMethods} from './stage-setup.js'
+import {createAutomaticWriteMethods, patchFigureDocument} from './automatic-writes.js'
 import { stat, writeFile } from 'node:fs/promises'
 import { createPackStorage } from './storage.js'
 import {createModPrivateMethods,isModConfigPack} from './mod-private.js'
@@ -45,7 +46,9 @@ import { createPackLeases } from './leases.js'
 export { PACK_LEASE_PATH } from './leases.js'
 export {StoredFile} from './validation.js'
 export {projectPackFigures} from './export-figures.js'
-export {writeZip as writePackZip} from '../zip.js'
+import { exportPrivacyView } from './export-privacy.js'
+import { figureImageExtras, figureLookChanges, withFigureImageExtras, FIGURE_IMAGE_EXTENSION } from './figure-image-extras.js'
+export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
 import { openZip, writeZip } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
 import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson } from '../asset-packs/common.js'
@@ -77,7 +80,7 @@ const keys = pack => new Set([
   ...Object.values(pack.figures || {}).flatMap(f => ['figure/' + f.id, ...f.outfits.map(outfit => 'outfit/' + f.id + '/' + outfit.key)])
 ])
 const contentSnapshot = pack => ({manifest:pack.manifest, figures:pack.figures, sprites:pack.sprites, widgets:pack.widgets || {}, ...(pack.variantDocuments ? {variantDocuments:pack.variantDocuments} : {}), ...(pack.skins && Object.keys(pack.skins).length ? {skins:pack.skins} : {}), ...(pack.performances && Object.keys(pack.performances).length ? {performances:pack.performances} : {})})
-const snapshot = pack => pack && freezeSnapshot({...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
+const snapshot = pack => pack && freezeSnapshot({...(pack.local.autoWrite?{automatic:true}:{}),...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
 // what a list row reads — name, revision, counts, size and a few picture refs.
 // No files, blobs, sprites, figure or widget documents (the full list was 19 MB for 30 packs); details are per pack.
 const SUMMARY_PICTURE_KINDS = ['backgrounds','cg','items','props'], SUMMARY_PICTURES = 8
@@ -95,7 +98,7 @@ function packSummary(pack) {
   const pictures = []
   for (let i = 0; pictures.length < SUMMARY_PICTURES && pools.some(p => i < p.length); i++) for (const p of pools) if (i < p.length && pictures.length < SUMMARY_PICTURES) pictures.push({kind:p[i].kind, id:p[i].id, hash:summaryPicture(p[i])})
   const value = {packId:manifest.id, name:manifest.name, ...(manifest.description ? {description:manifest.description} : {}), revision:local.revision, installedAt:local.installedAt, updatedAt:local.updatedAt,
-    ...(local.distribution ? {distribution:copy(local.distribution)} : {}), ...(pack.diagnostics?.length ? {diagnostics:copy(pack.diagnostics)} : {}), ...(isModConfigPack(pack) ? {privateConfig:true} : {}),
+    ...(local.autoWrite ? {automatic:true} : {}), ...(local.distribution ? {distribution:copy(local.distribution)} : {}), ...(pack.diagnostics?.length ? {diagnostics:copy(pack.diagnostics)} : {}), ...(isModConfigPack(pack) ? {privateConfig:true} : {}),
     bytes:manifest.files.reduce((sum, file) => sum + (Number.isFinite(file.size) ? file.size : 0), 0), counts, voices:Object.keys(manifest.voiceLibrary?.voices || {}).length, pictures}
   summaries.set(pack, value)
   return value
@@ -137,6 +140,8 @@ async function remapPack(pack, mapping) {
 /** Construct explicitly; this service is not composed into Tavern or registered as v1. */
 export function createAssetPackService(options) {
   const limits = {...PACK_LIMITS, ...options.limits}, now = options.now || Date.now
+  // Mods the constructing install retired: patchPack may delete their private files under mods/<id>/ (a local option, never RPC input).
+  const retiredModIds = options.retiredModIds || []
   for (const [key, value] of Object.entries(limits)) check(Number.isSafeInteger(value) && value > 0, '$.limits.' + key)
   const storage = createPackStorage({...options, limits}), previews = new Map(), listeners = new Set()
   const archives = new Set()
@@ -168,7 +173,7 @@ export function createAssetPackService(options) {
   // local installation times travel with the same atomic revision write.
   function nextLocal(prior, retired = prior?.retired || []) {
     const updatedAt = now()
-    return {...(prior?.mouthDebt?{mouthDebt:copy(prior.mouthDebt)}:{}),...(prior?.stageSetupCardId?{stageSetupCardId:prior.stageSetupCardId}:{}),...(prior?.modConfig?{modConfig:true}:{}),revision:randomUUID(), retired, installedAt:prior?.installedAt ?? updatedAt, updatedAt, ...(prior?.distribution ? {distribution:copy(prior.distribution)} : {})}
+    return {...(prior?.autoWrite ? {autoWrite:copy(prior.autoWrite)} : {}), ...(prior?.automaticWrites ? {automaticWrites:copy(prior.automaticWrites)} : {}), ...(prior?.mouthDebt?{mouthDebt:copy(prior.mouthDebt)}:{}),...(prior?.stageSetupCardId?{stageSetupCardId:prior.stageSetupCardId}:{}),...(prior?.modConfig?{modConfig:true}:{}),revision:randomUUID(), retired, installedAt:prior?.installedAt ?? updatedAt, updatedAt, ...(prior?.distribution ? {distribution:copy(prior.distribution)} : {})}
   }
   let disposed = false, previewBytes = 0, ingressBytes = 0, catalogue, cardUrlTask, cardUrlController
   let cardUrlBytes = 0
@@ -304,8 +309,12 @@ export function createAssetPackService(options) {
   }
   async function removeInstalledPack(before) {
     const packId = before.manifest.id
-    if (before.local.stageSetupCardId) await options.cardTransactions.unbindPack({packId})
-    // Removal is not retirement: reinstalling the same pack restores refs.
+    if (before.local.stageSetupCardId || before.local.autoWrite?.cardId) await options.cardTransactions.unbindPack({packId})
+    const settings = before.local.autoWrite?.cardId ? options.settings?.read() : null
+    if (settings?.values.globalEnabledPackIds.includes(packId)) {
+      await options.settings.save({expectedRevision:settings.revision,globalEnabledPackIds:settings.values.globalEnabledPackIds.filter(id => id !== packId)})
+    }
+    // Keep identities reusable on reinstall; only managed containers clear bindings.
     await storage.publish(packId, null, nextLocal(before.local))
     emit(null, before)
     return {status:'removed', packId}
@@ -498,12 +507,12 @@ export function createAssetPackService(options) {
     const keep = await verify(remapped.manifest, remapped.files, pack, true)
     const id = randomUUID(), expiresAt = now() + limits.previewTtlMs, size = budget(pack.files, limits) + jsonBytes(pack.manifest).length
     check(previewBytes + cardBundleUsage().bytes + size + externalUsage() <= limits.spoolBytes, '$', 'Preview spool budget exceeded', 'LIMIT_EXCEEDED')
-    const preview = {inspectionId:id, uploadHash, packId:pack.manifest.id, contentHash:pack.manifest.contentHash, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null, choices, expiresAt, diff:packDiff(before?.manifest, pack.manifest), incoming:contentSnapshot(pack), current:snapshot(before), conflictFigures, mapping, scriptRisk:inspectPackScripts(pack)}
+    const preview = {inspectionId:id, uploadHash, packId:pack.manifest.id, contentHash:pack.manifest.contentHash, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null, choices, expiresAt, diff:packDiff(before?.manifest, pack.manifest), incoming:contentSnapshot(pack), current:snapshot(before), conflictFigures, mapping, scriptRisk:inspectPackScripts(pack), figureLooks:choices.includes('update') ? await figureLookChanges(options, before, pack) : []}
     if (remote) { preview.distribution = {...remote.source, archiveSha256:remote.archiveSha256, integrity:remote.integrity}; preview.merge = merge || {preserved:[],removedEdited:[],withoutBaseline:false,wholePackReplacement:false} }
     previews.set(id, {pack, keep, preview, expiresAt, size, distribution, ...(setId ? {set:setId} : {})}); previewBytes += size
     return preview
   }
-  const cardBundles = createCardBundleMethods({storage, run, readRun, privateExportFile:options.privateExportFile, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
+  const cardBundles = createCardBundleMethods({storage, run, readRun, privateExportFile:options.privateExportFile, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, figureImageExtras:options.figureImageExtras, packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
   const {disposeCardBundles, cardBundleUsage, ...bundleMethods} = cardBundles
   // One revision fence for every lease read: whole bundle payloads, a size, or one byte range.
   const leaseAccess = (entry, names, action) => readRun([entry.packId], async () => {
@@ -540,6 +549,8 @@ export function createAssetPackService(options) {
   const service = {
     ...createVoiceAuthoring({assetRoot:options.assetRoot,storage,run,load,edit,cas,limits}),
     ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure}),
+    ...createAutomaticWriteMethods({run,readRun,all,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
+      figureImageExtras:(packId, figureIds) => figureImageExtras(options, packId, figureIds)}),
     ...createModPrivateMethods({validators:modValidators,run,metadata,storage,cas,edit,readDocument,jsonBytes,load,verify,sealPack,nextLocal,emit,cards:options.cardTransactions,randomUUID,blankManifest,remapPack}),
     apiVersion:2,
     ...bundleMethods,
@@ -799,7 +810,7 @@ export function createAssetPackService(options) {
         // An optional author field patched to undefined is removed.
         for (const [key, value] of Object.entries(patch)) if (value === undefined) delete manifest[key]
         for (const [name, bytes] of updates) {
-          check(!name.startsWith('mods/'),'$.fileUpdates','Mod private files cannot be edited here','UNKNOWN_FIELD')
+          check(!name.startsWith('mods/') || bytes === null && retiredModIds.some(id => name.startsWith('mods/'+id+'/')),'$.fileUpdates','Only retired mod namespaces can be removed here','UNKNOWN_FIELD')
           if (name.startsWith('figures/') && bytes !== null) check(manifest.figures.includes(name.slice(8, -5)), '$.fileUpdates', 'Figure document is not in the manifest')
           if (bytes === null) files.delete(name)
           else if (name.startsWith('figures/')) {
@@ -902,7 +913,9 @@ export function createAssetPackService(options) {
       let carried
       return edit(input.target, async (manifest, files, _before, hashed) => {
         const source = await load(input.source.packId)
-        const result = copyFigureAssets(source, input.source.figureId, manifest, files)
+        // the copy takes the source figure's 配图 外貌 along; the host gives it a record of its own
+        const extension = (await figureImageExtras(options, input.source.packId, [input.source.figureId]))[input.source.figureId]
+        const result = copyFigureAssets(source, input.source.figureId, manifest, files, {extensions:extension ? {[FIGURE_IMAGE_EXTENSION]:extension} : {}})
         const debt = await readCopyMouthDebt(options.assetRoot,source.manifest.id,source.local,options.mouthDebtRoot)
         carried = copiedMouthDebt(source,{figures:{[result.figureId]:source.figures[input.source.figureId]},sprites:source.sprites},[{kind:'figures',fromId:input.source.figureId,toId:result.figureId}],debt)
         for (const [name,digest] of storedCopyHashes(files,[source])) hashed.set(name,digest)
@@ -938,7 +951,9 @@ export function createAssetPackService(options) {
         if (!fresh) { cas(before, target.expectedRevision); check(before, '$.target.packId', 'Pack missing', 'ASSET_UNAVAILABLE') }
         const manifest = before ? copy(before.manifest) : {format:'dsh-asset-pack', schemaVersion:1, id:packId, name:target.newPackName, contentHash:'0'.repeat(64), assets:[], figures:[], sprites:{}, bundles:{}, blobs:{}, files:[]}
         const files = new Map(before?.files || [])
-        const copied = copyPackItems(source, input.itemRefs, manifest, files, new Set(before?.local.retired || []))
+        // copied figures take their 配图 外貌 along; the host gives each a record of its own
+        const extras = await figureImageExtras(options, source.manifest.id, input.itemRefs.filter(ref => ref.kind === 'figures').map(ref => ref.id))
+        const copied = copyPackItems(source, input.itemRefs, manifest, files, new Set(before?.local.retired || []), Object.fromEntries(Object.entries(extras).map(([id, extension]) => [id, {[FIGURE_IMAGE_EXTENSION]:extension}])))
         await sealPack(manifest, files, before, storedCopyHashes(files,[source]))
         const verified = await verify(manifest, files, before, true)
         const debt = await readCopyMouthDebt(options.assetRoot,source.manifest.id,source.local,options.mouthDebtRoot)
@@ -1039,14 +1054,7 @@ export function createAssetPackService(options) {
       validateUuid(input.figureId)
       const patch = copy(input.patch)
       return edit(input, async (manifest, files, before) => {
-        check(before.figures[input.figureId] && !Object.hasOwn(patch, 'id'), '$.figure', 'Missing figure or attempted identity change')
-        const figure = {...before.figures[input.figureId], ...patch}
-        // null deletes optional top-level fields; omission preserves them.
-        // Required and unknown keys stay in the document for strict validation to reject.
-        for (const key of ['aliases', 'description', 'identityAppearance', 'identitySettei', 'heightCm', 'heightBasis', 'elevationCm', 'imageColor', 'autoColor', 'emotions', 'voice', 'extensions']) {
-          if (patch[key] === null) delete figure[key]
-        }
-        if (figure.aliases !== undefined && (Object.hasOwn(patch, 'aliases') || Object.hasOwn(patch, 'name'))) figure.aliases = normalizeFigureAliases(figure.name, figure.aliases)
+        const figure = patchFigureDocument(before.figures[input.figureId], patch)
         files.set(`figures/${input.figureId}.json`, jsonBytes(figure))
         trimAuthoringImages(manifest, files, before.figures)
       }, true)
@@ -1111,16 +1119,7 @@ export function createAssetPackService(options) {
         check(manifest.figures.includes(input.figureId), '$.figureId', 'Figure missing', 'ASSET_UNAVAILABLE')
         manifest.figures = manifest.figures.filter(id => id !== input.figureId); files.delete(`figures/${input.figureId}.json`)
         trimAuthoringImages(manifest, files, before.figures)
-        // Retire only this figure's models; shared outfits and asset bundles survive.
-        const owned = new Set(before.figures[input.figureId].outfits.flatMap(outfit => [outfit.live2d?.bundleKey, outfit.spine?.bundleKey]).filter(Boolean))
-        const used = new Set(manifest.assets.flatMap(asset=>assetContents(asset).map(content=>content.bundleKey)))
-        for (const id of manifest.figures) for (const outfit of before.figures[id].outfits) {
-          used.add(outfit.live2d?.bundleKey); used.add(outfit.spine?.bundleKey)
-        }
-        for (const key of owned) if (!used.has(key)) {
-          delete manifest.bundles[key]
-          for (const file of files.keys()) if (file.startsWith(`bundles/${key}/`)) files.delete(file)
-        }
+        retireFigureBundles(manifest, files, [before.figures[input.figureId]], manifest.figures.map(id => before.figures[id]))
       })
     },
     resolveAssets:({refs}) => readRun(refs.map(ref => { validateAssetRef(ref); return ref.packId }), async () => {
@@ -1185,6 +1184,8 @@ export function createAssetPackService(options) {
         cas(before || {local:await storage.local(entry.pack.manifest.id)}, input.expectedRevision, entry.pack.manifest)
         check(input.expectedRevision === entry.preview.expectedRevision, '$.expectedRevision', 'Preview revision changed', 'REVISION_CONFLICT')
         check(input.decision === 'noop' || !entry.preview.scriptRisk.length || input.acceptScriptRisk === true,'$.acceptScriptRisk','Accept or cancel this import script risk','SCRIPT_CONFIRMATION_REQUIRED')
+        const adopt = input.adoptLooks ?? []
+        check(Array.isArray(adopt) && (!adopt.length || input.decision === 'update') && new Set(adopt).size === adopt.length && adopt.every(id => entry.preview.figureLooks.some(row => row.figureId === id)), '$.adoptLooks', 'Adopted looks must be figures the update preview lists')
         let candidate = input.decision === 'keep-both' ? entry.keep : entry.pack
         if (input.createFigures !== undefined) {
           check(before && ['update','noop'].includes(input.decision) && Array.isArray(input.createFigures), '$.createFigures', 'Figure creation requires an installed-pack update')
@@ -1202,7 +1203,12 @@ export function createAssetPackService(options) {
           check(canonicalJson(manifest.figures) === canonicalJson(candidate.manifest.figures), '$.createFigures', 'New figures must follow existing figures')
           candidate = {...candidate,manifest,files}
         }
-        const result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution)
+        // The host learns which figures take the incoming 外貌 before the write it follows; a failed write takes the choice back.
+        const adopting = input.decision === 'update' && options.adoptFigureImageLooks
+        if (adopting) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:adopt})
+        let result
+        try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution) }
+        catch (error) { if (adopting && adopt.length) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:[]}); throw error }
         previews.delete(input.inspectionId); previewBytes -= entry.size
         return {...result, ...(input.decision === 'keep-both' ? {mapping:copy(entry.preview.mapping)} : {})}
       })
@@ -1215,6 +1221,7 @@ export function createAssetPackService(options) {
         // Only a local service constructor can select a private destination, never RPC input.
         if (!options.privateExportFile) await assertPublicPackChain(pack, metadata)
         check(budget(pack.files, limits) * 2 <= limits.spoolBytes, '$', 'Export spool budget exceeded', 'LIMIT_EXCEEDED')
+        pack = await exportPrivacyView(await withFigureImageExtras(pack, options))
         const warnings = await exportWarnings(pack)
         const write = async file => {
           await writeZip(file, [{path:'manifest.json',data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([path,data]) => ({path,data,file:data.file}))])
@@ -1246,7 +1253,7 @@ export function createAssetPackService(options) {
         try {
           for (const group of groups) {
             const packs = []
-            for (const item of group) packs.push(await loadForExport(item.manifest.id))
+            for (const item of group) packs.push(await exportPrivacyView(await withFigureImageExtras(await loadForExport(item.manifest.id), options)))
             const files = packs.length === 1 ? new Map([['manifest.json',jsonBytes(packs[0].manifest)], ...packs[0].files]) : packSetFiles(packs)
             check(budget(files, limits) * 2 <= limits.spoolBytes, '$', 'Export spool budget exceeded', 'LIMIT_EXCEEDED')
             exported.push(...packs.map(pack => ({packId:pack.manifest.id, contentHash:pack.manifest.contentHash, revision:pack.local.revision})))

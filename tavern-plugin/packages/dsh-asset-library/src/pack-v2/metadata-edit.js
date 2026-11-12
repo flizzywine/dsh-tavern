@@ -8,7 +8,7 @@ function resources(manifest, figures) {
   return {
     manifest:{...without(manifest, ['name', 'description', 'assets', 'voiceLibrary']), assets:manifest.assets.map(asset => ({...without(asset, entryFields),...(asset.variants?{variants:{entries:asset.variants.entries.map(row=>({id:row.id,content:without(row.content,entryFields)})).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)}}:{})})),...(manifest.voiceLibrary?{voiceLibrary:{...manifest.voiceLibrary,voices:Object.fromEntries(Object.entries(manifest.voiceLibrary.voices).map(([id,voice])=>[id,voiceResources(voice)]))}}:{})},
     figures:Object.fromEntries(Object.entries(figures).map(([id, figure]) => [id, {
-      ...without(figure, ['name', 'aliases', 'description', 'remark', 'enabled', 'recall', 'appearance', 'identityAppearance', 'heightCm', 'heightBasis', 'elevationCm', 'stageForm', 'imageColor', 'autoColor', 'emotions', 'outfits', 'voice']),
+      ...without(figure, ['name', 'aliases', 'description', 'guidance', 'remark', 'enabled', 'recall', 'appearance', 'identityAppearance', 'heightCm', 'heightBasis', 'elevationCm', 'stageForm', 'imageColor', 'autoColor', 'emotions', 'outfits', 'voice']),
       outfits:figure.outfits.map(outfit => ({
         ...without(outfit, ['label', 'enabled', 'emotions', 'defaultEmotion', 'fallbackEmotions', 'fallbackTo', 'genPrompts', 'genRecords', 'recall', 'guidance', 'remark', 'outfitAppearance', 'avatarCrop']),
         ...(outfit.sprite ? {sprite:without(outfit.sprite, ['emotionMap', 'avatarCrop', 'avatarCropAuto', 'anatomy'])} : {}),

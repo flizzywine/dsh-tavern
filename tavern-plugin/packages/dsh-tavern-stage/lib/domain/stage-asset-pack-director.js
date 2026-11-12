@@ -1,3 +1,5 @@
+import figureScale from '../../../dsh-presentation-protocol/src/figure-scale.cjs'
+import {figureHeadReference} from '../../../dsh-asset-library/lib/asset-packs/figure.js'
 import { promptSection } from '../../../../lib/domain/prompt-section.js'
 import {stateSourceHints} from '../../../../lib/domain/mods/state-source.js'
 import {judgeEnabled} from '../../../../lib/domain/engine-judge.js'
@@ -75,9 +77,11 @@ export function frozenActors(extension, snapshots, state, globalEnabledPackIds =
     if (packAvatar.packAppearance(current || opening, character.appearance).form === 'avatar') continue
     const outfits = (figure?.outfits || []).filter(outfit => outfit.enabled).map(outfit => {
       const form = packAvatar.packAppearance(outfit, character.appearance).form
-      const anatomy = form === 'sprite' ? Object.values(outfit.sprite?.anatomy || {}) : [outfit[form]?.anatomy].filter(Boolean)
+      const derive = a => figureScale.packHeadRelativeAnatomy(a, figureHeadReference(figure))
+      const spriteAnatomy = Object.fromEntries(Object.entries(outfit.sprite?.anatomy || {}).map(([id, a]) => [id, derive(a)]))
+      const anatomy = form === 'sprite' ? Object.values(spriteAnatomy) : [outfit[form]?.anatomy].filter(Boolean).map(derive)
       // the outfit's 使用情景 travels with it; empty adds nothing.
-      return {key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:outfit.sprite.anatomy || {}},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:form !== 'avatar' ? {heightCm:figure.heightCm ?? 150,
+      return {key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:form !== 'avatar' ? {heightCm:figure.heightCm ?? 150,
         headRatio:Math.max(0, ...anatomy.map(a => a.headRatio)) || 1, elevationCm:figure.elevationCm ?? 0} : null}
     })
     // figure order initializes outfits; carry keeps valid story state.
