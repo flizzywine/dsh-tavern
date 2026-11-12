@@ -235,3 +235,21 @@ test('自动规划在不支持接图的渠道仍记录自动选择，按文生�
   assert.match(job.submittedPrompt, /red hair/)
   assert.equal(calls.length, 1)
 })
+
+test('beforeImageGenerate: the host releases each picture with its subjects, or skips it with a reason', async t => {
+  for (const skip of [false, true]) await t.test(skip ? 'skipped' : 'released', async t => {
+    const calls = [], asked = []
+    const output = '<images><image><regex>林月站在窗边。</regex><prompts>【人物】\n林月\n\n【动作】\n站在窗边。</prompts><subjects>[{"characterId":"lin","outfitId":""}]</subjects></image></images>'
+    globalThis.fetch = atlasMock(calls)
+    const tavern = { async beforeImageGenerate(input) { asked.push(input); return skip ? { skip: true, reason: 'not ready yet' } : {} } }
+    const fixture = await imagePluginFixture(t, { tavern, config: { generationMode: 'reference', promptMode: 'structured' }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+    const runtime = await fixture.start()
+    const referenceImage = (await runtime.request('reference-image', { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: '角色.png' })).body.referenceImage
+    assert.equal((await runtime.request('definitions', { definitions: { characters: [{ ...structuredClone(character), referenceImage }], outfits: [], settings: [], props: [] } })).status, 200)
+    const result = await runtime.request('plan', { text: '林月站在窗边。', messageId: 'turn-gate', count: 1, manual: true, sessionId: 'game-1' })
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    assert.deepEqual(asked.map(input => [input.gameId, input.subjects, input.manual, input.signal instanceof AbortSignal]), [['game-1', [{ characterId: 'lin', outfitId: '' }], true, true]])
+    assert.equal(result.body.plans.length, skip ? 0 : 1, JSON.stringify(result.body))
+    if (skip) assert.ok(JSON.stringify(result.body).includes('not ready yet'), 'the reason reaches the turn warnings')
+  })
+})

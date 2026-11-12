@@ -520,6 +520,8 @@ Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图�
 
 在 DSH 0.2.1-rc.2 + Tavern 3.0.0 上核对过：插件 bundle 正常加载（宿主加载器返回 0 个被跳过的包），本插件调用的 14 个 Tavern 接口（`attach`、`update`、`remove`、`list`、`getTurn`、`readTurnData`、`saveTurnData`、`promptSection`、`onTurnSettled`、`onGameRemoved`、`onTimelineChanged`、`getCardContext`、`backgroundModel`、`apiVersion`）在 Tavern 3.0 中全部保留，3.0 相对 2.7 的接口变化是纯新增（例如 `versionSignal`）。
 
+另有两个可选的宿主放行口子，宿主没有提供时插件照旧：`tavern.beforeImagePlan({gameId, turn, manual, signal})` 在规划某一轮的配图之前调用，插件等它返回后重读这一轮再规划；`tavern.beforeImageGenerate({gameId, turn, subjects, manual, signal})` 在出每一张图之前调用（`subjects` 是这张图规划出的人物），返回 `{skip: true, reason}` 时不出这张，`reason` 写进这一轮的提示。宿主用它们让配图等自己准备好的东西（例如刚出场人物的人物库记录和参考图），什么时候放行由宿主决定。
+
 新包名、浏览器模块加载键、bundle 名称和插件 ID 统一为 `dsh-tavern-image`。旧包名 `dsh-tavern-comfy` 仅用于兼容读取和迁移现有 Profile 注册。
 
 界面与功能设计参考了 [st-chatu8](https://github.com/damoshen123/st-chatu8/tree/50f0d200caea17c448e80432f1b54d65ed8ce9cd) 和 [柏宝绘](https://github.com/baibai-git/ST-BaiBai-Image)。

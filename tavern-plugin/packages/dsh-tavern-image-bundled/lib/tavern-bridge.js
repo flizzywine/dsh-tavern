@@ -13,6 +13,7 @@
  *                                以前那套注入其实一直是空的）
  *     tavern.onTurnSettled     每轮结算完成或失败后通知；当前 API 没有正文生成中的提前事件
  *     tavern.getTurn           手动按钮配图时，用来取这一轮的 textVersion 与正文
+ *     tavern.beforeImagePlan   （可选）规划这一轮之前，由宿主放行
  *     tavern.attach / update   图片按 anchor 挂进正文；与 textVersion 绑定，
  *                              回退或切版本时 Tavern 自己隐藏，切回来又出现
  *     attachments.saveImage    图片交给 DSH 附件服务，不再自建取图路由
@@ -259,6 +260,14 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       const saveHistory = historyEnabled && !task.instruction
       const shouldGenerate = config.imageEnabled !== false && (task.manual || config.plannerEnabled !== false)
       const planAndSave = async () => {
+        // 可选的宿主口子：宿主这一轮还要先准备好东西（例如刚出场人物的人物库记录）时，规划前等它放行；没有这个口子就照旧。
+        // 等完重读这一轮：等待期间宿主可能改了卡。
+        if (shouldGenerate && typeof tavern.beforeImagePlan === 'function') {
+          await tavern.beforeImagePlan({ gameId, turn, manual: task.manual, signal: task.controller.signal })
+          const current = await tavern.getTurn?.({ gameId, turn })
+          if (current?.card) onTurn?.({ gameId, turn, card: current.card })
+          await assertCurrent(task)
+        }
         let historySnapshot = null
         if (api2 && typeof tavern.readTurnData === 'function') {
           try {
