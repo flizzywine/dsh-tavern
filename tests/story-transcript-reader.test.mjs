@@ -1,17 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createStoryTranscriptReader } from '../tavern-plugin/lib/domain/story-transcript-reader.js'
+import { createStoryTranscriptReader, storyTranscriptMessageFields } from '../tavern-plugin/lib/domain/story-transcript-reader.js'
 
 const header = { id: 'chat', sessionId: 'session', mode: 'story', backgroundConfigVersion: 1 }
+
+// 分页读取只回被点名的字段（`source.rpcId` 是点路径，投影成 { source: { rpcId } }）。
+function projectFields(message, fields) {
+  const result = {}
+  for (const field of fields) {
+    const parts = field.split('.')
+    let source = message, target = result, missing = false
+    for (const part of parts) {
+      if (source === null || typeof source !== 'object' || !Object.hasOwn(source, part)) { missing = true; break }
+      source = source[part]
+      target = target[part] === undefined ? (target[part] = {}) : target[part]
+    }
+    if (missing) continue
+    let assign = result
+    for (const part of parts.slice(0, -1)) assign = assign[part]
+    assign[parts.at(-1)] = source
+  }
+  return result
+}
 const summary = message => ({ role: message.role, turn: message.turn, greeting: message.greeting })
 
 function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, readToolEvents } = {}) {
   const state = { messages: messages.map(message => ({ ...message })), revision, summariesCalled: 0, fullReads: 0 }
-  const window = (before, limit) => {
+  const window = (before, limit, messageFields) => {
     const end = before ?? state.messages.length
     const from = Math.max(0, end - limit)
     return {
-      chat: { ...header, regeneratedDshTurns, _storageRevision: state.revision, messages: state.messages.slice(from, end).map(message => ({ ...message })) },
+      chat: { ...header, regeneratedDshTurns, _storageRevision: state.revision,
+        messages: state.messages.slice(from, end).map(message => messageFields
+          ? projectFields(message, messageFields) : { ...message }) },
       from, to: end - 1, messageCount: state.messages.length, revision: state.revision
     }
   }
@@ -20,7 +41,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
     readWindow: async (_chatId, options = {}) => {
       if (!paged) return null
       if (options.revision !== undefined && options.revision !== state.revision) return null
-      return window(options.before, options.limit)
+      return window(options.before, options.limit, options.messageFields)
     },
     readRecentSummaries: async (_chatId, count, options = {}) => {
       state.summariesCalled++
@@ -32,7 +53,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
       return { ...header, regeneratedDshTurns, _storageRevision: state.revision, messages: state.messages.map(message => ({ ...message })) }
     },
     readToolEvents,
-    messageFields: ['role', 'turn', 'text'],
+    messageFields: storyTranscriptMessageFields,
     limit: 3
   })
   return { reader, state }
@@ -85,5 +106,23 @@ test('工具记录只按需读取，分页和旧存储都使用正文实际对�
     assert.equal(older.find(row => row.legacyTurn === 2).toolCalls[0].name, '旧楼层的工具')
     assert.equal(older.find(row => row.legacyTurn === 2).nativeTurn, 6)
     assert.equal(older.find(row => row.legacyTurn === 1).toolCalls, undefined)
+  }
+})
+
+// 玩家行必须带着请求号送到页面：故事列表靠它把宿主的提交回声原位换成落盘行，
+// 不带就只能在回声退休前同时画两条一模一样的输入气泡。
+test('玩家行的请求号跟着故事窗口一起送到页面，且只搬请求号', async () => {
+  const messages = [
+    { role: 'assistant', turn: 1, greeting: true, text: '开场' },
+    { role: 'user', text: '行动', source: { kind: 'user', rpcId: 'rpc-1', privateNote: '不搬' } },
+    { role: 'assistant', turn: 2, text: '正文' }
+  ]
+  for (const paged of [true, false]) {
+    const { reader } = fixture(messages, { paged })
+    const transcript = (await reader('session')).storyTranscript
+    const user = transcript.messages.find(entry => entry.message.role === 'user')
+    assert.deepEqual(user.message.source, { rpcId: 'rpc-1' })
+    const assistant = transcript.messages.find(entry => entry.message.role === 'assistant' && entry.message.turn === 2)
+    assert.equal(assistant.message.source, undefined, '没有请求号的行不带 source')
   }
 })
