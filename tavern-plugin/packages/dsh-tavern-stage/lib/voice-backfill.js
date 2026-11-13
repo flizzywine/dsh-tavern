@@ -7,12 +7,11 @@ export const VOICE_BACKFILL_TASK = Object.freeze({task:'voice-backfill', name:'�
   reads:'本轮台词与旁白、人物和旁白的配音语言', writes:'本轮台词与旁白的配音文本（按回合，剧情回退或改写后作废）',
   note:'不等结算；这几句的语音等它译完，失败时照旧朗读中文'})
 
-export const VOICE_BACKFILL_PROMPT = [
+export const VOICE_BACKFILL_PROMPT = '<voice_backfill>\n' + [
   '你在为一部中文角色扮演故事补写配音台词。下面几句台词的说话人用别的语言配音；你的译文只交给语音合成朗读，玩家看到的字幕仍是中文原句。',
   '请把每句译成该人物配音语言里自然的口语，就像这个人物本人开口说话：保留语气、称呼和情绪，人名用原作里的写法。心里话也照样翻译。',
-  '输入每行是「编号. 人物〔配音语言〕：台词」。请按同样的编号逐行只写译文，一行一句，不加引号、注释或其他内容。说话人是「旁白」的一行是一整段叙述：照样译成该语言自然的叙述，整段写在同一行。',
-  '例：\n输入\n1. 杏子〔日语〕：哼，这点小事也要我帮忙？\n输出\n1. ふん、こんなことでもあたしに頼むわけ？'
-].join('\n\n')
+  '输入每行是「编号. 人物〔配音语言〕：台词」。请按同样的编号逐行只写译文，一行一句，不加引号、注释或其他内容。说话人是「旁白」的一行是一整段叙述：照样译成该语言自然的叙述，整段写在同一行。'
+].join('\n\n') + '\n</voice_backfill>\n\n<examples>\n<example>\n输入\n1. 杏子〔日语〕：哼，这点小事也要我帮忙？\n输出\n1. ふん、こんなことでもあたしに頼むわけ？\n</example>\n</examples>'
 
 const languageNames = new Intl.DisplayNames(['zh-CN'], {type:'language'})
 
