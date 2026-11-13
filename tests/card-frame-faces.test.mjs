@@ -20,18 +20,18 @@ const bubbles = (await read('../tavern-plugin/packages/dsh-tavern-stage/src/clie
 const lifecycle = await read('../tavern-plugin/src/client/runtime/message-frame-lifecycle.js')
 const frameFaces = lifecycle.slice(0, lifecycle.indexOf('const TAVERN_FRAME_MAX_HEIGHT'))
 
-function host(config, {session = {getSnapshot:() => ({source:{sessionId:'session', authorityEpoch:1}})}, bound = () => true, subscribe = () => () => {}} = {}) {
-  const requests = [], releases = [], prepared = []
+function host(config, {session = {getSnapshot:() => ({source:{sessionId:'session', authorityEpoch:1}})}, cacheSession = 'session', owner: withOwner = true} = {}) {
+  const requests = [], releases = [], prepared = [], selected = [], revisions = []
   const service = {async leaseMedia(args) { requests.push(args); return {revision:'r1', url:'/media/' + args.hash, ticket:args.hash} }, releaseLease:ticket => releases.push(ticket)}
   const owner = createStageResourceOwner({service, fetch:async () => new Response('image', {headers:{'content-type':'image/png'}}), urls:{createObjectURL:() => 'blob:lease', revokeObjectURL() {}}})
-  const context = {packListeners:new Set(), queueMicrotask,
-    stageSessions:{resourceOwner:owner, get:() => session},
-    avatarCache:{get:() => null, ready:() => null, valid:bound, subscribe, prepare:async (face, url, px) => { prepared.push({face, url, px}); return 'blob:cache:' + face.identity }},
+  const context = {packListeners:new Set(), queueMicrotask, packTransport:{service},
+    stageSessions:{resourceOwner:withOwner ? owner : null, get:() => session},
+    avatarCache:{get:() => null, ready:() => null, sessionId:cacheSession, select:id => { selected.push(id) }, revision:(pack, revision) => { revisions.push([pack, revision]) }, prepare:async (face, url, px) => { prepared.push({face, url, px}); return 'blob:cache:' + face.identity }},
     bubbleStore:{get:() => ({config})}, fetch:async url => new Response(url)}
   vm.runInNewContext(bubbles.slice(0, bubbles.indexOf('// Per-session bubble settings')) + '\n'
     + bubbles.slice(bubbles.indexOf('function bubbleMediaDescriptor'), bubbles.indexOf('// Transcript and stage pin the same')) + '\n'
     + bubbles.slice(bubbles.indexOf('const bubbleMediaPool'), bubbles.indexOf('// observe against the transcript')) + '\n' + frameFaces, context)
-  return {context, requests, releases, prepared, stop:() => owner.dispose()}
+  return {context, requests, releases, prepared, selected, revisions, stop:() => owner.dispose()}
 }
 
 test('a chat card frame gets the face the transcript bubble shows, and nothing for a name without a figure', async () => {
@@ -55,23 +55,27 @@ test('a card without bubble settings gives a frame no faces', async () => {
   h.stop()
 })
 
-test('a frame asking for faces before the stage is up gets them once the avatar cache and the stage session are ready', async () => {
+test('with the stage off the frame binds the avatar cache itself and still gets the face', async () => {
   const pack = await syntheticPack(); pack.revision = 'r1'
   const character = cardBubbleConfig({extensions:{dsh_tavern:cardExtension()}}, defaultAssetEngineSettings(), [pack]).characters[0]
-  let bound = false, source = null; const cacheListeners = new Set(), sessionListeners = new Set()
-  const h = host({characters:[character]}, {bound:() => bound,
-    subscribe:listener => { cacheListeners.add(listener); return () => cacheListeners.delete(listener) },
-    session:{getSnapshot:() => ({source}), subscribe:listener => { sessionListeners.add(listener); return () => sessionListeners.delete(listener) }}})
+  const h = host({characters:[character]}, {session:null, cacheSession:null, owner:false})
+  const faces = await h.context.bubbleCardFaceBlobs('session', [character.name])
+  assert.deepEqual([...faces.map(row => row.name)], [character.name])
+  assert.deepEqual(h.selected, ['session'])
+  assert.deepEqual(h.revisions, [[character.avatarMedia.default.ref.packId, 'r1']])
+  h.stop()
+})
+
+test('with the stage up but its session not yet holding authority the face waits for it', async () => {
+  const pack = await syntheticPack(); pack.revision = 'r1'
+  const character = cardBubbleConfig({extensions:{dsh_tavern:cardExtension()}}, defaultAssetEngineSettings(), [pack]).characters[0]
+  let source = null; const listeners = new Set()
+  const h = host({characters:[character]}, {session:{getSnapshot:() => ({source}), subscribe:listener => { listeners.add(listener); return () => listeners.delete(listener) }}})
   const asked = h.context.bubbleCardFaceBlobs('session', [character.name])
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(h.requests.length, 0)
-  bound = true; cacheListeners.forEach(listener => listener())
-  await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(h.requests.length, 0)
-  source = {sessionId:'session', authorityEpoch:1}; sessionListeners.forEach(listener => listener())
-  const faces = await asked
-  assert.deepEqual([...faces.map(row => row.name)], [character.name])
-  assert.equal(h.requests.length, 1)
-  assert.equal(cacheListeners.size + sessionListeners.size, 0)
+  source = {sessionId:'session', authorityEpoch:1}; listeners.forEach(listener => listener())
+  assert.equal((await asked).length, 1)
+  assert.equal(listeners.size, 0)
   h.stop()
 })
