@@ -17,6 +17,7 @@ import { installCliRuntime, migrateCliHome } from './cli-runtime.mjs'
 import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice } from './dsh-compatibility.mjs'
 import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
+import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
 import { patchWebViewportMeta } from './web-viewport-patch.mjs'
@@ -423,6 +424,9 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         const patched = patchChatAnswerStep(chat.directory)
         if (patched === null) console.log('当前 DSH 的对话界面与回复步骤补丁不符，已跳过。')
         else if (patched) console.log('已修正 DSH 对话界面：整理过正文的回合不再被当作过程收起。')
+        const folded = patchChatReasoningFold(chat.directory)
+        if (folded === null) console.log('当前 DSH 的对话界面与思维链补丁不符，已跳过；思维链仍按宿主自己的展示规则。')
+        else if (folded) console.log('已让 DSH 对话界面的思考行跟随流式展开，写完自动收起。')
       }
       if (!isAsarPath(deepseek.directory)) {
         const patched = patchDeepSeekStreamOption(deepseek.directory)

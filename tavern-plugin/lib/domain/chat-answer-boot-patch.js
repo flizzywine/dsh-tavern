@@ -5,6 +5,7 @@
 // self-contained `(require) => …` bundle, so rebuilding it loses no scope. Any failure
 // (a changed shape, a CSP without eval) leaves the original factory in place.
 import { patchChatSource } from './chat-answer-step.js'
+import { patchReasoningChatSource } from './chat-reasoning-fold.js'
 
 export const CHAT_UI_MODULE_ID = '@deepseek-ai/dsh-client-ui-chat'
 
@@ -12,14 +13,20 @@ export function chatAnswerBootScript() {
   return `(function () {
   var ID = ${JSON.stringify(CHAT_UI_MODULE_ID)}
   var patchChatSource = ${patchChatSource.toString()}
+  var patchReasoningChatSource = ${patchReasoningChatSource.toString()}
   function patchFactory(factory) {
     try {
-      var result = patchChatSource(String(factory))
-      if (result.status !== 'applied') return factory
-      var rebuilt = new Function('return (' + result.text + ')')()
+      var source = String(factory)
+      var changed = false
+      var answer = patchChatSource(source)
+      if (answer.status === 'applied') { source = answer.text; changed = true }
+      var reasoning = patchReasoningChatSource(source)
+      if (reasoning.status === 'applied') { source = reasoning.text; changed = true }
+      if (!changed) return factory
+      var rebuilt = new Function('return (' + source + ')')()
       return typeof rebuilt === 'function' ? rebuilt : factory
     } catch (error) {
-      console.warn('[dsh-tavern] 回复步骤补丁未生效：', error)
+      console.warn('[dsh-tavern] 对话界面补丁未生效：', error)
       return factory
     }
   }

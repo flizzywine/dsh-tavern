@@ -16754,6 +16754,39 @@ window.__ModuleLoader__.load({
             return Object.freeze({ begin, claim, cancel });
         }
 
+// 设置 › 高级 › 只在流式输出时显示思维链（tavern-settings.json 的 reasoningStreamOnly）。
+// 真正决定思考行展开的还是宿主对话界面，补丁在 tavern-plugin/lib/domain/chat-reasoning-fold.js：
+// 它只认 localStorage 里的这个键（ui-chat 的 bundle 没有 RPC 通道），所以这里常驻同步——
+// 启动读一次，之后每次设置变更再读一次；写入后派发事件，让已经挂载的思考行立即换挡。
+// 读不到设置时保持「开」，与设置页的出厂默认一致。
+const TAVERN_REASONING_STREAM_KEY = "dsh-tavern.reasoningStreamOnly";
+const TAVERN_REASONING_STREAM_EVENT = "dsh-tavern-reasoning-stream";
+let tavernReasoningStreamWatching = false;
+
+function applyTavernReasoningStream(settings) {
+    const enabled = !settings || settings.reasoningStreamOnly !== false;
+    try {
+        if (window.localStorage) window.localStorage.setItem(TAVERN_REASONING_STREAM_KEY, enabled ? "1" : "0");
+    } catch (error) { /* 隐私模式写不进去：补丁按默认（开）处理。 */ }
+    try { window.dispatchEvent(new CustomEvent(TAVERN_REASONING_STREAM_EVENT)); } catch (error) { /* 老 WebView 没有 CustomEvent 时由下一次渲染兜底。 */ }
+}
+
+function refreshTavernReasoningStream() {
+    rpc("getTavernSettings").then(function (result) {
+        applyTavernReasoningStream(result && result.settings);
+    }, function () { /* 读取失败沿用上一次值；首次失败保持默认开。 */ });
+}
+
+function installTavernReasoningStream() {
+    if (tavernReasoningStreamWatching || typeof window === "undefined") return;
+    tavernReasoningStreamWatching = true;
+    window.addEventListener("dsh-tavern-settings-changed", refreshTavernReasoningStream);
+    refreshTavernReasoningStream();
+}
+
+// 包一层：这是启动路径上的顶层调用，任何异常都不该拖垮整个客户端 bundle。
+try { installTavernReasoningStream(); } catch (error) { /* 同步失败时补丁按默认（开）处理。 */ }
+
 		// Play events: what the player does on this page (a choice picked, a page read, a voice
 		// replayed, an error shown), for plugins through tavernUi.onPlayEvent (docs/plugin-api.md).
 		// Counts and indices only: no story text crosses this interface. Listeners run after the
@@ -45256,7 +45289,8 @@ function TavernCardUpdateDialog(props) {
                             DebugSetting ? h(DebugSetting) : null,
                             h(CandidatePreferencesSettings), h(HeaderItemsSettings))),
                     group("高级", "",
-                        card(sw("retryOnFailure", "请求失败自动重试", "模型请求因网络中断、服务端错误或限流失败时，自动再发一次（一轮最多两次请求）。关闭后失败即停在这一步，等你手动重发；DSH 自身的重试也不会介入。下一轮生效。", true),
+                        card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
+                            sw("retryOnFailure", "请求失败自动重试", "模型请求因网络中断、服务端错误或限流失败时，自动再发一次（一轮最多两次请求）。关闭后失败即停在这一步，等你手动重发；DSH 自身的重试也不会介入。下一轮生效。", true),
                             sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
                             sw("storyOutputToolCall", "输出走工具调用", "仅用于宿主生成方式。让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),

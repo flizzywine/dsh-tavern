@@ -916,6 +916,8 @@ window.__ModuleLoader__.load({
 
 // @include runtime/conversation-lifecycle.js
 
+// @include features/reasoning-stream.js
+
 // @include features/play-events.js
 
 // @include ui/error-center.js

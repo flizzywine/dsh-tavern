@@ -397,6 +397,12 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.recentReplyFirst !== 'boolean') throw new Error('对话排序设置必须是布尔值')
     next.recentReplyFirst = input.recentReplyFirst
   }
+  // 设置 › 高级 › 只在流式输出时显示思维链：思考行在生成期间自动展开，本次思考写完就收起，
+  // 不改宿主「工作步骤展示」的档位（宿主补丁见 domain/chat-reasoning-fold.js）。
+  if (Object.hasOwn(input, 'reasoningStreamOnly')) {
+    if (typeof input.reasoningStreamOnly !== 'boolean') throw new Error('思维链显示设置必须是布尔值')
+    next.reasoningStreamOnly = input.reasoningStreamOnly
+  }
   if (Object.hasOwn(input, 'headerItems')) {
     // null restores the shipped top bar.
     if (input.headerItems === null) delete next.headerItems
@@ -508,6 +514,8 @@ export function presentTavernSettings(document, defaults) {
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     // 设置 › 高级 › 对话按最新回复排序：默认关闭，左侧对话按创建时间固定排列。
     recentReplyFirst: object(document).recentReplyFirst === true,
+    // 设置 › 高级 › 只在流式输出时显示思维链：默认打开——思考内容在生成时铺开、写完即收起。
+    reasoningStreamOnly: object(document).reasoningStreamOnly !== false,
     // Library edits reach a running game on its next turn; only an explicit
     // reload still refreshes the card definition, initvars and MVU state.
     webSearchEnabled: object(document).webSearchEnabled === true,
