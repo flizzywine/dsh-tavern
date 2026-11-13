@@ -516,11 +516,10 @@
 			const h = React.createElement;
 			// The answer step is drawn twice by DSH: its thinking in the process panel ("reasoning"),
 			// the reply below it ("response"). Each seat shows only its own blocks, as DSH's own view does.
-			// 设置 › 高级 › 流式显示思维链 打开后，回复座位自己带上思考块：简洁档会把整个过程区收起，
-			// 那时正文座位是唯一还能看到思考的地方；过程座位同时让位，避免同一段思考画两遍。
-			const reasoningInReply = typeof tavernReasoningStreamEnabled === "function" && tavernReasoningStreamEnabled();
+			// 思考由 assistant-renderer 按整轮汇总到正文上方（设置 › 高级 › 流式显示思维链），
+			// 这里不再把 reasoning 塞进回复座位：玩法回合的思考落在工具步上，逐步行会画很多遍。
 			const blocks = (Array.isArray(input.blocks) ? input.blocks : []).filter(function (block) {
-				return !block || input.groupPart !== "response" || block.kind !== "reasoning" || reasoningInReply;
+				return !block || input.groupPart !== "response" || block.kind !== "reasoning";
 			});
 			const translate = typeof input.t === "function" ? input.t : function (key, values) {
 				if (key === "copy") return "复制";
@@ -551,9 +550,7 @@
 					continue;
 				}
 				if (block.kind === "reasoning") {
-					// 回复座位的思考跟流式走：生成中展开，这一轮结束立刻收起（读者仍可点开）。
-					const thinking = input.streaming === true;
-					rendered.push(h("details", { key: index, className: "dsh-tavern-assistant-reasoning", open: thinking }, h("summary", null, thinking ? "思考中…" : "思考过程"), h("pre", null, String(block.text || ""))));
+					rendered.push(h("details", { key: index, className: "dsh-tavern-assistant-reasoning", open: input.streaming && index === blocks.length - 1 }, h("summary", null, input.streaming && index === blocks.length - 1 ? "思考中…" : "思考过程"), h("pre", null, String(block.text || ""))));
 					continue;
 				}
 				if (block.kind === "image") {

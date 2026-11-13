@@ -68,3 +68,30 @@ test('页面补丁脚本同时带上两条改写规则', () => {
   assert.ok(script.includes('dsh-tavern:answer-step'))
   assert.ok(script.includes('dsh-tavern:reasoning-stream'))
 })
+
+// 整轮思考汇总：玩法回合的思考落在工具步上，收尾行要能把它们全取出来画一次。
+function extractFunction(source, name) {
+  const start = source.indexOf('function ' + name + '(')
+  if (start < 0) throw new Error('missing ' + name)
+  let depth = 0
+  for (let index = source.indexOf('{', start); index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1
+    else if (source[index] === '}') { depth -= 1; if (depth === 0) return source.slice(start, index + 1) }
+  }
+  throw new Error('unbalanced ' + name)
+}
+
+test('按整轮收集思考块：工具步与收尾步的 reasoning 都算', async () => {
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../tavern-plugin/src/client/features/assistant-renderer.js', import.meta.url), 'utf8')
+  const collect = new Function(extractFunction(source, 'tavernTurnReasoningBlocks') + '\nreturn tavernTurnReasoningBlocks')()
+  const node = blocks => ({ data: { get: key => (key === 'assistant-step' ? { blocks } : undefined) } })
+  const turn = { steps: [
+    node([{ kind: 'reasoning', text: '先想一层' }, { kind: 'tool-call' }]),
+    node([{ kind: 'reasoning', text: '  ' }, { kind: 'tool-call' }]),
+    node([{ kind: 'reasoning', text: '再想一层' }, { kind: 'text', text: '正文' }])
+  ] }
+  assert.deepEqual(collect(turn).map(block => block.text), ['先想一层', '再想一层'])
+  assert.deepEqual(collect({ steps: [node([{ kind: 'text', text: '正文' }])] }), [])
+  assert.deepEqual(collect(undefined), [])
+})

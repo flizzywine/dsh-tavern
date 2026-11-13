@@ -643,6 +643,33 @@
 				return reserve;
 			}
 
+			// 设置 › 高级 › 流式显示思维链：DSH 的「工作步骤展示」在酒馆里是简洁档，整个过程区被收起，
+			// 思考又落在工具步上，正文座位拿不到任何 reasoning。这里按整轮汇总，画在正文上方：
+			// 生成中展开，这一轮结束就收起（读者仍可点开）。数据来自每一轮的 assistant-step 节点。
+			function tavernTurnReasoningBlocks(turn) {
+				const steps = turn && Array.isArray(turn.steps) ? turn.steps : [];
+				const collected = [];
+				for (let index = 0; index < steps.length; index += 1) {
+					const data = steps[index] && steps[index].data;
+					const node = data && typeof data.get === "function" ? data.get("assistant-step") : data;
+					const blocks = node && Array.isArray(node.blocks) ? node.blocks : [];
+					for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+						const block = blocks[blockIndex];
+						if (block && block.kind === "reasoning" && String(block.text || "").trim() !== "") collected.push(block);
+					}
+				}
+				return collected;
+			}
+
+			function TavernTurnReasoning(props) {
+				const blocks = tavernTurnReasoningBlocks(props.turn);
+				if (!blocks.length) return null;
+				const live = props.streaming === true;
+				return React.createElement("details", { className: "dsh-tavern-assistant-reasoning", open: live },
+					React.createElement("summary", null, live ? "思考中…" : "思考过程"),
+					React.createElement("pre", null, blocks.map(function (block) { return String(block.text || ""); }).join("\n\n")));
+			}
+
 			// Third-party plugins: use the public tavernUi API (docs/plugin-api.md), never patch this file; its structure changes freely.
 			function TavernReasoningSeat(props) {
 				const blocks = (Array.isArray(props.blocks) ? props.blocks : []).filter(function (block) { return block && block.kind === "reasoning"; });
@@ -884,7 +911,11 @@
 				const modFloorNodes = typeof props.useChat === "function" ? tavernModClients.slot("floor").map(part => tavernStageBoundary(part.label, React.createElement(part.value, { key: part.modId, useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key }))) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
 				const gameSurface = playView && settled && storyTurn === latestProjectionTurn ? React.createElement(tavernReplyObserverFeature.GameModeSurface, { key: props.sessionId, sessionId: props.sessionId }) : null;
-				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, modFloorNodes, body, openingNav, stageEntry, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
+				// 思考只在收尾行画一次（工具步会有好几行，逐行画会重复）；开关关掉时交还宿主。
+				const turnReasoningNode = ownsTurn && typeof tavernReasoningStreamEnabled === "function" && tavernReasoningStreamEnabled()
+					? React.createElement(TavernTurnReasoning, { key: "turn-reasoning", turn: turnRef, streaming: data.status === "running" })
+					: null;
+				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, modFloorNodes, turnReasoningNode, body, openingNav, stageEntry, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
 			function TavernForkAssistantAction(props) {
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
