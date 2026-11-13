@@ -4,8 +4,9 @@ import test from 'node:test'
 import { createMvuBackgroundTaskFrame, createMvuSettlementModule, projectMvuBackgroundRequest } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 import { createMvuSettlementEngine } from '../tavern-plugin/lib/domain/mvu-settlement-engine.js'
 import { settledVariables } from '../tavern-plugin/lib/domain/read-variables.js'
-import { toolSettlementContext } from '../tavern-plugin/lib/domain/tool-settlement-context.js'
-import { checkSettlement } from '../tavern-plugin/mods/dice/check-tool.js'
+import { settleToolResults, toolSettlementContext } from '../tavern-plugin/lib/domain/tool-settlement-context.js'
+import { CHECK_BACKFILL, RULES_KEY, backfillRulesCall, checkSettlement, rulesPaths, runRulesCall } from '../tavern-plugin/mods/dice/check-tool.js'
+import { compileRulesV2 } from '../tavern-plugin/mods/dice/rules-engine.js'
 import { modTools } from '../tavern-plugin/lib/mod-tools.js'
 
 const call = (callId, name) => ({ type: 'tool/call', data: { name, callId } })
@@ -115,5 +116,47 @@ test('settlement: when the background fails, the tools\' values are written alon
   assert.match(mvuResult.receipt.summary, /模型超时.*只写入了工具算定的值/)
   // Settling again (a retry) writes the same absolute value: nothing is added twice.
   await engine.run({ ...run, mvuTarget: engine.target(snapshot) })
+  assert.deepEqual(saved[1], saved[0])
+})
+
+test('settlement backfill: the background records what the story shows, the host writes it with the reply\'s own; rolls and refusals are not', async () => {
+  const card = { extensions: { [RULES_KEY]: { format: 'dsh-rules', version: 2, name: 'b',
+    state: { commend: { path: '/机构/嘉奖', label: '嘉奖' }, loose: { path: '/机构/目击者', label: '目击者', min: 0 }, phase: { path: '/阶段', label: '阶段', values: [0, 1] } },
+    actions: {
+      award: { label: '嘉奖', params: { n: { label: 'n', int: { min: -9, max: 9 } } }, effects: [{ var: 'commend', add: 'n' }] },
+      loose: { label: '目击者', params: { n: { label: 'n', int: { min: -30, max: 30 } } }, effects: [{ var: 'loose', add: 'n' }] },
+      end: { label: '任务结束', when: 'phase == 1', effects: [{ var: 'phase', set: '0' }] },
+      roll: { label: '掷骰', dice: { d: { count: 1, sides: 6 } }, effects: [{ var: 'commend', add: 'd[0]' }] } } } } }
+  const stat = { 机构: { 嘉奖: 0, 目击者: 2 }, 阶段: 0, 地点: '总部' }, variables = { snapshot: stat, turn: 3 }
+  const foreground = [JSON.stringify(runRulesCall(compileRulesV2(card.extensions[RULES_KEY]), [], { op: 'act', action: 'award', params: { n: 1 }, reason: 'r' }, 1, { variables, turn: 4 }))]
+  const tool = modTools.find(row => row.name === 'tavern_check')
+  assert.equal(tool.backfill.definition, CHECK_BACKFILL)
+  assert.equal(tool.backfill.run, backfillRulesCall)
+  assert.deepEqual(rulesPaths(card), ['/stat_data/机构/嘉奖', '/stat_data/机构/目击者', '/stat_data/阶段'])
+  const backfillTools = [{ definition: CHECK_BACKFILL, owns: rulesPaths(card), results: foreground, run: (args, results) => tool.backfill.run(args, { card, results, variables, turn: 4 }), settle: texts => settleToolResults(tool, texts) }]
+  const input = { ...frameInput, currentVariables: { stat_data: stat }, sessionId: 's', toolResults: [settleToolResults(tool, foreground)], backfillTools, backgroundTasks: { posture: false } }
+  const request = projectMvuBackgroundRequest(createMvuBackgroundTaskFrame(input))
+  assert.deepEqual(request.tools.map(row => row.name), ['tavern_check', 'mvu_submit_update'])
+  assert.match(request.turnContext, /<rule_backfill>\n[^\n]*\/stat_data\/阶段/)
+  const saved = [], records = [], answers = []
+  const module = createMvuSettlementModule({ runtime: runtime(saved), diagnostics: { record: (_id, row) => records.push(row) },
+    model: { async run(request) {
+      for (const args of [{ op: 'act', action: 'loose', params: { n: 4 }, reason: '一桌人都看见了' }, { op: 'act', action: 'roll', reason: 'r' }, { op: 'act', action: 'end', reason: 'r' }])
+        answers.push(JSON.parse(await request.onToolCall({ name: 'tavern_check', arguments: args })))
+      answers.push(JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: [{ op: 'replace', path: '/stat_data/机构/目击者', valueJson: '99' }, { op: 'replace', path: '/stat_data/阶段', valueJson: '1' }, { op: 'replace', path: '/stat_data/地点', valueJson: '"现场"' }] } })))
+      answers.push(JSON.parse(await request.onToolCall({ name: 'tavern_check', arguments: { op: 'act', action: 'award', params: { n: 1 }, reason: 'late' } })))
+      return { text: '' }
+    } } })
+  const durable = []
+  const settled = await module.settleVariables({ ...input, onSubmission: submission => durable.push(submission) })
+  assert.equal(answers[0].backfill, true)
+  assert.match(answers[1].error, /rolls dice/)
+  assert.match(answers[2].error, /not available now/)
+  assert.match(answers[4].error, /补记要在 mvu_submit_update 之前/)
+  assert.deepEqual(saved, [[{ op: 'replace', path: '/机构/嘉奖', value: 1 }, { op: 'replace', path: '/机构/目击者', value: 6 }, { op: 'replace', path: '/地点', value: '现场' }]], 'the background\'s own writes of rule paths are dropped, whether a tool wrote them this reply or not')
+  assert.equal(settled.receipt.backfillRefused.length, 2)
+  // The durable copy keeps the backfill: a redelivery writes the same batch.
+  assert.equal(durable[0].toolBackfill.tavern_check.length, 1)
+  await module.resumeVariables({ ...input, submission: durable[0] })
   assert.deepEqual(saved[1], saved[0])
 })

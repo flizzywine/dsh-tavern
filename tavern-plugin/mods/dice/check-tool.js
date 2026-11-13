@@ -180,6 +180,33 @@ export function runRulesCall(rules, records, args, seed, { variables, turn } = {
 // core: the turn readers, authorize/markUsed (this mod on for the card), readCard(chat) (the card this game plays
 // with), results(exec) (this tool's earlier result texts on the game's current branch, oldest first) and
 // variables(chat) (the game's last settled MVU stat_data and its turn, {snapshot, turn}).
+// The same tool in the reply's variable settlement (lib/mod-tools.js backfill): the background model records an action the
+// story shows happening that the reply did not submit. Only acts without dice and without the player's choice: a roll is the
+// player's and an open choice waits for them, so neither is made up after the fact.
+export const CHECK_BACKFILL = {
+  name: CHECK_TOOL.name,
+  description: "The card's rules, in backfill mode. The reply's text shows something an action describes happening (the game moving on, a commendation, loose ends, leaving a place) but its tool results above hold no such ruling: submit it with op=act, its parameters and one sentence quoting what the text shows; the host writes what it settles with this reply. Rolls and actions that wait for the player's choice are not backfilled. A refusal means the text and the rules disagree: leave it, the host notes it. op=status lists the actions and current values.",
+  // A background tool takes a JSON schema (the foreground one goes through defineTool).
+  parameters: { type: 'object', additionalProperties: false, required: ['op'], properties: { op: { type: 'string', enum: ['status', 'act'] },
+    action: CHECK_TOOL.parameters.action, params: CHECK_TOOL.parameters.params, reason: CHECK_TOOL.parameters.reason } }
+}
+
+export const backfillOffered = card => rulesOf(card)?.format === RULES_FORMAT
+// The stat_data paths the rules own (state and derived): only their actions write them, the background's writes are dropped.
+export const rulesPaths = card => [...Object.values(rulesOf(card).state), ...Object.values(rulesOf(card).derived)].map(row => '/stat_data' + row.path)
+
+/** One backfill call: `results` are this reply's records so far (its own and earlier backfills), as text. */
+export function backfillRulesCall(args, { card, results, variables, turn }) {
+  const rules = rulesOf(card)
+  const request = requestOf(args)
+  if (request.op !== 'status' && request.op !== 'act') throw new Error('backfill takes op=act (or op=status)')
+  const action = request.op === 'act' ? rules.actions[request.action] : null
+  if (action && Object.keys(action.dice).length) throw new Error(action.label + ' rolls dice: a roll is not backfilled')
+  const record = runRulesCall(rules, results.map(text => { try { return JSON.parse(text) } catch { return null } }), args, randomInt(0, 2 ** 32), { variables, turn })
+  if (record.status === 'awaiting') throw new Error(record.label + ' waits for the player\'s choice: it is not backfilled')
+  return record.status === 'sheet' ? record : { ...record, backfill: true }
+}
+
 export const REGENERATING = '这一轮是重写正文：上一版的裁定照旧有效（见上面的工具结果），照它们写。上一版没有的检定或花费，这一轮不要写成已经发生，可以留到下一轮。'
 
 export function createCheckTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {}, readCard, results, variables = () => undefined }) {

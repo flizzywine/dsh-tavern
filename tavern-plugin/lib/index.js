@@ -48,7 +48,7 @@ import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { createNarrativeDamper } from './domain/narrative-damper.js'
 import { registerGameplayTools } from './tools/gameplay.js'
 import { modTools } from './mod-tools.js'
-import { toolSettlementContext } from './domain/tool-settlement-context.js'
+import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
 import { registerUserProfileTools } from './tools/user-profile.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerCardReadingTools } from './tools/card-reading.js'
@@ -2645,7 +2645,10 @@ export async function apply(ctx) {
   const runtimePresetSnapshots = new Map()
   // The stage director runs beside the game's background work: a game-wide stop or progress read leaves it alone.
   const parallelBackgroundTasks = ['stage-director']
-  const BACKGROUND_TOOLS = [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CHARACTER_DESIGN_REUSE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, LEDGER_SUBMIT_TOOL]
+  // The background catalogue is fixed (a stable prefix); a task is allowed only its own. The mod tools that backfill in the
+  // variable settlement (lib/mod-tools.js) join it with their backfill definitions.
+  const BACKGROUND_TOOLS = [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CHARACTER_DESIGN_REUSE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, LEDGER_SUBMIT_TOOL,
+    ...modTools.filter(tool => tool.backfill).map(tool => tool.backfill.definition)]
   // What a background task asks of the runner beyond the game's background defaults, declared by the task's owner:
   // ownModel (keep the selection it brings), webSearch: false, cardContext: false (no card/worldbook injection),
   // frozenContext(input) → a frozen shared context {worldbook, stablePrefix, stablePrefixRevision} or null.
@@ -3568,7 +3571,17 @@ export async function apply(ctx) {
   const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
     narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId),
     // What the reply's mod tools settled for its variables (their settlement(results) in tools.js), over the given turns.
-    turnToolResults: async (chat, turns) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, turns) })
+    turnToolResults: async (chat, turns) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, turns),
+    // The mod tools its background model may also use to backfill (their backfill in tools.js), for the card this game plays
+    // with: each with this reply's results so far and run/settle over them.
+    turnBackfillTools: async (chat, { variables, ...turns }) => {
+      const card = await readChatCard(chat)
+      const offered = modTools.filter(tool => tool.backfill?.offered(card))
+      if (!offered.length) return []
+      const texts = toolResultTexts(await readSessionLog(chat.sessionId), offered.map(tool => tool.name), turns)
+      return offered.map(tool => ({ definition: tool.backfill.definition, owns: tool.backfill.owns(card), results: texts.get(tool.name) || [],
+        run: (args, results) => tool.backfill.run(args, { card, results, variables, turn: turns.upTo }), settle: results => settleToolResults(tool, results) }))
+    } })
   const plainSettlementEngine = createPlainSettlementEngine({ requestAnchor: contextHost.requestAnchor, pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
     backgroundAgentRunner,

@@ -124,8 +124,18 @@ function withToolOperations(value, operations) {
   return variables
 }
 
-function toolOperationsOf(frame) {
-  return (frame.taskRules.toolResults || []).flatMap(row => row.operations)
+function toolOperationsOf(rows) {
+  return rows.flatMap(row => row.operations)
+}
+
+// The tools' rows once the background has backfilled: a tool with backfilled results settles all of them again
+// (`backfill`: {tool name: [result text]}, kept with the durable submission so a redelivery writes the same).
+function toolRowsWith(input, rows, backfill) {
+  const settled = (input.backfillTools || []).filter(tool => backfill[tool.definition.name]?.length)
+    .map(tool => tool.settle([...tool.results, ...backfill[tool.definition.name]]))
+  if (!settled.length) return rows
+  const again = new Set(settled.map(row => row.tool))
+  return [...rows.filter(row => !again.has(row.tool)), ...normalizeToolResults(settled)]
 }
 
 // The tools' rows enter here once: their operations take the provider path contract (absolute /stat_data paths).
@@ -560,6 +570,10 @@ export function createMvuBackgroundTaskFrame(input = {}) {
       // What this reply's tools settled (tool-settlement-context.js): the host writes these operations ahead of the
       // background's, and the background is told so.
       toolResults: normalizeToolResults(input.toolResults),
+      // The tools the background may use to backfill (lib/mod-tools.js): their definitions, offered with mvu_submit_update.
+      backfillTools: (input.backfillTools || []).map(tool => clone(tool.definition)),
+      // The /stat_data paths those tools own: the background's writes there are dropped like its copies of tool values.
+      ownedPaths: (input.backfillTools || []).flatMap(tool => Array.isArray(tool.owns) ? tool.owns.map(str) : []),
       guides: Array.isArray(input.guides) ? input.guides.map(item => str(item?.text ?? item).trim()).filter(Boolean) : [],
       guidance: str(input.guidance).trim(),
       updateOnlyFromStory: true
@@ -591,10 +605,13 @@ export function projectMvuBackgroundRequest(frame) {
       ...(state.variableLimits?.length ? [promptSection('variable_limits', ['写入后超出范围的整批不保存，会退回重交。', describeMvuLimits(state.variableLimits)].join('\n'))] : []),
       ...(updateRules.length === 0 ? [] : [PROMPT_PROSE.p002, updateRules.join('\n\n')]),
       PROMPT_PROSE.p003,
-      JSON.stringify(promptVariables(withToolOperations(state.currentVariables, toolOperationsOf(frame)))),
+      JSON.stringify(promptVariables(withToolOperations(state.currentVariables, toolOperationsOf(rules.toolResults || [])))),
       ...(rules.toolResults?.length ? [promptSection('turn_tool_results', [
         '下面这些变量由正文里的工具算定，程序会原样写入；上面的当前变量快照已经是写入后的值。这些路径不用再提交（提交了也不会保存），正文里写到同一件事时也不要再记一次。',
         ...rules.toolResults.map(toolResultText)].join('\n'))] : []),
+      ...(rules.backfillTools?.length ? [promptSection('rule_backfill', [
+        '这些变量归规则管，只能经规则工具（' + rules.backfillTools.map(tool => '`' + tool.name + '`').join('、') + '）改，用 mvu_submit_update 写它们不会保存：' + (rules.ownedPaths || []).join('、'),
+        '规则管的事正文里发生了、上面的工具结果里却没有时，先用规则工具补记，再提交 mvu_submit_update：补记算出的值由程序和工具结果一起写入。正文里没有发生的不补；被拒绝就不要再试，程序会记下这处不一致。'].join('\n'))] : []),
       ...(rules.helperContext?.length ? [PROMPT_PROSE.p004,
         PROMPT_PROSE.p005,
         ...rules.helperContext] : []),
@@ -613,7 +630,7 @@ export function projectMvuBackgroundRequest(frame) {
       PROMPT_PROSE.p016,
       PROMPT_PROSE.p017
     ].join('\n')),
-    tools: [...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), MVU_SUBMIT_UPDATE_TOOL]
+    tools: [...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), ...(rules.backfillTools || []), MVU_SUBMIT_UPDATE_TOOL]
   }
 }
 
@@ -627,15 +644,17 @@ export function createMvuSettlementModule(options = {}) {
     return createMvuBackgroundTaskFrame(input)
   }
 
-  async function applySubmission(input, frame, submission, diagnosticId) {
+  async function applySubmission(input, frame, submission, diagnosticId, backfill = {}) {
+    const rows = toolRowsWith(input, frame.taskRules.toolResults, backfill)
     submission = resolveSubmissionPaths(submission, input.currentVariables)
     // The tools' values are the host's to write: the background's operations on those paths are dropped (its copy of
     // a tool value, or a guess at it, would only race the settled one) and recorded, the rest is written after them.
-    const own = resolveSubmissionPaths({ operations: toolOperationsOf(frame) }, input.currentVariables).operations
-    if (own.length) {
+    const own = resolveSubmissionPaths({ operations: toolOperationsOf(rows) }, input.currentVariables).operations
+    const owned = [...own.map(item => variablesPointer(item.path)), ...frame.taskRules.ownedPaths.map(variablesPointer)]
+    if (owned.length) {
       const dropped = []
       submission = { ...submission, operations: submission.operations.filter(operation => {
-        const hit = operationPointers(operation).some(pointer => own.some(item => pathsOverlap(pointer, variablesPointer(item.path))))
+        const hit = operationPointers(operation).some(pointer => owned.some(item => pathsOverlap(pointer, item)))
         if (hit) dropped.push(operation)
         return !hit
       }) }
@@ -650,7 +669,7 @@ export function createMvuSettlementModule(options = {}) {
       damper = clampedResult.report
     }
     // The durable copy holds the background's share only: a redelivery adds the tools' operations again, from the same records.
-    if (input.onSubmission) await input.onSubmission(clone(submission))
+    if (input.onSubmission) await input.onSubmission(clone(Object.keys(backfill).length ? { ...submission, toolBackfill: backfill } : submission))
     if (own.length) submission = { ...submission, operations: [...own, ...submission.operations] }
     const applied = await options.runtime.settleMvuUpdate({
       compactResult: true,
@@ -693,7 +712,7 @@ export function createMvuSettlementModule(options = {}) {
     const frame = taskFrame(input)
     const submission = resolveMvuSubmissionMacros(normalizeMvuToolSubmission(input.submission), input)
     const diagnosticId = frame.frameId + ':resume'
-    const outcome = await applySubmission(input, frame, submission, diagnosticId)
+    const outcome = await applySubmission(input, frame, submission, diagnosticId, object(object(input.submission).toolBackfill))
     const resolvedDamper = input.previousDamperReport?.clampedCount > 0 && !(outcome.damper?.clampedCount > 0)
       ? clone(input.previousDamperReport)
       : outcome.damper
@@ -734,6 +753,9 @@ export function createMvuSettlementModule(options = {}) {
     let diagnosticId = frame.frameId + ':attempt-1'
     let toolTail = Promise.resolve()
     let retryNotBefore = 0
+    // What the background backfilled with the rule tools ({tool name: [result text]}) and what they refused.
+    let backfill = {}
+    const refusals = []
     async function record(stage, details = {}) {
       try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, basedOnRevision: input.basedOnRevision, messageId: input.messageId, swipeId: input.swipeId, attempt, traceSessionId, stage, ...details }) } catch { /* Diagnostics must not change settlement behaviour. */ }
     }
@@ -761,6 +783,20 @@ export function createMvuSettlementModule(options = {}) {
           return JSON.stringify({ ok: false, retryable: true, error: str(error && error.message || error) })
         }
       }
+      const backfillTool = (input.backfillTools || []).find(tool => tool.definition.name === call?.name)
+      if (backfillTool) {
+        if (feedback?.ok) return JSON.stringify({ ok: false, error: '变量已经提交：补记要在 mvu_submit_update 之前。' })
+        const name = backfillTool.definition.name
+        try {
+          const ruling = await backfillTool.run(object(call.arguments), [...backfillTool.results, ...(backfill[name] || [])])
+          if (ruling.backfill) backfill = { ...backfill, [name]: [...(backfill[name] || []), JSON.stringify(ruling)] }
+          return JSON.stringify(ruling)
+        } catch (error) {
+          refusals.push(str(error?.message || error))
+          await record('backfill-refused', { tool: name, error: refusals.at(-1), arguments: call.arguments })
+          return JSON.stringify({ ok: false, error: refusals.at(-1) })
+        }
+      }
       // Serialize parallel calls too. Success or an unsafe-to-retry failure is terminal.
       if (feedback && (feedback.ok || !feedback.retryable)) return JSON.stringify(feedback)
       if (attempt >= maxAttempts) return JSON.stringify({ ...feedback, ok: false, retryable: false })
@@ -775,7 +811,7 @@ export function createMvuSettlementModule(options = {}) {
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })
-        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: promptVariables(withToolOperations(input.currentVariables, toolOperationsOf(frame))), attemptsRemaining: maxAttempts - attempt }
+        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: promptVariables(withToolOperations(input.currentVariables, toolOperationsOf(toolRowsWith(input, frame.taskRules.toolResults, backfill)))), attemptsRemaining: maxAttempts - attempt }
         result = { variables: clone(input.currentVariables), receipt: { version: 1, status: 'error',
           summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
         return JSON.stringify(feedback)
@@ -785,7 +821,7 @@ export function createMvuSettlementModule(options = {}) {
       try {
         const waitMs = retryNotBefore - Date.now()
         if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs))
-        applied = await applySubmission(input, frame, submission, diagnosticId)
+        applied = await applySubmission(input, frame, submission, diagnosticId, backfill)
       } catch (error) {
         // A timeout or disk error may have an uncertain outcome; do not replay a delta.
         await record('failed', { error: str(error.message || error) })
@@ -875,6 +911,8 @@ export function createMvuSettlementModule(options = {}) {
       error.traceBoundary = traceBoundary
       throw error
     }
+    // A backfill the rules refused: the story and the rules disagree, which the receipt shows.
+    if (refusals.length && result.receipt) result.receipt = { ...result.receipt, backfillRefused: refusals }
     await record('finished', { status: result.receipt.status })
     return {
       frame,

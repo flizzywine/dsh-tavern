@@ -72,6 +72,8 @@ export function createMvuSettlementEngine(deps) {
     const activeDamper = deps.narrativeDamper?.activeRuling?.(snapshot.id, turnNumber)?.ruling || persistedDamper
     const baseUpdateRules = await mvuUpdateRules(snapshot, card, mvuTarget)
     const damperBudgetRule = activeDamper ? settlementBudgetRuleText(activeDamper) : ''
+    const baseline = settledVariables(snapshot, mvuTarget.messageId)
+    const toolTurns = { after: baseline.turn, upTo: Number(mvuTarget.message.turn) }
     const settlementInput = {
       onSubmission: submission => saveDelivery(submission),
       onPrepared: prepared => saveDelivery(prepared.submission, prepared),
@@ -92,7 +94,9 @@ export function createMvuSettlementEngine(deps) {
       helperContext: collectMvuHelperContext(snapshot.messages, mvuTarget.messageId),
       // The reply's baseline holds the variables of the last settled reply: tool results of the turns after it are written
       // now, so a reply whose settlement never saved has its values written with the next one.
-      toolResults: await deps.turnToolResults?.(snapshot, { after: settledVariables(snapshot, mvuTarget.messageId).turn, upTo: Number(mvuTarget.message.turn) }) || [],
+      toolResults: await deps.turnToolResults?.(snapshot, toolTurns) || [],
+      // The tools the background may use to record what the story shows but the reply did not submit (lib/mod-tools.js).
+      backfillTools: await deps.turnBackfillTools?.(snapshot, { ...toolTurns, variables: baseline }) || [],
       guides: Array.isArray(snapshot.guides) ? snapshot.guides : [],
       variableSchema: mvuTarget.variables.schema,
       variableLimits: cardMvuLimits(card) || [],
@@ -255,7 +259,8 @@ export function createMvuSettlementEngine(deps) {
             target.mvu = {
               pending: false,
               modified: receipt.status === 'updated',
-              diagnostics: receipt.status === 'stale' || receipt.toolOnly ? [{ message: receipt.summary }] : [],
+              diagnostics: [...(receipt.status === 'stale' || receipt.toolOnly ? [{ message: receipt.summary }] : []),
+                ...(receipt.backfillRefused || []).map(message => ({ message: '正文与规则不一致：' + message }))],
               events: receipt.status === 'stale' ? [] : ['MESSAGE_RECEIVED'],
               receipt
             }
