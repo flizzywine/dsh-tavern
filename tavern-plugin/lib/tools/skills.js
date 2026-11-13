@@ -23,7 +23,7 @@ export function registerSkillTools({
 
   tools.register(defineTool({
     name: 'tavern_save_skill',
-    description: '仅当用户明确要求创建或修改 Tavern Skill 时，把结构化内容安全保存到用户 Skill 目录。不能覆盖内置 Skill；修改同名用户 Skill 必须明确 overwrite=true。',
+    description: '仅当用户明确要求创建或修改 Tavern Skill 时，把结构化内容安全保存到用户 Skill 目录。不能覆盖内置 Skill；修改同名用户 Skill 时传 overwrite=true。',
     parameters: {
       name: { type: 'string', required: true, description: 'kebab-case Skill 名称' },
       description: { type: 'string', required: true, description: '用于 Skill 自动发现的一句话简介，说明做什么以及何时使用' },
