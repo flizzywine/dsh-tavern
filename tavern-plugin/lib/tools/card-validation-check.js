@@ -2,10 +2,10 @@ import { normalizeResourcePath } from '../domain/file-resources.js'
 import { validateCardFile } from '../domain/card-validation.js'
 
 /** Validate a saved card on disk and record the outcome in card memory. */
-export function createCardValidationCheck({ cardMemory, fileResources }) {
+export function createCardValidationCheck({ cardMemory, fileResources, cardChecks = [] }) {
   return async function checkCard(chat, cardPath) {
     const normalized = cardPath ? normalizeResourcePath(cardPath, 'card') : ''
-    const result = await validateCardFile({ path: normalized, readText: fileResources.readText })
+    const result = await validateCardFile({ path: normalized, readText: fileResources.readText, cardChecks })
     try { await cardMemory.recordValidation(chat, normalized, result) }
     catch (error) { console.warn('[Tavern card memory] validation record unavailable:', error.message) }
     return result

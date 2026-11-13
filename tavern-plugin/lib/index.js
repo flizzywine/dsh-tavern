@@ -4628,7 +4628,7 @@ export async function apply(ctx) {
 
     registerVariableReadTool({tools,defineTool,chatForSession})
 
-    const checkCard = createCardValidationCheck({ cardMemory, fileResources })
+    const checkCard = createCardValidationCheck({ cardMemory, fileResources, cardChecks: modTools.filter(tool => tool.checkCard).map(tool => tool.checkCard) })
     registerCardReadingTools({
       cardMemory,
       cardPreparation,
