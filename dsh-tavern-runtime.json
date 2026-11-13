@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4d8a8bfc5a3d0f87fc32b9b9fff60173505168ba",
-  "releaseSequence": 1603,
+  "revision": "aae2c2e9b1f75fc7df6840b64b2ee25f18891ff7",
+  "releaseSequence": 1604,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "02000618af0797040d6a167a38d56bb6c415ea02a5ecfa34030112588f1ce44a",
-      "size": 6332315
+      "sha256": "22ee4bfb8dbaa0d0b66955fbbe66f607dd08ca2617c1990eb9320e7c83bfe74b",
+      "size": 6332323
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1116,8 +1116,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-generation.js",
-      "sha256": "b0d048afe4b552aedc57a39560f49fe23f914f77565dfa29c5f75d7fc9ab364e",
-      "size": 50069
+      "sha256": "29e07eda3ef5df0ae0ce8f97b54509bd90596f5c215590c0f9418690742f6f33",
+      "size": 52579
     },
     {
       "path": "tavern-plugin/lib/domain/asset-image-processing.js",
@@ -8036,8 +8036,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "8021c6108b3c6ec1a1402a5c4ae3e7d1d85d859e9fe2d746c6b25fde4df936c6",
-      "size": 3647575
+      "sha256": "b86fe885671fd4e18b93f11bc7f5dc9eb6ec5cda2553753bdf240525f00689b8",
+      "size": 3648040
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9241,9 +9241,9 @@
     }
   ],
   "archive": {
-    "commit": "6d65bcf1d287b13b638e0e380eba25c7ebeda717",
+    "commit": "4f5915359bce0272a42c51c6eb991f1b1f1f6f7e",
     "path": "runtime.zip",
-    "sha256": "3ccc390c030bf668ffe32bb61535ac884da43838ae62cc283007d23f67517b97",
-    "size": 16451032
+    "sha256": "45764fc2b9ccf29816d2369282e170159696ba7da30c6b075a520a5304eeff13",
+    "size": 16452219
   }
 }
