@@ -33,6 +33,50 @@ function tavernStoryTranscriptHistoryFrom(value) {
 	return Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
+const TAVERN_HIDDEN_PROTOCOL_TAGS = new Set([
+	'think', 'thinking', 'analysis', 'reasoning',
+	'updatevariable', 'updatevariables', 'update_variable', 'update_variables', 'update-variable', 'update-variables',
+	'initvar',
+	'variable-update', 'variables-update', 'variable_update', 'variables_update', 'variables', 'variable',
+	'jsonpatch', 'json_patch', 'json-patch',
+	'mvu', 'mvu_update', 'mvu-update',
+	'ta_hub', 'tw_hub'
+])
+
+function tavernStripHiddenProtocolBlocks(value, allowUnclosed) {
+	const source = typeof value === 'string' ? value : ''
+	if (!source || source.indexOf('<') < 0) return source
+	let out = ''
+	let cursor = 0
+	const tokens = /^[ \t]{0,3}(`{3,}|~{3,})[^\r\n]*(?:\r?\n[\s\S]*?(?:\r?\n[ \t]{0,3}\1[ \t]*(?=\r?\n|$)|(?![\s\S])))?|(`+)[\s\S]*?\2|<\/?([a-z][\w:-]*)\b(?:"[^"]*"|'[^']*'|[^'">])*?>/gim
+	let match
+	while ((match = tokens.exec(source))) {
+		if (!match[3]) continue
+		const tag = match[3].toLowerCase()
+		if ((tag === 'script' || tag === 'style' || tag === 'textarea' || tag === 'template') && !/^<\//.test(match[0]) && !/\/\s*>$/.test(match[0])) {
+			const end = new RegExp('<\\/' + tag + '\\s*>', 'gi')
+			end.lastIndex = tokens.lastIndex
+			const found = end.exec(source)
+			tokens.lastIndex = found ? end.lastIndex : source.length
+			continue
+		}
+		if (!TAVERN_HIDDEN_PROTOCOL_TAGS.has(tag) && !(allowUnclosed && tag === 'story_choices')) continue
+		out += source.slice(cursor, match.index)
+		if (!/^<\//.test(match[0]) && !/\/\s*>$/.test(match[0])) {
+			const boundary = new RegExp('<\\/?' + tag + '\\b[^>]*>', 'gi')
+			boundary.lastIndex = tokens.lastIndex
+			let depth = 1, next
+			while (depth && (next = boundary.exec(source))) {
+				if (/^<\//.test(next[0])) depth--
+				else if (!/\/\s*>$/.test(next[0])) depth++
+			}
+			tokens.lastIndex = depth ? source.length : boundary.lastIndex
+		}
+		cursor = tokens.lastIndex
+	}
+	return cursor === 0 ? source : out + source.slice(cursor)
+}
+
 // A transcript object is immutable while one stream is being published. Reuse
 // its base rows so a new partial only allocates the single overlaid tail row;
 // without this every published partial rebuilt every row object and defeated
@@ -61,8 +105,9 @@ function tavernStoryTranscriptRows(transcript) {
 			: 'index:' + (absoluteIndex === null ? position : absoluteIndex)
 		const floorNo = role === 'assistant' && Number.isInteger(entry.floorNo) && entry.floorNo > 0 ? entry.floorNo : null
 		const legacyTurn = Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null
-		const text = tavernStoryTranscriptMessageText(message)
+		const rawText = tavernStoryTranscriptMessageText(message)
 		const streaming = role === 'assistant' && message.placeholder === true
+		const text = role === 'assistant' ? tavernStripHiddenProtocolBlocks(rawText, streaming) : rawText
 		const source = message.source && typeof message.source === 'object' ? message.source
 			: entry.source && typeof entry.source === 'object' ? entry.source : null
 		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
@@ -305,12 +350,13 @@ function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn,
 	if (index < 0 || (!allowCommitted && source[index].streaming !== true)) return rows
 	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null
-	const streamed = tavernStoryTranscriptStreamText(partial)
+	const rawStreamed = tavernStoryTranscriptStreamText(partial)
+	const streamed = rawStreamed !== '' ? tavernStripHiddenProtocolBlocks(rawStreamed, true) : ''
 	const streamedReasoning = reasoningOverride && typeof reasoningOverride === 'object'
 		? { text: typeof reasoningOverride.text === 'string' ? reasoningOverride.text : '', live: reasoningOverride.live === true }
 		: tavernStoryTranscriptReasoningState(partial && partial.blocks, Boolean(partial))
 	const row = source[index]
-	const text = streamed !== '' ? streamed : row.text
+	const text = rawStreamed !== '' ? streamed : row.text
 	const reasoningText = streamedReasoning.text !== '' ? streamedReasoning.text : (row.reasoningText || '')
 	const reasoningLive = streamedReasoning.text !== '' ? streamedReasoning.live : false
 	const streamingNativeTurn = reasoningOverride && Number.isInteger(reasoningOverride.nativeTurn) && reasoningOverride.nativeTurn > 0

@@ -72,3 +72,28 @@ test('同一请求号的玩家输入在视图里只画一条', () => {
 	]))
 	assert.equal(twice.map(row => row.requestId).join(','), 'rpc-a,rpc-b')
 })
+
+test('流式与直落正文行自动隐藏变量与控制协议标签块，保留代码块示例', () => {
+	const committed = data.rows(story([
+		{ role: 'user', turn: 1, text: '行动' },
+		{ role: 'assistant', turn: 1, displayText: '正文第一段。\n<UpdateVariable>{"hp":1}</UpdateVariable>\n<Variables>{"gold":2}</Variables>\n<ta_hub>{"version":1}</ta_hub>\n```xml\n<UpdateVariable>example</UpdateVariable>\n```' }
+	]))
+	assert.equal(committed[1].text, '正文第一段。\n\n\n\n```xml\n<UpdateVariable>example</UpdateVariable>\n```')
+
+	const placeholderTranscript = story([
+		{ role: 'user', turn: 1, text: '继续' },
+		{ role: 'assistant', turn: 2, placeholder: true, text: '' }
+	])
+	const streamingRows = data.streamRows(data.rows(placeholderTranscript), {
+		turn: 2,
+		blocks: [{ kind: 'text', text: '流式正文。\n<ta_hub>{"version":1,"source":"preset fallback"' }]
+	}, [], 2, true)
+	assert.equal(streamingRows[1].text, '流式正文。\n')
+	assert.equal(streamingRows[1].projection.text, '流式正文。\n')
+
+	const choicesStreamingRows = data.streamRows(data.rows(placeholderTranscript), {
+		turn: 2,
+		blocks: [{ kind: 'text', text: '流式正文。\n<story_choices>{"actions":["a"]' }]
+	}, [], 2, true)
+	assert.equal(choicesStreamingRows[1].text, '流式正文。\n')
+})

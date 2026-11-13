@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { projectReplyLayers } from "../tavern-plugin/lib/domain/reply-presentation.js"
+import { editableReplyParts, projectReplyLayers } from "../tavern-plugin/lib/domain/reply-presentation.js"
 
 function script(name, findRegex, replaceString, flags = {}) {
   return {
@@ -40,11 +40,17 @@ for (const block of [
   '<INITVAR>secret\r\nsecond</INITVAR>',
   '<initvar format="yaml">secret</initvar>',
   '<UpdateVariable><initvar>secret</initvar></UpdateVariable>',
-  '<initvar><initvar>secret</initvar>secret</initvar>'
+  '<initvar><initvar>secret</initvar>secret</initvar>',
+  '<Variables>{"version":1}</Variables>',
+  '<update_variable>{"op":"replace"}</update_variable>',
+  '<jsonpatch>[{"op":"replace"}]</jsonpatch>',
+  '<mvu_update>{"hp":1}</mvu_update>',
+  '<ta_hub>{"version":1,"source":"preset fallback"}</ta_hub>'
 ]) test('变量控制块不作为正文展示：' + block.split('>')[0], () => {
   const source = '之前\r\n' + block + '\r\n之后'
   const result = projectReplyLayers(source)
   assert.equal(result.sourceText, source)
   assert.equal(result.sessionText, source)
   assert.deepEqual(result.displayParts, [{ kind: 'markdown', text: '之前\r\n' }, { kind: 'markdown', text: '\r\n之后' }])
+  assert.equal(editableReplyParts(source).map(part => part.text).join(''), source)
 })

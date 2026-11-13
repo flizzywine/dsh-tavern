@@ -678,7 +678,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       const previousVariables = lastTavernHelperVariables(originalUser ? [originalUser] : []) ?? lastTavernHelperVariables(beforeMessages)
       const oldRow = oldAssistantIndex >= 0 ? originalChat.messages[oldAssistantIndex] : null
       const row = { role: 'assistant', ...prose, native: true, turn: storyTurn, ts: Date.now(), swipeId: 0,
-        bodyRegenerationProcessed: true, swipes: [prose.projectionText],
+        swipes: [prose.projectionText],
         ...(oldRow?.nativeAnchor ? { nativeAnchor: structuredClone(oldRow.nativeAnchor) } : {}),
         ...(keptStreamed ? { incomplete: true, incompleteReason: '这次重新生成被中断，保留了已生成的部分正文' } : {}) }
       const candidateVariables = Array.isArray(nativeCandidateRow?.variables) ? nativeCandidateRow.variables[0] : previousVariables

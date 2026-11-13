@@ -979,3 +979,30 @@ test('已有楼层重生成在生成开始即把最新决策裁定写入占位�
   assert.deepEqual(liveDiscardedPlaceholderDamper, [freshOutcome])
 })
 
+test('原生重新生成正文不标记为插件已处理，后续视图和编辑仍运行卡/预设显示正则', async () => {
+  const { projectReplyLayers, projectReplyHistory } = await import('../tavern-plugin/lib/domain/reply-presentation.js')
+  const h = harness({ checkpoint: true })
+  const regexScripts = [{
+    id: 'hide-ta-hub',
+    name: 'hide-ta-hub',
+    findRegex: '/<ta_hub>[\\s\\S]*?<\\/ta_hub>/gi',
+    replaceString: '',
+    trimStrings: [],
+    placement: [2],
+    enabled: true,
+    markdownOnly: true,
+    promptOnly: false,
+    runOnEdit: true,
+    minDepth: null,
+    maxDepth: null
+  }]
+  const rawReply = '正文段落。\n<ta_hub>{"version":1,"source":"preset fallback"}</ta_hub>'
+  h.options.prepareRegenerationReply = async () => projectReplyLayers(rawReply, { regexScripts, placement: 2, isEdit: false, depth: 0 })
+  await h.create().regenerate('chat', '', 'session')
+  const regenerated = h.chat.messages[2]
+  assert.equal(regenerated.bodyRegenerationProcessed, undefined)
+  const projected = projectReplyHistory(h.chat.messages, { regexScripts, placement: 2, isEdit: false, depth: 0 }).projections.find(p => p.turn === 2)
+  assert.equal(projected.text.trim(), '正文段落。')
+  assert.doesNotMatch(projected.text, /preset fallback/)
+})
+
