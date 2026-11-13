@@ -16,6 +16,19 @@ export function currentVariableSnapshot(chat){
   return {snapshot:lastTavernHelperVariables([], chat?.variables)?.stat_data,turn:undefined}
 }
 
+// The newest settled stat_data among the replies before message index `before` and the turn it belongs to: a reply whose
+// settlement is still pending or did not save still holds the variables of an earlier turn, so it is skipped. A tool whose
+// records follow from the variables counts its records of later turns on top (tool-settlement-context.js).
+export function settledVariables(chat,before=chat?.messages?.length??0){
+  const messages=chat?.messages||[]
+  for(let index=Math.min(before,messages.length)-1;index>=0;index--){
+    const message=messages[index],value=message?.variables?.[message.swipeId||0]
+    if(message?.role!=='assistant'||!object(value?.stat_data)||message.mvu?.pending===true||['error','partial','stale','pending'].includes(message.mvu?.receipt?.status))continue
+    return {snapshot:value.stat_data,turn:Number(message.turn)||0}
+  }
+  return {snapshot:lastTavernHelperVariables([], chat?.variables)?.stat_data,turn:0}
+}
+
 export function readVariables(chat,args={}) {
   if(!chat||!['story','script'].includes(chat.mode||'story'))throw Error('变量查询仅用于当前游玩会话')
   const action=args.action||'list',path=args.path||'',query=args.query||''

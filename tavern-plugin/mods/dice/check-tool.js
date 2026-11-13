@@ -39,15 +39,16 @@ const requireText = (args, field) => {
 /**
  * The game's check records on its current branch, oldest first: the latest one carries the resources (state);
  * an awaiting one is the open check. `records` are the parsed result texts of this tool (core reader).
- * `variables` (the game's settled MVU stat_data) hold the resources a card keeps there: they are the truth between
- * turns, while within the running `turn` the latest record already follows from them (variables settle after it).
+ * `variables` ({snapshot, turn}: the game's last settled MVU stat_data and the turn it belongs to) hold the resources a
+ * card keeps there: they are the truth up to that turn, while a record of a later turn already follows from them (its
+ * values are written when that reply settles).
  * A card updated mid-game may declare resources its earlier records never had: those start at their initial value.
  */
-export function checkLedger(rules, records, { variables, turn } = {}) {
+export function checkLedger(rules, records, { variables } = {}) {
   const rows = records.filter(row => row && typeof row === 'object' && row.state)
   const numbered = rows.filter(row => row.id), last = numbered.at(-1), latest = rows.at(-1)
   const state = latest ? { resources: { ...initialState(rules).resources, ...latest.state.resources } } : initialState(rules)
-  return { state: variables && !(latest && latest.turn === turn) ? withVariables(rules, state, variables) : state,
+  return { state: variables?.snapshot && !(latest && latest.turn > variables.turn) ? withVariables(rules, state, variables.snapshot) : state,
     awaiting: last?.status === 'awaiting' ? last : null, count: numbered.length }
 }
 
@@ -60,8 +61,8 @@ export function runCheckAction(rules, records, args, seed, context = {}) {
     ...(secret.length ? { secret } : {}) }
 }
 /**
- * What the reply's variable settlement sees of its checks (tools.js `settlement`): every card variable they changed, with
- * the value after the reply's last check that changed it, to write as is. One line per variable, so the settlement never
+ * What the host writes for the checks the reply's variables do not hold yet (tools.js `settlement`): one operation per card
+ * variable they changed, with the value after the last check that changed it. Absolute values, so the settlement never
  * adds up several rolls, and a settlement run again writes the same values.
  */
 export function checkSettlement(results) {
@@ -74,9 +75,9 @@ export function checkSettlement(results) {
     ids.push(record.id)
     for (const row of rows) values.set(row.path, row.to)
   }
-  if (!values.size) return ''
-  return '检定 ' + ids.join('、') + ' 结算后的变量值。用 replace 把每一项写成这个值，放在这一轮其他操作之前；同一变量在检定以外还有变化时（如主持人花掉的资源），再另用 delta 提交。\n'
-    + [...values].map(([path, value]) => '/stat_data' + path + ' = ' + value).join('\n')
+  if (!values.size) return null
+  return { note: '检定 ' + ids.join('、') + ' 改到的变量。',
+    operations: [...values].map(([path, value]) => ({ op: 'replace', path: '/stat_data' + path, value })) }
 }
 
 function runAction(rules, records, args, seed, context) {
@@ -103,7 +104,7 @@ function runAction(rules, records, args, seed, context) {
 
 // core: the turn readers, authorize/markUsed (this mod on for the card), readCard(chat) (the card this game plays
 // with), results(exec) (this tool's earlier result texts on the game's current branch, oldest first) and
-// variables(chat) (the game's latest saved MVU stat_data, if any).
+// variables(chat) (the game's last settled MVU stat_data and its turn, {snapshot, turn}).
 export function createCheckTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {}, readCard, results, variables = () => undefined }) {
   return {
     ...CHECK_TOOL,

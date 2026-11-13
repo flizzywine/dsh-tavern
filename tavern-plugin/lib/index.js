@@ -3567,8 +3567,8 @@ export async function apply(ctx) {
   })
   const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
     narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId),
-    // What the reply's mod tools declared for its settlement (their settlement(results) in tools.js).
-    turnToolResults: async (chat, target) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, Number(target.message.turn)) })
+    // What the reply's mod tools settled for its variables (their settlement(results) in tools.js), over the given turns.
+    turnToolResults: async (chat, turns) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, turns) })
   const plainSettlementEngine = createPlainSettlementEngine({ requestAnchor: contextHost.requestAnchor, pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
     backgroundAgentRunner,

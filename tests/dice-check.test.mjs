@@ -131,17 +131,18 @@ test('the tool folds the game\'s records: ids, the open check, settle and resour
   assert.throws(() => runCheckAction(rules, records, { action: 'adjust', changes: [{ resource: 'harm', add: 3 }], reason: 'Fell' }, 1), /action must be status, roll or settle/)
 })
 
-// A card keeping resources in its MVU variables: they are the truth between turns (whatever the settlement wrote),
-// the running turn's own records chain within it, and a value of the wrong shape is refused by its path.
+// A card keeping resources in its MVU variables: they are the truth up to the turn they settled (whatever the settlement
+// wrote), records of later turns chain on top of them, and a value of the wrong shape is refused by its path.
 test('resources kept in the card\'s variables: read between turns, chained within one', () => {
   const kept = compileRules({ ...RULES, resources: { ...RULES.resources,
     rating: { ...RULES.resources.rating, mvu: '/sheet/rating' }, harm: { ...RULES.resources.harm, mvu: '/sheet/harm' } } })
   assert.throws(() => compileRules({ ...RULES, resources: { ...RULES.resources, harm: { ...RULES.resources.harm, mvu: 'sheet' } } }), /resources\.harm\.mvu/)
   const records = [], vars = { sheet: { rating: { cool: 2, hard: -1 }, harm: 4 } }
-  const act = (args, turn, seed = 1) => { const value = runCheckAction(kept, records, args, seed, { variables: vars, turn }); records.push(JSON.parse(JSON.stringify(value))); return value }
+  let settled = 1
+  const act = (args, turn, seed = 1) => { const value = runCheckAction(kept, records, args, seed, { variables: { snapshot: vars, turn: settled }, turn }); records.push(JSON.parse(JSON.stringify(value))); return value }
   assert.deepEqual(act({ action: 'status' }, 2).state.resources.rating, { cool: 2, hard: -1, sharp: 0 }, 'a key the variables omit is 0')
   vars.sheet.rating.$meta = { limits: { '*': { min: -3, max: 3 } } }
-  assert.deepEqual(runCheckAction(kept, [], { action: 'status' }, 1, { variables: vars, turn: 9 }).state.resources.rating, { cool: 2, hard: -1, sharp: 0 }, 'MVU metadata in the object is not an entry')
+  assert.deepEqual(runCheckAction(kept, [], { action: 'status' }, 1, { variables: { snapshot: vars, turn: 8 }, turn: 9 }).state.resources.rating, { cool: 2, hard: -1, sharp: 0 }, 'MVU metadata in the object is not an entry')
   delete vars.sheet.rating.$meta
   act({ action: 'roll', check: 'move', params: { stat: 'hard' }, reason: 'r', stakes: 's' }, 2, seedFor([1, 2]))
   const miss = act({ action: 'settle', id: '#1', choice: { bump: 0 } }, 2)
@@ -149,12 +150,14 @@ test('resources kept in the card\'s variables: read between turns, chained withi
   assert.deepEqual(miss.changes.find(row => row.resource === 'harm'), { resource: 'harm', label: 'Harm', from: 4, to: 5, add: 1, path: '/sheet/harm' })
   assert.equal(miss.turn, 2)
   assert.equal(act({ action: 'status' }, 2).state.resources.harm, 5, 'within the turn the record leads')
+  assert.equal(act({ action: 'status' }, 3).state.resources.harm, 5, 'turn 2 has not settled yet: its record still leads')
   vars.sheet.harm = 1
-  assert.equal(act({ action: 'status' }, 3).state.resources.harm, 1, 'the next turn reads what the variables settled')
+  settled = 3
+  assert.equal(act({ action: 'status' }, 4).state.resources.harm, 1, 'once settled, the variables are read')
   vars.sheet.harm = 'two'
-  assert.throws(() => runCheckAction(kept, records, { action: 'status' }, 1, { variables: vars, turn: 4 }), /card variable \/sheet\/harm \(Harm\) must be a whole number/)
+  assert.throws(() => runCheckAction(kept, records, { action: 'status' }, 1, { variables: { snapshot: vars, turn: 4 }, turn: 5 }), /card variable \/sheet\/harm \(Harm\) must be a whole number/)
   vars.sheet = { rating: { charm: 1 } }
-  assert.throws(() => runCheckAction(kept, records, { action: 'status' }, 1, { variables: vars, turn: 4 }), /has charm, which is not one of/)
+  assert.throws(() => runCheckAction(kept, records, { action: 'status' }, 1, { variables: { snapshot: vars, turn: 4 }, turn: 5 }), /has charm, which is not one of/)
 })
 
 // The card was updated mid-game and now declares a resource the game's earlier records never had. The earlier record
