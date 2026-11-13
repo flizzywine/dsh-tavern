@@ -43,6 +43,9 @@
     "@deepseek-ai/dsh-llm-deepseek",
     "@deepseek-ai/dsh-llm-pi-ai"
   ],
+  "bin/service-lifecycle.mjs": [
+    "@deepseek-ai/dsh-client-ui-chat"
+  ],
   "bin/test-runtime.mjs": [
     "@deepseek-ai/dsh-app-boot",
     "@deepseek-ai/dsh-app-boot/package.json",

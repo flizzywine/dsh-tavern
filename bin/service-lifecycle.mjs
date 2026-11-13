@@ -6,7 +6,10 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import net from 'node:net'
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { patchPiAiVertexStream } from './pi-ai-vertex-stream-patch.mjs'
-import { resolveDesktopAsarCommand, resolveDshCliEntry } from './plugin-dependencies.mjs'
+import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
+import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
+import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
+import { resolveDesktopAsarCommand, resolveDshCliEntry, resolveHostDependencies } from './plugin-dependencies.mjs'
 import path from 'node:path'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
@@ -302,6 +305,37 @@ export async function stopService() {
   throw new Error(`服务未能在 10 秒内停止；没有强制结束进程，请手动检查 PID ${state.record.pid}。`)
 }
 
+/**
+ * Re-apply the runtime patches this install expects but cannot prove are current.
+ * A runtime tree installed before a patch existed keeps its old bytes: the install path
+ * only writes them on the install that introduced them. Re-applying on every start makes
+ * a running service converge on the same code the repository ships, without touching a
+ * read-only asar host (its page-side equivalents own that case).
+ * @param dsh - the resolved DSH command for this host.
+ * @param host - the runtime host kind.
+ */
+function ensureRuntimePatches(dsh, host) {
+  try {
+    const cliEntry = resolveDshCliEntry({ dsh })
+    if (cliEntry && !isAsarPath(cliEntry)) {
+      const sdkDirectory = path.resolve(path.dirname(realpathSync(cliEntry)), '..', '..', '..', '@earendil-works', 'pi-ai')
+      if (existsSync(path.join(sdkDirectory, 'package.json')) && patchPiAiVertexStream({ sdkDirectory })) {
+        console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
+      }
+    }
+  } catch {}
+  try {
+    const [chat] = resolveHostDependencies({ dsh, host, requiredExports: { '@deepseek-ai/dsh-client-ui-chat': null } })
+    if (!chat || isAsarPath(chat.directory)) return
+    const applied = [
+      ['对话界面', patchChatAnswerStep(chat.directory)],
+      ['思维链流式', patchChatReasoningFold(chat.directory)],
+      ['工具调用流式预览', patchChatToolReplyStream(chat.directory)],
+    ].filter(([, changed]) => changed === true).map(([label]) => label)
+    if (applied.length > 0) console.log(`已补齐 DSH 对话界面补丁：${applied.join('、')}。`)
+  } catch {}
+}
+
 export function serviceDshArgs(bindHost, port) {
   const args = ['--profile', PROFILE, '--host', bindHost, '--port', String(port), '--no-open']
   if (!isLoopbackHost(bindHost)) {
@@ -359,17 +393,7 @@ export async function startService() {
   }
   const runtimeHost = RUNTIME_HOST
   const dsh = findDshCommand(runtimeHost)
-  try {
-    const cliEntry = resolveDshCliEntry({ dsh })
-    if (cliEntry && !isAsarPath(cliEntry)) {
-      const resolvedEntry = realpathSync(cliEntry)
-      const sdkDirectory = path.resolve(path.dirname(resolvedEntry), '..', '..', '..', '@earendil-works', 'pi-ai')
-      if (existsSync(path.join(sdkDirectory, 'package.json'))) {
-        const vertexPatched = patchPiAiVertexStream({ sdkDirectory })
-        if (vertexPatched) console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
-      }
-    }
-  } catch {}
+  ensureRuntimePatches(dsh, runtimeHost)
   const invocation = resolveDshInvocation(
     dsh,
     serviceDshArgs(state.bindHost, state.port),
