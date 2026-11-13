@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2acfbdfb7a0a88a7430dceb3abacfe023f48f94b",
-  "releaseSequence": 1594,
+  "revision": "e790924d6953ce8eb0de790ca75a171b7653544c",
+  "releaseSequence": 1595,
   "version": "3.3.0",
   "files": [
     {
@@ -1546,8 +1546,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/character-design-stage.js",
-      "sha256": "995943305d7d8ca3cc4481e3e4c12b6f3fe26b93c81a121b7b92c7fcaa920625",
-      "size": 1870
+      "sha256": "c56cf291747e8171161ba2c4eff763e15a9c7efb6c2bab4345d18e2589d89dbb",
+      "size": 1876
     },
     {
       "path": "tavern-plugin/lib/domain/character-design-worldbook.js",
@@ -3336,8 +3336,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/stage-incremental.js",
-      "sha256": "f8f53b951052a370112b114ae0620143b22b4a8304e6b4fd9616229c7df0829e",
-      "size": 31493
+      "sha256": "0d42e0330b1877d47ffed84ae46ad7ed12b6ec125d5de0c5ee70ff73f5d8b28b",
+      "size": 31487
     },
     {
       "path": "tavern-plugin/lib/domain/stage-narration.cjs",
@@ -5691,8 +5691,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/call-context.js",
-      "sha256": "c68acfe7b7a68d66d94ec32b5832bd3f2c8e26078746901b1394b6032de1982a",
-      "size": 8216
+      "sha256": "f81ed5e8c2f7b27f77d39a5bd8ec41ef9e5b0290a7a301f09f70c81bbeea120f",
+      "size": 8278
     },
     {
       "path": "tavern-plugin/mods/phone/call-greeting.js",
@@ -9226,9 +9226,9 @@
     }
   ],
   "archive": {
-    "commit": "da2aa288184df3fdb2abc8a886dd56ef3884d33e",
+    "commit": "b360f41600db6ee530b849917485a3f57dfbea4e",
     "path": "runtime.zip",
-    "sha256": "300e599b9548a2c4994c3b07955e10088106663335fec4d9d6867748eedecee6",
-    "size": 16408156
+    "sha256": "436bf4eb47bbc6c4e9af6eb21548fa9440bb9545bf1a3146cf1267f61d5c7789",
+    "size": 16408178
   }
 }
