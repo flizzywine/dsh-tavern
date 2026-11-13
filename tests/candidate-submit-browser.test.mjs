@@ -44,6 +44,9 @@ async function mount(t, outcome) {
         syncSession: { sync: sync() },
         getSession: { view: { mode: 'story', latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
         getActiveInterfaceSkin: { css: '' },
+        getTavernSettings: { settings: {} }, // composer and sidebar preferences
+        getChoices: { candidates: null }, // the dock reads the round's saved candidates
+        loadSessionPreviews: { previews: {} },
       }
       if (!(method in responses)) unexpected.push(method)
       result = { ok: true, ...responses[method] }
