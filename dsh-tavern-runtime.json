@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f63406193cf5de57fb12661c580552887dba6568",
-  "releaseSequence": 1601,
+  "revision": "c85fe7d1ba52065f1d77fb44cd933793721ad54a",
+  "releaseSequence": 1602,
   "version": "3.3.0",
   "files": [
     {
@@ -391,8 +391,8 @@
     },
     {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "e51b2cb992e7abcaa1c16c812de680e347b362f4b9b4a7ed642b4aa501347e23",
-      "size": 22020
+      "sha256": "8ca93d866f7018883461d8def1775f361dc9522441157eecc031dd8215aadcfc",
+      "size": 24004
     },
     {
       "path": "bin/service-process-identity.mjs",
@@ -516,8 +516,8 @@
     },
     {
       "path": "config/dsh-dependency-baseline.json",
-      "sha256": "dd5e232b50f99125d6618f88abd03dc1939d8f645efda36e0c080014c1951b04",
-      "size": 10245
+      "sha256": "0d89b5b086c128afb7b9188d8e53ca9bc3c196eda8bf6ac74e0ccde076bb3698",
+      "size": 10321
     },
     {
       "path": "config/legacy-profile-patch-v0.6.yml",
@@ -3671,8 +3671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tool-protocol-enforcement.js",
-      "sha256": "ce91a278a523415f2aeb625ba687ae086d1ae692a564b35f3307e10836de68c4",
-      "size": 21047
+      "sha256": "298675aca93ab62b5c3c6d0b25cc315ac0fcde14e149567fd79f30c542f00dcf",
+      "size": 21673
     },
     {
       "path": "tavern-plugin/lib/domain/tool-reply-stream-parser.js",
@@ -9241,9 +9241,9 @@
     }
   ],
   "archive": {
-    "commit": "e855131924a598aa43786eb7d415cdc2d71fa495",
+    "commit": "ff1afa68881a1770fda360e931bab87fd85003d7",
     "path": "runtime.zip",
-    "sha256": "09cfa8f9a6b3e5c4543472b27decb61705f849092066959dbd77ece136be23fe",
-    "size": 16449383
+    "sha256": "ab82ed00caf1b18cdc179b633bcbc2b04cab5aed92ff5bcc362857079807f40a",
+    "size": 16450289
   }
 }
