@@ -2,6 +2,7 @@ import { compactionPolicy } from './auto-compaction.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
+import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from './narrative-damper.js'
 
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
@@ -466,6 +467,13 @@ export function applyTavernSettingsPatch(current, patch) {
     if (Object.keys(overrides).length === 0) delete next.promptOverrides
     else next.promptOverrides = overrides
   } else if (input.resetSystemPrompts === true) delete next.promptOverrides
+  if (Object.hasOwn(input, 'narrativeDamper')) {
+    if (!input.narrativeDamper || typeof input.narrativeDamper !== 'object' || Array.isArray(input.narrativeDamper)) {
+      throw new Error('叙事阻尼器设置无效')
+    }
+    const base = normalizeNarrativeDamperConfig(next.narrativeDamper)
+    next.narrativeDamper = validateNarrativeDamperConfig({ ...base, ...input.narrativeDamper })
+  }
   return next
 }
 
@@ -527,6 +535,7 @@ export function presentTavernSettings(document, defaults) {
     systemPrompts: prompts,
     promptSets: presentPromptSets(object(document)),
     cardPersonas: presentCardPersonas(object(document)),
+    narrativeDamper: normalizeNarrativeDamperConfig(object(document).narrativeDamper),
     storyPrompt: story.text,
     storyPromptCustomized: story.customized
   }

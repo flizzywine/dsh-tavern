@@ -1353,6 +1353,9 @@ function clipReplayCore() {
 			// service, so the Tavern has no speech settings of its own.
 			ctx.provide("ttsBrowserSpeech", browserSpeechService);
             ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-narrative-damper", order:112, label:() => "叙事阻尼器" }, TavernNarrativeDamperSettingsSection); });
+            }, "dsh-tavern: narrative damper settings section");
+            ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
             }, "dsh-tavern: plugins settings section");
             ctx.effect(function () {

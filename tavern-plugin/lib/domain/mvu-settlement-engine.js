@@ -4,6 +4,7 @@ import { applyMvuSettlementEffect } from './mvu-settlement-effect.js'
 import { projectAgentMessageText } from './runtime-content-projection.js'
 import { pendingMvuTarget } from './settlement-turn.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
+import { settlementBudgetRuleText } from './narrative-damper.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -62,6 +63,13 @@ export function createMvuSettlementEngine(deps) {
         }
       })
     }
+    const turnNumber = settlementTurn(snapshot)
+    const persistedDamper = Object.values(snapshot.foregroundFrames || {})
+      .filter(item => item && item.kind === 'foreground' && Number(item.turn) === Number(turnNumber) && (!taskRun.basedOn.branchId || item.branchId === taskRun.basedOn.branchId))
+      .at(-1)?.source?.narrativeDamper || null
+    const activeDamper = deps.narrativeDamper?.activeRuling?.(snapshot.id, turnNumber)?.ruling || persistedDamper
+    const baseUpdateRules = await mvuUpdateRules(snapshot, card, mvuTarget)
+    const damperBudgetRule = activeDamper ? settlementBudgetRuleText(activeDamper) : ''
     const settlementInput = {
       onSubmission: submission => saveDelivery(submission),
       onPrepared: prepared => saveDelivery(prepared.submission, prepared),
@@ -73,7 +81,7 @@ export function createMvuSettlementEngine(deps) {
       branchId: taskRun.basedOn.branchId,
       basedOnRevision: taskRun.basedOn.revision,
       sessionId: snapshot.sessionId,
-      turn: settlementTurn(snapshot),
+      turn: turnNumber,
       messageId: mvuTarget.messageId,
       swipeId: mvuTarget.swipeId,
       expectedLifecycleRevision: Math.max(0, Number(snapshot.tavernHelperLifecycleRevision) || 0),
@@ -84,7 +92,8 @@ export function createMvuSettlementEngine(deps) {
       variableSchema: mvuTarget.variables.schema,
       charName: card && card.name,
       macroState: snapshot.macroState,
-      updateRules: await mvuUpdateRules(snapshot, card, mvuTarget),
+      updateRules: damperBudgetRule ? [...(Array.isArray(baseUpdateRules) ? baseUpdateRules : []), damperBudgetRule] : baseUpdateRules,
+      narrativeDamperRuling: activeDamper,
       webSearchEnabled: snapshot.webSearchEnabled === true
     }
     const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission

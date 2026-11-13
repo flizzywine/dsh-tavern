@@ -22,6 +22,7 @@ import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
 import { frameUserInput } from './agent-input-frame.js'
+import { nextPlainDamperState, readDamperStateSnapshot } from './narrative-damper.js'
 import { readRowsAt } from './bounded-history.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createHash } from 'node:crypto'
@@ -796,6 +797,10 @@ export function createTurnOrchestrator(options) {
       ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
     const source = frameSource(chat, card, foregroundOperation)
     if (typeof options.bodyGeneration === 'function') source.bodyGeneration = await (options.prepareBodyGeneration || options.bodyGeneration)(input.sessionId)
+    if (typeof options.activeDamperRuling === 'function') {
+      const activeDamper = options.activeDamperRuling(chat.id, turn)
+      if (activeDamper?.ruling) source.narrativeDamper = clone(activeDamper.ruling)
+    }
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
     source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []
@@ -1265,6 +1270,21 @@ export function createTurnOrchestrator(options) {
           mvu: adopted ? { pending: false, modified: false, diagnostics: [{ message: '这一轮补记自模型上下文，当时的变量变化未结算' }], events: [] }
             : { pending: true, modified: false, diagnostics: [], events: [] }
         })
+        else if (!adopted) {
+          const activeDamper = typeof options.activeDamperRuling === 'function' ? options.activeDamperRuling(draft.id, turn)?.ruling : null
+          const persistedDamper = activeDamper || Object.values(draft.foregroundFrames || {})
+            .filter(item => item && item.kind === 'foreground' && Number(item.turn) === Number(turn))
+            .at(-1)?.source?.narrativeDamper || null
+          if (persistedDamper && persistedDamper.fallbackStateForPlainCards !== false) {
+            const priorPlain = readDamperStateSnapshot(draft, {
+              excludeAssistantIndex: Number.isInteger(placeholder?.assistantIndex) ? placeholder.assistantIndex : -1,
+              fallbackForPlain: true
+            })
+            if (priorPlain.kind === 'plain-fallback') {
+              assistantMessage.damperState = [nextPlainDamperState(priorPlain.data, persistedDamper)]
+            }
+          }
+        }
         commitMessageRow(draft, placeholder?.assistantIndex, assistantMessage)
         if (!adopted) {
           draft.settleStatus = 'pending'

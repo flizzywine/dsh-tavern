@@ -43,6 +43,7 @@ import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
+import { createNarrativeDamper } from './domain/narrative-damper.js'
 import { registerGameplayTools } from './tools/gameplay.js'
 import { modTools } from './mod-tools.js'
 import { registerUserProfileTools } from './tools/user-profile.js'
@@ -76,7 +77,7 @@ import { createTaskStateReader, taskStateFields } from './domain/task-state-read
 import { installHostProjectionReplay } from './domain/host-projection-replay.js'
 import { installHostTurnRailFilter } from './domain/host-turn-rail.js'
 import { createBoundedHistory, readRecentWindow, readRowsAt, storyContextMessageFields } from './domain/bounded-history.js'
-import { createStoryTranscriptReader } from './domain/story-transcript-reader.js'
+import { createStoryTranscriptReader, storyTranscriptMessageFields } from './domain/story-transcript-reader.js'
 import { createHelperHistoryAccess } from './domain/helper-history-access.js'
 import { isScopedMessages } from './domain/scoped-messages.js'
 import {registerVariableReadTool} from './domain/read-variables.js'
@@ -2251,7 +2252,7 @@ export async function apply(ctx) {
         return []
       }
     },
-    messageFields: sessionViewMessageFields,
+    messageFields: storyTranscriptMessageFields,
     limit: HELPER_MESSAGE_COLD_WINDOW
   })
   // Results of story operations: the same bounded window the browser keeps in
@@ -3543,8 +3544,12 @@ export async function apply(ctx) {
     if (selected && ['story', 'script'].includes(selected.chat.mode || 'story') && selected.chat.requestMode !== 'sillytavern') return normalizeChat(selected.chat)
     return chatId === undefined ? chatForSession(sessionId) : readChat(chatId)
   }
+  const narrativeDamper = createNarrativeDamper({
+    getConfig: async () => (await readTavernSettings()).narrativeDamper,
+    credentials: () => ctx.get('credentials')
+  })
   const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
-    pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId) })
+    narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId) })
   const plainSettlementEngine = createPlainSettlementEngine({ requestAnchor: contextHost.requestAnchor, pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
     backgroundAgentRunner,
@@ -3631,7 +3636,23 @@ export async function apply(ctx) {
   async function projectPluginTurnContext(input) {
     const sections = [...(await Promise.resolve(pluginApi.turnContext(input)).catch(() => []) || [])]
     const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
-    if ((header?.mode || 'story') !== 'story') return sections
+    const mode = header?.mode || 'story'
+    if (mode !== 'story' && mode !== 'script') return sections
+    if (await narrativeDamper.enabled()) {
+      const chat = await storyContext({ sessionId: str(input.gameId) }).catch(() => null)
+      const card = chat ? await readChatCard(chat).catch(() => null) : null
+      const evaluated = chat ? await narrativeDamper.evaluateTurn({
+        chat,
+        card,
+        turn: input.turn,
+        userText: input.input,
+        excludeAssistantIndex: Number.isInteger(input.excludeAssistantIndex) ? input.excludeAssistantIndex : -1
+      }).catch(() => null) : null
+      if (evaluated?.rulingText) {
+        sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'after', text: evaluated.rulingText })
+      }
+    }
+    if (mode !== 'story') return sections
     if (header?.backgroundTasks?.styleReference === true) {
       sections.push({ owner: 'dsh-tavern', name: 'style-reference', position: 'after',
         text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' })
@@ -3647,6 +3668,7 @@ export async function apply(ctx) {
     // input because the replayed history calls name that tool.
     prepareBodyGeneration: sessionId => pluginBodyGeneration.prepare(sessionId),
     bodyGeneration: sessionId => pluginBodyGeneration.route(sessionId),
+    activeDamperRuling: (chatId, turn) => narrativeDamper.activeRuling(chatId, turn),
     storyToolCall: async () => (await readTavernSettings()).storyOutputToolCall,
     storyInputToolCall: async () => (await readTavernSettings()).storyInputToolCall,
     modEnabled: (modId, cardPath) => cardPath ? ctx.get('tavernManagedModules')?.enabled({modId,cardPath}) ?? false : false,
@@ -3859,7 +3881,7 @@ export async function apply(ctx) {
       if (str(configuredBodyGeneration(chat, settings).mode).startsWith('plugin-')) return null
       const preset = await resolveChatRuntimePreset({ ...chat }, { preview: true })
       const worldBook = await playWorldBook(chat, card)
-      const pluginSections = await projectPluginTurnContext({ gameId: chat.sessionId, turn, input: userText })
+      const pluginSections = await projectPluginTurnContext({ gameId: chat.sessionId, turn, input: userText, excludeAssistantIndex: targetAssistantIndex })
       const globals = await readPromptTemplateGlobalVariables()
       const extensions = await readCardExtensions(chat.cardPath || chat.cardId, chat)
       const prompts = ['story', 'script-story'].map(name => runtimePrompt(name))
@@ -4032,7 +4054,7 @@ export async function apply(ctx) {
     replaceCard, importCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,
-    modelRequestLog, mvuDiagnostics, notifyPluginTimeline, openingPreparation, pagesInFront,
+    modelRequestLog, mvuDiagnostics, narrativeDamper, notifyPluginTimeline, openingPreparation, pagesInFront,
     playCardSnapshots, pluginApi, pluginBodyGeneration, pluginDataStore, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns,
     pluginSettlementProgress, prepareConversationFork, preparedSaveSessions, presentSystemPrompts, promptDocuments, transferExports,
     presentUserPreferenceProfile, presetLibrary, previewPreset, profileData, projectOpeningWindow,

@@ -6560,3 +6560,12 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-tab-title]
 .ap-cast-voice-sum.is-quiet { color: var(--fork-ink-3); }
 .ap-cast-voice-go { display: inline-flex; flex: none; color: var(--fork-ink-3); cursor: pointer; }
 .ap-cast-voice-go .ap-glyph { width: 14px; height: 14px; }
+
+/* 设置 › 叙事阻尼器 */
+.dsh-tavern-damper-key-actions,
+.dsh-tavern-damper-key-edit,
+.dsh-tavern-damper-test { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dsh-tavern-damper-status { color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.dsh-tavern-damper-test-badge { font-size: 12px; line-height: 1.4; }
+.dsh-tavern-damper-test-badge.is-ok { color: var(--dsw-static-green-600, #238636); }
+.dsh-tavern-damper-test-badge.is-error { color: var(--dsh-tavern-accent-error, #c64545); }

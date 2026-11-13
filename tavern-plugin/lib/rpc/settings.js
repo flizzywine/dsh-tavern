@@ -4,6 +4,7 @@ import { configuredBodyGeneration } from '../domain/plugin-body-generation.js'
 import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
 import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
+import { DAMPER_KEY_REFS, validateNarrativeDamperConfig } from '../domain/narrative-damper.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -300,6 +301,48 @@ return { bodyGenerationProviders: await deps.pluginApi?.bodyGenerators?.list(), 
       deps.invalidateTavernSkills?.()
       await deps.pluginApi?.resetGamePluginSettings?.(sessionId, settings.defaultPluginGameSettings || {})
       return { restored: true, warnings }
+    },
+    async getNarrativeDamperSettings() {
+      const settings = await readTavernSettings()
+      const config = settings.narrativeDamper
+      const credential = deps.narrativeDamper
+        ? await deps.narrativeDamper.credentialStatus(config.provider, config.keyName)
+        : { configured: false, source: null, keyName: config.keyName }
+      return { config, credential }
+    },
+    async updateNarrativeDamperSettings(args) {
+      const patch = args?.patch
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('叙事阻尼器设置补丁无效')
+      const updated = await updateTavernSettings({ narrativeDamper: patch })
+      const config = updated.narrativeDamper
+      const credential = deps.narrativeDamper
+        ? await deps.narrativeDamper.credentialStatus(config.provider, config.keyName)
+        : { configured: false, source: null, keyName: config.keyName }
+      return { config, credential, settings: updated }
+    },
+    async setNarrativeDamperKey(args) {
+      if (!deps.narrativeDamper) throw new Error('叙事阻尼器服务未就绪')
+      const provider = str(args?.provider)
+      const value = args?.value ?? null
+      if (!Object.hasOwn(DAMPER_KEY_REFS, provider)) throw new Error('决策模型提供方无效')
+      if (value !== null && (typeof value !== 'string' || !/^[\x21-\x7e]{1,4096}$/.test(value))) {
+        throw new Error('API Key 须为不含空格或中文的可见 ASCII 字符')
+      }
+      let settings = await readTavernSettings()
+      if (value !== null && await deps.narrativeDamper.isReference(value)) {
+        settings = await updateTavernSettings({ narrativeDamper: { ...settings.narrativeDamper, provider, keyName: value } })
+        await deps.narrativeDamper.setKey(provider, null)
+      } else {
+        await deps.narrativeDamper.setKey(provider, value)
+      }
+      const config = settings.narrativeDamper
+      const credential = await deps.narrativeDamper.credentialStatus(provider, provider === config.provider ? config.keyName : '')
+      return { credential, config }
+    },
+    async testNarrativeDamperConnection(args = {}) {
+      if (!deps.narrativeDamper) throw new Error('叙事阻尼器服务未就绪')
+      const draft = args?.config === undefined ? undefined : validateNarrativeDamperConfig(args.config)
+      return deps.narrativeDamper.test(draft)
     },
   }
   handlers.getConversationBackgroundConfig = handlers.getConversationBackgroundModel

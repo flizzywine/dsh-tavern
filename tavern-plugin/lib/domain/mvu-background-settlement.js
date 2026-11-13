@@ -11,6 +11,7 @@ import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
+import { clampMvuSubmissionOperations } from './narrative-damper.js'
 
 export const MVU_SUBMIT_UPDATE_TOOL_NAME = 'mvu_submit_update'
 
@@ -560,6 +561,9 @@ export function createMvuSettlementModule(options = {}) {
 
   async function applySubmission(input, frame, submission, diagnosticId) {
     submission = resolveSubmissionPaths(submission, input.currentVariables)
+    if (input.narrativeDamperRuling) {
+      submission = clampMvuSubmissionOperations(submission, input.currentVariables, input.narrativeDamperRuling)
+    }
     if (input.onSubmission) await input.onSubmission(clone(submission))
     const applied = await options.runtime.settleMvuUpdate({
       compactResult: true,

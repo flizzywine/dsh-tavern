@@ -229,5 +229,177 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     error ? h("p", {role:"alert"}, error) : null)),
             Page ? h(Page) : null);
     }
-    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions };
+    const DAMPER_PROVIDER_OPTIONS = [
+        { value: "gemini", label: "Google Gemini Decisions", defaultModel: "gemini-decision-1", defaultKeyName: "GEMINI_API_KEY" },
+        { value: "gemini-compatible", label: "Gemini Decisions 兼容接口", defaultModel: "gemini-decision-1", defaultKeyName: "GEMINI_API_KEY", customUrl: true },
+        { value: "jev", label: "Typesafe JEV", defaultModel: "jev-1.13.0", defaultKeyName: "TYPESAFE_API_KEY" },
+        { value: "openai", label: "OpenAI Decisions", defaultModel: "gpt-6-luna", defaultKeyName: "OPENAI_API_KEY" },
+        { value: "openai-compatible", label: "OpenAI Decisions 兼容接口", defaultModel: "gpt-6-luna", defaultKeyName: "OPENAI_API_KEY", customUrl: true }
+    ];
+    const damperKeyValidate = value => /^[\x21-\x7e]{1,4096}$/.test(value) ? "" : "API Key 须为不含空格或中文的可见字符";
+
+    function TavernNarrativeDamperSettingsSection() {
+        const h = React.createElement;
+        const [state, setState] = React.useState({ loading: true, busy: false, config: null, credential: null, editingKey: false, notice: "", error: "", test: null });
+        const testSeq = React.useRef(0);
+
+        React.useEffect(() => {
+            let active = true;
+            rpc("getNarrativeDamperSettings").then(result => {
+                if (active) setState(current => ({ ...current, loading: false, config: result.config, credential: result.credential, error: "" }));
+            }, err => {
+                if (active) setState(current => ({ ...current, loading: false, error: String(err && err.message || err) }));
+            });
+            return () => { active = false; };
+        }, []);
+
+        async function savePatch(patch) {
+            if (state.loading || state.busy || !state.config) return;
+            testSeq.current += 1;
+            setState(current => ({ ...current, busy: true, error: "", notice: "", test: null }));
+            try {
+                const result = await rpc("updateNarrativeDamperSettings", { patch });
+                notifySettingsChanged();
+                setState(current => ({ ...current, busy: false, config: result.config, credential: result.credential, editingKey: false, notice: "已保存" }));
+            } catch (err) {
+                setState(current => ({ ...current, busy: false, error: String(err && err.message || err) }));
+            }
+        }
+
+        function handleProviderChange(nextProvider) {
+            const meta = DAMPER_PROVIDER_OPTIONS.find(item => item.value === nextProvider) || DAMPER_PROVIDER_OPTIONS[0];
+            const patch = {
+                provider: nextProvider,
+                model: meta.defaultModel,
+                keyName: meta.defaultKeyName,
+                baseUrl: meta.customUrl ? (state.config?.baseUrl || "") : ""
+            };
+            void savePatch(patch);
+        }
+
+        async function saveApiKey(value) {
+            if (!state.config || state.busy) return;
+            testSeq.current += 1;
+            setState(current => ({ ...current, busy: true, error: "", notice: "", test: null }));
+            try {
+                const result = await rpc("setNarrativeDamperKey", { provider: state.config.provider, value });
+                setState(current => ({
+                    ...current,
+                    busy: false,
+                    config: result.config || current.config,
+                    credential: result.credential,
+                    editingKey: false,
+                    notice: value === null ? "已清除密钥" : "密钥已保存"
+                }));
+            } catch (err) {
+                setState(current => ({ ...current, busy: false, error: String(err && err.message || err) }));
+            }
+        }
+
+        async function runTestConnection() {
+            if (!state.config || state.busy || state.test?.running) return;
+            const seq = ++testSeq.current;
+            setState(current => ({ ...current, test: { running: true }, error: "" }));
+            try {
+                const result = await rpc("testNarrativeDamperConnection", { config: state.config });
+                if (seq === testSeq.current) setState(current => ({ ...current, test: result }));
+            } catch (err) {
+                if (seq === testSeq.current) {
+                    setState(current => ({ ...current, test: { ok: false, latencyMs: 0, error: { message: String(err && err.message || err) } } }));
+                }
+            }
+        }
+
+        const config = state.config;
+        const disabled = state.loading || state.busy || !config;
+        const providerMeta = DAMPER_PROVIDER_OPTIONS.find(item => item.value === config?.provider) || DAMPER_PROVIDER_OPTIONS[0];
+        const statusEl = state.error
+            ? h("span", { className: "dsh-tavern-gs-notice is-alert", role: "alert" }, "⚠ " + state.error)
+            : state.notice ? h("span", { className: "dsh-tavern-gs-notice", role: "status" }, state.notice) : null;
+
+        const testControls = h("span", { className: "dsh-tavern-damper-test" },
+            h("button", { type: "button", className: "dsh-tavern-btn", disabled: disabled || state.test?.running, onClick: runTestConnection },
+                state.test?.running ? "测试中…" : "测试连接"),
+            state.test && !state.test.running ? h("span", {
+                className: "dsh-tavern-damper-test-badge " + (state.test.ok ? "is-ok" : "is-error"),
+                role: state.test.ok ? "status" : "alert"
+            }, state.test.ok
+                ? "✓ 连接正常" + (Number.isFinite(state.test.latencyMs) ? " · " + Math.round(state.test.latencyMs) + " ms" : "")
+                : "✕ " + (state.test.error?.message || "连接失败")) : null);
+
+        return h("div", { className: "dsh-tavern-settings-section dsh-tavern-global-settings dsh-tavern-narrative-damper", "aria-busy": state.loading || undefined },
+            h("section", { className: "dsh-tavern-gs-group", "aria-label": "叙事阻尼器" },
+                h("header", { className: "dsh-tavern-gs-head" },
+                    h("h2", null, "叙事阻尼器"),
+                    help("叙事阻尼器", "独立于舞台模块的通用防口胡与状态惯性引擎。每轮正文生成前由轻量决策模型结合 MVU 状态并发评估玩家意图，保留角色言行自由度的同时剥离越权结果，并在后台结算层钳制单轮数值突变。"),
+                    statusEl),
+                h("div", { className: "dsh-tavern-gs-card" },
+                    h(TavernSettingRow, { title: "启用叙事阻尼器", help: "开启后对所有游玩对话（普通故事模式与剧本模式）生效，下一轮消息立即介入裁定。" },
+                        h(Switch, { label: "启用叙事阻尼器", disabled, checked: config?.enabled === true, onChange: value => savePatch({ enabled: value }) })),
+                    h(TavernSettingRow, { title: "阻尼模式", help: "标准拉扯适合大多数恋爱、NTR 与剧情向游玩（常规变动 ±5 / 突破 ±12）；慢热严苛提高破防筹码要求并收紧单轮状态上限（常规 ±3 / 突破 ±8）。" },
+                        h(InlineField, { kind: "menu", label: "阻尼模式", hideLabel: true, disabled,
+                            value: config?.mode || "balanced",
+                            options: [
+                                { value: "balanced", label: "标准拉扯（推荐）" },
+                                { value: "strict", label: "慢热严苛" }
+                            ],
+                            onCommit: value => savePatch({ mode: value }) })),
+                    h(TavernSettingRow, { title: "R18 送审语义分级脱敏", help: "仅对发往决策模型的临时评估副本将露骨词汇映射为强度等级标签，防止触发云端决策接口的内容拦截；发给主写作模型的提示词保留完整原文。" },
+                        h(Switch, { label: "R18 送审语义分级脱敏", disabled, checked: config?.desensitizeR18 !== false, onChange: value => savePatch({ desensitizeR18: value }) })),
+                    h(TavernSettingRow, { title: "后台 MVU 数值涨跌钳制", help: "根据本轮决策配额（反弹 / 冻结 / 微调 / 突破），在后台 MVU 结算落盘前硬性限制好感、信任、沦陷、防线等指标的单轮跳变幅度。" },
+                        h(Switch, { label: "后台 MVU 数值涨跌钳制", disabled, checked: config?.clampMvuDelta !== false, onChange: value => savePatch({ clampMvuDelta: value }) })),
+                    h(TavernSettingRow, { title: "无 MVU 卡自动维护四维状态", help: "遇到未自带 MVU 变量表的人物卡时，随楼层自动维护亲密信任、心理防线、情绪张力与筹码深度四项惯性锚点，支持回退与分叉。" },
+                        h(Switch, { label: "无 MVU 卡自动维护四维状态", disabled, checked: config?.fallbackStateForPlainCards !== false, onChange: value => savePatch({ fallbackStateForPlainCards: value }) })))),
+            h("section", { className: "dsh-tavern-gs-group", "aria-label": "决策模型与连接" },
+                h("header", { className: "dsh-tavern-gs-head" },
+                    h("h2", null, "决策模型与连接"),
+                    help("决策模型与连接", "推荐使用 Google Gemini Decisions（gemini-decision-1，单次 Prefill 零输出 Token 并发返回校准概率）。API Key 保存在宿主安全凭据库中，不会明文写入设置文件。")),
+                h("div", { className: "dsh-tavern-gs-card" },
+                    h(TavernSettingRow, { title: "决策服务提供方" },
+                        h(InlineField, { kind: "menu", label: "决策服务提供方", hideLabel: true, disabled,
+                            value: config?.provider || "gemini",
+                            options: DAMPER_PROVIDER_OPTIONS.map(item => ({ value: item.value, label: item.label })),
+                            onCommit: handleProviderChange })),
+                    providerMeta.customUrl ? h(TavernSettingRow, { title: "自定义接口地址", help: "填写 HTTPS 反代根地址或本地 127.0.0.1 地址（会自动拼接 /v1beta/decisions 或 /v1/decisions）。" },
+                        h(InlineField, { kind: "text", label: "自定义接口地址", hideLabel: true, disabled, maxLength: 512,
+                            value: config?.baseUrl || "", placeholder: "https://example.com",
+                            onCommit: value => savePatch({ baseUrl: value.trim() }) })) : null,
+                    h(TavernSettingRow, { title: "决策模型名称" },
+                        h(InlineField, { kind: "text", label: "决策模型名称", hideLabel: true, disabled, maxLength: 160,
+                            value: config?.model || providerMeta.defaultModel, placeholder: providerMeta.defaultModel,
+                            onCommit: value => savePatch({ model: value.trim() || providerMeta.defaultModel }) })),
+                    h(TavernSettingRow, { title: "API Key", help: "直接粘贴密钥保存到本机安全凭据库，或输入已生效的环境变量名（如 GEMINI_API_KEY）作为引用。" },
+                        state.credential?.configured && !state.editingKey
+                            ? h("div", { className: "dsh-tavern-damper-key-actions" },
+                                h("span", { className: "dsh-tavern-damper-status" },
+                                    state.credential.source === "stored" ? "已配置（安全存储）" : "已配置 · 环境变量 " + (state.credential.keyName || "")),
+                                h("button", { type: "button", className: "dsh-tavern-btn", disabled, onClick: () => setState(current => ({ ...current, editingKey: true })) }, "更换"),
+                                state.credential.source === "stored"
+                                    ? h("button", { type: "button", className: "dsh-tavern-btn", disabled, onClick: () => saveApiKey(null) }, "清除")
+                                    : null,
+                                testControls)
+                            : h("div", { className: "dsh-tavern-damper-key-edit" },
+                                h(InlineField, { kind: "text", secret: true, label: "API Key", hideLabel: true, disabled, maxLength: 4096,
+                                    value: "", placeholder: "粘贴 API Key 或环境变量名（回车保存）",
+                                    validate: damperKeyValidate,
+                                    onCommit: value => saveApiKey(value),
+                                    trail: h(React.Fragment, null,
+                                        state.editingKey ? h("button", { type: "button", className: "dsh-tavern-btn", disabled, onClick: () => setState(current => ({ ...current, editingKey: false })) }, "取消") : null,
+                                        testControls) }))),
+                    h(TavernSettingRow, { title: "越权判定阈值", help: "越权代笔、无依据篡改或天眼概率达到此阈值时强制触发剥离（0.50–0.95，数值越低越严格，默认 0.72）。" },
+                        h(InlineField, { kind: "number", label: "越权判定阈值", hideLabel: true, disabled,
+                            min: 0.5, max: 0.95, step: 0.01, value: config?.godmodeThreshold ?? 0.72,
+                            onCommit: value => savePatch({ godmodeThreshold: Number(value) }) })),
+                    h(TavernSettingRow, { title: "请求超时上限", help: "决策请求超过此时长仍未返回时自动静默放行，不阻塞本轮正文生成。" },
+                        h(InlineField, { kind: "number", label: "请求超时上限", hideLabel: true, disabled,
+                            integer: true, min: 300, max: 30000, step: 100, unit: "毫秒", value: config?.timeoutMs ?? 2500,
+                            onCommit: value => savePatch({ timeoutMs: Number(value) }) })),
+                    h(TavernSettingRow, { title: "附加裁判准则", help: "可选：随状态快照一同发给决策模型的补充说明（如特殊世界观法则），一般留空即可。" },
+                        h(InlineField, { kind: "text", label: "附加裁判准则", hideLabel: true, multiline: true, wide: true, disabled, maxLength: 2000,
+                            value: config?.preamble || "", placeholder: "留空使用内置通用规则",
+                            onCommit: value => savePatch({ preamble: value }) }))))
+        );
+    }
+
+    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, TavernNarrativeDamperSettingsSection, stageGlobalSettingsOptions };
 }
