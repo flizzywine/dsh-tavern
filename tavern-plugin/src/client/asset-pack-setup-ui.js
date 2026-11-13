@@ -630,7 +630,7 @@ function NewFigureStudio({ctx,draft,pack,figure,sprite,avatar,request,notes,inpu
         bust?h(FigureCastFace,{binding,packId,figure:shown,sprites:pack.sprites,avatar:null,label:(figure?.name||'')+'头像',className:'ap-avatar ap-nf-avatar-art'}):
         h('span',{className:'ap-nf-wait'},running&&sprite?h(Spinner,{delay:0}):null)),
       word&&h('p',{className:'ap-nf-status',role:'status'},h('span',null,word),running?.since&&h('span',{className:'ap-gen-time'},elapsed)),
-      gen.problem&&h(HintLine,{text:GEN_PROBLEMS[gen.problem]}),
+      gen.problem&&h(HintLine,{text:gen.problem}),
       notes.map(text=>h(HintLine,{key:text,text})),
       error&&!gen.problem&&!running&&h('p',{className:'ap-nf-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,error)),
       error&&!running&&h(Button,{className:'ap-manage',onClick:onRetry},h(Glyph,{name:'reset'}),'重新生成')),

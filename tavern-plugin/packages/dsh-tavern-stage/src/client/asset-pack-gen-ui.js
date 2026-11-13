@@ -17,7 +17,7 @@
   const GEN_ART_ROLE='User artwork of this character: authority for identity, outfit and style';
   const GEN_CURRENT_ROLE='Current picture of this slot: may keep its composition and pose; the settei stays the authority for identity and outfit';
   const GEN_BASE_ROLE='Base image to edit: keep identity, outfit, pose, framing and background exactly; change only what the user notes ask for';
-  const GEN_REASONS={layered:'这个差分是动态立绘：在它格子的菜单里选「重画…」',avatar:'先有这个差分的立绘，才能生成它的头像',
+  const GEN_REASONS={layered:'这个差分是动态立绘：在它格子的菜单里选「重画…」',
     sheet:'先有首个差分立绘或设定图，才能一次生成八个头像',avatars:'缺头像的差分还没有立绘：先有立绘，才能生成头像',basis:'还没有设定：先写外貌或服装描述，或准备一张设定图',edit:'先写想改哪里',busy:'这一格正在生成'};
   // the eight base faces of the eight-face sheet, in its layout order (key,
   // shared name). The sheet is used only when every one of them is a declared 差分 still missing its 头像.
@@ -280,7 +280,7 @@
     const warnings=covering?covering.candidate?.slices?.[target.emotionId]?.checks?.warnings||[]:job?.candidate?.checks?.warnings||[];
     // A waiting candidate's `error` is why its last 采用 failed (「全部采用」 goes on past it; the tile keeps its ⚠).
     return {state,key,target,after,job:state==='idle'||state==='queued'?null:job,sheet:covering?covering.target:null,since:!pend&&job?.status==='running'?job.createdAt:null,
-      error:state==='failed'?job?.error?.message||gen.errors[key]||'':state==='candidate'?gen.errors[key]||'':'',warnings};
+      error:state==='failed'?job?.error?.message||gen.errors[key]||'':state==='candidate'?gen.errors[key]||'':'',detail:state==='failed'?job?.error?.detail||'':'',warnings};
   }
   // The candidate in a 差分 tile: a 立绘 is cut to the head and shoulders (a generated 立绘 fills its 2:3 canvas centred,
   // the head in its top fifth), a 头像 shows whole.
@@ -294,15 +294,18 @@
     if(cell.state==='running')return h(React.Fragment,null,h(Spinner,{key:'run'+cell.key,fill:true,delay:0,className:'ap-gen-spin'}),cell.since?h('span',{className:'ap-gen-face-time'},elapsed):null);
     if(cell.state==='candidate')return h(React.Fragment,null,h('span',{className:'ap-gen-dot','aria-hidden':true}),h('span',{className:'ap-gen-badge'},'待采用'),
       (cell.error||cell.warnings.length>0)&&h('span',{className:'ap-gen-flag',title:[cell.error,...cell.warnings.map(w=>w.message)].filter(Boolean).join('\n')},h(Glyph,{name:'warning'})));
-    if(cell.state==='failed')return h('span',{className:'ap-gen-flag',title:genFailText(cell.error)},h(Glyph,{name:'warning'}));
+    if(cell.state==='failed')return h('span',{className:'ap-gen-flag',title:genFailTitle(cell)},h(Glyph,{name:'warning'}));
     return null;
   }
   // status words are plain terms — 排队中 / 生成中 / 待采用 / 生图失败; a failure reads
   // 「没能生成：<reason>」 on the tile's hover, in the records and on the 新人物 page: the host's Chinese reason through the
   // shared playerErrorText (no provider English, no HTTP status —).
   const GEN_CELL_WORDS={queued:'排队中',running:'生成中',candidate:'待采用',failed:'生图失败'};
+  // A reason in channel words (English, an HTTP status) reads as the fallback; the hover then adds the channel's own words.
+  const GEN_FAIL_FALLBACK='生图渠道报错了，可在 设置 → 配图 检查这个渠道';
   const genFailText=reason=>{const why=String((typeof reason==='string'?reason:reason?.message)||'').replace(/^生图失败[：:]?/,'');
-    return '没能生成：'+(why?playerErrorText(why,{fallback:'请稍后再试'}):'请稍后再试').replace(/[。；;，,]$/,'');};
+    return '没能生成：'+(why?playerErrorText(why,{fallback:GEN_FAIL_FALLBACK}):GEN_FAIL_FALLBACK).replace(/[。；;，,]$/,'');};
+  const genFailTitle=cell=>{const said=genFailText(cell.error),raw=cell.detail||String(cell.error||'');return said+(raw&&!said.includes(raw)?'\n渠道原话：'+raw:'');};
   // The preview card of the picked 差分 while its request runs (the ring, 生成中 / 排队中 and the time) and while a candidate
   // waits (the picture on the checkerboard, 「待采用」, the outfit 设定图 in a corner to compare against — mock E5 / E6).
   function GenStageWait({cell}) {
@@ -440,7 +443,7 @@
     const fixed=cellMode&&kind==='avatar'&&ownSprite?{hash:ownSprite,name:(row?.label||'')+'立绘'}:null;
     const current=base&&(mode==='edit'||!removed.includes('current'))?base:null;
     const room=GEN_REF_LIMIT-defaults.length-(fixed?1:0)-(current?1:0)-uploads.length;
-    const reason=cellMode&&kind==='sprite'&&!takes?GEN_REASONS.layered:cellMode&&kind==='avatar'&&!ownSprite?GEN_REASONS.avatar:
+    const reason=cellMode&&kind==='sprite'&&!takes?GEN_REASONS.layered:cellMode&&kind==='avatar'&&!ownSprite&&!prompt.trim()&&!defaults.length&&!uploads.length&&!genSaid(look.face)&&!genSaid(look.upper(outfit.key))?GEN_REASONS.basis:
       mode==='edit'&&!prompt.trim()?GEN_REASONS.edit:redo&&!base?'这一格还没有图':['running','queued'].includes(cell.state)?GEN_REASONS.busy:
       adding&&!name.trim()?'请填写服装名':settei&&!prompt.trim()&&!defaults.length&&!uploads.length&&!genSaid(look.face)&&!genSaid(outfit&&look.upper(outfit.key))?GEN_REASONS.basis:'';
     const upload=file=>genReadUpload(file).then(u=>setUploads(list=>[...list,u])).catch(e=>setError(errorText(e)));
@@ -663,7 +666,7 @@
   const GenDecide=({label,onNo,onYes,id})=>h('span',{className:'ap-gw-decide',role:'group','aria-label':label},
     h(IconButton,{icon:'close',label:'不要',className:'ap-icon-button ap-gw-no','data-gen-decide':'no-'+id,onClick:onNo}),
     h(IconButton,{icon:'check',label:'采用',className:'ap-icon-button ap-gw-yes','data-gen-decide':'yes-'+id,onClick:onYes}));
-  const genFlag=cell=>(cell.state==='failed'||cell.error||cell.warnings?.length>0)&&h('span',{className:'ap-gen-flag',title:cell.state==='failed'?genFailText(cell.error):[cell.error&&'采用失败：'+cell.error,...(cell.warnings||[]).map(w=>w.message)].filter(Boolean).join('\n')},h(Glyph,{name:'warning'}));
+  const genFlag=cell=>(cell.state==='failed'||cell.error||cell.warnings?.length>0)&&h('span',{className:'ap-gen-flag',title:cell.state==='failed'?genFailTitle(cell):[cell.error&&'采用失败：'+cell.error,...(cell.warnings||[]).map(w=>w.message)].filter(Boolean).join('\n')},h(Glyph,{name:'warning'}));
   const genItem=(icon,text,onClick,extra={})=>h(MenuItem,{key:text,danger:extra.danger,onClick},h(Glyph,{name:icon}),h('span',null,text));
   // 设定块 slot: 人物设定图 or 服装设定图, a small 3:2 picture. Empty: dashed, ⤒ 上传 and ✦ 生成 (raised on hover / focus, always
   // on touch); filled: its menu (查看大图 / 下载 / 重画… / 上传图片 / 删除); a request: the ring, or the ✕｜✓ pill beside it.
@@ -738,7 +741,7 @@
     if(!hasSprite&&!avatarHash){
       const use=standInValue(outfit,id),standArt=use&&(c.sprite(use)||c.avatar(use));
       return h('div',{...base,'data-state':'missing','data-first':coach?true:undefined},
-        h('button',{type:'button',className:'ap-gw-hit ap-gw-ghost','aria-label':'生成「'+row.label+'」…',title:failed?genFailText(failed.error):'生成「'+row.label+'」…',onClick:()=>c.open(c.at('sprite',id),{mode:'gen',out:'both'})},
+        h('button',{type:'button',className:'ap-gw-hit ap-gw-ghost','aria-label':'生成「'+row.label+'」…',title:failed?genFailTitle(failed):'生成「'+row.label+'」…',onClick:()=>c.open(c.at('sprite',id),{mode:'gen',out:'both'})},
           h('span',{className:'ap-gw-art ap-gw-missing'},standArt&&h('span',{className:'ap-gw-face-art ap-gw-stand'},h(Thumb,{binding,packId,hash:standArt,label:row.label})),
             h('span',{className:'ap-gw-ghost-mark'},h(Glyph,{name:'spark'})),failed&&genFlag(failed)),nameRow),
         !c.blank&&!isDefault&&c.setFallback&&h(GenFallback,{c,row,use}),coach);}
@@ -749,7 +752,7 @@
       onConfirm:async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');}});
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:row.label+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:460,
-        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','aria-label':row.label,title:failed?genFailText(failed.error):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id)})},
+        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','aria-label':row.label,title:failed?genFailTitle(failed):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id)})},
           h('span',{className:'ap-gw-art'},h('span',{className:'ap-gw-face-art','data-kind':spriteHash||hasSprite?'sprite':'avatar'},art),
             hasSprite&&h('span',{className:'ap-gw-face','data-empty':!avatarHash||undefined,title:avatarHash?undefined:'没有头像'},avatarHash?h(Thumb,{binding,packId,hash:avatarHash,label:row.label+'头像'}):h(Glyph,{name:'plus'})),
             failed&&genFlag(failed)),nameRow),
