@@ -49,7 +49,7 @@ function createTavernStoryTranscriptFeature(deps) {
 	let storyTranscriptStore = null
 	let flowExecuteSlash = options.executeSlash || null
 	let storyExternalHistory = options.externalHistory || null
-	const storyEligibility = new Map()
+	const mountedStories = new Set()
 	const externalHistoryInstaller = options.externalHistoryInstaller ||
 		(typeof installTavernStoryExternalHistory === 'function' ? installTavernStoryExternalHistory : null)
 
@@ -502,6 +502,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const view = props.view || state.view
 		const storyUnavailable = !transcript && state.status === 'empty'
 		const storyActive = enabled && sessionMode !== 'card' && (!view || view.mode !== 'card') && !storyUnavailable
+		const ownsHistory = storyActive && Boolean(transcript)
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
@@ -511,11 +512,16 @@ function createTavernStoryTranscriptFeature(deps) {
 			transcript, view, externalHistory: storyExternalHistory
 		})
 		React.useEffect(function () {
-			// An ordinary chat with no Tavern story falls back to the native flow;
-			// restore every native row instead of leaving only the latest turn.
-			storyEligibility.set(sessionId, !storyUnavailable && sessionMode !== 'card' && (!view || view.mode !== 'card'))
-			if (storyExternalHistory) storyExternalHistory.refresh(sessionId)
-		}, [sessionId, enabled, sessionMode, view && view.mode, storyUnavailable])
+			// Only prune native rows after their replacement has committed. A
+			// different slot renderer can win, or this flow can unmount.
+			if (!sessionId || !ownsHistory) return undefined
+			mountedStories.add(sessionId)
+			storyExternalHistory?.refresh(sessionId)
+			return function () {
+				mountedStories.delete(sessionId)
+				storyExternalHistory?.refresh(sessionId)
+			}
+		}, [sessionId, ownsHistory])
 		React.useEffect(function () {
 			if (view && typeof view.mode === 'string' && typeof publishSessionMode === 'function') publishSessionMode(sessionId, view.mode)
 		}, [sessionId, view && view.mode])
@@ -556,10 +562,7 @@ function createTavernStoryTranscriptFeature(deps) {
 				require: typeof require === 'function' ? require : function () { throw new Error('宿主模块加载器不可用') },
 				uiConversation: uiConversation,
 				isEnabled: function (sessionId) {
-					if (!mode.getSnapshot() || storyEligibility.get(String(sessionId)) === false) return false
-					const values = typeof tavernSessionModes !== 'undefined' && tavernSessionModes && tavernSessionModes.values ? tavernSessionModes.values : {}
-					const sessionMode = values[String(sessionId)] || ''
-					return !sessionMode || (typeof isPlayMode === 'function' ? isPlayMode(sessionMode) : sessionMode !== 'card')
+					return mode.getSnapshot() && mountedStories.has(String(sessionId))
 				}
 			})
 			storyExternalHistory = external

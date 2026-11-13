@@ -236,7 +236,7 @@ test('故事读取不把自己的精简视图写进会话视图（舞台读的�
 	assert.deepEqual(touched, [])
 })
 
-test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async t => {
+test('普通会话从首次读取到回退原生 ChatFlow 都保留完整历史', async t => {
 	const p = page(t), { context } = p
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: null, view: null, revision: 0 }) })
 	const store = data.createStoryTranscriptStore()
@@ -255,7 +255,7 @@ test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async
 	}
 	const slots = { inject: (_name, contribute) => contribute(), register: () => () => {}, entries: () => [], subscribe: () => () => {} }
 	feature.register({ ctx, slots })
-	assert.equal(externalOptions.isEnabled('plain'), true, '首次读取前乐观按故事首屏处理')
+	assert.equal(externalOptions.isEnabled('plain'), false, '故事列表接管前保留原生历史')
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' }, '完整原生')
 	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
 		sessionId: 'plain', store: store, renderNative: NativeFlow,
@@ -265,6 +265,53 @@ test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async
 	assert.ok(p.dom.window.document.querySelector('[data-native-flow]'))
 	assert.equal(externalOptions.isEnabled('plain'), false, '空故事不再裁剪原生历史')
 	for (const cleanup of cleanups) cleanup()
+})
+
+test('故事列表接管后才裁剪原生历史，切换渲染器时恢复已加载的旧回合', async t => {
+	const p = page(t), { context } = p
+	const pending = Promise.withResolvers()
+	const story = transcript([1, 2, 3].map(turn => ({ role: 'assistant', turn, text: '正文 ' + turn })))
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: () => pending.promise })
+	const store = data.createStoryTranscriptStore()
+	const nativeRows = ['正文 1', '正文 2', '正文 3']
+	let visibleNativeRows = nativeRows, isEnabled
+	const listeners = new Set()
+	const subscribeNative = listener => { listeners.add(listener); return () => listeners.delete(listener) }
+	const cleanups = []
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, externalHistoryInstaller: options => {
+		isEnabled = options.isEnabled
+		return {
+			refresh: id => {
+				visibleNativeRows = isEnabled(id) ? nativeRows.slice(-1) : nativeRows
+				for (const listener of listeners) listener()
+			},
+			dispose() {}
+		}
+	} })
+	feature.register({
+		ctx: { effect: run => { cleanups.push(run()) }, get: () => ({}) },
+		slots: { inject: () => () => {} }
+	})
+	t.after(() => { for (const cleanup of cleanups) cleanup() })
+
+	function NativeFlow() {
+		const rows = React.useSyncExternalStore(subscribeNative, () => visibleNativeRows)
+		return React.createElement('div', null, rows.join('、'))
+	}
+	const flow = React.createElement(feature.StoryTranscriptFlow, {
+		store, sessionId: 's1', renderNative: NativeFlow,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	})
+	assert.equal(isEnabled('s1'), false, '原生或第三方渲染器优先时不裁剪')
+	const root = await mount(p, flow)
+	assert.equal(isEnabled('s1'), false, '故事历史仍在读取')
+	await act(async () => pending.resolve({ storyTranscript: story, view: { mode: 'story' }, revision: 1 }))
+	assert.equal(isEnabled('s1'), true)
+	assert.deepEqual(visibleNativeRows, ['正文 3'])
+	assert.equal(p.dom.window.document.querySelectorAll('[data-story-row]').length, 3)
+	await act(async () => root.render(React.createElement(NativeFlow)))
+	assert.equal(isEnabled('s1'), false)
+	assert.equal(p.dom.window.document.querySelector('main').textContent, nativeRows.join('、'))
 })
 
 test('没有子槽的原生条目继续使用独立的故事注册', async t => {
@@ -361,7 +408,7 @@ test('注册生命周期安装 external-history，跟随模式与当前会话并
 	feature.register({ ctx, slots })
 	assert.equal(installs.length, 1)
 	assert.equal(installs[0].uiConversation, uiConversation)
-	assert.equal(installs[0].isEnabled('s1'), true)
+	assert.equal(installs[0].isEnabled('s1'), false)
 	assert.deepEqual(refreshes, ['s1'])
 	feature.mode.set(false)
 	assert.equal(installs[0].isEnabled('s1'), false)
