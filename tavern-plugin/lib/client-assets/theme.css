@@ -287,7 +287,7 @@ body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assi
 .dsh-fork-inline-actions [data-fork-action="more"] { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='1'/%3E%3Ccircle cx='19' cy='12' r='1'/%3E%3Ccircle cx='5' cy='12' r='1'/%3E%3C/svg%3E"); }
 /* Scene illustration: full column width; tools float over the picture's corner on hover. */
 [data-dsh-fork-session="play"] .dsh-tavern-illustration { position: relative; align-items: stretch; gap: 8px; margin: 4px 0 2px; }
-[data-dsh-fork-session="play"] .dsh-tavern-illustration > a { display: block; overflow: hidden; border-radius: 14px; }
+[data-dsh-fork-session="play"] .dsh-tavern-illustration > .dsh-tavern-image-preview { overflow: hidden; border-radius: 14px; }
 [data-dsh-fork-session="play"] .dsh-tavern-illustration img { width: 100%; max-width: 100%; height: auto; max-height: 70svh; object-fit: cover; border-radius: 14px; }
 [data-dsh-fork-session="play"] .dsh-tavern-illustration[data-running] img { filter: saturate(.6) brightness(.85); transition: filter .3s; }
 [data-dsh-fork-session="play"] .dsh-tavern-image-actions {

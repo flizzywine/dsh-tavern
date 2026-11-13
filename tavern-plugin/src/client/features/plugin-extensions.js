@@ -1283,7 +1283,7 @@
 			const workingLabel = (item.activity ? item.activity.label : "生成中") + (typeof progress === "number" && progress > 0 && progress < 1 ? " " + Math.round(progress * 100) + "%" : "…");
 			const canCancel = illustrator.cancel && (item.status === "pending" || item.activity && item.activity.cancellable);
 			return h("figure", { className: "dsh-tavern-plugin-media dsh-tavern-illustration", "data-kind": item.kind, "data-owner": item.owner },
-				url ? h("a", { href: url, "aria-label": "放大插图", onClick: function (event) { event.preventDefault(); openSceneImagePreview(url, event.currentTarget, null, illustrator.editPrompt && !working ? function () { open("prompt"); } : null); } },
+				url ? h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": "放大插图", onClick: function (event) { openSceneImagePreview(url, event.currentTarget, null, illustrator.editPrompt && !working ? function () { open("prompt"); } : null); } },
 					h("img", { src: url, alt: item.caption || "插图", loading: "lazy" })) : null,
 				item.caption && url ? h("figcaption", null, current ? item.caption : history[index] && history[index].caption || item.caption) : null,
 				url ? h("div", { className: "dsh-tavern-image-actions" },
@@ -1360,7 +1360,7 @@
 				body = h("div", { className: "dsh-tavern-plugin-media-failed", role: "status" }, item.error ? "生成失败：" + item.error : "生成失败");
 			} else if (item.attachment) {
 				const url = tavernPluginMediaUrl(props.sessionId, item);
-				if (item.kind === "image") body = h("a", { href: url, "aria-label": "放大插图", onClick: function (event) { event.preventDefault(); openSceneImagePreview(url, event.currentTarget); } }, h("img", { src: url, alt: item.caption || "插图", loading: "lazy" }));
+				if (item.kind === "image") body = h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": "放大插图", onClick: function (event) { openSceneImagePreview(url, event.currentTarget); } }, h("img", { src: url, alt: item.caption || "插图", loading: "lazy" }));
 				else if (item.kind === "video") body = h("video", { src: url, controls: true, preload: "metadata", playsInline: true });
 				else body = h("audio", { src: url, controls: true, preload: "metadata" });
 			}

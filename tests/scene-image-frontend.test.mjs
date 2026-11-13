@@ -127,7 +127,7 @@ test('gallery deletes the selected plugin image in its session', async t => {
   assert.ok(galleryImages.some(node => node.props.src.includes('game-B-plugin')))
 
   const removePluginButton = walk(h.tree, node => node.type === 'figure' && node.props.title === 'game-B plugin')[0]
-  const deleteButton = walk(removePluginButton, node => node.type === 'button')[0]
+  const deleteButton = walk(removePluginButton, node => node.props['aria-label'] === '删除这张图片')[0]
   deleteButton.props.onClick()
   await new Promise(resolve => setImmediate(resolve))
   const deletion = calls.find(call => call.method === 'removeSceneImageHistory')
@@ -159,7 +159,7 @@ test('gallery sends selected plugin pictures with their session scope', async t 
   assert.equal(checkboxes.length, 1)
   checkboxes.forEach(node => node.props.onChange({ target: { checked: true } }))
   h.render({ gallerySessionId: 'mixed-session' })
-  const removeSelected = walk(h.tree, node => node.type === 'button' && node.children[0]?.startsWith('删除选中的'))[0]
+  const removeSelected = walk(h.tree, node => node.type === 'button' && typeof node.children[0] === 'string' && node.children[0].startsWith('删除选中的'))[0]
   removeSelected.props.onClick()
   await new Promise(resolve => setImmediate(resolve))
 

@@ -9,6 +9,7 @@ import { browserReactScript } from '../fixtures/browser-react.mjs'
 const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 const features = new URL('../../tavern-plugin/src/client/features/', import.meta.url)
 const gallerySource = await readFile(new URL('scene-images.js', features), 'utf8')
+const tavernCss = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 
 function declaration(source, name) {
   const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'script' })
@@ -54,7 +55,9 @@ try {
       function rpc(method,args,sessionId){return window.__rpc(method,args,sessionId);}
       function useTavernConfirm(){return async()=>true;}
       const tavernPluginMediaIndex={subscribe:()=>()=>{}};
-      const openSceneImagePreview=()=>{};
+      const previews=[];
+      const openSceneImagePreview=(url, opener)=>previews.push({url, tag:opener.tagName});
+      window.__previews=previews;
       const DshUi={IconTrashOutlineRegular:'trash-icon'};
       const sceneImageStageLabel=()=>'';
       const sceneImageRequestId=()=> 'unused';
@@ -93,6 +96,9 @@ try {
   assert.ok(gallerySources.every(src => !src.includes('A-')), 'late response from A cannot replace B')
 
   const pluginFigure = page.locator('#gallery figure[title="delegated plugin image"]')
+  await pluginFigure.getByRole('button', { name: /放大/ }).press('Enter')
+  assert.deepEqual(await page.evaluate(() => window.__previews), [{ url: gallerySources[0], tag: 'BUTTON' }])
+  assert.equal(await pluginFigure.locator('a[href]').count(), 0)
   await pluginFigure.getByRole('button', { name: '删除这张图片' }).click()
   await page.waitForFunction(() => window.__calls.some(call => call.method === 'removeSceneImageHistory'))
   const deletion = await page.evaluate(() => window.__calls.find(call => call.method === 'removeSceneImageHistory'))
@@ -100,8 +106,23 @@ try {
   assert.equal(deletion.args.sessionId, 'B')
   assert.deepEqual(Array.from(deletion.args.pluginItems), ['plugin-B'])
   assert.equal(deletion.args.items, undefined, 'only plugin pictures are left to delete')
+
+  await page.addStyleTag({ content: tavernCss })
+  await page.evaluate(() => {
+    const host = document.createElement('section')
+    host.id = 'story-width'
+    host.style.cssText = 'width:1000px;--dsh-chat-content-width:680px'
+    host.innerHTML = '<div data-chat-flow><article class="dsh-tavern-story-transcript-row"><div class="dsh-tavern-message-frame-slot"><iframe class="dsh-tavern-message-frame"></iframe></div></article></div>'
+    document.body.append(host)
+  })
+  const frame = page.locator('#story-width iframe')
+  assert.equal(await frame.evaluate(node => node.clientWidth), 680)
+  await page.locator('#story-width').evaluate(node => node.style.setProperty('--dsh-chat-user-width', '840px'))
+  assert.equal(await frame.evaluate(node => node.clientWidth), 840)
+  await page.locator('#story-width').evaluate(node => { node.style.width = '360px' })
+  assert.equal(await frame.evaluate(node => node.clientWidth), 360)
   assert.deepEqual(pageErrors, [], 'browser runtime reports no uncaught errors')
-  console.log('PASS Chromium gallery smoke: plugin pictures, session isolation, scoped deletion, no page errors')
+  console.log('PASS Chromium: gallery preview, session isolation, scoped deletion and responsive story frames')
 } finally {
   await browser.close()
 }

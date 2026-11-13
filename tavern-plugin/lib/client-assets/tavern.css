@@ -99,7 +99,9 @@ body.dsh-tavern-shell-active,
 /* the raw text under the sentence, 调试视图 only. */
 .dsh-tavern-error-raw { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; opacity: .8; }
 .dsh-tavern-assistant { display: flex; flex-direction: column; gap: 16px; color: var(--dsw-alias-label-primary); font-size: var(--dsh-content-font-size, 14px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); }
-.dsh-tavern-story-transcript-row { min-width: 0; }
+/* Use the host's live width preference, including while a handle is dragged. */
+[data-chat-flow]:has(.dsh-tavern-story-transcript-row) { width: 100%; max-width: var(--dsh-chat-user-width, var(--dsh-chat-content-width, 100%)); }
+.dsh-tavern-story-transcript-row { width: 100%; min-width: 0; }
 .dsh-tavern-story-body { min-width: 0; overflow-wrap: anywhere; }
 .dsh-tavern-story-floor-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
 .dsh-tavern-story-floor-no { color: var(--dsw-alias-label-secondary); font-weight: 600; }
@@ -126,7 +128,7 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-story-error { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dsh-tavern-accent-error); }
 .dsh-tavern-story-input .dsh-tavern-user-bubble { box-sizing: border-box; max-width: min(525px, 82%); }
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
-.dsh-tavern-illustration > a { display: block; max-width: 100%; }
+.dsh-tavern-image-preview { display: block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
 /* Earlier turns without a picture: a quiet entry that appears when the turn is hovered. */
 /* 生成中：在图片将出现的位置放一个微光占位框，下面一行显示阶段、用时和取消。 */
 .dsh-tavern-image-pending { display: grid; gap: 8px; width: min(100%, 320px); }
@@ -1662,7 +1664,7 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 .dsh-tavern-gallery-turn h4 span { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-gallery-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; padding-bottom: 4px; }
 .dsh-tavern-gallery-shot { position: relative; margin: 0; min-width: 0; }
-.dsh-tavern-gallery-shot a { display: block; border-radius: 10px; overflow: hidden; outline-offset: 2px; }
+.dsh-tavern-full-context .dsh-tavern-gallery-shot > .dsh-tavern-image-preview { width: 100%; padding: 0; border: 0; border-radius: 10px; overflow: hidden; outline-offset: 2px; }
 .dsh-tavern-gallery-shot img { display: block; width: 100%; height: auto; aspect-ratio: 2 / 3; object-fit: cover; background: var(--dsw-alias-interactive-bg-hover); cursor: zoom-in; }
 .dsh-tavern-gallery.is-picking .dsh-tavern-gallery-shot img { cursor: pointer; }
 .dsh-tavern-gallery-shot.is-picked a { box-shadow: inset 0 0 0 3px var(--dsw-alias-state-business-primary); }
