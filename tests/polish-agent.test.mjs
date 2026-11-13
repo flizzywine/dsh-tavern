@@ -55,7 +55,7 @@ test('回退、重生成、前文变化仍用同一个润色会话并说明剧�
     }
     await reviewer.review('parent', [change === 'regenerate' ? '另一个正文' : '甲。乙。'])
     assert.equal(f.calls[1].id, f.calls[0].id, change)
-    assert.match(f.calls[1].text, /【剧情有变】/, change)
+    assert.match(f.calls[1].text, /<story_changed>\n/, change)
   }
   for (const change of ['card', 'fork']) {
     const f = fixture(), reviewer = createPolishReviewer(f.options)

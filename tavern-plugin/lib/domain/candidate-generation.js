@@ -1,7 +1,30 @@
+import { promptSection } from './prompt-section.js'
 import { scriptForState } from './script-layout.js'
 import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './character-design-document.js'
+
+// Prompt prose source: task-specific additions, unchanged in phase 1.
+const TASK_PROMPT_PROSE = Object.freeze({
+  p001: "\n\nExtra user requirements:\n",
+  p002: "\n\nThe extra requirements don't change the ",
+  p003: "script direction, ",
+  p004: "-choice count or type rules.",
+  p005: "\n\nChoice point: story revision ",
+  p006: "; latest story turn ",
+  p007: ". Continue from the end of the latest story text with its current identities, names, place and time; don't roll renamed or finished plot back to the card's opening.",
+  p008: "\nPlayer's name in this session: ",
+  p009: " (if the story has clearly renamed them, the latest story wins)."
+})
+
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  // the background session is persistent, so a repeat request at the same choice point
+  // sees its earlier accepted submission; the model must not treat that as already done.
+  p001: "Generate the choices by the rules above. This is a new request: submit with candidate_submit_choices now, even if this session already submitted choices before — earlier submissions were for earlier requests and don't count for this one."
+})
+
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -374,20 +397,19 @@ export function createCandidateGenerator(options) {
     const participantRequest = taskRun.participantRequest
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
-    // The background session is persistent, so a repeat request at the same choice point
-    // sees its earlier accepted submission; the model must not treat that as already done.
-    let request = '请按上述规则生成候选项。这是一次新的请求：即使本会话之前提交过候选项，也要现在调用 candidate_submit_choices 提交；之前的提交属于之前的请求，不算本次。'
-    if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
+    let request = PROMPT_PROSE.p001
+    if (guidance !== '') request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + (scriptMode ? TASK_PROMPT_PROSE.p003 : '') + (scriptMode ? 1 : 5) + TASK_PROMPT_PROSE.p004
     // A synced participant revision records task commits, not delivery of story text.
     // Always anchor choices in the current timeline, even in a persistent background session.
     const recentMessages = buildMessages(chat, card, selection, now)
-    request += '\n\n候选点：剧情修订 ' + taskRun.basedOn.revision + '，最新正文第 ' + (chat.messages?.findLast(message => message.role === 'assistant')?.turn || 0) +
-      ' 轮。从最新正文的结尾接续，沿用其中当前的身份、名字、地点和时间；不要把已改名或已结束的剧情退回人物卡开局。'
-    if (chat.macroState?.userName) request += '\n本局玩家名：' + chat.macroState.userName + '（若正文已明确改名，以最新正文为准）。'
+    request += TASK_PROMPT_PROSE.p005 + taskRun.basedOn.revision +
+      TASK_PROMPT_PROSE.p006 + (chat.messages?.findLast(message => message.role === 'assistant')?.turn || 0) +
+      TASK_PROMPT_PROSE.p007
+    if (chat.macroState?.userName) request += TASK_PROMPT_PROSE.p008 + chat.macroState.userName + TASK_PROMPT_PROSE.p009
     const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',
-      content: [{ type: 'text', text: request }],
+      content: [{ type: 'text', text: promptSection('candidate_request', request) }],
       source: { kind: 'plugin:dsh-tavern' }
     }])
     const research = scriptMode ? scriptResearchAttempt(script, scriptWindow, card, chat) : null

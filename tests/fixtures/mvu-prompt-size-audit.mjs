@@ -12,25 +12,26 @@ let found = false
 let originalVariables
 for (const message of after.messages || []) {
   for (const block of Array.isArray(message.content) ? message.content : []) {
-    if (block.type !== 'text' || !block.text.includes('【当前变量快照】')) continue
+    if (block.type !== 'text' || !block.text.includes('<variable_state>\nVariable schema:\n')) continue
     const text = block.text
-    const start = text.indexOf('【当前变量快照】')
-    const schemaStart = text.indexOf('\n【变量结构】\n', start)
-    const rulesStart = text.indexOf('\n【人物卡变量更新规则】\n', schemaStart)
-    const end = text.indexOf('\n\n【最近剧情与本次任务】', rulesStart)
-    assert(start >= 0 && schemaStart > start && rulesStart > schemaStart && end > rulesStart)
-    const variables = JSON.parse(text.slice(start + '【当前变量快照】\n'.length, schemaStart))
-    const schema = JSON.parse(text.slice(schemaStart + '\n【变量结构】\n'.length, rulesStart))
-    const rules = text.slice(rulesStart + '\n【人物卡变量更新规则】\n'.length, end)
-    const storyStart = text.indexOf('[正文]\n', end)
-    const storyEnd = text.indexOf('\n\n【任务要求】', storyStart)
+    const start = text.indexOf('<variable_state>\n')
+    const end = text.indexOf('\n</variable_state>', start) + '\n</variable_state>'.length
+    const body = text.slice(start, end).split('\n')
+    const line = label => body[body.indexOf(label) + 1]
+    const schema = JSON.parse(line('Variable schema:'))
+    const variables = JSON.parse(line('Current variable snapshot:'))
+    const rulesAt = body.indexOf('Card variable update rules:')
+    const rules = rulesAt < 0 ? [] : [body.slice(rulesAt + 1, body.indexOf('Current variable snapshot:')).join('\n')]
+    assert(start >= 0 && end > start)
+    const storyStart = text.indexOf('[Story]\n', end)
+    const storyEnd = text.indexOf('\n</recent_task>', storyStart)
     assert(storyStart > end && storyEnd > storyStart)
     const frame = createMvuBackgroundTaskFrame({ operationId: 'audit', chatId: 'audit', branchId: 'audit', basedOnRevision: 0,
-      messageId: 0, swipeId: 0, storyText: text.slice(storyStart + '[正文]\n'.length, storyEnd), currentVariables: variables, variableSchema: schema, updateRules: [rules] })
+      messageId: 0, swipeId: 0, storyText: text.slice(storyStart + '[Story]\n'.length, storyEnd), currentVariables: variables, variableSchema: schema, updateRules: rules })
     const projected = projectMvuBackgroundRequest(frame).turnContext
-    const projectedVariables = JSON.parse(projected.split('【当前变量快照】\n')[1].split('\n【变量结构】')[0])
+    const projectedVariables = JSON.parse(projected.split('\n')[projected.split('\n').indexOf('Current variable snapshot:') + 1])
     assert.deepEqual(projectedVariables.stat_data, variables.stat_data)
-    assert(projected.endsWith(rules))
+    assert(rules.every(text => projected.includes(text)))
     assert.deepEqual(frame.authoritativeState.currentVariables, variables)
     block.text = text.slice(0, start) + projected + text.slice(end)
     found = true

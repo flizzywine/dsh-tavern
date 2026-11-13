@@ -30,7 +30,7 @@ test('real DSH: manual story compaction commits the summary with the latest roun
   assert.ok(summarized[0].includes('第3轮行动') && !summarized[0].includes('第4轮行动'), 'the summarizer sees only older rounds')
   const checkpoint = sessionEvents(agent.session).findLast(e => e.type === 'user/message' && e.data?.source?.compactionId)
   const text = checkpoint.data.content.map(block => block.text || '').join('\n')
-  assert.match(text, /【最近 2 轮原文（未压缩，按时间顺序）】/)
+  assert.match(text, /<recent_transcript>\n最近 2 轮原文（未压缩，按时间顺序）\n/)
   assert.match(text, /\[玩家\]\n第4轮行动/)
 })
 
@@ -67,7 +67,7 @@ test('real DSH: a second story compaction carries the first volume verbatim befo
   await play(5); through = 6; assert.ok(await compact())
   assert.match(instructions[1], /旧卷会原样保留[^]*第 4–6 轮剧情摘要/)
   const text = checkpointText()
-  const order = [STORY_SUMMARY_NOTE, '【第 1–3 轮剧情摘要】\n甲在第二轮许下约定。', '【第 4–6 轮剧情摘要】\n乙离开了城镇。', '【最近 1 轮原文'].map(part => text.indexOf(part))
+  const order = [STORY_SUMMARY_NOTE, '【第 1–3 轮剧情摘要】\n甲在第二轮许下约定。', '【第 4–6 轮剧情摘要】\n乙离开了城镇。', '<recent_transcript>\n最近 1 轮原文'].map(part => text.indexOf(part))
   assert.ok(order.every(index => index >= 0), text)
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'note, old volume, new volume, then the kept rounds')
 })

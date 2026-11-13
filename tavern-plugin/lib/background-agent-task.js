@@ -20,6 +20,14 @@ import {
 } from './domain/character-design-stage.js'
 import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix, sessionStablePrefixSections, withCurrentWorldbook } from './domain/session-stable-prefix.js'
+import { promptSection } from './domain/prompt-section.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p002: "You are a Tavern background agent, apart from foreground story generation, doing a one-off plugin task. Output only what the task asks; don't continue the story or change game state yourself. Consult the lorebook and history as needed.",
+  p003: "You are a Tavern background agent, apart from foreground story generation. In one story branch you handle state settlement and choice generation in turn; character design runs only when the user explicitly starts it. Follow the task protocol appended to each turn exactly, keeping each task's output format to that task. The latest authoritative state overrides older dynamic state in the session.",
+  p004: "The card system prompt below only governs choice text; settlement, filtering, character design and other background tasks follow their own protocols."
+})
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -170,9 +178,9 @@ export function createBackgroundAgentTask(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    const backgroundPersona = state.input.task === 'plugin'
-      ? '你是与前台正文生成隔离的酒馆后台 Agent，正在为一个插件完成一次性任务。只按任务要求输出结果，不续写正文，不自行修改游戏状态；需要资料时可以查世界书和历史。'
-      : '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，人物设计仅在用户明确发起人物设计任务时执行；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
+    const backgroundPersona = promptSection('background_role', state.input.task === 'plugin'
+      ? PROMPT_PROSE.p002
+      : PROMPT_PROSE.p003)
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
       // Legacy directors retain their exact preview; shared-context directors keep scoped native tools.
@@ -248,7 +256,7 @@ export function createBackgroundAgentTask(options) {
           // instruction without changing its system prefix when the task switches.
           const fixed = sessionStablePrefixSections(state.session).flatMap(section => {
             if (section.name !== CARD_SYSTEM_PROMPT_SECTION) return [section]
-            return [{ ...section, text: '以下人物卡系统提示仅用于候选文本的写作；结算、筛选、人物设计等后台任务遵循各自任务协议。\n' + section.text }]
+            return [{ ...section, text: promptSection('card_system_scope', PROMPT_PROSE.p004) + '\n\n' + section.text }]
           })
           let sections = state.currentWorldbook === undefined ? fixed : withCurrentWorldbook(fixed, state.currentWorldbook)
           if (state.input.worldbookSkillsEnabled) sections = withWorldbookFileInstructions(sections)
@@ -550,7 +558,7 @@ export function createBackgroundAgentTask(options) {
       const settlementText = items ? await items.text(pluginContext) : ''
       const candidateNotes = input.task === 'candidate' && typeof options.pluginCandidate === 'function'
         ? await options.pluginCandidate()?.sections(pluginContext).catch(() => []) || [] : []
-      const candidateText = candidateNotes.length ? ['【插件附加的候选要求】', ...candidateNotes.map(note => note.text)].join('\n\n') : ''
+      const candidateText = candidateNotes.length ? promptSection('plugin_task', promptSection('plugin_choice_requirements', candidateNotes.map(note => note.text).join('\n\n'))) : ''
       const ownTaskText = input.task === 'polish' || input.ownPrefix === true
       const taskText = ownTaskText ? (typeof input.taskText === 'function' ? input.taskText() : input.taskText)
         : backgroundTaskPrompt({ input, turnContext: scriptContext?.turnContext ?? input.turnContext, worldbook: snapshot, systemUpdate,

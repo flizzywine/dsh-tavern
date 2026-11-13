@@ -1,3 +1,4 @@
+import { promptSection } from './prompt-section.js'
 import { CHARACTER_DESIGN_ITEM } from './background-pipeline.js'
 import { CHARACTER_DESIGN_SAVE_TOOL_NAME, createCharacterDesignDocumentSession } from './character-design-document.js'
 import { beginOrQueue } from './background-task-coordinator.js'
@@ -76,7 +77,7 @@ export function createManualCharacterDesign({ store, runAgent, selection, beginT
         rewindFormatVersion: taskRun.participantRequest.formatVersion,
         onPersistentSessionReady: id => taskRun.bindSession(id), sessionId, chatId: chat.id, selection: model,
         backgroundTasks: { variables: false, posture: false, characterDesign: true },
-        system: CHARACTER_DESIGN_ITEM.system(),
+        system: promptSection('character_design', CHARACTER_DESIGN_ITEM.system()),
         messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify({ guidance, card: { name: card.name, description: card.description, personality: card.personality, scenario: card.scenario }, recent }) }] }],
         tools: draft.tools, onToolCall: async call => {
           const output = await draft.execute(call)

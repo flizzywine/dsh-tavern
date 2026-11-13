@@ -203,8 +203,8 @@ test('choices after unseen turns still carry the recent story and the player nam
   const task = request.messages.at(-1).content[0].text
   assert.equal(bodies.length, 3, 'the three newest story turns reach the background agent')
   assert.ok(bodies.some(text => text.includes('钟楼')))
-  assert.match(task, /最新正文第 20 轮/)
-  assert.match(task, /本局玩家名：阿舟/)
+  assert.match(task, /latest story turn 20/)
+  assert.match(task, /Player.s name in this session: 阿舟/)
 })
 
 test('a synced background session still receives the latest story, renamed player and bedtime after twenty turns', async () => {
@@ -218,8 +218,8 @@ test('a synced background session still receives the latest story, renamed playe
   const bodies = request.messages.filter(message => message.role === 'assistant')
   assert.equal(bodies.length, 3)
   assert.equal(bodies.at(-1).content[0].text, messages.at(-1).text)
-  assert.match(request.messages.at(-1).content[0].text, /最新正文第 20 轮/)
-  assert.match(request.messages.at(-1).content[0].text, /本局玩家名：阿舟/)
+  assert.match(request.messages.at(-1).content[0].text, /latest story turn 20/)
+  assert.match(request.messages.at(-1).content[0].text, /Player.s name in this session: 阿舟/)
 })
 
 test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提取、宏替换与剥离', () => {

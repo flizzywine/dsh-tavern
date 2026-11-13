@@ -1,3 +1,4 @@
+import { promptSection } from './prompt-section.js'
 import { sessionEvents } from './session-events.js'
 import { isPluginSource, isProducerSource } from './message-source.js'
 
@@ -35,8 +36,10 @@ export const RETAINED_STORY_ROUNDS = 10
 // Kept rounds may use at most this share of the model's context window.
 export const RETAINED_ROUNDS_WINDOW_SHARE = 0.25
 
-const TRANSCRIPT_HEADER = /^【最近 \d+ 轮原文（未压缩，按时间顺序）】\n\n/
-const transcriptHeader = count => `【最近 ${count} 轮原文（未压缩，按时间顺序）】\n\n`
+// Saved histories carry the transcript tagged or, before the tags, under its original heading.
+const TRANSCRIPT_HEADER = /^(?:<recent_transcript>\n最近 \d+ 轮原文（未压缩，按时间顺序）|【最近 \d+ 轮原文（未压缩，按时间顺序）】)\n\n/
+const transcriptBody = text => text.replace(TRANSCRIPT_HEADER, '').replace(/\n<\/recent_transcript>$/, '')
+const transcriptText = (count, rounds) => promptSection('recent_transcript', `最近 ${count} 轮原文（未压缩，按时间顺序）\n\n` + rounds)
 
 const textOf = message => (Array.isArray(message?.content) ? message.content : [])
   .filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n').trim()
@@ -47,7 +50,7 @@ function storyUnits(message) {
   const blocks = message?.role === 'user' && Array.isArray(message.content) ? message.content : []
   const index = blocks.findIndex(block => block?.type === 'text' && TRANSCRIPT_HEADER.test(block.text || ''))
   if (index < 0) return [{ message, player: isPlayerMessage(message) }]
-  const rounds = blocks[index].text.replace(TRANSCRIPT_HEADER, '').split(/\n\n(?=\[玩家\]\n)/).filter(text => text.trim())
+  const rounds = transcriptBody(blocks[index].text).split(/\n\n(?=\[玩家\]\n)/).filter(text => text.trim())
   return [{ message: { ...message, content: blocks.filter((_, i) => i !== index) } }, ...rounds.map(text => ({ text, player: true }))]
 }
 
@@ -125,7 +128,7 @@ export function retainRecentStoryRounds(request, rounds = RETAINED_STORY_ROUNDS,
   const transcript = units.slice(starts[starts.length - keep]).map(lineOf).filter(Boolean)
   return {
     request: { ...request, messages: [...history.slice(0, boundary), ...history.slice(boundary).filter(message => message?.role === 'system'), request.messages.at(-1)] },
-    appendix: transcriptHeader(keep) + transcript.join('\n\n'),
+    appendix: transcriptText(keep, transcript.join('\n\n')),
     kept: keep
   }
 }
@@ -134,7 +137,7 @@ export function retainRecentStoryRounds(request, rounds = RETAINED_STORY_ROUNDS,
 // the rounds it folds and carries the earlier volumes verbatim, so what was summarized
 // once is not summarized again (and worn down) by every later compaction. Only when the
 // carried volumes outgrow their budget are they merged once into a 前情总览.
-export const STORY_SUMMARY_NOTE = '【剧情摘要说明】以下按轮次分卷记录已经压缩的剧情，只是索引。需要原话、细节或确认某件事时，用 tavern_recall_history 按关键词或轮次查原文。'
+export const STORY_SUMMARY_NOTE = promptSection('story_summary_note', '以下按轮次分卷记录已经压缩的剧情，只是索引。需要原话、细节或确认某件事时，用 tavern_recall_history 按关键词或轮次查原文。')
 // Carried volumes may use at most this share of the model's context window.
 export const STORY_VOLUMES_WINDOW_SHARE = 0.15
 const VOLUME_HEADER = /^【[^】\n]*(?:剧情摘要|前情总览)[^】\n]*】/gm
@@ -146,7 +149,7 @@ export function storySummaryVolumes(history) {
   const texts = (Array.isArray(checkpoint?.content) ? checkpoint.content : [])
     .filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text)
     // The native framing (preamble + tags), the note and the carried transcript are not volumes.
-    .filter(text => text.trim() && !text.includes('compacted-summary>') && !text.startsWith('【剧情摘要说明】') && !TRANSCRIPT_HEADER.test(text))
+    .filter(text => text.trim() && !text.includes('compacted-summary>') && !text.startsWith('<story_summary_note>\n') && !text.startsWith('【剧情摘要说明】') && !TRANSCRIPT_HEADER.test(text))
   const volumes = []
   const legacy = text => ({ text: '【前情总览】\n' + text.trim(), through: null })
   for (const text of texts) {
@@ -175,8 +178,8 @@ export function storyVolumePlan(request, { through, budget = Infinity, estimate 
   const range = end === null ? '' : from !== null && from <= end ? `第 ${from}–${end} 轮` : `截至第 ${end} 轮`
   const header = `【${range || '新一卷'}剧情摘要】`
   const instruction = volumes.length === 0
-    ? `【本次摘要的写法】第一行单独写「${header}」。`
-    : `【本次摘要的写法】<compacted-summary> 中的旧卷会原样保留在新摘要里，不要复述旧卷内容。只总结旧卷之后的新剧情，第一行单独写「${header}」，写成新的一卷：只写本段新增和变化的内容，人物、关系、物品等只记本段有变化的条目；与旧卷冲突时以本卷为准。`
+    ? promptSection('summary_volume_instruction', `第一行单独写「${header}」。`)
+    : promptSection('summary_volume_instruction', `<compacted-summary> 中的旧卷会原样保留在新摘要里，不要复述旧卷内容。只总结旧卷之后的新剧情，第一行单独写「${header}」，写成新的一卷：只写本段新增和变化的内容，人物、关系、物品等只记本段有变化的条目；与旧卷冲突时以本卷为准。`)
   // Over budget, only the oldest volumes are merged (by a separate call, see storyVolumeMerge):
   // as few as leave the newer ones within half the budget, so recent volumes stay word for word.
   const size = list => estimate(list.map(volume => volume.text).join('\n\n'))
@@ -196,7 +199,8 @@ export function storyVolumeMerge(merge) {
   const header = `【前情总览${Number.isInteger(merge.through) ? `（截至第 ${merge.through} 轮）` : ''}】`
   return {
     header,
-    prompt: `以下是按时间顺序排列的旧剧情摘要卷。把它们合并成一份前情总览，第一行单独写「${header}」，之后沿用原来的分段。\n`
-      + `保留所有专名、数字、约定、人物关系、未解决的伏笔和用户意志；删去各卷之间的重复，省略已经失效的细节；篇幅约为原文的一半（约 ${Math.round(text.length / 2)} 字），不要压得更短。只输出总览本身。\n\n${text}`
+    prompt: promptSection('summary_merge', `以下是按时间顺序排列的旧剧情摘要卷。把它们合并成一份前情总览，第一行单独写「${header}」，之后沿用原来的分段。\n`
+      + `保留所有专名、数字、约定、人物关系、未解决的伏笔和用户意志；删去各卷之间的重复，省略已经失效的细节；篇幅约为原文的一半（约 ${Math.round(text.length / 2)} 字），不要压得更短。只输出总览本身。`)
+      + '\n\n' + promptSection('summary_volumes', text)
   }
 }
