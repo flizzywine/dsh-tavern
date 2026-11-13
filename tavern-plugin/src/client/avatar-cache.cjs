@@ -104,7 +104,7 @@ function createAvatarCache({urls = globalThis.URL, image = () => new Image(), ma
         });
         return entry.promise;
     }
-    return {select, revision, get, ready, prepare, clear() { clear(); emit(); },
+    return {select, revision, get, ready, prepare, valid, clear() { clear(); emit(); },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         get sessionId() { return session; }};
 }

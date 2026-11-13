@@ -9,14 +9,22 @@ function bubbleCardFace(config, name, sessionId) {
 // A chat card frame's faces (its window.DshCardFaces.faces, frame-document.js): each named figure's card face, prepared in
 // the session avatar cache as the transcript prepares its rows' and handed over as a Blob the frame makes its own URL of
 // (a sandboxed frame cannot load the host's). A name without a face is left out; a card without bubble settings has none.
+// A frame can ask while the stage client is still starting: the faces then wait for the avatar cache to be bound to the
+// session and for the stage session to hold its resource authority, rather than answer with nothing (the page asks once).
 const BUBBLE_FRAME_FACE_PX = 96;
+const waitUntil = (subscribe, done) => done() ? Promise.resolve() : new Promise(resolve => {
+    const stop = subscribe(() => { if (done()) { stop(); resolve(); } });
+});
 async function bubbleCardFaceBlobs(sessionId, names) {
     const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
-    const source = stageSessions.get(sessionId)?.getSnapshot().source;
-    const authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
     const faces = await Promise.all([...new Set(names)].map(async name => {
         const face = bubbleCardFace(data?.config, name, sessionId);
         if (!face) return null;
+        await waitUntil(avatarCache.subscribe, () => avatarCache.valid(face));
+        const session = stageSessions.get(sessionId);
+        if (stageSessions.resourceOwner && session?.subscribe) await waitUntil(session.subscribe, () => session.getSnapshot().source);
+        const source = session?.getSnapshot().source;
+        const authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
         let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX) || avatarCache.ready(face);
         if (!url && !(stageSessions.resourceOwner && !authority)) {
             const pool = bubbleMediaPool.retain(), {sessionId: _session, ...descriptor} = face;
@@ -27,8 +35,7 @@ async function bubbleCardFaceBlobs(sessionId, names) {
         }
         return url ? {name, blob: await (await fetch(url)).blob()} : null;
     }));
-    return faces.filter(Boolean);
-}		const TAVERN_FRAME_MAX_HEIGHT = 32000;
+    return faces.filter(Boolean);}		const TAVERN_FRAME_MAX_HEIGHT = 32000;
 		function clampTavernFrameHeight(value) {
 			const height = Number(value);
 			return Number.isFinite(height) ? Math.max(48, Math.min(TAVERN_FRAME_MAX_HEIGHT, Math.ceil(height))) : 48;
