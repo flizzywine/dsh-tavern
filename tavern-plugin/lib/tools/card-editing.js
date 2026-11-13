@@ -19,7 +19,7 @@ export function registerCardEditingTools({
 }) {
   tools.register(defineTool({
     name: 'tavern_update_card',
-    description: '仅当用户明确要求或确认修改时，立即保存最小的人物卡变更；保存后自动校验磁盘文件并在结果中返回，无需再调用 tavern_validate_card；有错误时修正后再保存。path 可指定任意人物卡，省略时改当前打开的卡；无需事先挂载或引用。空白工作台会直接创建并绑定正式人物卡文件，必须同时具备角色名和玩家身份。另存为副本时先调用 tavern_copy_card，由工具保留源卡 PNG。只讨论时不要调用。',
+    description: '仅当用户明确要求或确认修改时，立即保存最小的人物卡变更；保存后自动校验磁盘文件并在结果中返回，无需再调用 tavern_validate_card；有错误时修正后再保存。path 可指定任意人物卡，省略时改当前打开的卡；无需事先挂载或引用。空白工作台会直接创建并绑定正式人物卡文件，这时要同时写好角色名和玩家身份。另存为副本时先调用 tavern_copy_card，由工具保留源卡 PNG。只讨论时不要调用。',
     parameters: {
       path: { type: 'string', description: '可选的人物卡路径，如 cards/角色 v2.json；省略时修改当前打开的人物卡' },
       fields: {
