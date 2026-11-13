@@ -5,14 +5,14 @@
 // sit in the background session's cached prefix and never change; which may be called this
 // turn is stated in the per-turn task text.
 
-const PLUGIN_HEADER = '【插件附加的结算任务】'
+import { promptSection } from './prompt-section.js'
 
 function pluginText(names, notes) {
   if (!notes.length && !names.available.length && !names.unavailable.length) return ''
-  return [PLUGIN_HEADER,
-    ...(names.available.length ? ['本轮可用插件工具：' + names.available.join('、') + '。以本轮列出的为准：之前回合里这些工具被关闭或报错的情况已不再适用。需要时在提交本轮结算之前调用；插件工具失败不影响本轮结算。'] : []),
-    ...(names.unavailable.length ? ['本轮不可用的插件工具（玩家在本局关闭了对应插件）：' + names.unavailable.join('、') + '。本轮不要调用。'] : []),
-    ...notes.map(note => note.text)].join('\n\n')
+  return promptSection('plugin_task', promptSection('plugin_settlement', [
+    ...(names.available.length ? ['Plugin tools available this turn: ' + names.available.join('、') + ". This list is current; earlier turns where they were off or failed no longer apply. Call them as needed before submitting this turn's settlement; a plugin tool failure doesn't affect it."] : []),
+    ...(names.unavailable.length ? ['Plugin tools unavailable this turn (the player turned off their plugins for this game): ' + names.unavailable.join('、') + ". Don't call them this turn."] : []),
+    ...notes.map(note => note.text)].join('\n\n')))
 }
 
 /**

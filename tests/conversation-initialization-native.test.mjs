@@ -144,7 +144,7 @@ test('first native reply uses the prepared static worldbook in the actual system
   assert.equal(h.requests.length, 1)
   assert.equal(preparations, 1, 'assembly and first pre-step share one preparation')
   const first = h.requests[0].system
-  assert.match(first, /【常驻世界书】\n已准备的常驻规则/)
+  assert.match(first, /<lorebook_constant>\n已准备的常驻规则/)
   assert.equal(first.split('已准备的常驻规则').length - 1, 1)
   assert.doesNotMatch(first, /预处理隐藏的规则|已禁用的常驻规则|控制器输出|Fixture constant worldbook/)
   await h.continueInPlace()
@@ -154,7 +154,7 @@ test('first native reply uses the prepared static worldbook in the actual system
   worldBook.view.entries[0].enabled = false
   await h.continueInPlace()
   assert.equal(preparations, 3)
-  assert.doesNotMatch(h.requests[2].system, /【常驻世界书】|已准备的常驻规则|预处理隐藏的规则/)
+  assert.doesNotMatch(h.requests[2].system, /<lorebook_constant>|已准备的常驻规则|预处理隐藏的规则/)
 })
 
 // Released V4 rejects a surface event written before a turn opened. Every

@@ -8,6 +8,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
+import { promptSection } from './prompt-section.js'
 import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, unclaimedRegenerationSurfaces, planRegenerationSurface, regenerationProjection, replayableFailedTurn, replayablePersistedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
 
 // Both regeneration paths (native and plugin) read the same tail rule.
@@ -82,9 +83,10 @@ function editedReplyBody(message) {
 
 export function regenerationInputText(userText, guidance, rewriteBody, options = {}) {
   const input = str(userText).trim(), guide = str(guidance).trim(), draft = str(rewriteBody).trim()
-  if (draft !== '' && guide !== '') return input + '\n\n【当前正文】\n' + draft + '\n\n【改写要求】\n在当前正文基础上改写本轮正文：' + guide
-  if (draft !== '' && options.keepBody === true) return input + '\n\n【当前正文】\n' + draft + '\n\n【改写要求】\n这是玩家手上的正文版本（可能改过）：以它为准重写这一轮，保留其中的改动与设定，不要回到更早的版本。'
-  return input + (guide !== '' ? '\n\n【本轮补充要求】\n' + guide : '')
+  const body = '\n\n' + promptSection('current_body', draft) + '\n\n'
+  if (draft !== '' && guide !== '') return input + body + promptSection('rewrite_request', '在当前正文基础上改写本轮正文：' + guide)
+  if (draft !== '' && options.keepBody === true) return input + body + promptSection('rewrite_request', '这是玩家手上的正文版本（可能改过）：以它为准重写这一轮，保留其中的改动与设定，不要回到更早的版本。')
+  return input + (guide !== '' ? '\n\n' + promptSection('turn_extra_request', guide) : '')
 }
 
 /**

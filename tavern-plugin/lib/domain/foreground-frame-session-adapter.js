@@ -1,6 +1,7 @@
 import { worldbookContextDelta } from './worldbook-context-delta.js'
 import { foregroundFrameText } from './agent-input-frame.js'
 import { worldbookSnapshot } from './worldbook-snapshot.js'
+import { promptSectionBody } from './prompt-section.js'
 import { liveContextUpdate, cardSystemPromptSnapshot, cardSystemPromptSource } from './card-system-prompt.js'
 
 function str(value) {
@@ -28,7 +29,7 @@ export function createForegroundFrameSessionAdapter(options = {}) {
     // Native virtual projection already deduplicates by entry identity+hash;
     // two distinct entries with identical text still need their own receipt.
     const entries = frame.contributions.filter(item => item.slot === 'activeWorldbook').flatMap((item, index) =>
-      item.entries || [{ ref: JSON.stringify(['section', item.source?.stage, item.source?.plugin, item.source?.name, index]), text: item.text.replace(/^【(?:本轮世界书上下文|常驻世界书)】\n/, '') }])
+      item.entries || [{ ref: JSON.stringify(['section', item.source?.stage, item.source?.plugin, item.source?.name, index]), text: promptSectionBody('lorebook_activated', promptSectionBody('lorebook_constant', item.text)) }])
     const snapshot = worldbookSnapshot(virtual ? null : input.session, entries, virtual ? [] : input.historyMessages || messages)
     const delta = snapshot && virtual ? worldbookContextDelta(input.session, virtual, snapshot.rendered, input.historyMessages || messages) : null
     if (delta) snapshot.rendered = delta.text

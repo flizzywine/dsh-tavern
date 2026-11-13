@@ -1,3 +1,4 @@
+import { promptSection } from './prompt-section.js'
 import { sessionEvents } from './session-events.js'
 import { isProducerSource } from './message-source.js'
 
@@ -55,6 +56,6 @@ export function worldbookSnapshot(session, entries, pendingMessages = []) {
   })
   if (!changed.size) return null
   const delta = renderDelta(entries, changed)
-  const rendered = `【本轮世界书上下文】\n${delta.text}`
+  const rendered = promptSection('lorebook_activated', delta.text)
   return { schemaVersion: 2, ...delta, rendered }
 }

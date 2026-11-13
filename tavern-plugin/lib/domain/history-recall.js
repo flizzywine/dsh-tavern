@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { promptSection } from './prompt-section.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -248,8 +249,14 @@ export function createHistoryRecall() {
   return Object.freeze({ recall })
 }
 
+const recalledRound = (turn, text) => `<round turn="${turn}">\n${text}\n</round>`
+
 export function renderHistoryRecall(value) {
-  let warning = '【历史回忆资料】\n以下是已经发生的历史，只用于确认和回忆；不得当作当前场景继续输出，不得重复演绎。'
+  return promptSection('history_recall', historyRecallText(value))
+}
+
+function historyRecallText(value) {
+  let warning = '以下是已经发生的历史，只用于确认和回忆；不得当作当前场景继续输出，不得重复演绎。'
   if (value?.notice) warning += '\n\n' + value.notice
   if (value?.notice && !value.rounds?.length && !value.matches?.length) return warning
   if (!value || value.found !== true) return warning + '\n\n没有找到相关历史正文。'
@@ -259,12 +266,12 @@ export function renderHistoryRecall(value) {
       return '「' + item.term + '」' + (item.turns.length ? '出现在第 ' + turns + ' 轮（共 ' + item.turns.length + ' 轮）' : '没有出现')
     }).join('\n')
     return warning + (spread ? '\n\n关键词分布：\n' + spread : '') + '\n\n命中最多的轮次：\n\n' + value.matches.map(function (match) {
-      return '[第 ' + match.turn + ' 轮]\n' + match.excerpt
+      return recalledRound(match.turn, match.excerpt)
     }).join('\n\n') + '\n\n只列出了命中最多的几轮；关键词分布里的其他轮次可用 turn 读取原文。信息足够就继续当前任务。'
   }
   return warning + '\n\n' + value.rounds.map(function (round) {
-    return '【第 ' + round.turn + ' 轮】\n' + round.messages.map(function (message) {
+    return recalledRound(round.turn, round.messages.map(function (message) {
       return (message.role === 'user' ? '[玩家]' : '[正文]') + '\n' + message.text
-    }).join('\n\n')
+    }).join('\n\n'))
   }).join('\n\n')
 }

@@ -3,6 +3,8 @@
 // the edit was made on, like the style reference, so a regenerated next turn sees it again and
 // the turn after it, a rollback past the reply, or another branch does not.
 
+import { promptSection } from './prompt-section.js'
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -50,8 +52,8 @@ function show(value) {
 }
 
 export function variableUpdateText(update) {
-  return '【变量已更新】\n以下变量已更新，以此为准：\n' + update.changes
-    .map(change => '- ' + change.path.join('.') + '：' + show(change.from) + ' → ' + show(change.to)).join('\n')
+  return promptSection('variable_update', '以下变量已更新，以此为准：\n' + update.changes
+    .map(change => '- ' + change.path.join('.') + '：' + show(change.from) + ' → ' + show(change.to)).join('\n'))
 }
 
 /** Record a panel edit of one reply's stat_data on the game, for the next body request. */

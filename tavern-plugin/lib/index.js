@@ -1,6 +1,7 @@
 import { tavernStContract, projectPluginBody } from './domain/st-contract-service.js'
 import {installHttpStreamPatch} from './domain/http-stream-patch.js'
 import {selectSessionModel} from './domain/session-model-selection.js'
+import { promptSection } from './domain/prompt-section.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
@@ -3660,11 +3661,11 @@ export async function apply(ctx) {
     if (mode !== 'story') return sections
     if (header?.backgroundTasks?.styleReference === true) {
       sections.push({ owner: 'dsh-tavern', name: 'style-reference', position: 'after',
-        text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' })
+        text: promptSection('style_reference_reminder', '写正文之前，先按 <foreground_style_reference> 的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。') })
     }
     if (header?.backgroundTasks?.foregroundCandidates === true) {
       sections.push({ owner: 'dsh-tavern', name: 'foreground-candidates', position: 'after',
-        text: '【本轮结尾附候选项】正文全部写完后，在最末尾另起一行附上 `<story_choices>{"actions":["...","...","...","..."],"scene":"..."}</story_choices>`（4 条不同导演视角的行动指引 + 1 条场景变化指引，每条约 40 字）。' })
+        text: promptSection('story_choices_reminder', '正文全部写完后，在最末尾另起一行附上 `<story_choices>{"actions":["...","...","...","..."],"scene":"..."}</story_choices>`（4 条不同导演视角的行动指引 + 1 条场景变化指引，每条约 40 字）。') })
     }
     return sections
   }
