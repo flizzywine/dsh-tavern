@@ -260,6 +260,27 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
   assert.equal(broken.proseText, '正文内容。')
   assert.equal(broken.choices, null)
 
+  // 正文里引用 `<story_choices>` 示例时只认末尾真块：切在引用处会把整轮正文切没
+  const quoted = [
+    '协议要求：正文末尾附上 `<story_choices>{"actions":["..."]}</story_choices>` 再收尾。',
+    '<story_body>第一段正文。</story_body>',
+    '<story_choices>',
+    JSON.stringify({ actions: ['甲甲甲甲行动', '乙乙乙乙行动', '丙丙丙丙行动', '丁丁丁丁行动'], scene: '换场到走廊' }),
+    '</story_choices>',
+    '</story_after_format>',
+    '</story_plot>'
+  ].join('\n')
+  const quotedOut = extractForegroundStoryChoices(quoted, {})
+  assert.equal(quotedOut.hadTag, true)
+  assert.match(quotedOut.proseText, /第一段正文/)
+  assert.equal(quotedOut.choices.length, 5)
+
+  // 只有引用、没有真块：正文原样保留，不按引用处切割
+  const onlyQuote = '正文提到 `<story_choices>{"actions":[]}</story_choices>` 这个标签，然后继续写正文。'
+  const quoteOut = extractForegroundStoryChoices(onlyQuote, {})
+  assert.equal(quoteOut.hadTag, false)
+  assert.equal(quoteOut.proseText, onlyQuote)
+
   // 多角色分组 + 全局事件/场景结构化提取（支持第三人称无“我”场景）
   const structuredRaw = [
     '大厅烛火摇曳。',

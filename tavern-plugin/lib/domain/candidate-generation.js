@@ -276,20 +276,33 @@ export function foregroundCandidatePrompt(chat) {
   return FOREGROUND_CANDIDATES_PROMPT
 }
 
+// What may follow the real choices block: whitespace and the card protocol's own
+// closing tags (`</story_after_format></story_plot>`), never prose.
+const CHOICES_TAIL_RE = /^(?:\s*<\/?[a-zA-Z][\w:.-]*(?:\s[^>]*)?>)*\s*$/
+
 /**
- * Extract trailing `<story_choices>...</story_choices>` from a foreground reply.
+ * Extract the trailing `<story_choices>...</story_choices>` block of a foreground reply.
  * Returns `{ proseText, choices, hadTag }`, where `choices` is either a validated
- * choice array or `null` if no valid block was present. Any trailing `<story_choices>`
- * block (complete or truncated at max-tokens) is stripped from `proseText`.
+ * choice array or `null` if no valid block was present. The trailing block (complete
+ * or truncated at max-tokens) is stripped from `proseText`.
+ *
+ * Only the last tag can be the block. A story that explains its own protocol quotes
+ * the tag in the prose (`…附上 \`<story_choices>{"actions":…}</story_choices>\``), and a
+ * first-match search cut the round at that quote: the save then kept only the planning
+ * text before it as the body, and the round showed an empty story.
  */
 export function extractForegroundStoryChoices(rawText, { card, chat, logger } = {}) {
   const source = str(rawText)
-  const match = source.match(/\s*<story_choices>\s*([\s\S]*?)(?:<\/story_choices>\s*$|$)/i)
-  if (!match || match.index === undefined) {
-    return { proseText: source, choices: null, hadTag: false }
-  }
-  const proseText = source.slice(0, match.index).trimEnd()
-  const payload = str(match[1]).trim()
+  const lower = source.toLowerCase()
+  const open = lower.lastIndexOf(FOREGROUND_CHOICES_OPEN_TAG)
+  if (open < 0) return { proseText: source, choices: null, hadTag: false }
+  const afterOpen = open + FOREGROUND_CHOICES_OPEN_TAG.length
+  const close = lower.indexOf(FOREGROUND_CHOICES_CLOSE_TAG, afterOpen)
+  // Closed and then followed by prose: that was a quote inside the story, not the block.
+  const tail = close >= 0 ? source.slice(close + FOREGROUND_CHOICES_CLOSE_TAG.length) : ''
+  if (close >= 0 && !CHOICES_TAIL_RE.test(tail)) return { proseText: source, choices: null, hadTag: false }
+  const proseText = source.slice(0, open).trimEnd()
+  const payload = str(source.slice(afterOpen, close >= 0 ? close : source.length)).trim()
   if (payload === '') return { proseText, choices: null, hadTag: true }
   try {
     const parsed = parseJsonLenient(payload)
