@@ -11,9 +11,21 @@ import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distribution
 // settlement's background model for the cards offered(card) accepts, to record what the story shows but the reply did not submit:
 // run returns the result the tool would have given (or throws a refusal) and its text joins the results settlement(results)
 // writes. owns(card) lists the /stat_data paths only the tool writes for that card: the background's writes there are dropped.
+// cardExtension, if given, names the card extension key that offers the tool by itself (the card declares what it needs, so
+// the tool comes with the card whatever the mod switch says; cardOffers). Such a card stands for the mod (cardGoverns): its
+// games get only the tools the card declares, and the mod switch adds none of the mod's other tools or prompts.
 export const modTools = Object.freeze((await Promise.all(firstPartyModIds.map(async folder => {
   const directory=firstPartyModDirectory(folder)
   if (!await access(new URL('tools.js',directory)).then(()=>true,()=>false)) return []
   const modId=JSON.parse(await readFile(new URL('mod.json',directory),'utf8')).id
-  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:tool.create,...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{})}))
+  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:tool.create,...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{})}))
 }))).flat())
+
+/** Whether the card a game plays with offers the tool by itself (its cardExtension key is in the card's extensions). */
+export const cardOffers = (tool, card) => Boolean(tool.cardExtension) && card?.extensions?.[tool.cardExtension] !== undefined
+
+/** Whether the card declares one of the mod's tools (cardOffers): then the card, not the mod switch, decides the mod's tools and prompts. */
+export const cardGoverns = (modId, card) => modTools.some(tool => tool.modId === modId && cardOffers(tool, card))
+
+/** How a game of this card gets the tool: 'card' (offered by the card), 'withheld' (the card declares another tool of its mod) or null (the mod switch decides). */
+export const cardOffer = (tool, card) => cardOffers(tool, card) ? 'card' : cardGoverns(tool.modId, card) ? 'withheld' : null

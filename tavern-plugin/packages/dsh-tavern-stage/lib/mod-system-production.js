@@ -84,7 +84,7 @@ export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,ca
     const releases=(await installations.readReleases()).filter(row=>row.active && row.installed)
     const manifests=releases.map(row=>row.manifest),authorized=releases.filter(row=>row.authorized).map(row=>row.manifest.id)
     const skin=await readSkin(cardPath,{cardId:workspace?.meta.id,sessionId})
-    return {global,card,skin:skin?.document,manifests,resolution:resolveMods({manifests,authorized,global,card,skin:skin?.document})}
+    return {global,card,data:workspace?rawData(workspace.raw):null,skin:skin?.document,manifests,resolution:resolveMods({manifests,authorized,global,card,skin:skin?.document})}
   }
   ctx.provide('tavernSkinOptions',{async normalize(mods,assets) {
     const manifests=(await installations.readReleases()).filter(row=>row.active && row.installed).map(row=>row.manifest)
@@ -105,11 +105,12 @@ export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,ca
       return modHost.beginConfiguredRequest(modHost.beginSession(),{...options,choices:{global,card,skin}})
     },
     async enabled({modId,cardPath}) {return (await selection(cardPath)).resolution.enabled.includes(modId)},
-    async foreground(chat,{previous,nativeSession}) {
+    async foreground(chat,{previous,nativeSession,cardGoverns=()=>false}) {
       // Opening snapshots precede publication: only a persisted chat has session stage overrides.
       const sessionId=chat._storageRevision>0 ? chat.sessionId : undefined
       const state=await selection(chat.cardPath,{sessionId}),config=Object.fromEntries(state.manifests.filter(row=>state.resolution.enabled.includes(row.id) && row.prompts?.some(fragment=>fragment.model==='foreground')).map(row=>[row.id,resolveConfig(row,state.global,state.card,{skin:state.skin?.mods?.[row.id],assetAvailable:key=>Object.hasOwn(state.skin?.assets || {},key)})]))
-      return freezeForegroundModPrompts({previous,nativeSession,sessionId:chat.sessionId,manifests:state.manifests,snapshot:{resolution:state.resolution,config}})
+      // A card that declares one of a mod's tools stands for that mod (the core's cardGoverns, lib/mod-tools.js): no prompts from its switch.
+      return freezeForegroundModPrompts({previous,nativeSession,sessionId:chat.sessionId,manifests:state.manifests.filter(row=>!cardGoverns(row.id,state.data)),snapshot:{resolution:state.resolution,config}})
     },
     async installBuiltins() {
       const bundles=await localDistributions()
