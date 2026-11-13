@@ -307,7 +307,7 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
   }
   // A speaker recalled after the frozen roster: this turn's tail only.
   if (rosterAddendum) inputs.push({ kind: 'foreground.current-state', text: rosterAddendum, required: true, source: { stage: 'speaker-roster-addendum' } })
-  for (const section of plugins.filter(item => item.position !== 'before')) inputs.push(pluginInput(section))
+  for (const section of plugins.filter(item => item.position !== 'before' && item.position !== 'last')) inputs.push(pluginInput(section))
   if (usesOfficialMvu(chat)) {
     inputs.push({
       kind: 'foreground.writing-rules',
@@ -316,7 +316,11 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
       source: { stage: 'mvu-background-owner' }
     })
   }
-  return inputs.concat(ledgerFrameInputs(chat), presetMiddleInstructions(presetSnapshot), scriptPromptFrameInputs(chat))
+  // position:'last' 的段落排到全段最后：它必须比预设 middle、脚本提示、账本晚被读到，否则会被后置规则块整段盖过
+  //（叙事阻尼器的单轮裁定就是这一档：排在预设规则之前时，模型实际服从的是更晚、更大的规则）。
+  const tail = inputs.concat(ledgerFrameInputs(chat), presetMiddleInstructions(presetSnapshot), scriptPromptFrameInputs(chat))
+  for (const section of plugins.filter(item => item.position === 'last')) tail.push(pluginInput(section))
+  return tail
 }
 
 function frameSource(chat, card, operation) {

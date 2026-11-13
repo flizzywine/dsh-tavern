@@ -3653,7 +3653,7 @@ export async function apply(ctx) {
         excludeAssistantIndex: Number.isInteger(input.excludeAssistantIndex) ? input.excludeAssistantIndex : -1
       }).catch(() => null) : null
       if (evaluated?.rulingText) {
-        sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'after', text: evaluated.rulingText })
+        sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'last', text: evaluated.rulingText })
       }
     } else {
       narrativeDamper.clearActive?.()

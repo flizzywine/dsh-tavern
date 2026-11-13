@@ -722,3 +722,30 @@ test('写作模式判定：作者即全知，越权代笔与天眼不再剥离�
   assert.equal(rpRuling.judgeMode, 'roleplay')
   assert.match(compileTurnRuling(rpRuling, { stateSnapshot: { kind: 'none', data: null } }), /越权剥离/)
 })
+
+test('叙事阻尼裁定：逐轴写处置（新造设定不采信）并排到全段最后', async () => {
+  const { compileTurnRuling } = await import('../tavern-plugin/lib/domain/narrative-damper.js')
+  const { foregroundFrameInputs } = await import('../tavern-plugin/lib/domain/turn-orchestration.js')
+  const ruling = { mode: 'balanced', godmode: 0.51, retcon: 0.98, epistemic: 0.93, leverageScore: 0.28,
+    rulingTier: 'strip_delusion', deltaBudget: 'backfire', clampMvuDelta: true }
+  const rulingText = compileTurnRuling(ruling, { stateSnapshot: { kind: 'plain', data: { 防线: 80 } }, posture: '和室内' })
+  assert.match(rulingText, /越权剥离/)
+  assert.match(rulingText, /无据设定不予采信/)
+  assert.match(rulingText, /场外天眼作废/)
+  assert.match(rulingText, /防线/)
+  // 旧文案的「自由度保留」是放行口，且把设定捏造与 NPC 反应混在一条里
+  assert.equal(rulingText.includes('自由度保留'), false)
+  // 只命中 retcon 时不再出现「越权代笔」处置
+  const retconOnly = compileTurnRuling({ ...ruling, godmode: 0.2, epistemic: 0.1 }, { stateSnapshot: { kind: 'plain', data: {} } })
+  assert.match(retconOnly, /无据设定不予采信/)
+  assert.equal(retconOnly.includes('越权结果作废'), false)
+
+  const inputs = foregroundFrameInputs({ sections: [{ kind: 'posture', text: '现场状态' }] }, '玩家输入', '玩家输入',
+    { middle: { entries: [{ content: '预设中段规则' }] } }, {},
+    [{ owner: 'dsh-tavern', name: 'narrative-damper', position: 'last', text: rulingText },
+      { owner: 'other', name: 'reminder', text: '结尾候选项提醒' }])
+  const texts = inputs.map(item => item.text)
+  assert.equal(texts.at(-1), rulingText)
+  assert.ok(texts.indexOf('预设中段规则') < texts.indexOf(rulingText))
+  assert.ok(texts.indexOf('结尾候选项提醒') < texts.indexOf(rulingText))
+})
