@@ -1,7 +1,127 @@
 diff --git a/lib/client.js b/lib/client.js
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -8048,6 +8048,22 @@
+@@ -916,7 +916,11 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+      position/inset/width on the element, the column kept a correct-looking box
+      while neither painting nor hit-testing, which is the "all black, click
+      anywhere closes" root cause. The backdrop we append carries the dimming. */
+-  [data-mobile-nav="frame"] > :first-child {
++  [data-mobile-nav="frame"] > :is([data-sidebar-mask], [class*="_drawerMask"]) {
++    display: none !important;
++    pointer-events: none !important;
++  }
++  [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) {
+     position: absolute !important;
+     inset: 0 auto 0 0 !important;
+     /* !important is load-bearing: the host ships
+@@ -1017,7 +1021,7 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+      a min(88vw, 280px) column translated -110% of its own width, i.e. -308px
+      at 390px. The gesture layer never depended on this rule - it writes an
+      inline transform !important - so only the CSS-driven click paths regressed. */
+-  [data-mobile-nav="frame"][data-sidebar-collapsed] > :first-child {
++  [data-mobile-nav="frame"][data-sidebar-collapsed] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) {
+     width: min(88vw, 280px) !important;
+     transform: translateX(-110%) !important;
+   }
+@@ -1031,7 +1035,9 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+      overflow:hidden drawer to scrollLeft=102, and every static child (plus the
+      fixed overlay) shifts 102px off-screen. With transform:none the overlay is
+      viewport-anchored: it dims the full screen and the sheet sits at left:8. */
+-  [data-mobile-nav="frame"]:not([data-sidebar-collapsed]) > :first-child {
++  :root:not([data-dsh-app-layout="drawer"]) [data-mobile-nav="frame"]:not([data-sidebar-collapsed]) > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])),
++  :root[data-dsh-app-layout="drawer"] [data-mobile-nav="frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])),
++  :root[data-dsh-app-layout="drawer"] [data-mobile-nav="frame"][data-dsh-app-drawer] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) {
+     transform: none !important;
+   }
+ 
+@@ -1121,7 +1127,7 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
+      (audit S2 2026-08-27 — the old reduce block only covered the settings
+      sheet and its mask). Same idiom as the animation:none blocks below. */
+   @media (prefers-reduced-motion: reduce) {
+-    [data-mobile-nav="frame"] > :first-child {
++    [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) {
+       transition: none !important;
+     }
+   }
+@@ -5683,7 +5689,7 @@ exports.MISC_CSS = `@media (max-width: 1023px) and (pointer: coarse) {
+      max rAF gap 167 -> 33ms; the benefit scales with conversation length.
+      Desktop untouched (this block lives inside the max-width: 1023px
+      media query). */
+-  [data-mobile-nav="frame"] > :first-child [role="tree"] {
++  [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) [role="tree"] {
+     content-visibility: auto;
+     contain-intrinsic-size: auto 600px;
+   }
+@@ -5721,7 +5727,7 @@ exports.MISC_CSS = `@media (max-width: 1023px) and (pointer: coarse) {
+      ([data-composer-card], host marker since 0.1.2) and the plugin stats
+      row - the dock above the card (todo card, approval / ask-question
+      panels) is reply content and stays copyable. */
+-  [data-mobile-nav="frame"] > :first-child,
++  [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])),
+   [data-mobile-nav="frame"] [data-phase] header,
+   [data-mobile-nav="frame"] [data-composer-card],
+   [data-mobile-nav="stats"],
+@@ -5732,9 +5738,9 @@ exports.MISC_CSS = `@media (max-width: 1023px) and (pointer: coarse) {
+   }
+   [data-mobile-nav="frame"] [data-composer-input],
+   [data-mobile-nav="frame"] [data-composer-card] textarea,
+-  [data-mobile-nav="frame"] > :first-child [role="dialog"],
+-  [data-mobile-nav="frame"] > :first-child input,
+-  [data-mobile-nav="frame"] > :first-child textarea,
++  [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) [role="dialog"],
++  [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) input,
++  [data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"])) textarea,
+   [data-mobile-nav="frame"] [data-phase] header input {
+     -webkit-user-select: text !important;
+     user-select: text !important;
+@@ -7129,12 +7135,8 @@ function createOverlayTask(t, toggleSidebar, panelExit) {
+         const frame = (0, frame_ts_1.getFrame)();
+         if (frame === null)
+             return false;
+-        // The user's call (2026-09-13): our drawer is the one users get, even on
+-        // hosts that ship their own overlay drawer. The host's version measures
+-        // 321px wide with z-index:1100 and, notably, NO full-screen backdrop at all
+-        // (measured: the conversation stays hit-testable beside it), which is the
+-        // behaviour the phone owner rejected as unusable. So the legacy column
+-        // rules stay armed and this backdrop keeps being created.
++        if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-dsh-app-layout') === 'drawer' && !frame.hasAttribute('data-sidebar-drawer'))
++            return frame.hasAttribute('data-dsh-app-drawer');
+         return !frame.hasAttribute('data-sidebar-collapsed');
+     };
+     const heroPhase = () => document.querySelector('[data-phase="active"]') === null;
+@@ -8022,17 +8024,25 @@ function findHorizontalScroller(node) {
+     }
+     return null;
+ }
+-/** The open drawer element: first child of the plugin frame. */
++/** The open drawer element: sidebar column of the plugin frame (DSH 0.2.2 prepends _drawerMask before _sidebarCol). */
+ function findDrawer() {
+     const frame = (0, frame_ts_1.getFrame)();
+-    return frame !== null && frame.firstElementChild instanceof HTMLElement
+-        ? frame.firstElementChild
+-        : null;
++    if (frame === null)
++        return null;
++    for (const child of frame.children) {
++        if (child instanceof HTMLElement && !child.hasAttribute('data-sidebar-mask') && !/(^|\s)\S*_drawerMask(\s|$)/.test(child.className))
++            return child;
++    }
++    return null;
+ }
+-/** True when the drawer is currently open (per the collapsed marker). */
++/** True when the drawer is currently open (per the collapsed marker, or dsh-go's data-dsh-app-drawer above 768px). */
+ function drawerOpen() {
+     const frame = (0, frame_ts_1.getFrame)();
+-    return frame !== null && !frame.hasAttribute('data-sidebar-collapsed');
++    if (frame === null)
++        return false;
++    if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-dsh-app-layout') === 'drawer' && !frame.hasAttribute('data-sidebar-drawer'))
++        return frame.hasAttribute('data-dsh-app-drawer');
++    return !frame.hasAttribute('data-sidebar-collapsed');
+ }
+ /**
+  * True when the host's right sidebar files panel is currently VISIBLE (any
+@@ -8048,6 +8058,22 @@ function filesPanelOpen() {
      const panel = document.querySelector('[data-sidebar-right-panel]');
      if (panel === null)
          return false;
@@ -24,7 +144,16 @@ diff --git a/lib/client.js b/lib/client.js
      const cs = getComputedStyle(panel);
      if (cs.visibility === 'hidden' || cs.display === 'none')
          return false;
-@@ -14832,7 +14848,9 @@
+@@ -9166,7 +9192,7 @@ function installOverlayInteractions(ctx) {
+         };
+         // Capture phase: run before the shell or a plugin processes the click,
+         // so takeover panels never render under the open drawer.
+-        const drawerRoot = () => document.querySelector('[data-mobile-nav="frame"] > :first-child');
++        const drawerRoot = () => document.querySelector('[data-mobile-nav="frame"] > :is([class*="_sidebarCol"], :first-child:not([data-sidebar-mask]):not([class*="_drawerMask"]))');
+         // Shared frame: inside the drawer, on a row navigation target, and not on
+         // one of its buttons. Deliberately free of the DSHA tap-close exemption —
+         // onDrawerPointerDown arms long-press through this base, and starving that
+@@ -14832,7 +14858,9 @@ function apply(ctx) {
      (0, panel_exit_ts_1.installPanelRowExit)(ctx, panelExit.exit);
      // Session deletion, injected into each session row's ⋯ menu (beside
      // rename / fork / archive) with a confirm dialog. Mobile-only.

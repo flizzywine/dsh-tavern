@@ -2943,10 +2943,11 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) [class*="_arrows"] { position: static; flex-direction: row; width: auto; height: auto; opacity: 1; }
   body.dsh-tavern-shell-active [role="dialog"]:has(> nav[class*="_nav"]) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) { font-size: 16px; max-width: 100%; box-sizing: border-box; }
 
-  /* 外壳、侧面板和弹层共享 visualViewport，键盘弹出时只重排一次。 */
+  /* 外壳、侧面板和弹层共享 visualViewport，键盘弹出时只重排一次。
+     dsh-go（#dsh-app-insets）已把 #root 钉在状态栏、手势条与软键盘让位区内，外壳留在 #root 内继承这些边界。 */
   html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active { overflow: hidden; }
-  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"],
-  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"] {
+  html.dsh-tavern-viewport-pinned:not(:has(#dsh-app-insets)) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"],
+  html.dsh-tavern-viewport-pinned:not(:has(#dsh-app-insets)) body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"] {
     position: fixed !important; top: var(--dsh-vv-top, 0px) !important;
     bottom: auto !important; left: 0; right: 0;
     /* 布局视口自己会跟着键盘变短时用 100%（同帧跟随，事件漏了也不会卡住）；
@@ -2954,10 +2955,19 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     width: 100%; height: var(--dsh-shell-height, 100dvh) !important;
     min-height: 0 !important; box-sizing: border-box;
   }
+  html.dsh-tavern-viewport-pinned:has(#dsh-app-insets) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"],
+  html.dsh-tavern-viewport-pinned:has(#dsh-app-insets) body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"] {
+    position: absolute !important; inset: 0 !important;
+    width: 100%; height: 100% !important;
+    min-height: 0 !important; box-sizing: border-box;
+  }
   /* 固定定位的外壳自成层叠上下文：better-sidebar 的底部工作台挂在 body 上（fixed, z 25），会盖住外壳里的整屏右栏、手机抽屉和宿主设置。
      这些整屏层打开时把外壳整体抬到工作台之上。 */
   html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open], [role="dialog"][aria-modal="true"]),
-  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [data-mobile-nav="frame"]:not([data-sidebar-collapsed="true"]) { z-index: 30; }
+  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [data-mobile-nav="frame"]:not([data-sidebar-collapsed="true"]),
+  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]),
+  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer],
+  html:has(#dsh-app-insets) body.dsh-tavern-shell-active #root:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open], [role="dialog"][aria-modal="true"], [data-sidebar-drawer]:not([data-sidebar-collapsed]), [data-dsh-app-drawer]) { z-index: 30; }
   body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"] {
     padding-top: var(--dsh-play-top-inset) !important;
     padding-left: env(safe-area-inset-left, 0px);
@@ -3340,6 +3350,73 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
   body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
 }
+
+/* ---------- DSH 0.2.2 官方抽屉（[data-sidebar-drawer]）与 dsh-go 手机抽屉（[data-dsh-app-layout="drawer"]） ----------
+   1) DSH 0.2.2 在 <768px 把 _drawerMask 插在 _sidebarCol 前面作为 frame 的 :first-child（z-index:70），
+      旧版 dsh-web-mobile 的 `> :first-child { z-index:1300 }` 误命中 _drawerMask，真正的 _sidebarCol 留在 z-index:71，
+      被 dsh-web-mobile 的 [data-mobile-nav="backdrop"]（z-index:1250）和 _drawerMask 整屏灰罩压在底下，点屏幕先消灰罩再把侧栏收走。
+   2) dsh-go 在 768..1023px 用自己的 [data-dsh-app-drawer] 抽屉 + _sidebarCol::after 灰罩，同时保持内部侧栏常驻展开；
+      必须按 [data-dsh-app-drawer] 控显隐，收起时滑出屏幕、展开时 100vw 整屏且去掉 will-change 包含块与 ::after 灰罩。 */
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"] > :is([data-sidebar-mask], [class*="_drawerMask"]) {
+  display: none !important; pointer-events: none !important;
+}
+body.dsh-tavern-shell-active [data-mobile-nav="backdrop"] {
+  background: transparent !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; pointer-events: none !important;
+}
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"] > [class*="_sidebarCol"]::after {
+  display: none !important; content: none !important;
+}
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active :is([data-mobile-nav="fab"], [data-mobile-nav="toggle"]) {
+  display: none !important;
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer][data-sidebar-collapsed] > [class*="_sidebarCol"] {
+  position: fixed !important; inset: 0 auto 0 0 !important; z-index: 1300 !important;
+  width: min(88vw, 280px) !important; border-right: 0 !important; box-shadow: none !important;
+  transform: translateX(-110%) !important; visibility: hidden !important; pointer-events: none !important;
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) > [class*="_sidebarCol"] {
+  position: fixed !important; inset: 0 !important; z-index: 1300 !important;
+  width: 100vw !important; max-width: none !important; height: auto !important; border-right: 0 !important; box-shadow: none !important;
+  transform: none !important; visibility: visible !important; pointer-events: auto !important;
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) > [class*="_sidebarCol"] [data-slot="sidebar"] > [class*="_root"] {
+  width: 100% !important;
+}
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-sidebar-drawer]):not([data-dsh-app-drawer]) > [class*="_sidebarCol"] {
+  position: fixed !important; inset: 0 auto 0 0 !important; z-index: 1300 !important;
+  width: calc(min(86vw, 320px) + var(--dsh-app-inset-left, 0px)) !important;
+  transform: translateX(calc(-100% - 64px)) !important; pointer-events: none !important; box-shadow: none !important;
+}
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-sidebar-drawer])[data-dsh-app-drawer] > [class*="_sidebarCol"] {
+  position: fixed !important; inset: 0 !important; z-index: 1300 !important;
+  width: 100vw !important; max-width: none !important; height: auto !important; border-right: 0 !important; box-shadow: none !important;
+  transform: none !important; will-change: auto !important; visibility: visible !important; pointer-events: auto !important;
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-sidebar:not(.collapsed),
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-sidebar:not(.collapsed) {
+  position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
+  padding-top: max(12px, env(safe-area-inset-top, 0px), var(--dsh-app-inset-top, 0px));
+  padding-left: calc(12px + max(env(safe-area-inset-left, 0px), var(--dsh-app-inset-left, 0px)));
+  padding-right: calc(12px + max(env(safe-area-inset-right, 0px), var(--dsh-app-inset-right, 0px)));
+  padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + 10px);
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-side-collapse,
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-side-collapse {
+  position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;
+  top: max(calc(env(safe-area-inset-top, 0px) + 8px), calc(var(--dsh-app-inset-top, 0px) - var(--dsh-app-lead-h, 0px)));
+  right: calc(10px + max(env(safe-area-inset-right, 0px), var(--dsh-app-inset-right, 0px)));
+  box-sizing: border-box; height: 40px; padding: 0 14px 0 9px;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;
+  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #fff)); color: var(--dsw-alias-label-secondary);
+  font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08);
+}
+body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-side-collapse:active,
+:root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-side-collapse:active {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-identity-wide { display: none; }
+body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-identity-compact { display: inline; }
+body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
 @media (max-width: 640px) {
   .dsh-tavern-history-manager-search, .dsh-tavern-history-manager-select { flex: 1 1 100%; max-width: none; }
   .dsh-tavern-history-manager-filters { width: 100%; }
@@ -3361,66 +3438,67 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
 }
 
-/* 手机外壳兜底：移动插件（Pocket / dsh-web-mobile）未接管时 frame 没有 data-mobile-nav，宿主仍是桌面三栏。
+/* 手机外壳兜底：移动插件（Pocket / dsh-web-mobile）、DSH 0.2.2 抽屉（data-sidebar-drawer）与 dsh-go 抽屉
+   均未接管时，宿主仍是桌面三栏。
    窄屏改成单列：正文全宽；左栏收起时只留左上角的开关（始终在右侧整屏面板之上，卡片模式也能回到游玩），
-   展开时是整屏抽屉；右栏始终是整屏面板；宿主设置改为整屏，顶部横向导航。移动插件在场时这里全部不生效。 */
+   展开时是整屏抽屉；右栏始终是整屏面板；宿主设置改为整屏，顶部横向导航。抽屉外壳在场时这里全部不生效。 */
 @media (max-width: 720px) {
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) { grid-template-columns: minmax(0, 1fr) !important; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) > :is([class*="_sidebarCol"], [class*="_centerCol"], [class*="_rightbarCol"]) { grid-area: 1 / 1; min-width: 0; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) > [data-side] { display: none; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) { grid-template-columns: minmax(0, 1fr) !important; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) > :is([class*="_sidebarCol"], [class*="_centerCol"], [class*="_rightbarCol"]) { grid-area: 1 / 1; min-width: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) > [data-side] { display: none; }
   /* 右栏列叠在正文上方（DOM 在后）且铺满整格；收起时面板本身不拦指针，列盒却吞掉正文的触摸和滚轮（反馈「手机没法上下滑动」）。
      面板是 fixed 整屏层，可交互部分（dock 标签页、浮窗、分隔条）自带 pointer-events: auto，打开时照常可用。 */
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) > [class*="_rightbarCol"] { pointer-events: none; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) > [class*="_sidebarCol"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) > [class*="_rightbarCol"] { pointer-events: none; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) > [class*="_sidebarCol"] {
     position: absolute; inset: 0; z-index: 45; width: auto; border-right: 0;
     padding-top: var(--dsh-play-top-inset, 0px);
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) > [class*="_sidebarCol"] > * > [class*="_root"] { width: 100%; }
-  html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-collapsed="true"]) { z-index: 30; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) > [class*="_sidebarCol"] > * > [class*="_root"] { width: 100%; }
+  html.dsh-tavern-viewport-pinned:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]):not([data-sidebar-collapsed="true"]) { z-index: 30; }
   /* 收起：列本身为 0 宽并裁掉图标栏；开关与设置弹层是 fixed，不受裁切。 */
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav])[data-sidebar-collapsed="true"] > [class*="_sidebarCol"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])[data-sidebar-collapsed="true"] > [class*="_sidebarCol"] {
     right: auto; width: 0; overflow: hidden;
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav])[data-sidebar-collapsed="true"] > [class*="_sidebarCol"] [class*="_logoRow"] > [class*="_toggle"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])[data-sidebar-collapsed="true"] > [class*="_sidebarCol"] [class*="_logoRow"] > [class*="_toggle"] {
     position: fixed; top: calc(var(--dsh-play-top-inset, 0px) + 2px); left: 4px; width: 40px; height: 40px;
     border-radius: 10px; background: var(--dsw-alias-bg-base);
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_titleRow"] { padding-left: 44px; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [data-sidebar-right-panel] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_titleRow"] { padding-left: 44px; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [data-sidebar-right-panel] {
     position: fixed; inset: 0; z-index: 40; width: auto !important; border: 0;
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [data-sidebar-right-panel] [data-dockkit-strip] { padding-left: 48px; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [data-sidebar-right-mode] { display: none; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [data-sidebar-right-panel] [data-dockkit-strip] { padding-left: 48px; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [data-sidebar-right-mode] { display: none; }
 
   /* 宿主设置：188px 导航 + 内容的桌面双栏会把内容压成一字一行。 */
-  html body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) {
+  html:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) {
     position: fixed !important; top: var(--dsh-vv-top, 0px) !important; left: 0;
     flex-direction: column; width: 100vw; max-width: 100vw;
     height: var(--dsh-vv-height, 100dvh); max-height: var(--dsh-vv-height, 100dvh); border-radius: 0;
     padding-top: var(--dsh-play-top-inset, 0px); box-sizing: border-box;
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > nav {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav {
     flex-direction: row; align-items: center; width: auto; gap: 0; padding: 4px 8px 0;
     overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navTitle"] { display: none; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navList"] { flex-direction: row; gap: 4px; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; white-space: nowrap; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] { min-height: 0; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navTitle"] { display: none; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navList"] { flex-direction: row; gap: 4px; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; white-space: nowrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] { min-height: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] {
     height: auto; align-items: center; padding: 6px 8px 6px 16px;
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] {
     flex-wrap: wrap; justify-content: flex-start; margin-left: 0;
   }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] * { flex-wrap: wrap; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] button { width: auto; white-space: nowrap; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_options"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] * { flex-wrap: wrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] button { width: auto; white-space: nowrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_options"] {
     padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain;
   }
   /* 设置行：说明在左、控件在右；放不下时控件换到下一行，而不是把说明压成竖条。 */
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_row"]:has(> [class*="_rowText"]) { flex-wrap: wrap; }
-  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_row"]:has(> [class*="_rowText"]) { flex-wrap: wrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
 }
 
 /* dsh-web-mobile 也会标记桌面 frame，但只有窄触屏才使用 minmax(0, 1fr) 0 0。

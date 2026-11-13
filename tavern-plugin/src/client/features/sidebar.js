@@ -365,7 +365,7 @@
 				finally { setBusy(false); }
 			}
 			async function openManagerSession(item) {
-				try { await openSessionWhenReady(item.sessionId); setHistoryManagerOpen(false); }
+				try { await openSessionWhenReady(item.sessionId); setHistoryManagerOpen(false); if (narrowLayout() && typeof props.closeNarrowSidebar === "function") props.closeNarrowSidebar(); }
 				catch (err) { setError(String(err && err.message || err)); }
 			}
             const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
@@ -1375,6 +1375,7 @@
 					try {
 						if (summary && summary.blank) await call("ensureOpening", { sessionId: item.sessionId });
 						await openSessionWhenReady(item.sessionId);
+						if (narrowLayout() && typeof props.closeNarrowSidebar === "function") props.closeNarrowSidebar();
 					} catch (err) { setError(String(err && err.message || err)); }
 				} }),
 					managing ? h("span", { className: "ap-check-mark", "aria-hidden": true }, selectedChats.includes(item.chatId) ? h("svg", { viewBox: "0 0 24 24", width: 12, height: 12, fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" }, h("path", { d: "M5 12.5l4.5 4.5L19 7.5" })) : null) : null,
@@ -1820,12 +1821,27 @@
 			// Whether the left drawer is open on narrow layouts, as of the last render. Opening the right
 			// column used to close it as a side effect; now that it stays shut (#213), close the drawer here.
 			let sidebarWide = false;
-			function closeNarrowSidebar() { if (sidebarWide) { sidebarWide = false; ctx.layout.toggleSidebar(); } }
+			// dsh-go 在 768..1023px 用自己的抽屉（html[data-dsh-app-layout="drawer"] 且无 data-sidebar-drawer）：
+			// 内部侧栏常驻展开，抽屉显隐由 window.__dshApp 切换 frame[data-dsh-app-drawer]，不能调 ctx.layout.toggleSidebar 折叠内栏。
+			function dshGoAppDrawer() {
+				if (typeof document === "undefined" || typeof window === "undefined") return null;
+				if (document.documentElement.getAttribute("data-dsh-app-layout") !== "drawer") return null;
+				const frame = document.querySelector('[data-slot="root"] > [class*="_frame"]');
+				return frame && !frame.hasAttribute("data-sidebar-drawer") && window.__dshApp ? window.__dshApp : null;
+			}
+			function closeNarrowSidebar() {
+				const appDrawer = dshGoAppDrawer();
+				if (appDrawer && typeof appDrawer.closeSidebar === "function") { appDrawer.closeSidebar(); return; }
+				const frame = typeof document !== "undefined" ? document.querySelector('[data-slot="root"] > [class*="_frame"]') : null;
+				if (frame && frame.hasAttribute("data-sidebar-collapsed")) { sidebarWide = false; return; }
+				if (sidebarWide) { sidebarWide = false; ctx.layout.toggleSidebar(); }
+			}
 			ctx.effect(() => slots.inject("sidebar.workspaces", () => slots.register(
 				{ name: "sidebar.workspaces", priority: -1, children: { "tavern.sidebar.chrome": { kind: "list", scope: "root" } } },
 				function (props) { sidebarWide = Boolean(props.wide); return React.createElement(TavernSidebar, Object.assign({}, props, {
 					collapsed: !props.wide,
 					embedded: true,
+					closeNarrowSidebar: closeNarrowSidebar,
 					sessions: createSessionCompat(ctx.sessions, resolveUiWorkspace(ctx)),
 					workspaces: ctx.workspaces,
 					conversationHost: createConversationHostAdapter(ctx),
@@ -1852,7 +1868,11 @@
 						notifyTavernDataChanged(["sessions"], "conversation.rename");
 					},
 					archiveSession: function (sessionId) { return ctx.workspaces.archiveSession(sessionId); },
-					toggleSidebar: function () { if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar(); },
+					toggleSidebar: function () {
+						const appDrawer = dshGoAppDrawer();
+						if (appDrawer && typeof appDrawer.toggleSidebar === "function") { appDrawer.toggleSidebar(); return; }
+						if (props.wide) ctx.layout.toggleSidebar(); else props.expandSidebar();
+					},
 					// Entering a game or the card workspace opens these tabs beside it. On phone-width
 					// layouts the right column covers the story, so leave it closed and show the story (#213).
 					openConversationSettingsTab: async function (sessionId) {
