@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fb24ecbeb839457df96c5b108e847bdd9c8e5fcf",
-  "releaseSequence": 1588,
+  "revision": "ae045b7c21efea216d46b58c00576e82c4c0de93",
+  "releaseSequence": 1589,
   "version": "3.3.0",
   "files": [
     {
@@ -4031,8 +4031,8 @@
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
-      "sha256": "230fe773378d135d4916f75d540ef19c183d27267cfc74f2e1ad44fd5b72e3f2",
-      "size": 2813
+      "sha256": "b0107033ff21b6d7bd1696e50c78bbda9536887fe883568c9276287b127c3299",
+      "size": 2915
     },
     {
       "path": "tavern-plugin/lib/host/mod-phone.mjs",
@@ -5651,8 +5651,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/mod.json",
-      "sha256": "2e3f087ce1e9168daa8535325f05f9037153ea4ff2dd92168db7eaebdbb71f7c",
-      "size": 2099
+      "sha256": "4bd2491ad635b6f5c3e0ae7e886a3ba4feb91d251e29eed02fbc33098ece15b0",
+      "size": 2201
     },
     {
       "path": "tavern-plugin/mods/dice/package.json",
@@ -5781,8 +5781,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/relay-host.js",
-      "sha256": "295e422b4c48533b42c74f80fae2c9fb41981f5660e3456295ede893c3764029",
-      "size": 10378
+      "sha256": "fa10d7c239ac779cff99bcdd0725d70962978995f52922754786369799d804c8",
+      "size": 10331
     },
     {
       "path": "tavern-plugin/mods/phone/runtime.js",
@@ -5806,8 +5806,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/summary-relay.js",
-      "sha256": "fe18a7f9c18a4b22ea3f4a7661b8be961c0e5566d4b736a000631cdff5942cea",
-      "size": 16552
+      "sha256": "eab28498101f4327614021d250098894e941bd2df4990462593160a13cd5406b",
+      "size": 17333
     },
     {
       "path": "tavern-plugin/mods/phone/threads.js",
@@ -6101,8 +6101,8 @@
     },
     {
       "path": "tavern-plugin/mods/timer/prompts/timer.txt",
-      "sha256": "3ee7129ef906484e1372a7f51af25cee65781b79553c1d348ed9fca86020ae0b",
-      "size": 80
+      "sha256": "fe692b511d59a01c3a9550f5fd8c90b0fc0dfc93a0f5232d671f2f5656170e65",
+      "size": 107
     },
     {
       "path": "tavern-plugin/mods/timer/runtime.js",
@@ -8411,8 +8411,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/voice-backfill.js",
-      "sha256": "fbf2df2aed92340bca74270c030541b0850ea894ed53208d58ae2eb8a7a352f3",
-      "size": 7656
+      "sha256": "89bf1e5d9e50c3888c938347d6ac5eddda03a7e591ad0c9ce99d5d0a41c7bd72",
+      "size": 7741
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/actions.js",
@@ -8931,8 +8931,8 @@
     },
     {
       "path": "tavern-plugin/presets/auto-cast/assistant.md",
-      "sha256": "ab60614a4b04dd3d798613530178a34b2807b955e6ba2cdffd37932d48421ad0",
-      "size": 2761
+      "sha256": "361c20a8fc0be8cbe10f7d3bac79c5cd70415178b14fa4185317d9663f5bb7ea",
+      "size": 2806
     },
     {
       "path": "tavern-plugin/prompts/bubble-format.md",
@@ -9016,8 +9016,8 @@
     },
     {
       "path": "tavern-plugin/prompts/dice.md",
-      "sha256": "38a93680b510cef16704acd251b90a006e440020930681c87cd2831fb4e03a44",
-      "size": 693
+      "sha256": "b2f6e4efb598f683db1d975588d074345ef451f29033c1fbc7bb6d855b117993",
+      "size": 794
     },
     {
       "path": "tavern-plugin/prompts/phone-call.md",
@@ -9226,9 +9226,9 @@
     }
   ],
   "archive": {
-    "commit": "72ef4f72e0853f7d1d1452cfb1e9050dcbf68eb0",
+    "commit": "dbcdeec0fdc954e94159270a97dbe75a276d6a80",
     "path": "runtime.zip",
-    "sha256": "f8f2bcf695fe7c3d772c74c15ddc8cbd7d0ad26f9449e034fbbf80308866ca3a",
-    "size": 16407469
+    "sha256": "cf62dc1cd7c5bd283cfe6a0ddad3e6e035bbf54c457689b7c0e48e95590a8a1e",
+    "size": 16407981
   }
 }
