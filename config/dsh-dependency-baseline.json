@@ -2,6 +2,12 @@
   "bin/chat-answer-step-patch.mjs": [
     "@deepseek-ai/dsh-client-ui-chat"
   ],
+  "bin/chat-reasoning-fold-patch.mjs": [
+    "@deepseek-ai/dsh-client-ui-chat"
+  ],
+  "bin/chat-tool-reply-stream-patch.mjs": [
+    "@deepseek-ai/dsh-client-ui-chat"
+  ],
   "bin/cli-runtime.mjs": [
     "@deepseek-ai/dsh"
   ],
@@ -63,6 +69,9 @@
     "@deepseek-ai/schemastery"
   ],
   "tavern-plugin/lib/domain/chat-answer-boot-patch.js": [
+    "@deepseek-ai/dsh-client-ui-chat"
+  ],
+  "tavern-plugin/lib/domain/chat-tool-reply-stream.js": [
     "@deepseek-ai/dsh-client-ui-chat"
   ],
   "tavern-plugin/lib/domain/host-compatibility.js": [
