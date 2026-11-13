@@ -267,10 +267,12 @@ function shiftSeqReferences(event, shift) {
     for (const key of ['startSeq', 'endSeq', 'start', 'end']) if (Number.isSafeInteger(copy[key])) copy[key] = shift(copy[key])
     event.surfaceOp = copy
   }
-  if (Array.isArray(event.sourceEventSeqs)) event.sourceEventSeqs = event.sourceEventSeqs.map(shift)
+  const shiftList = value => Array.isArray(value) ? value.map(shiftList) : shift(value)
+  if (Array.isArray(event.sourceEventSeqs)) event.sourceEventSeqs = shiftList(event.sourceEventSeqs)
   const data = event.data
   if (!data || typeof data !== 'object') return
   let next = data
+  if (event.type === 'session/title' && Array.isArray(data.messageSeqs)) next = { ...next, messageSeqs: data.messageSeqs.map(shift) }
   if (Array.isArray(data.tavernRestoredSurfaceSeqs)) next = { ...next, tavernRestoredSurfaceSeqs: data.tavernRestoredSurfaceSeqs.map(shift) }
   if (Number.isSafeInteger(data.headerSeq)) next = { ...next, headerSeq: shift(data.headerSeq) }
   if (Array.isArray(data.shadowedSeqs)) next = { ...next, shadowedSeqs: data.shadowedSeqs.map(shift) }
@@ -310,7 +312,7 @@ export function restoreSurfaceHead(events, header = {}) {
   // The head must sit in the same open step as the row it protects, or the host
   // rejects it before the surface fold ever runs.
   if (openedAt < 0 || !Number.isSafeInteger(turn) || !Number.isSafeInteger(step)) return null
-  if (opening.data?.turn !== turn || opening.data?.step !== step) return null
+  if (opening.type !== 'user/message' && (opening.data?.turn !== turn || opening.data?.step !== step)) return null
   const insertAt = openedAt + 1
   const shift = seq => Number.isSafeInteger(seq) && seq >= insertAt ? seq + 1 : seq
   const shifted = events.map(event => ({ ...event }))

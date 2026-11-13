@@ -6,7 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { installSessionLogAutoRepair, repairCurrentSessionBuffer, repairCurrentSessionFile, repairStoredSessionLog } from '../tavern-plugin/lib/domain/session-log-repair.js'
+import { installSessionLogAutoRepair, repairCurrentSessionBuffer, repairCurrentSessionFile, repairStoredSessionLog, restoreSurfaceHead } from '../tavern-plugin/lib/domain/session-log-repair.js'
 
 // The host catalog is the only judge of whether a log opens, so these tests use it
 // instead of a stand-in. Without a boot module the whole file is skipped.
@@ -213,7 +213,8 @@ function headlessLog() {
   const user = (turn, text) => add('user/message', { id: 'u' + turn, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' }, turn, step: 1 }, { surfaceOp: 'append' })
   add('turn/start', { turn: 1 })
   add('step/start', { turn: 1, step: 1 })
-  user(1, '开场')
+  const input = user(1, '开场')
+  add('session/title', { title: '开场', messageSeqs: [input.seq], source: { kind: 'fallback' } })
   add('step/end', { turn: 1, step: 1 })
   add('turn/end', { turn: 1, reason: { kind: 'completed' } })
   add('turn/start', { turn: 2 })
@@ -242,6 +243,8 @@ test('a surface that starts without a system head gets one reserved', needsHost,
   assert.equal(result.artifact.events.length, rows.length + 1)
   assert.deepEqual(result.artifact.events.map(event => event.seq), Array.from({ length: rows.length + 1 }, (_, index) => index))
   assert.deepEqual(result.artifact.events.filter(event => event.type === 'user/message').map(event => event.data.content[0].text), ['开场', '继续'])
+  const title = result.artifact.events.find(event => event.type === 'session/title')
+  assert.deepEqual(title.data.messageSeqs, [result.artifact.events.find(event => event.type === 'user/message').seq])
   // A later system/message the host appends now lands on a protected head.
   const turn = 3
   const grown = [
@@ -254,6 +257,15 @@ test('a surface that starts without a system head gets one reserved', needsHost,
     { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } },
   ].map((row, seq) => ({ time: 1, ...row, seq }))
   assert.doesNotThrow(() => open(catalog, grown))
+})
+
+test('inserting the system head shifts nested source sequence groups', () => {
+  const rows = headlessLog()
+  const source = rows.find(event => event.type === 'system/message')
+  source.sourceEventSeqs = [0, [1, [2, 3]], 4]
+  const repaired = restoreSurfaceHead(rows, HEADER)
+  assert.deepEqual(repaired.find(event => event.data?.message?.id === 'sys2').sourceEventSeqs, [0, [1, [3, 4]], 5])
+  assert.deepEqual(source.sourceEventSeqs, [0, [1, [2, 3]], 4])
 })
 
 test('a settlement copy written before its edit step moves into that step', needsHost, async () => {
