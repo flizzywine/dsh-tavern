@@ -45,19 +45,19 @@ test('story compaction summarizes only history before the latest rounds and appe
 
   const { request: older, appendix } = retainRecentStoryRounds(request, 2)
   assert.deepEqual(older.messages.map(m => m.content.at(-1).text), ['固定背景', '玩家1', '正文1', '玩家2', '正文2', '总结指令'])
-  assert.equal(appendix, '【最近 2 轮原文（未压缩，按时间顺序）】\n\n[玩家]\n玩家3\n\n[正文]\n正文3\n\n[玩家]\n玩家4\n\n[正文]\n正文4')
+  assert.equal(appendix, '<recent_transcript>\n最近 2 轮原文（未压缩，按时间顺序）\n\n[玩家]\n玩家3\n\n[正文]\n正文3\n\n[玩家]\n玩家4\n\n[正文]\n正文4\n</recent_transcript>')
   // At least one round is always summarized, so capacity recovery makes progress.
-  assert.match(retainRecentStoryRounds(request, 4).appendix, /^【最近 3 轮原文/)
+  assert.match(retainRecentStoryRounds(request, 4).appendix, /^<recent_transcript>\n最近 3 轮原文/)
   assert.equal(retainRecentStoryRounds({ ...request, messages: [history[0], history[1], history[2], instruction] }, 4).appendix, undefined)
 
   // Kept rounds also respect a token budget (rounds 4 and 3 each cost 5 here).
   const budgeted = retainRecentStoryRounds(request, 3, { budget: 9, estimate: text => text.split('\n\n').length * 2 + 1 })
-  assert.match(budgeted.appendix, /^【最近 1 轮原文/)
+  assert.match(budgeted.appendix, /^<recent_transcript>\n最近 1 轮原文/)
 
   // A later compaction splits the carried transcript back into rounds.
   const checkpoint = { role: 'user', content: [{ type: 'text', text: '<compacted-summary>' }, { type: 'text', text: '旧摘要' }, { type: 'text', text: appendix }, { type: 'text', text: '</compacted-summary>' }], source: { kind: 'plugin', plugin: 'compaction' } }
   const next = retainRecentStoryRounds({ purpose: 'compaction', messages: [history[0], checkpoint, say('user', '玩家5'), { role: 'assistant', content: [{ type: 'text', text: '正文5' }] }, instruction] }, 2)
-  assert.equal(next.appendix, '【最近 2 轮原文（未压缩，按时间顺序）】\n\n[玩家]\n玩家4\n\n[正文]\n正文4\n\n[玩家]\n玩家5\n\n[正文]\n正文5')
+  assert.equal(next.appendix, '<recent_transcript>\n最近 2 轮原文（未压缩，按时间顺序）\n\n[玩家]\n玩家4\n\n[正文]\n正文4\n\n[玩家]\n玩家5\n\n[正文]\n正文5\n</recent_transcript>')
   // The previous summary stays whole, so the summarizer input remains a prefix of the foreground request.
   assert.deepEqual(next.request.messages, [history[0], checkpoint, instruction])
 

@@ -1,4 +1,5 @@
 import { createLedgerItem } from './background-pipeline.js'
+import { promptSection } from './prompt-section.js'
 import { beginOrQueue } from './background-task-coordinator.js'
 import { LEDGER_RULES, LEDGER_SUBMIT_TOOL, applyLedgerDelta, createLedgerSubmission, ledgerContext, readLedger } from './story-ledger.js'
 
@@ -40,9 +41,7 @@ export function ledgerBacklog(chat, limit = LEDGER_BATCH_CHARS) {
   }
 }
 
-// The retired per-round rules assumed a settlement that also submits posture/variables.
-const MANUAL_RULES = LEDGER_RULES.replace('先完成台账，再提交姿势或变量；不要创建其他 Agent。', '不要创建其他 Agent。')
-const LEDGER_ITEM = createLedgerItem({ rules: MANUAL_RULES })
+const LEDGER_ITEM = createLedgerItem({ rules: LEDGER_RULES })
 
 /**
  * Player-triggered ledger consolidation. The ledger is a memo for the player; after
@@ -108,7 +107,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
       // A plugin may take the consolidation over (tavern.replaceLedger); its delta goes
       // through the same validation and commit, and Tavern's own run is the fallback.
       const replaced = await replaceLedger({ gameId: sessionId, from: backlog.from + 1, through: backlog.through, text: backlog.text,
-        ledger: readLedger(chat.ledger), rules: MANUAL_RULES, tool: LEDGER_SUBMIT_TOOL,
+        ledger: readLedger(chat.ledger), rules: LEDGER_ITEM.rules, tool: LEDGER_SUBMIT_TOOL,
         apply: delta => applyLedgerDelta(chat.ledger, delta, backlog.through) })
       if (replaced) submission.execute({ arguments: replaced.delta })
       else {
@@ -120,8 +119,8 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
           rewindFormatVersion: taskRun.participantRequest.formatVersion,
           onPersistentSessionReady: id => taskRun.bindSession(id), sessionId, chatId: chat.id, selection: model,
           backgroundTasks: { variables: false, posture: false, characterDesign: false },
-          system: LEDGER_ITEM.system({ from: backlog.from + 1, through: backlog.through }),
-          messages: [{ role: 'user', content: [{ type: 'text', text: ledgerContext(chat.ledger) + '\n\n【待整理剧情】\n' + backlog.text }] }],
+          system: promptSection('ledger_task', LEDGER_ITEM.system({ from: backlog.from + 1, through: backlog.through })),
+          messages: [{ role: 'user', content: [{ type: 'text', text: promptSection('ledger_material', ledgerContext(chat.ledger) + '\n\nStory to process:\n' + backlog.text) }] }],
           tools: [LEDGER_SUBMIT_TOOL],
           maxToolCalls: 4,
           temperature: 0.2,

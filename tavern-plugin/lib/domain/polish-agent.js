@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { applyPolishEdits, parsePolishReview, polishReviewContext } from './polish-review.js'
+import { promptSection } from './prompt-section.js'
 
 const OWNER = 'dsh-tavern.polish-agent'
 const hash = value => createHash('sha256').update(value).digest('hex')
@@ -58,8 +59,8 @@ export function createPolishReviewer({ latestFloors, readCard, prompt, runAgent,
     if (!principles) throw new Error('正文精修原则为空，请在系统提示词里填写')
     if (guidance && !instructions) throw new Error('精修按意见修改的提示词为空，请在系统提示词里填写')
     const setting = ['description', 'personality', 'scenario'].map(key => text(card?.[key]).trim()).filter(Boolean).join('\n\n').slice(0, 6000)
-    const system = [PROTOCOL, '【原则精修标准】\n' + principles, '【按意见修改标准】\n' + instructions,
-      '【人物卡：' + (text(card?.name) || '未命名') + '】\n' + setting, '【玩家角色】' + (text(chat.macroState?.userName) || '你')].join('\n\n')
+    const system = [promptSection('polish_protocol', PROTOCOL), promptSection('polish_principles', principles), promptSection('polish_guidance_rules', instructions),
+      promptSection('polish_card', '人物卡：' + (text(card?.name) || '未命名') + '\n' + setting), '<player_role>' + (text(chat.macroState?.userName) || '你') + '</player_role>'].join('\n\n')
     const prefix = hash(system)
     const saved = await data.readGame({ chatId: chat.id, owner: OWNER })
     // One 润色 Session per game (and per prompt prefix): it continues through regeneration,
@@ -93,15 +94,15 @@ export function createPolishReviewer({ latestFloors, readCard, prompt, runAgent,
           } else if (continued && linear) {
             sections.push('上一轮实际采用' + (hash(context.previous) === previous.original ? '此前输入的原文（未应用精修草稿）' : '此前的精修草稿') + '。')
           } else {
-            if (continued) sections.push('【剧情有变】此前审过的内容可能已被回退、重写，或上次没有审完；以下面的前文和本轮正文为准。')
-            if (context.previous) sections.push('【补充前文（上一轮实际正文）】\n' + context.previous.slice(-3000))
+            if (continued) sections.push(promptSection('story_changed', '此前审过的内容可能已被回退、重写，或上次没有审完；以下面的前文和本轮正文为准。'))
+            if (context.previous) sections.push(promptSection('previous_body', context.previous.slice(-3000)))
           }
-          sections.push('【本轮执行提醒】\n' + (guidance ? '本轮只按玩家意见修改，不额外扩展原则精修。' : '按固定前缀中的完整精修原则审读本轮正文，只改明确的问题。') +
-            '保留剧情事实、力量等级、人物意图和有效信息；不要把正常比喻当作错误，不为改而改，不补造情节。每处修改调用 polish_edit；没有必要修改就直接调用 polish_finish。')
+          sections.push(promptSection('turn_reminder', (guidance ? '本轮只按玩家意见修改，不额外扩展原则精修。' : '按固定前缀中的完整精修原则审读本轮正文，只改明确的问题。') +
+            '保留剧情事实、力量等级、人物意图和有效信息；不要把正常比喻当作错误，不为改而改，不补造情节。每处修改调用 polish_edit；没有必要修改就直接调用 polish_finish。'))
           // Always give the current target verbatim, including guided passes after compaction.
-          sections.push('【本轮正文】\n' + body)
-          if (context.input) sections.push('【本轮玩家输入】\n' + context.input.slice(0, 2000))
-          sections.push(guidance ? '【任务：只按意见修改】\n' + guidance.slice(0, 1000) : '【任务：原则精修】')
+          sections.push(promptSection('turn_body', body))
+          if (context.input) sections.push(promptSection('turn_input', context.input.slice(0, 2000)))
+          sections.push(promptSection('polish_task', guidance ? '只按意见修改：' + guidance.slice(0, 1000) : '原则精修'))
           return sections.join('\n\n')
         }
       })
