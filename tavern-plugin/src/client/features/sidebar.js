@@ -21,7 +21,7 @@
 		})();
 
 		// 设置 › 高级 › 对话按最新回复排序（tavern-settings.json 的 recentReplyFirst）。
-		// 关闭时按创建时间固定排列（默认）；打开后最近回复/打开过的对话排到最前。
+		// 关闭时按创建时间固定排列（默认）；打开后按最近一次回复排序，切换/打开对话不改变位置。
 		const tavernHistoryOrderPreference = (function () {
 			let order = "created", loaded = null;
 			function load() {

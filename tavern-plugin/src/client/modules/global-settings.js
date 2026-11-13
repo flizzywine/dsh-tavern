@@ -141,7 +141,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
                     sw("storyOutputToolCall", "输出走工具调用", "仅用于宿主生成方式。让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
                     sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
-                    sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：刚生成过新回复、或最近打开的对话排到最前，一行右侧的时间也换成最近活动时间。只改变列表顺序，不改动存档。", false),
+                    sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
                     h(PromptTemplateSettingsEntry),
                     h(ContextCompactionSettings)))
         );

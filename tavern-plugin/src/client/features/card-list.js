@@ -157,19 +157,27 @@
 			return item.cardPath ? "card:" + item.cardPath : "unbound:" + (item.chatId || item.sessionId);
 		}
 
-		// Latest of opened, saved, or replied to (the live session summary), for "most recent" orderings.
+		// Latest of opened, saved, or replied to (the live session summary). This is
+		// "where was I last", used to pick the conversation to open — never to order the list.
 		function tavernHistoryActivity(item, summaries = {}) {
 			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
 			return Math.max(timestamp(item.lastOpenedAt), timestamp(item.updatedAt), timestamp(summaries[item.sessionId]?.updatedAt));
 		}
 
+		// Reply time: only storage writes and the host session summary's reply stamp.
+		// Switching to a conversation must not move it — only a new reply does.
+		function tavernHistoryReplyAt(item, summaries = {}) {
+			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
+			return Math.max(timestamp(item.updatedAt), timestamp(summaries[item.sessionId]?.updatedAt));
+		}
+
 		// 设置 › 高级 › 对话按最新回复排序：默认 created（创建时间固定排列），recent 为最近活动优先。
 		function tavernHistoryOrder(order) { return order === "recent" ? "recent" : "created"; }
 
-		// 一行右侧那个时间：创建序时是创建时间，最新回复序时是这次排序用的活动时间。
+		// 一行右侧那个时间：创建序时是创建时间，最新回复序时是这行的最近回复时间。
 		function tavernHistoryStamp(item, summary, summaries, order) {
 			if (tavernHistoryOrder(order) === "recent") {
-				return tavernHistoryActivity(item, summaries || (summary ? { [item.sessionId]: summary } : {}));
+				return tavernHistoryReplyAt(item, summaries || (summary ? { [item.sessionId]: summary } : {}));
 			}
 			return Number(item.createdAt) || Number(item.lastOpenedAt) || Number(summary && summary.updatedAt) || Number(item.updatedAt) || 0;
 		}
@@ -177,11 +185,11 @@
 		function sortTavernHistoryByActivity(history, summaries = {}) {
 			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
 			return history.slice().sort(function (left, right) {
-				return tavernHistoryActivity(right, summaries) - tavernHistoryActivity(left, summaries) || timestamp(right.createdAt) - timestamp(left.createdAt);
+				return tavernHistoryReplyAt(right, summaries) - tavernHistoryReplyAt(left, summaries) || timestamp(right.createdAt) - timestamp(left.createdAt);
 			});
 		}
 
-		// 最新回复序下整张列表按活动排；创建序保持注册表的固定位置（同时间按最近打开）。
+		// 最新回复序下整张列表按回复时间排；创建序保持注册表的固定位置（同时间按最近打开）。
 		function orderTavernHistory(history, summaries = {}, order) {
 			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
 			if (tavernHistoryOrder(order) === "recent") return sortTavernHistoryByActivity(history, summaries);
@@ -192,9 +200,9 @@
 
 		function groupTavernHistory(history, summaries = {}, order) {
 			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
-			function activity(item) { return tavernHistoryActivity(item, summaries); }
-			// Groups follow the latest activity; conversations inside keep their creation order
-			// unless 「对话按最新回复排序」 is on, then the inner list follows the same activity.
+			function activity(item) { return tavernHistoryReplyAt(item, summaries); }
+			// Groups follow the latest reply; conversations inside keep their creation order
+			// unless 「对话按最新回复排序」 is on, then the inner list follows the same reply time.
 			const groups = new Map();
 			for (const item of history.slice().sort((a, b) => timestamp(b.createdAt) - timestamp(a.createdAt))) {
 				const key = tavernHistoryCardKey(item);

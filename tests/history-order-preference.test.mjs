@@ -40,7 +40,7 @@ function keys(items, key) { return Array.from(items, item => key(item)); }
 
 function helpers() {
   const ctx = vm.createContext({})
-  for (const name of ['tavernHistoryCardKey', 'tavernHistoryActivity', 'tavernHistoryOrder', 'groupTavernHistory', 'orderTavernHistory', 'sortTavernHistoryByActivity', 'tavernHistoryStamp']) {
+  for (const name of ['tavernHistoryCardKey', 'tavernHistoryActivity', 'tavernHistoryReplyAt', 'tavernHistoryOrder', 'groupTavernHistory', 'orderTavernHistory', 'sortTavernHistoryByActivity', 'tavernHistoryStamp']) {
     vm.runInContext(sourceFunction(cardList, name), ctx)
   }
   return ctx
@@ -91,4 +91,25 @@ test('侧边栏按偏好切换排序，并在设置变化后重新读取', () =>
   assert.match(sidebar, /groupTavernHistory\(orderedActiveHistory, summaries, historyOrder\)/)
   assert.match(sidebar, /void reloadHistoryOrder\(\)/)
   assert.match(sidebar, /formatTime\(tavernHistoryStamp\(item, summary, summaries, historyOrder\)\)/)
+})
+
+test('最新回复序：切换/打开对话不改变位置，只有新回复才排到最前', () => {
+  const ctx = helpers()
+  const rows = [
+    { sessionId: 'session-old', chatId: 'chat-old', cardPath: 'card.json', cardName: '卡', mode: 'story', createdAt: 100, updatedAt: 100, lastOpenedAt: 900 },
+    { sessionId: 'session-new', chatId: 'chat-new', cardPath: 'card.json', cardName: '卡', mode: 'story', createdAt: 200, updatedAt: 500, lastOpenedAt: 500 },
+    { sessionId: 'session-mid', chatId: 'chat-mid', cardPath: 'other.json', cardName: '另一张卡', mode: 'story', createdAt: 300, updatedAt: 300, lastOpenedAt: 300 }
+  ]
+  // 刚切到创建最早、回复也最早那条：lastOpenedAt 最大，仍排在最后。
+  assert.deepEqual(keys(ctx.orderTavernHistory(rows, {}, 'recent'), item => item.sessionId), ['session-new', 'session-mid', 'session-old'])
+  const groups = ctx.groupTavernHistory(rows, {}, 'recent')
+  assert.deepEqual(keys(groups, group => group.key), ['card:card.json', 'card:other.json'])
+  assert.deepEqual(keys(groups[0].items, item => item.sessionId), ['session-new', 'session-old'])
+  // 同一张卡内也一样：打开过的旧档不会挤到新档前面。
+  assert.deepEqual(keys(ctx.sortTavernHistoryByActivity(rows, {}), item => item.sessionId), ['session-new', 'session-mid', 'session-old'])
+  // 行内时间是最近回复时间，不是打开时间。
+  assert.equal(ctx.tavernHistoryStamp(rows[0], null, {}, 'recent'), 100)
+  // 宿主摘要的回复时间照旧参与排序（打开存档不会写摘要的 updatedAt）。
+  const summaries = { 'session-old': { updatedAt: 1000 } }
+  assert.deepEqual(keys(ctx.orderTavernHistory(rows, summaries, 'recent'), item => item.sessionId), ['session-old', 'session-new', 'session-mid'])
 })
