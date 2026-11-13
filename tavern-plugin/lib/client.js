@@ -39871,6 +39871,7 @@ function tavernStoryTranscriptRows(transcript) {
 		if (cached && cached.messages === entries) return cached.rows
 	}
 	const rows = []
+	let previousUser = null
 	for (let position = 0; position < entries.length; position++) {
 		const entry = entries[position] && typeof entries[position] === 'object' ? entries[position] : {}
 		const message = entry.message && typeof entry.message === 'object' ? entry.message : {}
@@ -39892,6 +39893,11 @@ function tavernStoryTranscriptRows(transcript) {
 		const nextMessage = nextEntry && nextEntry.message && typeof nextEntry.message === 'object' ? nextEntry.message : null
 		const nextReplyTurn = role === 'user' && nextMessage && nextMessage.role === 'assistant' && Number.isSafeInteger(nextMessage.turn) && nextMessage.turn > 0
 			? String(nextMessage.turn) : null
+		// 旧存档里同一条提交（同一个请求号）可能被写了两行：一次准备、一次补写。
+		// 视图只画第一行，否则玩家看到两个一模一样的输入气泡。
+		if (role === 'user' && requestId !== null && previousUser !== null
+			&& previousUser.requestId === requestId && previousUser.text === text) continue
+		if (role === 'user' && requestId !== null) previousUser = { requestId: requestId, text: text }
 		rows.push({
 			key: key,
 			position: position,

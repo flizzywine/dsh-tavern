@@ -258,6 +258,29 @@ for (const alreadyAppended of [false, true]) test('failed-input committed recove
   assert.equal((visible.match(/失败输入/g) || []).length, 1)
 })
 
+test('失败尾补写时存档已停着这一轮的输入行，不再补第二条输入', async () => {
+  const h = await fixture()
+  const before = await h.chats.read()
+  const begun = h.timeline.apply({ chat: before, intent: { kind: 'body.begin', turn: 3, userText: '失败输入' } })
+  const operation = begun.chat.timeline.operations[begun.value.operationId]
+  begun.chat.foregroundFrames[operation.id] = { ...copy(Object.values(begun.chat.foregroundFrames)[0]),
+    operationId: operation.id, turn: 3, userInput: { sourceText: '失败输入', projectedText: '失败输入' } }
+  // 上一次尝试被丢弃后留下的持久输入行：players 的输入已经在存档末尾。
+  begun.chat.messages.push({ role: 'user', text: '失败输入', native: true })
+  await h.chats.write(begun.chat)
+  appendSessionEvent(h.session, 'turn/start', { turn: 3 })
+  appendSessionEvent(h.session, 'step/start', { turn: 3, step: 1 })
+  appendSessionEvent(h.session, 'user/message', { id: 'failed-input', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '失败输入' }] }, { surfaceOp: 'append' })
+  appendSessionEvent(h.session, 'step/end', { turn: 3, step: 1 })
+  appendSessionEvent(h.session, 'turn/end', { turn: 3, reason: { kind: 'error' } })
+  const result = await h.history.regenerateWithProvider({ gameId: 'session', generate: async () => ({ text: '恢复的新正文' }) })
+  assert.equal(result.text, '恢复的新正文')
+  const saved = await h.chats.read()
+  assert.equal(saved.messages.filter(row => row.role === 'user' && row.text === '失败输入').length, 1,
+    '同一轮输入只保留存档里已有的那一行')
+  assert.equal(saved.messages.at(-1).text, '恢复的新正文')
+})
+
 test('面上没有这一轮正文时补写一条，旧正文不在了也能重新生成', async () => {
   // 上一次重新生成截断后没有落位：这一轮的正文在存档里，消息流上却没有。
   const h = await fixture({ withoutBody: true })

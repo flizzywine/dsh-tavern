@@ -1010,7 +1010,19 @@ export function createTurnOrchestrator(options) {
       } else if (messages.length) {
         // Saves prepared before placeholder support, and adopted native rounds,
         // retain the original append-only commit contract.
-        changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: messages })
+        // A discarded attempt keeps the player's durable input row in the save, so
+        // its补写 arrives here without a placeholder while that input is already
+        // stored. Appending it again paints two identical input bubbles in the
+        // story; the same request id may only ever own one row.
+        let items = messages
+        const inputRequestId = messages[0]?.role === 'user' ? str(messages[0].source?.rpcId).trim() : ''
+        if (inputRequestId) {
+          const start = Math.max(0, count - 8)
+          const tail = await readRows(Array.from({ length: count - start }, (_, offset) => start + offset))
+          if (stale) continue
+          if (tail.some(row => row?.role === 'user' && str(row.source?.rpcId).trim() === inputRequestId)) items = messages.slice(1)
+        }
+        if (items.length) changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items })
       }
       if (await store.patchChat(before.id, revision, changes, metadata)) return result
     }

@@ -54,3 +54,21 @@ test('宿主提交回声只补尚未落盘的 requestId', () => {
 	assert.equal(rows[2].absoluteIndex, null)
 	assert.equal(data.pendingRows(base, []), base, '没有回声时不复制行数组')
 })
+
+test('同一请求号的玩家输入在视图里只画一条', () => {
+	const transcript = story([
+		{ role: 'assistant', turn: 1, text: '开场' },
+		{ role: 'user', text: '同样的输入', source: { kind: 'user', rpcId: 'rpc-1' } },
+		{ role: 'user', text: '同样的输入', source: { kind: 'user', rpcId: 'rpc-1' } },
+		{ role: 'assistant', turn: 2, text: '正文' }
+	])
+	const rows = data.rows(transcript)
+	assert.equal(rows.map(row => row.role).join(','), 'assistant,user,assistant')
+	assert.equal(rows[1].text, '同样的输入')
+	// 不同请求号、同样的文字仍是两次真实输入。
+	const twice = data.rows(story([
+		{ role: 'user', text: '再来一次', source: { kind: 'user', rpcId: 'rpc-a' } },
+		{ role: 'user', text: '再来一次', source: { kind: 'user', rpcId: 'rpc-b' } }
+	]))
+	assert.equal(twice.map(row => row.requestId).join(','), 'rpc-a,rpc-b')
+})

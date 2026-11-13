@@ -224,7 +224,14 @@ export function createPluginBodyRegeneration(deps) {
       }
       const completed = timeline.complete({ chat: draft, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
         outcome: { status: 'success' }, apply(current) {
-          if (failedMode) current.messages = clone(original.messages).concat([originalUser, row])
+          if (failedMode) {
+            // A discarded attempt keeps the failed round's玩家输入 in the save; the
+            // tail row is then already that input.补写 only owes the body, otherwise
+            // the story shows the same input twice.
+            const tail = Array.isArray(original.messages) ? original.messages.at(-1) : null
+            const tailIsInput = tail?.role === 'user' && text(tail.text) === text(failedInput)
+            current.messages = clone(original.messages).concat(tailIsInput ? [row] : [originalUser, row])
+          }
           else {
             const replaced = replaceLastRound({ originalChat: original, regeneratedChat: current, replacement: row, assistantIndex: index, inputIndex })
             if (replacedUid) replaced.chat.messages[index].messageUid = replacedUid

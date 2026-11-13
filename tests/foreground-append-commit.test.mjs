@@ -347,3 +347,27 @@ for (const [kind, path, value] of [
     }
   })
 }
+
+test('丢弃过的回合补写正文时，存档里那条玩家输入不再写第二遍', async t => {
+  const scoped = await app(t, base(history(4, () => true)), true)
+  const input = { sessionId: 's', turn: 5, requestId: 'input-5', userText: '继续' }
+  await scoped.turns.appendUser(input)
+  await scoped.turns.prepare(input)
+  // 模拟这次生成失败被丢弃：助手占位退掉，玩家的输入行留在存档里，operation 也不再带占位。
+  await scoped.persistence.update('chat-1', chat => {
+    chat.messages = chat.messages.filter(row => row.role === 'user' || !row.placeholder)
+      .map(row => { if (row.role !== 'user' || !row.placeholder) return row; const next = { ...row }; delete next.placeholder; return next })
+    for (const operation of Object.values(chat.timeline.operations)) delete operation.placeholder
+    return chat
+  }, { source: 'test.discard' })
+  const discarded = await scoped.stored()
+  assert.deepEqual(discarded.messages.slice(-1).map(row => [row.role, row.source?.rpcId]), [['user', 'input-5']])
+
+  await scoped.turns.finalize({ ...input, assistantText: '补写的正文' })
+  const saved = await scoped.stored()
+  assert.deepEqual(saved.messages.slice(-2).map(row => [row.role, row.text]), [
+    ['user', '继续'], ['assistant', '补写的正文']
+  ])
+  assert.equal(saved.messages.filter(row => row.role === 'user' && row.text === '继续').length, 1,
+    '同一请求号只留一条玩家输入')
+})
