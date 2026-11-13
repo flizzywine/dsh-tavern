@@ -681,7 +681,7 @@ test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只�
     readCardImage: async sessionId => sessionId === 'game-1' ? { url: '/api/dsh-tavern/card-image?path=cards%2Fa.json', mediaType: 'image/png' } : null,
     readHistory: async (sessionId, first, last) => { ranges.push([first, last]); return [{ turn: first, input: '你好', text: '她推开门。', rawText: '<b>她</b>推开门。' }] },
     writeVariables: async (material, variables) => writes.push([material.turn, variables]),
-    editText: async (material, text) => edits.push([material.turn, text]),
+    editText: async (material, text, options) => edits.push(options ? [material.turn, text, options] : [material.turn, text]),
     readTurn: async (sessionId, turn) => sessionId === 'game-1' ? turnMaterial({ turn, key: 'key-' + turn }) : null,
     data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} },
   })
@@ -703,6 +703,8 @@ test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只�
   await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: [] }), /对象/)
   await tavern.editTurn({ gameId: 'game-1', turn: 3, textVersion: 'key-3', text: '她轻轻推开门。' })
   assert.deepEqual(edits, [[3, '她轻轻推开门。']])
+  await tavern.editTurn({ gameId: 'game-1', turn: 3, textVersion: 'key-3', text: '她推开了门。', polish: true })
+  assert.deepEqual(edits[1], [3, '她推开了门。', { polish: true }])
 
   h.setLatest(turnMaterial({ turn: 4, index: 7, key: 'key-4' }))
   await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: {} }), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' }, '不是最新一轮')

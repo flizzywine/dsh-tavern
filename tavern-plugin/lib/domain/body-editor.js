@@ -679,7 +679,8 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   // A whole new text (plugins): its HTML and markers must equal the current ones, in order;
   // only the prose between them changes, through the same checks as a player's edit.
-  async function replaceText(sessionId, text) {
+  // When `polish` is true, keep `body.polish` semantics so scene illustrations stay bound.
+  async function replaceText(sessionId, text, { polish: asPolish = false } = {}) {
     const { chat, message, parts } = await context(sessionId)
     const fixed = parts.filter(part => part.kind !== 'text')
     const gaps = Array.from({ length: fixed.length + 1 }, () => '')
@@ -698,7 +699,8 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       gaps[gap] = ''
     }
     if (gaps.some(rest => rest.trim())) throw new Error('只能修改原有的文字段落，不能在 HTML 块之间新增段落')
-    return await save(sessionId, { token: token(chat, message), texts })
+    const input = { token: token(chat, message), texts }
+    return asPolish ? await polish(sessionId, input) : await save(sessionId, input)
   }
   // 自动精修: the reply reworded in place; dialogue speakers follow as for an edit.
   async function polish(sessionId, input) {

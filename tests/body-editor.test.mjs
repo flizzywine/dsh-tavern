@@ -6,6 +6,7 @@ import { projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentati
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { sessionEvents, appendSessionEvent } from '../tavern-plugin/lib/domain/session-events.js'
 import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
+import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustration.js'
 
 function fixture(text = '原正文', seeded = false) {
   let session = Session.create('body-edit-test')
@@ -142,6 +143,15 @@ test('插件整段替换正文：HTML 块必须原样保留，只改文字', asy
   assert.deepEqual(h.chat, original)
   await h.editor.replaceText(h.session.id, '雨停了，灯亮了。\n\n' + block)
   assert.equal(h.chat.messages[1].sourceText, '雨停了，灯亮了。\n\n' + block)
+  assert.equal(h.chat.messages[1].polishedFrom, undefined)
+
+  const polished = fixture('雨停了。\n\n' + block)
+  const beforeTarget = computeSceneTarget(polished.chat, 2)
+  await polished.editor.replaceText(polished.session.id, '雨终于停了，灯也亮了。\n\n' + block, { polish: true })
+  assert.equal(polished.chat.messages[1].sourceText, '雨终于停了，灯也亮了。\n\n' + block)
+  assert.equal(polished.chat.messages[1].polished, true)
+  assert.ok(polished.chat.messages[1].polishedFrom, 'polish 模式保留原场景摘要')
+  assert.equal(computeSceneTarget(polished.chat, 2).key, beforeTarget.key, 'polish 模式不改变场景媒体键')
 })
 
  test('分页正文缺失原生楼层时，编辑被拒绝且不改存档', async () => {

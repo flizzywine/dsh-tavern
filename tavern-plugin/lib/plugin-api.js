@@ -1235,12 +1235,13 @@ export function createTavernPluginApi(deps) {
     },
 
     // Replace the latest turn's text; HTML blocks in it must stay as they are. Plugins then get onTurnSettled again.
-    async editTurn({ gameId, turn, textVersion, text } = {}) {
+    // With `polish: true`, keep the original scene digest (body.polish) so existing illustrations stay bound.
+    async editTurn({ gameId, turn, textVersion, text, polish = false } = {}) {
       const owner = ownerOf(this)
       const material = await writableTurn(owner, gameId, turn, textVersion, 'editTurn')
       if (typeof text !== 'string' || !text.trim()) throw new TypeError('text 必须是非空字符串')
       if (text.length > MAX_EDIT_TEXT) throw new Error('text 太长')
-      await deps.editText(material, text)
+      await (polish === true ? deps.editText(material, text, { polish: true }) : deps.editText(material, text))
       return await snapshotOf(await requireTurn(material.sessionId, material.turn))
     },
 

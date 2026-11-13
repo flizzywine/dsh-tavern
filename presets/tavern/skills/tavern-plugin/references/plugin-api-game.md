@@ -451,9 +451,9 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 - Tavern 不检查变量结构，写错了会直接影响状态栏和后续结算，请按这张卡的变量结构写。最大 1 MB。
 - 这一轮的后台结算还没结束时报 `TAVERN_PLUGIN_TURN_UNAVAILABLE`，下一轮正文已经在生成时报 `TAVERN_PLUGIN_BUSY`，都是稍后再试；在 `onTurnSettled` 里调用就不会遇到。
 
-### `editTurn({ gameId, turn, textVersion, text })`
+### `editTurn({ gameId, turn, textVersion, text, polish? })`
 
-用 `text` 替换这一轮的正文，走的是玩家「编辑正文」同一条路：回退、分叉照常，宏、脚本和结算不会重跑。返回改后这一轮的内容（同 `getTurn`），里面有新的 `textVersion`。
+用 `text` 替换这一轮的正文，默认走玩家「编辑正文」同一条路：回退、分叉照常，宏、脚本和结算不会重跑。传入 `polish: true` 时走「润色」语义（保留原场景摘要 `polishedFrom`，已挂在该轮的插件插图不会因改写正文而丢失）。返回改后这一轮的内容（同 `getTurn`），里面有新的 `textVersion`。
 
 - `text` 是完整的新正文，请在 `rawText` 的基础上改；不要拿 `text` 字段去改，它去掉了 HTML 块，交回来会被拒绝。正文里的 HTML 块（状态栏、美化代码等）必须原样保留，只能改它们之间的文字，也不能在 HTML 块之间新增段落。
 - 改完后所有插件会再收到一次这一轮的 `onTurnSettled`（`textVersion` 是新的）。在 `onTurnSettled` 里改正文的插件，要先判断是不是已经改过，避免反复修改。

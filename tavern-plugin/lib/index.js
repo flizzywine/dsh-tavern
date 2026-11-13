@@ -3180,8 +3180,8 @@ export async function apply(ctx) {
         settling: !!activity && (activity.busy === true || activity.phase === 'pending') }
     },
     writeVariables: writePluginVariables,
-    editText: async (material, text) => {
-      await bodyEditor.replaceText(material.sessionId, text)
+    editText: async (material, text, options) => {
+      await bodyEditor.replaceText(material.sessionId, text, { polish: options?.polish === true })
       notifyPluginTimeline(material.sessionId, 'edit', { settled: true })
     },
     runTask: runPluginTask,
