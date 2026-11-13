@@ -393,7 +393,7 @@ export function buildStageUpdateTool({ units, budget, catalog } = {}) {
     .concat(persistentStageSchemas(catalog))
     .concat([command('event', { value: { type: 'object', additionalProperties: false, properties: { op: { type: 'string', enum: ['act', 'emote', 'beat', 'trans', 'focus', 'sfx', 'title'] }, id: { type: 'string' }, value: { type: 'string' } }, required: ['op', 'value'] } })])
     .concat([command('actor.variant', { actor, value }), command('act', { actor, value: { type: 'string', enum: ['nod', 'shake', 'jump', 'tremble', 'turn', 'bow', 'lean', 'step-back'] } })])
-  return { name: 'stage_update', description: 'Stage incremental presentation changes. Omitted values persist, including offstage variants. Never repeat unchanged settings. Send an empty beats list to seal unchanged paragraphs. done finalizes the task; it does not clear the stage.',
+  return { name: 'stage_update', description: 'Stage incremental presentation changes. Omitted values persist, including offstage variants, so send only what changes. Send an empty beats list to seal unchanged paragraphs. done finalizes the task; it does not clear the stage.',
     parameters: { type: 'object', additionalProperties: false, required: ['sequence', 'through', 'done', 'beats'], properties: {
       sequence: { type: 'integer', minimum: 1 }, through: { type: 'integer', minimum: 1, maximum: units }, done: { type: 'boolean' },
       beats: { type: 'array', maxItems: limits.maxBeatsPerCall, items: { type: 'object', additionalProperties: false, required: ['at', 'ops'], properties: {

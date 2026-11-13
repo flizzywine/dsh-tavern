@@ -59,7 +59,7 @@ export function createCallSections({promptSection}) {
     return body ? promptSection('call_recent_story', '- The latest story rounds, in full, up to this call. You know these events; do not retell them on the call.\n\n' + body) : ''
   }
   // Summary relay on (experimental): the read-only source tools, and the summary of the rounds before the raw window.
-  const callRelayTools = () => promptSection('call_source_tools', '- You can look up the original text of earlier story rounds (tavern_recall_history) and of your own calls (tavern_read_source). Use them only when you really need an exact detail the summary does not give; never mention them on the call.')
+  const callRelayTools = () => promptSection('call_source_tools', "- You can look up the original text of earlier story rounds (tavern_recall_history) and of your own calls (tavern_read_source). Use them when you need an exact detail the summary does not give. They work behind the scenes and the person on the call can't see them, so don't mention them on the call.")
   const callEventsSection = text => promptSection('phone_events', '- Phone records that ended since the last round:\n\n' + text)
   const callRelaySummary = text => text.trim() ? promptSection('call_story_summary', '- Summary of the story before the rounds below, by round, source and participants. Each person knows only what they took part in or were told.\n\n' + text.trim()) : ''
   /**
