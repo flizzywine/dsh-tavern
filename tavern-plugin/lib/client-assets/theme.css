@@ -485,6 +485,14 @@ body.dsh-tavern-shell-active [role="status"][class*="_turnStatus"] {
 textarea.fork-status-guide-input { box-sizing: border-box; display: block; width: 100%; min-height: 32px; padding: 6px 10px; resize: none; field-sizing: content; max-height: 120px;
   border: 1px solid var(--fork-hairline); border-radius: 8px; background: transparent; color: var(--fork-ink); font: 12px/1.5 var(--fork-font-ui); }
 textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(in srgb, var(--fork-accent) 60%, transparent); box-shadow: 0 0 0 3px var(--fork-accent-soft); }
+/* 手机输入法没有可用的回车：添加按钮与输入框同排，按钮常驻不随草稿消失。 */
+.fork-status-guide-row { display: flex; align-items: flex-end; gap: 6px; }
+.fork-status-guide-row > textarea.fork-status-guide-input { flex: 1 1 auto; width: auto; min-width: 0; }
+.fork-status-guide-row > .fork-status-guide-save { flex: none; min-height: 32px; padding: 0 12px; border: 1px solid var(--fork-hairline); border-radius: 8px;
+  background: var(--fork-hover); color: var(--fork-ink); font: 12px/1 var(--fork-font-ui); cursor: pointer; }
+.fork-status-guide-row > .fork-status-guide-save:hover:not(:disabled) { border-color: color-mix(in srgb, var(--fork-accent) 55%, var(--fork-hairline)); color: var(--fork-accent); }
+.fork-status-guide-row > .fork-status-guide-save:disabled { cursor: default; opacity: .45; }
+@media (hover: none) { .fork-status-guide-row > textarea.fork-status-guide-input, .fork-status-guide-row > .fork-status-guide-save { min-height: 38px; } }
 .fork-status-people { display: flex; flex-direction: column; }
 .fork-status-people details > summary { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; list-style: none; cursor: pointer; font-size: var(--fork-fs-meta); }
 .fork-status-people details > summary::-webkit-details-marker { display: none; }

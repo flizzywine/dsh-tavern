@@ -44,8 +44,13 @@ function StatusPanelView(p) {
         return h("section", { key, className: "fork-status-section" },
             h("header", null, h("h3", null, title), extra || null), body);
     }
+    // 手机输入法在按键归属期给 keyCode 229（部分 WebKit 还会先结束 composition），回车因此可能永远对不上：
+    // 这里是快捷键，不是唯一入口，输入框旁常驻的「添加」按钮才是手机上的保存路径。
+    const guideDraftText = String(p.guideDraft === undefined || p.guideDraft === null ? "" : p.guideDraft).trim();
     function onGuideKey(event) {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent?.isComposing) { event.preventDefault(); p.addGuide(); }
+        const native = event.nativeEvent || event;
+        if (native.isComposing || event.isComposing || event.keyCode === 229) return;
+        if ((event.key === "Enter" || event.keyCode === 13) && !event.shiftKey) { event.preventDefault(); p.addGuide(); }
     }
 
     return h("aside", { className: "dsh-tavern-status fork-status" },
@@ -105,9 +110,14 @@ function StatusPanelView(p) {
                         h("button", { type: "button", onClick: () => p.props.openStyleTab("dsh-tavern:guide-library") }, "打开 Guide 库 ↗"),
                         h("button", { type: "button", disabled: p.guideBusy || !guides.length, onClick: p.saveGuideLibrary }, "保存到 Guide 库")),
                     p.guideNotice ? h("p", { role: "status" }, p.guideNotice) : null,
-                    h(TextArea, { className: "fork-status-guide-input", inputRef: p.guideInputRef, "aria-label": "新 Guide 内容", rows: 1, maxLength: 2000, value: p.guideDraft, disabled: p.guideBusy,
-                        placeholder: guides.length ? "再加一条…（回车保存）" : "例如：多写心理活动，对话不超过三句（回车保存）",
-                        onChange: function (text) { p.setGuideDraft(text); }, onKeyDown: onGuideKey }),
+                    h("div", { className: "fork-status-guide-row" },
+                        h(TextArea, { className: "fork-status-guide-input", inputRef: p.guideInputRef, "aria-label": "新 Guide 内容", rows: 1, maxLength: 2000, value: p.guideDraft, disabled: p.guideBusy,
+                            enterKeyHint: "done",
+                            placeholder: guides.length ? "继续添加…" : "写一条正文要求，例如：多写心理活动，对话不超过三句",
+                            onChange: function (text) { p.setGuideDraft(text); }, onKeyDown: onGuideKey }),
+                        // 回车保存是桌面快捷键；手机输入法吞掉回车时，这一条是唯一可靠的保存入口。
+                        h("button", { type: "button", className: "fork-status-guide-save", disabled: p.guideBusy || !guideDraftText, onClick: function () { p.addGuide(); } },
+                            p.guideBusy ? "添加中…" : "添加")),
                     p.guideError ? h("div", { className: "fork-status-alert", "data-kind": "error" }, h("span", null, p.guideError)) : null)),
 
             section("people", "人物档案",
