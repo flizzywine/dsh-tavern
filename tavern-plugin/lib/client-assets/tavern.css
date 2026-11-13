@@ -744,7 +744,11 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-external-preset-notice strong { color: var(--dsh-tavern-accent); font-weight: 750; }
 .dsh-tavern-external-preset-notice .dsh-tavern-preset-warning { color: #b4473a; }
 .dsh-tavern-preset-selector { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 8px; margin-bottom: 10px; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); font-size: 11px; }
+.dsh-tavern-preset-selector-label { white-space: nowrap; }
+.dsh-tavern-preset-selector-controls { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; min-width: 0; }
+.dsh-tavern-preset-selector-controls > .dsh-tavern-btn { display: inline-flex; align-items: center; height: 30px; min-height: 0; padding: 0 12px; font-size: 12px; white-space: nowrap; }
 .dsh-tavern-preset-selector select { min-width: 0; width: 100%; height: 28px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 0 7px; background: var(--dsw-specific-input-major); color: inherit; }
+@media (max-width: 520px) { .dsh-tavern-preset-selector-controls { grid-template-columns: minmax(0,1fr); } }
 .dsh-tavern-preset-section-title { margin: 14px 2px 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
 .dsh-tavern-plan-phase { margin-top: 12px; padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-plan-phase-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }

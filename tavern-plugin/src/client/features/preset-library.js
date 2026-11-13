@@ -209,10 +209,15 @@
 						entryGroups.unassigned.length ? h("details", { className: "dsh-tavern-preset-unassigned" }, h("summary", null, "未进入三段 · " + entryGroups.unassigned.length + " 项"), h("p", null, "这些条目是人物卡、聊天历史等内容的占位，或没有排进预设的发送顺序，不会作为预设文字发给模型。"), entryGroups.unassigned.map(entryRow)) : null,
 						h("div", { className: "dsh-tavern-preset-section-title" }, "正则脚本 · " + (preset.extractableRegexScripts || []).length), (preset.extractableRegexScripts || []).map(regexRow)));
 				}
+				// Same source as the dropdown options: the button edits exactly what is selected there.
+				const editablePreset = catalog.activePresetPath ? catalog.presets.find(function (item) { return item.path === catalog.activePresetPath && item.valid === true && item.recognized === true; }) || null : null;
 				return h("div", { className: "dsh-tavern-presets" },
 					h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "酒馆预设库"), h("div", { className: "dsh-tavern-question-sub" }, "导入、选择和修改酒馆预设"), h("button", { className: "dsh-tavern-btn primary", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入酒馆预设"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })),
 					h("div", { className: "dsh-tavern-preset-list" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null,
-						h("label", { className: "dsh-tavern-preset-selector" }, h("span", null, "新游戏默认预设"), h("select", { value: catalog.activePresetPath, disabled: busy, onChange: function (event) { selectPreset(event.target.value); } }, h("option", { value: "" }, "不使用酒馆预设（默认）"), catalog.presets.filter(function (item) { return item.valid === true && item.recognized === true; }).map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); }))),
+						h("div", { className: "dsh-tavern-preset-selector" }, h("span", { className: "dsh-tavern-preset-selector-label" }, "新游戏默认预设"),
+							h("div", { className: "dsh-tavern-preset-selector-controls" },
+								h("select", { value: catalog.activePresetPath, disabled: busy, "aria-label": "新游戏默认预设", onChange: function (event) { selectPreset(event.target.value); } }, h("option", { value: "" }, "不使用酒馆预设（默认）"), catalog.presets.filter(function (item) { return item.valid === true && item.recognized === true; }).map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); })),
+								h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !editablePreset, title: editablePreset ? "打开“" + editablePreset.title + "”，修改它的提示词和正则" : "先选择一个酒馆预设，再编辑它", onClick: function () { if (editablePreset) loadPreset(editablePreset.path); } }, "编辑当前预设"))),
 						h("details", { className: "dsh-tavern-preset-summary dsh-tavern-external-preset-notice dsh-tavern-help" },
 						h("summary", null, h("strong", null, catalog.activePresetPath ? "当前预设：" + catalog.activePresetTitle : "当前使用内置设置"), h("span", null, "使用说明")),
 						h("p", { className: "dsh-tavern-preset-warning" }, h("strong", null, "使用建议："), "一般用内置设置就够了。想改文风或写法，可以在卡片模式里让 Agent 修改人物卡，也可以在游玩时用 Guide 告诉它你的要求。酒馆预设也会影响模型怎么写，使用前先看看里面写了什么。"),
