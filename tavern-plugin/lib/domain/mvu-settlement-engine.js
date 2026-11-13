@@ -4,6 +4,7 @@ import { applyMvuSettlementEffect } from './mvu-settlement-effect.js'
 import { cardMvuLimits } from './mvu-limits.js'
 import { projectAgentMessageText } from './runtime-content-projection.js'
 import { pendingMvuTarget } from './settlement-turn.js'
+import { settledVariables } from './read-variables.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { settlementBudgetRuleText } from './narrative-damper.js'
 
@@ -89,7 +90,9 @@ export function createMvuSettlementEngine(deps) {
       storyText: projectAgentMessageText(mvuTarget.message, { charName: card && card.name, macroState: snapshot.macroState }),
       currentVariables: mvuTarget.variables,
       helperContext: collectMvuHelperContext(snapshot.messages, mvuTarget.messageId),
-      toolResults: await deps.turnToolResults?.(snapshot, mvuTarget) || [],
+      // The reply's baseline holds the variables of the last settled reply: tool results of the turns after it are written
+      // now, so a reply whose settlement never saved has its values written with the next one.
+      toolResults: await deps.turnToolResults?.(snapshot, { after: settledVariables(snapshot, mvuTarget.messageId).turn, upTo: Number(mvuTarget.message.turn) }) || [],
       guides: Array.isArray(snapshot.guides) ? snapshot.guides : [],
       variableSchema: mvuTarget.variables.schema,
       variableLimits: cardMvuLimits(card) || [],
@@ -180,13 +183,28 @@ export function createMvuSettlementEngine(deps) {
       } else {
         const selection = backgroundModelSelection(snapshot)
         if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
-        mvuResult = await mvuSettlement.settleVariables({
-          ...settlementInput,
-          system: backgroundTasksSettings.posture ? postureItem.requirement() : '',
-          selection,
-          persistentSessionId: trace.sessionId,
-          signal
-        })
+        let failure = null
+        try {
+          mvuResult = await mvuSettlement.settleVariables({
+            ...settlementInput,
+            system: backgroundTasksSettings.posture ? postureItem.requirement() : '',
+            selection,
+            persistentSessionId: trace.sessionId,
+            signal
+          })
+          if (['error', 'partial'].includes(mvuResult.receipt?.status)) failure = mvuResult.receipt.summary || mvuResult.receipt.failures?.[0]?.message || ''
+        } catch (error) {
+          if (signal?.aborted || !settlementInput.toolResults.length) throw error
+          failure = str(error?.message || error)
+        }
+        // The background failed: what the tools settled is written alone; the story's own variables wait for a retry.
+        if (failure !== null && settlementInput.toolResults.length) {
+          mvuResult = await mvuSettlement.resumeVariables({ ...settlementInput, submission: { operations: [] } })
+          if (['updated', 'unchanged'].includes(mvuResult.receipt?.status)) {
+            mvuResult.receipt.summary = '后台结算没有完成（' + failure + '）：只写入了工具算定的值，其余变量可以重试结算。'
+            mvuResult.receipt.toolOnly = true
+          }
+        }
       }
     }
     if (mvuResult.posture === undefined && delivery?.posture !== undefined) mvuResult.posture = delivery.posture
@@ -237,7 +255,7 @@ export function createMvuSettlementEngine(deps) {
             target.mvu = {
               pending: false,
               modified: receipt.status === 'updated',
-              diagnostics: receipt.status === 'stale' ? [{ message: receipt.summary }] : [],
+              diagnostics: receipt.status === 'stale' || receipt.toolOnly ? [{ message: receipt.summary }] : [],
               events: receipt.status === 'stale' ? [] : ['MESSAGE_RECEIVED'],
               receipt
             }

@@ -109,6 +109,37 @@ function promptVariables(value) {
 // structure section already states it; left in the snapshot it reads as one more
 // state field the model may try to update (#153). Only object keys are hidden:
 // dropping an array element would shift every index the model writes back.
+// The variables as they are once the host has written its tool operations (tool-settlement-context.js), for the prompt:
+// the background settlement reads the values the tools settled, not the ones before them.
+function withToolOperations(value, operations) {
+  if (!operations.length) return value
+  const variables = clone(object(value))
+  for (const operation of operations) {
+    const keys = pointerSegments(variablesPointer(operation.path))
+    let parent = variables
+    for (const key of keys.slice(0, -1)) parent = parent[key] = parent[key] !== null && typeof parent[key] === 'object' ? parent[key] : {}
+    if (operation.op === 'remove') delete parent[keys.at(-1)]
+    else parent[keys.at(-1)] = clone(operation.value)
+  }
+  return variables
+}
+
+function toolOperationsOf(frame) {
+  return (frame.taskRules.toolResults || []).flatMap(row => row.operations)
+}
+
+// The tools' rows enter here once: their operations take the provider path contract (absolute /stat_data paths).
+function normalizeToolResults(rows) {
+  return (Array.isArray(rows) ? rows : []).map(row => ({ tool: str(row?.tool), note: str(row?.note).trim(),
+    operations: normalizeMvuProviderSubmission({ operations: Array.isArray(row?.operations) ? row.operations : [] }).operations }))
+    .filter(row => row.tool && row.operations.length)
+}
+
+function toolResultText(row) {
+  return ['[' + row.tool + ']', ...(row.note ? [row.note] : []),
+    ...row.operations.map(operation => operation.path + (operation.op === 'remove' ? ' 删除' : ' = ' + JSON.stringify(operation.value)))].join('\n')
+}
+
 function withoutMetadataKeys(value) {
   if (Array.isArray(value)) { value.forEach(withoutMetadataKeys); return }
   if (value === null || typeof value !== 'object') return
@@ -526,8 +557,9 @@ export function createMvuBackgroundTaskFrame(input = {}) {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       backgroundTasks: normalizeBackgroundTasks(input.backgroundTasks),
       helperContext: Array.isArray(input.helperContext) ? input.helperContext.map(str).filter(Boolean) : [],
-      // What this reply's tools ask the settlement to see (tool-settlement-context.js): numbers they already settled.
-      toolResults: Array.isArray(input.toolResults) ? input.toolResults.map(row => ({ tool: str(row?.tool), text: str(row?.text).trim() })).filter(row => row.tool && row.text) : [],
+      // What this reply's tools settled (tool-settlement-context.js): the host writes these operations ahead of the
+      // background's, and the background is told so.
+      toolResults: normalizeToolResults(input.toolResults),
       guides: Array.isArray(input.guides) ? input.guides.map(item => str(item?.text ?? item).trim()).filter(Boolean) : [],
       guidance: str(input.guidance).trim(),
       updateOnlyFromStory: true
@@ -559,10 +591,10 @@ export function projectMvuBackgroundRequest(frame) {
       ...(state.variableLimits?.length ? [promptSection('variable_limits', ['写入后超出范围的整批不保存，会退回重交。', describeMvuLimits(state.variableLimits)].join('\n'))] : []),
       ...(updateRules.length === 0 ? [] : [PROMPT_PROSE.p002, updateRules.join('\n\n')]),
       PROMPT_PROSE.p003,
-      JSON.stringify(promptVariables(state.currentVariables)),
+      JSON.stringify(promptVariables(withToolOperations(state.currentVariables, toolOperationsOf(frame)))),
       ...(rules.toolResults?.length ? [promptSection('turn_tool_results', [
-        '正文里的工具在这一轮已经算定了下面这些结果（只含当前这条回复的调用）。照它们写变量，不自己重算，也不因为正文里写了同样的事再记一次。',
-        ...rules.toolResults.map(row => '[' + row.tool + ']\n' + row.text)].join('\n'))] : []),
+        '下面这些变量由正文里的工具算定，程序会原样写入；上面的当前变量快照已经是写入后的值。这些路径不用再提交（提交了也不会保存），正文里写到同一件事时也不要再记一次。',
+        ...rules.toolResults.map(toolResultText)].join('\n'))] : []),
       ...(rules.helperContext?.length ? [PROMPT_PROSE.p004,
         PROMPT_PROSE.p005,
         ...rules.helperContext] : []),
@@ -597,13 +629,29 @@ export function createMvuSettlementModule(options = {}) {
 
   async function applySubmission(input, frame, submission, diagnosticId) {
     submission = resolveSubmissionPaths(submission, input.currentVariables)
+    // The tools' values are the host's to write: the background's operations on those paths are dropped (its copy of
+    // a tool value, or a guess at it, would only race the settled one) and recorded, the rest is written after them.
+    const own = resolveSubmissionPaths({ operations: toolOperationsOf(frame) }, input.currentVariables).operations
+    if (own.length) {
+      const dropped = []
+      submission = { ...submission, operations: submission.operations.filter(operation => {
+        const hit = operationPointers(operation).some(pointer => own.some(item => pathsOverlap(pointer, variablesPointer(item.path))))
+        if (hit) dropped.push(operation)
+        return !hit
+      }) }
+      if (dropped.length) {
+        try { await options.diagnostics?.record(input.sessionId, { diagnosticId, operationId: input.operationId, chatId: input.chatId, branchId: input.branchId, messageId: input.messageId, swipeId: input.swipeId, stage: 'tool-paths-dropped', operations: dropped }) } catch { /* Diagnostics must not change settlement behaviour. */ }
+      }
+    }
     let damper = null
     if (input.narrativeDamperRuling) {
       const clampedResult = clampMvuSubmissionOperationsWithReport(submission, input.currentVariables, input.narrativeDamperRuling)
       submission = clampedResult.submission
       damper = clampedResult.report
     }
+    // The durable copy holds the background's share only: a redelivery adds the tools' operations again, from the same records.
     if (input.onSubmission) await input.onSubmission(clone(submission))
+    if (own.length) submission = { ...submission, operations: [...own, ...submission.operations] }
     const applied = await options.runtime.settleMvuUpdate({
       compactResult: true,
       durable: Boolean(input.onSubmission), signal: input.signal,
@@ -727,7 +775,7 @@ export function createMvuSettlementModule(options = {}) {
         if (feedback && submission.operations.length === 0) throw new Error('上一批更新未通过校验，请修正完整 operations，不能用空数组跳过失败')
       } catch (error) {
         await record('submission-rejected', { error: error.message, argumentKeys: Object.keys(object(call?.arguments)), operations: object(call?.arguments).operations })
-        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: promptVariables(input.currentVariables), attemptsRemaining: maxAttempts - attempt }
+        feedback = { ok: false, retryable: attempt < maxAttempts, rolledBack: true, error: error.message, currentVariables: promptVariables(withToolOperations(input.currentVariables, toolOperationsOf(frame))), attemptsRemaining: maxAttempts - attempt }
         result = { variables: clone(input.currentVariables), receipt: { version: 1, status: 'error',
           summary: feedback.error, diagnosticId, changes: [], sideEffects: [], failures: [{ message: feedback.error }] } }
         return JSON.stringify(feedback)

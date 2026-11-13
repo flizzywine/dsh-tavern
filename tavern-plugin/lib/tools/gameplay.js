@@ -2,7 +2,7 @@ import { HISTORY_RECALL_OUTPUT_SCHEMA, HISTORY_RECALL_TOOL, renderHistoryRecall 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshParameterFields } from '../domain/dsh-tool-schema.js'
 import { surfaceToolResults } from '../domain/surface-tool-results.js'
-import { currentVariableSnapshot } from '../domain/read-variables.js'
+import { settledVariables } from '../domain/read-variables.js'
 
 export function registerGameplayTools({
   modTools = [],
@@ -19,11 +19,12 @@ export function registerGameplayTools({
 }) {
   // The mods' foreground tools (lib/mod-tools.js), each authorized and marked under its own mod. readCard(chat) is the
   // card the game plays with; results(exec) the tool's own earlier results on the game's current branch;
-  // variables(chat) the game's latest saved MVU stat_data (the reader tavern_read_variables uses).
+  // variables(chat) the game's latest settled MVU stat_data and the turn it belongs to ({snapshot, turn}): results of later turns
+  // are not in it yet.
   for (const tool of modTools) tools.register(defineTool(tool.create({ activeTurnOf, chatForSession, isBackground,
     authorize: chat => authorizeMod(tool.modId, chat), markUsed: chat => markModToolUsed(chat, tool.name),
     readCard: chat => readChatCard(chat), results: exec => surfaceToolResults(exec?.agent?.session, tool.name, activeTurnOf(exec)),
-    variables: chat => currentVariableSnapshot(chat).snapshot })))
+    variables: chat => settledVariables(chat) })))
   tools.register(defineTool({
     name: 'tavern_test_response',
     description: '用正式游玩 API 为已保存人物卡创建独立测试存档，按保存的案例逐轮调用模型并检查拒绝信号。configure 保存案例，start 启动，status 查询（最多等待 10 秒），cancel 停止。最长 5 分钟；真实调用产生费用。不支持浏览器脚本卡。未发现拒绝不等于内容合规。',
