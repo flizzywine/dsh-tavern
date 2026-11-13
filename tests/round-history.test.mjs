@@ -895,14 +895,23 @@ test('rollback cannot cancel and consume an active regeneration',async()=>{
  assert.deepEqual(h.chat,before)
 })
 
-test('rescued history blocks regeneration and rollback without modifying old text', async()=>{
+test('rescued history still refuses rollback without modifying old text', async()=>{
  const h=harness()
  h.chat.importHistory={operationId:'rescue-1234',rescue:{sourceChatId:'broken'}}
  h.chat.messages.at(-1).importSource={operationId:'rescue-1234'}
  const before=structuredClone(h.chat)
- await assert.rejects(h.create().regenerate('chat','','session'),/救援/)
  await assert.rejects(h.create().rollback('session','chat'),/救援/)
  assert.deepEqual(h.chat,before)
+})
+
+test('rescued history regenerates the newest imported reply and drops its import identity', async()=>{
+ const h=harness()
+ h.chat.importHistory={operationId:'rescue-1234',rescue:{sourceChatId:'broken'}}
+ h.chat.messages.at(-1).importSource={operationId:'rescue-1234'}
+ await h.create().regenerate('chat','','session')
+ // 重新生成写出的正文属于这一局：那一行不再被当成只能接续的导入历史
+ assert.equal(h.chat.messages.at(-1).importSource, undefined)
+ assert.ok(h.chat.messages.at(-1).text)
 })
 
 test('舞台打断：正文已提交时不回退该轮', async () => {

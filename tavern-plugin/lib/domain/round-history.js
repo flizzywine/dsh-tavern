@@ -1,5 +1,4 @@
 import { projectPlayerContent } from './player-input-content.js'
-import { assertRescueHistoryEditable } from './chat-history-rescue.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { canUndoRollback, restoreSurface, preflightSurfaceRestore, unchangedSinceRollback } from './surface-restoration.js'
 import { rewindBackgroundSurface } from './background-surface.js'
@@ -449,7 +448,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     let chat = initialChat || await stage('regen.load-body', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat = restoreDiscardedRegeneration(chat)
-    assertRescueHistoryEditable(chat)
+    // Regeneration replaces the last reply, so a rescued save may redo the newest
+    // imported row: the new body is written here and the row stops being import-only.
+    // Rollback still refuses imported rows (see rollbackAvailability).
     const activeRound = Object.values(storyTimeline.inspect({ chat }).operations || {}).find(function (operation) {
       return operation && operation.kind === 'body' && operation.status === 'completed' &&
         operation.background && ['pending', 'running'].includes(str(operation.background.phase))

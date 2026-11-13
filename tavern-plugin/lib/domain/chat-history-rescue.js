@@ -25,13 +25,11 @@ export function rescueHistoryInput(source) {
       ...rows.map((m, index) => JSON.stringify({ is_user: m.role === 'user', mes: m.text, ...(snapshot && index === snapshotTarget ? { variables: [snapshot] } : {}) }))].join('\n')
   }
 }
+// A rescued row still carries its import identity until this conversation writes a
+// body of its own over it. The row then belongs to the new game, so regeneration
+// drops the identity instead of keeping the save locked behind it.
 export function isRescuedHistoryMessage(chat, message) {
   return Boolean(chat.importHistory?.rescue && message?.importSource?.operationId === chat.importHistory.operationId)
-}
-export function assertRescueHistoryEditable(chat) {
-  if (isRescuedHistoryMessage(chat, (chat.messages || []).findLast(m => m.role === 'assistant'))) {
-    throw new Error('存档救援导入的历史仅供接续剧情，不能回退或重新生成；请发送新消息继续')
-  }
 }
 
 export function rescueHistoryNotice(rescue) {
@@ -39,5 +37,5 @@ export function rescueHistoryNotice(rescue) {
   const state = snapshot
     ? '已携带最后可用 MVU 快照（' + (snapshot.sourceTurn ? '旧第 ' + snapshot.sourceTurn + ' 轮' : '旧第 ' + (snapshot.sourceMessageIndex + 1) + ' 条消息') + '），继续更新状态。' + (snapshot.laterAssistantMessages ? '快照之后还有 ' + snapshot.laterAssistantMessages + ' 条正文，数值可能滞后，请先核对。' : '')
     : '未携带 MVU 状态。'
-  return '存档救援：' + state + '按故事模式接续，不恢复旧剧本进度；导入历史不能回退或重新生成。'
+  return '存档救援：' + state + '按故事模式接续，不恢复旧剧本进度；已导入的历史不能回退，重新生成只重写最后一楼正文。'
 }

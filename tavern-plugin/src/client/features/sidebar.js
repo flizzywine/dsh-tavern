@@ -1163,7 +1163,7 @@
 				finally { setBusy(false); }
 			}
             async function rescueConversation(item) {
-                if (busy || !await askConfirm("存档救援：仅在旧对话无法继续使用时操作。\n\n迁移玩家输入和剧情正文，并携带最后可用的 MVU 快照继续更新状态。快照可能落后于正文，迁移后请核对数值；MVU 卡缺少有效快照时会停止救援。新对话按故事模式继续，不恢复旧剧本进度。导入的历史不能回退或重新生成。原存档保留。\n\n确定迁移剧情到新对话？")) return;
+                if (busy || !await askConfirm("存档救援：仅在旧对话无法继续使用时操作。\n\n迁移玩家输入和剧情正文，并携带最后可用的 MVU 快照继续更新状态。快照可能落后于正文，迁移后请核对数值；MVU 卡缺少有效快照时会停止救援。新对话按故事模式继续，不恢复旧剧本进度。导入的历史不能回退；重新生成只重写最后一楼正文，生成后那一楼即属于新对话。原存档保留。\n\n确定迁移剧情到新对话？")) return;
                 setBusy(true); setError(""); setMenuSession(null);
                 const key = "dsh-tavern:rescue:" + item.chatId;
                 try {

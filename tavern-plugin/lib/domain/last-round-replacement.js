@@ -67,6 +67,10 @@ export function replaceLastRound(input = {}) {
     swipes: [source]
   })
   delete replacement.bodyEdit
+  // The reply replacing it is written by this conversation, so the row is no longer
+  // imported text: keeping the import identity would keep a rescued save locked out
+  // of rollback and of every later regeneration of that row.
+  delete replacement.importSource
   // The synthetic turn has its own transient storage row. The adopted reply keeps
   // the original story message identity, including when its variables settle later.
   if (originalAssistant.messageUid) replacement.messageUid = originalAssistant.messageUid
