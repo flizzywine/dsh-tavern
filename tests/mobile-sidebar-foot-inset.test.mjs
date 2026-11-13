@@ -26,8 +26,12 @@ html,body{margin:0;height:100%}
 .hRoot{height:100%;display:flex;flex-direction:column;padding:6px 12px;box-sizing:border-box;background:var(--dsw-specific-sidebar-fill)}
 .hRegion{min-height:0;flex:1;display:flex;flex-direction:column;overflow:hidden}
 .hFootArea{flex:none;display:flex;flex-direction:column}
-.hSettingsArea{flex:none;width:100%;min-width:0;display:flex;padding-bottom:6px}
-.hLauncher{position:relative;display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 10px;border:0;border-radius:10px;background:#ece4d6;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;cursor:pointer}
+/* 真实宿主：底栏里「设置」上面还有一条 footerActions（整屏侧栏铺开时画在侧栏之下、看不见，
+   空着时也占 34px），「设置」那一行在它下面。 */
+.hFooterActions{flex:none;height:34px}
+.hSettingsArea{flex:none;width:100%;min-width:0;display:flex;padding:4px 0}
+.hLauncher{position:relative;display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 10px;border:0;border-radius:10px;background:#ece4d6;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;cursor:pointer}
+.hFooterButton{width:100%;height:34px;border:0;background:none;font:inherit;font-size:14px;cursor:pointer}
 .hLauncher > .lbl{display:none}
 .hLauncher[data-collapsed="false"]::after{content:"设置"}
 </style></head>
@@ -36,7 +40,7 @@ html,body{margin:0;height:100%}
   <div class="host_sidebarCol" style="${drawerStyle}">
     <div class="hRoot">
       <div class="hRegion"><div data-slot="sidebar.workspaces"><main id="sidebar"></main></div></div>
-      <div class="hFootArea"><div class="hSettingsArea" data-slot="sidebar.settings"><div><div data-slot="settings.launcher"><button class="hLauncher" data-signed-out="true" data-collapsed="false"><span>···</span><span class="lbl">账号</span></button></div></div></div></div>
+      <div class="hFootArea"><div class="hFooterActions"><button class="hFooterButton">导出会话日志</button></div><div class="hSettingsArea" data-slot="sidebar.settings"><div><div data-slot="settings.launcher"><button class="hLauncher" data-signed-out="true" data-collapsed="false"><span>···</span><span class="lbl">账号</span></button></div></div></div></div>
     </div>
   </div>
 </div></div>
@@ -99,26 +103,35 @@ test('手机端整屏侧栏给宿主的「设置」行让位，更新状态不�
   assert.equal(await page.evaluate(() => matchMedia('(max-width: 1023px) and (pointer: coarse)').matches), true, '手机断点生效')
   await page.locator('.dsh-tavern-sidebar:not(.collapsed)').waitFor({ state: 'attached' })
   await page.locator('.dsh-tavern-update-status').waitFor({ state: 'visible' })
-  // 侧栏是整屏 fixed，量宿主底栏高度时以宿主 regionArea 的下沿为准。
+  // 侧栏是整屏 fixed，让位高度按「侧栏盒子下沿 − 宿主「设置」那一行的上沿」量。
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--dsh-tavern-host-foot-inset').trim() !== '')
 
   const measured = await page.evaluate(() => {
     const region = document.querySelector('[data-slot="sidebar.workspaces"]').parentElement
     const sidebar = document.querySelector('.dsh-tavern-sidebar:not(.collapsed)')
     const pill = document.querySelector('.hLauncher').getBoundingClientRect()
+    const row = document.querySelector('[data-slot="sidebar.settings"]').getBoundingClientRect()
     const update = document.querySelector('.dsh-tavern-update').getBoundingClientRect()
     return {
-      hostFoot: Math.round(window.innerHeight - region.getBoundingClientRect().bottom),
+      // 整个底栏（含「设置」上面那条看不见的 footerActions）压住宿栏盒子多少。
+      footOverlap: Math.round(window.innerHeight - region.getBoundingClientRect().bottom),
+      // 真正要避开的只有「设置」那一行。
+      settingsOverlap: Math.round(sidebar.getBoundingClientRect().bottom - row.top),
+      footerRow: Math.round(document.querySelector('.hFooterActions').getBoundingClientRect().height),
       insetVar: parseFloat(document.documentElement.style.getPropertyValue('--dsh-tavern-host-foot-inset')),
       paddingBottom: parseFloat(getComputedStyle(sidebar).paddingBottom),
+      gap: Math.round(pill.top - update.bottom),
+      rowGap: Math.round(row.top - update.bottom),
       pillTop: Math.round(pill.top), updateBottom: Math.round(update.bottom),
       pillHit: (() => { const el = document.elementFromPoint(pill.left + 12, (pill.top + pill.bottom) / 2); return el ? (el.closest('[data-slot="settings.launcher"]') ? 'settings' : el.className || el.tagName) : null })(),
     }
   })
-  assert.ok(measured.hostFoot > 0, '宿主底栏确实占着高度：' + JSON.stringify(measured))
-  assert.equal(measured.insetVar, measured.hostFoot, '让位高度就是侧栏盒子压住底栏的那一截：' + JSON.stringify(measured))
-  assert.ok(measured.paddingBottom >= measured.hostFoot + 11, '侧栏底部让出了宿主底栏高度：' + JSON.stringify(measured))
-  assert.ok(measured.updateBottom <= measured.pillTop, '更新状态不再压到设置按钮上：' + JSON.stringify(measured))
+  assert.ok(measured.footerRow > 0, '「设置」上面那条 footerActions 确实占着高度：' + JSON.stringify(measured))
+  assert.ok(measured.footOverlap > measured.settingsOverlap, '按 regionArea 下沿算会多让出那一条：' + JSON.stringify(measured))
+  assert.equal(measured.insetVar, measured.settingsOverlap, '只让出压住「设置」那一行的部分：' + JSON.stringify(measured))
+  assert.ok(measured.paddingBottom >= measured.insetVar + 11, '侧栏底部让出了设置那一行：' + JSON.stringify(measured))
+  assert.ok(measured.rowGap >= 0 && measured.rowGap <= 16, '版本行与「设置」那一行之间只留常规间距，不再空一块：' + JSON.stringify(measured))
+  assert.ok(measured.gap >= 0 && measured.gap <= 24, '版本行不压到设置按钮上：' + JSON.stringify(measured))
   assert.equal(measured.pillHit, 'settings', '宿主设置按钮仍然可点')
 
   // 让位高度就是这个变量：清零后同一屏立刻退回错位状态（防止断言在没让位时也通过）。
@@ -146,20 +159,22 @@ test('外壳比布局视口矮时只让出真正重叠的那一截，底部不�
     const update = document.querySelector('.dsh-tavern-update').getBoundingClientRect()
     const own = sidebar.getBoundingClientRect()
     const foot = region.parentElement.getBoundingClientRect()
+    const row = document.querySelector('[data-slot="sidebar.settings"]').getBoundingClientRect()
     return {
       innerHeight: window.innerHeight,
       ownBottom: Math.round(own.bottom),
       footBottom: Math.round(foot.bottom),
-      overlap: Math.round(own.bottom - region.getBoundingClientRect().bottom),
+      footOverlap: Math.round(own.bottom - region.getBoundingClientRect().bottom),
+      settingsTop: Math.round(row.top),
       insetVar: parseFloat(document.documentElement.style.getPropertyValue('--dsh-tavern-host-foot-inset')),
-      gap: Math.round(pill.top - update.bottom),
+      rowGap: Math.round(row.top - update.bottom),
       pillHit: (() => { const el = document.elementFromPoint(pill.left + 12, (pill.top + pill.bottom) / 2); return el ? (el.closest('[data-slot="settings.launcher"]') ? 'settings' : el.className || el.tagName) : null })(),
     }
   })
   assert.ok(measured.ownBottom < measured.innerHeight, '外壳确实比布局视口矮：' + JSON.stringify(measured))
   assert.equal(measured.ownBottom, measured.footBottom, '固定侧栏跟着抽屉收在同一高度：' + JSON.stringify(measured))
-  assert.equal(measured.insetVar, measured.overlap, '让位高度按重叠那一截算：' + JSON.stringify(measured))
-  assert.ok(measured.insetVar < 80, '不会把视口与外壳的差值也算成底栏：' + JSON.stringify(measured))
-  assert.ok(measured.gap > -1 && measured.gap <= 24, '版本行和设置行之间只留常规间距：' + JSON.stringify(measured))
+  assert.equal(measured.insetVar, measured.ownBottom - measured.settingsTop, '让位高度按压住「设置」那一行的那一截算：' + JSON.stringify(measured))
+  assert.ok(measured.insetVar < measured.footOverlap, '不把「设置」上面的 footerActions 也算进去：' + JSON.stringify(measured))
+  assert.ok(measured.rowGap > -1 && measured.rowGap <= 16, '版本行和设置行之间只留常规间距：' + JSON.stringify(measured))
   assert.equal(measured.pillHit, 'settings', '宿主设置按钮仍然可点')
 })
