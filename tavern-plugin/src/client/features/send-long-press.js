@@ -141,7 +141,7 @@ function TavernSendLongPress(props) {
             // 每次完成长按都进入同一个提交流程；忙碌、目标与历史校验由 regenBody 决定并上报原因。
             try {
                 notifyRegenerating(sessionId, true);
-                await interactions.submitBodyRegeneration(sessionId, { tail: null }, "");
+                await interactions.submitBodyRegeneration(sessionId, { tail: null, fresh: true }, "");
             }
             catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
             finally {

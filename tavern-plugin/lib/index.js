@@ -3961,13 +3961,18 @@ export async function apply(ctx) {
     sessionPatch,
   })
 
-  async function regenBody(chatId, guidance, sessionId) {
+  async function regenBody(chatId, guidance, sessionId, options = {}) {
     const id = sessionId || (await requestPerformance.stage('regen.resolve', () => readChat(chatId)))?.sessionId
+    // A fresh request (长按发送键 1 秒重新生成) is a new sample of the round, not a
+    // revision of the body the player is looking at. The plugin provider builds its
+    // prompt from guidance only (the old body is never in its materials), so the
+    // flag only has to reach the native path.
+    const fresh = options?.fresh === true
     const generated = await requestPerformance.stage('regen.plugin-generate', () => pluginBodyGeneration.regenerate(id, str(guidance)))
     if (generated !== null) {
       return requestPerformance.stage('regen.plugin-present', async () => presentStory(await chatForSession(id)))
     }
-    try { return await nativeRegenBody(chatId, guidance, sessionId) }
+    try { return await nativeRegenBody(chatId, guidance, sessionId, { fresh }) }
     finally { clearLiveDamperState(id) }
   }
   const bodyEditor = createBodyEditor({

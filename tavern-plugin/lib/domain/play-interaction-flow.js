@@ -132,6 +132,10 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // panel state, so nothing opens and the composer keeps its own feedback.
     function submitBodyRegeneration(sessionId, options, guidance) {
         const tail = options && options.tail ? options.tail : null;
+        // fresh: this request samples the round again, skipping the "the body was
+        // edited, carry it as the draft" rule. The send key's long press asks for
+        // exactly that; the guidance panel never sets it.
+        const fresh = options?.fresh === true;
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
         // A replay shares the in-flight model request, but must still produce immediate feedback;
@@ -141,7 +145,9 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             const candidate = candidates.getSnapshot();
             notifyRegenerating(sessionId, true);
             try {
-                const result = await rpc("regenBody", { guidance: text }, sessionId);
+                const payload = { guidance: text };
+                if (fresh) payload.fresh = true;
+                const result = await rpc("regenBody", payload, sessionId);
                 applyBodyResult(sessionId, result.view, tail);
                 if (result && result.view && result.view.regenerationWarning) reportError("重新生成提示", new Error(result.view.regenerationWarning));
                 if (candidates.getSnapshot() === candidate) candidates.set(null);

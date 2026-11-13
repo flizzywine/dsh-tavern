@@ -353,7 +353,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     } catch (error) { return { unplaced: str(error?.message || error) || '原生位置对不上' } }
   }
 
-  async function regenerate(chatId, guidance, sessionId) {
+  async function regenerate(chatId, guidance, sessionId, options = {}) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     // Regeneration replaces one stored body: it needs the story rows, including the
     // turn the caller picked, not the header-only activity view. Reuse this complete
@@ -365,7 +365,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await stage('regen.recover', () => regenerationRecovery.recover(chat.id, chat))
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
     pendingRegenerations.add(chat.id)
-    try { return await regenBody(chat.id, guidance, sessionId, reusable) }
+    try { return await regenBody(chat.id, guidance, sessionId, reusable, options) }
     finally { pendingRegenerations.delete(chat.id) }
   }
 
@@ -451,7 +451,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     return await readChat(chatId)
   }
-  async function regenBody(chatId, guidance, sessionId, initialChat) {
+  async function regenBody(chatId, guidance, sessionId, initialChat, options = {}) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     let chat = initialChat || await stage('regen.load-body', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
@@ -549,7 +549,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // An edited body must reach the model even without guidance: the old body was
     // already taken off the native surface, so this request is its only copy.
     const currentBody = failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex])
-    const editedBody = !failedTail && editedReplyBody(msgs0[oldAssistantIndex])
+    // A fresh request (长按发送键 1 秒重新生成) is a plain resample by definition: the
+    // player asked for a new version of the round, so an edited body is not carried
+    // as the draft to revise. Guidance still applies as an extra instruction.
+    const fresh = options.fresh === true
+    const editedBody = !failedTail && !fresh && editedReplyBody(msgs0[oldAssistantIndex])
     const syntheticText = regenerationInputText(originalUserText, guide, currentBody, { keepBody: editedBody })
     // Only a body that the regeneration request actually carries can change the
     // prepared frame. A plain reroll drops the old prose, so it stays out of the

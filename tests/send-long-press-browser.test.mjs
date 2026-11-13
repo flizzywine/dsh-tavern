@@ -95,7 +95,8 @@ test('桌面端长按发送键 1 秒直接重新生成正文，松手的那次�
   assert.equal(regenerations(backend).length, 1)
   // 空意见 = 跳过意见面板的那次重新生成；sessionId 由 rpc 传输层带上。
   assert.equal(regenerations(backend)[0].args.guidance, '')
-  assert.deepEqual(regenArgs(backend), { guidance: '', sessionId: 'game' })
+  // fresh：长按是「直接重新生成」，服务端跳过「正文被改过就带着它改写」的判断。
+  assert.deepEqual(regenArgs(backend), { guidance: '', fresh: true, sessionId: 'game' })
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 
@@ -129,7 +130,7 @@ test('触屏按住 1 秒稳定重新生成，轻微移动不会取消', async t 
   // 真实 touch 事件流；总位移约 14px，小于 24px 容差。
   await touchHold(page, center, { move: { x: 12, y: 8 } })
   assert.equal(regenerations(backend).length, 1)
-  assert.deepEqual(regenArgs(backend), { guidance: '', sessionId: 'game' })
+  assert.deepEqual(regenArgs(backend), { guidance: '', fresh: true, sessionId: 'game' })
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 

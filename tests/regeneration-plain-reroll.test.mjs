@@ -96,3 +96,14 @@ test('玩家编辑过的正文（bodyEdit 标记）：没有指导也要随请�
   assert.ok(sent.includes('<rewrite_request>'), '编辑过的正文要带改写说明')
   assert.equal(h.chat.messages[2].text, '新正文')
 })
+
+test('长按发送键的直接重生成（fresh）：即便正文被改过，也从头重新采样', async () => {
+  const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
+    bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
+  await h.create().regenerate('', '', 'session', { fresh: true })
+  assert.equal(h.prepared.length, 1)
+  assert.equal(h.prepared[0].userText, '原输入', 'fresh 请求里只留玩家输入')
+  assert.equal(h.prepared[0].userText.includes('current_body'), false)
+  assert.equal(h.prepared[0].userText.includes('rewrite_request'), false)
+  assert.equal(h.chat.messages[2].text, '新正文')
+})
