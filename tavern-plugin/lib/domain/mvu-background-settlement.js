@@ -11,7 +11,7 @@ import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
-import { clampMvuSubmissionOperations } from './narrative-damper.js'
+import { clampMvuSubmissionOperationsWithReport } from './narrative-damper.js'
 
 export const MVU_SUBMIT_UPDATE_TOOL_NAME = 'mvu_submit_update'
 
@@ -561,8 +561,11 @@ export function createMvuSettlementModule(options = {}) {
 
   async function applySubmission(input, frame, submission, diagnosticId) {
     submission = resolveSubmissionPaths(submission, input.currentVariables)
+    let damper = null
     if (input.narrativeDamperRuling) {
-      submission = clampMvuSubmissionOperations(submission, input.currentVariables, input.narrativeDamperRuling)
+      const clampedResult = clampMvuSubmissionOperationsWithReport(submission, input.currentVariables, input.narrativeDamperRuling)
+      submission = clampedResult.submission
+      damper = clampedResult.report
     }
     if (input.onSubmission) await input.onSubmission(clone(submission))
     const applied = await options.runtime.settleMvuUpdate({
@@ -578,7 +581,7 @@ export function createMvuSettlementModule(options = {}) {
       command: formatMvuUpdateCommand(submission),
       validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations)
     })
-    if (applied.deferred === true || applied.stale === true) return { applied }
+    if (applied.deferred === true || applied.stale === true) return { applied, damper }
     const projected = applied.context?.messages?.[input.messageId]
     const after = clone(applied.variables || projected?.variables || {})
     const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations)
@@ -588,10 +591,10 @@ export function createMvuSettlementModule(options = {}) {
     const status = audit.failures.length > 0
       ? (changes.length > 0 ? 'partial' : 'error')
       : (changes.length > 0 ? 'updated' : 'unchanged')
-    return { applied, after, audit, rolledBack, changes, sideEffects, status, effect: applied.effect }
+    return { applied, after, audit, rolledBack, changes, sideEffects, status, effect: applied.effect, damper }
   }
 
-  function pendingReceipt(applied, diagnosticId) {
+  function pendingReceipt(applied, diagnosticId, damper = null) {
     const reasons = {
       'claim-timeout': '任务领取超时，变量操作已保存，等待重新投递；无需反复重载 MVU。',
       'runtime-busy': '执行器正在处理其他任务，变量操作已保存，等待空闲后继续。',
@@ -599,7 +602,7 @@ export function createMvuSettlementModule(options = {}) {
       'delivery-interrupted': '任务投递中断，变量操作已保存，等待重新投递。'
     }
     const deferredReason = Object.hasOwn(reasons, applied.deferredReason) ? applied.deferredReason : 'runtime-not-ready'
-    return { version: 1, status: 'pending', deferredReason, summary: reasons[deferredReason], diagnosticId, changes: [], sideEffects: [], failures: [] }
+    return { version: 1, status: 'pending', deferredReason, summary: reasons[deferredReason], diagnosticId, changes: [], sideEffects: [], failures: [], ...(damper ? { damper } : {}) }
   }
 
   async function resumeVariables(input = {}) {
@@ -607,18 +610,22 @@ export function createMvuSettlementModule(options = {}) {
     const submission = resolveMvuSubmissionMacros(normalizeMvuToolSubmission(input.submission), input)
     const diagnosticId = frame.frameId + ':resume'
     const outcome = await applySubmission(input, frame, submission, diagnosticId)
+    const resolvedDamper = input.previousDamperReport?.clampedCount > 0 && !(outcome.damper?.clampedCount > 0)
+      ? clone(input.previousDamperReport)
+      : outcome.damper
     if (outcome.applied.deferred === true) {
       return { frame, submission, variables: clone(input.currentVariables),
-        receipt: pendingReceipt(outcome.applied, diagnosticId) }
+        receipt: pendingReceipt(outcome.applied, diagnosticId, resolvedDamper) }
     }
     if (outcome.applied.stale === true) {
-      return { frame, submission, receipt: { version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。', diagnosticId, changes: [], sideEffects: [], failures: [] } }
+      return { frame, submission, receipt: { version: 1, status: 'stale', summary: '变量结算目标已经变化，迟到结果未写入。', diagnosticId, changes: [], sideEffects: [], failures: [], ...(resolvedDamper ? { damper: resolvedDamper } : {}) } }
     }
     const result = {
       frame, submission, variables: outcome.after, effect: outcome.effect,
       receipt: { version: 1, status: outcome.status, summary: '', diagnosticId,
         runtimeDiagnostics: outcome.applied.diagnostics || [], changes: outcome.changes,
-        sideEffects: outcome.sideEffects, failures: outcome.audit.failures }
+        sideEffects: outcome.sideEffects, failures: outcome.audit.failures,
+        ...(resolvedDamper ? { damper: resolvedDamper } : {}) }
     }
     if (input.onPrepared && outcome.audit.failures.length === 0) await input.onPrepared(clone(result))
     return result
@@ -704,7 +711,7 @@ export function createMvuSettlementModule(options = {}) {
       }
       if (applied.applied.deferred === true) {
         await record('deferred')
-        const receipt = pendingReceipt(applied.applied, diagnosticId)
+        const receipt = pendingReceipt(applied.applied, diagnosticId, applied.damper)
         feedback = { ok: false, retryable: false, deferred: true, deferredReason: receipt.deferredReason, error: receipt.summary }
         result = { variables: clone(input.currentVariables), submission,
           receipt }
@@ -713,7 +720,7 @@ export function createMvuSettlementModule(options = {}) {
       if (applied.applied.stale === true) {
         await record('stale')
         feedback = { ok: false, retryable: false, error: '变量结算目标已经变化，迟到结果未写入。' }
-        result = { receipt: { version: 1, status: 'stale', summary: feedback.error, changes: [], sideEffects: [], failures: [] } }
+        result = { receipt: { version: 1, status: 'stale', summary: feedback.error, changes: [], sideEffects: [], failures: [], ...(applied.damper ? { damper: applied.damper } : {}) } }
         return JSON.stringify(feedback)
       }
       const after = applied.after
@@ -726,7 +733,8 @@ export function createMvuSettlementModule(options = {}) {
       result = {
         variables: after, submission, effect: applied.effect,
         receipt: { version: 1, status, summary: '', diagnosticId,
-          runtimeDiagnostics: applied.applied.diagnostics || [], changes, sideEffects, failures: audit.failures }
+          runtimeDiagnostics: applied.applied.diagnostics || [], changes, sideEffects, failures: audit.failures,
+          ...(applied.damper ? { damper: applied.damper } : {}) }
       }
       if (input.onPrepared && audit.failures.length === 0) await input.onPrepared(clone({ ...result, posture: posture?.posture }))
       feedback = {

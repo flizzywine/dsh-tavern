@@ -23,6 +23,7 @@ import { consumeScriptPrompts } from './tavern-script-prompts.js'
 import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
 import { compactUserInput, frameUserInput } from './agent-input-frame.js'
 import { legacyMessageUid } from './message-uid.js'
+import { nextPlainDamperState, readDamperStateSnapshot, summarizeDamperRulingOutcome } from './narrative-damper.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -683,6 +684,28 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (draft.mvu?.enabled && draft.mvu.owner === 'official') {
         row.variables = [structuredClone(candidateVariables || {})]
         row.mvu = { pending: true, modified: false, diagnostics: [], events: [] }
+      }
+      const candidateDamper = candidateFrame?.source?.narrativeDamper || null
+      let candidateDamperOutcome = candidateFrame?.source?.narrativeDamperOutcome
+        || (candidateDamper ? summarizeDamperRulingOutcome(candidateDamper) : null)
+      if (!(draft.mvu?.enabled && draft.mvu.owner === 'official') && candidateDamper && candidateDamper.fallbackStateForPlainCards !== false) {
+        const priorPlain = readDamperStateSnapshot(originalChat, {
+          excludeAssistantIndex: oldAssistantIndex,
+          fallbackForPlain: true
+        })
+        if (priorPlain.kind === 'plain-fallback') {
+          const nextPlain = nextPlainDamperState(priorPlain.data, candidateDamper)
+          row.damperState = [nextPlain]
+          if (candidateDamperOutcome) {
+            candidateDamperOutcome = {
+              ...structuredClone(candidateDamperOutcome),
+              plainState: { before: structuredClone(priorPlain.data), after: structuredClone(nextPlain) }
+            }
+          }
+        }
+      }
+      if (candidateDamperOutcome) {
+        row.narrativeDamper = [structuredClone(candidateDamperOutcome)]
       }
       if ((draft.mode || 'story') === 'script') {
         const script = await readScript(draft.cardPath)

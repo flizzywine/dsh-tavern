@@ -444,16 +444,50 @@ function maskMvuChangeList(changes, wrappedRules) {
   return anyChanged ? out : changes
 }
 
+function maskMvuDamperClampedList(clamped, wrappedRules) {
+  if (!Array.isArray(clamped) || !clamped.length) return clamped
+  let anyChanged = false
+  const out = []
+  for (let index = 0; index < clamped.length; index += 1) {
+    const item = clamped[index]
+    if (!item || typeof item !== 'object' || item.hidden === true) { out.push(item); continue }
+    const rawPath = mvuVisStr(item.path || '/')
+    const rooted = rawPath.startsWith('/stat_data/') || rawPath === '/stat_data'
+    const segments = mvuVisPointerSegments(rawPath)
+    const matched = matchMvuVisibilityRule(wrappedRules, segments, null)
+    if (matched) {
+      anyChanged = true
+      if (matched.tupleIndex === 1) continue
+      const canonicalPath = mvuVisFormatPointer(matched.matchedSegments, rooted)
+      out.push({
+        path: canonicalPath,
+        hidden: true,
+        dropped: item.dropped === true,
+        operation: item.operation
+      })
+      continue
+    }
+    out.push(item)
+  }
+  return anyChanged ? out : clamped
+}
+
 function maskMvuReceipt(receipt, visibility) {
   const rules = normalizeMvuVisibility(visibility)
   if (!rules || !receipt || typeof receipt !== 'object') return receipt
   const wrapped = { __mvuVisibilityNormalized: true, rules }
   const nextChanges = maskMvuChangeList(receipt.changes, wrapped)
   const nextSideEffects = maskMvuChangeList(receipt.sideEffects, wrapped)
-  if (nextChanges === receipt.changes && nextSideEffects === receipt.sideEffects) return receipt
+  const nextDamperClamped = receipt.damper && Array.isArray(receipt.damper.clamped)
+    ? maskMvuDamperClampedList(receipt.damper.clamped, wrapped)
+    : receipt.damper?.clamped
+  if (nextChanges === receipt.changes && nextSideEffects === receipt.sideEffects && nextDamperClamped === receipt.damper?.clamped) return receipt
   return Object.assign({}, receipt, {
     ...(Array.isArray(receipt.changes) ? { changes: nextChanges } : {}),
-    ...(Array.isArray(receipt.sideEffects) ? { sideEffects: nextSideEffects } : {})
+    ...(Array.isArray(receipt.sideEffects) ? { sideEffects: nextSideEffects } : {}),
+    ...(receipt.damper && nextDamperClamped !== receipt.damper.clamped
+      ? { damper: Object.assign({}, receipt.damper, { clamped: nextDamperClamped }) }
+      : {})
   })
 }
 

@@ -3654,6 +3654,8 @@ export async function apply(ctx) {
       if (evaluated?.rulingText) {
         sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'after', text: evaluated.rulingText })
       }
+    } else {
+      narrativeDamper.clearActive?.()
     }
     if (mode !== 'story') return sections
     if (header?.backgroundTasks?.styleReference === true) {

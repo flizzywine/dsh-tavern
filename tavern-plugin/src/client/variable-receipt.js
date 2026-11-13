@@ -228,6 +228,7 @@ function VariableReceipt(props) {
         ? receipt.runtimeDiagnostics.filter(function (item) { return item && item.message && ["warn", "error"].includes(item.level); }).slice(-3) : [];
     return h("div", { className: "fork-var-receipt", "data-status": status },
         notices[status] ? h("div", { className: "fork-var-notice", "data-status": status }, notices[status]) : null,
+        receipt.damper && typeof DamperReceiptSummary === "function" ? h(DamperReceiptSummary, { damper: receipt.damper }) : null,
         receipt.summary ? h("p", { className: "fork-var-reason" }, String(receipt.summary)) : null,
         failures.length || runtime.length ? h("ul", { className: "fork-var-failures" },
             failures.map(function (failure, index) {

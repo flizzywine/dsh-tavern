@@ -425,6 +425,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		const load = typeof settings.load === 'function' ? settings.load : fetchStoryTranscript
 		const preferences = options.displayPreferences || (typeof displayPreferences === 'undefined' ? null : displayPreferences)
 		const showPlayProcess = () => preferences?.snapshot()?.showPlayProcess === true
+		const showDamperStatus = () => preferences?.snapshot()?.showDamperStatus !== false
 		const subscribeProcess = preferences ? preferences.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE
 		const listeners = new Set()
 		// The visible store is single-slot, but switching sessions must not throw away
@@ -559,7 +560,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish(IDLE)
 		}
 
-		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, snapshotFor: snapshotFor, peek: peek, read: read, reset: reset, subscribeProcess, showPlayProcess })
+		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, snapshotFor: snapshotFor, peek: peek, read: read, reset: reset, subscribeProcess, showPlayProcess, showDamperStatus })
 	}
 
 	return Object.freeze({

@@ -94,6 +94,7 @@ export function createMvuSettlementEngine(deps) {
       macroState: snapshot.macroState,
       updateRules: damperBudgetRule ? [...(Array.isArray(baseUpdateRules) ? baseUpdateRules : []), damperBudgetRule] : baseUpdateRules,
       narrativeDamperRuling: activeDamper,
+      previousDamperReport: mvuTarget.message.mvu?.receipt?.damper || null,
       webSearchEnabled: snapshot.webSearchEnabled === true
     }
     const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission

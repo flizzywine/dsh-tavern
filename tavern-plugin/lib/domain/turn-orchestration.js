@@ -22,7 +22,7 @@ import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
 import { frameUserInput } from './agent-input-frame.js'
-import { nextPlainDamperState, readDamperStateSnapshot } from './narrative-damper.js'
+import { nextPlainDamperState, readDamperStateSnapshot, summarizeDamperRulingOutcome } from './narrative-damper.js'
 import { readRowsAt } from './bounded-history.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createHash } from 'node:crypto'
@@ -510,7 +510,8 @@ export function createTurnOrchestrator(options) {
       const user = { ...savedUser, ...userFields }
       const assistant = {
         role: 'assistant', text: '', sourceText: '', displayText: '', displayMode: 'html',
-        ts: now(), native: true, turn, placeholder: true
+        ts: now(), native: true, turn, placeholder: true,
+        ...(preparedDamperOutcome ? { narrativeDamper: [clone(preparedDamperOutcome)] } : {})
       }
       // An already saved player row is updated in place; only the assistant is appended.
       const rows = savedUser ? [assistant] : withUser ? [user, assistant] : [assistant]
@@ -635,6 +636,7 @@ export function createTurnOrchestrator(options) {
     let runtimeUserText = userText
     let reusedRuntimeInput = false
     let foregroundOperation = null
+    let preparedDamperOutcome = null
     const mode = chat.mode || 'story'
     // Native composer submissions arrive here without the page's pre-generate RPC.
     // Persist their input before planning too; an existing RPC row is a no-op.
@@ -800,6 +802,11 @@ export function createTurnOrchestrator(options) {
     if (typeof options.activeDamperRuling === 'function') {
       const activeDamper = options.activeDamperRuling(chat.id, turn)
       if (activeDamper?.ruling) source.narrativeDamper = clone(activeDamper.ruling)
+      const resolvedOutcome = activeDamper?.outcome || (activeDamper?.ruling ? summarizeDamperRulingOutcome(activeDamper.ruling) : null)
+      if (resolvedOutcome) {
+        source.narrativeDamperOutcome = clone(resolvedOutcome)
+        preparedDamperOutcome = clone(resolvedOutcome)
+      }
     }
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
@@ -1263,6 +1270,15 @@ export function createTurnOrchestrator(options) {
         // variables it started from and is not settled now, which would wait on
         // the turn that is about to start. Later rounds settle as usual.
         const adopted = input.adopt === true
+        const activeDamperEntry = !adopted && typeof options.activeDamperRuling === 'function'
+          ? options.activeDamperRuling(draft.id, turn) : null
+        const latestDamperFrameSource = !adopted ? Object.values(draft.foregroundFrames || {})
+          .filter(item => item && item.kind === 'foreground' && Number(item.turn) === Number(turn))
+          .at(-1)?.source || null : null
+        const persistedDamper = activeDamperEntry?.ruling || latestDamperFrameSource?.narrativeDamper || null
+        let persistedDamperOutcome = activeDamperEntry?.outcome
+          || latestDamperFrameSource?.narrativeDamperOutcome
+          || (persistedDamper ? summarizeDamperRulingOutcome(persistedDamper) : null)
         if (usesOfficialMvu(draft)) Object.assign(assistantMessage, {
           swipeId: 0,
           swipes: [str(reply.projectionText)],
@@ -1270,20 +1286,24 @@ export function createTurnOrchestrator(options) {
           mvu: adopted ? { pending: false, modified: false, diagnostics: [{ message: '这一轮补记自模型上下文，当时的变量变化未结算' }], events: [] }
             : { pending: true, modified: false, diagnostics: [], events: [] }
         })
-        else if (!adopted) {
-          const activeDamper = typeof options.activeDamperRuling === 'function' ? options.activeDamperRuling(draft.id, turn)?.ruling : null
-          const persistedDamper = activeDamper || Object.values(draft.foregroundFrames || {})
-            .filter(item => item && item.kind === 'foreground' && Number(item.turn) === Number(turn))
-            .at(-1)?.source?.narrativeDamper || null
-          if (persistedDamper && persistedDamper.fallbackStateForPlainCards !== false) {
-            const priorPlain = readDamperStateSnapshot(draft, {
-              excludeAssistantIndex: Number.isInteger(placeholder?.assistantIndex) ? placeholder.assistantIndex : -1,
-              fallbackForPlain: true
-            })
-            if (priorPlain.kind === 'plain-fallback') {
-              assistantMessage.damperState = [nextPlainDamperState(priorPlain.data, persistedDamper)]
+        else if (!adopted && persistedDamper && persistedDamper.fallbackStateForPlainCards !== false) {
+          const priorPlain = readDamperStateSnapshot(draft, {
+            excludeAssistantIndex: Number.isInteger(placeholder?.assistantIndex) ? placeholder.assistantIndex : -1,
+            fallbackForPlain: true
+          })
+          if (priorPlain.kind === 'plain-fallback') {
+            const nextPlain = nextPlainDamperState(priorPlain.data, persistedDamper)
+            assistantMessage.damperState = [nextPlain]
+            if (persistedDamperOutcome) {
+              persistedDamperOutcome = {
+                ...clone(persistedDamperOutcome),
+                plainState: { before: clone(priorPlain.data), after: clone(nextPlain) }
+              }
             }
           }
+        }
+        if (!adopted && persistedDamperOutcome) {
+          assistantMessage.narrativeDamper = [clone(persistedDamperOutcome)]
         }
         commitMessageRow(draft, placeholder?.assistantIndex, assistantMessage)
         if (!adopted) {

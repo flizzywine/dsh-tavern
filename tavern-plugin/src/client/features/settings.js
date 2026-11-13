@@ -215,7 +215,12 @@
                 return { items: tavernViewTabItems(input && typeof input === "object" && Array.isArray(input.items) ? input : null) };
             }
             function apply(settings) {
-                value = { showPlayProcess: settings.showPlayProcess === true, hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                const showDamper = settings
+                    ? (Object.hasOwn(settings, "showDamperStatus")
+                        ? settings.showDamperStatus !== false
+                        : settings.narrativeDamper?.showTurnStatus !== false)
+                    : true;
+                value = { showPlayProcess: settings.showPlayProcess === true, showDamperStatus: showDamper, hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
                 document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.showPlayProcess);
                 applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
                 listeners.forEach(listener => listener());
@@ -244,7 +249,8 @@
                     const onStorage = event => { if (event.key === key) refresh(); };
                     window.addEventListener("focus", refresh);
                     window.addEventListener("storage", onStorage);
-                    return () => { ++revision; window.removeEventListener("focus", refresh); window.removeEventListener("storage", onStorage); document.documentElement.classList.remove("dsh-tavern-hide-process"); applyDebug(document, false); };
+                    window.addEventListener("dsh-tavern-settings-changed", refresh);
+                    return () => { ++revision; window.removeEventListener("focus", refresh); window.removeEventListener("storage", onStorage); window.removeEventListener("dsh-tavern-settings-changed", refresh); document.documentElement.classList.remove("dsh-tavern-hide-process"); applyDebug(document, false); };
                 }
             };
         })();

@@ -986,6 +986,7 @@ window.__ModuleLoader__.load({
 // @include features/message-deletion.js
 // @include features/assistant-renderer.js
 
+// @include features/narrative-damper-status.js
 // @include features/story-transcript-data.js
 // @include modules/story-external-history.js
 // @include host/chat-flow.js

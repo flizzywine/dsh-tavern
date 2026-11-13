@@ -41,6 +41,7 @@ export const DEFAULT_PLAIN_DAMPER_STATE = Object.freeze({
 export function defaultNarrativeDamperConfig() {
   return {
     enabled: false,
+    showTurnStatus: true,
     mode: 'balanced',
     provider: 'gemini',
     model: 'gemini-decision-1',
@@ -82,6 +83,7 @@ export function normalizeNarrativeDamperConfig(value) {
     : ''
   return {
     enabled: raw.enabled === true,
+    showTurnStatus: raw.showTurnStatus !== false,
     mode: DAMPER_MODES.includes(raw.mode) ? raw.mode : defaults.mode,
     provider,
     model,
@@ -128,7 +130,7 @@ export function validateNarrativeDamperConfig(value) {
     const ms = Number(raw.timeoutMs)
     if (!Number.isSafeInteger(ms) || ms < 300 || ms > 30000) throw error('DAMPER_INVALID_CONFIG', '超时时间须为 300–30000 毫秒的整数')
   }
-  for (const flag of ['desensitizeR18', 'clampMvuDelta', 'fallbackStateForPlainCards']) {
+  for (const flag of ['desensitizeR18', 'clampMvuDelta', 'fallbackStateForPlainCards', 'showTurnStatus']) {
     if (Object.hasOwn(raw, flag) && typeof raw[flag] !== 'boolean') throw error('DAMPER_INVALID_CONFIG', '布尔开关参数无效')
   }
   if (Object.hasOwn(raw, 'preamble') && (typeof raw.preamble !== 'string' || raw.preamble.length > 2000)) {
@@ -518,9 +520,54 @@ function deltaBoundsForField(keyPath, currentValue, ruling) {
   return { min: -cap, max: cap }
 }
 
-export function clampMvuSubmissionOperations(submission, currentVariables, ruling) {
-  if (!submission || !Array.isArray(submission.operations) || !ruling || ruling.clampMvuDelta === false) return submission
+export function summarizeDamperRulingOutcome(ruling, meta = {}) {
+  if (!ruling || typeof ruling !== 'object') return null
+  const explicitSceneShift = ruling.explicitSceneShift === true || meta.explicitSceneShift === true
+  const rawThreshold = meta.godmodeThreshold ?? ruling.godmodeThreshold
+  const rawLatency = meta.latencyMs ?? ruling.latencyMs
+  return {
+    status: 'applied',
+    source: str(meta.source || ruling.source) || (explicitSceneShift ? 'scene-shift' : 'model'),
+    mode: ruling.mode === 'strict' ? 'strict' : 'balanced',
+    ...(str(meta.provider || ruling.provider) ? { provider: str(meta.provider || ruling.provider) } : {}),
+    ...(str(meta.model || ruling.model) ? { model: str(meta.model || ruling.model) } : {}),
+    rulingTier: str(ruling.rulingTier) || 'full_accept',
+    deltaBudget: str(ruling.deltaBudget) || 'micro_step',
+    leverageScore: Number.isFinite(Number(ruling.leverageScore)) ? Math.round(Number(ruling.leverageScore) * 100) / 100 : 1,
+    godmode: Number.isFinite(Number(ruling.godmode)) ? Math.round(Number(ruling.godmode) * 1000) / 1000 : 0,
+    retcon: Number.isFinite(Number(ruling.retcon)) ? Math.round(Number(ruling.retcon) * 1000) / 1000 : 0,
+    epistemic: Number.isFinite(Number(ruling.epistemic)) ? Math.round(Number(ruling.epistemic) * 1000) / 1000 : 0,
+    ...(Number.isFinite(Number(rawThreshold)) ? { godmodeThreshold: Math.round(Number(rawThreshold) * 100) / 100 } : {}),
+    explicitSceneShift,
+    clampMvuDelta: ruling.clampMvuDelta !== false,
+    fallbackStateForPlainCards: ruling.fallbackStateForPlainCards !== false,
+    ...(str(meta.stateKind || ruling.stateKind) ? { stateKind: str(meta.stateKind || ruling.stateKind) } : {}),
+    ...(Number.isFinite(Number(rawLatency)) ? { latencyMs: Math.max(0, Math.round(Number(rawLatency))) } : {}),
+    ...((meta.retriedSafetyFallback ?? ruling.retriedSafetyFallback) === true ? { retriedSafetyFallback: true } : {})
+  }
+}
+
+export function clampMvuSubmissionOperationsWithReport(submission, currentVariables, ruling) {
+  if (!submission || !Array.isArray(submission.operations) || !ruling) {
+    return { submission, report: null }
+  }
+  const baseReport = {
+    mode: ruling.mode === 'strict' ? 'strict' : 'balanced',
+    rulingTier: str(ruling.rulingTier) || 'full_accept',
+    deltaBudget: str(ruling.deltaBudget) || 'micro_step',
+    leverageScore: Number.isFinite(Number(ruling.leverageScore)) ? Math.round(Number(ruling.leverageScore) * 100) / 100 : 1,
+    explicitSceneShift: ruling.explicitSceneShift === true,
+    clampEnabled: ruling.clampMvuDelta !== false
+  }
+  if (ruling.clampMvuDelta === false) {
+    return {
+      submission,
+      report: { ...baseReport, evaluatedCount: 0, clampedCount: 0, clamped: [] }
+    }
+  }
   const nextOps = []
+  const clamped = []
+  let evaluatedCount = 0
   for (const op of submission.operations) {
     if (!op || typeof op !== 'object') continue
     if ((op.op === 'delta' || op.op === 'replace' || op.op === 'add') && typeof op.value === 'number' && Number.isFinite(op.value)) {
@@ -528,10 +575,27 @@ export function clampMvuSubmissionOperations(submission, currentVariables, rulin
       if (leaf.exists && typeof leaf.value === 'number' && Number.isFinite(leaf.value)) {
         const bounds = deltaBoundsForField(leaf.keyPath, leaf.value, ruling)
         if (bounds) {
+          evaluatedCount += 1
           const rawDelta = op.op === 'delta' ? op.value : (op.value - leaf.value)
+          const integerValues = Number.isInteger(leaf.value) && Number.isInteger(rawDelta)
+          const roundVal = n => integerValues ? Math.round(n) : Math.round(n * 100) / 100
           let clampedDelta = Math.min(bounds.max, Math.max(bounds.min, rawDelta))
-          if (Number.isInteger(leaf.value) && Number.isInteger(rawDelta)) clampedDelta = Math.round(clampedDelta)
-          else clampedDelta = Math.round(clampedDelta * 100) / 100
+          clampedDelta = roundVal(clampedDelta)
+          const wasClamped = Math.abs(clampedDelta - rawDelta) > 1e-6
+          if (wasClamped) {
+            const requestedAfter = roundVal(leaf.value + rawDelta)
+            const finalAfter = roundVal(leaf.value + clampedDelta)
+            clamped.push({
+              path: str(op.path),
+              operation: str(op.op),
+              before: String(leaf.value),
+              requestedAfter: String(requestedAfter),
+              after: String(finalAfter),
+              requestedDelta: roundVal(rawDelta),
+              clampedDelta,
+              dropped: clampedDelta === 0
+            })
+          }
           if (clampedDelta === 0) continue
           if (op.op === 'delta') nextOps.push({ ...op, value: clampedDelta })
           else nextOps.push({ ...op, value: Number.isInteger(leaf.value) && Number.isInteger(clampedDelta) ? leaf.value + clampedDelta : Math.round((leaf.value + clampedDelta) * 100) / 100 })
@@ -541,7 +605,19 @@ export function clampMvuSubmissionOperations(submission, currentVariables, rulin
     }
     nextOps.push(op)
   }
-  return { ...submission, operations: nextOps }
+  return {
+    submission: { ...submission, operations: nextOps },
+    report: {
+      ...baseReport,
+      evaluatedCount,
+      clampedCount: clamped.length,
+      clamped
+    }
+  }
+}
+
+export function clampMvuSubmissionOperations(submission, currentVariables, ruling) {
+  return clampMvuSubmissionOperationsWithReport(submission, currentVariables, ruling).submission
 }
 
 function recentStoryExcerpt(chat, excludeAssistantIndex = -1) {
@@ -708,6 +784,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
     const start = performance.now()
     const controller = new AbortController()
     let timer
+    let retriedSafetyFallback = false
     try {
       const apiKey = await resolveCredential(config)
       if (!apiKey) throw error('DAMPER_NO_KEY', '尚未配置决策模型 API Key')
@@ -721,7 +798,10 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           } catch (firstErr) {
             if (firstErr?.code === 'DAMPER_SAFETY_BLOCKED' && fallbackMaterial && !controller.signal.aborted) {
               const retryReq = buildProviderRequest(config, fallbackMaterial)
-              if (retryReq) return await sendOnce(retryReq, apiKey, controller.signal)
+              if (retryReq) {
+                retriedSafetyFallback = true
+                return await sendOnce(retryReq, apiKey, controller.signal)
+              }
             }
             throw firstErr
           }
@@ -736,7 +816,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       } : undefined
       const stat = { kind: 'narrative-damper', provider: config.provider, model: config.model, code: 'OK', latencyMs, rulingTier: ruling.rulingTier, deltaBudget: ruling.deltaBudget, ...(usage ? { usage } : {}) }
       log(stat)
-      return { ok: true, code: 'OK', latencyMs, ruling, usage }
+      return { ok: true, code: 'OK', latencyMs, ruling, usage, retriedSafetyFallback }
     } catch (cause) {
       controller.abort()
       const known = ['DAMPER_TIMEOUT', 'DAMPER_NO_KEY', 'DAMPER_SAFETY_BLOCKED', 'DAMPER_AUTH_ERROR', 'DAMPER_RATE_LIMIT', 'DAMPER_HTTP_ERROR', 'DAMPER_INVALID_RESPONSE']
@@ -824,11 +904,16 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
     },
 
     async evaluateTurn({ chat, card, turn, userText, excludeAssistantIndex = -1 }) {
+      const activeKey = chat?.id ? `${chat.id}:${Number(turn) || 0}` : ''
+      if (activeKey) activeTurnRulings.delete(activeKey)
       const config = normalizeNarrativeDamperConfig(await getConfig())
       if (!config.enabled || !chat || !['story', 'script'].includes(chat.mode || 'story')) return null
       const trimmedInput = str(userText).trim()
       if (!trimmedInput) return null
 
+      const effectiveThreshold = config.mode === 'strict'
+        ? Math.max(0.5, Math.round((config.godmodeThreshold - 0.08) * 100) / 100)
+        : config.godmodeThreshold
       const stateSnapshot = readDamperStateSnapshot(chat, {
         excludeAssistantIndex,
         fallbackForPlain: config.fallbackStateForPlainCards !== false
@@ -848,8 +933,14 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           explicitSceneShift: true
         }
         const rulingText = compileTurnRuling(sceneRuling, { stateSnapshot, posture: chat.posture, explicitSceneShift: true })
-        if (chat.id) rememberCache(activeTurnRulings, `${chat.id}:${Number(turn) || 0}`, { ruling: sceneRuling, stateSnapshot })
-        return { ruling: sceneRuling, rulingText, stateSnapshot }
+        const outcome = summarizeDamperRulingOutcome(sceneRuling, {
+          source: 'scene-shift',
+          explicitSceneShift: true,
+          stateKind: stateSnapshot.kind,
+          latencyMs: 0
+        })
+        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: sceneRuling, outcome, stateSnapshot })
+        return { ruling: sceneRuling, rulingText, stateSnapshot, outcome }
       }
 
       const cacheFingerprint = createHash('sha256').update(JSON.stringify({
@@ -873,20 +964,53 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
 
       const cached = decisionCache.get(cacheFingerprint)
       if (cached) {
-        if (chat.id) rememberCache(activeTurnRulings, `${chat.id}:${Number(turn) || 0}`, { ruling: cached.ruling, stateSnapshot })
-        return { ...cached, stateSnapshot }
+        const outcome = summarizeDamperRulingOutcome(cached.ruling, {
+          source: 'cache',
+          provider: config.provider,
+          model: config.model,
+          godmodeThreshold: effectiveThreshold,
+          stateKind: stateSnapshot.kind,
+          latencyMs: 0
+        })
+        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: cached.ruling, outcome, stateSnapshot })
+        return { ...cached, stateSnapshot, outcome }
       }
 
       const material = buildJudgeMaterial({ chat, card, userText: trimmedInput, stateSnapshot, config, excludeAssistantIndex })
       const fallbackMaterial = skeletonizeForSafetyFallback({ stateSnapshot: stateSnapshot.data, posture: chat.posture, userText: trimmedInput })
       const queryResult = await runTurnQuery({ material, fallbackMaterial, config })
-      if (!queryResult.ok || !queryResult.ruling) return null
+      if (!queryResult.ok || !queryResult.ruling) {
+        const outcome = {
+          status: 'bypassed',
+          code: str(queryResult.code || 'DAMPER_ERROR'),
+          message: str(queryResult.message || '决策模型未返回有效结果'),
+          provider: config.provider,
+          model: config.model,
+          mode: config.mode,
+          latencyMs: Math.max(0, Math.round(Number(queryResult.latencyMs) || 0))
+        }
+        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: null, outcome, stateSnapshot })
+        return { ruling: null, rulingText: '', stateSnapshot, outcome }
+      }
 
       const rulingText = compileTurnRuling(queryResult.ruling, { stateSnapshot, posture: chat.posture, explicitSceneShift: false })
+      const outcome = summarizeDamperRulingOutcome(queryResult.ruling, {
+        source: 'model',
+        provider: config.provider,
+        model: config.model,
+        godmodeThreshold: effectiveThreshold,
+        stateKind: stateSnapshot.kind,
+        latencyMs: queryResult.latencyMs,
+        retriedSafetyFallback: queryResult.retriedSafetyFallback
+      })
       const entry = { ruling: queryResult.ruling, rulingText }
       rememberCache(decisionCache, cacheFingerprint, entry, 96)
-      if (chat.id) rememberCache(activeTurnRulings, `${chat.id}:${Number(turn) || 0}`, { ruling: queryResult.ruling, stateSnapshot })
-      return { ...entry, stateSnapshot }
+      if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: queryResult.ruling, outcome, stateSnapshot })
+      return { ...entry, stateSnapshot, outcome }
+    },
+
+    clearActive() {
+      activeTurnRulings.clear()
     },
 
     activeRuling(chatId, turn) {

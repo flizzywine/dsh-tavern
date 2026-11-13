@@ -346,6 +346,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 h("div", { className: "dsh-tavern-gs-card" },
                     h(TavernSettingRow, { title: "启用叙事阻尼器", help: "开启后对所有游玩对话生效，下一轮消息立即介入裁定。" },
                         h(Switch, { label: "启用叙事阻尼器", disabled, checked: config?.enabled === true, onChange: value => savePatch({ enabled: value }) })),
+                    h(TavernSettingRow, { title: "在对话楼层显示裁定结果", help: "在每轮回复楼层顶部直观展示叙事阻尼器的生效状态、裁定档位、筹码得分与数值钳制摘要；点击状态胶囊可展开完整指标与未生效原因。" },
+                        h(Switch, { label: "在对话楼层显示裁定结果", disabled, checked: config?.showTurnStatus !== false, onChange: value => savePatch({ showTurnStatus: value }) })),
                     h(TavernSettingRow, { title: "阻尼模式", help: "标准拉扯适合大多数恋爱、NTR 与剧情向游玩（常规变动 ±5 / 突破 ±12）；慢热严苛提高破防筹码要求并收紧单轮状态上限（常规 ±3 / 突破 ±8）。" },
                         h(InlineField, { kind: "menu", label: "阻尼模式", hideLabel: true, disabled,
                             value: config?.mode || "balanced",

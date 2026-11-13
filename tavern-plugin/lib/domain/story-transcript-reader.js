@@ -13,7 +13,7 @@ const summaryOf = message => ({
 // server-side view. They are removed only after stable row identity is computed.
 const transportFields = Object.freeze([
   'id', 'messageUid', 'role', 'tavernRole', 'tavernHidden', 'turn', 'greeting', 'text', 'displayText',
-  'displayMode', 'projectionVersion', 'projectionWarnings', 'placeholder', 'swipeId'
+  'displayMode', 'projectionVersion', 'projectionWarnings', 'placeholder', 'swipeId', 'narrativeDamper', 'damperState'
 ])
 // 会话视图投影本身不读 source，故事列表却要按请求号把宿主的提交回声换成落盘行；
 // 这里只点取请求号，不把整段 source 读进窗口。
