@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "66e291d9f0f741b947c7e99957790f45ea684c1a",
-  "releaseSequence": 1597,
+  "revision": "cbf9c3b316e1fb0ec2182ae443d2d598ab09edc5",
+  "releaseSequence": 1598,
   "version": "3.3.0",
   "files": [
     {
@@ -7266,7 +7266,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "1c389b74769b401c4eb783c2fdd5606a816f211ee50f643f4f2305313640602e",
+      "sha256": "17789feb880335b916f9745c0a455a932521178ce2dccf7de948c06e520e3e49",
       "size": 260
     },
     {
@@ -7276,8 +7276,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/client.js",
-      "sha256": "75a9a08c69dc17ca9bacc26235e8d71d89e59db38a317de6a4f0f80f38586226",
-      "size": 617044
+      "sha256": "a78cf1663fec75e7595c60ebaee26d2a34252149da063e807784a96aabceb77a",
+      "size": 617403
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/console.html",
@@ -7476,8 +7476,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "38687c2e6cff6210843b20ffc9b9aa79346c71fe5f97841dc239d8c817306044",
-      "size": 462361
+      "sha256": "bff3ac80a9794ec638df8741befd2b66d021dfe1a7d5a08585eaf4f812966b21",
+      "size": 462819
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/library-prompts.js",
@@ -7761,13 +7761,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "385b1c4c759504fd51f5ea879e955328ca0d3845ab0bf1a3fc3eb2cec23cae57",
+      "sha256": "6e1a9a14d8a19f3ea146203023c48251c772c3b17f246d6ca8cdf1b3833b7ac4",
       "size": 2422
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/README.md",
-      "sha256": "99fff57696dca63f58f9198039fc88fea331ffd72e9f9a8c2aafa258e2d67ba5",
-      "size": 62930
+      "sha256": "d14de86b29b6b0b941eb00467b993b9711262605cdee45baf7a8e20d0ea07ca0",
+      "size": 63052
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/skills/character-authoring/references/design-rules.md",
@@ -9236,9 +9236,9 @@
     }
   ],
   "archive": {
-    "commit": "38795c6e81cc8c9fcaf81f725770755577d71ad2",
+    "commit": "7fe78c8b1735e527715423ad22d54b6f9364f27a",
     "path": "runtime.zip",
-    "sha256": "f282e442649ba9582d8871803d8779785e414f755ecc11e7e54d1951ce312678",
-    "size": 16428133
+    "sha256": "e831a35c45eed39098d3c70002be15aea946c69f22214517eaa1a030da7bdf4c",
+    "size": 16428369
   }
 }
