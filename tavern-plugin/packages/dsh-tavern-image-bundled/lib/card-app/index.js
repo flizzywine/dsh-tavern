@@ -89,7 +89,7 @@ export function apply(ctx, { ready }) {
     negative: { type: 'string', description: '本张额外排除项，由渠道适配原生负面参数或合入描述。' },
     channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
     workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
-    preset: { type: 'string', description: '本次画风预设 ID 或唯一名字。' },
+    preset: { type: 'string', description: '本次画风名称或 ID，只影响这一次、不写回设置；不填沿用当前画风。名字从 read_image_config 的画风清单里挑。' },
     preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
     preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
     size: { type: 'string', description: '竖图、横图、方图或宽x高。自定义宽高建议取 64 的倍数，多数平台按这个对齐，非对齐的值可能被平台改掉。不填沿用渠道或 ComfyUI 工作流尺寸。' },

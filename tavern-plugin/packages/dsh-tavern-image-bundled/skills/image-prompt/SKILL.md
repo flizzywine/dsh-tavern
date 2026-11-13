@@ -5,7 +5,7 @@ description: "卡片工作台生图。按实际渠道选择标签、自然语言
 
 # 卡片工作台生图
 
-1. `read_image_config` 查渠道、提示词格式、可选渠道、工作流、参考图与种子能力。只读本地，不出图。
+1. `read_image_config` 查渠道、提示词格式、工作流、参考图与种子能力，以及画风清单。只读本地，不出图。画风清单只给名字和 ID；想知道某一套画风的具体正面词，再传 `preset`（名称或精确 ID）单独取。
 2. 画面有库中角色时用 `read_character`：不传 `name` 列全部人物；传 `name` 拿 `macroName`、`macro`、`outfitMacro`，默认轻量，不含外貌与服装原文。用户要改这个角色的外貌或服装时才加 `full: true`，返回 traits 与服装原文，不含宏。
 3. 提示词写法以 `references` 里 `always` 条目为准，并按 `read_image_config` 返回的 `promptMode` 分渠道：标签类（NovelAI、SD WebUI、标签式 ComfyUI）和自然语言类要求不同，别把标签写法套到所有模型上。
 4. 人物宏和服装宏原样嵌进串里，展开成标签还是句子由引擎按渠道决定。**有宏就别再手动拼外貌块**：`references` 里那些拼 `face` / `bodySFW` 的旧做法，在有宏的角色身上不用重做一遍，两套说法会打架。
@@ -14,7 +14,7 @@ description: "卡片工作台生图。按实际渠道选择标签、自然语言
 7. 多形态角色（名字带后缀）在宏里写形态自己的英文名，不写短名。
 8. 镜头和角度写明；画面看不到的部位不写对应 tag（背影不写瞳色，遮脸不写瞳色）。
 9. 用 `tavern_read_skill_reference` 按 `references/INDEX.md` 读规则：`always` 编写前、`prescan` 提交前、`manual` 改库前，`lookup` 用 `find_prompt`。没匹配条目就按用户要求写，不反复找文件。
-10. 用户授权后用 `gen_image_submit` 提交，立即返回任务号。`count` 要几张、`channel` 指定渠道（只影响本次）、`comfyui` 用本地工作流。不靠试错猜渠道。
+10. 用户授权后用 `gen_image_submit` 提交，立即返回任务号。`count` 要几张、`channel` 指定渠道、`preset` 指定画风，两者都只影响本次、不填沿用当前设置；`comfyui` 用本地工作流。画风名从第 1 步的清单里挑，不靠试错猜渠道和画风。
 11. 参考图模式 `generation_mode: reference`，`subjects` 填 `read_character` 的精确人物与服装 ID。只在该渠道支持参考图时用，且**不要再用人物宏**，外貌会被写两遍。
 12. `characters` 给每个入画人物单独写一段描述，跟 `generation_mode` 无关，纯出图也能用；NovelAI 走原生角色参数，其他渠道由引擎合成。
 13. `gen_image_status` 按任务号取图，可传多个；`wait` 是最多等几秒，有图先返回那批。`markdown` 原样写进回复，保留完整地址。失败或待确认的带原因，不确定先查记录，不自动重发。
