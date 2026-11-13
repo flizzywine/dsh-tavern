@@ -13,16 +13,14 @@ export const STORY_CONTEXT_TOOL_NAME = 'read_story_context'
 export const STORY_REFUSAL_ABORT_RECEIPT = '__TAVERN_STORY_REFUSAL_ABORT__'
 
 export const STORY_THINK_DESCRIPTION = '正式落笔前的剧情推演与构思草稿：围绕当前人物神态、场景细节、情节衔接与文风要求进行充分构思。'
-export const STORY_CONTENT_DESCRIPTION = '完整最终输出，必须包含全部内容并保留原有格式和标签，不要省略或改写'
+export const STORY_CONTENT_DESCRIPTION = '完整最终输出：保留原有格式和标签，写全，不省略、不改写'
 
 export const STORY_SUBMIT_PROMPT = [
   '<output_method>',
-  '本轮所有面向玩家的输出都必须通过工具调用完成：最终输出必须调用 submit_story，完整放入 content 字符串参数。',
-  '除已开放的其他工具调用外，不要输出任何普通文本、摘要、说明或收尾语；写在 content 之外的文字会被丢弃。',
-  '可以先使用已开放的其他工具查询资料；submit_story 必须是本轮最后一次工具调用。',
-  '每轮只调用一次 submit_story；content 必须包含完整最终输出，保留全部标签、格式和内容要求，不要省略、缩写或用占位符代替。',
-  '提交成功即结束本轮，不要再输出任何消息。',
-  '请按上述规则完成本轮；最后必须调用 submit_story 提交全部输出，不要先输出普通文本。',
+  '本轮写给玩家的全部内容通过 submit_story 提交：把完整输出放进 content 参数。content 之外的文字会被丢弃、玩家看不到，所以不在 content 外写摘要、说明或收尾语。',
+  '需要查资料时可以先调用已开放的其他工具，最后再调用 submit_story；每轮只提交一次。',
+  'content 就是玩家看到的最终版本：保留全部标签、格式和内容要求，写全，不用省略或占位符代替。',
+  '提交成功后本轮结束，不再输出消息。',
   '</output_method>'
 ].join('\n')
 
@@ -30,12 +28,10 @@ export const STORY_SUBMIT_PROMPT = [
 // the request cannot serve.
 export const STORY_SUBMIT_PROMPT_STRICT = [
   '<output_method>',
-  '本轮所有面向玩家的输出都必须通过 submit_story 工具完成，完整放入 content 字符串参数。',
-  '不要调用任何其他工具，也不要先查询资料；submit_story 是本轮唯一允许的工具调用。',
-  '除 submit_story 调用外，不要输出任何普通文本、摘要、说明或收尾语；写在 content 之外的文字会被丢弃。',
-  '每轮只调用一次 submit_story；content 必须包含完整最终输出，保留全部标签、格式和内容要求，不要省略、缩写或用占位符代替。',
-  '提交成功即结束本轮，不要再输出任何消息。',
-  '现在直接生成完整输出并调用 submit_story 提交，不要先输出普通文本，也不要调用其他工具。',
+  '本轮写给玩家的全部内容通过 submit_story 提交：把完整输出放进 content 参数。本轮只开放这一个工具，不需要先查资料。',
+  'content 之外的文字会被丢弃、玩家看不到，所以不在 content 外写摘要、说明或收尾语。',
+  '每轮只提交一次；content 就是玩家看到的最终版本：保留全部标签、格式和内容要求，写全，不用省略或占位符代替。',
+  '提交成功后本轮结束，不再输出消息。',
   '</output_method>'
 ].join('\n')
 
@@ -126,7 +122,7 @@ export function withStorySubmitAck(messages, turn) {
 // prompt is still the submission contract, regardless of how long they are.
 export const STORY_SUBMIT_REMINDER = [
   '<output_method_reminder>',
-  '最后提醒：本轮所有面向玩家输出的唯一出口是 submit_story；最终输出必须放入 content，不要输出普通文本，也不要重复上面的确认。',
+  '提醒：本轮输出放进 submit_story 的 content 提交；上面那句确认不用重复。',
   '</output_method_reminder>'
 ].join('\n')
 
@@ -337,7 +333,7 @@ export function activeStoryTurn(session) {
 export function createStorySubmissionTool({ chatForSession, enabled, isBackground = () => false, pluginGeneration = async () => false }) {
   return {
     name: STORY_SUBMIT_TOOL_NAME,
-    description: '提交本轮全部最终输出，是所有面向玩家文本的唯一出口。全部输出放入 content，不要省略；成功后结束本轮，不再补充回复。',
+    description: '提交本轮写给玩家的全部最终输出（content 之外的文字会被丢弃）。全部输出放入 content，不要省略；成功后结束本轮，不再补充回复。',
     parameters: {
       // Host schema compiler (dsh-tools) rejects `required` present with a non-true
       // value; omitting the key is how a parameter stays optional.

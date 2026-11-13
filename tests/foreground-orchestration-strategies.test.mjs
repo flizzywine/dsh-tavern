@@ -271,22 +271,22 @@ test('提交提示词按最终工具列表选择，插件工具关闭后仍留�
 
   const strict = await assemble([{ name: 'submit_story' }])
   assert.deepEqual(strict.tools.map(tool => tool.name), ['submit_story'])
-  assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /不要调用任何其他工具/)
-  assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /所有面向玩家的输出/)
-  assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /写在 content 之外的文字会被丢弃/)
+  assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /本轮只开放这一个工具/)
+  assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /写给玩家的全部内容/)
+  assert.match(strict.sections.find(section => section.name === 'tavern:story-tool-submission').text, /content 之外的文字会被丢弃/)
 
   const normal = await assemble([{ name: 'submit_story' }, { name: 'plugin_tool' }])
   assert.deepEqual(normal.tools.map(tool => tool.name), ['submit_story', 'plugin_tool'])
   assert.deepEqual(recorded.map(tool => tool.name), ['plugin_tool'])
-  assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /可以先使用已开放的其他工具/)
-  assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /除已开放的其他工具调用外/)
-  assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /每轮只调用一次 submit_story/)
+  assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /可以先调用已开放的其他工具/)
+  assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /最后再调用 submit_story/)
+  assert.match(normal.sections.find(section => section.name === 'tavern:story-tool-submission').text, /每轮只提交一次/)
 
   chat.disabledForegroundTools = ['plugin_tool']
   const filtered = await assemble([{ name: 'submit_story' }, { name: 'plugin_tool' }])
   assert.deepEqual(filtered.tools.map(tool => tool.name), ['submit_story'])
   assert.deepEqual(recorded.map(tool => tool.name), ['plugin_tool'], '关闭的工具仍要出现在设置目录里')
-  assert.match(filtered.sections.find(section => section.name === 'tavern:story-tool-submission').text, /不要调用任何其他工具/)
+  assert.match(filtered.sections.find(section => section.name === 'tavern:story-tool-submission').text, /本轮只开放这一个工具/)
   chat.disabledForegroundTools = []
 
   // 只开输入回放：submit_story 在工具表里，但不能把本轮也要求成工具输出。
