@@ -8,7 +8,7 @@ export const CHARACTER_DESIGN_TEMPERATURE = 0.7
 
 export const CHARACTER_DESIGN_FINISH_TOOL = Object.freeze({
   name: CHARACTER_DESIGN_FINISH_TOOL_NAME,
-  description: '结束当前人物设计阶段并返回原后台任务。完成全部必要的人物档案读取和保存后必须调用；随后再提交姿势、变量或候选项。',
+  description: '结束当前人物设计阶段并返回原后台任务。读取和保存完需要的人物档案后调用它，回到原来的任务，再提交姿势、变量或候选项。',
   countsTowardLimit: false,
   parameters: Object.freeze({ type: 'object', additionalProperties: false, properties: {} })
 })
