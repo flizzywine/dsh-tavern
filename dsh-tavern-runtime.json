@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d047562583a58d16f2397cf8ef02033b45ce3a8f",
-  "releaseSequence": 1609,
+  "revision": "74321d10d02961388e9cfd0e71a6dd3a4c9e3bce",
+  "releaseSequence": 1610,
   "version": "3.3.0",
   "files": [
     {
@@ -3771,8 +3771,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "1e95c4f0b9491a81aa7d2583adc932ba4b338aa8257d5926d34bdcc3e7b41fc1",
-      "size": 88270
+      "sha256": "f2f6b80339e4b93fd4d57cd6ffc21572fcb9ba039c51ab45781bdf9753f01f9f",
+      "size": 88526
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -4116,8 +4116,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "06a11b3a44bf72d0eb2d0e33f98314a4900a46b6eeaf5c4e00e9e355aeef6942",
-      "size": 301270
+      "sha256": "8ae66afe784d15b79cea319091b833e3717103f1c68e08cfa366f25c88287fc8",
+      "size": 301532
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4171,8 +4171,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-tools.js",
-      "sha256": "64e98813c618458cb329a334ac59cfd7d44523f7db1483a9e709d6a0749afd48",
-      "size": 2085
+      "sha256": "452e4b377d5affc94f18c57c97fdde822c663b2813951d7bd952863a8784313a",
+      "size": 3306
     },
     {
       "path": "tavern-plugin/lib/native-settings.js",
@@ -4336,8 +4336,8 @@
     },
     {
       "path": "tavern-plugin/lib/tools/gameplay.js",
-      "sha256": "a684d7406808de05de1c66a45895558fd65418005aad0c40251d7797f73e4ac0",
-      "size": 4535
+      "sha256": "b857d0742dc8a34969b0318c8892f82eb19ff822a496df62bc735be3c262450e",
+      "size": 4694
     },
     {
       "path": "tavern-plugin/lib/tools/play-chat.js",
@@ -5681,8 +5681,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/README.md",
-      "sha256": "01ce4ef6b12f3d239a162a3c6f395240690f40d62e79b3da1a2d30f78b1b4a11",
-      "size": 15931
+      "sha256": "7bca3269ca73373ec64cd9404336243e4db149562e3aadc53d42b5e4cf7bf022",
+      "size": 16241
     },
     {
       "path": "tavern-plugin/mods/dice/rules-engine.js",
@@ -5696,8 +5696,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/tools.js",
-      "sha256": "53ac7448518c69698d337f72f2cf0cebeb4fc6ebb263a18ea0c0980396e3fbd4",
-      "size": 3549
+      "sha256": "a614ba394c549c2927b6b31d451b1ef6d4ff21c92f3615d64e6cd6a278df851b",
+      "size": 3586
     },
     {
       "path": "tavern-plugin/mods/phone/audio-loudness.json",
@@ -8381,8 +8381,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js",
-      "sha256": "6e8e2af16eac4dacb0e81822cf1097689715144e005fe752c9de9ab55237d6bc",
-      "size": 9677
+      "sha256": "e2085b0e01a0a0f227eb3fed6580a01b209dfac6246fc289fd16d1a51ca30090",
+      "size": 9930
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
@@ -8406,8 +8406,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js",
-      "sha256": "f0b576cc8028af04e160ee5a6be15ae6e576ea2c13ecee145b0029385d709e71",
-      "size": 4338
+      "sha256": "4471a694262af90ebfdb59e3adc60ee8149a315ed124e787d8408c0e36f929be",
+      "size": 4376
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/scene-cg.js",
@@ -9246,9 +9246,9 @@
     }
   ],
   "archive": {
-    "commit": "08f876ed7e9409a78709e3659a5de92cfafb7ab7",
+    "commit": "bb0a51a2b42c0031f51dacc097910b916fe8933e",
     "path": "runtime.zip",
-    "sha256": "e08ccd62cfc2a45fce7c9ad6122c713e312d4e0f65d5afad7eb82992bb7fab73",
-    "size": 16476839
+    "sha256": "b650847807f401417dfa9ad2d981d5c975f2c7325940fb09033b5afbc38fa275",
+    "size": 16477751
   }
 }
