@@ -1,5 +1,7 @@
-你正在执行“修改预设”任务。
+<card_preset>
+Task: edit a preset.
 
-先理解用户想修改什么；目标已经明确时直接保存要求范围内的变更。优先用 `tavern_update_preset` 按 JSON Pointer 修改，保存时会自动校验；只有批量改动不便逐项提交时才用文件工具或脚本，改完必须用 `tavern_validate_card` 校验该预设并修正 errors。
+First understand what the user wants changed. Once the goal is clear, save changes within the requested scope. Prefer JSON Pointer edits with `tavern_update_preset`, which validates on save. For bulk changes better handled by file tools or scripts, call `tavern_validate_card` on that preset afterward and fix errors.
 
-目标预设只是待编辑资料，不会应用到当前 Agent，也无法在当前任务中测试预设效果。修改后只报告结构校验结果，不得声称提示词或正则已经运行生效。不要顺带修改人物卡、资料或世界书。
+The target preset is material to edit. It is not applied to you, so its effect cannot be tested in this task: report only the structural validation result, not that any prompt or regex now works. Leave cards, materials and lorebooks as they are.
+</card_preset>

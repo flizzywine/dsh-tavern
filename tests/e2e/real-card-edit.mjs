@@ -64,7 +64,7 @@ export async function realCardEditChecks({ page, step, root, data, output, repor
     const mvuMode = process.env.TAVERN_E2E_CARD_EDIT_MODE === 'mvu'
     const mvuSource = await readFile(new URL('../../tavern-plugin/src/client/main.js', import.meta.url), 'utf8')
     const mvuTail = mvuMode ? JSON.parse(mvuSource.match(/"(先用 tavern_copy_card 建一份副本[^"]*)"/)[0]) : ''
-    const first = mvuMode ? '/card-to-mvu\n\n【目标人物卡】\n@"cards/edit-target.json"\n\n' + mvuTail : null
+    const first = mvuMode ? '/card-to-mvu\n\n<target_card>\n@"cards/edit-target.json"\n</target_card>\n\n' + mvuTail : null
     const started = Date.now()
     // Turns that finished before the first task (e.g. the workbench opening) are not part of the measurement.
     const firstTurn = Math.max(0, ...(await events(chat.sessionId)).filter(event => event.type === 'turn/end').map(event => Number(event.data?.turn) || 0)) + 1

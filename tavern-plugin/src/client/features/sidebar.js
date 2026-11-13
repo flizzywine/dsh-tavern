@@ -692,14 +692,14 @@
 						const attached = await call("attachPlayChatDebug", { targetSessionId: pending.sessionId, sourceSessionId: pending.debugSource.sourceSessionId, turn: pending.debugSource.turn });
 						const reference = attached && attached.reference;
 						if (!reference || !reference.path) throw new Error("游玩记录关联失败，请重试");
-						pending.taskSupplement = "【已关联游玩记录】\n" + String(reference.label || "游玩记录") + "\nref: " + String(reference.path) + "\n使用 tavern_read_play_chat 读取，先查看 overview。";
+						pending.taskSupplement = "<linked_play_chat>\n" + String(reference.label || "游玩记录") + "\nref: " + String(reference.path) + "\n使用 tavern_read_play_chat 读取，先查看 overview。\n</linked_play_chat>";
 					}
 					if (typeof props.openCardLibraryTab === "function") props.openCardLibraryTab(pending.sessionId);
 					if (typeof props.openPresetLibraryTab === "function") props.openPresetLibraryTab(pending.sessionId);
 					if (typeof props.openWorldBookLibraryTab === "function") props.openWorldBookLibraryTab(pending.sessionId);
 					if (typeof props.openResourcesTab === "function") props.openResourcesTab(pending.sessionId);
-					if (pending.task) await props.injectTaskPrompt(pending.sessionId, pending.task, pending.label, pending.card, (pending.selectedResources || []).length > 0, pending.taskSupplement);
-					(pending.selectedResources || []).forEach(function (resource) { props.appendMention(pending.sessionId, resource.kind, resource.path, resource.title); });
+					if (pending.task) await props.injectTaskPrompt(pending.sessionId, pending.task, pending.label, pending.card, pending.selectedResources || [], pending.taskSupplement);
+					else (pending.selectedResources || []).forEach(function (resource) { props.appendMention(pending.sessionId, resource.kind, resource.path, resource.title); });
 				} else if (typeof props.openConversationSettingsTab === "function") props.openConversationSettingsTab(pending.sessionId);
 				if (pending.targetMode !== "card") {
                     const id = openingPicker && openingPicker.preparationId;
