@@ -27,6 +27,8 @@ import {
 } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { GEMINI_THOUGHT_SIGNATURE_SENTINEL } from '../tavern-plugin/lib/domain/tool-protocol-enforcement.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { foregroundToolCatalog, normalizeDisabledForegroundTools } from '../tavern-plugin/lib/domain/foreground-tools.js'
+import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 
 test('拒答识别：精准命中模型场外退回话术，放行角色台词与正常长篇小说正文', () => {
   assert.equal(detectStoryRefusal('抱歉，我无法协助生成此类内容。'), true)
@@ -328,4 +330,52 @@ test('设置项校验：storyToolThinking 与 storyToolHistoryMode 持久化与�
   assert.equal(presented.storyToolHistoryMode, 'envelope')
   assert.throws(() => applyTavernSettingsPatch({}, { storyToolThinking: 'yes' }), /布尔值/)
   assert.throws(() => applyTavernSettingsPatch({}, { storyToolHistoryMode: 'unknown' }), /无效的工具回放结构/)
+})
+
+test('submit_story 从前台工具列表移除，直接与全局设置开关绑定且不受旧档 disabledForegroundTools 屏蔽', async () => {
+  for (const mode of ['story', 'script']) {
+    const names = foregroundToolCatalog(mode).map(tool => tool.name)
+    assert.equal(names.includes(STORY_SUBMIT_TOOL_NAME), false)
+    assert.equal(names.includes(STORY_CONTEXT_TOOL_NAME), false)
+  }
+  assert.deepEqual(
+    normalizeDisabledForegroundTools([STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, 'tavern_recall_history']),
+    ['tavern_recall_history']
+  )
+
+  let inputSwitch = false
+  let outputSwitch = false
+  let layoutSwitch = 'story'
+  const orchestrator = createTurnOrchestrator({
+    frameBuilder: { build() {} },
+    storyToolCall: async () => outputSwitch,
+    storyInputToolCall: async () => inputSwitch,
+    historyLayout: async () => layoutSwitch,
+    store: {
+      async headerForSession() {
+        return {
+          mode: 'story',
+          disabledForegroundTools: [STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, 'tavern_recall_history']
+        }
+      }
+    }
+  })
+
+  // 设置未开启时，不插入 submit_story
+  const whenOff = await orchestrator.visibleTools('s1')
+  assert.equal(whenOff.includes(STORY_SUBMIT_TOOL_NAME), false)
+  assert.equal(whenOff.includes(STORY_CONTEXT_TOOL_NAME), false)
+  assert.equal(whenOff.includes('tavern_recall_history'), false)
+
+  // 开启输出走工具调用后，即使旧存档 disabledForegroundTools 曾含 submit_story，也照常插入
+  outputSwitch = true
+  const whenOutOn = await orchestrator.visibleTools('s1')
+  assert.equal(whenOutOn.includes(STORY_SUBMIT_TOOL_NAME), true)
+
+  // 开启输入走工具调用 + envelope 模式后，同时插入 submit_story 与 read_story_context
+  inputSwitch = true
+  layoutSwitch = 'envelope'
+  const whenEnvelopeOn = await orchestrator.visibleTools('s1')
+  assert.equal(whenEnvelopeOn.includes(STORY_SUBMIT_TOOL_NAME), true)
+  assert.equal(whenEnvelopeOn.includes(STORY_CONTEXT_TOOL_NAME), true)
 })

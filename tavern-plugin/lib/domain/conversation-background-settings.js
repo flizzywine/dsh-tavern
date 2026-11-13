@@ -1,6 +1,6 @@
 import { patchConversationBackground } from './conversation-background.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
-import { foregroundToolCatalog, normalizeDisabledForegroundTools } from './foreground-tools.js'
+import { SETTINGS_BOUND_STORY_TOOLS, foregroundToolCatalog, normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 /** Validate model choices, patch only current configuration and trigger newly enabled work. */
@@ -23,7 +23,7 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
     let extra
     try { extra = await extraTools(sessionId) } catch { extra = [] }
     for (const tool of Array.isArray(extra) ? extra : []) {
-      if (!tool || typeof tool.name !== 'string' || known.has(tool.name)) continue
+      if (!tool || typeof tool.name !== 'string' || known.has(tool.name) || SETTINGS_BOUND_STORY_TOOLS.has(tool.name)) continue
       known.add(tool.name)
       tools.push({ name: tool.name, label: tool.label || tool.name,
         description: tool.description || '插件注册的前台工具。', source: 'plugin' })

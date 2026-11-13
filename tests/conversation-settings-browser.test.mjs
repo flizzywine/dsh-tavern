@@ -26,7 +26,7 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
         disabledForegroundTools: disabledTools,
         foregroundTools: [
           { name: 'tavern_recall_history', label: '召回历史', description: '查阅历史正文。' },
-          { name: 'submit_story', label: '正文提交', description: '用 submit_story 提交正文。' },
+          { name: 'tavern_read_variables', label: '读取变量', description: '只读查询当前变量。' },
           { name: 'plugin_lookup', label: '插件查询', description: '插件注册的工具。', source: 'plugin' }
         ],
         modelCatalog: [{ provider: 'p', models: [{ id: 'm', name: '测试模型' }] }]
@@ -58,10 +58,10 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   await page.waitForFunction(() => document.querySelector('input[aria-label="召回历史"]')?.checked === false)
   assert.deepEqual(disabledTools, ['tavern_recall_history'])
   await page.getByRole('button', { name: '全部关闭' }).click()
-  await page.waitForFunction(() => document.querySelector('input[aria-label="正文提交"]')?.checked === false)
-  assert.deepEqual([...disabledTools].sort(), ['plugin_lookup', 'submit_story', 'tavern_recall_history'])
+  await page.waitForFunction(() => document.querySelector('input[aria-label="读取变量"]')?.checked === false)
+  assert.deepEqual([...disabledTools].sort(), ['plugin_lookup', 'tavern_read_variables', 'tavern_recall_history'])
   await page.getByRole('button', { name: '全部开启' }).click()
-  await page.waitForFunction(() => document.querySelector('input[aria-label="正文提交"]')?.checked === true)
+  await page.waitForFunction(() => document.querySelector('input[aria-label="读取变量"]')?.checked === true)
   assert.deepEqual(disabledTools, [])
   const plugin = page.getByLabel('插件查询', { exact: true })
   await plugin.waitFor()
