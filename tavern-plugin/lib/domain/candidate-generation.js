@@ -206,7 +206,7 @@ export const CANDIDATE_SUBMIT_TOOL_NAME = 'candidate_submit_choices'
 
 export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
   name: CANDIDATE_SUBMIT_TOOL_NAME,
-  description: '提交本轮候选项。自由故事必须提交 4 个行动候选和 1 个场景候选；剧本模式只提交 1 项变化，填入 actions 或 scene，另一项留空。',
+  description: '提交本轮候选项。自由故事提交 4 个行动候选和 1 个场景候选；剧本模式只提交 1 项变化，填入 actions 或 scene，另一项留空。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -220,7 +220,7 @@ export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
 
 export const SCRIPT_READ_TOOL = Object.freeze({
   name: 'tavern_read_script',
-  description: '只读剧本：用 position 读取任意剧本块，或用 query 检索整本剧本，两者都不移动游标。position、query 必须且只能提供一个。最多查询 6 次，用完后必须根据已有材料输出最终候选。',
+  description: '只读剧本：用 position 读取任意剧本块，或用 query 检索整本剧本，两者都不移动游标。position 和 query 二选一，只填一个。最多查询 6 次，用完后根据已有材料提交最终候选。',
   parameters: {
     type: 'object',
     properties: {
@@ -455,7 +455,7 @@ export function createCandidateGenerator(options) {
       temperature: 0.8,
       system: [
         context.taskText,
-        ...(designEnabled ? ['若确实需要建立、补全或修订长期人物设计，在当前后台 Agent 内调用 skill 加载 character-design，并按 Skill 使用人物档案工具；无需也不得创建另一个 Agent。完成后继续提交候选项。'] : [])
+        ...(designEnabled ? ['若确实需要建立、补全或修订长期人物设计，在当前后台 Agent 内调用 skill 加载 character-design，并按 Skill 使用人物档案工具；在这个 Agent 里做就行，不另建 Agent。完成后继续提交候选项。'] : [])
       ].join('\n\n'),
       backgroundContext: context.stableText,
       turnContext: context.dynamicText,

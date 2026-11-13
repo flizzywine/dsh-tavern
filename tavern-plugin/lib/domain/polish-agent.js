@@ -9,7 +9,7 @@ const text = value => typeof value === 'string' ? value : ''
 export const POLISH_TOOLS = [
   { name: 'polish_edit', description: '提交一处修改到本次精修草稿。find 必须唯一匹配本次原文，不能与已接受的修改重叠；失败时按返回信息修正后重试。不会直接保存正文。',
     parameters: { type: 'object', properties: { reason: { type: 'string', description: '一句话说明修改原因' }, find: { type: 'string', description: '从本次原文逐字复制的唯一片段' }, replace: { type: 'string', description: '替换文字；删除时为空字符串' } }, required: ['reason', 'find', 'replace'], additionalProperties: false } },
-  { name: 'polish_finish', description: '全部修改已提交，结束本次精修；没有需要修改的地方也必须调用。',
+  { name: 'polish_finish', description: '全部修改提交后调用，结束本次精修；没有需要修改的地方也调用它，本次精修才会结束。',
     parameters: { type: 'object', properties: {}, additionalProperties: false } }
 ]
 
