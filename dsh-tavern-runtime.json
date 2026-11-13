@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a03a8787f8929e8e1027c25e8082ab4d110553dc",
-  "releaseSequence": 1592,
+  "revision": "2dfd6750c3d6aa1fe8880f2e47f8959ce5ca0b84",
+  "releaseSequence": 1593,
   "version": "3.3.0",
   "files": [
     {
@@ -4306,13 +4306,13 @@
     },
     {
       "path": "tavern-plugin/lib/tools/card-editing.js",
-      "sha256": "ebcca14448e449947d8b8939131e2db16cfde284f3d62bb0f28664215d2dc583",
-      "size": 19875
+      "sha256": "6b1411c01b3456b099b2d18187e472c83b0a8083f0aab1cc9fcaaf2751f4ef54",
+      "size": 19878
     },
     {
       "path": "tavern-plugin/lib/tools/card-reading.js",
-      "sha256": "d5e455e6f9600a8c5754a579bacbb67bbe6ccad2707c037eaa7b7a9f3e07b971",
-      "size": 14665
+      "sha256": "642a37a5fd9ff6d66357da62994a2aae0a240b9a8766e6e9c18a042b0cca91b2",
+      "size": 14755
     },
     {
       "path": "tavern-plugin/lib/tools/card-validation-check.js",
@@ -4351,8 +4351,8 @@
     },
     {
       "path": "tavern-plugin/lib/tools/skills.js",
-      "sha256": "0db6934dfbd9bf83bfe68b4bd8507b59c8532cb3b302f11eff06a6db617e48c3",
-      "size": 4014
+      "sha256": "14da7627b39adfc59365f904846834b3428753653adcd2bf7d9613404802b7eb",
+      "size": 4008
     },
     {
       "path": "tavern-plugin/lib/tools/user-profile.js",
@@ -9226,9 +9226,9 @@
     }
   ],
   "archive": {
-    "commit": "2d05df077193ec568f2c3a2f743b9dcaa8ce3bef",
+    "commit": "86cbdcac59bbda522512dd7701719b42aa2ece9f",
     "path": "runtime.zip",
-    "sha256": "22bb99a4214af484353e5ccadd50d07da0b177088153a83ce0c2294644f9786e",
-    "size": 16407932
+    "sha256": "5fc75060f59062a4237ed72a14de571532f785fa051b4d5e11397a1b979f82cf",
+    "size": 16407999
   }
 }
