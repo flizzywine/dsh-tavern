@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5d689ffcba4fb1dccad44833ca3cdeb148b534f5",
-  "releaseSequence": 1608,
+  "revision": "d047562583a58d16f2397cf8ef02033b45ce3a8f",
+  "releaseSequence": 1609,
   "version": "3.3.0",
   "files": [
     {
@@ -2491,8 +2491,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
-      "sha256": "7a1a7326ff95ff08fa9e6d26eeaadca08b7ae0815b214010cd5140024ef48843",
-      "size": 51650
+      "sha256": "6bac8af6d3bae1cff34186508d34f9aa13abd34f3f259138a323d5388fa43333",
+      "size": 55002
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-apply.js",
@@ -2531,8 +2531,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-settlement-engine.js",
-      "sha256": "992eb9a5a91ac3e6b913143224f719b4fa0907d634a4e8c7691a1b68b2c2d2c6",
-      "size": 19107
+      "sha256": "117c79afe62a09213af16f10af7cabd606f486adba7f5eb99c1f62db01b84068",
+      "size": 19529
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-settlement-reconciler.js",
@@ -3686,8 +3686,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tool-settlement-context.js",
-      "sha256": "06e73cf6bf6dd7cddf8513bbfeecac3a63d1e6439d860a8d5be27d1c01561478",
-      "size": 2585
+      "sha256": "435bd6316dc4c4705dc4da376ca460037044dd70a4323bb2ebce5797a612e5b7",
+      "size": 3051
     },
     {
       "path": "tavern-plugin/lib/domain/transcript-row-plan.js",
@@ -4116,8 +4116,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "ad429820af5b0914fed3dd614d3cd80341840cd616bf57d0be92242cf73166f8",
-      "size": 300089
+      "sha256": "06a11b3a44bf72d0eb2d0e33f98314a4900a46b6eeaf5c4e00e9e355aeef6942",
+      "size": 301270
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4171,8 +4171,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-tools.js",
-      "sha256": "ffa161a10b6ffd542566d0cf5347f0a661156ab6fc9a1d55ec99d4fa26374b52",
-      "size": 1507
+      "sha256": "64e98813c618458cb329a334ac59cfd7d44523f7db1483a9e709d6a0749afd48",
+      "size": 2085
     },
     {
       "path": "tavern-plugin/lib/native-settings.js",
@@ -5621,8 +5621,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/check-tool.js",
-      "sha256": "b66379d8a9ba730343465ee3399762b35ad385403442b558b330bf6b83e43c84",
-      "size": 15154
+      "sha256": "9cfbbeb12b199369b6a65968665b387a362ca53d66f6a1df83c49404dbe62cad",
+      "size": 17750
     },
     {
       "path": "tavern-plugin/mods/dice/client/check.js",
@@ -5681,8 +5681,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/README.md",
-      "sha256": "5b0478759bf2cf2563086ad71c3cb3c9fd7c43b5b5049763a74855ff268c276e",
-      "size": 15463
+      "sha256": "01ce4ef6b12f3d239a162a3c6f395240690f40d62e79b3da1a2d30f78b1b4a11",
+      "size": 15931
     },
     {
       "path": "tavern-plugin/mods/dice/rules-engine.js",
@@ -5696,8 +5696,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/tools.js",
-      "sha256": "88401a8031d620c343bc666c5e08b35db483ca15acbc2970f70b7ef6a332f2c3",
-      "size": 3288
+      "sha256": "53ac7448518c69698d337f72f2cf0cebeb4fc6ebb263a18ea0c0980396e3fbd4",
+      "size": 3549
     },
     {
       "path": "tavern-plugin/mods/phone/audio-loudness.json",
@@ -9246,9 +9246,9 @@
     }
   ],
   "archive": {
-    "commit": "4b41ba34e9bcdfe2d0c26aad8c5f0bca2379c4ad",
+    "commit": "08f876ed7e9409a78709e3659a5de92cfafb7ab7",
     "path": "runtime.zip",
-    "sha256": "1710c18874ccbc55d886b045b99fa41f210a73783f7f8f13dec1c7cea8581249",
-    "size": 16473845
+    "sha256": "e08ccd62cfc2a45fce7c9ad6122c713e312d4e0f65d5afad7eb82992bb7fab73",
+    "size": 16476839
   }
 }
