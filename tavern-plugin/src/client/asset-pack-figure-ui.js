@@ -1071,7 +1071,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // 立绘 / 头像 view is on show — a local read, nothing is requested.
   React.useEffect(()=>{if(genView)gen.open();},[genView]);
   React.useEffect(()=>{setGenNotice('');},[kind,outfit?.key]);
-  const cellGate=(k,id)=>k==='sprite'?(!takes(id)?LAYERED_TIP:!genBasis(figure,outfit,figureLook)?GEN_REASONS.basis:''):!genOwnSprite(outfit,manifest,id)?GEN_REASONS.avatar:'';
+  const cellGate=(k,id)=>k==='sprite'?(!takes(id)?LAYERED_TIP:!genBasis(figure,outfit,figureLook)?GEN_REASONS.basis:''):!genOwnSprite(outfit,manifest,id)&&!genBasis(figure,outfit,figureLook)?GEN_REASONS.basis:'';
   const missing=genView?rows.filter(r=>{const c=faces[r.id]?.cell;return !faces[r.id]?.mapped&&(c?.state==='idle'||c?.state==='failed')&&!outfit.fallbackEmotions?.includes(r.id)&&(kind!=='sprite'||takes(r.id));}):[];
   const fillable=kind==='sprite'?missing:missing.filter(r=>!cellGate(kind,r.id));
   // The eight base faces, resolved by key first, then by name (a figure set up with its own ids keeps the shared names).
@@ -1096,7 +1096,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
       h('button',{type:'button',className:'ap-inline-link',disabled:accepting,onClick:acceptAll},accepting?'正在采用…':'全部采用')));
   const showProblem=genView&&!!gen.problem&&!gen.dialog&&!gen.sheet;
   const genNotices=(showProblem||genNotice)&&h('div',{className:'ap-gen-notices'},
-    showProblem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,GEN_PROBLEMS[gen.problem])),
+    showProblem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
     genNotice&&h(GenGateNote,{text:genNotice}));
   // every 差分 tile's menu, in 模型 / 立绘 / 头像 alike, by
   // its state (mock E2): 空 生成… / 上传图片… / 设置回退 ›; 有图 重画… / 改图… / 替换为本地图片…; 待采用 采用 / 不要 / 重画… /

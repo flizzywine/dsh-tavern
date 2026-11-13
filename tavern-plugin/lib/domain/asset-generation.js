@@ -10,6 +10,7 @@ import {validateUuid, validateHash, validateShortId, validateStateId} from '../.
 import {validateIdentitySettei} from '../../packages/dsh-asset-library/lib/asset-packs/identity-settei.js'
 import {PACK_GEN_STYLES} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
+import {coverImageType, coverImageAsPng} from './card-cover-image.js'
 
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -22,6 +23,20 @@ const path = id => ROOT + id + '.png'
 const referencePath = (id,index) => ROOT + id + '.ref-' + index
 const targetKey = target => JSON.stringify(target)
 const publicJob = job => clone(Object.fromEntries(Object.entries(job).filter(([key]) => !['slot','prompt','basePrompt','provider','output','anchor'].includes(key))))
+// A failed request in plain words: why, and what to change. The channel's own text goes along as `detail` (the tile's
+// tooltip), because it is often the only clue to what this channel refuses (a size, a reference picture, the balance).
+export function generationFailure(error, {size, references = 0} = {}) {
+  const raw = String(error?.message || '').replace(/\s+/g, ' ').trim().slice(0, 300)
+  const status = Number(raw.match(/\bHTTP\s*(\d{3})\b/)?.[1])
+  const asked = (size ? '这张素材要 ' + size.replace('x', '×') + ' 的图' : '这张素材') + (references ? '、带 ' + references + ' 张参考图' : '')
+  const plain = !status ? '' : status === 401 || status === 403 ? '生图渠道拒绝了请求：密钥不对或没有权限。请在 设置 → 配图 检查这个渠道的密钥'
+    : status === 402 ? '生图渠道说余额或点数不够。请充值，或在 设置 → 配图 换一个渠道'
+    : status === 404 ? '生图渠道找不到这个地址或模型。请在 设置 → 配图 检查渠道地址和模型'
+    : status === 429 ? '生图渠道说请求太频繁或额度暂时用完了。过一会儿再试，或在 设置 → 配图 换一个渠道'
+    : status >= 500 ? '生图服务那边出错了，过一会儿再试'
+    : '生图渠道不接受这次请求：' + asked + '，这个渠道可能不支持。可在 设置 → 配图 换一个渠道再试'
+  return plain ? {message:plain, detail:raw} : {message:raw || '生图失败'}
+}
 function text(value = '', max = 4000) {
   assert(typeof value === 'string' && value.length <= max, 'INVALID_ARGUMENT', '文本过长或格式错误')
   return value.trim()
@@ -236,8 +251,11 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       }
       if (controller.signal.aborted) return
       assert(reply?.data instanceof Uint8Array && reply.data.length <= 20 * 1024 ** 2, 'INVALID_ARGUMENT', '生图渠道没有返回有效图片')
-      const result = {data:Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), mediaType:String(reply.mediaType || '')}
-      assert(result.mediaType === 'image/png', 'INVALID_ARGUMENT', `素材生图需要 PNG，当前渠道返回了 ${result.mediaType || '未知格式'}；请在 配图 设置里换用能出 PNG 的渠道`)
+      // Assets are stored as PNG; a channel that answers in JPEG or WebP (many relays do) is converted here.
+      let data = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength)
+      assert(coverImageType(data), 'INVALID_ARGUMENT', '生图渠道返回的不是 PNG、JPEG 或 WebP 图片')
+      data = await coverImageAsPng(data)
+      const result = {data, mediaType:'image/png'}
       const candidate = inspectImage(result.data, result.mediaType, 20 * 1024 ** 2)
       candidate.checks = checkAssetImage(result.data,job.target.kind === 'avatar-sheet' ? 'avatar' : job.target.kind,{sheet:job.target.kind === 'avatar-sheet'})
       if (job.target.kind === 'avatar-sheet') {
@@ -259,8 +277,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         if (job.status !== 'running') return
         // The plugin says requestMayHaveSucceeded === false only when nothing can have been billed.
         job.status = 'failed'; job.outcome = error.requestMayHaveSucceeded === false ? 'rejected' : 'unconfirmed'
-        const message = String(error?.message || '').replace(/\s+/g, ' ').trim().slice(0, 300) || '生图失败'
-        job.error = {code:'GENERATION_FAILED',message:(job.outcome === 'unconfirmed' ? '没有拿到结果，不会自动重试；' : '') + message,retryable:false,mayHaveCharged:job.outcome === 'unconfirmed'}
+        const {message, detail} = generationFailure(error, {size:plan.output.size, references:plan.images.length})
+        job.error = {code:'GENERATION_FAILED',message:(job.outcome === 'unconfirmed' ? '没有拿到结果，不会自动重试；' : '') + message,...(detail ? {detail} : {}),retryable:false,mayHaveCharged:job.outcome === 'unconfirmed'}
         await save()
       })
     } finally { controllers.delete(job.jobId) }
@@ -314,7 +332,6 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         const sprite = ctx.outfit.sprite, manifest = sprite && pack.sprites[sprite.manifestKey]
         const stateFor = emotion => manifest ? spriteEmotions.spriteEmotionState(manifest,(emotion===target.emotionId?target.imageId:null) || ctx.outfit.sprite?.imagePools?.[emotion]?.defaultImageId || emotion) : null
         const sourceFor = emotion => { const state=stateFor(emotion); return state?.stage?.src || state?.src }
-        if (target.kind === 'avatar') assert(sourceFor(target.emotionId), 'ASSET_UNAVAILABLE', '先有这个差分的立绘，才能生成它的头像')
         if (target.kind === 'avatar-sheet') assert(sourceFor(defaultEmotion) || ctx.outfit.settei, 'ASSET_UNAVAILABLE', '先有默认差分立绘或设定图，才能一次生成指定头像')
         const emotionId = target.kind === 'avatar' ? target.emotionId : defaultEmotion
         const state = stateFor(emotionId), stateSource = state?.stage?.src || state?.src
@@ -337,8 +354,16 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       }
       if (target.kind === 'background') for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '设定图与补充参考合计最多四张')
-      if (['identity-settei','settei'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', '请提供外貌文字或参考图')
-      if (target.kind === 'sprite' && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', '请写一句描述，或加一张参考图')
+      // The identity board, the outfit 设定图 and a 头像's own 立绘 are references, not prerequisites: a channel that takes
+      // fewer pictures (none, for a text-only one) draws from the 设定文字 instead — the identity board is left out first, then
+      // the outfit 设定图, then the 立绘. What the user added stays.
+      if (!preview && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.settei, roles.emotionSprite]) {
+        const at = refs.findIndex(ref => ref.role === role)
+        if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) }
+      }
+      const textOnly = !preview && status.maxReferences === 0 && '当前生图渠道不能带参考图，只照文字画：请先写外貌或服装描述'
+      if (['identity-settei','settei'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', textOnly || '请提供外貌文字或参考图')
+      if (['sprite','avatar'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', textOnly || '请写一句描述，或加一张参考图')
       if (target.kind === 'background' && !input.redrawOf) assert(userPrompt, 'INVALID_ARGUMENT', '请描述需要的背景')
       // 画风: this request's preset, else the pack's default (manifest.genStyle), else the built-in default.
       const own = (await readPrompts()).overrides[target.kind], values = assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,style:input.style ?? pack.manifest.genStyle ?? ASSET_STYLE_DEFAULT,figure:ctx.figure,outfit:ctx.outfit,
@@ -375,7 +400,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '全部参考合计最多四张')
       if (!preview) assert(images.length <= status.maxReferences, 'UNSUPPORTED_CHANNEL', status.maxReferences
         ? `当前生图渠道最多带 ${status.maxReferences} 张参考图，这次需要 ${images.length} 张；可在对话框里少选几张参考`
-        : '当前生图渠道不支持参考图；请在 配图 设置里换用支持参考图的渠道')
+        : `当前生图渠道不能带参考图，${target.kind === 'avatar-sheet' ? '八个头像要照立绘或设定图一起画' : '这张素材要照 ' + images.length + ' 张参考图画'}；请在 设置 → 配图 换一个支持参考图的渠道`)
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
       if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),references:refs,output})
