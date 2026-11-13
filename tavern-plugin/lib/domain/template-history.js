@@ -1,7 +1,8 @@
 import { isScopedMessages } from './scoped-messages.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { randomUUID } from 'node:crypto'
-import { sessionEvents } from './session-events.js'
+import { openTurnStep, sessionEvents } from './session-events.js'
+import { agentForSession } from './agent-lookup.js'
 import { createRoundAnchorResolver, validAnchor } from './round-anchor.js'
 import { isCompactionCheckpoint } from './compaction-checkpoint.js'
 
@@ -109,16 +110,25 @@ function restoreCompactionCheckpoints(session, events) {
   return changed
 }
 
+/**
+ * Write the rewrites the save carries into the native history. A reply rewrite needs
+ * a step of its own, and a turn the Agent has started owns its step and turn numbers:
+ * an edit step written there takes the number of the Agent's next step and the stored
+ * log no longer opens. Reply rewrites therefore wait until the Agent is idle; the end
+ * of the turn synchronizes again (turn-lifecycle.js). Input rewrites carry no step and
+ * belong to the turn being prepared.
+ */
 export async function synchronizeTemplateHistory(session, chat, flush) {
   const restored = restoreCompactionCheckpoints(session, sessionEvents(session))
   if (isScopedMessages(chat.messages)) markRecentInputRewrites(session, chat.messages)
   else prepareTemplateHistory(session, chat, chat)
   const events = sessionEvents(session)
+  const idle = openTurnStep(events).turn === null && (agentForSession(session)?.phase?.kind ?? 'idle') === 'idle'
   const ids = new Set(events.map(event => event.type === 'assistant/message' ? event.data.message?.id : event.data?.id))
   let changed = restored
   for (const message of chat.messages || []) {
     const edit = message?.templateHistoryEdit
-    if (!edit || ids.has(edit.id) || !session.surface?.nodes.includes(edit.seq)) continue
+    if (!edit || ids.has(edit.id) || !session.surface?.nodes.includes(edit.seq) || (edit.role === 'assistant' && !idle)) continue
     const target = events.find(event => event.seq === edit.seq)
     if (isCompactionCheckpoint(target)) continue
     const original = target.type === 'assistant/message' ? target.data.message : target.data

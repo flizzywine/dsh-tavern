@@ -12,14 +12,18 @@ import { parseSessionLog, encodeCurrentGeneration } from './session-log-codec.js
 //   step for its replacement: the two rows swap places. Native repair wrote whole
 //   rounds after the last turn ended: that tail is dropped, it only copied the save
 //   and the next reconcile writes it again.
+// - a step reusing the number of an earlier step of its turn ("step/start does not
+//   match the open turn and next step"): older Tavern versions wrote a template rewrite
+//   as an edit step into a turn the Agent had opened, and took the number of the
+//   Agent's next step. Steps are renumbered in order within each turn.
 // - a log whose surface does not begin with a system head ("system/message requires a
 //   protected first surface head"). Whoever projected a message before the host wrote
 //   its empty system slot left the surface without the protected head; the host then
 //   appends a real system message in a later step and the reader rejects the log. The
 //   head is reserved the same way the host reserves it, and every later seq shifts by
 //   one so all replacement ranges and source references keep naming the same rows.
-// The first two kinds never insert a row or move an earlier event, so anchors into the
-// log stay valid; the head repair shifts every seq after the inserted row by one.
+// The first three kinds never insert a row or move an earlier event, so anchors into
+// the log stay valid; the head repair shifts every seq after the inserted row by one.
 const TURN_REPAIR_SUFFIX = '.bak-tavern-turnrepair'
 const SESSION_ID = /^[a-zA-Z0-9_-]+$/
 
@@ -48,6 +52,7 @@ export function repairCurrentSessionBuffer(buffer, catalog) {
   if (healthy.ok) return { ok: true, changed: false, artifact: healthy.artifact, reason: '会话日志可以打开' }
   let events = parsed.events.map(event => structuredClone(event))
   const renumbered = assignTurnNumbers(events)
+  const stepped = assignStepNumbers(events)
   const placed = placeStrayReplies(events)
   if (placed === null) return refuse(healthy.reason)
   events = placed.events
@@ -55,7 +60,7 @@ export function repairCurrentSessionBuffer(buffer, catalog) {
   // system/message row opens fine, and reserving a head there would be a silent edit.
   const headed = /protected first surface head/.test(healthy.reason || '') ? restoreSurfaceHead(events, parsed.header) : null
   if (headed !== null) events = headed
-  if (!renumbered && !placed.changed && headed === null) return refuse(healthy.reason)
+  if (!renumbered && !stepped && !placed.changed && headed === null) return refuse(healthy.reason)
   const repaired = openCurrentSession(catalog, parsed.header, events)
   if (!repaired.ok) return refuse(repaired.reason)
   return { ok: true, changed: true, artifact: repaired.artifact, reason: healthy.reason }
@@ -177,6 +182,23 @@ function assignTurnNumbers(events) {
         if (depth === 0) break
       }
     }
+  }
+  return changed
+}
+
+// Number each turn's steps 1, 2, ... in log order; every row inside a step carries its number.
+function assignStepNumbers(events) {
+  let changed = false
+  let next = 1
+  let current = null
+  for (const event of events) {
+    if (event.type === 'turn/start') { next = 1; current = null; continue }
+    if (event.type === 'step/start') current = next++
+    if (current !== null && event.data && Object.hasOwn(event.data, 'step') && event.data.step !== current) {
+      event.data = { ...event.data, step: current }
+      changed = true
+    }
+    if (event.type === 'step/end') current = null
   }
   return changed
 }
