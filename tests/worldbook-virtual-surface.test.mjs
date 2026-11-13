@@ -23,7 +23,7 @@ test('前台工具关掉世界书检索后，提示不再教模型调用不存�
 
   const bothOff = withVirtualWorldbook([], 'ctx', ['worldbook_list', 'worldbook_grep'])
   assert.equal(sectionOf(bothOff), undefined, '两个检索工具都关掉时整段指令消失')
-  assert.equal(bothOff[0].text, '【常驻世界书】\nctx', '常驻世界书正文不受工具开关影响')
+  assert.equal(bothOff[0].text, '<lorebook_constant>\nctx\n</lorebook_constant>', '常驻世界书正文不受工具开关影响')
 
   const grepOnly = withVirtualWorldbook([], '', ['worldbook_list'])
   assert.match(sectionOf(grepOnly).text, /worldbook_grep/)
@@ -90,7 +90,7 @@ test('small entry edits append deltas while preserving base messages and restora
   }
   assert.match(append('19'), /不变的世界规则/)
   const delta = append('22')
-  assert.match(delta, /旧段落：\n关系：19\n新段落：\n关系：22/)
+  assert.match(delta, /<old_text>\n关系：19\n<\/old_text>\n<new_text>\n关系：22\n<\/new_text>/)
   assert.doesNotMatch(delta, /不变的世界规则/)
   append('25')
   const current = { schemaVersion: 1, scope, entries: { a: { text: body('25'), renderHash: '25' } } }

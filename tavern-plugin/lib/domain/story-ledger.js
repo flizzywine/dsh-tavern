@@ -1,3 +1,5 @@
+import { promptSection } from './prompt-section.js'
+
 /** Generic ledger fields and selection rules informed by ST-BaiBai-Book.
  * Reference: docs/research/baibai-book-ledger-2026-09-09.md.
  * Persistence and rollback belong to Tavern's Story Timeline, not ST message extras.
@@ -105,7 +107,7 @@ export function ledgerFrameInputs(chat) {
   if (!ledger.location && !['items', 'npcs', 'scenes'].some(kind => ledger[kind]?.length)) return []
   const text = frameLedgerText(ledger)
   return [{ kind: 'foreground.current-state', required: false, source: { stage: 'ledger', through: chat.ledgerInjection.through },
-    text: '【游玩台账 · 整理至第 ' + chat.ledgerInjection.through + ' 轮（只在这一轮提供，用来核对物品、人物与地点；与正文冲突时以正文为准；omitted 如有值表示因篇幅省略的条目数，不代表删除）】\n' + text }]
+    text: promptSection('story_ledger', 'Play ledger, updated through turn ' + chat.ledgerInjection.through + " (this turn only, for checking items, characters and places; the story text wins on conflict; omitted counts entries left out for space, not deleted):\n" + text) }]
 }
 
 /** Pure, atomic delta projection. A failed call leaves the authoritative ledger untouched. */

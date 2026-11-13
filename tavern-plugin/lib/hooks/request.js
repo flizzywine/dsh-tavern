@@ -3,6 +3,7 @@ import { worldbookContextDelta } from '../domain/worldbook-context-delta.js'
 import { normalizeProviderOverflow } from '../domain/provider-overflow.js'
 import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { randomUUID } from 'node:crypto'
+import { promptSection } from '../domain/prompt-section.js'
 import { lastRoundVariableChanges } from '../domain/foreground-variable-changes.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
 
@@ -32,7 +33,7 @@ export async function appendWorldbookRecovery({ chat, payload, decision, project
   // Missing chains get a full baseline, appended after pending input; never edit system/history.
   const full = worldbookContextDelta(null, marker, text)
   return { ...decision, messages: [...decision.messages, { id: randomUUID(), role: 'user',
-    content: [{ type: 'text', text: '【世界书上下文恢复】\n' + full.text }],
+    content: [{ type: 'text', text: promptSection('lorebook_restore', full.text) }],
     source: { kind: 'plugin:dsh-tavern', form: 'worldbook-recovery', virtualWorldbook: marker, worldbookEntrySnapshots: full.records } }] }
 }
 

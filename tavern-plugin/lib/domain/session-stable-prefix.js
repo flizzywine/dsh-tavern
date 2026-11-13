@@ -1,3 +1,4 @@
+import { promptSection, promptSectionBody } from './prompt-section.js'
 import { sessionVariableDirectorySection } from './session-variable-directory.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { ensureSessionSystemHead, sessionEvents, appendSessionEvent } from './session-events.js'
@@ -5,6 +6,31 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import { isProducerSource } from './message-source.js'
+
+// A frozen snapshot keeps the envelope it was written with: today's tag, the English tag of
+// chats opened between 11-03 and 11-12, or the original Chinese heading. Writers use the first tag.
+const STABLE_SECTIONS = Object.freeze([
+  { name: 'tavern:user-preference', tags: ['user_preferences'], heading: '【用户已确认的长期偏好】' },
+  { name: 'tavern:character-card', tags: ['character_card_name', 'character_card'], heading: '【故事设定 · 人物卡】' },
+  { name: 'tavern:card-system-prompt', tags: ['card_system'], heading: '【人物卡系统提示】' },
+  { name: 'tavern:constant-worldbook', tags: ['lorebook_constant', 'constant_worldbook'], heading: '【常驻世界书】' }
+])
+
+/** The body of a frozen section in any of its envelopes, or null when it has none of them. */
+export function stableSectionBody(name, text) {
+  const section = STABLE_SECTIONS.find(item => item.name === name)
+  const tag = section.tags.find(item => text.startsWith(`<${item}>\n`))
+  if (tag) return promptSectionBody(tag, text)
+  return text.startsWith(section.heading + '\n') ? text.slice(section.heading.length + 1) : null
+}
+
+/** The card name of a frozen character card section in any of its envelopes. */
+export function stableCardName(text) {
+  const [first, second = ''] = text.split('\n')
+  if (first === '<character_card_name>') return second
+  return /^(?:Name: |名字: )/.test(second) ? second.replace(/^(?:Name: |名字: )/, '') : ''
+}
+
 
 const EVENT = 'dsh-tavern/stable-prefix'
 const pending = new WeakMap()
@@ -71,13 +97,10 @@ function messageRecord(event) {
 }
 
 function sourceSections(text) {
-  // Chats opened between 11-03 and 11-12 froze the English envelopes.
-  const boundaries = [
-    { marker: text.includes('<user_preferences>\n') ? '<user_preferences>' : '【用户已确认的长期偏好】', name: 'tavern:user-preference' },
-    { marker: text.includes('<character_card>\n') ? '<character_card>' : '【故事设定 · 人物卡】', name: 'tavern:character-card' },
-    { marker: text.includes('<card_system>\n') ? '<card_system>' : '【人物卡系统提示】', name: 'tavern:card-system-prompt' },
-    { marker: text.includes('<constant_worldbook>\n') ? '<constant_worldbook>' : '【常驻世界书】', name: 'tavern:constant-worldbook' }
-  ]
+  const boundaries = STABLE_SECTIONS.map(section => ({
+    name: section.name,
+    marker: section.tags.map(tag => `<${tag}>`).find(tag => text.includes(tag + '\n')) || section.heading
+  }))
   const starts = boundaries.map(function (boundary) {
     return { ...boundary, index: text.indexOf(boundary.marker) }
   }).filter(function (boundary) { return boundary.index >= 0 }).sort(function (left, right) { return left.index - right.index })
@@ -182,5 +205,5 @@ export function sessionStablePrefixSections(session, openingText = '') {
 export function withCurrentWorldbook(sections, context) {
   const fixed = sections.filter(section => section.name !== 'tavern:constant-worldbook')
   const text = str(context).trim()
-  return text ? [{ name: 'tavern:constant-worldbook', text: '【常驻世界书】\n' + text }, ...fixed] : fixed
+  return text ? [{ name: 'tavern:constant-worldbook', text: promptSection('lorebook_constant', text) }, ...fixed] : fixed
 }

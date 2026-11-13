@@ -2,6 +2,7 @@
 // for inspection; it is not automatically injected into the next turn.
 
 import { activeStoryTurn } from './story-tool-submission.js'
+import { promptSection } from './prompt-section.js'
 
 export const STYLE_REFERENCE_SUBMIT_TOOL = {
   name: 'style_reference_submit',
@@ -50,10 +51,10 @@ export function rememberStyleReference(list, reference, afterTurn) {
 
 export function foregroundStyleReferencePrompt(chat, selectionPrompt, writingPrompt) {
   if ((chat?.mode || 'story') !== 'story' || chat?.backgroundTasks?.styleReference !== true) return ''
-  return ['【前台文风联想】', selectionPrompt, writingPrompt,
+  return promptSection('foreground_style_reference', [promptSection('style_reference_recall', selectionPrompt), promptSection('style_reference', writingPrompt),
     '本轮由你结合当前玩家输入与前情，在写正文之前完成文风联想。调用 style_reference_submit 记录参考后继续生成本轮正文，不要结束回合，也不要等待后台。选段要求中的“刚写完正文”指当前场景；历史上的旧参考不是本轮必须沿用的参考。',
-    chat.styleReferenceGuidance ? '【玩家选段偏好】\n' + String(chat.styleReferenceGuidance) : ''
-  ].filter(Boolean).join('\n\n')
+    chat.styleReferenceGuidance ? promptSection('style_reference_preference', String(chat.styleReferenceGuidance)) : ''
+  ].filter(Boolean).join('\n\n'))
 }
 
 export function createForegroundStyleReferenceTool({ chatForSession, save, isBackground = () => false }) {

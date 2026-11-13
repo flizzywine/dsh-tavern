@@ -1,4 +1,11 @@
+import { promptSection } from './prompt-section.js'
 import { randomUUID } from 'node:crypto'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "Confirmed long-term user preferences. They affect presentation only; the card and this turn's explicit user requests come first. Don't restate this section.\n\n"
+})
+
 
 const PROFILE_PATH = 'user-preference-profile.json'
 const SPEC = 'dsh-tavern.user-preference-profile'
@@ -165,7 +172,7 @@ function createSingleProfile({ store, now = Date.now }) {
     if (text === '') return null
     return {
       revision: integer(current.confirmed.profileRevision || current.confirmed.revision),
-      text: '【用户已确认的长期偏好】\n以下偏好只影响表现方式；人物卡设定和用户本轮明确要求优先。不要复述本段。\n\n' + text
+      text: promptSection('user_preferences', PROMPT_PROSE.p001 + text)
     }
   }
 

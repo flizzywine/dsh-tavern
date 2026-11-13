@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { appendSessionEvent, sessionEvents } from './session-events.js'
+import { promptSection } from './prompt-section.js'
 
 /** Persist the comparison baseline in native history, outside model-visible text.
  * One batch notice per effective version survives restarts and turn retries. */
@@ -26,7 +27,7 @@ export function appendWorldbookSkillChanges(payload, snapshot) {
     }
   }
   const initialDynamic = !previous ? snapshot.entries.filter(entry => entry.category === '动态快照') : []
-  const lines = previous || initialDynamic.length ? ['【世界书资料更新】'] : []
+  const lines = []
   const describe = (label, entries) => {
     if (!entries.length) return
     lines.push(`${label}（${entries.length} 条）：` + entries.slice(0, 12).map(entry => String(entry.title).replace(/\s+/g, ' ').slice(0, 70)).join('；') + (entries.length > 12 ? '；其余请查当前目录' : ''))
@@ -40,7 +41,7 @@ export function appendWorldbookSkillChanges(payload, snapshot) {
     lines.push('改写、撤回项的旧资料失效；需要时重新检索。')
     if (previous.directory !== snapshot.directory) lines.push('目录已变，旧绝对路径不再适用；用 worldbook_grep 或 worldbook_list 重新定位。')
   }
-  const message = { id: `tavern-worldbook-skills:${snapshot.version}:${randomUUID()}`, role: 'user', content: lines.length ? [{ type: 'text', text: lines.join('\n') }] : [],
+  const message = { id: `tavern-worldbook-skills:${snapshot.version}:${randomUUID()}`, role: 'user', content: lines.length ? [{ type: 'text', text: promptSection('lorebook_files_update', lines.join('\n')) }] : [],
     source: { kind: 'plugin:dsh-tavern', worldbookSkills: snapshot } }
   // pre-step messages are persisted by the host when the step starts. Writing
   // both here and there creates duplicate surface rows for the same message.

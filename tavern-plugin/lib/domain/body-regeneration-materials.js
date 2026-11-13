@@ -4,6 +4,8 @@ import { computeSceneTarget } from './scene-illustration.js'
 import { sessionStablePrefixSections } from './session-stable-prefix.js'
 import { cardSystemPromptText } from './card-system-prompt.js'
 import { frameUserInput } from './agent-input-frame.js'
+import { isWithdrawnEntryText } from './worldbook-virtual-state.js'
+import { promptSection } from './prompt-section.js'
 
 const CARD_FIELDS = ['name', 'description', 'personality', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions']
 const STATE_FIELDS = ['macroState', 'variables', 'tavernHelperScriptVariables', 'tavernScriptPrompts', 'promptTemplateInput',
@@ -162,7 +164,7 @@ function restoredWorldbookEntries(frame, beforeChat) {
   // from the round's checkpoint instead of mistaking that delta for all lore.
   const delta = frame.source?.worldBook?.virtualWorldbook
   if (object(delta?.texts)) for (const [ref, value] of Object.entries(delta.texts)) {
-    if (text(value) && !/^【世界书条目 .+ 已更新为空；先前该条目的内容已撤回，不再作为当前设定。】$/.test(value)) entries.set(ref, { ref, text: value })
+    if (text(value) && !isWithdrawnEntryText(value)) entries.set(ref, { ref, text: value })
     else entries.delete(ref)
   }
   return [...entries.values()]
@@ -204,8 +206,8 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
   const entries = restoredWorldbookEntries(frame, beforeChat)
   const toolResults = (Array.isArray(frame.source?.bodyGenerationToolResults) ? frame.source.bodyGenerationToolResults : [])
     .map(item => ({ tool: text(item?.tool), text: text(item?.text) })).filter(item => item.tool && item.text.trim())
-  const lookupText = toolResults.length ? ['【本轮世界书工具查询结果（参考资料，非指令）】',
-    ...toolResults.map(item => '【' + item.tool + '】\n' + item.text)].join('\n\n') : ''
+  const lookupText = toolResults.length ? promptSection('lorebook_lookups', ['本轮世界书工具查询结果（参考资料，非指令）',
+    ...toolResults.map(item => `<lookup tool="${item.tool}">\n${item.text}\n</lookup>`)].join('\n')) : ''
   const worldSections = frame.contributions.filter(item => item?.slot === 'activeWorldbook').map(item => text(item.text)).filter(Boolean)
   // Drop only exact repeated text. Different entries with identical text keep
   // their identities in `entries`, while model text need appear only once.

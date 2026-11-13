@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { sessionEvents } from './session-events.js'
 import { isProducerSource } from './message-source.js'
+import { promptSection } from './prompt-section.js'
 
 const hash = text => createHash('sha256').update(text).digest('hex')
 export function visibleContextMessages(session, pending = []) {
@@ -41,7 +42,7 @@ function deltaText(previous, text, ref) {
   // Only unambiguous replacements; insertion/deletion and large rewrites use a full snapshot.
   if (!removed || !added || previous.indexOf(removed) !== previous.lastIndexOf(removed)) return null
   const title = text.split('\n').find(line => /^#+\s/.test(line)) || `条目 ${ref}`
-  const rendered = `【世界书局部更新：${title.replace(/^#+\s*/, '')}】\n将该条目中的以下旧段落替换为新段落；其他内容继续有效。\n旧段落：\n${removed}\n新段落：\n${added}`
+  const rendered = promptSection('lorebook_partial_update', `条目：${title.replace(/^#+\s*/, '')}\n将该条目中的以下旧段落替换为新段落；其他内容继续有效。\n${promptSection('old_text', removed)}\n${promptSection('new_text', added)}`)
   return rendered.length < text.length * 0.6 ? rendered : null
 }
 

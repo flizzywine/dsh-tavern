@@ -1,6 +1,18 @@
+import { promptSection } from './prompt-section.js'
 import { randomUUID } from 'node:crypto'
 import { canonicalTavernSkillName } from './tavern-skills.js'
 import { isProducerSource } from './message-source.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "Writing Skill switches for this game:",
+  p002: "This is the full current state, replacing all earlier writing Skill switch notices, effective from this request.",
+  p003: "Disabled now: ",
+  p004: "All writing Skills reported disabled earlier are re-enabled for this game.",
+  p005: "Stop following disabled Skills' previously loaded text and references, and don't call them again; their history remains only as a record, not active guidance.",
+  p006: "Skills disabled earlier but no longer listed are re-enabled for this game; use them as scenes require, within the current catalogue and call permissions. Switches don't change established story facts."
+})
+
 
 function stateOf(message) {
   const source = message?.source
@@ -45,13 +57,13 @@ export function appendWritingSkillState(messages, mode, { session, disabledWriti
   const disabled = [...new Set(disabledWritingSkills.map(canonicalTavernSkillName))]
     .filter(name => loaded.has(name) || baseline.includes(name)).sort()
   if (JSON.stringify(baseline) === JSON.stringify(disabled)) return messages
-  const text = [
-    '【本局写作 Skill 开关】',
-    '这是当前完整开关状态，替代此前所有写作 Skill 开关通知，从本次请求起生效。',
-    disabled.length ? '当前停用：' + disabled.map(name => '`' + name + '`').join('、') + '。' : '此前通知停用的写作 Skill 已全部解除本局禁用。',
-    ...(disabled.length ? ['对当前停用的 Skill，停止遵循此前已加载的正文和参考资料，也不要再次调用；保留历史内容仅为对话记录，不表示仍然启用。'] : []),
-    '此前停用、现在不再列出的 Skill 已解除本局禁用；仍需遵守当前可用目录与调用权限，按场景选用。开关不改变既有剧情事实。'
-  ].join('\n')
+  const text = promptSection('writing_skills', [
+    PROMPT_PROSE.p001,
+    PROMPT_PROSE.p002,
+    disabled.length ? PROMPT_PROSE.p003 + disabled.map(name => '`' + name + '`').join('、') + '.' : PROMPT_PROSE.p004,
+    ...(disabled.length ? [PROMPT_PROSE.p005] : []),
+    PROMPT_PROSE.p006
+  ].join('\n'))
   return [...messages, {
     id: randomUUID(), role: 'user', content: [{ type: 'text', text }],
     source: { kind: 'plugin:dsh-tavern', form: 'writing-skill-state', disabledWritingSkills: disabled }

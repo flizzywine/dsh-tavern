@@ -25,7 +25,7 @@ test('只在紧接被改那一轮的正文请求里出现：重新生成下一�
   assert.equal(variableUpdateFor({ variableUpdate, messages: [reply(6), { role: 'user' }, reply(7), { role: 'user' }] }), variableUpdate)
   assert.equal(variableUpdateFor({ variableUpdate, messages: [reply(7), { role: 'user' }, reply(8)] }), null)
   assert.equal(variableUpdateFor({ variableUpdate, messages: [reply(6)] }), null)
-  assert.equal(variableUpdateText(variableUpdate), '【变量已更新】\n以下变量已更新，以此为准：\n- 状态.体力：5 → 9')
+  assert.equal(variableUpdateText(variableUpdate), '<variable_update>\n以下变量已更新，以此为准：\n- 状态.体力：5 → 9\n</variable_update>')
 })
 
 test('面板保存只在有改动时写入本局', async () => {

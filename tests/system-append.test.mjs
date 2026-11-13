@@ -23,8 +23,8 @@ for (const task of ['settlement', 'image', 'plugin']) test(task + ' 复用会话
   })
   try {
     for (text of ['第一版', '第二版', '']) await runner.run({ sessionId: 'parent', persistent: true, task, selection: { provider: 'test', model: 'fake' }, messages: [], tools: [] })
-    const first = '第一版'
-    const second = '第二版'
+    const first = '<system_append>\n第一版\n</system_append>'
+    const second = '<system_append>\n第二版\n</system_append>'
     assert.deepEqual(seen.map(result => result.hook), [[first, '原有指令'], [second, '原有指令'], ['原有指令']])
     assert.ok(seen[0].system.startsWith(first + '\n\n'))
     assert.ok(seen[1].system.startsWith(second + '\n\n'))

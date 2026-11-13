@@ -51,7 +51,7 @@ export async function editCandidatesChecks({ page, step, savedChat, output, repo
       messageCount: request.messages.length,
       sawEdited: JSON.stringify(request.messages).includes('E2E_394_EDITED'),
       sawRounds: ['E2E_R1', 'E2E_R2', 'E2E_R3'].filter(marker => JSON.stringify(request.messages).includes(marker)),
-      systemHasPosture: /现场 · 主要人物状态/.test(JSON.stringify(request.system || '')),
+      systemHasPosture: /<character_state>/.test(JSON.stringify(request.system || '')),
       tail: request.messages.slice(-3).map(message => ({ role: message.role, text: textOf(message).slice(0, 600) }))
     }))
     await writeFile(join(output, 'edit-candidates-requests.json'), JSON.stringify(requests, null, 2))

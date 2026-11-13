@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { classifyWorldbookEntry, hasWorldbookPreprocessingSyntax, isWorldbookRuntimeEntry } from './worldbook-entry-classification.js'
 import { isMvuUpdateEntry } from './worldbook-recall.js'
 import { promptOrder } from './worldbook-activation.js'
+import { promptSection } from './prompt-section.js'
 
 export const virtualHash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')
 // A view entry is immutable for as long as its book snapshot lives: readers copy it, nobody
@@ -19,6 +20,9 @@ export const virtualEntryVersion = entry => {
 }
 /** The same digest `virtualHash(entries)` gives, computed from the per-entry versions. */
 export const virtualEntriesVersion = entries => virtualHash(entries.map(virtualEntryVersion))
+/** A withdrawn dynamic entry's context text; states saved before the tags keep the original heading form. */
+export const withdrawnEntryText = ref => promptSection('lorebook_entry_withdrawn', `世界书条目 ${ref} 已更新为空；先前该条目的内容已撤回，不再作为当前设定。`)
+export const isWithdrawnEntryText = value => /^(?:<lorebook_entry_withdrawn>\n世界书条目 .+ 已更新为空；先前该条目的内容已撤回，不再作为当前设定。\n<\/lorebook_entry_withdrawn>|【世界书条目 .+ 已更新为空；先前该条目的内容已撤回，不再作为当前设定。】)$/.test(value)
 export const virtualScope = chat => JSON.stringify([chat.sessionId || chat.id || '', chat.cardPath || ''])
 function dependencyValues(classification, chat, card, globals) {
   return classification.dependencies.map(({ scope, key }) => {

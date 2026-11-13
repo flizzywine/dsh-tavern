@@ -1,6 +1,7 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
+import { promptSection } from './prompt-section.js'
 import { captureChatHeader, chatStampPath } from './chat-persistence.js'
 import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity, sameChatMessageStory } from './chat-field-transaction.js'
 import { validAnchor } from './round-anchor.js'
@@ -27,6 +28,12 @@ import { readRowsAt } from './bounded-history.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createHash } from 'node:crypto'
 import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "A background agent settles variables after the story is submitted. Output only story prose: no `<UpdateVariable>`, JSON Patch or variable-update notes.",
+  p002: "No character card is selected yet. Briefly ask the user to choose one in the interface first."
+})
 
 export const cordisToolNames = Object.freeze([
   'cordis_inspect_list',
@@ -304,7 +311,7 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
   if (usesOfficialMvu(chat)) {
     inputs.push({
       kind: 'foreground.writing-rules',
-      text: '变量更新由正文提交后的后台 Agent 独立结算。只输出剧情正文，不要输出 <UpdateVariable>、JSON Patch 或变量更新说明。',
+      text: promptSection('variable_ownership', PROMPT_PROSE.p001),
       required: true,
       source: { stage: 'mvu-background-owner' }
     })
@@ -454,7 +461,7 @@ export function createTurnOrchestrator(options) {
         ready: false,
         mode: 'unbound',
         cardName: '',
-        text: '【酒馆状态】\n尚未选择人物卡。请简短提示用户先在界面中选择人物卡。'
+        text: promptSection('tavern_state', PROMPT_PROSE.p002)
       }
     }
     const preview = input.preview === true
