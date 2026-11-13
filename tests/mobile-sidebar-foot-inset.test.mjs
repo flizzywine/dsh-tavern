@@ -46,7 +46,9 @@ html,body{margin:0;height:100%}
 </div></div>
 </body></html>`
 
-async function mountMobileSidebar(t, { drawer = 'position:fixed;inset:0;z-index:1300' } = {}) {
+const RUNNING_STATUS = { phase: 'running', host: 'cli', currentVersion: '3.3.0', currentCommit: 'c'.repeat(40), stage: '安装程序', cancellable: true }
+
+async function mountMobileSidebar(t, { drawer = 'position:fixed;inset:0;z-index:1300', status = RUNNING_STATUS } = {}) {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const context = await browser.newContext({ viewport: { width: 412, height: 906 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
@@ -61,7 +63,7 @@ async function mountMobileSidebar(t, { drawer = 'position:fixed;inset:0;z-index:
     if (!url.includes('/api/dsh-tavern/')) return route.fulfill({ contentType: 'text/html', body: shell })
     const method = new URL(url).pathname.split('/').at(-1)
     const responses = {
-      getUpdateStatus: { status: { phase: 'running', host: 'cli', currentVersion: '3.3.0', currentCommit: 'c'.repeat(40), stage: '安装程序', cancellable: true } },
+      getUpdateStatus: { status },
       listCards: { cards: [] },
       getCardOrganization: { organization: { groups: [], assignments: {} } },
       listSessions: { sessions: [] },
@@ -129,7 +131,7 @@ test('手机端整屏侧栏给宿主的「设置」行让位，更新状态不�
   assert.ok(measured.footerRow > 0, '「设置」上面那条 footerActions 确实占着高度：' + JSON.stringify(measured))
   assert.ok(measured.footOverlap > measured.settingsOverlap, '按 regionArea 下沿算会多让出那一条：' + JSON.stringify(measured))
   assert.equal(measured.insetVar, measured.settingsOverlap, '只让出压住「设置」那一行的部分：' + JSON.stringify(measured))
-  assert.ok(measured.paddingBottom >= measured.insetVar + 11, '侧栏底部让出了设置那一行：' + JSON.stringify(measured))
+  assert.ok(measured.paddingBottom >= measured.insetVar + 9 && measured.paddingBottom <= measured.insetVar + 12, '设置那一行上面只留常规间距（不叠手势条让位）：' + JSON.stringify(measured))
   assert.ok(measured.rowGap >= 0 && measured.rowGap <= 16, '版本行与「设置」那一行之间只留常规间距，不再空一块：' + JSON.stringify(measured))
   assert.ok(measured.gap >= 0 && measured.gap <= 24, '版本行不压到设置按钮上：' + JSON.stringify(measured))
   assert.equal(measured.pillHit, 'settings', '宿主设置按钮仍然可点')
@@ -142,6 +144,29 @@ test('手机端整屏侧栏给宿主的「设置」行让位，更新状态不�
     return { pillTop: Math.round(pill.top), updateBottom: Math.round(update.bottom) }
   })
   assert.ok(withoutInset.updateBottom > withoutInset.pillTop, '没有让位高度时确实会压上去：' + JSON.stringify(withoutInset))
+})
+
+test('手机端发现新构建时，目标构建写在版本行里，不再单占一行状态', async t => {
+  const { page } = await mountMobileSidebar(t, { status: { phase: 'update-available', host: 'cli', currentVersion: '3.3.0', currentCommit: 'a390af1c0ffee5', latestCommit: '6e511e9d4f00d' } })
+  await page.locator('.dsh-tavern-sidebar:not(.collapsed)').waitFor({ state: 'attached' })
+  await page.locator('.dsh-tavern-update-identity').waitFor({ state: 'visible' })
+  assert.equal(await page.locator('.dsh-tavern-update-status').count(), 0, '「发现新构建 ×××」不再单占一行')
+  const identity = await page.evaluate(() => {
+    const wide = document.querySelector('.dsh-tavern-update-identity-wide')
+    const compact = document.querySelector('.dsh-tavern-update-identity-compact')
+    return {
+      shown: document.querySelector('.dsh-tavern-update-identity').innerText.trim(),
+      wideDisplay: getComputedStyle(wide).display, compactDisplay: getComputedStyle(compact).display,
+      compactText: compact.textContent.trim(),
+      update: Math.round(document.querySelector('.dsh-tavern-update').getBoundingClientRect().height),
+    }
+  })
+  assert.equal(identity.wideDisplay, 'none', '手机上看缩短版：' + JSON.stringify(identity))
+  assert.notEqual(identity.compactDisplay, 'none', '手机上看缩短版：' + JSON.stringify(identity))
+  assert.equal(identity.compactText, 'v3.3.0 · a390af1 → 6e511e9', '目标构建就在版本行里：' + JSON.stringify(identity))
+  assert.equal(identity.shown, 'v3.3.0 · a390af1 → 6e511e9', '版本行只显示缩短版：' + JSON.stringify(identity))
+  // 版本行 + 40px 触摸高度的按钮行 + 分隔线/内距；再挂一行状态时这里会多出 20px 上下。
+  assert.ok(identity.update <= 52, '更新块只剩版本行那一行，没有多出来的状态行：' + JSON.stringify(identity))
 })
 
 test('外壳比布局视口矮时只让出真正重叠的那一截，底部不留大块空白', async t => {

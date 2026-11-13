@@ -379,8 +379,10 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-side-row-expand:hover { background: var(--dsw-alias-interactive-bg-hover); color: inherit; }
 .dsh-tavern-history-panel { min-width: 26px; }
 .dsh-tavern-side-empty { padding: 18px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; text-align: center; }
-.dsh-tavern-update { flex: none; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-update { flex: none; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-update-identity { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.45; }
+/* 手机侧栏窄：版本行只留「v3.3.0 · 构建 → 目标构建」，放得下目标构建才不用单开一行状态。 */
+.dsh-tavern-update-identity-compact { display: none; }
 .dsh-tavern-update-actions { display: flex; gap: 6px; margin-top: 7px; }
 .dsh-tavern-update-button { width: 100%; height: 32px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
 .dsh-tavern-update-button:hover { border-color: var(--dsh-tavern-accent); color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 8%, transparent); }
@@ -3318,8 +3320,12 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
        不能用视口高度减去底栏上沿：手机上布局视口比外壳可视区高一截，那样会让出多余空白。
        也不能按 regionArea 下沿算：宿主底栏里「设置」上面还有一条空的 footerActions，
        连它一起让出来，版本行和「设置」之间就又空一块。 */
-    padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + max(12px, env(safe-area-inset-bottom, 0px)));
+    /* 底栏的「设置」行自己已经让出了手势条（宿主把它排在手势条之上），这里只留常规间距，
+       再叠一次 env(safe-area-inset-bottom) 会在「设置」上面多空出一条。 */
+    padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + 10px);
   }
+  body.dsh-tavern-shell-active .dsh-tavern-update-identity-wide { display: none; }
+  body.dsh-tavern-shell-active .dsh-tavern-update-identity-compact { display: inline; }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse {
     position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;
     top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; box-sizing: border-box;

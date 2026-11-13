@@ -1690,9 +1690,15 @@
 			// 消失再出现；读到慢（后端忙、请求超时前重试）时会缺好几秒。行留在原地，只把
 			// 状态行交给下面的加载态。
 			const updateStatusLoading = updateStatus.phase === "loading";
-			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel;
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
+			// 发现更新时同理：目标构建直接挂在版本行末尾，「发现新构建 ×××」不再单占一行。
+			// 手机侧栏放不下「DSH Tavern · DSH 0.2.1」那一串，改用缩短版（CSS 按断点切换）。
+			const latestBuildLabel = (updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "";
+			const updateAvailableQuiet = updateStatus.phase === "update-available" && !updateStatus.checkWarning && Boolean(latestBuildLabel);
+			const updateTargetLabel = updateAvailableQuiet ? " → " + latestBuildLabel : "";
+			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel + updateTargetLabel;
+			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : currentVersionLabel + " · " + currentCommitLabel + updateTargetLabel;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? false;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
@@ -1735,10 +1741,12 @@
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
 				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
-						h("div", { className: "dsh-tavern-update-identity", title: updateStatusLoading ? "DSH Tavern · " + updateHostLabel : "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, updateIdentityText),
+						h("div", { className: "dsh-tavern-update-identity", title: updateStatusLoading ? "DSH Tavern · " + updateHostLabel : "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel },
+							h("span", { className: "dsh-tavern-update-identity-wide" }, updateIdentityText),
+							h("span", { className: "dsh-tavern-update-identity-compact" }, updateIdentityCompactText)),
 						updateActions),
                     h(TavernHostCompatibility),
-					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
+					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet || updateAvailableQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
 				),
 				!collapsed ? portalOverlay(historyManagerPanel) : null,
 				!collapsed && (openingPicker || (picking && uiMode === "play")) ? portalOverlay(h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker)) : null,
