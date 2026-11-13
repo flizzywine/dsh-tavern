@@ -498,13 +498,38 @@ export function createTurnOrchestrator(options) {
         preparationBase = captureChatHeader(chat)
       }
     }
+    async function syncPlaceholderDamper(assistantIndex, outcome) {
+      if (preview || !outcome || !Number.isInteger(assistantIndex) || assistantIndex < 0) return
+      const matches = existing => Array.isArray(existing) && existing.length === 1 && JSON.stringify(existing[0]) === JSON.stringify(outcome)
+      if (typeof store.readChatSlice === 'function' && typeof store.patchChat === 'function') {
+        const head = await store.readChatSlice(input.sessionId, [assistantIndex], ['id', '_storageRevision']).catch(() => null)
+        const row = head?.denseMessages ? head.chat?.messages?.[0] : head?.chat?.messages?.[assistantIndex]
+        if (head?.chat?.id === chat.id && row?.placeholder === true && !matches(row.narrativeDamper)) {
+          await store.patchChat(chat.id, head.chat._storageRevision, [
+            { op: 'set', path: ['messages', assistantIndex, 'narrativeDamper'], value: [clone(outcome)] }
+          ], { source: 'foreground.prepare-damper' }).catch(() => false)
+        }
+      } else if (typeof store.updateChat === 'function') {
+        await store.updateChat(chat.id, current => {
+          const row = current.messages?.[assistantIndex]
+          if (row?.placeholder !== true || matches(row.narrativeDamper)) return undefined
+          const next = clone(current)
+          next.messages[assistantIndex].narrativeDamper = [clone(outcome)]
+          return next
+        }, { source: 'foreground.prepare-damper' }).catch(() => null)
+      }
+    }
     async function saveStoryPreparation(refreshFrame) {
       if (preview) return
       const operation = foregroundOperation && chat.timeline?.operations?.[foregroundOperation.operationId]
       if (!operation) return savePreparation({ source: 'foreground.prepare' })
       // A repeated prepare reuses both its frame and the rows created by the
       // first one. Header-only retries never append a second logical turn.
-      if (operation.placeholder) return savePreparation({ source: 'foreground.prepare' })
+      if (operation.placeholder) {
+        const result = await savePreparation({ source: 'foreground.prepare' })
+        await syncPlaceholderDamper(operation.placeholder.assistantIndex, preparedDamperOutcome)
+        return result
+      }
       const attachments = inputAttachments(input.userContent)
       const withUser = userText !== '' || attachments.length > 0
       const savedUserIndex = withUser ? requestUserIndex(chat.messages, requestId) : -1
@@ -675,6 +700,13 @@ export function createTurnOrchestrator(options) {
       const cachedFrame = preview ? null : rememberedFrame(chat, foregroundOperation.operationId)
       if (cachedFrame !== null) {
         if (chatChanged) await savePreparation({ source: 'foreground.prepare' })
+        const activeDamper = typeof options.activeDamperRuling === 'function' ? options.activeDamperRuling(chat.id, turn) : null
+        const resolvedOutcome = activeDamper?.outcome || (activeDamper?.ruling ? summarizeDamperRulingOutcome(activeDamper.ruling) : null)
+        const operation = chat.timeline?.operations?.[foregroundOperation.operationId]
+        const cachedOutcome = cachedFrame.source?.narrativeDamperOutcome ?? null
+        if (resolvedOutcome && operation?.placeholder && JSON.stringify(resolvedOutcome) !== JSON.stringify(cachedOutcome)) {
+          await syncPlaceholderDamper(operation.placeholder.assistantIndex, resolvedOutcome)
+        }
         return {
           ready: true,
           mode,

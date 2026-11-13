@@ -34,7 +34,7 @@ export function createSessionSignalTransport() {
     const current = record.latest.get(kind)
     if (current && current.version === version) return false
     const base = { id: signalId(kind, version), sessionId: id, kind, version }
-    const snapshot = kind === 'tavern-state' && input.snapshot && typeof input.snapshot === 'object' ? input.snapshot : undefined
+    const snapshot = (kind === 'tavern-state' || kind === 'narrative-damper') && input.snapshot && typeof input.snapshot === 'object' ? input.snapshot : undefined
     const signal = Object.freeze(snapshot === undefined ? base : Object.assign(base, { snapshot }))
     record.latest.set(kind, signal)
     for (const subscription of record.listeners) {

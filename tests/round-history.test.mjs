@@ -947,3 +947,35 @@ test('后台结算在重新生成开始前写入变量时，待回复的尾仍�
     ['user', '最新输入'], ['assistant', '新正文4']
   ])
 })
+
+test('已有楼层重生成在生成开始即把最新决策裁定写入占位楼层与恢复快照', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const staleOutcome = { mode: 'balanced', judgeMode: 'roleplay', rulingTier: 'strip_delusion', leverageScore: 0.2, clampedCount: 2, clampedKeys: [], evaluatedAt: 100 }
+  const freshOutcome = { mode: 'balanced', judgeMode: 'author', rulingTier: 'full_accept', leverageScore: 1.4, clampedCount: 0, clampedKeys: [], evaluatedAt: 200 }
+  await h.options.chats.update('chat', current => {
+    current.messages[2].narrativeDamper = [staleOutcome]
+    return current
+  }, { source: 'test.seed-stale-damper' })
+
+  const basePrepare = h.options.prepareRegenerationFrame
+  h.options.prepareRegenerationFrame = async input => {
+    const built = await basePrepare(input)
+    built.frame.source.narrativeDamperOutcome = freshOutcome
+    return built
+  }
+
+  let livePlaceholderDamper = null
+  let liveDiscardedPlaceholderDamper = null
+  h.beforeGenerate(async () => {
+    const liveChat = await h.options.chats.read('chat')
+    assert.equal(liveChat.regenInProgress, true)
+    assert.equal(liveChat.messages[2].placeholder, true)
+    livePlaceholderDamper = liveChat.messages[2].narrativeDamper
+    liveDiscardedPlaceholderDamper = liveChat.regenRecovery?.discarded?.placeholder?.narrativeDamper
+  })
+
+  await h.create().regenerate('chat', '', 'session')
+  assert.deepEqual(livePlaceholderDamper, [freshOutcome])
+  assert.deepEqual(liveDiscardedPlaceholderDamper, [freshOutcome])
+})
+

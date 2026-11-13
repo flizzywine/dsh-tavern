@@ -749,3 +749,242 @@ test('叙事阻尼裁定：逐轴写处置（新造设定不采信）并排到�
   assert.ok(texts.indexOf('预设中段规则') < texts.indexOf(rulingText))
   assert.ok(texts.indexOf('结尾候选项提醒') < texts.indexOf(rulingText))
 })
+
+test('决策模型返回后生成中楼层立即显示阻尼胶囊：涵盖新回合实时信号、重生成替换旧胶囊与失败尾草稿行', async t => {
+  const { createSessionSignalTransport } = await import('../tavern-plugin/lib/domain/session-signal-transport.js')
+  const { syncClock } = await import('./fixtures/sync-clock.mjs')
+  const [visSource, damperUiSource, refreshSource, dataSource, listSource, varReceiptSource] = await Promise.all([
+    readFile(new URL('../tavern-plugin/lib/domain/mvu-visibility.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/features/narrative-damper-status.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/variable-receipt.js', import.meta.url), 'utf8')
+  ])
+
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const prevGlobals = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  const roots = []
+  t.after(async () => {
+    for (const r of roots) await act(async () => r.unmount())
+    Object.assign(globalThis, { window: prevGlobals.window, document: prevGlobals.document, IS_REACT_ACT_ENVIRONMENT: prevGlobals.act })
+    dom.window.close()
+  })
+
+  const signals = createSessionSignalTransport()
+  const clock = syncClock()
+  const icon = name => () => React.createElement('svg', { 'data-icon': name })
+  let currentLiveView = { mode: 'script', tavernHelper: null, storageRevision: 10, regenInProgress: false }
+
+  const context = vm.createContext({
+    React,
+    AbortController,
+    console,
+    window: dom.window,
+    document: dom.window.document,
+    CustomEvent: dom.window.CustomEvent,
+    tavernSessionSignals: signals,
+    DshUi: {
+      MarkdownText: props => React.createElement('span', null, props.text),
+      Tooltip: props => props.children,
+      IconEditOutlineRegular: icon('edit'),
+      IconBranchOutlineRegular: icon('branch'),
+      IconCopyOutlineRegular: icon('copy'),
+      IconCheckOutlineRegular: icon('check'),
+      writeClipboard: async () => true
+    },
+    useLiveTavernView: () => ({ view: currentLiveView }),
+    tavernMvuReceiptForTurn: () => null,
+    tavernProjectionForTurn: () => null,
+    tavernLatestProjectionTurn: () => 0,
+    tavernStoryTurnForDshTurn: (_view, n) => Number(n)
+  })
+
+  vm.runInContext(visSource.replace(/\r?\nexport \{[\s\S]*\}\r?\n?$/, '\n'), context)
+  vm.runInContext(damperUiSource, context)
+  vm.runInContext(refreshSource, context)
+  const createRefresh = context.createSessionRefreshController
+  context.createSessionRefreshController = options => createRefresh({ ...options, ...clock })
+  vm.runInContext(dataSource, context)
+  vm.runInContext(listSource, context)
+  vm.runInContext(varReceiptSource, context)
+
+  const feature = context.createTavernStoryTranscriptFeature({ rpc: async () => ({}) })
+  const root = createRoot(dom.window.document.querySelector('main'))
+  roots.push(root)
+
+  const acceptOutcome = {
+    mode: 'balanced', judgeMode: 'author', rulingTier: 'full_accept', leverageScore: 0.9,
+    clampedCount: 0, clampedKeys: [], evaluatedAt: 100
+  }
+  const stripOutcome = {
+    mode: 'balanced', judgeMode: 'roleplay', rulingTier: 'strip_delusion', leverageScore: 0.2,
+    clampedCount: 2, clampedKeys: ['stat_data.hp'], evaluatedAt: 200
+  }
+  const clampOutcome = {
+    mode: 'balanced', judgeMode: 'roleplay', rulingTier: 'resist_pushback', leverageScore: 0.6,
+    clampedCount: 1, clampedKeys: ['stat_data.mp'], evaluatedAt: 300
+  }
+
+  // 场景 1：常规新回合等待首字阶段，placeholder 落盘前通过 liveDamper 立即亮出胶囊，收到 active:false 后收敛
+  const pendingMessages = [
+    { role: 'assistant', greeting: true, turn: 1, text: '晨光照进道场。' },
+    { role: 'user', text: '推开纸门' },
+    { role: 'assistant', turn: 2, text: '', placeholder: true }
+  ]
+  const pendingTranscript = projectStoryTranscript({
+    chat: { messages: pendingMessages },
+    from: 0, to: pendingMessages.length - 1, messageCount: pendingMessages.length, revision: 10
+  })
+
+  await act(async () => {
+    root.render(React.createElement(feature.StoryTranscriptList, {
+      sessionId: 'sess-live-1',
+      transcript: pendingTranscript,
+      showDamperStatus: true,
+      running: true,
+      view: { mode: 'script', tavernHelper: null, storageRevision: 10 }
+    }))
+  })
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-damper-pill').length, 0)
+
+  await act(async () => {
+    signals.publish('sess-live-1', {
+      kind: 'narrative-damper',
+      version: '1',
+      snapshot: { active: true, turn: 2, storyTurn: 2, regeneration: false, outcome: acceptOutcome }
+    })
+  })
+  let pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
+  assert.equal(pills.length, 1, '生成中收到决策裁定信号应立即渲染阻尼胶囊')
+  assert.match(pills[0].textContent, /阻尼 · 写作 · 顺势成立 0\.9/)
+
+  // 场景 2：生成中切换了更新的决策裁定（例如重复 prepare 后），胶囊立刻跟着换新；且可点击展开面板
+  await act(async () => {
+    signals.publish('sess-live-1', {
+      kind: 'narrative-damper',
+      version: '2',
+      snapshot: { active: true, turn: 2, storyTurn: 2, regeneration: false, outcome: clampOutcome }
+    })
+  })
+  pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
+  assert.equal(pills.length, 1)
+  assert.match(pills[0].textContent, /阻尼 · 防线受阻 0\.6/)
+  await act(async () => { pills[0].click() })
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-damper-panel').length, 1)
+
+  // 已提交楼层自带自身 narrativeDamper，不再受 live active:false 或信号残留影响
+  const committedMessages = [
+    ...pendingMessages.slice(0, -1),
+    { role: 'assistant', turn: 2, text: '剑道场里静悄悄的。', swipes: ['剑道场里静悄悄的。'], swipeId: 0, narrativeDamper: [acceptOutcome] }
+  ]
+  const committedTranscript = projectStoryTranscript({
+    chat: { messages: committedMessages },
+    from: 0, to: committedMessages.length - 1, messageCount: committedMessages.length, revision: 11
+  })
+  currentLiveView = { mode: 'script', tavernHelper: null, storageRevision: 11, regenInProgress: false }
+  await act(async () => {
+    signals.publish('sess-live-1', { kind: 'narrative-damper', version: '3', snapshot: { active: false } })
+    root.render(React.createElement(feature.StoryTranscriptList, {
+      sessionId: 'sess-live-1',
+      transcript: committedTranscript,
+      showDamperStatus: true,
+      running: false,
+      view: currentLiveView
+    }))
+  })
+  pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
+  assert.equal(pills.length, 1)
+  assert.match(pills[0].textContent, /阻尼 · 写作 · 顺势成立 0\.9/)
+
+  // 场景 3：写作模式下已有楼层重生成（即使无 tavernHelper），placeholder 阶段优先显示本轮最新裁定，而非上一轮旧胶囊；无新裁定时清掉旧胶囊
+  const regenPlaceholderMessages = [
+    ...pendingMessages.slice(0, -1),
+    {
+      role: 'assistant', uid: 'uid-floor-2', turn: 2, text: '', placeholder: true,
+      narrativeDamper: [acceptOutcome]
+    }
+  ]
+  const regenTranscript = projectStoryTranscript({
+    chat: { messages: regenPlaceholderMessages },
+    from: 0, to: regenPlaceholderMessages.length - 1, messageCount: regenPlaceholderMessages.length, revision: 12
+  })
+  regenTranscript.messages[2].messageUid = 'uid-floor-2'
+
+  currentLiveView = {
+    mode: 'script', tavernHelper: null, storageRevision: 12,
+    regenInProgress: true, streamingMessageUid: 'uid-floor-2',
+    streamingDamperOutcome: stripOutcome
+  }
+  await act(async () => {
+    root.render(React.createElement(feature.StoryTranscriptList, {
+      sessionId: 'sess-live-1',
+      transcript: regenTranscript,
+      showDamperStatus: true,
+      running: true,
+      view: currentLiveView
+    }))
+  })
+  pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
+  assert.equal(pills.length, 1, '重生成等待首字阶段也必须渲染本轮新阻尼胶囊')
+  assert.match(pills[0].textContent, /阻尼 · 越权剥离/)
+
+  // 当实时推送最新重生成信号时立即替换
+  await act(async () => {
+    signals.publish('sess-live-1', {
+      kind: 'narrative-damper',
+      version: '4',
+      snapshot: { active: true, turn: 7, storyTurn: 2, targetMessageUid: 'uid-floor-2', regeneration: true, outcome: acceptOutcome }
+    })
+  })
+  pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
+  assert.equal(pills.length, 1)
+  assert.match(pills[0].textContent, /阻尼 · 写作 · 顺势成立 0\.9/)
+
+  // 若本次重生成没有启用新裁定（streamingDamperOutcome 为 null 且信号停用），清掉 placeholder 残留旧胶囊
+  currentLiveView = {
+    mode: 'script', tavernHelper: null, storageRevision: 13,
+    regenInProgress: true, streamingMessageUid: 'uid-floor-2',
+    streamingDamperOutcome: null
+  }
+  await act(async () => {
+    signals.publish('sess-live-1', { kind: 'narrative-damper', version: '5', snapshot: { active: false } })
+    root.render(React.createElement(feature.StoryTranscriptList, {
+      sessionId: 'sess-live-1',
+      transcript: regenTranscript,
+      showDamperStatus: true,
+      running: true,
+      view: currentLiveView
+    }))
+  })
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-damper-pill').length, 0)
+
+  // 场景 4：失败尾重生成由草稿虚拟行在生成中立刻呈现最新阻尼胶囊
+  const failedTailMessages = [
+    { role: 'assistant', greeting: true, turn: 1, text: '晨光照进道场。' },
+    { role: 'user', text: '推开纸门' }
+  ]
+  const failedTailTranscript = projectStoryTranscript({
+    chat: { messages: failedTailMessages },
+    from: 0, to: failedTailMessages.length - 1, messageCount: failedTailMessages.length, revision: 14
+  })
+  currentLiveView = {
+    mode: 'script', tavernHelper: null, storageRevision: 14,
+    regenInProgress: true, streamingStoryTurn: 2,
+    streamingDamperOutcome: clampOutcome
+  }
+  await act(async () => {
+    root.render(React.createElement(feature.StoryTranscriptList, {
+      sessionId: 'sess-live-1',
+      transcript: failedTailTranscript,
+      showDamperStatus: true,
+      running: true,
+      view: currentLiveView
+    }))
+  })
+  pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
+  assert.equal(pills.length, 1, '失败尾重生成在生成中也应立刻带出草稿行上的阻尼胶囊')
+  assert.match(pills[0].textContent, /阻尼 · 防线受阻 0\.6/)
+})
+

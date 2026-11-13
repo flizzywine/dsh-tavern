@@ -165,6 +165,63 @@ test('a body regeneration publishes the target story row UID, never on a settled
   assert.equal(failedTailSettled.streamingStoryTurn, null, '生成结束后不得残留虚拟故事行')
 })
 
+test('全量、缓存、脏读写与状态投影视图一致暴露 storageRevision 与生成中的最新阻尼裁定', async () => {
+  const { projectChatSessionState } = await import('../tavern-plugin/lib/domain/chat-session-state.js')
+  const f = projectionFixture()
+  const outcomeFloor = { mode: 'balanced', judgeMode: 'roleplay', rulingTier: 'resist_pushback', leverageScore: 0.7, clampedCount: 1, clampedKeys: [], evaluatedAt: 1001 }
+  const outcomeTail = { mode: 'balanced', judgeMode: 'author', rulingTier: 'full_accept', leverageScore: 1.5, clampedCount: 0, clampedKeys: [], evaluatedAt: 1002 }
+
+  const regeneratingFloorChat = {
+    ...f.chat,
+    _storageRevision: 17,
+    regenInProgress: true,
+    regenRecovery: {
+      targetMessageUid: 'uid-floor-2',
+      candidateFrame: { source: { narrativeDamperOutcome: outcomeFloor } }
+    }
+  }
+  const projectedFloor = projectChatSessionState(regeneratingFloorChat)
+  const fullView = await f.projection.project.full(projectedFloor)
+  assert.equal(fullView.storageRevision, 17)
+  assert.equal(fullView.streamingMessageUid, 'uid-floor-2')
+  assert.equal(fullView.streamingStoryTurn, null)
+  assert.deepEqual(fullView.streamingDamperOutcome, outcomeFloor)
+
+  const cachedView = await f.projection.project.cached(projectedFloor, fullView, { busy: true, phase: 'running' })
+  assert.equal(cachedView.storageRevision, 17)
+  assert.deepEqual(cachedView.streamingDamperOutcome, outcomeFloor)
+
+  const dirtyView = await f.projection.project.dirty({
+    ...regeneratingFloorChat,
+    _storageRevision: 18,
+    regenRecovery: { unansweredTail: true, storyTurn: 5, damperOutcome: outcomeTail }
+  }, fullView, new Set(), { busy: true, phase: 'running' }, { layoutChanged: false })
+  assert.equal(dirtyView.storageRevision, 18)
+  assert.equal(dirtyView.streamingMessageUid, null)
+  assert.equal(dirtyView.streamingStoryTurn, 5)
+  assert.deepEqual(dirtyView.streamingDamperOutcome, outcomeTail)
+
+  const storyView = await f.projection.project.story({
+    chat: regeneratingFloorChat,
+    revision: 17, from: 0, to: 0, messageCount: 0,
+    storyTranscript: { source: 'story', revision: 17, from: 0, to: 0, messageCount: 0, floorCount: 0, floorOffset: 0, messages: [] }
+  })
+  assert.equal(storyView.storageRevision, 17)
+  assert.deepEqual(storyView.streamingDamperOutcome, outcomeFloor)
+
+  const settledProjected = projectChatSessionState({
+    ...regeneratingFloorChat,
+    regenInProgress: false,
+    _storageRevision: 19
+  })
+  assert.equal(settledProjected.regenRecovery, undefined)
+  const settledView = await f.projection.project.full(settledProjected)
+  assert.equal(settledView.storageRevision, 19)
+  assert.equal(settledView.streamingDamperOutcome, null)
+  assert.equal(settledView.streamingMessageUid, null)
+  assert.equal(settledView.streamingStoryTurn, null)
+})
+
 test('重新生成期间视图点名被替换的原生行，行计划只撤掉旧正文、留下玩家输入', async () => {
   const model = { kind: 'model', provider: 'p', model: 'm' }
   const events = [

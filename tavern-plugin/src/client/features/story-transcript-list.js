@@ -467,28 +467,40 @@ function createTavernStoryTranscriptFeature(deps) {
 		// Rows remain story-transcript projections. The live Tavern view only keeps
 		// iframe Helper variables/runtime policy fresh after background settlement.
 		const live = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-frame') : null
+		const liveDamper = typeof useTavernStoryLiveDamper === 'function' ? useTavernStoryLiveDamper(sessionId) : null
 		const liveView = live && live.view ? live.view : null
 		const storyBusy = props.running === true || Boolean(liveView && liveView.activity && liveView.activity.busy)
 		const helperView = liveView || props.view
-		const liveRevision = Number(liveView && liveView.tavernHelper && liveView.tavernHelper.stateRevision)
+		const liveRevision = Number(liveView && (liveView.storageRevision ?? (liveView.tavernHelper && liveView.tavernHelper.stateRevision)))
 		const storyRevision = Number(transcript && transcript.revision)
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
+		const streamView = liveView && (!props.view || (Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision > storyRevision))
+			? liveView : (props.view || liveView)
 		// 正文重生成只读故事视图；UID 用来定位同一故事行，不用于任何失败过滤。
-		const storyStreamUid = props.view && props.view.regenInProgress === true
-			&& typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== ''
-			? props.view.streamingMessageUid : null
+		const storyStreamUid = streamView && streamView.regenInProgress === true
+			&& typeof streamView.streamingMessageUid === 'string' && streamView.streamingMessageUid !== ''
+			? streamView.streamingMessageUid : null
 		const regeneratingTarget = storyStreamUid
-		const regeneratingStoryTurn = props.view && props.view.regenInProgress === true
-			&& Number.isInteger(props.view.streamingStoryTurn) && props.view.streamingStoryTurn > 0
-			? props.view.streamingStoryTurn : null
+		const regeneratingStoryTurn = streamView && streamView.regenInProgress === true
+			&& Number.isInteger(streamView.streamingStoryTurn) && streamView.streamingStoryTurn > 0
+			? streamView.streamingStoryTurn : null
+		const regenDamperOutcome = streamView && streamView.regenInProgress === true
+			&& streamView.streamingDamperOutcome && typeof streamView.streamingDamperOutcome === 'object'
+			? streamView.streamingDamperOutcome : null
+		const activeLiveDamper = liveDamper && liveDamper.active === true && liveDamper.outcome && typeof liveDamper.outcome === 'object'
+			? liveDamper : null
+		const draftDamperOutcome = activeLiveDamper && (
+			(regeneratingStoryTurn !== null && Number(activeLiveDamper.storyTurn) === regeneratingStoryTurn)
+			|| activeLiveDamper.regeneration === true
+		) ? activeLiveDamper.outcome : regenDamperOutcome
 		const streamRef = React.useRef({
 			sessionId: sessionId, turn: null, nativeTurn: null, partial: null,
 			stepReasonings: new Map(), activeStep: null, revision: null, settledTurn: null, running: props.running === true
 		})
 		function storyTurn(nativeTurn) {
-			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
+			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(streamView || props.view, nativeTurn) : Number(nativeTurn)
 		}
 		if (streamRef.current.sessionId !== sessionId) {
 			streamRef.current = {
@@ -506,8 +518,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		// 两条路径都不能把宿主临时 turn（可能远大于剧情轮号）拿来找故事行。
 		const nativeLiveTurn = storyStreamUid === null && regeneratingStoryTurn === null
 			&& props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
-		const latestTurnHint = storyStreamUid !== null && Number.isInteger(props.view.latestAssistantTurn)
-			? props.view.latestAssistantTurn : null
+		const latestTurnHint = storyStreamUid !== null && streamView && Number.isInteger(streamView.latestAssistantTurn)
+			? streamView.latestAssistantTurn : null
 		const liveTurn = latestTurnHint !== null ? latestTurnHint : (regeneratingStoryTurn !== null ? regeneratingStoryTurn : nativeLiveTurn)
 		if (liveTurn !== null) {
 			const previous = streamRef.current
@@ -557,17 +569,27 @@ function createTavernStoryTranscriptFeature(deps) {
 			nativeTurn: cached.nativeTurn
 		} : null
 		const rows = React.useMemo(function () {
+			const drafted = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn, draftDamperOutcome)
 			const base = typeof tavernStoryTranscriptPendingRows === 'function'
-				? tavernStoryTranscriptPendingRows(tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn), props.pendingInputs)
-				: tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
-			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && streamLive, storyStreamUid, reasoningOverride)
+				? tavernStoryTranscriptPendingRows(drafted, props.pendingInputs)
+				: drafted
+			const streamed = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && streamLive, storyStreamUid, reasoningOverride)
+			const overlaid = typeof tavernStoryTranscriptDamperRows === 'function'
+				? tavernStoryTranscriptDamperRows(streamed, {
+					regenerating: regeneratingTarget !== null || regeneratingStoryTurn !== null,
+					targetUid: storyStreamUid,
+					storyTurn: regeneratingStoryTurn,
+					regenOutcome: regenDamperOutcome,
+					live: activeLiveDamper
+				})
+				: streamed
 			// 生成期间只处理当前流式目标；除此之外故事存档怎么返回就怎么渲染。
 			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn, regenDamperOutcome, activeLiveDamper, draftDamperOutcome])
 		const latest = rows.findLast(row => row.role === 'assistant')
-		const generating = Boolean(props.partial || props.view?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
+		const generating = Boolean(props.partial || streamView?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
 		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
 			? JSON.stringify([false, tavernStoryReadAloudId(latest), latest.text, latest.floorNo]) : null
 		const readAloudState = replyActions ? replyActions.useReadAloudState(sessionId, readAloudSignal) : null

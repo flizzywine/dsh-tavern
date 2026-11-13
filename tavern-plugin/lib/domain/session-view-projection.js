@@ -101,6 +101,25 @@ export function createSessionViewProjection({
     })
     return display
   }
+  function streamingDamperOutcomeOf(chat) {
+    if (chat?.regenInProgress !== true) return null
+    const outcome = chat.regenRecovery?.candidateFrame?.source?.narrativeDamperOutcome ?? chat.regenRecovery?.damperOutcome
+    return outcome && typeof outcome === 'object' ? structuredClone(outcome) : null
+  }
+  function streamingRegenerationFields(chat) {
+    const regen = chat?.regenInProgress === true
+    const uid = regen && typeof chat.regenRecovery?.targetMessageUid === 'string' && chat.regenRecovery.targetMessageUid !== ''
+      ? chat.regenRecovery.targetMessageUid : null
+    const storyTurn = regen && chat.regenRecovery?.unansweredTail === true
+      && Number.isSafeInteger(Number(chat.regenRecovery?.storyTurn)) && Number(chat.regenRecovery.storyTurn) > 0
+      ? Number(chat.regenRecovery.storyTurn) : null
+    return {
+      storageRevision: Number(chat?._storageRevision ?? chat?.windowRevision) || 0,
+      streamingMessageUid: uid,
+      streamingStoryTurn: storyTurn,
+      streamingDamperOutcome: regen ? streamingDamperOutcomeOf(chat) : null
+    }
+  }
   async function view(chat, card, persistedProjection = false, options = {}) {
     const resourceRevision = options.resourceRevision ?? chat._storageRevision
     const deferResources = options.deferResources === true && chat.mode !== 'card'
@@ -224,13 +243,7 @@ export function createSessionViewProjection({
       latestAssistantTurn: latestStoryTurn,
       // While a body is being replaced, stream text belongs to the story row
       // named by the save, never to the temporary native turn.
-      streamingMessageUid: chat.regenInProgress === true && typeof chat.regenRecovery?.targetMessageUid === 'string'
-        && chat.regenRecovery.targetMessageUid !== '' ? chat.regenRecovery.targetMessageUid : null,
-      // An unanswered failed tail has no old story row (and therefore no UID).
-      // Its reserved story turn lets the transcript mount a view-only streaming row.
-      streamingStoryTurn: chat.regenInProgress === true && chat.regenRecovery?.unansweredTail === true
-        && Number.isSafeInteger(Number(chat.regenRecovery?.storyTurn)) && Number(chat.regenRecovery.storyTurn) > 0
-        ? Number(chat.regenRecovery.storyTurn) : null,
+      ...streamingRegenerationFields(chat),
       inputSources,
       inputTemplateDisplays,
       userInputEdits: userInputEditsOf(chat),
@@ -453,7 +466,7 @@ export function createSessionViewProjection({
   }
   async function volatileSessionViewFields(chat, activity, changes) {
     const fields = sessionStateView.volatile(chat, activity, changes)
-    return { ...fields, statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
+    return { ...fields, ...streamingRegenerationFields(chat), statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }

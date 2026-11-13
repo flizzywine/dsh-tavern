@@ -104,10 +104,17 @@ export function createRegenerationRecovery({ chats, sessions, isActive }) {
         if (assistantIndex !== null) assertRegenerationSourceCurrent({
           originalChat, currentChat: restoreDiscardedRegeneration(current), assistantIndex, inputIndex
         })
+        const damperOutcome = details?.candidateFrame?.source?.narrativeDamperOutcome
+        const attemptDiscarded = discarded && damperOutcome && typeof damperOutcome === 'object'
+          ? {
+            ...structuredClone(discarded),
+            placeholder: { ...structuredClone(discarded.placeholder), narrativeDamper: [structuredClone(damperOutcome)] }
+          }
+          : discarded
         current.regenRecovery = { ...details, id: operationId, phase: 'prepared', detached: true,
           beforeRevision: Number(current._storageRevision || 0), sessionId, eventStart,
-          targetMessageUid, temporaryReplacingTurn: replacingTurn, ...(discarded ? { discarded } : {}) }
-        if (discarded) installRegenerationDiscard(current, discarded)
+          targetMessageUid, temporaryReplacingTurn: replacingTurn, ...(attemptDiscarded ? { discarded: attemptDiscarded } : {}) }
+        if (attemptDiscarded) installRegenerationDiscard(current, attemptDiscarded)
         else clearRegenerationFailure(current)
         current.regenInProgress = true
         current.tavernHelperLifecycleRevision = provider

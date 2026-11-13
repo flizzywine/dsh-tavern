@@ -798,7 +798,8 @@ window.__ModuleLoader__.load({
 				task: tasks.candidate || sync.task || null,
 				tasks: tasks,
 				mailboxVersion: Number(sync.mailboxVersion) || 0,
-				projectionRevision: Number(sync.projectionRevision) || 0
+				projectionRevision: Number(sync.projectionRevision) || 0,
+				storageRevision: Number(sync.storageRevision) || 0
 			};
 		}
 

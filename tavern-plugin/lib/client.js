@@ -16281,7 +16281,8 @@ window.__ModuleLoader__.load({
 				task: tasks.candidate || sync.task || null,
 				tasks: tasks,
 				mailboxVersion: Number(sync.mailboxVersion) || 0,
-				projectionRevision: Number(sync.projectionRevision) || 0
+				projectionRevision: Number(sync.projectionRevision) || 0,
+				storageRevision: Number(sync.storageRevision) || 0
 			};
 		}
 
@@ -40726,7 +40727,7 @@ function tavernStoryTranscriptRows(transcript) {
 // 失败尾重新生成时，存档末尾只有玩家输入，没有旧 assistant 行可供流式覆盖。
 // 在这次生成期间补一个纯视图占位行；它使用即将提交的故事轮次与绝对位置，
 // 所以正式正文落盘后会复用同一 DOM。生成失败则随视图标记结束自然消失。
-function tavernStoryTranscriptRegenerationDraftRows(rows, transcript, storyTurn) {
+function tavernStoryTranscriptRegenerationDraftRows(rows, transcript, storyTurn, damperOutcome) {
 	if (!Number.isInteger(storyTurn) || storyTurn <= 0 || !transcript || !Array.isArray(transcript.messages)) return rows
 	const messageCount = Number(transcript.messageCount)
 	// 只有包含存档尾部的窗口才能追加这一轮，往前翻历史时不把新行插进旧页。
@@ -40735,7 +40736,10 @@ function tavernStoryTranscriptRegenerationDraftRows(rows, transcript, storyTurn)
 		return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
 	})) return rows
 	const key = 'turn:' + String(storyTurn)
-	const message = { role: 'assistant', turn: storyTurn, text: '', placeholder: true }
+	const message = {
+		role: 'assistant', turn: storyTurn, text: '', placeholder: true,
+		...(damperOutcome && typeof damperOutcome === 'object' ? { narrativeDamper: [damperOutcome] } : {})
+	}
 	return rows.concat({
 		key: key,
 		position: rows.length,
@@ -40751,6 +40755,80 @@ function tavernStoryTranscriptRegenerationDraftRows(rows, transcript, storyTurn)
 		projection: { version: 1, turn: storyTurn, text: '', mode: 'markdown', warnings: [] },
 		message: message
 	})
+}
+
+function sameDamperOutcomeValue(left, right) {
+	if (left === right) return true
+	if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+	try { return JSON.stringify(left) === JSON.stringify(right) }
+	catch { return false }
+}
+
+function tavernStoryTranscriptDamperRows(rows, options) {
+	const source = Array.isArray(rows) ? rows : []
+	if (!options || typeof options !== 'object' || source.length === 0) return source
+	const live = options.live && options.live.active === true && options.live.outcome && typeof options.live.outcome === 'object'
+		? options.live : null
+	const regenOutcome = options.regenOutcome && typeof options.regenOutcome === 'object' ? options.regenOutcome : null
+	const regenerating = options.regenerating === true
+	const targetUid = typeof options.targetUid === 'string' && options.targetUid !== '' ? options.targetUid : null
+	const targetStoryTurn = Number.isInteger(options.storyTurn) && options.storyTurn > 0 ? options.storyTurn : null
+	let index = -1
+	let desiredOutcome = null
+	if (regenerating) {
+		if (targetUid !== null) {
+			index = source.findLastIndex(function (row) {
+				return row && row.role === 'assistant' && row.messageUid === targetUid
+			})
+		} else if (targetStoryTurn !== null) {
+			index = source.findLastIndex(function (row) {
+				return row && row.role === 'assistant' && (row.legacyTurn === targetStoryTurn || Number(row.message && row.message.turn) === targetStoryTurn)
+			})
+		}
+		if (index >= 0) {
+			const liveMatches = live && (
+				live.targetMessageUid ? live.targetMessageUid === targetUid
+					: (targetStoryTurn !== null && Number(live.storyTurn) === targetStoryTurn)
+						|| live.regeneration === true
+			)
+			desiredOutcome = liveMatches ? live.outcome : regenOutcome
+		}
+	} else if (live && live.regeneration !== true) {
+		const liveTurn = Number.isInteger(live.storyTurn) && live.storyTurn > 0 ? live.storyTurn : null
+		index = source.findLastIndex(function (row) {
+			if (!row || row.role !== 'assistant' || row.greeting || row.streaming !== true) return false
+			if (live.targetMessageUid && row.messageUid === live.targetMessageUid) return true
+			return liveTurn !== null && (row.legacyTurn === liveTurn || Number(row.message && row.message.turn) === liveTurn)
+		})
+		if (index < 0) {
+			index = source.findLastIndex(function (row) {
+				return Boolean(row && row.role === 'assistant' && !row.greeting && row.streaming === true)
+			})
+		}
+		if (index >= 0) desiredOutcome = live.outcome
+	}
+	if (index < 0) return source
+	const row = source[index]
+	if (!row || !row.message || row.streaming !== true) return source
+	const existingList = Array.isArray(row.message.narrativeDamper) ? row.message.narrativeDamper : null
+	const swipeId = Math.max(0, Number(row.message.swipeId) || 0)
+	const existing = existingList ? (existingList[swipeId] || existingList[0] || null) : null
+	if (desiredOutcome) {
+		if (sameDamperOutcomeValue(existing, desiredOutcome)) return source
+		const nextMessage = Object.assign({}, row.message, { narrativeDamper: [desiredOutcome] })
+		const next = source.slice()
+		next[index] = Object.assign({}, row, { message: nextMessage })
+		return next
+	}
+	if (regenerating && existingList) {
+		const nextMessage = Object.assign({}, row.message)
+		delete nextMessage.narrativeDamper
+		delete nextMessage.damperState
+		const next = source.slice()
+		next[index] = Object.assign({}, row, { message: nextMessage })
+		return next
+	}
+	return source
 }
 
 function tavernStoryTranscriptStreamText(partial) {
@@ -40949,12 +41027,34 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 
 // Story windows and live views are separate projections. Coordinate reads here
 // so rendering does not have to order their refresh triggers.
+function useTavernStoryLiveDamper(sessionId) {
+	const [damper, setDamper] = React.useState(null)
+	React.useEffect(function () {
+		setDamper(null)
+		if (!sessionId || typeof tavernSessionSignals === 'undefined' || typeof tavernSessionSignals?.subscribe !== 'function') {
+			return undefined
+		}
+		return tavernSessionSignals.subscribe(sessionId, 'narrative-damper', function (signal) {
+			const snap = signal && signal.snapshot && typeof signal.snapshot === 'object' ? signal.snapshot : null
+			if (snap && snap.active === true && snap.outcome && typeof snap.outcome === 'object') {
+				setDamper(snap)
+			} else {
+				setDamper(null)
+			}
+		})
+	}, [sessionId])
+	return damper
+}
+
 function useTavernStoryProjectionRefresh(store, sessionId, {
 	historyFrom, enabled, active, running, partial, transcript, view, externalHistory
 }) {
 	const live = typeof useLiveTavernView === 'function'
 		? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
-	const liveRevision = Number(live?.view?.tavernHelper?.stateRevision ?? view?.tavernHelper?.stateRevision)
+	const liveRevision = Number(
+		live?.view?.storageRevision ?? live?.view?.tavernHelper?.stateRevision
+		?? view?.storageRevision ?? view?.tavernHelper?.stateRevision
+	)
 	const storyRevision = Number(transcript?.revision)
 	const nativeTurn = Number.isInteger(partial?.turn) ? partial.turn : null
 	const storyTurn = nativeTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
@@ -41008,11 +41108,16 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 		const unsubscribe = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'story-regenerated', signal => {
 			request(Number(signal.version), true)
 		})
+		const unsubscribeState = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'tavern-state', signal => {
+			const revision = Number(signal && signal.snapshot && signal.snapshot.storageRevision)
+			if (Number.isSafeInteger(revision) && revision > 0) request(revision, true)
+		})
 		return function () {
 			requestRefresh.current = null
 			refresh.stop()
 			window.removeEventListener('dsh-tavern-story-mutated', changed)
 			if (unsubscribe) unsubscribe()
+			if (unsubscribeState) unsubscribeState()
 		}
 	}, [store, sessionId, historyFrom, active])
 
@@ -41253,11 +41358,14 @@ function createTavernStoryTranscriptDataModule(deps) {
 		fetchStoryTranscript: fetchStoryTranscript,
 		createStoryTranscriptStore: createStoryTranscriptStore,
 		useStoryTranscript: useTavernStoryTranscript,
+		useLiveDamper: useTavernStoryLiveDamper,
 		useProjectionRefresh: useTavernStoryProjectionRefresh,
 		createModeStore: createTavernStoryTranscriptModeStore,
 		useMode: useTavernStoryTranscriptMode,
 		// 纯投影，列表组件与本模块的测试共用（顶层同名函数）。
 		storyTranscriptRows: tavernStoryTranscriptRows,
+		storyTranscriptRegenerationDraftRows: tavernStoryTranscriptRegenerationDraftRows,
+		storyTranscriptDamperRows: tavernStoryTranscriptDamperRows,
 		storyTranscriptStreamRows: tavernStoryTranscriptStreamRows,
 		storyTranscriptPendingRows: tavernStoryTranscriptPendingRows,
 		storyTranscriptStreamText: tavernStoryTranscriptStreamText,
@@ -41907,28 +42015,40 @@ function createTavernStoryTranscriptFeature(deps) {
 		// Rows remain story-transcript projections. The live Tavern view only keeps
 		// iframe Helper variables/runtime policy fresh after background settlement.
 		const live = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-frame') : null
+		const liveDamper = typeof useTavernStoryLiveDamper === 'function' ? useTavernStoryLiveDamper(sessionId) : null
 		const liveView = live && live.view ? live.view : null
 		const storyBusy = props.running === true || Boolean(liveView && liveView.activity && liveView.activity.busy)
 		const helperView = liveView || props.view
-		const liveRevision = Number(liveView && liveView.tavernHelper && liveView.tavernHelper.stateRevision)
+		const liveRevision = Number(liveView && (liveView.storageRevision ?? (liveView.tavernHelper && liveView.tavernHelper.stateRevision)))
 		const storyRevision = Number(transcript && transcript.revision)
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
+		const streamView = liveView && (!props.view || (Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision > storyRevision))
+			? liveView : (props.view || liveView)
 		// 正文重生成只读故事视图；UID 用来定位同一故事行，不用于任何失败过滤。
-		const storyStreamUid = props.view && props.view.regenInProgress === true
-			&& typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== ''
-			? props.view.streamingMessageUid : null
+		const storyStreamUid = streamView && streamView.regenInProgress === true
+			&& typeof streamView.streamingMessageUid === 'string' && streamView.streamingMessageUid !== ''
+			? streamView.streamingMessageUid : null
 		const regeneratingTarget = storyStreamUid
-		const regeneratingStoryTurn = props.view && props.view.regenInProgress === true
-			&& Number.isInteger(props.view.streamingStoryTurn) && props.view.streamingStoryTurn > 0
-			? props.view.streamingStoryTurn : null
+		const regeneratingStoryTurn = streamView && streamView.regenInProgress === true
+			&& Number.isInteger(streamView.streamingStoryTurn) && streamView.streamingStoryTurn > 0
+			? streamView.streamingStoryTurn : null
+		const regenDamperOutcome = streamView && streamView.regenInProgress === true
+			&& streamView.streamingDamperOutcome && typeof streamView.streamingDamperOutcome === 'object'
+			? streamView.streamingDamperOutcome : null
+		const activeLiveDamper = liveDamper && liveDamper.active === true && liveDamper.outcome && typeof liveDamper.outcome === 'object'
+			? liveDamper : null
+		const draftDamperOutcome = activeLiveDamper && (
+			(regeneratingStoryTurn !== null && Number(activeLiveDamper.storyTurn) === regeneratingStoryTurn)
+			|| activeLiveDamper.regeneration === true
+		) ? activeLiveDamper.outcome : regenDamperOutcome
 		const streamRef = React.useRef({
 			sessionId: sessionId, turn: null, nativeTurn: null, partial: null,
 			stepReasonings: new Map(), activeStep: null, revision: null, settledTurn: null, running: props.running === true
 		})
 		function storyTurn(nativeTurn) {
-			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
+			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(streamView || props.view, nativeTurn) : Number(nativeTurn)
 		}
 		if (streamRef.current.sessionId !== sessionId) {
 			streamRef.current = {
@@ -41946,8 +42066,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		// 两条路径都不能把宿主临时 turn（可能远大于剧情轮号）拿来找故事行。
 		const nativeLiveTurn = storyStreamUid === null && regeneratingStoryTurn === null
 			&& props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
-		const latestTurnHint = storyStreamUid !== null && Number.isInteger(props.view.latestAssistantTurn)
-			? props.view.latestAssistantTurn : null
+		const latestTurnHint = storyStreamUid !== null && streamView && Number.isInteger(streamView.latestAssistantTurn)
+			? streamView.latestAssistantTurn : null
 		const liveTurn = latestTurnHint !== null ? latestTurnHint : (regeneratingStoryTurn !== null ? regeneratingStoryTurn : nativeLiveTurn)
 		if (liveTurn !== null) {
 			const previous = streamRef.current
@@ -41997,17 +42117,27 @@ function createTavernStoryTranscriptFeature(deps) {
 			nativeTurn: cached.nativeTurn
 		} : null
 		const rows = React.useMemo(function () {
+			const drafted = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn, draftDamperOutcome)
 			const base = typeof tavernStoryTranscriptPendingRows === 'function'
-				? tavernStoryTranscriptPendingRows(tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn), props.pendingInputs)
-				: tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
-			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && streamLive, storyStreamUid, reasoningOverride)
+				? tavernStoryTranscriptPendingRows(drafted, props.pendingInputs)
+				: drafted
+			const streamed = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && streamLive, storyStreamUid, reasoningOverride)
+			const overlaid = typeof tavernStoryTranscriptDamperRows === 'function'
+				? tavernStoryTranscriptDamperRows(streamed, {
+					regenerating: regeneratingTarget !== null || regeneratingStoryTurn !== null,
+					targetUid: storyStreamUid,
+					storyTurn: regeneratingStoryTurn,
+					regenOutcome: regenDamperOutcome,
+					live: activeLiveDamper
+				})
+				: streamed
 			// 生成期间只处理当前流式目标；除此之外故事存档怎么返回就怎么渲染。
 			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn, regenDamperOutcome, activeLiveDamper, draftDamperOutcome])
 		const latest = rows.findLast(row => row.role === 'assistant')
-		const generating = Boolean(props.partial || props.view?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
+		const generating = Boolean(props.partial || streamView?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
 		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
 			? JSON.stringify([false, tavernStoryReadAloudId(latest), latest.text, latest.floorNo]) : null
 		const readAloudState = replyActions ? replyActions.useReadAloudState(sessionId, readAloudSignal) : null

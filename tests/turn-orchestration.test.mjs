@@ -92,7 +92,8 @@ function harness(mode, options = {}) {
       card.path = path
       createdCards.push({ path, card: clone(card) })
       return { path, card: clone(card) }
-    }
+    },
+    ...(options.storeExtras ? options.storeExtras({ getChat: () => chat, setChat: next => { chat = clone(next) } }) : {})
   }
   const orchestrator = createTurnOrchestrator({
     bodyGeneration: async () => options.bodyGeneration || { mode: 'host' },
@@ -143,6 +144,7 @@ function harness(mode, options = {}) {
     resolvePresetRegexScripts: options.resolvePresetRegexScripts,
     projectUserTemplate: options.projectUserTemplate,
     pluginTurnContext: options.pluginTurnContext,
+    activeDamperRuling: options.activeDamperRuling,
     projectReply: projectReplyLayers,
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
@@ -456,3 +458,67 @@ test('前台正文结尾包含 <story_choices> 时，落盘自动剥离标签并
     assistantText: '窗外的雨停了。', replyMessageId: 'msg-projected-2' })
   assert.ok(h.chat().candidates == null, '这一轮没有候选项就清掉上一轮的那一份')
 })
+
+test('故事准备首次落盘与重复 prepare 均把最新阻尼裁定写入占位助手行', async () => {
+  const firstOutcome = { mode: 'balanced', judgeMode: 'author', rulingTier: 'partial_clamp', leverageScore: 0.7, clampedCount: 1, clampedKeys: [], evaluatedAt: 10 }
+  const updatedOutcome = { mode: 'balanced', judgeMode: 'author', rulingTier: 'full_accept', leverageScore: 1.5, clampedCount: 0, clampedKeys: [], evaluatedAt: 20 }
+  let active = firstOutcome
+  const h = harness('story', {
+    activeDamperRuling: () => ({ outcome: active })
+  })
+
+  await h.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开门', requestId: 'req-damper-1' })
+  const placeholderAfterFirst = h.chat().messages.at(-1)
+  assert.equal(placeholderAfterFirst.role, 'assistant')
+  assert.equal(placeholderAfterFirst.placeholder, true)
+  assert.deepEqual(placeholderAfterFirst.narrativeDamper, [firstOutcome])
+
+  // 同轮重复 prepare 拿到最新决策裁定后，必须同步刷新现有 placeholder 上的 narrativeDamper
+  active = updatedOutcome
+  await h.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推开门', requestId: 'req-damper-1' })
+  const placeholderAfterRetry = h.chat().messages.at(-1)
+  assert.equal(h.chat().messages.filter(m => m.role === 'assistant').length, 1)
+  assert.equal(placeholderAfterRetry.placeholder, true)
+  assert.deepEqual(placeholderAfterRetry.narrativeDamper, [updatedOutcome])
+
+  // 若 store 提供 readChatSlice / patchChat，重复 prepare 走按路径局部 patch 同样生效
+  const patchedCalls = []
+  let active2 = firstOutcome
+  const hPatch = harness('story', {
+    activeDamperRuling: () => ({ outcome: active2 }),
+    storeExtras: ({ getChat, setChat }) => ({
+      async readChatSlice(_sessionId, indices) {
+        const current = getChat()
+        return {
+          denseMessages: false,
+          chat: {
+            id: current.id,
+            _storageRevision: current._storageRevision,
+            messages: current.messages.map((m, i) => (indices.includes(i) ? clone(m) : undefined))
+          }
+        }
+      },
+      async patchChat(chatId, baseRevision, ops, metadata) {
+        const current = getChat()
+        assert.equal(chatId, current.id)
+        assert.equal(baseRevision, current._storageRevision)
+        patchedCalls.push({ ops: clone(ops), source: metadata?.source })
+        for (const op of ops) {
+          if (op.op === 'set' && op.path[0] === 'messages') {
+            current.messages[op.path[1]][op.path[2]] = clone(op.value)
+          }
+        }
+        current._storageRevision += 1
+        setChat(current)
+        return true
+      }
+    })
+  })
+  await hPatch.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '再试', requestId: 'req-damper-2' })
+  active2 = updatedOutcome
+  await hPatch.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '再试', requestId: 'req-damper-2' })
+  assert.equal(patchedCalls.length, 1)
+  assert.equal(patchedCalls[0].source, 'foreground.prepare-damper')
+  assert.deepEqual(hPatch.chat().messages.at(-1).narrativeDamper, [updatedOutcome])
+})
+

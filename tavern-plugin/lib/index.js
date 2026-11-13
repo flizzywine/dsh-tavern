@@ -3647,6 +3647,20 @@ export async function apply(ctx) {
   // Beside this turn's input: the plugins' sections, then (文风联想 on) a short reminder to make the
   // style_reference_submit call first. The full instructions stay in the stable system prompt; the
   // reminder is what the model reads last, so the call is not skipped.
+  let damperSignalSeq = 0
+  function publishLiveDamperState(sessionId, payload) {
+    const id = str(sessionId)
+    if (!id) return
+    damperSignalSeq += 1
+    sessionSignals.publish(id, {
+      kind: 'narrative-damper',
+      version: String(damperSignalSeq),
+      snapshot: payload
+    })
+  }
+  function clearLiveDamperState(sessionId) {
+    publishLiveDamperState(sessionId, { active: false })
+  }
   async function projectPluginTurnContext(input) {
     const sections = [...(await Promise.resolve(pluginApi.turnContext(input)).catch(() => []) || [])]
     const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
@@ -3662,11 +3676,24 @@ export async function apply(ctx) {
         userText: input.input,
         excludeAssistantIndex: Number.isInteger(input.excludeAssistantIndex) ? input.excludeAssistantIndex : -1
       }).catch(() => null) : null
+      if (evaluated?.outcome) {
+        publishLiveDamperState(input.gameId, {
+          active: true,
+          turn: Number(input.turn) || null,
+          storyTurn: Number(input.storyTurn ?? input.turn) || null,
+          targetMessageUid: typeof input.targetMessageUid === 'string' && input.targetMessageUid !== '' ? input.targetMessageUid : null,
+          regeneration: input.regeneration === true,
+          outcome: structuredClone(evaluated.outcome)
+        })
+      } else {
+        clearLiveDamperState(input.gameId)
+      }
       if (evaluated?.rulingText) {
         sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'last', text: evaluated.rulingText })
       }
     } else {
       narrativeDamper.clearActive?.()
+      clearLiveDamperState(input.gameId)
     }
     if (mode !== 'story') return sections
     if (header?.backgroundTasks?.styleReference === true) {
@@ -3759,8 +3786,8 @@ export async function apply(ctx) {
     store: { chatForSession, readChat, readState: taskStateReader.read, stateForSession: taskStateReader.forSession, openingStateForSession },
     tasks: backgroundTasks,
     queueBackground: queueSettlement,
-    replyCommitted: sessionId => storyEvents.emit('reply-committed', { sessionId }),
-    turnDiscarded: (sessionId, turn) => storyEvents.emit('turn-discarded', { sessionId, turn }),
+    replyCommitted: sessionId => { clearLiveDamperState(sessionId); storyEvents.emit('reply-committed', { sessionId }) },
+    turnDiscarded: (sessionId, turn) => { clearLiveDamperState(sessionId); storyEvents.emit('turn-discarded', { sessionId, turn }) },
     cancelPresentation: sessionId => {void presentationObservers.cancelled(sessionId)},
     beforeNextTurn: chat => workflow.beforeNextTurn(chat),
     syncCandidateMessageId: async (sessionId, requestId, messageId) => {
@@ -3902,7 +3929,17 @@ export async function apply(ctx) {
       if (str(configuredBodyGeneration(chat, settings).mode).startsWith('plugin-')) return null
       const preset = await resolveChatRuntimePreset({ ...chat }, { preview: true })
       const worldBook = await playWorldBook(chat, card)
-      const pluginSections = await projectPluginTurnContext({ gameId: chat.sessionId, turn, input: userText, excludeAssistantIndex: targetAssistantIndex })
+      const targetRow = targetAssistantIndex >= 0 ? chat.messages?.[targetAssistantIndex] : null
+      const targetStoryTurn = Number(targetRow?.turn) > 0 ? Number(targetRow.turn) : (Number(target) > 0 ? Number(target) : Number(turn) || null)
+      const pluginSections = await projectPluginTurnContext({
+        gameId: chat.sessionId,
+        turn,
+        storyTurn: targetStoryTurn,
+        targetMessageUid: typeof targetRow?.messageUid === 'string' && targetRow.messageUid !== '' ? targetRow.messageUid : null,
+        regeneration: true,
+        input: userText,
+        excludeAssistantIndex: targetAssistantIndex
+      })
       const globals = await readPromptTemplateGlobalVariables()
       const extensions = await readCardExtensions(chat.cardPath || chat.cardId, chat)
       const prompts = ['story', 'script-story'].map(name => runtimePrompt(name))
@@ -3918,7 +3955,7 @@ export async function apply(ctx) {
     },
     prepareRegenerationReply: async ({ text, hostRegex, regexChat, pluginRegexScripts, projectionWarning }) =>
       projectPluginBody(text, { hostRegex, pluginRegexScripts, projectionWarning, regexScripts: hostRegex ? await replyRegexScripts(regexChat) : undefined }),
-    notifyRegeneration: (sessionId, { turn }) => notifyPluginTimeline(sessionId, 'regenerate', { turn }),
+    notifyRegeneration: (sessionId, { turn }) => { clearLiveDamperState(sessionId); notifyPluginTimeline(sessionId, 'regenerate', { turn }) },
     present: presentStory,
     trace: requestPerformance,
     sessionPatch,
@@ -3927,8 +3964,11 @@ export async function apply(ctx) {
   async function regenBody(chatId, guidance, sessionId) {
     const id = sessionId || (await requestPerformance.stage('regen.resolve', () => readChat(chatId)))?.sessionId
     const generated = await requestPerformance.stage('regen.plugin-generate', () => pluginBodyGeneration.regenerate(id, str(guidance)))
-    return generated === null ? nativeRegenBody(chatId, guidance, sessionId)
-      : requestPerformance.stage('regen.plugin-present', async () => presentStory(await chatForSession(id)))
+    if (generated !== null) {
+      return requestPerformance.stage('regen.plugin-present', async () => presentStory(await chatForSession(id)))
+    }
+    try { return await nativeRegenBody(chatId, guidance, sessionId) }
+    finally { clearLiveDamperState(id) }
   }
   const bodyEditor = createBodyEditor({
     // Story editing resolves an absolute row/UID and must not read a sparse

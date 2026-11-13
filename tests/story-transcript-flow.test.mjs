@@ -416,3 +416,48 @@ test('注册生命周期安装 external-history，跟随模式与当前会话并
 	for (const cleanup of cleanups) cleanup()
 	assert.equal(disposed, 1)
 })
+
+test('无 tavernHelper 的写作模式在生成中等待首字阶段，经 tavern-state 信号立即刷新占位行', async t => {
+	const p = page(t)
+	const clock = syncClock(), signals = createSessionSignalTransport()
+	const createRefresh = p.context.createSessionRefreshController
+	p.context.createSessionRefreshController = options => createRefresh({ ...options, ...clock })
+	p.context.tavernSessionSignals = signals
+
+	const initialMessages = [
+		{ role: 'assistant', greeting: true, turn: 1, text: '银铃响起。' },
+		{ role: 'user', text: '推开旅店门' }
+	]
+	const withPlaceholderDamper = [
+		...initialMessages,
+		{
+			role: 'assistant', turn: 2, text: '', placeholder: true,
+			narrativeDamper: [{ mode: 'balanced', judgeMode: 'author', rulingTier: 'full_accept', leverageScore: 1.2, clampedCount: 0, clampedKeys: [], evaluatedAt: 50 }]
+		}
+	]
+	let current = { storyTranscript: transcript(initialMessages, 1), view: { mode: 'script', tavernHelper: null, storageRevision: 1 }, revision: 1 }
+	let reads = 0
+	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async () => {
+		reads++
+		return current
+	} })
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's-script-1',
+		renderNative: () => null,
+		useChat: selector => selector({ legacy: {} }),
+		useSession: selector => selector({ running: true })
+	}))
+	assert.equal(reads, 1)
+
+	current = { storyTranscript: transcript(withPlaceholderDamper, 2), view: { mode: 'script', tavernHelper: null, storageRevision: 2 }, revision: 2 }
+	await act(async () => {
+		signals.publish('s-script-1', { kind: 'tavern-state', version: '2', snapshot: { storageRevision: 2 } })
+		await clock.advance(0)
+	})
+	assert.equal(reads, 2, 'tavern-state 推进 storageRevision 时在生成中无 partial 也应立刻刷新占位行')
+	const placeholderRow = p.dom.window.document.querySelector('[data-chat-flow-key="turn:2"]')
+	assert.ok(placeholderRow, '刷新后应立刻渲染出正在生成的占位楼层')
+	assert.match(placeholderRow.textContent, /正在生成/)
+})
+
