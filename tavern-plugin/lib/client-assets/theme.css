@@ -386,6 +386,8 @@ body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assi
   line-height: 18px;
   vertical-align: 1px;
 }
+.dsh-tavern-question-tag-actor { background: color-mix(in srgb, var(--fork-accent) 13%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-ink-2); font-style: normal; }
+.dsh-tavern-question-tag-event { background: color-mix(in srgb, #d97706 15%, var(--fk-current-bgSolid, Canvas)); color: color-mix(in srgb, #b45309 78%, var(--fork-ink)); font-style: normal; }
 .dsh-tavern-question-tag-scene { background: color-mix(in srgb, var(--fork-accent) 14%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-accent); font-style: normal; }
 .dsh-tavern-candidate-question .dsh-tavern-question-head { margin-bottom: 2px; font-size: var(--fork-fs-meta); font-weight: 500; color: var(--fork-ink-3); }
 .dsh-tavern-candidate-question .dsh-tavern-question-head > span:first-child { color: var(--fork-ink-2); }
@@ -393,8 +395,12 @@ body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assi
 /* Free action, trace link and the append button share one footer row. */
 .dsh-tavern-question.dsh-tavern-candidate-question:not(.collapsed) { display: flex; flex-wrap: wrap; align-items: center; column-gap: 4px; }
 .dsh-tavern-candidate-question > .dsh-tavern-question-head,
+.dsh-tavern-candidate-question > .dsh-tavern-question-tabs,
 .dsh-tavern-candidate-question > .dsh-tavern-question-body,
 .dsh-tavern-candidate-question > .dsh-tavern-question-sub { flex: 1 0 100%; }
+.dsh-tavern-candidate-question .dsh-tavern-question-tab { font-size: var(--fork-fs-meta); border-color: var(--fork-line); background: var(--fk-current-bgSolid, Canvas); color: var(--fork-ink-3); }
+.dsh-tavern-candidate-question .dsh-tavern-question-tab:hover { background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-tavern-candidate-question .dsh-tavern-question-tab.active { border-color: color-mix(in srgb, var(--fork-accent) 52%, var(--fork-line)); background: color-mix(in srgb, var(--fork-accent) 14%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-accent); }
 .dsh-tavern-question-free {
   width: auto;
   margin-top: 6px;
