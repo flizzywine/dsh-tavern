@@ -118,7 +118,7 @@ export function createBackgroundAgentTask(options) {
       description: '只读查询当前会话声明来源的锚点原文。仅可读取宿主授权锚点及之前的内容；正文请用 tavern_recall_history。',
       parameters: { type: 'object', additionalProperties: false, required: ['sourceId', 'turn'], properties: {
         sourceId: { type: 'string', enum: sources },
-        turn: { type: 'integer', minimum: 1, description: '原文所属剧情轮次，不得晚于当前授权锚点。' },
+        turn: { type: 'integer', minimum: 1, description: '原文所属剧情轮次，最晚到当前授权锚点那一轮。' },
         para: { type: 'integer', minimum: 0, description: '可选的段落锚点。' }
       } }
     } : null

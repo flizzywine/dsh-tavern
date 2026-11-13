@@ -32,7 +32,7 @@ export const PROMPT_PROSE = Object.freeze({
   p013: "If character design is truly needed, load character-design and call the character file tools in this background agent; no other agent is needed. Then continue this turn's settlement.",
   p014: "In one reply, call posture_submit (character postures visible at this turn's end) and mvu_submit_update (variable changes) together; they are independent, so don't wait for either. Keep JSON in tool calls, not the reply text.",
   p015: "Posture settlement is off this turn: submit variables directly, without postures.",
-  p016: "You must call mvu_submit_update this turn. Each tool's result is authoritative for its postures or variables; resubmit only unfinished items.",
+  p016: "Submit this turn's variable changes with mvu_submit_update (an empty operations list when nothing changed); variables are saved only through it. Each tool's result is authoritative for its postures or variables; resubmit only unfinished items.",
   p017: "If a number is uncertain, a reasonable value is enough; exactness isn't required."
 })
 
@@ -58,7 +58,7 @@ export const MVU_SUBMIT_UPDATE_TOOL = Object.freeze({
     '提交本轮正文确认的变量变化，以返回的实际执行校验结果为准。变量通过本工具提交，不在回复中输出 XML 变量协议；人物卡中的变量含义、更新条件和校验规则仍须遵守。',
     '所有写入值使用 valueJson 提交 JSON 编码字符串，不使用 value；对象必须编码完整对象，数字不能用布尔值代替。',
     '最多提交三次。若 ok=false 且 retryable=true，读取 error、failures 和 runtimeDiagnostics，根据 currentVariables 与变量结构修正完整 operations 后重试，不要原样反复提交。',
-    'rolledBack=true 表示整批修改未保存，可以基于原快照重新提交完整更新；不得用空 operations 掩盖尚未修复的失败。',
+    'rolledBack=true 表示整批修改未保存，可以基于原快照重新提交完整更新；提交空 operations 等于放弃这些变化，所以先修好失败项再提交。',
     '返回 ok=true 或 retryable=false 后停止调用本工具，不能重复执行已成功的变量更新，也不能绕过人物卡校验。'
   ].join('\n'),
   parameters: Object.freeze({
@@ -778,7 +778,7 @@ export function createMvuSettlementModule(options = {}) {
         retryable: rolledBack && applied.applied.retryable === true && attempt < maxAttempts,
         rolledBack, status, changes, failures: audit.failures,
         runtimeDiagnostics: applied.applied.diagnostics || [],
-        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验；请对照 rejectedOperations 的提交值与执行后值检查人物卡约束，修正完整 operations，不得原样重试失败项，也不得绕过校验。', rejectedOperations: rejectedOperations(submission.operations, audit.failures, after), ...retryPromptState(after, frame.authoritativeState.variableSchema) }),
+        ...(audit.failures.length === 0 ? {} : { error: '变量更新未通过校验：请对照 rejectedOperations 的提交值与执行后值检查人物卡约束，修正后提交完整 operations。原样重试会得到同样的结果。', rejectedOperations: rejectedOperations(submission.operations, audit.failures, after), ...retryPromptState(after, frame.authoritativeState.variableSchema) }),
         attemptsRemaining: maxAttempts - attempt
       }
       await record('result', { status, rolledBack, retryable: feedback.retryable, variables: variableDiagnosticSummary(after), changes, sideEffects, failures: audit.failures, runtimeDiagnostics: applied.applied.diagnostics || [] })
@@ -792,7 +792,7 @@ export function createMvuSettlementModule(options = {}) {
         selection: input.selection, messages: request.messages, turnContext: request.turnContext,
         system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
         tools: request.tools, maxToolCalls: maxAttempts + 12,
-        toolLimitMessage: '本轮后台工具调用过多，请停止额外查询；变量更新仍不得跳过校验。',
+        toolLimitMessage: '本轮后台工具调用已到上限，请停止额外查询，用已有材料完成变量提交（提交仍会校验）。',
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable) && (!tasks.posture || posture !== null),
         acceptWithoutText: () => result !== null && (!tasks.posture || posture !== null),
         sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0), signal: input.signal,
@@ -844,7 +844,7 @@ export function createMvuSettlementModule(options = {}) {
     const tasks = normalizeBackgroundTasks(input.backgroundTasks)
     const tools = request.tools.filter(tool => tool.name !== MVU_SUBMIT_UPDATE_TOOL_NAME)
     const system = [
-      '只根据本轮正文处理独立的姿势与人物设计任务；不得修改或提交变量。',
+      '本轮只处理姿势与人物设计，依据本轮正文；变量不在这一轮的任务里，不修改或提交变量。',
       ...(tasks.characterDesign ? ['若确实需要人物设计，使用 character-design 工具读取或保存人物档案。'] : []),
       ...(tasks.posture ? ['调用 posture_submit 提交本轮结束时可见的人物姿势。'] : [])
     ].join('\n')
