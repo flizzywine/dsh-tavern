@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c85fe7d1ba52065f1d77fb44cd933793721ad54a",
-  "releaseSequence": 1602,
+  "revision": "4d8a8bfc5a3d0f87fc32b9b9fff60173505168ba",
+  "releaseSequence": 1603,
   "version": "3.3.0",
   "files": [
     {
@@ -3146,8 +3146,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-log-repair.js",
-      "sha256": "8e98b5edd230672e93ffce62d4dc09111a3268d76750834ba822f4b26749fa7b",
-      "size": 15410
+      "sha256": "32a7340fc1163c356be25b867a2c464d1f2fec42159b72cc3f06be77d2866a2c",
+      "size": 16411
     },
     {
       "path": "tavern-plugin/lib/domain/session-message-index.js",
@@ -3641,8 +3641,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/template-history.js",
-      "sha256": "e4adf10db533f58746cc611549a6c061653a24410c8c0151d81fb8f62352dac6",
-      "size": 7459
+      "sha256": "5d188eab480fc7641bee519082f813d8e1e1d8a14d61b897cf610c2d74d4560e",
+      "size": 8160
     },
     {
       "path": "tavern-plugin/lib/domain/template-message.js",
@@ -4041,8 +4041,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "a6e727abeff1124748e7adaac5811ba151340f454d10a4a062ff23826d72d1e8",
-      "size": 12100
+      "sha256": "e8aa2d791519afe7839c13888311515d728ac854260a0552d83bc1d677f6a9c0",
+      "size": 12774
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -9241,9 +9241,9 @@
     }
   ],
   "archive": {
-    "commit": "ff1afa68881a1770fda360e931bab87fd85003d7",
+    "commit": "6d65bcf1d287b13b638e0e380eba25c7ebeda717",
     "path": "runtime.zip",
-    "sha256": "ab82ed00caf1b18cdc179b633bcbc2b04cab5aed92ff5bcc362857079807f40a",
-    "size": 16450289
+    "sha256": "3ccc390c030bf668ffe32bb61535ac884da43838ae62cc283007d23f67517b97",
+    "size": 16451032
   }
 }
