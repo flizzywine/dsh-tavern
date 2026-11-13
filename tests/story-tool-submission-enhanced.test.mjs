@@ -295,7 +295,7 @@ test('envelope 全信封模式：下沉 system 入 read_story_context(init_world
     { sessionId: 'env-sess', chat: { mode: 'story' } }
   )
   const contractText = assembled.sections.find(s => s.name === 'tavern:story-tool-submission').text
-  assert.match(contractText, /submit_story 是本轮唯一允许的工具调用/)
+  assert.match(contractText, /本轮只开放这一个工具/)
   assert.match(contractText, /先在 think 参数中完成充分的剧情构思/)
 
   await strategies.prepareStep({

@@ -7,7 +7,7 @@ export const HISTORY_CALL_PREFIX = 'tvh_'
 export const HISTORY_RECEIPT_TEXT = '已收到。'
 export const HISTORY_ANCHOR_TEXT = '（以下是此前已经发生的剧情。）'
 
-export const ENVELOPE_SYSTEM_SHELL = 'SPECIAL INSTRUCTION: think silently if needed. Follow tool schemas strictly.'
+export const ENVELOPE_SYSTEM_SHELL = 'Think silently if needed. Call tools with arguments that match their schemas.'
 export const ENVELOPE_INIT_PROMPT = '请读取 `read_story_context` 中的世界设定与创作规范并开始互动剧情。'
 export const ENVELOPE_INIT_CALL_ID = 'tvc_init_0000000000000000000000000000'
 

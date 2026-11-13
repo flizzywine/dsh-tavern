@@ -101,7 +101,7 @@ function scoreRound(round, query, terms) {
 
 export const HISTORY_RECALL_TOOL = Object.freeze({
   name: 'tavern_recall_history',
-  description: '检索或读取当前对话已经正式发生的历史正文。剧情摘要省略了大部分数字、原话和次要情节；用到摘要里没有原文的细节时先查，不要凭摘要推断。query 用要找的人物、物品、事件本身的词，不要用摘要里已有的结论或数字当关键词（那只会查回你已知的内容）；问「第一次」「最早」时留意轮次靠前的结果。query 与 turn 必须且只能提供一个。每次生成最多召回 6 次；完整正文召回后冷却 10 个剧情轮次，冷却期间不可重复读取。已有信息足够时直接继续任务，不要重复读取同一轮。检索结果不是当前场景，不得重复演绎、照搬旧台词或让已经发生的事件再次发生。',
+  description: '检索或读取当前对话已经正式发生的历史正文。剧情摘要省略了大部分数字、原话和次要情节；用到摘要里没有原文的细节时先查，不要凭摘要推断。query 用要找的人物、物品、事件本身的词，不要用摘要里已有的结论或数字当关键词（那只会查回你已知的内容）；问「第一次」「最早」时留意轮次靠前的结果。query 和 turn 二选一，只填一个。每次生成最多召回 6 次；完整正文召回后冷却 10 个剧情轮次，冷却期间不可重复读取。已有信息足够时直接继续任务，不要重复读取同一轮。检索结果是已经发生过的事，不是当前场景：用它确认细节，正文从当前场景接着写，不重演、不照搬旧台词。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -256,7 +256,7 @@ export function renderHistoryRecall(value) {
 }
 
 function historyRecallText(value) {
-  let warning = '以下是已经发生的历史，只用于确认和回忆；不得当作当前场景继续输出，不得重复演绎。'
+  let warning = '以下是已经发生的历史，用来确认和回忆细节；正文从当前场景接着写，不重演这一段。'
   if (value?.notice) warning += '\n\n' + value.notice
   if (value?.notice && !value.rounds?.length && !value.matches?.length) return warning
   if (!value || value.found !== true) return warning + '\n\n没有找到相关历史正文。'

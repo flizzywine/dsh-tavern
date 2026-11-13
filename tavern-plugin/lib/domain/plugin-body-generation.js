@@ -9,7 +9,7 @@ import { unansweredTailIndex } from './rollback-surface.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
 import { frameUserInput } from './agent-input-frame.js'
 
-export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成。最终必须调用 tavern_generate_body，参数为 {}。不得自行撰写正文，不得调用 submit_story（历史中的调用仅是旧正文记录）。工具会取得完整材料、生成并提交正文；成功后结束本轮，不要转述或补充回复。调用失败则停止，不要换用其他生成方式或重试。</output_method>'
+export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成：调用 tavern_generate_body（参数为 {}），工具会取得完整材料、生成并提交正文。正文由插件写，所以你不写正文，也不调用 submit_story（历史中的调用只是旧正文的记录）。成功后本轮结束，不要转述或补充回复。调用失败就停下，不换用其他生成方式，也不重试。</output_method>'
 const routeMismatch = Symbol('body-generation-route-mismatch')
 const error = (message, stage) => Object.assign(new Error(message), {
   code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage, [routeMismatch]: stage === 'route' } : {}) })
