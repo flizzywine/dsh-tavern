@@ -339,7 +339,9 @@ export function createStorySubmissionTool({ chatForSession, enabled, isBackgroun
     name: STORY_SUBMIT_TOOL_NAME,
     description: '提交本轮全部最终输出，是所有面向玩家文本的唯一出口。全部输出放入 content，不要省略；成功后结束本轮，不再补充回复。',
     parameters: {
-      think: { type: 'string', required: false, description: STORY_THINK_DESCRIPTION },
+      // Host schema compiler (dsh-tools) rejects `required` present with a non-true
+      // value; omitting the key is how a parameter stays optional.
+      think: { type: 'string', description: STORY_THINK_DESCRIPTION },
       content: { type: 'string', required: true, description: STORY_CONTENT_DESCRIPTION }
     },
     output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } },
@@ -381,7 +383,7 @@ export function createStoryContextTool() {
     name: STORY_CONTEXT_TOOL_NAME,
     description: '读取故事世界设定、角色档案与当前回合状态同步记录的容器工具。',
     parameters: {
-      query: { type: 'string', required: false, description: '上下文分区标识（init_world / sync）' }
+      query: { type: 'string', description: '上下文分区标识（init_world / sync）' }
     },
     output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } },
     isConcurrencySafe() { return true },

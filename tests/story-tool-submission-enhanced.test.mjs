@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
@@ -378,4 +380,22 @@ test('submit_story 从前台工具列表移除，直接与全局设置开关绑�
   const whenEnvelopeOn = await orchestrator.visibleTools('s1')
   assert.equal(whenEnvelopeOn.includes(STORY_SUBMIT_TOOL_NAME), true)
   assert.equal(whenEnvelopeOn.includes(STORY_CONTEXT_TOOL_NAME), true)
+})
+
+// dsh-tools 是插件的依赖（tavern-plugin/node_modules），tests/ 解析不到。
+const { defineTool } = await import(pathToFileURL(createRequire(new URL('../tavern-plugin/package.json', import.meta.url)).resolve('@deepseek-ai/dsh-tools')).href)
+
+test('宿主 schema 编译：可选参数只靠省略 required 表达，dsh-tools 不再因 required:false 拒绝整个插件', () => {
+  // 0.2.1 的 runSchemaCompiler 会在属性上出现非 true 的 required 时抛
+  // `parameters.xxx.required must be true when present`，插件随即激活失败、所有
+  // /api/dsh-tavern 路由不挂载（前端表现为全站 HTTP 404）。这里锁住可编译性。
+  const submit = defineTool(createStorySubmissionTool({ chatForSession: async () => undefined, enabled: async () => true }))
+  assert.equal(submit.name, STORY_SUBMIT_TOOL_NAME)
+  assert.equal(submit.parameters.properties.think.type, 'string')
+  assert.deepEqual(submit.parameters.required, ['content'], 'think 是可选槽，不应进 required 列表')
+
+  const context = defineTool(createStoryContextTool())
+  assert.equal(context.name, STORY_CONTEXT_TOOL_NAME)
+  assert.equal(context.parameters.properties.query.type, 'string')
+  assert.equal(context.parameters.required, undefined, 'query 全可选时不产生 required 列表')
 })
