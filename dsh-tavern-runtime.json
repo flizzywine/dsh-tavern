@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8ac1caf1cf012d1ff09121fc7238d3ff11979242",
-  "releaseSequence": 1584,
+  "revision": "188dc4ab5099d089ef451b50696478133d1bf76e",
+  "releaseSequence": 1585,
   "version": "3.3.0",
   "files": [
     {
@@ -1061,8 +1061,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "9d8c46cf3f9ca8c1bd6631e7468f822718db8faf3e511e82413ae776cd21769d",
-      "size": 6270098
+      "sha256": "18821e6938b7a4dea418abc857905f45f550decfa1ab372684fa1fa542bad34c",
+      "size": 6271120
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1906,8 +1906,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "4bf8ebc21f0f9b750f2745fd315732fef56835a03aa196cc482b940117a06a76",
-      "size": 37608
+      "sha256": "b1ef9908c4173ae8c350119609ee5b06da9ff443db3fde775096cca78ded8e1f",
+      "size": 37651
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3851,8 +3851,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/workspace-resources.js",
-      "sha256": "0ad81cde2b20554abeb5fcce97ffcbe8d1c04b096784aa1e0335a4c4ae308424",
-      "size": 927
+      "sha256": "cdf9ce7f4623f01e9403e11448c940d88e1816c81f1365b1b42e21bbe6f2f7e3",
+      "size": 924
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-activation.js",
@@ -8961,8 +8961,8 @@
     },
     {
       "path": "tavern-plugin/prompts/card-reference.md",
-      "sha256": "70dc5e39c6c7548a5357038280eb82a4a2381c6a90e402447ca39565d894e408",
-      "size": 443
+      "sha256": "ae7916805911a3a2e2cad0e360e82bc25d64c10b943ba820a27f650e24691809",
+      "size": 483
     },
     {
       "path": "tavern-plugin/prompts/card-task-debug-play.md",
@@ -8971,13 +8971,13 @@
     },
     {
       "path": "tavern-plugin/prompts/card-task-edit.md",
-      "sha256": "cff2a5c21b4b7cca830e73bb4511306d4b91b78e2ec3ac112801248eb57a3390",
-      "size": 61
+      "sha256": "189f446947e5c3fdf634664bf18aef4b8eb387a9d42e8b1c66d95398ec2a6ffe",
+      "size": 89
     },
     {
       "path": "tavern-plugin/prompts/card-task-extract.md",
-      "sha256": "a9f17e5efd810f10f73dc898908393c1e4cd950277b09a95da8e3321fd289f38",
-      "size": 403
+      "sha256": "a3ddced5d3bbaa3b4f80b5ba1aabb1fda0667b3c44e56196db376c6fc01b9345",
+      "size": 458
     },
     {
       "path": "tavern-plugin/prompts/card-task-gentle.md",
@@ -8986,23 +8986,23 @@
     },
     {
       "path": "tavern-plugin/prompts/card-task-preset.md",
-      "sha256": "75d16828761a9ac8cf5acc63e61494f8f53355babb0b5370ab4572133b648b8b",
-      "size": 623
+      "sha256": "7e3f3d2ec4986432ac74a5a9e6a3521d181d98e94d12a5313cc064124539d906",
+      "size": 616
     },
     {
       "path": "tavern-plugin/prompts/card-task-script.md",
-      "sha256": "7d3f92a3cea2c29a2ca44b43f42ad1415752df894644c6651a511147f1fc4230",
-      "size": 618
+      "sha256": "90f2ef0d71ea74a99b5889cc6fd786295bcba0dc6e2d35bd2fca212590cd67a5",
+      "size": 675
     },
     {
       "path": "tavern-plugin/prompts/card-task-worldbook.md",
-      "sha256": "79c9bf1b32080462eb9615e0c74be7c809c6aba3296cf6be6a9331ef49dc85e0",
-      "size": 611
+      "sha256": "0d957c546c1ddcc6bc1ecc2eb02b80a24cc135f7097a56d16a3d754790a0d6df",
+      "size": 630
     },
     {
       "path": "tavern-plugin/prompts/card-workspace.md",
-      "sha256": "0fdd26a3e7f581a5e07fb3d6ec5d82f5554908733068d4c96a34ac018516f8d1",
-      "size": 1927
+      "sha256": "8a581791a6758f1d267b58c04810f2eca96f6361dc3b75f597e99b3be1b5db67",
+      "size": 2228
     },
     {
       "path": "tavern-plugin/prompts/dice.md",
@@ -9216,9 +9216,9 @@
     }
   ],
   "archive": {
-    "commit": "1aa172e55c3c90e6130624dac2e051b3a68596ac",
+    "commit": "dfeb83774ffdc557b48e1e8e23ae01154bc05047",
     "path": "runtime.zip",
-    "sha256": "034f90035f18da506fadc740b2ebe46a0446f1ce2d2b677ff4e25cf3d26086c0",
-    "size": 16394483
+    "sha256": "2f2acfeace4651ff7f2437ae09e5b4632bcaac3cdd01b2606ce5f677948722f1",
+    "size": 16394353
   }
 }
