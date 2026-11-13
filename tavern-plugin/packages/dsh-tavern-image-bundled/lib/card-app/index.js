@@ -82,59 +82,30 @@ export function apply(ctx, { ready }) {
     })
   }
 
-  const generate = {
-    name: 'gen_image',
-    description: '在卡片工作台生成图片，返回带完整 HTTP(S) 地址的 Markdown。把返回的 markdown 原样写进回复，不要省略域名、端口或改成相对路径。先用 read_image_config 查看渠道及提示词格式，按 image-prompt Skill 描述用户要求的一个画面。使用当前配图渠道或临时指定渠道，支持现有全部在线协议和 ComfyUI。用户已授权直接出图时直接提交。一次要好几张、或想同时用几个渠道时改用 gen_image_submit 加 gen_image_status：提交即返回任务号，取图时可一次查多个。失败或任务不确定时先查配图记录，不能自动重复提交。',
-    parameters: schema({
-      prompt: { type: 'string', description: '画面描述。自然语言渠道可用中文或英文完整句；标签模型用其支持的 tag；structured 按设置保留分节。画风与参考图绑定由引擎追加。' },
-      template: { type: 'string', description: '工作台模式使用的模板名称或精确 ID；省略则用当前默认模板或随机范围。先 read_image_config 查看可用模板。' },
-      negative: { type: 'string', description: '本张额外排除项，由渠道适配原生负面参数或合入描述。' },
-      channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
-      workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
-      preset: { type: 'string', description: '本次画风预设 ID 或唯一名字。' },
-      preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
-      preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
-      size: { type: 'string', description: '竖图、横图、方图或宽x高。自定义宽高建议取 64 的倍数，多数平台按这个对齐，非对齐的值可能被平台改掉。不填沿用渠道或 ComfyUI 工作流尺寸。' },
-      count: { type: 'integer', description: '生成 1–4 张，默认 1。' },
-      sampler: { type: 'string', description: '仅支持此参数的 NovelAI、SD WebUI 渠道可临时指定。' },
-      seed: { type: 'integer', description: '支持种子的渠道可指定第一张种子。不支持时会在提交前报错。' },
-      seed_control: { type: 'string', enum: SEED_CONTROLS },
-      generation_mode: { type: 'string', enum: ['text', 'reference'], description: '默认 text；reference 使用人物库中的参考图，需要渠道及工作流支持。' },
-      subjects: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { characterId: { type: 'string' }, outfitId: { type: 'string' }, name: { type: 'string' } } }, description: 'reference 模式的本张人物与服装 ID，read_character/read_outfit 返回精确 ID。' },
-      characters: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { prompt: { type: 'string' }, centers: { type: 'string' }, uc: { type: 'string' } }, required: ['prompt'] }, description: '需要区分多个人物时逐人描述。NovelAI 使用原生角色参数，其他渠道由引擎合成。' },
-    }, ['prompt']),
-    output: output((_args, value) => [{ type: 'text', text: [value.ok ? '图片已生成。' : '部分图片已生成，后续任务中断，请先检查配图记录。', value.channel ? '生图渠道：' + value.channel : '', ...(value.images || []).map(image => `![图片](${image.url})`), value.error || ''].filter(Boolean).join('\n\n') }]),
-    async execute(args, exec) {
-      await assertOpen()
-      const count = args.count ?? 1
-      if (!Number.isSafeInteger(count) || count < 1 || count > 4) throw fail('INVALID_ARGUMENT', 'count 必须是 1–4 的整数')
-      if (typeof args.prompt !== 'string' || !args.prompt.trim() || args.prompt.length > 16000) throw fail('INVALID_ARGUMENT', 'prompt 必须是 1–16000 字')
-      if (args.negative !== undefined && (typeof args.negative !== 'string' || args.negative.length > 8000)) throw fail('INVALID_ARGUMENT', 'negative 最多 8000 字')
-      // Resolve lazily: the service may register before listen(), and its port may change after restart.
-      const origin = imageOrigin()
-      const engine = await ready(), picked = cardSelection(engine.currentConfig(), engine.cardWorkflows(), args)
-      const values = await seeds(picked, args, count), images = [], started = Date.now(), options = context(exec)
-      for (let index = 0; index < count; index++) {
-        try {
-          await assertOpen()
-          options.signal.throwIfAborted()
-          const result = await engine.generateCardImage({ ...args, templateId: picked.template?.id, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
-          const item = await gallery.add(result, { sessionId: options.sessionId, preset: args.preset })
-          const url = new URL(item.url, origin).href
-          images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size, prompt: result.prompt, negative: result.negative, negativeInPrompt: result.negativeInPrompt, characters: result.characters, preset: result.preset }))
-        } catch (error) {
-          if (!images.length) throw error
-          return omitUndefined({ ok: false, images, channel: picked.channel, preset: images[0].preset, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started })
-        }
-      }
-      return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, preset: (picked.preset && picked.preset.name) || '', elapsedMs: Date.now() - started })
-    },
-  }
+  // 生图参数只在提交工具里定义一次。工作台现在只有异步入口，不存在两份 schema 走偏的可能。
+  const generationParameters = () => schema({
+    prompt: { type: 'string', description: '画面描述。自然语言渠道可用中文或英文完整句；标签模型用其支持的 tag；structured 按设置保留分节。画风与参考图绑定由引擎追加。' },
+    template: { type: 'string', description: '工作台模式使用的模板名称或精确 ID；省略则用当前默认模板或随机范围。先 read_image_config 查看可用模板。' },
+    negative: { type: 'string', description: '本张额外排除项，由渠道适配原生负面参数或合入描述。' },
+    channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
+    workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
+    preset: { type: 'string', description: '本次画风预设 ID 或唯一名字。' },
+    preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
+    preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
+    size: { type: 'string', description: '竖图、横图、方图或宽x高。自定义宽高建议取 64 的倍数，多数平台按这个对齐，非对齐的值可能被平台改掉。不填沿用渠道或 ComfyUI 工作流尺寸。' },
+    count: { type: 'integer', description: '生成 1–4 张，默认 1。每张是一个独立任务，会一起进队列并行推进。' },
+    sampler: { type: 'string', description: '仅支持此参数的 NovelAI、SD WebUI 渠道可临时指定。' },
+    seed: { type: 'integer', description: '支持种子的渠道可指定第一张种子。不支持时会在提交前报错。' },
+    seed_control: { type: 'string', enum: SEED_CONTROLS },
+    generation_mode: { type: 'string', enum: ['text', 'reference'], description: '默认 text；reference 使用人物库中的参考图，需要渠道及工作流支持。' },
+    subjects: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { characterId: { type: 'string' }, outfitId: { type: 'string' }, name: { type: 'string' } } }, description: 'reference 模式的本张人物与服装 ID，read_character/read_outfit 返回精确 ID。' },
+    characters: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { prompt: { type: 'string' }, centers: { type: 'string' }, uc: { type: 'string' } }, required: ['prompt'] }, description: '需要区分多个人物时逐人描述。NovelAI 使用原生角色参数，其他渠道由引擎合成。' },
+  }, ['prompt'])
 
   const submit = {
     name: 'gen_image_submit',
-    description: '提交生图任务后立即返回任务号，不等出图；随后用 gen_image_status 取图。多个渠道、或一个渠道多张图可以连续提交，任务并行推进，出来一张取一张。参数与 gen_image 完全相同。先用 read_image_config 选渠道，用户已授权直接出图时直接提交。',
-    parameters: structuredClone(generate.parameters),
+    description: '提交生图任务后立即返回任务号，不等出图；随后用 gen_image_status 取图，一次可查多个。多个渠道、或一个渠道多张图都能一次或连续提交，任务并行推进，出来一张取一张。先用 read_image_config 选渠道，用户已授权直接出图时直接提交。',
+    parameters: generationParameters(),
     output: output((_args, value) => [{ type: 'text', text: [
       `已提交 ${value.jobs.length} 张，渠道：${value.channel || '未知'}。`,
       ...value.jobs.map(item => `任务号 ${item.jobId}`),
@@ -185,7 +156,7 @@ export function apply(ctx, { ready }) {
       const ids = [...new Set((Array.isArray(args.jobIds) ? args.jobIds : [])
         .filter(id => typeof id === 'string' && id.trim()).map(id => id.trim().slice(0, 100)))].slice(0, 20)
       if (!ids.length) throw fail('INVALID_ARGUMENT', 'jobIds 至少要给一个任务号')
-      const engine = await ready(), sessionId = String(exec?.agent?.session?.id || '')
+      const engine = await ready(), options = context(exec)
       const seconds = Math.max(0, Math.min(120, Math.trunc(Number(args.wait ?? 30)) || 0))
       // 只等「又有一张出图」或「全部有结论」：先出来的那张先交出去，剩下的下次再查。
       // 已经完成过的任务不再算数，否则第二次查询会立刻带着老图返回、永远等不到新的那张。
@@ -193,6 +164,8 @@ export function apply(ctx, { ready }) {
       const doneAtEntry = ids.filter(id => engine.getJob(id)?.state === 'done').length
       const deadline = Date.now() + seconds * 1000
       while (Date.now() < deadline) {
+        // 查询可以被取消，任务不会：中断等待只是这次调用结束，作业仍在队列里跑。
+        if (options.signal.aborted) throw options.signal.reason ?? new Error('已取消')
         const watched = ids.map(id => engine.getJob(id))
         if (watched.filter(job => job?.state === 'done').length > doneAtEntry) break
         if (watched.every(settled)) break
@@ -204,11 +177,13 @@ export function apply(ctx, { ready }) {
         if (!job) { jobs.push({ jobId: id, state: 'unknown', note: '没有这个任务号；确认它是不是别的会话提交的' }); continue }
         const base = omitUndefined({ jobId: job.id, state: job.state, channel: job.channelName || job.channelId || '', seed: job.resultSeed ?? job.seed })
         if (job.state === 'done') {
+          const result = cardImageResult(job, { preset: job.cardPreset || '' })
           let item = null
-          try { item = await gallery.add(cardImageResult(job, { preset: job.cardPreset || '' }), { sessionId }); item.url = new URL(item.url, imageOrigin()).href }
+          try { item = await gallery.add(result, { sessionId: options.sessionId }); item.url = new URL(item.url, imageOrigin()).href }
           catch (error) { item = null; logger.warn?.('dsh-tavern-image: 异步生图写入图库失败 ' + (error?.message ?? error)) }
           if (!item) { jobs.push({ ...base, note: '图片已生成，但没能写进工作台图库或取不到图片服务地址，请到配图记录查看' }); continue }
-          jobs.push(omitUndefined({ ...base, url: item.url, markdown: `![图片](${item.url})`, size: item.size, preset: item.preset || job.cardPreset || '', channel: item.channel || base.channel, note: '已生成' }))
+          jobs.push(omitUndefined({ ...base, url: item.url, markdown: `![图片](${item.url})`, size: item.size, preset: item.preset || job.cardPreset || '', channel: item.channel || base.channel,
+            prompt: result.prompt, negative: result.negative, negativeInPrompt: result.negativeInPrompt, characters: result.characters, mediaType: result.mediaType, note: '已生成' }))
           continue
         }
         if (job.state === 'uncertain') {
@@ -291,7 +266,7 @@ export function apply(ctx, { ready }) {
       return { matched: hits.length, hits: hits.slice(0, Math.max(1, Math.min(20, Math.trunc(Number(args.limit) || 8)))) }
     },
   }
-  const tools = [generate, submit, status, character, outfit, configuration, lookup]
+  const tools = [submit, status, character, outfit, configuration, lookup]
 
   function send(response, status, value) {
     if (response.headersSent) return

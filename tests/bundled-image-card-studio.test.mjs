@@ -13,6 +13,23 @@ import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bund
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
 const own = { agent: { session: { id: 'card-session-a' } } }
+// 工作台现在只有异步入口。测试里需要「一次拿到图」的地方走这条：提交后立刻取，
+// 返回结构和原来的同步工具保持一致（ok / images / channel / preset），断言不必逐条重写。
+async function draw(f, args, exec = own) {
+  const submitted = await f.tools.get('gen_image_submit').execute(args, exec)
+  const jobIds = submitted.jobs.map(item => item.jobId)
+  const state = await f.tools.get('gen_image_status').execute({ jobIds, wait: 10 }, exec)
+  const done = state.jobs.filter(item => item.markdown), rest = state.jobs.filter(item => !item.markdown)
+  const images = done.map(item => Object.fromEntries(Object.entries({
+    url: item.url, markdown: item.markdown, jobId: item.jobId, seed: item.seed, size: item.size, preset: item.preset,
+    prompt: item.prompt, negative: item.negative, characters: item.characters,
+  }).filter(([, value]) => value !== undefined)))
+  return Object.fromEntries(Object.entries({
+    ok: !rest.length && images.length === jobIds.length, images, jobs: state.jobs,
+    channel: submitted.channel, promptMode: submitted.promptMode, preset: submitted.preset, raw: state,
+    ...(rest.length ? { error: rest[0].error || '生图未完成' } : {}),
+  }).filter(([, value]) => value !== undefined))
+}
 const channel = (provider, options = {}, extra = {}) => ({ id: provider, provider, name: provider, model: 'user-model', baseUrl: 'https://images.test/' + provider, apiKey: 'PRIVATE_KEY', options, ...extra })
 
 async function studio(t, options = {}) {
@@ -20,7 +37,7 @@ async function studio(t, options = {}) {
   let registered
   const complete = new Promise(resolve => { registered = resolve })
   const fixture = await imagePluginFixture(t, { definitions: { characters: [], outfits: [] }, ...options,
-    tools: { register(tool) { tools.set(tool.name, tool); if (tools.size === 7) registered(); return () => tools.delete(tool.name) } },
+    tools: { register(tool) { tools.set(tool.name, tool); if (tools.size === 6) registered(); return () => tools.delete(tool.name) } },
     tavern: { toolModes(value) { scopes.push(value); return () => {} }, skillSource(value) { skills.push(value); return () => {} },
       registerGalleryProvider(value) { galleries.push(value); return () => {} }, ...options.tavern },
   })
@@ -34,7 +51,7 @@ test('workbench tools are scoped to card mode and do not install a global prompt
   const f = await studio(t)
   globalThis.fetch = async () => { calls++; throw new Error('should stay local') }
   const config = await f.tools.get('read_image_config').execute({})
-  assert.equal(f.scopes.length, 7)
+  assert.equal(f.scopes.length, 6)
   assert.ok(f.scopes.every(item => item.modes.join() === 'card'))
   assert.ok(config.channels.some(item => item.provider === 'atlascloud'))
   assert.doesNotMatch(JSON.stringify(config), /PRIVATE|TEST_SECRET/)
@@ -55,7 +72,7 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   const f = await studio(t, { webOrigin: () => { if (!origin) throw new Error('not listening'); return origin },
     config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
   globalThis.fetch = async () => { calls++; return json({ data: [{ b64_json: b64 }] }) }
-  const tool = f.tools.get('gen_image')
+  const tool = f.tools.get('gen_image_submit')
   await assert.rejects(tool.execute({ prompt: 'one traveler' }, own), { code: 'NOT_CONFIGURED' })
   assert.equal(calls, 0, 'origin failures must stop before a paid submission')
   const serve = () => createServer((req, res) => {
@@ -68,11 +85,11 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   t.after(async () => { for (const server of servers) { server.closeIdleConnections(); await new Promise(resolve => server.close(resolve)) } })
   for (const server of servers) await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   origin = 'http://127.0.0.1:' + servers[0].address().port
-  const result = await tool.execute({ prompt: 'one traveler' }, own), image = result.images[0]
+  const result = await draw(f, { prompt: 'one traveler' }, own), image = result.images[0]
   assert.equal(new URL(image.url).origin, origin)
   assert.equal(image.markdown, `![图片](${image.url})`)
   assert.equal(typeof result.preset, 'string', '预设字段必须是名字字符串：写进画廊的对象会让整页渲染崩掉')
-  assert.ok(tool.output.render({}, result)[0].text.includes(image.markdown))
+  assert.ok(f.tools.get('gen_image_status').output.render({}, result.raw)[0].text.includes(image.markdown))
   const read = (url, headers = {}, method = 'GET') => new Promise((resolve, reject) => {
     const request = httpRequest(url, { method, headers }, response => {
       const parts = []; response.on('data', part => parts.push(part)); response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, bytes: Buffer.concat(parts) }))
@@ -93,7 +110,7 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   assert.equal((await read(origin + '/dsh-tavern-gen/img/not-a-gallery-file.png')).status, 404)
   assert.equal((await read(origin + '/dsh-tavern-gen/api/gallery', { origin: 'https://evil.invalid', 'sec-fetch-site': 'cross-site' })).status, 403)
   origin = 'http://127.0.0.1:' + servers[1].address().port
-  const next = await tool.execute({ prompt: 'second traveler' }, own)
+  const next = await draw(f, { prompt: 'second traveler' }, own)
   assert.equal(new URL(next.images[0].url).origin, origin, 'read the current listener address for each tool call')
   assert.equal((await read(next.images[0].url)).status, 200)
   assert.ok((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.every(item => item.url.startsWith('/')), 'saved gallery paths survive port changes')
@@ -121,7 +138,7 @@ test('all built-in and custom protocols run from the card tool through the share
     return json({ data: [{ b64_json: b64 }] })
   }
   for (const item of channels) {
-    const result = await f.tools.get('gen_image').execute({ channel: item.id, prompt: 'one adult traveler beside a window' }, own)
+    const result = await draw(f, { channel: item.id, prompt: 'one adult traveler beside a window' }, own)
     assert.equal(result.ok, true, item.id)
     assert.equal(result.images.length, 1, item.id)
     assert.match(result.images[0].url, /^http:\/\/127\.0\.0\.1:31867\/dsh-tavern-gen\/img\//)
@@ -146,20 +163,20 @@ test('no-auth and Basic channels work, Chinese prose survives, and capability er
   const f = await studio(t, { config: { imageBackend: 'sdwebui', activeImageChannel: 'sdwebui', imageChannels: channels } })
   const calls = []
   globalThis.fetch = async (_input, init) => { calls.push(init); return json(init.body && JSON.parse(init.body).sampler_name ? { images: [b64] } : { data: [{ b64_json: b64 }] }) }
-  await f.tools.get('gen_image').execute({ prompt: 'one traveler', seed: 42, seed_control: 'fixed' }, own)
+  await draw(f, { prompt: 'one traveler', seed: 42, seed_control: 'fixed' }, own)
   assert.equal(calls[0].headers.authorization, undefined)
   assert.equal(JSON.parse(calls[0].body).seed, 42)
-  const result = await f.tools.get('gen_image').execute({ channel: 'openai', prompt: '成年旅人站在窗旁。窗外下着雨，室内是暖色灯光。' }, own)
+  const result = await draw(f, { channel: 'openai', prompt: '成年旅人站在窗旁。窗外下着雨，室内是暖色灯光。' }, own)
   assert.equal(result.promptMode, 'natural')
   assert.match(JSON.parse(calls[1].body).prompt, /成年旅人站在窗旁/)
   assert.equal(calls[1].headers.authorization, 'Basic ' + Buffer.from('local:secret-pass').toString('base64'))
-  await f.tools.get('gen_image').execute({ prompt: 'one traveler', count: 2, seed_control: 'increment' }, own)
-  await f.tools.get('gen_image').execute({ prompt: 'one traveler', seed_control: 'decrement' }, own)
-  await f.tools.get('gen_image').execute({ prompt: 'one traveler', seed_control: 'fixed' }, own)
+  await draw(f, { prompt: 'one traveler', count: 2, seed_control: 'increment' }, own)
+  await draw(f, { prompt: 'one traveler', seed_control: 'decrement' }, own)
+  await draw(f, { prompt: 'one traveler', seed_control: 'fixed' }, own)
   assert.deepEqual(calls.slice(2).map(call => JSON.parse(call.body).seed), [43, 44, 43, 43])
-  await assert.rejects(f.tools.get('gen_image').execute({ channel: 'openai', prompt: 'p', seed: 4 }, own), /不提供种子/)
-  await assert.rejects(f.tools.get('gen_image').execute({ channel: 'openai', prompt: 'p', sampler: 'Euler' }, own), /不支持临时采样器/)
-  await assert.rejects(f.tools.get('gen_image').execute({ prompt: 'p', count: 1.5 }, own), /整数/)
+  await assert.rejects(draw(f, { channel: 'openai', prompt: 'p', seed: 4 }, own), /不提供种子/)
+  await assert.rejects(draw(f, { channel: 'openai', prompt: 'p', sampler: 'Euler' }, own), /不支持临时采样器/)
+  await assert.rejects(draw(f, { prompt: 'p', count: 1.5 }, own), /整数/)
   assert.equal(calls.length, 6)
 })
 
@@ -183,7 +200,7 @@ test('card ComfyUI uses the existing imported workflow, seed, dimensions and aut
     if (url.pathname === '/queue') return json({ queue_running: [], queue_pending: [] })
     return json({})
   }
-  const result = await f.tools.get('gen_image').execute({ prompt: 'one traveler', seed: 27, seed_control: 'fixed' }, own)
+  const result = await draw(f, { prompt: 'one traveler', seed: 27, seed_control: 'fixed' }, own)
   assert.equal(result.ok, true)
   assert.equal(posts, 1)
   assert.equal(submitted.prompt['4'].inputs.seed, 27)
@@ -208,9 +225,9 @@ test('card reference mode uses paired library images and rejects unsupported ref
     assert.match(init.body.get('prompt'), /角色×服装/)
     return json({ data: [{ b64_json: b64 }] })
   }
-  const result = await f.tools.get('gen_image').execute({ prompt: '【人物与表情】\n林月平静地看着窗外。', generation_mode: 'reference', subjects: [{ characterId: 'person', outfitId: 'coat' }] }, own)
+  const result = await draw(f, { prompt: '【人物与表情】\n林月平静地看着窗外。', generation_mode: 'reference', subjects: [{ characterId: 'person', outfitId: 'coat' }] }, own)
   assert.equal(result.ok, true)
-  await assert.rejects(f.tools.get('gen_image').execute({ channel: 'novelai', prompt: 'one traveler', generation_mode: 'reference', subjects: [{ characterId: 'person' }] }, own), /不支持参考图/)
+  await assert.rejects(draw(f, { channel: 'novelai', prompt: 'one traveler', generation_mode: 'reference', subjects: [{ characterId: 'person' }] }, own), /不支持参考图/)
   assert.equal(calls, 1)
 })
 
@@ -231,18 +248,20 @@ test('workbench saves share the live definitions store and reject stale versions
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: false })).body.enabled, false)
   assert.equal(f.tools.size, 0)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: true })).body.enabled, true)
-  assert.equal(f.tools.size, 7)
+  assert.equal(f.tools.size, 6)
 })
 
-test('partial batches retain generated pictures and stop after one definitive failure', async t => {
+test('independent batch tasks keep the pictures that succeeded when one fails', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
   let calls = 0
-  globalThis.fetch = async () => ++calls === 1 ? json({ data: [{ b64_json: b64 }] }) : json({ error: 'quota reached' }, 400)
-  const result = await f.tools.get('gen_image').execute({ prompt: 'one traveler', count: 4 }, own)
+  globalThis.fetch = async () => ++calls <= 2
+    ? json({ data: [{ b64_json: b64 }] })
+    : new Response(JSON.stringify({ error: 'quota reached' }), { status: 400, headers: { 'content-type': 'application/json' } })
+  const result = await draw(f, { prompt: 'one traveler', count: 4 }, own)
   assert.equal(result.ok, false)
-  assert.equal(result.images.length, 1)
-  assert.equal(calls, 2)
-  assert.equal((await f.galleries[0].list({ sessionId: 'card-session-a' })).length, 1)
+  assert.equal(result.images.length, 2, '一个任务失败不影响其余任务')
+  assert.equal(calls, 4, '四个任务各自提交，不再因为中间一个失败就掐掉整批')
+  assert.equal((await f.galleries[0].list({ sessionId: 'card-session-a' })).length, 2)
 })
 
 test('card requests and story images share the configured concurrency limit', async t => {
@@ -254,7 +273,7 @@ test('card requests and story images share the configured concurrency limit', as
     return new Promise(resolve => releases.push(() => { active--; resolve(json({ data: [{ b64_json: b64 }] })) }))
   }
   const ordinary = await f.runtime.request('jobs', { tag: 'one story image', key: 'ordinary' })
-  const cards = Promise.all([f.tools.get('gen_image').execute({ prompt: 'card one' }, own), f.tools.get('gen_image').execute({ prompt: 'card two' }, own)])
+  const cards = Promise.all([draw(f, { prompt: 'card one' }, own), draw(f, { prompt: 'card two' }, own)])
   for (let index = 0; index < 3; index++) {
     for (let i = 0; releases.length < 1 && i < 400; i++) await new Promise(resolve => setTimeout(resolve, 5))
     assert.ok(releases.length, 'next queued image reaches the shared transport')
@@ -324,7 +343,7 @@ test('async status separates a definitive failure from an ambiguous one', { time
 test('card and play galleries stay separate while task history, reload and legacy records preserve both pictures', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
   globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
-  const card = await f.tools.get('gen_image').execute({ prompt: 'card portrait' }, own)
+  const card = await draw(f, { prompt: 'card portrait' }, own)
   const play = await f.runtime.request('jobs', { tag: 'story scene', key: 'play-scene', sessionId: 'play-session' })
   await f.runtime.terminal(play.body.id)
   const cardId = card.images[0].jobId
@@ -360,20 +379,23 @@ test('card and play galleries stay separate while task history, reload and legac
   assert.deepEqual(new Set((await recovered.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'cache-only recovery retains card sources for prefixed IDs and old gallery UUIDs')
 })
 
-test('tool cancellation stops local waiting and never retries an accepted ambiguous request', async t => {
+test('cancelling a status call stops only the wait, never the job or a second paid request', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
-  let submitted, calls = 0
-  const started = new Promise(resolve => { submitted = resolve })
-  globalThis.fetch = async (_url, init) => { calls++; submitted(); return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true })) }
+  let calls = 0, started
+  const submitted = new Promise(resolve => { started = resolve })
+  globalThis.fetch = async () => {
+    calls++; started()
+    return new Promise(resolve => setTimeout(() => resolve(json({ data: [{ b64_json: b64 }] })), 600))
+  }
   const controller = new AbortController()
-  const pending = f.tools.get('gen_image').execute({ prompt: 'one traveler' }, { ...own, signal: controller.signal })
-  await started
-  controller.abort(new Error('stop card tool'))
-  await assert.rejects(pending)
-  assert.equal(calls, 1)
-  const jobs = (await f.runtime.request('history')).body.jobs
-  assert.equal(jobs[0].state, 'cancelled')
-  assert.equal(jobs[0].requestMayHaveSucceeded, true)
+  const first = await f.tools.get('gen_image_submit').execute({ prompt: 'one traveler' }, { ...own, signal: controller.signal })
+  await submitted
+  const polling = f.tools.get('gen_image_status').execute({ jobIds: [first.jobs[0].jobId], wait: 30 }, { ...own, signal: controller.signal })
+  controller.abort(new Error('stop the poll'))
+  await assert.rejects(polling)
+  assert.equal(calls, 1, '取消查询不会补发第二次付费请求')
+  const done = await f.tools.get('gen_image_status').execute({ jobIds: [first.jobs[0].jobId], wait: 10 }, own)
+  assert.equal(done.jobs[0].state, 'done', '任务在后台照常跑完，没有被这次查询的取消带走')
 })
 
 test('selection detects ambiguous names and leaves global config unchanged', () => {
@@ -416,13 +438,12 @@ test('workbench preset overrides match the submitted prompt and keep the saved p
     payload = JSON.parse(init.body)
     return json({ data: [{ b64_json: b64 }] })
   }
-  const tool = f.tools.get('gen_image')
   const args = { prompt: 'quiet forest', channel: '工作台渠道', preset: 'p1', preset_positive: '', preset_negative: 'watermark' }
-  const result = await tool.execute(args, own)
+  const result = await draw(f, args)
   assert.equal(result.channel, '工作台渠道')
   assert.equal(result.images[0].prompt, payload.prompt)
   assert.doesNotMatch(payload.prompt, /fallback artist|saved artist|saved exclusion/)
-  const rendered = tool.output.render(args, result)[0].text
+  const rendered = f.tools.get('gen_image_status').output.render(args, result.raw)[0].text
   // #688 之后回执不再回显实际提交的正负面提示词和角色提示词，只留渠道、画风预设和图片链接，
   // 所以这里断言「不含」。preset_negative 的 watermark 仍应生效在提交给渠道的排除项里，
   // 但那属于 payload 层，第 370 行已经验过正面提示词没被污染。

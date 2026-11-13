@@ -37,11 +37,15 @@ try {
   await new Promise(resolve => ui.listen(0, '127.0.0.1', resolve))
   origin = 'http://127.0.0.1:' + server.address().port
   globalThis.fetch = async () => imageJson({ data: [{ b64_json: IMAGE_PNG.toString('base64') }] })
-  const tool = tools.get('gen_image')
-  const result = await tool.execute({ prompt: 'one traveler beside a window' }, { agent: { session: { id: 'cli-card-session' } } })
-  assert.equal(new URL(result.images[0].url).origin, origin)
-  relativePath = new URL(result.images[0].url).pathname
-  html = marked.parse(tool.output.render({}, result).map(block => block.text).join('\n\n'))
+  const submit = tools.get('gen_image_submit'), poll = tools.get('gen_image_status')
+  const scope = { agent: { session: { id: 'cli-card-session' } } }
+  const submitted = await submit.execute({ prompt: 'one traveler beside a window' }, scope)
+  const state = await poll.execute({ jobIds: submitted.jobs.map(item => item.jobId), wait: 10 }, scope)
+  const image = state.jobs.find(item => item.state === 'done')
+  assert.ok(image, JSON.stringify(state))
+  assert.equal(new URL(image.url).origin, origin)
+  relativePath = new URL(image.url).pathname
+  html = marked.parse(poll.output.render({}, state).map(block => block.text).join('\n\n'))
   browser = await chromium.launch({ headless: true, executablePath })
   const page = await browser.newPage(), imageRequests = []
   page.setDefaultTimeout(10000)
@@ -53,7 +57,7 @@ try {
   for (const mode of ['cli', 'desktop-origin']) {
     await page.goto(uiOrigin + '/' + mode)
     await page.waitForFunction(() => { const img = document.querySelector('main img'); return img?.complete && img.naturalWidth === 2 && img.naturalHeight === 2 })
-    assert.equal(await page.locator('main img').getAttribute('src'), result.images[0].url)
+    assert.equal(await page.locator('main img').getAttribute('src'), image.url)
   }
   assert.ok(imageRequests.length >= 1 && imageRequests.every(status => status === 200))
   const screenshot = join(tmpdir(), 'dsh-image-card-render-fixed.png')
