@@ -448,3 +448,62 @@ test('关闭流式显示思维链后游玩模式不显示已提交与流式思�
 	const doc = page.dom.window.document
 	assert.equal(doc.querySelector('details.dsh-tavern-stream-reasoning'), null, '关闭开关后游玩模式不应显示流式或历史思维链')
 })
+
+test('流式思考超过折叠框高度时自动滚到底部，上翻阅读时暂停跟随、回到底部后恢复', async t => {
+	const page = createPage(t)
+	page.context.useTavernReasoningStreamEnabled = () => true
+	const feature = page.context.createTavernStoryTranscriptFeature({
+		renderProjection: projection => React.createElement('div', { className: 'test-proj' }, projection.text)
+	})
+	const pending = story([
+		{ role: 'user', text: '玩家行动' },
+		{ role: 'assistant', turn: 1, placeholder: true, text: '' }
+	], 1)
+	const element = (partial, running = true) => React.createElement(feature.StoryTranscriptList, {
+		transcript: pending, partial, running, view: { mode: 'story' }, sessionId: 's-reasoning-scroll'
+	})
+	const root = await mount(page, element({ turn: 1, step: 0, blocks: [{ kind: 'reasoning', text: '第一段' }] }))
+	const pre = page.dom.window.document.querySelector('details.dsh-tavern-stream-reasoning pre')
+	assert.ok(pre)
+	let scrollHeight = 520
+	const clientHeight = 200
+	let scrollTop = 0
+	Object.defineProperty(pre, 'clientHeight', { configurable: true, get: () => clientHeight })
+	Object.defineProperty(pre, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+	Object.defineProperty(pre, 'scrollTop', {
+		configurable: true,
+		get: () => scrollTop,
+		set(value) { scrollTop = Math.max(0, Math.min(Math.max(0, scrollHeight - clientHeight), Number(value) || 0)) }
+	})
+
+	await act(async () => root.render(element({ turn: 1, step: 0, blocks: [{ kind: 'reasoning', text: '第一段\n第二段' }] })))
+	assert.equal(scrollTop, 320, '流式新增思考内容时应自动滚到底部')
+
+	// 模拟用户手动向上滚动查看前文
+	scrollTop = 60
+	await act(async () => {
+		pre.dispatchEvent(new page.dom.window.Event('scroll'))
+	})
+	scrollHeight = 680
+	await act(async () => root.render(element({ turn: 1, step: 0, blocks: [{ kind: 'reasoning', text: '第一段\n第二段\n第三段' }] })))
+	assert.equal(scrollTop, 60, '用户手动上翻后不得强制拉回底部')
+
+	// 模拟用户拉回底部后恢复自动跟随
+	scrollTop = 475
+	await act(async () => {
+		pre.dispatchEvent(new page.dom.window.Event('scroll'))
+	})
+	scrollHeight = 820
+	await act(async () => root.render(element({ turn: 1, step: 0, blocks: [{ kind: 'reasoning', text: '第一段\n第二段\n第三段\n第四段' }] })))
+	assert.equal(scrollTop, 620, '用户回到底部后应恢复自动滚动')
+
+	// 未回到底部时进入工具步收起，再进入下一步思考应重新恢复自动跟随
+	scrollTop = 100
+	await act(async () => {
+		pre.dispatchEvent(new page.dom.window.Event('scroll'))
+	})
+	await act(async () => root.render(element({ turn: 1, step: 0, blocks: [{ kind: 'reasoning', text: '第一段\n第二段\n第三段\n第四段' }, { kind: 'tool-call', name: 'tavern_state' }] })))
+	scrollHeight = 960
+	await act(async () => root.render(element({ turn: 1, step: 1, blocks: [{ kind: 'reasoning', text: '第二步继续思考' }] })))
+	assert.equal(scrollTop, 760, '新一步思考重新展开时应自动滚到最新位置')
+})

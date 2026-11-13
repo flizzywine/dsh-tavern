@@ -176,3 +176,56 @@ test('原生对话流在出正文前借宿步骤槽流式展开思维链，出�
   const hostSeat = TavernAssistantReasoningSlot({ node: nodeStep1 })
   assert.deepEqual(hostSeat, { seat: 'host', props: { blocks: step1Running.blocks, streaming: true } })
 })
+
+test('原生视图流式思维链自动跟随底部并允许上翻暂停', async t => {
+  const { readFileSync } = await import('node:fs')
+  const vm = await import('node:vm')
+  const React = (await import('react')).default
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  const root = createRoot(dom.window.document.querySelector('main'))
+  t.after(async () => {
+    await act(async () => root.unmount())
+    Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
+    dom.window.close()
+  })
+
+  const source = readFileSync(new URL('../tavern-plugin/src/client/features/assistant-renderer.js', import.meta.url), 'utf8')
+  const start = source.indexOf('function tavernAssistantStepNode(')
+  const end = source.indexOf('// Third-party plugins:', start)
+  const context = vm.createContext({
+    React,
+    useTavernReasoningStreamEnabled: () => true,
+    tavernReasoningStreamEnabled: () => true
+  })
+  vm.runInContext(source.slice(start, end), context)
+  const { TavernTurnReasoning } = context
+
+  const makeTurn = text => ({ status: 'open', steps: [{ data: { status: 'running', blocks: [{ kind: 'reasoning', text }] } }] })
+  await act(async () => root.render(React.createElement(TavernTurnReasoning, { turn: makeTurn('第一步思考'), streaming: true })))
+  const pre = dom.window.document.querySelector('details.dsh-tavern-stream-reasoning pre')
+  assert.ok(pre)
+  let scrollHeight = 500
+  const clientHeight = 180
+  let scrollTop = 0
+  Object.defineProperty(pre, 'clientHeight', { configurable: true, get: () => clientHeight })
+  Object.defineProperty(pre, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(pre, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set(value) { scrollTop = Math.max(0, Math.min(Math.max(0, scrollHeight - clientHeight), Number(value) || 0)) }
+  })
+
+  await act(async () => root.render(React.createElement(TavernTurnReasoning, { turn: makeTurn('第一步思考\n增量内容'), streaming: true })))
+  assert.equal(scrollTop, 320, 'TavernTurnReasoning 流式增长时应自动滚到底部')
+
+  scrollTop = 40
+  await act(async () => { pre.dispatchEvent(new dom.window.Event('scroll')) })
+  scrollHeight = 640
+  await act(async () => root.render(React.createElement(TavernTurnReasoning, { turn: makeTurn('第一步思考\n增量内容\n更多内容'), streaming: true })))
+  assert.equal(scrollTop, 40, '手动上翻后应保持在阅读位置')
+})

@@ -367,14 +367,69 @@ function createTavernStoryTranscriptFeature(deps) {
 	})
 
 	function StoryTurnReasoningBox({ text, live }) {
-		if (!text) return null
 		const active = live === true
+		const detailsRef = React.useRef(null)
+		const preRef = React.useRef(null)
+		const scrollStateRef = React.useRef({
+			pinned: true,
+			prevActive: active,
+			lastTop: 0,
+			programmaticTop: null
+		})
+		const useEffectHook = typeof React.useLayoutEffect === 'function' ? React.useLayoutEffect : React.useEffect
+		const syncToBottom = React.useCallback(function () {
+			const pre = preRef.current
+			const details = detailsRef.current
+			if (!pre || !active || !scrollStateRef.current.pinned) return
+			if (details && details.open === false) return
+			const floor = Math.max(0, pre.scrollHeight - pre.clientHeight)
+			if (floor <= 0) {
+				scrollStateRef.current.lastTop = pre.scrollTop
+				return
+			}
+			if (floor - pre.scrollTop > 1) {
+				pre.scrollTop = pre.scrollHeight
+				scrollStateRef.current.programmaticTop = pre.scrollTop
+				scrollStateRef.current.lastTop = pre.scrollTop
+			}
+		}, [active])
+		useEffectHook(function () {
+			const state = scrollStateRef.current
+			if (active && !state.prevActive) state.pinned = true
+			state.prevActive = active
+			if (!text) return
+			syncToBottom()
+		}, [active, text, syncToBottom])
+		const onScroll = React.useCallback(function (event) {
+			const el = event && event.currentTarget
+			if (!el) return
+			const state = scrollStateRef.current
+			const top = el.scrollTop
+			const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+			if (floor - top <= 16) {
+				state.pinned = true
+			} else if (state.programmaticTop !== null && Math.abs(top - state.programmaticTop) <= 1) {
+				// 忽略自身同步滚动触发的异步 scroll 事件，防止新分片继续撑高内容时误判为上翻
+			} else if (top < state.lastTop - 1 || state.programmaticTop === null) {
+				state.pinned = false
+			}
+			state.programmaticTop = null
+			state.lastTop = top
+		}, [])
+		const onToggle = React.useCallback(function (event) {
+			if (event && event.currentTarget && event.currentTarget.open && active && scrollStateRef.current.pinned) {
+				syncToBottom()
+			}
+		}, [active, syncToBottom])
+		if (!text) return null
 		return h('details', {
+			ref: detailsRef,
 			className: 'dsh-tavern-assistant-reasoning dsh-tavern-stream-reasoning',
-			open: active
+			open: active,
+			onToggle: onToggle
 		},
 			h('summary', null, active ? '思考中…' : '思考过程'),
-			h('pre', null, text))
+			h('pre', { ref: preRef, onScroll: onScroll }, text))
 	}
 
 	function StoryTurnReasoningLive({ useChat, nativeTurn, fallbackText, fallbackLive, streaming }) {

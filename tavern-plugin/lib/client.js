@@ -38503,6 +38503,74 @@ function tavernFloorHeightRecall(key, width) {
 				React.createElement("div", { ref: layer, className: "mes_text dsh-tavern-script-layer", "data-dsh-script-layer": "", "data-session": props.layer.sessionId, "data-mesid": String(props.layer.messageId) }));
 		}
 
+		function TavernAssistantReasoningBox(props) {
+			const h = React.createElement;
+			const live = Boolean(props && props.live);
+			const text = String(props && props.text || "");
+			const canHook = typeof React.useRef === "function";
+			const detailsRef = canHook ? React.useRef(null) : null;
+			const preRef = canHook ? React.useRef(null) : null;
+			const scrollStateRef = canHook ? React.useRef({
+				pinned: true,
+				prevActive: live,
+				lastTop: 0,
+				programmaticTop: null
+			}) : null;
+			const useEffectHook = canHook ? (typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect) : null;
+			const syncToBottom = canHook ? React.useCallback(function () {
+				const pre = preRef.current;
+				const details = detailsRef.current;
+				if (!pre || !live || !scrollStateRef.current.pinned) return;
+				if (details && details.open === false) return;
+				const floor = Math.max(0, pre.scrollHeight - pre.clientHeight);
+				if (floor <= 0) {
+					scrollStateRef.current.lastTop = pre.scrollTop;
+					return;
+				}
+				if (floor - pre.scrollTop > 1) {
+					pre.scrollTop = pre.scrollHeight;
+					scrollStateRef.current.programmaticTop = pre.scrollTop;
+					scrollStateRef.current.lastTop = pre.scrollTop;
+				}
+			}, [live]) : null;
+			if (canHook) {
+				useEffectHook(function () {
+					const state = scrollStateRef.current;
+					if (live && !state.prevActive) state.pinned = true;
+					state.prevActive = live;
+					if (!text) return;
+					syncToBottom();
+				}, [live, text, syncToBottom]);
+			}
+			const onScroll = canHook ? React.useCallback(function (event) {
+				const el = event && event.currentTarget;
+				if (!el) return;
+				const state = scrollStateRef.current;
+				const top = el.scrollTop;
+				const floor = Math.max(0, el.scrollHeight - el.clientHeight);
+				if (floor - top <= 16) {
+					state.pinned = true;
+				} else if (state.programmaticTop !== null && Math.abs(top - state.programmaticTop) <= 1) {
+					// Ignore async scroll event emitted by syncToBottom when newer chunks grew scrollHeight.
+				} else if (top < state.lastTop - 1 || state.programmaticTop === null) {
+					state.pinned = false;
+				}
+				state.programmaticTop = null;
+				state.lastTop = top;
+			}, []) : undefined;
+			const onToggle = canHook ? React.useCallback(function (event) {
+				if (event && event.currentTarget && event.currentTarget.open && live && scrollStateRef.current.pinned) {
+					syncToBottom();
+				}
+			}, [live, syncToBottom]) : undefined;
+			return h("details", {
+				ref: detailsRef || undefined,
+				className: "dsh-tavern-assistant-reasoning",
+				open: live,
+				onToggle: onToggle
+			}, h("summary", null, live ? "思考中…" : "思考过程"), h("pre", { ref: preRef || undefined, onScroll: onScroll }, text));
+		}
+
 		// Third-party plugins: use the public tavernUi API (docs/plugin-api.md), never patch this file; its structure changes freely.
 		function renderTavernAssistantBlocks(input) {
 			const h = React.createElement;
@@ -38542,7 +38610,7 @@ function tavernFloorHeightRecall(key, width) {
 					continue;
 				}
 				if (block.kind === "reasoning") {
-					rendered.push(h("details", { key: index, className: "dsh-tavern-assistant-reasoning", open: input.streaming && index === blocks.length - 1 }, h("summary", null, input.streaming && index === blocks.length - 1 ? "思考中…" : "思考过程"), h("pre", null, String(block.text || ""))));
+					rendered.push(h(TavernAssistantReasoningBox, { key: index, live: Boolean(input.streaming && index === blocks.length - 1), text: String(block.text || "") }));
 					continue;
 				}
 				if (block.kind === "image") {
@@ -39539,6 +39607,64 @@ function tavernFloorHeightRecall(key, width) {
 				return collected;
 			}
 
+			function tavernReasoningAutoScroll(active, text) {
+				if (typeof React.useRef !== "function") return null;
+				const detailsRef = React.useRef(null);
+				const preRef = React.useRef(null);
+				const stateRef = React.useRef({
+					pinned: true,
+					prevActive: Boolean(active),
+					lastTop: 0,
+					programmaticTop: null
+				});
+				const useEffectHook = typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect;
+				const syncToBottom = React.useCallback(function () {
+					const pre = preRef.current;
+					const details = detailsRef.current;
+					if (!pre || !active || !stateRef.current.pinned) return;
+					if (details && details.open === false) return;
+					const floor = Math.max(0, pre.scrollHeight - pre.clientHeight);
+					if (floor <= 0) {
+						stateRef.current.lastTop = pre.scrollTop;
+						return;
+					}
+					if (floor - pre.scrollTop > 1) {
+						pre.scrollTop = pre.scrollHeight;
+						stateRef.current.programmaticTop = pre.scrollTop;
+						stateRef.current.lastTop = pre.scrollTop;
+					}
+				}, [active]);
+				useEffectHook(function () {
+					const state = stateRef.current;
+					if (active && !state.prevActive) state.pinned = true;
+					state.prevActive = Boolean(active);
+					if (!text) return;
+					syncToBottom();
+				}, [active, text, syncToBottom]);
+				const onScroll = React.useCallback(function (event) {
+					const el = event && event.currentTarget;
+					if (!el) return;
+					const state = stateRef.current;
+					const top = el.scrollTop;
+					const floor = Math.max(0, el.scrollHeight - el.clientHeight);
+					if (floor - top <= 16) {
+						state.pinned = true;
+					} else if (state.programmaticTop !== null && Math.abs(top - state.programmaticTop) <= 1) {
+						// Ignore async scroll event emitted by syncToBottom when newer chunks grew scrollHeight.
+					} else if (top < state.lastTop - 1 || state.programmaticTop === null) {
+						state.pinned = false;
+					}
+					state.programmaticTop = null;
+					state.lastTop = top;
+				}, []);
+				const onToggle = React.useCallback(function (event) {
+					if (event && event.currentTarget && event.currentTarget.open && active && stateRef.current.pinned) {
+						syncToBottom();
+					}
+				}, [active, syncToBottom]);
+				return { detailsRef: detailsRef, preRef: preRef, onScroll: onScroll, onToggle: onToggle };
+			}
+
 			function TavernTurnReasoning(props) {
 				let blocks = tavernTurnReasoningBlocks(props.turn);
 				if (!blocks.length && Array.isArray(props.fallbackBlocks)) {
@@ -39546,11 +39672,21 @@ function tavernFloorHeightRecall(key, width) {
 						return block && block.kind === "reasoning" && String(block.text || "").trim() !== "";
 					});
 				}
+				const live = blocks.length > 0 && tavernTurnReasoningIsLive(props.turn, props.fallbackBlocks, props.streaming === true);
+				const text = blocks.map(function (block) { return String(block.text || ""); }).join("\n\n");
+				const scroll = tavernReasoningAutoScroll(live, text);
 				if (!blocks.length) return null;
-				const live = tavernTurnReasoningIsLive(props.turn, props.fallbackBlocks, props.streaming === true);
-				return React.createElement("details", { className: "dsh-tavern-assistant-reasoning dsh-tavern-stream-reasoning", open: live },
+				return React.createElement("details", {
+					ref: scroll ? scroll.detailsRef : undefined,
+					className: "dsh-tavern-assistant-reasoning dsh-tavern-stream-reasoning",
+					open: live,
+					onToggle: scroll ? scroll.onToggle : undefined
+				},
 					React.createElement("summary", null, live ? "思考中…" : "思考过程"),
-					React.createElement("pre", null, blocks.map(function (block) { return String(block.text || ""); }).join("\n\n")));
+					React.createElement("pre", {
+						ref: scroll ? scroll.preRef : undefined,
+						onScroll: scroll ? scroll.onScroll : undefined
+					}, text));
 			}
 
 			function tavernIsLastReasoningStep(turn, nodeData) {
@@ -39595,13 +39731,30 @@ function tavernFloorHeightRecall(key, width) {
 				});
 			}
 
+			function TavernReasoningBlock(props) {
+				const live = Boolean(props && props.live);
+				const text = String(props && props.text || "");
+				const scroll = tavernReasoningAutoScroll(live, text);
+				return React.createElement("details", {
+					ref: scroll ? scroll.detailsRef : undefined,
+					className: "dsh-tavern-assistant-reasoning",
+					open: live,
+					onToggle: scroll ? scroll.onToggle : undefined
+				},
+					React.createElement("summary", null, live ? "思考中…" : "思考过程"),
+					React.createElement("pre", {
+						ref: scroll ? scroll.preRef : undefined,
+						onScroll: scroll ? scroll.onScroll : undefined
+					}, text));
+			}
+
 			// Third-party plugins: use the public tavernUi API (docs/plugin-api.md), never patch this file; its structure changes freely.
 			function TavernReasoningSeat(props) {
 				const blocks = (Array.isArray(props.blocks) ? props.blocks : []).filter(function (block) { return block && block.kind === "reasoning"; });
 				if (!blocks.length) return null;
 				return React.createElement("div", { className: "dsh-tavern-assistant" }, blocks.map(function (block, index) {
 					const live = props.streaming && index === blocks.length - 1;
-					return React.createElement("details", { key: index, className: "dsh-tavern-assistant-reasoning", open: live }, React.createElement("summary", null, live ? "思考中…" : "思考过程"), React.createElement("pre", null, String(block.text || "")));
+					return React.createElement(TavernReasoningBlock, { key: index, live: live, text: String(block.text || "") });
 				}));
 			}
 			// Card-workbench replies a plugin asked to fold (tavernUi.registerReplyPresenter):
@@ -41654,14 +41807,69 @@ function createTavernStoryTranscriptFeature(deps) {
 	})
 
 	function StoryTurnReasoningBox({ text, live }) {
-		if (!text) return null
 		const active = live === true
+		const detailsRef = React.useRef(null)
+		const preRef = React.useRef(null)
+		const scrollStateRef = React.useRef({
+			pinned: true,
+			prevActive: active,
+			lastTop: 0,
+			programmaticTop: null
+		})
+		const useEffectHook = typeof React.useLayoutEffect === 'function' ? React.useLayoutEffect : React.useEffect
+		const syncToBottom = React.useCallback(function () {
+			const pre = preRef.current
+			const details = detailsRef.current
+			if (!pre || !active || !scrollStateRef.current.pinned) return
+			if (details && details.open === false) return
+			const floor = Math.max(0, pre.scrollHeight - pre.clientHeight)
+			if (floor <= 0) {
+				scrollStateRef.current.lastTop = pre.scrollTop
+				return
+			}
+			if (floor - pre.scrollTop > 1) {
+				pre.scrollTop = pre.scrollHeight
+				scrollStateRef.current.programmaticTop = pre.scrollTop
+				scrollStateRef.current.lastTop = pre.scrollTop
+			}
+		}, [active])
+		useEffectHook(function () {
+			const state = scrollStateRef.current
+			if (active && !state.prevActive) state.pinned = true
+			state.prevActive = active
+			if (!text) return
+			syncToBottom()
+		}, [active, text, syncToBottom])
+		const onScroll = React.useCallback(function (event) {
+			const el = event && event.currentTarget
+			if (!el) return
+			const state = scrollStateRef.current
+			const top = el.scrollTop
+			const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+			if (floor - top <= 16) {
+				state.pinned = true
+			} else if (state.programmaticTop !== null && Math.abs(top - state.programmaticTop) <= 1) {
+				// 忽略自身同步滚动触发的异步 scroll 事件，防止新分片继续撑高内容时误判为上翻
+			} else if (top < state.lastTop - 1 || state.programmaticTop === null) {
+				state.pinned = false
+			}
+			state.programmaticTop = null
+			state.lastTop = top
+		}, [])
+		const onToggle = React.useCallback(function (event) {
+			if (event && event.currentTarget && event.currentTarget.open && active && scrollStateRef.current.pinned) {
+				syncToBottom()
+			}
+		}, [active, syncToBottom])
+		if (!text) return null
 		return h('details', {
+			ref: detailsRef,
 			className: 'dsh-tavern-assistant-reasoning dsh-tavern-stream-reasoning',
-			open: active
+			open: active,
+			onToggle: onToggle
 		},
 			h('summary', null, active ? '思考中…' : '思考过程'),
-			h('pre', null, text))
+			h('pre', { ref: preRef, onScroll: onScroll }, text))
 	}
 
 	function StoryTurnReasoningLive({ useChat, nativeTurn, fallbackText, fallbackLive, streaming }) {

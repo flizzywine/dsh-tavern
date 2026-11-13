@@ -511,6 +511,74 @@
 				React.createElement("div", { ref: layer, className: "mes_text dsh-tavern-script-layer", "data-dsh-script-layer": "", "data-session": props.layer.sessionId, "data-mesid": String(props.layer.messageId) }));
 		}
 
+		function TavernAssistantReasoningBox(props) {
+			const h = React.createElement;
+			const live = Boolean(props && props.live);
+			const text = String(props && props.text || "");
+			const canHook = typeof React.useRef === "function";
+			const detailsRef = canHook ? React.useRef(null) : null;
+			const preRef = canHook ? React.useRef(null) : null;
+			const scrollStateRef = canHook ? React.useRef({
+				pinned: true,
+				prevActive: live,
+				lastTop: 0,
+				programmaticTop: null
+			}) : null;
+			const useEffectHook = canHook ? (typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect) : null;
+			const syncToBottom = canHook ? React.useCallback(function () {
+				const pre = preRef.current;
+				const details = detailsRef.current;
+				if (!pre || !live || !scrollStateRef.current.pinned) return;
+				if (details && details.open === false) return;
+				const floor = Math.max(0, pre.scrollHeight - pre.clientHeight);
+				if (floor <= 0) {
+					scrollStateRef.current.lastTop = pre.scrollTop;
+					return;
+				}
+				if (floor - pre.scrollTop > 1) {
+					pre.scrollTop = pre.scrollHeight;
+					scrollStateRef.current.programmaticTop = pre.scrollTop;
+					scrollStateRef.current.lastTop = pre.scrollTop;
+				}
+			}, [live]) : null;
+			if (canHook) {
+				useEffectHook(function () {
+					const state = scrollStateRef.current;
+					if (live && !state.prevActive) state.pinned = true;
+					state.prevActive = live;
+					if (!text) return;
+					syncToBottom();
+				}, [live, text, syncToBottom]);
+			}
+			const onScroll = canHook ? React.useCallback(function (event) {
+				const el = event && event.currentTarget;
+				if (!el) return;
+				const state = scrollStateRef.current;
+				const top = el.scrollTop;
+				const floor = Math.max(0, el.scrollHeight - el.clientHeight);
+				if (floor - top <= 16) {
+					state.pinned = true;
+				} else if (state.programmaticTop !== null && Math.abs(top - state.programmaticTop) <= 1) {
+					// Ignore async scroll event emitted by syncToBottom when newer chunks grew scrollHeight.
+				} else if (top < state.lastTop - 1 || state.programmaticTop === null) {
+					state.pinned = false;
+				}
+				state.programmaticTop = null;
+				state.lastTop = top;
+			}, []) : undefined;
+			const onToggle = canHook ? React.useCallback(function (event) {
+				if (event && event.currentTarget && event.currentTarget.open && live && scrollStateRef.current.pinned) {
+					syncToBottom();
+				}
+			}, [live, syncToBottom]) : undefined;
+			return h("details", {
+				ref: detailsRef || undefined,
+				className: "dsh-tavern-assistant-reasoning",
+				open: live,
+				onToggle: onToggle
+			}, h("summary", null, live ? "思考中…" : "思考过程"), h("pre", { ref: preRef || undefined, onScroll: onScroll }, text));
+		}
+
 		// Third-party plugins: use the public tavernUi API (docs/plugin-api.md), never patch this file; its structure changes freely.
 		function renderTavernAssistantBlocks(input) {
 			const h = React.createElement;
@@ -550,7 +618,7 @@
 					continue;
 				}
 				if (block.kind === "reasoning") {
-					rendered.push(h("details", { key: index, className: "dsh-tavern-assistant-reasoning", open: input.streaming && index === blocks.length - 1 }, h("summary", null, input.streaming && index === blocks.length - 1 ? "思考中…" : "思考过程"), h("pre", null, String(block.text || ""))));
+					rendered.push(h(TavernAssistantReasoningBox, { key: index, live: Boolean(input.streaming && index === blocks.length - 1), text: String(block.text || "") }));
 					continue;
 				}
 				if (block.kind === "image") {
