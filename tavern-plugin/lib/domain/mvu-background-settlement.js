@@ -12,6 +12,7 @@ import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
+import { describeMvuLimits, mvuLimitViolations } from './mvu-limits.js'
 import { clampMvuSubmissionOperationsWithReport } from './narrative-damper.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
@@ -240,8 +241,9 @@ function operationNeedsMutation(operation, before) {
   return !target.exists || !sameValue(target.value, operation.value)
 }
 
-/** Attribute final state changes to submitted operations and expose silent runtime rejection. */
-function auditMvuSettlement(before, after, operations) {
+/** Attribute final state changes to submitted operations and expose silent runtime rejection
+ * and values outside the card's declared limits. */
+function auditMvuSettlement(before, after, operations, limits) {
   const allChanges = diffValues(before, after)
   const claimed = new Set()
   const failures = []
@@ -261,6 +263,11 @@ function auditMvuSettlement(before, after, operations) {
         message: '提交后该路径没有变化；请对照当前变量结构、提交值与运行时诊断修正操作'
       })
     }
+  }
+  for (const violation of mvuLimitViolations(object(before).stat_data, object(after).stat_data, limits)) {
+    // Name the submitted operation that wrote it, so the retry sees its own value back.
+    const operation = operations.find(item => operationPointers(item).some(pointer => pathsOverlap(violation.path, pointer)))
+    failures.push({ operation: operation ? operation.op : '', path: operation ? operation.path : violation.path, message: violation.message })
   }
   return {
     changes: allChanges.filter(function (_change, index) { return claimed.has(index) }),
@@ -514,11 +521,13 @@ export function createMvuBackgroundTaskFrame(input = {}) {
       storyDigest: str(input.storyDigest)
     },
     foregroundOutput: { storyText },
-    authoritativeState: { currentVariables, variableSchema },
+    authoritativeState: { currentVariables, variableSchema, variableLimits: Array.isArray(input.variableLimits) ? clone(input.variableLimits) : [] },
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       backgroundTasks: normalizeBackgroundTasks(input.backgroundTasks),
       helperContext: Array.isArray(input.helperContext) ? input.helperContext.map(str).filter(Boolean) : [],
+      // What this reply's tools ask the settlement to see (tool-settlement-context.js): numbers they already settled.
+      toolResults: Array.isArray(input.toolResults) ? input.toolResults.map(row => ({ tool: str(row?.tool), text: str(row?.text).trim() })).filter(row => row.tool && row.text) : [],
       guides: Array.isArray(input.guides) ? input.guides.map(item => str(item?.text ?? item).trim()).filter(Boolean) : [],
       guidance: str(input.guidance).trim(),
       updateOnlyFromStory: true
@@ -547,9 +556,13 @@ export function projectMvuBackgroundRequest(frame) {
     turnContext: promptSection('variable_state', [
       PROMPT_PROSE.p001,
       JSON.stringify(state.variableSchema || {}),
+      ...(state.variableLimits?.length ? [promptSection('variable_limits', ['写入后超出范围的整批不保存，会退回重交。', describeMvuLimits(state.variableLimits)].join('\n'))] : []),
       ...(updateRules.length === 0 ? [] : [PROMPT_PROSE.p002, updateRules.join('\n\n')]),
       PROMPT_PROSE.p003,
       JSON.stringify(promptVariables(state.currentVariables)),
+      ...(rules.toolResults?.length ? [promptSection('turn_tool_results', [
+        '正文里的工具在这一轮已经算定了下面这些结果（只含当前这条回复的调用）。照它们写变量，不自己重算，也不因为正文里写了同样的事再记一次。',
+        ...rules.toolResults.map(row => '[' + row.tool + ']\n' + row.text)].join('\n'))] : []),
       ...(rules.helperContext?.length ? [PROMPT_PROSE.p004,
         PROMPT_PROSE.p005,
         ...rules.helperContext] : []),
@@ -602,12 +615,12 @@ export function createMvuSettlementModule(options = {}) {
       // Card constraints must see the same setup/Helper facts as the model, including durable retries.
       storyText: [...frame.taskRules.helperContext, frame.foregroundOutput.storyText].filter(Boolean).join('\n\n'),
       command: formatMvuUpdateCommand(submission),
-      validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations)
+      validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations, frame.authoritativeState.variableLimits)
     })
     if (applied.deferred === true || applied.stale === true) return { applied, damper }
     const projected = applied.context?.messages?.[input.messageId]
     const after = clone(applied.variables || projected?.variables || {})
-    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations)
+    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations, frame.authoritativeState.variableLimits)
     const rolledBack = applied.rejected === true
     const changes = rolledBack ? [] : audit.changes
     const sideEffects = rolledBack ? [] : audit.sideEffects

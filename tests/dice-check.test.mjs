@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { compileRules, initialState, rollCheck, settleCheck, adjustResources, seededDraw } from '../tavern-plugin/mods/dice/check-engine.js'
+import { compileRules, initialState, rollCheck, settleCheck, seededDraw } from '../tavern-plugin/mods/dice/check-engine.js'
 import { parseFormula, evaluate } from '../tavern-plugin/mods/dice/check-expr.js'
 import { CHECK_RULES_KEY, createCheckTool, runCheckAction } from '../tavern-plugin/mods/dice/check-tool.js'
 import { surfaceToolResults } from '../tavern-plugin/lib/domain/surface-tool-results.js'
@@ -16,8 +16,8 @@ const RULES = {
   sets: { stats: ['cool', 'hard', 'sharp'] },
   resources: {
     rating: { label: 'Rating', keys: 'stats', initial: { cool: 1, hard: 2, sharp: -1 } },
-    harm: { label: 'Harm', initial: 0, min: 0, max: 6, gm: true },
-    luck: { label: 'Luck', initial: 2, min: 0, max: 2, gm: true },
+    harm: { label: 'Harm', initial: 0, min: 0, max: 6 },
+    luck: { label: 'Luck', initial: 2, min: 0, max: 2 },
   },
   checks: {
     move: {
@@ -62,6 +62,8 @@ test('rules load once with the author\'s path in every error', () => {
   assert.throws(() => compileRules({ ...RULES, checks: { pool: { ...RULES.checks.pool, dice: { d: { count: 'size', sides: 6, markColor: '#c8202f' } } } } }), /markColor: must be a #rrggbb colour next to mark/)
   assert.throws(() => compileRules({ ...RULES, checks: { move: { ...RULES.checks.move, let: [['total', 'd[0] + nope']] } } }), /checks\.move\.let\.total: reads unknown name nope/)
   assert.throws(() => compileRules({ ...RULES, resources: { ...RULES.resources, rating: { ...RULES.resources.rating, keys: 'missing' } } }), /resources\.rating\.keys/)
+  // Bookkeeping without dice is the card's variable rules, not a check.
+  assert.throws(() => compileRules({ ...RULES, checks: { advance: { label: 'Advance', outcomes: [{ id: 'on', label: 'On' }], effects: [{ resource: 'harm', add: '1' }] } } }), /checks\.advance\.dice: a check rolls at least one die/)
 })
 
 test('2d6 + stat: three bands, a player choice that waits, and replay from the seed', () => {
@@ -72,7 +74,7 @@ test('2d6 + stat: three bands, a player choice that waits, and replay from the s
   assert.deepEqual(record.choices[0].preview.map(row => row.outcome), ['Weak hit', 'Strong hit'])
   const settled = settleCheck(rules, state, record, { bump: 1 })
   assert.equal(settled.outcome.id, 'strong')
-  assert.deepEqual(settled.changes, [{ resource: 'luck', label: 'Luck', from: 2, to: 1 }])
+  assert.deepEqual(settled.changes, [{ resource: 'luck', label: 'Luck', from: 2, to: 1, add: -1 }])
   assert.equal(JSON.stringify(settleCheck(rules, state, record, { bump: 1 })), JSON.stringify(settled), 'same seed and choice, same bytes')
   const miss = rollCheck(rules, { resources: { ...state.resources, luck: 0 } }, { check: 'move', params: { stat: 'sharp' } }, seedFor([1, 2]))
   assert.equal(miss.status, 'settled')
@@ -98,16 +100,13 @@ test('an outcome\'s show: validated at load, carried by its records, already on 
   assert.equal(rollCheck(rules, state, { check: 'move', params: { stat: 'hard' } }, seedFor([3, 3])).show, undefined, 'no show declared, none carried')
 })
 
-test('a sized pool and GM adjustments within bounds', () => {
+test('a sized pool', () => {
   const state = initialState(rules)
   const record = rollCheck(rules, state, { check: 'pool', params: { size: 4 } }, seedFor([6, 2, 6, 1]))
   assert.equal(record.report.hits.value, 2)
   assert.deepEqual(record.faces, { d: { sides: 6, mark: [6], markColor: '#c8202f' } }, 'the record carries each pool\'s sides and marked faces for the client')
   assert.deepEqual(rollCheck(rules, state, { check: 'move', params: { stat: 'hard' } }, seedFor([3, 3])).faces, { d: { sides: 6 } })
   assert.throws(() => rollCheck(rules, state, { check: 'pool', params: { size: 11 } }, 1), /from 1 to 10/)
-  assert.equal(adjustResources(rules, state, [{ resource: 'harm', add: 2 }]).state.resources.harm, 2)
-  assert.throws(() => adjustResources(rules, state, [{ resource: 'harm', add: 7 }]), /within 0\.\.6/)
-  assert.throws(() => adjustResources(rules, state, [{ resource: 'rating', key: 'cool', add: 1 }]), /only through checks/)
 })
 
 test('the tool folds the game\'s records: ids, the open check, settle and resources across rounds', () => {
@@ -128,8 +127,8 @@ test('the tool folds the game\'s records: ids, the open check, settle and resour
   const told = runCheckAction(kept, [], { action: 'status' }, 1)
   assert.deepEqual(told.secret, ['luck'], 'the record names the secret resources for the card')
   assert.ok(told.resources.some(row => row.resource === 'luck'), 'the model still reads a secret resource')
-  assert.equal(act({ action: 'adjust', changes: [{ resource: 'harm', add: 3 }], reason: 'Fell' }).state.resources.harm, 3)
-  assert.deepEqual(act({ action: 'status' }).state.resources, { ...initialState(rules).resources, luck: 1, harm: 3 })
+  assert.deepEqual(act({ action: 'status' }).state.resources, { ...initialState(rules).resources, luck: 1 })
+  assert.throws(() => runCheckAction(rules, records, { action: 'adjust', changes: [{ resource: 'harm', add: 3 }], reason: 'Fell' }, 1), /action must be status, roll or settle/)
 })
 
 // A card keeping resources in its MVU variables: they are the truth between turns (whatever the settlement wrote),
@@ -141,10 +140,13 @@ test('resources kept in the card\'s variables: read between turns, chained withi
   const records = [], vars = { sheet: { rating: { cool: 2, hard: -1 }, harm: 4 } }
   const act = (args, turn, seed = 1) => { const value = runCheckAction(kept, records, args, seed, { variables: vars, turn }); records.push(JSON.parse(JSON.stringify(value))); return value }
   assert.deepEqual(act({ action: 'status' }, 2).state.resources.rating, { cool: 2, hard: -1, sharp: 0 }, 'a key the variables omit is 0')
+  vars.sheet.rating.$meta = { limits: { '*': { min: -3, max: 3 } } }
+  assert.deepEqual(runCheckAction(kept, [], { action: 'status' }, 1, { variables: vars, turn: 9 }).state.resources.rating, { cool: 2, hard: -1, sharp: 0 }, 'MVU metadata in the object is not an entry')
+  delete vars.sheet.rating.$meta
   act({ action: 'roll', check: 'move', params: { stat: 'hard' }, reason: 'r', stakes: 's' }, 2, seedFor([1, 2]))
   const miss = act({ action: 'settle', id: '#1', choice: { bump: 0 } }, 2)
   assert.equal(miss.report.total.value, 2, 'the variables\' rating')
-  assert.deepEqual(miss.changes.find(row => row.resource === 'harm'), { resource: 'harm', label: 'Harm', from: 4, to: 5, path: '/sheet/harm' })
+  assert.deepEqual(miss.changes.find(row => row.resource === 'harm'), { resource: 'harm', label: 'Harm', from: 4, to: 5, add: 1, path: '/sheet/harm' })
   assert.equal(miss.turn, 2)
   assert.equal(act({ action: 'status' }, 2).state.resources.harm, 5, 'within the turn the record leads')
   vars.sheet.harm = 1
@@ -155,13 +157,15 @@ test('resources kept in the card\'s variables: read between turns, chained withi
   assert.throws(() => runCheckAction(kept, records, { action: 'status' }, 1, { variables: vars, turn: 4 }), /has charm, which is not one of/)
 })
 
-// The card was updated mid-game and now declares a resource the game's earlier records never had.
+// The card was updated mid-game and now declares a resource the game's earlier records never had. The earlier record
+// is a GM adjustment from before checks lost their dice-less actions: it still folds.
 test('a resource added to the rules after a game\'s records starts at its initial value', () => {
-  const records = [JSON.parse(JSON.stringify(runCheckAction(rules, [], { action: 'adjust', changes: [{ resource: 'harm', add: 2 }], reason: 'Fell' }, 1)))]
+  const records = [{ id: '#1', status: 'adjusted', changes: [{ resource: 'harm', label: 'Harm', from: 0, to: 2 }], state: { resources: { ...initialState(rules).resources, harm: 2 } }, reason: 'Fell' }]
   const grown = compileRules({ ...RULES, resources: { ...RULES.resources, stage: { label: 'Stage', initial: 2, min: 0, max: 4 } },
-    checks: { ...RULES.checks, advance: { label: 'Advance', outcomes: [{ id: 'on', label: 'On' }], effects: [{ resource: 'stage', add: '1' }] } } })
+    checks: { ...RULES.checks, advance: { label: 'Advance', dice: { d: { count: 1, sides: 6 } }, outcomes: [{ id: 'on', label: 'On' }], effects: [{ resource: 'stage', add: '1' }] } } })
   const next = runCheckAction(grown, records, { action: 'roll', check: 'advance', reason: 'r', stakes: 's' }, 1)
-  assert.deepEqual(next.changes, [{ resource: 'stage', label: 'Stage', from: 2, to: 3 }])
+  assert.equal(next.id, '#2')
+  assert.deepEqual(next.changes, [{ resource: 'stage', label: 'Stage', from: 2, to: 3, add: 1 }])
   assert.equal(next.state.resources.harm, 2, 'what the records had is kept')
 })
 

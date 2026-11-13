@@ -47,6 +47,7 @@ import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { createNarrativeDamper } from './domain/narrative-damper.js'
 import { registerGameplayTools } from './tools/gameplay.js'
 import { modTools } from './mod-tools.js'
+import { toolSettlementContext } from './domain/tool-settlement-context.js'
 import { registerUserProfileTools } from './tools/user-profile.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerCardReadingTools } from './tools/card-reading.js'
@@ -1308,6 +1309,13 @@ export async function apply(ctx) {
     }
   })
   async function readSessionMap() { return await conversationRegistry.links() }
+  // A game's session as its event log: the live one, else read from disk (a settlement resumed after a restart).
+  async function readSessionLog(sessionId) {
+    const live = sessionStore.get(sessionId)
+    if (live) return live
+    const handle = await ctx.get('sessionPersistence').open(sessionId, 'read')
+    try { return { events: (await handle.read(0)).events } } finally { await handle.close() }
+  }
   try {
     const stored = await profileData.list('chats')
     const chatIds = [...new Set(stored.map(entry => entry.directory ? entry.name : (entry.name.match(/^(chat-[^.]+)\.json$/) || [])[1]).filter(name => /^chat-[^.]+$/.test(name || '')))]
@@ -3553,7 +3561,9 @@ export async function apply(ctx) {
     credentials: () => ctx.get('credentials')
   })
   const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
-    narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId) })
+    narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId),
+    // What the reply's mod tools declared for its settlement (their settlement(results) in tools.js).
+    turnToolResults: async (chat, target) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, Number(target.message.turn)) })
   const plainSettlementEngine = createPlainSettlementEngine({ requestAnchor: contextHost.requestAnchor, pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
     backgroundAgentRunner,

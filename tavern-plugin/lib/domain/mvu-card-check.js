@@ -1,6 +1,7 @@
 import { parse as parseScript } from 'acorn'
 import { parse as parseYaml } from 'yaml'
 import { validateMvuVisibility } from './mvu-visibility.js'
+import { validateMvuLimits } from './mvu-limits.js'
 
 // Static format checks for MVU cards. The card is edited freely like a source
 // file; this only points at things that would break at runtime, with locations
@@ -83,6 +84,8 @@ export function checkMvuCard(data, prefix = '') {
     }
   }
   for (const state of states) {
+    // Value limits ($meta.limits next to extensible) the settlement enforces
+    errors.push(...validateMvuLimits(state.value, prefix + state.path).errors)
     const rawMetaVis = object(state.value?.$meta) ? (state.value.$meta.visibility ?? state.value.$meta.hidden) : undefined
     if (rawMetaVis !== undefined) {
       const checked = validateMvuVisibility(rawMetaVis, prefix + state.path + '/$meta/visibility')
