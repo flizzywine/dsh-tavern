@@ -236,7 +236,7 @@ export function apply(ctx, { ready }) {
   }
 
   const character = {
-    name: 'read_character', description: '读取共用人物库及角色自带服装、参考图状态。先列清单再按精确 ID 查询；按本张镜头只取可见外貌，不把所有视角同时塞进提示词。', parameters: schema(named), output: output(),
+    name: 'read_character', description: '读取共用人物库。不传 name 列出全部人物；传 name 给出可直接粘进 prompt 的人物宏、服装宏和服装名清单，外貌与服装原文不返回。full: true 只在用户明确要求改这个角色的外貌或服装时传，出图不需要。', parameters: schema({ ...named, full: { type: 'boolean', description: '仅当用户明确要求修改这个角色的外貌或服装时才传：返回 traits 与服装全文，不含宏。出图、核对宏写没写对、排查画面不对劲，都不要传——宏由工具生成，不需要你校对；读一次全量，省下的 token 就全还回去了。' } }), output: output(),
     async execute(args) {
       await assertOpen()
       const book = await source(), list = book.characters.filter(item => item.enabled !== false && item.name)
@@ -244,10 +244,28 @@ export function apply(ctx, { ready }) {
       const hit = pick(list, args.name, aliases)
       if (!hit) return { characters: list.map(item => ({ id: item.id, name: item.name, aliases: aliases(item), note: item.note || '' })) }
       const shared = await outfits(), own = (hit.outfits || []).filter(item => item.enabled !== false)
-      return { id: hit.id, name: hit.name, traits: { ...hit.traits }, note: hit.note || '', hasReference: Boolean(hit.referenceImage),
+      const refs = shared.filter(item => hit.outfitRefs?.includes(item.id))
+      // 全量只服务于「改外貌」：原样给出库里的 traits 与服装正文，不掺宏，免得模型照着宏去改库。
+      if (args.full === true) return { id: hit.id, name: hit.name, traits: { ...hit.traits }, note: hit.note || '', hasReference: Boolean(hit.referenceImage),
         outfits: own.map(item => ({ id: item.id, name: item.name, default: item.default === true, ...parts(item), hasReference: Boolean(item.referenceImage), hasPairedReference: Boolean(item.characterOutfitImage) })),
-        outfitRefs: shared.filter(item => hit.outfitRefs?.includes(item.id)).map(item => ({ id: item.id, name: item.name })),
+        outfitRefs: refs.map(item => ({ id: item.id, name: item.name })),
         ...(hit.defaultOutfit ? { defaultOutfit: shared.filter(item => item.id === hit.defaultOutfit).map(item => ({ id: item.id, name: item.name, ...sharedParts(item) })) } : {}) }
+      // 默认只给能直接粘进 prompt 的东西：外貌与服装正文一概不过模型，省的就是这一段。
+      const preferred = own.find(item => item.default === true) || own[0] || null
+      // 宏体是 ${ 与 }$ 之间的纯键值对，不带外层大括号：引擎按 JSON.parse('{' + 宏体 + '}') 解析。
+      // name 用英文别名，跟游玩模式的写法对齐：allowChinesePrompt 关着时中文名会被清掉，英文名才是匹配键。
+      const macroName = aliases(hit).find(value => /^[\x20-\x7e]+$/.test(value) && /[a-z]/i.test(value)) || hit.name
+      const macroBody = fields => '${' + JSON.stringify(fields).slice(1, -1) + '}$'
+      const macro = macroBody({ name: macroName, angle: 'from front', upperBody: 'sfw', lowerBody: 'sfw' })
+      // 服装单独成宏，跟人物宏并列：两个人各穿各的时衣服跟着各自的宏走，不会串到对方身上。
+      const outfitMacro = preferred ? macroBody({ name: preferred.name, upperBody: 'visible', lowerBody: 'visible' }) : ''
+      return omitUndefined({
+        id: hit.id, name: hit.name, macroName, aliases: aliases(hit), note: hit.note || '', hasReference: Boolean(hit.referenceImage),
+        macro,
+        ...(outfitMacro ? { outfitMacro, outfitName: preferred.name } : {}),
+        outfits: own.map(item => ({ id: item.id, name: item.name, default: item.default === true })),
+        ...(refs.length ? { outfitRefs: refs.map(item => ({ id: item.id, name: item.name })) } : {}),
+        ...(hit.defaultOutfit ? { defaultOutfit: shared.filter(item => item.id === hit.defaultOutfit).map(item => ({ id: item.id, name: item.name })) } : {}) })
     },
   }
   const outfit = {

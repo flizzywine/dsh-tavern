@@ -9,6 +9,7 @@ import { cardSelection } from '../tavern-plugin/packages/dsh-tavern-image-bundle
 import { createCardGallery } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js'
 import { createCardWorldbook } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/worldbook.js'
 import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-output.js'
+import { expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
@@ -255,6 +256,41 @@ test('workbench saves share the live definitions store and reject stale versions
   assert.equal(f.tools.size, 0)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: true })).body.enabled, true)
   assert.equal(f.tools.size, 7)
+})
+
+test('read_character gives macros by default and full traits only on request', async t => {
+  const definitions = {
+    characters: [{ id: 'c1', name: '春雪', match: 'Chun Xue', traits: { face: '银白长发，蓝绿色眼睛' }, outfits: [{ id: 'o1', name: '白裙', default: true, upper: '白色吊带', lower: '白色长裙摆' }] }],
+    outfits: [],
+  }
+  const f = await studio(t, { definitions })
+  const read = f.tools.get('read_character')
+  // 默认就是轻量：只给宏和服装名，外貌与服装正文一个字都不给。
+  const brief = await read.execute({ name: '春雪' })
+  assert.equal(brief.name, '春雪')
+  assert.equal(brief.traits, undefined)
+  assert.deepEqual(brief.outfits, [{ id: 'o1', name: '白裙', default: true }])
+  // 宏体只能是 ${ 与 }$ 之间的一层键值对：多一层花括号会让引擎 JSON.parse 失败，整段宏被静默删掉。
+  // name 用人物库里的英文别名，跟游玩模式一致：中文名在 allowChinesePrompt 关闭时会被清掉。
+  assert.equal(brief.macroName, 'Chun Xue')
+  assert.match(brief.macro, /^\$\{"name":"Chun Xue","angle":"from front","upperBody":"sfw","lowerBody":"sfw"\}\$$/)
+  assert.equal(brief.macro.includes('{{'), false)
+  // 服装独立成宏，跟着人物宏并列使用；名字照用服装库里的原名。
+  assert.match(brief.outfitMacro, /^\$\{"name":"白裙","upperBody":"visible","lowerBody":"visible"\}\$$/)
+  const expanded = expandRosterCalls(brief.macro, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  assert.equal(expanded.includes('${'), false)
+  assert.ok(expanded.trim().length > 0)
+  assert.match(expanded, /银白长发/)
+  // 两条宏拼在一起时，服装宏把衣服带出来，人物宏不再重复补。
+  const both = expandRosterCalls(brief.macro + ', ' + brief.outfitMacro, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  assert.equal(both.includes('${'), false)
+  assert.match(both, /白色吊带/)
+  // full 只服务于改外貌：给 traits 与服装正文，但不掺宏，免得模型照着宏去改库。
+  const full = await read.execute({ name: '春雪', full: true })
+  assert.equal(full.traits.face, '银白长发，蓝绿色眼睛')
+  assert.equal(full.macro, undefined)
+  assert.equal(full.outfitMacro, undefined)
+  assert.equal(full.outfits[0].upper, '白色吊带')
 })
 
 test('independent batch tasks keep the pictures that succeeded when one fails', async t => {
