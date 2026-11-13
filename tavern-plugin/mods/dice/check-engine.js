@@ -48,7 +48,7 @@ export function compileRules(source) {
     resources[id] = { id, label: text(path + '.label', row.label), keys, keySet: row.keys ?? null, initial,
       min: row.min === undefined || row.min === null ? null : formula(path + '.min', row.min),
       max: row.max === undefined || row.max === null ? null : formula(path + '.max', row.max),
-      gm: row.gm === true, hidden: row.hidden === true, secret: row.secret === true, note: text(path + '.note', row.note, true),
+      hidden: row.hidden === true, secret: row.secret === true, note: text(path + '.note', row.note, true),
       mvu: row.mvu === undefined ? null : typeof row.mvu === 'string' && /^(\/[^/~]+)+$/.test(row.mvu) ? row.mvu : fail(path + '.mvu', 'must be a variable path under stat_data, e.g. "/agent/hp"') }
   }
   const checks = {}
@@ -78,6 +78,8 @@ function compileCheck(path, id, row, { sets, resources }) {
     dice[name] = { count: formula(path + '.dice.' + name + '.count', spec.count), sides: formula(path + '.dice.' + name + '.sides', spec.sides), ...(spec.mark ? { mark: [...spec.mark] } : {}), ...(spec.markColor ? { markColor: spec.markColor } : {}) }
     known.add(name)
   }
+  // A check rolls. Bookkeeping without dice (phases, spending, awards) is the card's variable rules, not a check.
+  if (!Object.keys(dice).length) fail(path + '.dice', 'a check rolls at least one die; changes without dice belong in the card\'s variable rules')
   const require = (row.require || []).map((rule, index) => ({ when: formula(path + '.require.' + index + '.when', rule.when), message: text(path + '.require.' + index + '.message', rule.message) }))
   const steps = list => (list || []).map((step, index) => {
     if (!Array.isArray(step) || step.length !== 2 || !NAME.test(step[0])) fail(path + '.let', 'each step is ["name", "formula"]')
@@ -156,7 +158,8 @@ export function withVariables(rules, state, variables) {
     const wrong = what => { throw new Error('card variable ' + resource.mvu + ' (' + resource.label + ') ' + what) }
     if (!resource.keys) { next.resources[resource.id] = Number.isInteger(value) ? value : wrong('must be a whole number'); continue }
     if (!value || typeof value !== 'object' || Array.isArray(value)) wrong('must be an object of whole numbers keyed by ' + resource.keySet)
-    for (const key of Object.keys(value)) if (!resource.keys.includes(key)) wrong('has ' + key + ', which is not one of ' + resource.keys.join(', '))
+    // $-keys are MVU's own metadata ($meta: extensible, limits), not entries.
+    for (const key of Object.keys(value)) if (!key.startsWith('$') && !resource.keys.includes(key)) wrong('has ' + key + ', which is not one of ' + resource.keys.join(', '))
     next.resources[resource.id] = Object.fromEntries(resource.keys.map(key => [key, Number.isInteger(value[key] ?? 0) ? value[key] ?? 0 : wrong('/' + key + ' must be a whole number')]))
   }
   return next
@@ -214,7 +217,7 @@ function writeResource(state, resource, key, value) {
   else state.resources[resource.id] = value
 }
 
-// Apply one change: check effects clamp into the bounds unless strict; strict (and every GM adjustment) refuses
+// Apply one change: check effects clamp into the bounds unless strict; strict ones refuse
 // to leave them. Returns the row of what changed, or null when nothing moved.
 function change(rules, state, resource, key, add, strict, why) {
   if (resource.keys && !resource.keys.includes(key)) throw new Error(resource.label + ' has no entry ' + JSON.stringify(key) + '; entries: ' + resource.keys.join(', '))
@@ -331,14 +334,15 @@ function finish(rules, state, prepared, choice) {
   return { outcome: outcome ? { id: outcome.id, label: outcome.label } : null, show: showOf(outcome), report, changes: mergeChanges(changes), state: next, chosen: Object.fromEntries(check.choices.filter(row => open.some(item => item.id === row.id)).map(row => [row.id, values[row.id]])) }
 }
 
-// One row per resource entry: from its first value to its last.
+// One row per resource entry: from its first value to its last, and the increment (add) the story states, so the
+// variable settlement applies it as a delta whatever else changed the variable in the same turn.
 function mergeChanges(changes) {
   const rows = new Map()
   for (const row of changes) {
     const id = row.resource + '\u0000' + (row.key ?? '')
     rows.set(id, rows.has(id) ? { ...rows.get(id), to: row.to } : row)
   }
-  return [...rows.values()].filter(row => row.from !== row.to)
+  return [...rows.values()].filter(row => row.from !== row.to).map(row => ({ ...row, add: row.to - row.from }))
 }
 
 // The performance a record carries: the effect its outcome asks for and the words it shows (the outcome's label).
@@ -392,24 +396,10 @@ export function settleCheck(rules, state, record, choice = {}) {
     outcome: done.outcome, ...done.show, report: done.report, changes: done.changes, state: done.state }
 }
 
-/** A game-master change to resources the rules mark gm: true (e.g. spending the pool, awarding points). */
-export function adjustResources(rules, state, changes) {
-  if (!Array.isArray(changes) || !changes.length) throw new Error('changes must list at least one {resource, key?, add}')
-  const next = { resources: { ...state.resources } }, rows = []
-  for (const row of changes) {
-    const resource = rules.resources[row?.resource]
-    if (!resource) throw new Error('resource must be one of: ' + Object.values(rules.resources).filter(item => item.gm).map(item => item.id + ' (' + item.label + ')').join(', '))
-    if (!resource.gm) throw new Error(resource.label + ' changes only through checks')
-    const moved = change(rules, next, resource, resource.keys ? row.key : null, row.add, true, outOfBounds)
-    if (moved) rows.push(moved)
-  }
-  return { status: 'adjusted', changes: mergeChanges(rows), state: next }
-}
-
 /** The resources as labelled rows, for the model's status read and the player's sheet. */
 export function describeState(rules, state) {
   return Object.values(rules.resources).filter(resource => !resource.hidden).map(resource => ({ resource: resource.id, label: resource.label,
-    value: state.resources[resource.id], ...(resource.gm ? { gm: true } : {}), ...(resource.note ? { note: resource.note } : {}) }))
+    value: state.resources[resource.id], ...(resource.note ? { note: resource.note } : {}) }))
 }
 
 /** The checks the rules declare, for the model: id, label, summary and parameters. */

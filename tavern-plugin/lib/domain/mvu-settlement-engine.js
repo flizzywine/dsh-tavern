@@ -1,6 +1,7 @@
 import { settlementTurn } from './chat-session-state.js'
 import { collectMvuHelperContext } from './mvu-background-settlement.js'
 import { applyMvuSettlementEffect } from './mvu-settlement-effect.js'
+import { cardMvuLimits } from './mvu-limits.js'
 import { projectAgentMessageText } from './runtime-content-projection.js'
 import { pendingMvuTarget } from './settlement-turn.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
@@ -88,8 +89,10 @@ export function createMvuSettlementEngine(deps) {
       storyText: projectAgentMessageText(mvuTarget.message, { charName: card && card.name, macroState: snapshot.macroState }),
       currentVariables: mvuTarget.variables,
       helperContext: collectMvuHelperContext(snapshot.messages, mvuTarget.messageId),
+      toolResults: await deps.turnToolResults?.(snapshot, mvuTarget) || [],
       guides: Array.isArray(snapshot.guides) ? snapshot.guides : [],
       variableSchema: mvuTarget.variables.schema,
+      variableLimits: cardMvuLimits(card) || [],
       charName: card && card.name,
       macroState: snapshot.macroState,
       updateRules: damperBudgetRule ? [...(Array.isArray(baseUpdateRules) ? baseUpdateRules : []), damperBudgetRule] : baseUpdateRules,
