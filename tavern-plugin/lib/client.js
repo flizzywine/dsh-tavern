@@ -33861,22 +33861,22 @@ function bubbleCardFace(config, name, sessionId) {
 // A chat card frame's faces (its window.DshCardFaces.faces, frame-document.js): each named figure's card face, prepared in
 // the session avatar cache as the transcript prepares its rows' and handed over as a Blob the frame makes its own URL of
 // (a sandboxed frame cannot load the host's). A name without a face is left out; a card without bubble settings has none.
-// A frame can ask while the stage client is still starting: the faces then wait for the avatar cache to be bound to the
-// session and for the stage session to hold its resource authority, rather than answer with nothing (the page asks once).
+// The avatar cache is bound to a session by the stage client's session observation; with the stage off (or not started
+// yet) nothing binds it, so a frame binds it itself before preparing its face (as the transcript rows work with the stage off).
 const BUBBLE_FRAME_FACE_PX = 96;
-const waitUntil = (subscribe, done) => done() ? Promise.resolve() : new Promise(resolve => {
-    const stop = subscribe(() => { if (done()) { stop(); resolve(); } });
-});
 async function bubbleCardFaceBlobs(sessionId, names) {
     const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
     const faces = await Promise.all([...new Set(names)].map(async name => {
         const face = bubbleCardFace(data?.config, name, sessionId);
         if (!face) return null;
-        await waitUntil(avatarCache.subscribe, () => avatarCache.valid(face));
+        if (avatarCache.sessionId === null) avatarCache.select(sessionId);
+        avatarCache.revision(face.ref.packId, face.revision);
+        // the stage client is up but its session has no resource authority yet: the face waits for it
         const session = stageSessions.get(sessionId);
-        if (stageSessions.resourceOwner && session?.subscribe) await waitUntil(session.subscribe, () => session.getSnapshot().source);
-        const source = session?.getSnapshot().source;
-        const authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
+        if (stageSessions.resourceOwner && session?.subscribe && !session.getSnapshot().source) await new Promise(resolve => {
+            const stop = session.subscribe(() => { if (session.getSnapshot().source) { stop(); resolve(); } });
+        });
+        const source = session?.getSnapshot().source, authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
         let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX) || avatarCache.ready(face);
         if (!url && !(stageSessions.resourceOwner && !authority)) {
             const pool = bubbleMediaPool.retain(), {sessionId: _session, ...descriptor} = face;
