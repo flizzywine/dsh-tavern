@@ -32,7 +32,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     foreground(bindings) {
       assert('assets')
       const capabilities=createForegroundCapabilities({...bindings,
-        modPrompts:(chat,options)=>module?.managedModManagement.foreground(chat,options),
+        modPrompts:(chat,options)=>module?.managedModManagement.foreground(chat,{...options,cardGoverns:bindings.cardGoverns}),
         judge:()=>assets.assetEngineSettings.read().values.judge})
       scope.own(capabilities)
       return capabilities

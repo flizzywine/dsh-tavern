@@ -47,7 +47,7 @@ import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { createNarrativeDamper } from './domain/narrative-damper.js'
 import { registerGameplayTools } from './tools/gameplay.js'
-import { modTools } from './mod-tools.js'
+import { cardGoverns, cardOffer, modTools } from './mod-tools.js'
 import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
 import { registerUserProfileTools } from './tools/user-profile.js'
 import { registerSkillTools } from './tools/skills.js'
@@ -2308,6 +2308,8 @@ export async function apply(ctx) {
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
   const foregroundCapabilities = stageRuntime.foreground({
     session: id => sessionStore.get(id) || agentRegistry.get(id)?.session,
+    // A card that declares one of a mod's tools stands for that mod: the stage leaves out that mod's prompts.
+    cardGoverns,
     readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
@@ -3738,6 +3740,7 @@ export async function apply(ctx) {
     storyInputToolCall: async () => (await readTavernSettings()).storyInputToolCall,
     historyLayout: resolveActiveHistoryLayout,
     modEnabled: (modId, cardPath) => cardPath ? ctx.get('tavernManagedModules')?.enabled({modId,cardPath}) ?? false : false,
+    cardOffer: async chat => { const card = await readChatCard(chat); return tool => cardOffer(tool, card) },
     modTools,
     store: {
       chatForSession,

@@ -1493,11 +1493,14 @@ export function createTurnOrchestrator(options) {
     // Search and browse expose current real files; native read is restricted
     // to the calling game's effective static worldbook generation.
     const worldbookTools = ['read', 'worldbook_list', 'worldbook_grep']
-    // A mod's foreground tool (options.modTools: [{modId, name}]) is offered where the card has its mod on, or where
-    // this game's history already calls it (a replayed call needs its tool declared).
+    // A mod's foreground tool (options.modTools: [{modId, name}]) is offered where this game's history already calls it (a
+    // replayed call needs its tool declared), where the card offers it (cardOffer, lib/mod-tools.js: 'card'), or where the card
+    // leaves it to the mod switch (null) and the card has the mod on.
     const modTools = []
+    const cardOffer = await options.cardOffer?.(chat)
     for (const tool of options.modTools || []) {
-      if ((chat.usedModTools || []).includes(tool.name) || await options.modEnabled?.(tool.modId, chat.cardPath) === true) modTools.push(tool.name)
+      const from = cardOffer?.(tool) ?? null
+      if ((chat.usedModTools || []).includes(tool.name) || from === 'card' || (from === null && await options.modEnabled?.(tool.modId, chat.cardPath) === true)) modTools.push(tool.name)
     }
     const names = mode === 'script'
       ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]

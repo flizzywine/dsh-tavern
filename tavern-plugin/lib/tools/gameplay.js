@@ -3,6 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshParameterFields } from '../domain/dsh-tool-schema.js'
 import { surfaceToolResults } from '../domain/surface-tool-results.js'
 import { settledVariables } from '../domain/read-variables.js'
+import { cardOffer } from '../mod-tools.js'
 
 export function registerGameplayTools({
   modTools = [],
@@ -22,7 +23,8 @@ export function registerGameplayTools({
   // variables(chat) the game's latest settled MVU stat_data and the turn it belongs to ({snapshot, turn}): results of later turns
   // are not in it yet.
   for (const tool of modTools) tools.register(defineTool(tool.create({ activeTurnOf, chatForSession, isBackground,
-    authorize: chat => authorizeMod(tool.modId, chat), markUsed: chat => markModToolUsed(chat, tool.name),
+    authorize: async chat => { const from = cardOffer(tool, await readChatCard(chat)); return from === 'card' || (from === null && authorizeMod(tool.modId, chat)) },
+    markUsed: chat => markModToolUsed(chat, tool.name),
     readCard: chat => readChatCard(chat), results: exec => surfaceToolResults(exec?.agent?.session, tool.name, activeTurnOf(exec)),
     variables: chat => settledVariables(chat) })))
   tools.register(defineTool({
