@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2dfd6750c3d6aa1fe8880f2e47f8959ce5ca0b84",
-  "releaseSequence": 1593,
+  "revision": "2acfbdfb7a0a88a7430dceb3abacfe023f48f94b",
+  "releaseSequence": 1594,
   "version": "3.3.0",
   "files": [
     {
@@ -956,8 +956,8 @@
     },
     {
       "path": "tavern-plugin/lib/background-agent-task.js",
-      "sha256": "1ea7117cd2560ce84b27b00ecad470d84a9b78ab1c260ef9c2a114091b7c2bef",
-      "size": 43581
+      "sha256": "2386a44d0a92547b0b96f58e7496483701ff2a72f7d5738a251e284eda73a627",
+      "size": 43587
     },
     {
       "path": "tavern-plugin/lib/background-run-ledger.js",
@@ -1326,8 +1326,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-generation.js",
-      "sha256": "7f65431bc03383a89e5aebf8f965324cca9db7fe3db928882f493c70d590e6db",
-      "size": 30853
+      "sha256": "5f6f77dc47c722899b37ce694b4309f1d60782db5f55b848c26de1ab343f4118",
+      "size": 30850
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-script-context.js",
@@ -2486,8 +2486,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
-      "sha256": "915506e43119e15f5a7af42e1294ff86dcd2991313a23d246c5a5874d2a46627",
-      "size": 48562
+      "sha256": "2e517f5babaaa7f39e4d059916cfe78336d05609e69912a5dce9d7d92cb43d0d",
+      "size": 48745
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-apply.js",
@@ -2776,8 +2776,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/polish-agent.js",
-      "sha256": "fc00095c1c285de188a21515fe85b7abde264d3cd3569deb0ad5735b14fd572d",
-      "size": 10951
+      "sha256": "7cddcec0044f9427cf854d0c8c97b0bb9fe8599b6bdfad7b9f3fe0694a0ec01b",
+      "size": 10981
     },
     {
       "path": "tavern-plugin/lib/domain/polish-records.js",
@@ -8946,13 +8946,13 @@
     },
     {
       "path": "tavern-plugin/prompts/candidate-script.md",
-      "sha256": "28527dc6f1c2bb7260d03217dcf01e105307fb703781d4fabcdf673ffa185dff",
-      "size": 888
+      "sha256": "20e747444ae560ef1f296bc7f71290d24cffd5540d0a9803c233e21d437aeaf6",
+      "size": 920
     },
     {
       "path": "tavern-plugin/prompts/candidate-story.md",
-      "sha256": "6c3f4b9365cc2b02eea8fa9007ad5131d9b81ee986fc01ff631fc73e75659025",
-      "size": 1323
+      "sha256": "16949023e207c958af25d1698a899ddf6673cea990898d60f288a7cbef916ed4",
+      "size": 1363
     },
     {
       "path": "tavern-plugin/prompts/card-personas/editor.md",
@@ -9036,8 +9036,8 @@
     },
     {
       "path": "tavern-plugin/prompts/posture-settlement.md",
-      "sha256": "9b3251c04849046d0c1a8ce4ee44d5e606a32a8d24fa582622582825a0f40eff",
-      "size": 340
+      "sha256": "ab13f493a9c2623c86fce3ccc92c2511e09c54d1399d08996ebfe124e6eb07c9",
+      "size": 345
     },
     {
       "path": "tavern-plugin/prompts/README.md",
@@ -9051,8 +9051,8 @@
     },
     {
       "path": "tavern-plugin/prompts/story-compaction.md",
-      "sha256": "eac9f13c9c6c7870d246f59888f7ab25c4ec75730fe55b8a3f9e774ee989e028",
-      "size": 4298
+      "sha256": "ccbec35a14858bf54b318ffa2ffd358a4ce18c32f19263852de7678d12d33025",
+      "size": 4329
     },
     {
       "path": "tavern-plugin/prompts/story.md",
@@ -9226,9 +9226,9 @@
     }
   ],
   "archive": {
-    "commit": "86cbdcac59bbda522512dd7701719b42aa2ece9f",
+    "commit": "da2aa288184df3fdb2abc8a886dd56ef3884d33e",
     "path": "runtime.zip",
-    "sha256": "5fc75060f59062a4237ed72a14de571532f785fa051b4d5e11397a1b979f82cf",
-    "size": 16407999
+    "sha256": "300e599b9548a2c4994c3b07955e10088106663335fec4d9d6867748eedecee6",
+    "size": 16408156
   }
 }
