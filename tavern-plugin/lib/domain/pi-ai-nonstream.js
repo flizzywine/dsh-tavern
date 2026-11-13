@@ -4,6 +4,7 @@
 // the caller's stream flag through the adapter and streamSimple boundary.
 export const PI_AI_NONSTREAM_MARKER = '/* dsh-tavern:pi-ai-nonstream */'
 export const PI_AI_ADAPTER_MARKER = '/* dsh-tavern:pi-ai-stream-option */'
+export const PI_AI_TOOL_CHOICE_MARKER = '/* dsh-tavern:pi-ai-tool-choice */'
 
 export function openAICompletionChunks(completion, modelId = '') {
   const response = completion && typeof completion === 'object' ? completion : {}
@@ -74,12 +75,25 @@ export function patchPiAiOpenAICompletionsSource(source) {
   return { status: 'applied', text: patched }
 }
 
-/** Pass the caller's stream flag through the host adapter into pi-ai. */
+/** Pass the caller's stream flag and toolChoice through the host adapter into pi-ai. */
 export function patchPiAiAdapterSource(source) {
-  const text = String(source)
-  if (text.includes(PI_AI_ADAPTER_MARKER)) return { status: 'patched', text }
-  const from = '\t\t\t\t\t...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },\n\t\t\t\t\tsignal: watchdog.signal,'
-  const to = `\t\t\t\t\t...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },\n\t\t\t\t\t${PI_AI_ADAPTER_MARKER}\n\t\t\t\t\t...typeof options.stream === "boolean" ? { stream: options.stream } : {},\n\t\t\t\t\tsignal: watchdog.signal,`
-  const patched = replaceOnce(text, from, to)
-  return patched === null ? { status: 'unmatched', text } : { status: 'applied', text: patched }
+  let text = String(source)
+  let changed = false
+  if (!text.includes(PI_AI_ADAPTER_MARKER)) {
+    const from = '\t\t\t\t\t...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },\n\t\t\t\t\tsignal: watchdog.signal,'
+    const to = `\t\t\t\t\t...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },\n\t\t\t\t\t${PI_AI_ADAPTER_MARKER}\n\t\t\t\t\t...typeof options.stream === "boolean" ? { stream: options.stream } : {},\n\t\t\t\t\t${PI_AI_TOOL_CHOICE_MARKER}\n\t\t\t\t\t...options.toolChoice === void 0 ? {} : { toolChoice: options.toolChoice },\n\t\t\t\t\tsignal: watchdog.signal,`
+    const patched = replaceOnce(text, from, to)
+    if (patched === null) return { status: 'unmatched', text: String(source) }
+    text = patched
+    changed = true
+  } else if (!text.includes(PI_AI_TOOL_CHOICE_MARKER)) {
+    const from = `${PI_AI_ADAPTER_MARKER}\n\t\t\t\t\t...typeof options.stream === "boolean" ? { stream: options.stream } : {},`
+    const to = `${from}\n\t\t\t\t\t${PI_AI_TOOL_CHOICE_MARKER}\n\t\t\t\t\t...options.toolChoice === void 0 ? {} : { toolChoice: options.toolChoice },`
+    const patched = replaceOnce(text, from, to)
+    if (patched !== null) {
+      text = patched
+      changed = true
+    }
+  }
+  return { status: changed ? 'applied' : 'patched', text }
 }
