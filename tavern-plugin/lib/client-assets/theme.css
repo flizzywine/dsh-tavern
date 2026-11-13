@@ -6277,6 +6277,9 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-check-line, .fork-check-choices { padding: 0 12px 0 34px; overflow-wrap: anywhere; }
 .fork-check-choice-label { font-weight: 600; }
 .fork-check-hint { font-size: var(--fork-fs-meta); }
+/* A ruling without dice (a v2 rules action): one small line of what the player may see changed, no card. */
+.fork-check-note { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 0 2px; color: var(--fork-ink); font: 400 var(--fork-fs-meta)/1.5 var(--fork-font-ui); overflow-wrap: anywhere; }
+.fork-check-note > .fork-icon { flex: none; color: var(--fork-ink-3); }
 /* The answer buttons of an awaiting record (check.js): quiet tiles, the chosen one in the accent; the confirm button only when several picks go together. */
 .fork-check-choice + .fork-check-choice { margin-top: 6px; }
 .fork-check-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }

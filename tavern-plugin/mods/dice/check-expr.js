@@ -14,7 +14,19 @@ const FUNCTIONS = Object.freeze({
   ceil: value => Math.ceil(asNumber(value, 'ceil')),
   clamp: (value, low, high) => Math.min(asNumber(high, 'clamp'), Math.max(asNumber(low, 'clamp'), asNumber(value, 'clamp'))),
   has: (list, value) => asList(list, 'has').includes(value),
+  // get(map, key, fallback) - an entry of a map whose entries are not fixed, or fallback when it has none
+  get: (map, key, fallback) => map && typeof map === 'object' && !Array.isArray(map) && Object.hasOwn(map, key) ? map[key] : fallback,
+  // join(a, b, ...) - the values as one text (an entry name made of parts)
+  join: (...values) => values.map(value => String(value)).join(''),
+  // keys(map) - the entry names of a map, e.g. for each: over entries that are not fixed
+  keys: map => map && typeof map === 'object' && !Array.isArray(map) ? Object.keys(map) : (() => { throw new Error('keys() needs a map') })(),
+  // range(n) - 0, 1, ..., n-1: the positions of a list, e.g. each: "range(len(d))" reads d[key] die by die
+  range: n => { const count = asNumber(n, 'range'); if (!Number.isInteger(count) || count < 0 || count > 1000) throw new Error('range() needs a whole number 0-1000'); return Array.from({ length: count }, (_, index) => index) },
+  // slice(list, start, end) - the entries from start up to before end, e.g. count(slice(d, 0, key + 1), d[key]) is the how-manieth time this face came up
+  slice: (list, start, end) => asList(list, 'slice').slice(asNumber(start, 'slice'), end === undefined ? undefined : asNumber(end, 'slice')),
 })
+// A formula is short data: these bound what one card can make the engine parse.
+const MAX_FORMULA_LENGTH = 2000, MAX_FORMULA_DEPTH = 40
 export const FORMULA_FUNCTIONS = Object.freeze(Object.keys(FUNCTIONS))
 
 function asList(value, name) {
@@ -53,18 +65,22 @@ const BINARY = [['||'], ['&&'], ['==', '!='], ['<', '<=', '>', '>='], ['+', '-']
 export function parseFormula(source) {
   if (typeof source === 'number' || typeof source === 'boolean') return { n: 'lit', v: source }
   if (typeof source !== 'string' || !source.trim()) throw new Error('a formula must be non-empty text or a number')
+  if (source.length > MAX_FORMULA_LENGTH) throw new Error('a formula is at most ' + MAX_FORMULA_LENGTH + ' characters')
   const tokens = tokenize(source)
-  let at = 0
+  let at = 0, depth = 0
   const peek = () => tokens[at], next = () => tokens[at++]
   const isOp = value => peek()?.kind === 'op' && peek().value === value
   const expect = value => { if (!isOp(value)) throw new Error('expected ' + value + ' in ' + source); at++ }
   function conditional() {
+    if (++depth > MAX_FORMULA_DEPTH) throw new Error('a formula nests at most ' + MAX_FORMULA_DEPTH + ' levels: ' + source)
     const test = binary(0)
-    if (!isOp('?')) return test
+    if (!isOp('?')) { depth--; return test }
     at++
     const yes = conditional()
     expect(':')
-    return { n: 'if', c: test, a: yes, b: conditional() }
+    const node = { n: 'if', c: test, a: yes, b: conditional() }
+    depth--
+    return node
   }
   function binary(level) {
     if (level === BINARY.length) return unary()

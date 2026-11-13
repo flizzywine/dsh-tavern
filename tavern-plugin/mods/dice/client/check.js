@@ -61,14 +61,29 @@ function useChecks(useChat, nativeTurn, nodeKey) {
 }
 
 const checkSigned = value => (value > 0 ? "+" : "") + value;
-// What the player's card may show of a record: the rules' secret resources (record.secret) are left out everywhere on it.
-const checkShown = (record, rows) => record.secret ? rows.filter(row => !record.secret.includes(row.resource)) : rows;
+// What the player's card may show of a record: what the rules keep from the player (a v1 record lists its secret resources
+// in record.secret, a v2 change row carries secret) is left out everywhere on it.
+const checkShown = (record, rows) => rows.filter(row => !row.secret && !(record.secret && record.secret.includes(row.resource)));
 // One previewed value of an int choice: 「2：代价成功（素质保证·主动-1）」.
 function checkPreviewText(row, record) {
     const changes = checkShown(record, row.changes);
-    return row.value + "：" + (row.outcome || "") + (changes.length ? "（" + changes.map(c => c.label + checkSigned(c.add)).join("，") + "）" : "");
+    return row.value + "：" + (row.outcome || "") + (changes.length ? "（" + changes.map(c => c.label + (c.add !== undefined ? checkSigned(c.add) : " " + c.to)).join("，") + "）" : "");
 }
-function checkChangeText(row) { return row.label + (row.key ? "·" + row.key : "") + " " + row.from + "→" + row.to; }
+// A change row: 「欺瞒 3→2」; a new entry 「线索·管家 新增 2」, a removed one 「线索·管家 删除」.
+function checkChangeText(row) {
+    const label = row.label + (row.key ? "·" + row.key : "");
+    if (!("from" in row)) return label + " 新增 " + checkValueText(row.to);
+    if (!("to" in row)) return label + " 删除";
+    return label + " " + checkValueText(row.from) + "→" + checkValueText(row.to);
+}
+// An entry with fields is one object: 「能力 8 · 季薪 30」.
+const checkValueText = value => value === true ? "是" : value === false ? "否" : value === "" ? "（无）"
+    : value && typeof value === "object" ? Object.entries(value).map(([field, item]) => field + " " + checkValueText(item)).join(" · ") : String(value);
+// A ruling without dice shows as one small line of what the player may see changed: 「嘉奖 +1」「时间 -1，已标·职能 +1」.
+function checkNoteText(record) {
+    return checkShown(record, record.changes || []).map(row => typeof row.from === "number" && typeof row.to === "number"
+        ? row.label + " " + checkSigned(row.to - row.from) : checkChangeText(row)).join("，");
+}
 // The resources after a record, from its labels: a keyed resource lists its non-zero entries.
 function checkSheet(record) {
     const labels = record.labels || {}, parts = [];
@@ -210,7 +225,16 @@ function useCheckPerforming(callId) {
     return React.useSyncExternalStore(checkPerforming.subscribe, () => checkPerforming.get().has(callId), () => false);
 }
 
-function CheckRecord(props) {    const h = React.createElement, record = props.record;
+function CheckRecord(props) {
+    const h = React.createElement, record = props.record;
+    if (record.action && record.status === "settled" && !record.dice) {
+        const note = checkNoteText(record);
+        return note ? h("div", { className: "fork-check-note", "data-call": record.callId }, h(Icon, { name: "die", size: 14 }), h("span", null, note)) : null;
+    }
+    return h(CheckCard, props);
+}
+function CheckCard(props) {
+    const h = React.createElement, record = props.record;
     const [open, setOpen] = React.useState(false);
     const detailsId = React.useId();
     const awaiting = record.status === "awaiting";

@@ -1,9 +1,11 @@
 import { checkMvuCard, looksLikeMvuCard } from './mvu-card-check.js'
+import { cardMvuLimits } from './mvu-limits.js'
 import { parseJsonWithLocation } from './resource-validation.js'
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
-// Static validation only: never execute card scripts or rewrite the document.
-export function validateCardText(text) {
+// Static validation only: never execute card scripts or rewrite the document. cardChecks are the mods' tools' own card
+// checks (lib/mod-tools.js checkCard): each gets the card data, the path prefix and its $meta.limits, and returns errors.
+export function validateCardText(text, { cardChecks = [] } = {}) {
   const errors = [], warnings = []
   const issue = (path, message) => errors.push({ path, message })
   const result = () => ({ valid: errors.length === 0, errors, warnings })
@@ -54,13 +56,17 @@ export function validateCardText(text) {
     const mvu = checkMvuCard(data, prefix)
     errors.push(...mvu.errors); warnings.push(...mvu.warnings)
   }
+  if (cardChecks.length) {
+    const limits = cardMvuLimits(data) || []
+    for (const checkCard of cardChecks) errors.push(...checkCard(data, { prefix, limits }))
+  }
   warnings.push({ path: '/', message: '仅检查静态格式；未执行正则、脚本或 MVU 结算，格式通过不代表运行成功' })
   return result()
 }
 
-export async function validateCardFile({ path, readText }) {
+export async function validateCardFile({ path, readText, cardChecks }) {
   if (!path) return { valid: false, errors: [{ path: '/', message: '请先保存人物卡文件，再指定 cards/... 路径校验' }], warnings: [] }
   const text = await readText(path)
   if (text === undefined) return { valid: false, errors: [{ path, message: '人物卡文件不存在' }], warnings: [] }
-  return validateCardText(text)
+  return validateCardText(text, { cardChecks })
 }

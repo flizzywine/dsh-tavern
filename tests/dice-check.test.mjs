@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { compileRules, initialState, rollCheck, settleCheck, seededDraw } from '../tavern-plugin/mods/dice/check-engine.js'
 import { parseFormula, evaluate } from '../tavern-plugin/mods/dice/check-expr.js'
-import { CHECK_RULES_KEY, createCheckTool, runCheckAction } from '../tavern-plugin/mods/dice/check-tool.js'
+import { CHECK_RULES_KEY, REGENERATING, createCheckTool, runCheckAction } from '../tavern-plugin/mods/dice/check-tool.js'
 import { surfaceToolResults } from '../tavern-plugin/lib/domain/surface-tool-results.js'
 import { modTools } from '../tavern-plugin/lib/mod-tools.js'
 const { defineTool } = await import(pathToFileURL(createRequire(new URL('../tavern-plugin/package.json', import.meta.url)).resolve('@deepseek-ai/dsh-tools')).href)
@@ -128,7 +128,7 @@ test('the tool folds the game\'s records: ids, the open check, settle and resour
   assert.deepEqual(told.secret, ['luck'], 'the record names the secret resources for the card')
   assert.ok(told.resources.some(row => row.resource === 'luck'), 'the model still reads a secret resource')
   assert.deepEqual(act({ action: 'status' }).state.resources, { ...initialState(rules).resources, luck: 1 })
-  assert.throws(() => runCheckAction(rules, records, { action: 'adjust', changes: [{ resource: 'harm', add: 3 }], reason: 'Fell' }, 1), /action must be status, roll or settle/)
+  assert.throws(() => runCheckAction(rules, records, { action: 'adjust', changes: [{ resource: 'harm', add: 3 }], reason: 'Fell' }, 1), /op must be status, act or choose/)
 })
 
 // A card keeping resources in its MVU variables: they are the truth up to the turn they settled (whatever the settlement
@@ -203,8 +203,17 @@ test('registered from the dice mod with a stable schema; refuses cards without r
   const rolled = await tool.execute({ action: 'roll', check: 'pool', params: { size: 3 }, reason: 'r', stakes: 's' }, exec)
   assert.equal(rolled.id, '#1')
   assert.ok(Number.isInteger(rolled.seed) && rolled.seed >= 0 && rolled.seed < 2 ** 32)
+  // The current call form reaches the same v1 checks.
+  texts = []
+  assert.equal((await tool.execute({ op: 'act', action: 'pool', params: { size: 3 }, reason: 'r' }, exec)).id, '#1')
+  // A regenerated reply keeps the rulings of the version it replaces: status still reads, a new act or choice is refused.
+  const rewriting = createCheckTool({ activeTurnOf: e => e.agent.phase.turn, chatForSession: async () => ({ mode: 'story', regenInProgress: true }), isBackground: () => false,
+    readCard: async () => card, results: async () => [] })
+  assert.equal((await rewriting.execute({ op: 'status' }, exec)).rules, 'fixture')
+  for (const args of [{ op: 'act', action: 'pool', params: { size: 3 }, reason: 'r' }, { op: 'choose', choice: {} }, { action: 'roll', check: 'pool', params: { size: 3 } }])
+    await assert.rejects(rewriting.execute(args, exec), error => error.message === REGENERATING)
   card = {}
-  await assert.rejects(tool.execute({ action: 'status' }, exec), /declares no check rules/)
+  await assert.rejects(tool.execute({ action: 'status' }, exec), /declares no rules/)
   assert.equal(JSON.stringify(defineTool(tool)), schema)
   console.log('tavern_check schema bytes', Buffer.byteLength(schema))
 })
