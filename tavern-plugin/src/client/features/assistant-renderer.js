@@ -1051,7 +1051,8 @@
 						if (props.node.data.finalNode && /^tavern-seed-trajectory:v1:.+:2$/.test(String(props.node.data.finalNode.messageId || ""))) return null;
 						// The process panel's copy of the answer step holds only its thinking; the story,
 						// pictures and receipts belong to the reply seat. Otherwise the body shows twice.
-						if (props.groupPart === "reasoning") return React.createElement(TavernReasoningSeat, { blocks: props.node.data.blocks, streaming: props.node.data.status === "running" });
+						// 「流式显示思维链」把思考搬进回复座位时，这里让位，同一段思考不画两遍。
+						if (props.groupPart === "reasoning") return typeof tavernReasoningStreamEnabled === "function" && tavernReasoningStreamEnabled() ? null : React.createElement(TavernReasoningSeat, { blocks: props.node.data.blocks, streaming: props.node.data.status === "running" });
 						if (String(props.node.data.finalNode?.messageId || '').startsWith('tavern-game-mode:')) {
 							return React.createElement('section', { className: 'dsh-tavern-game-foreground', 'aria-label': 'DM 前台记录' },
 								React.createElement('div', { style: { whiteSpace: 'pre-wrap', lineHeight: 1.8 } }, (props.node.data.blocks || []).filter(block => block.kind === 'text').map(block => block.text).join('\n')),

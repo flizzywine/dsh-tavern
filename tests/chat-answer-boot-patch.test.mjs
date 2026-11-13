@@ -51,7 +51,8 @@ test('页面补丁拦住排队与实时两个阶段的注册，改写真实宿�
 
 test('回答步骤的两个座位各显示自己的块：过程座只有思考，回复座不重复思考（#254）', () => {
   const client = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  assert.match(client, /if \(props\.groupPart === "reasoning"\) return React\.createElement\(TavernReasoningSeat/)
-  assert.match(client, /input\.groupPart !== "response" \|\| block\.kind !== "reasoning"/)
+  // 「流式显示思维链」把思考搬进回复座位；打开时过程座位让位，同一段思考不画两遍。
+  assert.match(client, /tavernReasoningStreamEnabled\(\) \? null : React\.createElement\(TavernReasoningSeat/)
+  assert.match(client, /input\.groupPart !== "response" \|\| block\.kind !== "reasoning" \|\| reasoningInReply/)
   assert.match(client, /groupPart: props\.groupPart,/)
 })

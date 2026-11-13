@@ -183,6 +183,7 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-assistant-reasoning { color: var(--dsw-alias-label-secondary); font-size: 14px; line-height: 22px; }
 .dsh-tavern-assistant-reasoning summary { cursor: pointer; user-select: none; }
 .dsh-tavern-assistant-reasoning pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.dsh-tavern-assistant-reasoning[open] pre { max-height: 42vh; overflow: auto; }
 .dsh-tavern-html-sketch { margin: 8px 0; border: 1px solid var(--dsh-tavern-accent-border); border-radius: 8px; overflow: hidden; }
 .dsh-tavern-html-sketch figcaption { padding: 4px 10px; background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-html-sketch iframe { display: block; width: 100%; border: 0; background: #fff; }
