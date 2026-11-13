@@ -95,3 +95,84 @@ test('按整轮收集思考块：工具步与收尾步的 reasoning 都算', asy
   assert.deepEqual(collect({ steps: [node([{ kind: 'text', text: '正文' }])] }), [])
   assert.deepEqual(collect(undefined), [])
 })
+
+
+test('原生对话流在出正文前借宿步骤槽流式展开思维链，出正文与跨多步后由回复座位统一收拢展示', async () => {
+  const { readFileSync } = await import('node:fs')
+  const vm = await import('node:vm')
+  const source = readFileSync(new URL('../tavern-plugin/src/client/features/assistant-renderer.js', import.meta.url), 'utf8')
+  const start = source.indexOf('function tavernAssistantStepNode(')
+  const end = source.indexOf('// Third-party plugins:', start)
+  assert.ok(start > 0 && end > start, '应能定位流式思维链辅助函数区间')
+  const snippet = source.slice(start, end)
+  let streamEnabled = true
+  const FakeReact = {
+    createElement(type, props, ...children) {
+      const nextProps = children.length ? Object.assign({}, props, { children }) : Object.assign({}, props)
+      if (typeof type === 'function') return type(nextProps)
+      return { type, props: props || {}, children }
+    }
+  }
+  const TavernReasoningSeat = props => ({ seat: 'host', props })
+  const context = vm.createContext({
+    React: FakeReact,
+    TavernReasoningSeat,
+    useTavernReasoningStreamEnabled: () => streamEnabled,
+    tavernReasoningStreamEnabled: () => streamEnabled
+  })
+  vm.runInContext(snippet, context)
+  const { TavernAssistantReasoningSlot, TavernTurnReasoning, tavernTurnReasoningIsLive } = context
+
+  const step1Running = {
+    status: 'running',
+    finalNode: { seq: 1 },
+    blocks: [{ kind: 'reasoning', text: '第1步思考中' }]
+  }
+  const turnOnlyStep1 = {
+    status: 'open',
+    steps: [{ data: { get: k => (k === 'assistant-step' ? step1Running : null) } }]
+  }
+  const nodeStep1 = { data: step1Running, location: { kind: 'step', turn: turnOnlyStep1 } }
+  const firstRender = TavernAssistantReasoningSlot({ node: nodeStep1 })
+  assert.equal(firstRender.type, 'details')
+  assert.equal(firstRender.props.className, 'dsh-tavern-assistant-reasoning dsh-tavern-stream-reasoning')
+  assert.equal(firstRender.props.open, true, '首步仅有思考尚未出正文时应保持流式展开')
+  assert.equal(firstRender.children[0].children[0], '思考中…')
+
+  const step1CallingTool = {
+    status: 'settled',
+    finalNode: { seq: 1 },
+    blocks: [{ kind: 'reasoning', text: '第1步思考完' }, { kind: 'tool-call', name: 'read' }]
+  }
+  const turnStep1Tool = { status: 'open', steps: [{ data: step1CallingTool }] }
+  const toolPauseRender = TavernAssistantReasoningSlot({ node: { data: step1CallingTool, location: { kind: 'step', turn: turnStep1Tool } } })
+  assert.equal(toolPauseRender.type, 'details')
+  assert.equal(toolPauseRender.props.open, false, '思考结束转入工具调用时应立即收起并保留在原处不闪烁')
+  assert.equal(toolPauseRender.children[0].children[0], '思考过程')
+
+  const step2Thinking = {
+    status: 'running',
+    finalNode: { seq: 2 },
+    blocks: [{ kind: 'reasoning', text: '第2步继续分析' }]
+  }
+  const turnTwoSteps = { status: 'open', steps: [{ data: step1CallingTool }, { data: step2Thinking }] }
+  assert.equal(TavernAssistantReasoningSlot({ node: { data: step1CallingTool, location: { kind: 'step', turn: turnTwoSteps } } }), null, '旧步骤应让位给最新的思考步，避免重复渲染')
+  const secondStepRender = TavernAssistantReasoningSlot({ node: { data: step2Thinking, location: { kind: 'step', turn: turnTwoSteps } } })
+  assert.equal(secondStepRender.props.open, true)
+  assert.ok(secondStepRender.children[1].children[0].includes('第1步思考完') && secondStepRender.children[1].children[0].includes('第2步继续分析'))
+
+  const step2WithReply = {
+    status: 'running',
+    finalNode: { seq: 2 },
+    blocks: [{ kind: 'reasoning', text: '第2步继续分析' }, { kind: 'text', text: '正文开始' }]
+  }
+  const turnWithReply = { status: 'open', steps: [{ data: step1CallingTool }, { data: step2WithReply }] }
+  assert.equal(TavernAssistantReasoningSlot({ node: { data: step2WithReply, location: { kind: 'step', turn: turnWithReply } } }), null, '已有正文后步骤槽应彻底让位给回复座位')
+  const replySeatReasoning = TavernTurnReasoning({ turn: turnWithReply, fallbackBlocks: step2WithReply.blocks, streaming: true })
+  assert.equal(replySeatReasoning.props.open, false, '正文开始输出后回复座位上的思维链应立即收起')
+  assert.equal(tavernTurnReasoningIsLive(turnWithReply, step2WithReply.blocks, true), false)
+
+  streamEnabled = false
+  const hostSeat = TavernAssistantReasoningSlot({ node: nodeStep1 })
+  assert.deepEqual(hostSeat, { seat: 'host', props: { blocks: step1Running.blocks, streaming: true } })
+})

@@ -110,3 +110,20 @@ test('卡片工作台保留 DSH 原生过程入口和折叠状态，不添加隐
   assert.equal(steps[2].hidden, true)
   card.dispose()
 })
+
+test('流式思维链正在步骤容器内展开且会话运行中时不隐藏该步骤行', async () => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<div id="root"><div data-step-process="true"><details class="dsh-tavern-stream-reasoning" open></details></div></div>')
+  const root = dom.window.document.getElementById('root')
+  const stepNode = root.querySelector('[data-step-process]')
+  const details = stepNode.querySelector('.dsh-tavern-stream-reasoning')
+  const controls = createStepFoldControls(root, { play: true, running: true })
+  controls.apply()
+  assert.equal(stepNode.style.display, '', '流式思维链展开期间应保留步骤容器可见')
+  assert.equal(stepNode.hidden, false)
+  details.removeAttribute('open')
+  controls.apply()
+  assert.equal(stepNode.style.display, 'none', '思考写完收起后应恢复折叠该步骤容器')
+  controls.dispose()
+})
+

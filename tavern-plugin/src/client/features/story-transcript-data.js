@@ -147,6 +147,62 @@ function tavernStoryTranscriptStreamText(partial) {
 	return texts.join('\n')
 }
 
+function tavernStoryTranscriptReasoningState(blocks, streaming) {
+	const list = Array.isArray(blocks) ? blocks : []
+	const parts = []
+	let lastMeaningfulKind = ''
+	for (let index = 0; index < list.length; index++) {
+		const block = list[index]
+		if (!block || typeof block !== 'object') continue
+		if (block.kind === 'reasoning') {
+			if (typeof block.text === 'string' && block.text.trim() !== '') {
+				parts.push(block.text)
+				lastMeaningfulKind = 'reasoning'
+			}
+		} else if (block.kind === 'text') {
+			if (typeof block.text === 'string' && block.text.trim() !== '') {
+				lastMeaningfulKind = 'text'
+			}
+		} else {
+			lastMeaningfulKind = String(block.kind || 'other')
+		}
+	}
+	return {
+		text: parts.join('\n\n'),
+		live: streaming === true && parts.length > 0 && lastMeaningfulKind === 'reasoning'
+	}
+}
+
+function tavernStoryTranscriptTurnReasoning(turn) {
+	const steps = turn && Array.isArray(turn.steps) ? turn.steps : []
+	const parts = []
+	let live = false
+	for (let index = 0; index < steps.length; index++) {
+		const data = steps[index] && steps[index].data
+		const node = data && typeof data.get === 'function' ? data.get('assistant-step') : data
+		if (!node) continue
+		const state = tavernStoryTranscriptReasoningState(node.blocks, node.status === 'running')
+		if (state.text !== '') parts.push(state.text)
+		if (state.live) live = true
+	}
+	return { text: parts.join('\n\n'), live: live }
+}
+
+function tavernStoryTranscriptSummarizeSteps(stepsMap, activeStep, active) {
+	if (!(stepsMap instanceof Map) || stepsMap.size === 0) return { text: '', live: false }
+	const keys = Array.from(stepsMap.keys()).sort(function (a, b) { return a - b })
+	const parts = []
+	let live = false
+	for (let index = 0; index < keys.length; index++) {
+		const key = keys[index]
+		const entry = stepsMap.get(key)
+		if (!entry || !entry.text) continue
+		parts.push(entry.text)
+		if (active === true && key === activeStep && entry.live === true) live = true
+	}
+	return { text: parts.join('\n\n'), live: live }
+}
+
 // Stream text is an overlay on the real assistant placeholder, never another
 // message. Missing rows stay missing: the prepare revision must create them.
 // A live partial may also overlay a regenerated committed row; a retained
@@ -155,7 +211,7 @@ function tavernStoryTranscriptStreamText(partial) {
 // regeneratedDshTurns, so the native partial turn cannot identify the row. When
 // messageUid is given only that exact row may be overlaid — rows sharing the
 // story turn, and the turn hint itself, stay untouched.
-function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted, messageUid) {
+function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted, messageUid, reasoningOverride) {
 	if (!partial) return rows
 	const source = Array.isArray(rows) ? rows : []
 	const streamUid = typeof messageUid === 'string' && messageUid !== '' ? messageUid : null
@@ -173,15 +229,29 @@ function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn,
 	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null
 	const streamed = tavernStoryTranscriptStreamText(partial)
+	const streamedReasoning = reasoningOverride && typeof reasoningOverride === 'object'
+		? { text: typeof reasoningOverride.text === 'string' ? reasoningOverride.text : '', live: reasoningOverride.live === true }
+		: tavernStoryTranscriptReasoningState(partial && partial.blocks, Boolean(partial))
 	const row = source[index]
 	const text = streamed !== '' ? streamed : row.text
+	const reasoningText = streamedReasoning.text !== '' ? streamedReasoning.text : (row.reasoningText || '')
+	const reasoningLive = streamedReasoning.text !== '' ? streamedReasoning.live : false
+	const streamingNativeTurn = reasoningOverride && Number.isInteger(reasoningOverride.nativeTurn) && reasoningOverride.nativeTurn > 0
+		? reasoningOverride.nativeTurn
+		: (Number.isInteger(partial && partial.turn) && partial.turn > 0 ? partial.turn : (row.streamingNativeTurn || null))
 	const tool = latestCall && typeof latestCall.name === 'string' ? latestCall.name : row.tool || null
-	// Reasoning-only partials and repeated text should not allocate a new row.
-	if (row.streaming === true && row.text === text && row.tool === tool) return rows
+	// 仅在文本、工具和思维链均未变化时跳过复制，纯思维链增量仍需刷新行状态。
+	if (row.streaming === true && row.text === text && row.tool === tool
+		&& (row.reasoningText || '') === reasoningText
+		&& Boolean(row.reasoningLive) === reasoningLive
+		&& (row.streamingNativeTurn || null) === streamingNativeTurn) return rows
 	const next = source.slice()
 	next[index] = Object.assign({}, row, {
 		streaming: true,
 		text: text,
+		reasoningText: reasoningText,
+		reasoningLive: reasoningLive,
+		streamingNativeTurn: streamingNativeTurn,
 		tool: tool,
 		projection: row.projection ? Object.assign({}, row.projection, { text: text, mode: 'markdown' }) : null
 	})

@@ -29,6 +29,31 @@ function tavernReasoningStreamEnabled() {
     return tavernReasoningStreamCached;
 }
 
+function subscribeTavernReasoningStream(listener) {
+    if (typeof window === "undefined") return function () {};
+    const onStorage = function (event) {
+        if (!event || event.key === null || event.key === TAVERN_REASONING_STREAM_KEY) {
+            tavernReasoningStreamCached = null;
+            listener();
+        }
+    };
+    window.addEventListener(TAVERN_REASONING_STREAM_EVENT, listener);
+    window.addEventListener("storage", onStorage);
+    return function () {
+        window.removeEventListener(TAVERN_REASONING_STREAM_EVENT, listener);
+        window.removeEventListener("storage", onStorage);
+    };
+}
+
+/** 响应式读取「流式显示思维链」开关，设置页切换后当前对话与故事楼层立即刷新。 */
+function useTavernReasoningStreamEnabled() {
+    return React.useSyncExternalStore(
+        subscribeTavernReasoningStream,
+        tavernReasoningStreamEnabled,
+        tavernReasoningStreamEnabled
+    );
+}
+
 function refreshTavernReasoningStream() {
     rpc("getTavernSettings").then(function (result) {
         applyTavernReasoningStream(result && result.settings);

@@ -57,7 +57,7 @@ function createStepFoldControls(root, options) {
         // Scroll-following remains enabled after completion; only session state means running.
         const live = options.running === true;
         const running = live ? flow[flow.length - 1] || null : null;
-        const targets = new Set(rows.filter(row => !row.hidden && row !== running));
+        const targets = new Set(rows.filter(row => !row.hidden && row !== running && !(live && typeof row.querySelector === 'function' && row.querySelector('.dsh-tavern-stream-reasoning[open]'))));
         for (const row of Array.from(owned.keys())) if (!targets.has(row)) release(row);
         if (shown) {
             for (const row of rows) release(row);

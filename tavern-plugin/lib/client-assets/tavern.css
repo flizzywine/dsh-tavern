@@ -184,6 +184,9 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-assistant-reasoning summary { cursor: pointer; user-select: none; }
 .dsh-tavern-assistant-reasoning pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .dsh-tavern-assistant-reasoning[open] pre { max-height: 42vh; overflow: auto; }
+/* 「流式显示思维链」在首步尚未出现正文时借宿宿主步骤区，仅显露正在流式展开的思维链本身 */
+.dsh-tavern-shell-active [data-step-process-body][hidden]:has(.dsh-tavern-stream-reasoning[open]) { display: block !important; content-visibility: visible !important; }
+.dsh-tavern-shell-active [data-step-process-body][hidden]:has(.dsh-tavern-stream-reasoning[open]) [data-step-process-content] > :not(:has(.dsh-tavern-stream-reasoning[open])) { display: none !important; }
 .dsh-tavern-html-sketch { margin: 8px 0; border: 1px solid var(--dsh-tavern-accent-border); border-radius: 8px; overflow: hidden; }
 .dsh-tavern-html-sketch figcaption { padding: 4px 10px; background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-html-sketch iframe { display: block; width: 100%; border: 0; background: #fff; }
@@ -2250,8 +2253,8 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="system-prompt"],
 /* 宿主给「不是玩家发起」的回合插的说明卡：游玩时每个重生成/重试都会多一张。 */
 html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-trigger"],
-html.dsh-tavern-hide-process [data-dsh-fork-session="play"] .dsh-tavern-assistant-reasoning,
-html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-process"]:has([data-turn-process-tool-calls="0"][data-turn-process-subagents="0"]),
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] .dsh-tavern-assistant-reasoning:not(.dsh-tavern-stream-reasoning),
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-process"]:has([data-turn-process-tool-calls="0"][data-turn-process-subagents="0"]):not(:has(.dsh-tavern-stream-reasoning[open])),
 /* 已收起的回合整块是「已调用工具」这类步骤行，也不该占行。
    正在跑的那一轮还没有分页锚点，进度照常可见。 */
 html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-process"]:has([data-chat-paging-anchor]) { display: none !important; }

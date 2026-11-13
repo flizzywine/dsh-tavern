@@ -329,6 +329,30 @@ function createTavernStoryTranscriptFeature(deps) {
 				mvuPending: row.message?.mvu?.pending === true
 			}) : null,
 			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls, visibility: rowVisibility }) : null,
+			props.showStreamReasoning && !row.greeting ? (function () {
+				const chatUseHook = (props.host && typeof props.host.useChat === 'function' ? props.host.useChat : null)
+					|| (props.turnFooter && typeof props.turnFooter.useChat === 'function' ? props.turnFooter.useChat : null)
+				const reasoningTurn = row.streaming
+					? (Number.isInteger(row.streamingNativeTurn) && row.streamingNativeTurn > 0 ? row.streamingNativeTurn : row.nativeTurn)
+					: row.nativeTurn
+				if (chatUseHook && Number.isInteger(reasoningTurn) && reasoningTurn > 0) {
+					return h(StoryTurnReasoningLive, {
+						key: 'reasoning-live',
+						useChat: chatUseHook,
+						nativeTurn: reasoningTurn,
+						fallbackText: row.reasoningText || '',
+						fallbackLive: row.reasoningLive === true,
+						streaming: row.streaming === true
+					})
+				}
+				return row.reasoningText
+					? h(StoryTurnReasoningBox, {
+						key: 'reasoning-static',
+						text: row.reasoningText,
+						live: row.streaming === true && row.reasoningLive === true
+					})
+					: null
+			})() : null,
 			h('div', { className: 'dsh-tavern-story-body' }, bodyNode),
 			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
@@ -341,6 +365,29 @@ function createTavernStoryTranscriptFeature(deps) {
 			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
 				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host, turnFooter: props.turnFooter }))
 	})
+
+	function StoryTurnReasoningBox({ text, live }) {
+		if (!text) return null
+		const active = live === true
+		return h('details', {
+			className: 'dsh-tavern-assistant-reasoning dsh-tavern-stream-reasoning',
+			open: active
+		},
+			h('summary', null, active ? '思考中…' : '思考过程'),
+			h('pre', null, text))
+	}
+
+	function StoryTurnReasoningLive({ useChat, nativeTurn, fallbackText, fallbackLive, streaming }) {
+		const turn = useChat(function (snapshot) {
+			return snapshot && snapshot.timeline && snapshot.timeline.turns
+				? snapshot.timeline.turns.get(nativeTurn)
+				: null
+		})
+		const resolved = tavernStoryTranscriptTurnReasoning(turn)
+		const text = resolved.text !== '' ? resolved.text : fallbackText
+		const live = (resolved.text !== '' ? resolved.live : fallbackLive) && streaming === true
+		return h(StoryTurnReasoningBox, { text: text, live: live })
+	}
 
 	function StoryToolCalls({ calls, visibility }) {
 		return h('details', { className: 'dsh-tavern-assistant-reasoning dsh-tavern-story-tools' },
@@ -359,6 +406,9 @@ function createTavernStoryTranscriptFeature(deps) {
 	function TavernStoryTranscriptList(props) {
 		const transcript = props.transcript || null
 		const sessionId = String(props.sessionId || '')
+		const showStreamReasoning = typeof useTavernReasoningStreamEnabled === 'function'
+			? useTavernReasoningStreamEnabled()
+			: (typeof tavernReasoningStreamEnabled === 'function' ? tavernReasoningStreamEnabled() : true)
 		// Rows remain story-transcript projections. The live Tavern view only keeps
 		// iframe Helper variables/runtime policy fresh after background settlement.
 		const live = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-frame') : null
@@ -378,13 +428,24 @@ function createTavernStoryTranscriptFeature(deps) {
 		const regeneratingStoryTurn = props.view && props.view.regenInProgress === true
 			&& Number.isInteger(props.view.streamingStoryTurn) && props.view.streamingStoryTurn > 0
 			? props.view.streamingStoryTurn : null
-		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
+		const streamRef = React.useRef({
+			sessionId: sessionId, turn: null, nativeTurn: null, partial: null,
+			stepReasonings: new Map(), activeStep: null, revision: null, settledTurn: null, running: props.running === true
+		})
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
 		}
-		if (streamRef.current.sessionId !== sessionId) streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true }
+		if (streamRef.current.sessionId !== sessionId) {
+			streamRef.current = {
+				sessionId: sessionId, turn: null, nativeTurn: null, partial: null,
+				stepReasonings: new Map(), activeStep: null, revision: null, settledTurn: null, running: props.running === true
+			}
+		}
 		if (props.running === true && !streamRef.current.running) {
-			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: true }
+			streamRef.current = {
+				sessionId: sessionId, turn: null, nativeTurn: null, partial: null,
+				stepReasonings: new Map(), activeStep: null, revision: null, settledTurn: null, running: true
+			}
 		} else if (props.running !== true) streamRef.current.running = false
 		// 重生成已有故事行 UID 时完全不看原生 turn；失败尾则使用预留的故事轮次。
 		// 两条路径都不能把宿主临时 turn（可能远大于剧情轮号）拿来找故事行。
@@ -396,9 +457,23 @@ function createTavernStoryTranscriptFeature(deps) {
 		if (liveTurn !== null) {
 			const previous = streamRef.current
 			const text = tavernStoryTranscriptStreamText(props.partial)
+			const reasoningState = tavernStoryTranscriptReasoningState(props.partial && props.partial.blocks, Boolean(props.partial))
+			const partialNativeTurn = props.partial && Number.isInteger(props.partial.turn) && props.partial.turn > 0 ? props.partial.turn : null
+			const partialStep = props.partial && Number.isInteger(props.partial.step) ? props.partial.step : 0
 			if (previous.settledTurn !== liveTurn && previous.turn !== liveTurn) {
-				streamRef.current = { sessionId: sessionId, turn: liveTurn, partial: props.partial, revision: transcript && transcript.revision, settledTurn: null, running: props.running === true }
-			} else if (previous.settledTurn !== liveTurn && text !== '') previous.partial = props.partial
+				const steps = new Map()
+				if (reasoningState.text !== '') steps.set(partialStep, reasoningState)
+				streamRef.current = {
+					sessionId: sessionId, turn: liveTurn, nativeTurn: partialNativeTurn, partial: props.partial,
+					stepReasonings: steps, activeStep: props.partial ? partialStep : null,
+					revision: transcript && transcript.revision, settledTurn: null, running: props.running === true
+				}
+			} else if (previous.settledTurn !== liveTurn) {
+				if (partialNativeTurn !== null) previous.nativeTurn = partialNativeTurn
+				if (props.partial) previous.activeStep = partialStep
+				if (reasoningState.text !== '') previous.stepReasonings.set(partialStep, reasoningState)
+				if (text !== '' || reasoningState.text !== '') previous.partial = props.partial
+			}
 		}
 		const cached = streamRef.current
 		let partial = cached.turn === null ? null : cached.partial
@@ -410,20 +485,32 @@ function createTavernStoryTranscriptFeature(deps) {
 			return Number(entry.message.turn) === Number(cached.turn)
 		})
 		if (partial && finalRow && (cached.revision !== (transcript && transcript.revision) || (!props.running && !props.partial))) {
-			streamRef.current = { sessionId: sessionId, turn: cached.turn, partial: null,
-				revision: transcript && transcript.revision, settledTurn: cached.turn, running: props.running === true }
+			streamRef.current = {
+				sessionId: sessionId, turn: cached.turn, nativeTurn: null, partial: null,
+				stepReasonings: new Map(), activeStep: null,
+				revision: transcript && transcript.revision, settledTurn: cached.turn, running: props.running === true
+			}
 			partial = null
 		}
+		const streamLive = Boolean(props.partial && partial === props.partial)
+		const summarizedReasoning = cached.turn !== null
+			? tavernStoryTranscriptSummarizeSteps(cached.stepReasonings, cached.activeStep, streamLive)
+			: { text: '', live: false }
+		const reasoningOverride = partial ? {
+			text: summarizedReasoning.text,
+			live: summarizedReasoning.live,
+			nativeTurn: cached.nativeTurn
+		} : null
 		const rows = React.useMemo(function () {
 			const base = typeof tavernStoryTranscriptPendingRows === 'function'
 				? tavernStoryTranscriptPendingRows(tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn), props.pendingInputs)
 				: tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
-			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
+			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && streamLive, storyStreamUid, reasoningOverride)
 			// 生成期间只处理当前流式目标；除此之外故事存档怎么返回就怎么渲染。
 			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
 		const latest = rows.findLast(row => row.role === 'assistant')
 		const generating = Boolean(props.partial || props.view?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
 		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
@@ -444,7 +531,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
 			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
-				showPlayProcess: props.showPlayProcess, showDamperStatus: props.showDamperStatus, latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
+				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus,
+				latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
 				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
 		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
 			h('span', null, '\u26a0 ' + failure)) : null)
