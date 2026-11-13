@@ -3,7 +3,7 @@
 // store, the story snapshot, the shared background task, the phone's read-only source and the next round's tail.
 // Nothing here runs, reads or writes while the switch is off for a chat's card.
 import {createHash} from 'node:crypto'
-import {createSummaryRelay, relaySource, RAW_MIN_ROUNDS} from './summary-relay.js'
+import {createSummaryRelay, relayRecords, relayRequestOf, relaySource, RAW_MIN_ROUNDS} from './summary-relay.js'
 import {createCallSections} from './call-context.js'
 
 const MOD = 'dsh.phone'
@@ -80,11 +80,11 @@ export function createPhoneRelayHost({library, estimate, chatForSession, profile
       async runSharedTask({instruction, signal}) {
         const anchor = contextHost.sharedAnchor(sessionId)
         if (anchor?.turn === snapshot.turn) return contextHost.runSharedTask({sessionId, anchor, instruction, signal})
-        const request = JSON.parse(instruction.split('\n').at(-1)), raw = []
-        if (request.summarize) for (let turn = request.summarize.fromTurn; turn <= request.summarize.toTurn; turn++) raw.push('#' + turn + ' Story\n' + await sources[0].readRaw({turn}))
-        for (const event of request.events) raw.push('#' + event.anchor.turn + ' Phone Call [' + event.participants.join(', ') + ']\n' + await sources[1].readRaw({turn:event.anchor.turn, rawRef:event.rawRef}))
-        const result = await contextHost.callBackground({sessionId, signal, system:'You compress story records into a structured summary index.',
-          text:instruction.split('\n').slice(0, -1).join('\n') + '\n\n原文：\n\n' + raw.join('\n\n') + '\n\n' + instruction.split('\n').at(-1)})
+        const request = relayRequestOf(instruction), raw = []
+        if (request.summarize) for (let turn = request.summarize.fromTurn; turn <= request.summarize.toTurn; turn++) raw.push({turn, source:'story', text:await sources[0].readRaw({turn})})
+        for (const event of request.events) raw.push({turn:event.anchor.turn, source:'phone', participants:event.participants, text:await sources[1].readRaw({turn:event.anchor.turn, rawRef:event.rawRef})})
+        const result = await contextHost.callBackground({sessionId, signal, system:'<relay_role>\nYou compress story records into a structured summary index.\n</relay_role>',
+          text:relayRecords(raw) + '\n\n' + instruction})
         return {output:result.output, usage:result.usage, measurement:{standalone:true}}
       },
     })

@@ -82,7 +82,7 @@ var mod_default = {
       order: 200,
       byteBudget: 2048,
       when: {},
-      markdown: "## When to roll\n- Roll only for real uncertainty whose outcomes would split the story; otherwise narrate: let it happen, or let the world say no.\n\n## Follow the result\n- Follow the result; never reroll the same attempt. Failure moves the story on.\n- costly = success at a real price (time, injury, relationship, resource, exposure).\n- Make critical/fumble vivid but in tone.\n- Use hidden for what the character can't know (noticing, lies, hidden danger); narrate only what they perceive, never the number.\n\n## Examples\n- Search a quiet study for a diary: no roll, found.\n- Slip in during the guard change: roll hard, fail = alarm.\n- Is she lying? hidden; fail = she looks calm."
+      markdown: "## When to roll\n- Roll only for real uncertainty whose outcomes would split the story; otherwise narrate: let it happen, or let the world say no.\n\n## Follow the result\n- Follow the result; never reroll the same attempt. Failure moves the story on.\n- costly = success at a real price (time, injury, relationship, resource, exposure).\n- Make critical/fumble vivid but in tone.\n- Use hidden for what the character can't know (noticing, lies, hidden danger); narrate only what they perceive, never the number.\n- After a roll, keep writing this turn's story; the narration before and after the roll is one turn.\n\n## Examples\n- Search a quiet study for a diary: no roll, found.\n- Slip in during the guard change: roll hard, fail = alarm.\n- Is she lying? hidden; fail = she looks calm."
     }
   ],
   summary: "\u5728\u5267\u60C5\u9700\u8981\u5224\u5B9A\u65F6\u63B7\u9AB0\u5B50\uFF0C\u5C55\u793A\u5B9E\u9645\u7ED3\u679C\u3002"

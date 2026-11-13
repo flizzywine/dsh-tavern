@@ -25,6 +25,18 @@ export function relayConfig(...layers) {
   return Object.freeze(config)
 }
 
+const tagged = (tag, text) => `<${tag}>\n${text}\n</${tag}>`
+/** The relay task: the JSON request, then how to answer it (long material comes before the ask). */
+export function relayInstruction(request) {
+  return tagged('relay_request', JSON.stringify(request)) + '\n\n' + tagged('relay_instructions', '请按来源的 compressionPrompt 压缩，不混淆参与者。使用共享原文查询工具读取指定轮次和事件引用；摘要只是索引，不替代原文。'
+    + '\n只返回 JSON：{"entries":[{"sourceId":"来源id","turn":1,"participants":["人物id"],"text":"摘要"}],"volume":null}。'
+    + ' summarize 非空时，每个轮次、每个来源恰好一项；无内容也标明无新增。仅返回新范围。merge 非空时 volume 为合并旧项的非空文本，否则为 null。保留专名、关系、约定和未解决事项。')
+}
+export const relayRequestOf = instruction => JSON.parse(instruction.match(/<relay_request>\n([\s\S]*?)\n<\/relay_request>/)[1])
+/** The source records a standalone relay call carries, one record per round and source. */
+export const relayRecords = records => tagged('source_records', records.map(({ turn, source, participants, text }) =>
+  `<record turn="${turn}" source="${source}"${participants ? ` participants="${participants.join(', ')}"` : ''}>\n${text}\n</record>`).join('\n'))
+
 export function relaySource({ id, name, recentRounds, compressionPrompt, readRaw }) {
   if (typeof id !== 'string' || !id) throw new TypeError('Source requires id')
   if (!Number.isInteger(recentRounds) || recentRounds < 1) throw new TypeError('recentRounds must be a positive integer')
@@ -223,10 +235,7 @@ export function createSummaryRelay({ store, readAnchor, versionAt, runSharedTask
       summarize, sources: sources.map(({ id, compressionPrompt }) => ({ id, compressionPrompt })),
       events: dueEvents, merge: plan.merge ?? null
     }
-    const instruction = '请按来源的 compressionPrompt 压缩，不混淆参与者。使用共享原文查询工具读取指定轮次和事件引用；摘要只是索引，不替代原文。'
-      + '\n只返回 JSON：{"entries":[{"sourceId":"来源id","turn":1,"participants":["人物id"],"text":"摘要"}],"volume":null}。'
-      + ' summarize 非空时，每个轮次、每个来源恰好一项；无内容也标明无新增。仅返回新范围。merge 非空时 volume 为合并旧项的非空文本，否则为 null。保留专名、关系、约定和未解决事项。\n'
-      + JSON.stringify(request)
+    const instruction = relayInstruction(request)
     const result = await runSharedTask({ instruction, signal })
     if (!guard(epoch, anchor, versions) || signal.aborted) return { status: 'stale' }
     // The sole untrusted-output boundary. Identity/ranges/versions come from the plan, never the model.
