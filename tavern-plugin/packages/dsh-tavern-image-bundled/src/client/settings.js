@@ -2652,7 +2652,7 @@
           ),
           gallerySource === 'card' ? h('div', { style: S.card }, h(CardGalleryPage, { onEdit: item => setImageEditSource({ url: item.url, name: item.prompt?.slice(0, 60) || '卡片图片' }) })) : galleryTab(),
         ) : null,
-        worldbookMode && tab === 'worldbook' ? h(LegacyWorldbookPanel, { initialFormat: data.worldbookFormat || 'tags', providers: data.imageProviders || [] }) : null,
+        worldbookMode && tab === 'worldbook' ? h(LegacyWorldbookPanel, { initialFormat: config.worldbookEditorFormat || data.worldbookFormat || 'tags', save, providers: data.imageProviders || [] }) : null,
         cardEnabled === true && tab === 'card-worldbook' ? h('section', { 'aria-label': '卡片模式世界书' }, h(CardWorldbookPanel)) : null,
         wfGraphFile ? h(WorkflowGraphEditor, { key: wfGraphFile, file: wfGraphFile, post,
           onClose: () => setWfGraphFile(''),

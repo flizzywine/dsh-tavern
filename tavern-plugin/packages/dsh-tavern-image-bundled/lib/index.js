@@ -130,6 +130,7 @@ const DEFAULTS = {
   promptEntries: [],
   activePromptPreset: '',
   promptMode: 'auto',
+  worldbookEditorFormat: '',
   designPromptMode: 'auto',
   closestMountTolerance: false,
   characterDesignRequirements: '',
@@ -3836,6 +3837,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           outfitDesignRequirements: String(config.outfitDesignRequirements ?? ''),
           activePromptPreset: String(config.activePromptPreset ?? ''),
           promptMode: ['auto', 'tags', 'natural', 'mixed', 'structured'].includes(config.promptMode) ? config.promptMode : 'auto',
+          worldbookEditorFormat: ['tags', 'natural', 'mixed', 'structured'].includes(config.worldbookEditorFormat) ? config.worldbookEditorFormat : '',
           allowChinesePrompt: config.allowChinesePrompt === true,
           promptEffectiveFormat: resolvePromptMode(promptConfig, promptBackend),
           libraryPromptEditing: true,
@@ -4957,6 +4959,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (Array.isArray(patch.randomTemplateIds)) config.randomTemplateIds = patch.randomTemplateIds.filter(id => typeof id === 'string').slice(0, 200)
         for (const key of ['lockWorkflow', 'overrideSteps', 'autoImageGen', 'imageEnabled', 'plannerEnabled', 'wardrobeHints', 'jpegOutput', 'smartImageSelection', 'characterAutoUpdate', 'closestMountTolerance']) if (typeof patch[key] === 'boolean') config[key] = patch[key]
         if (typeof patch.promptMode === 'string' && ['auto', 'tags', 'natural', 'mixed', 'structured'].includes(patch.promptMode)) config.promptMode = patch.promptMode
+        if (['tags', 'natural', 'mixed', 'structured'].includes(patch.worldbookEditorFormat)) config.worldbookEditorFormat = patch.worldbookEditorFormat
         if (typeof patch.designPromptMode === 'string' && ['auto', 'chinese', 'tags'].includes(patch.designPromptMode)) config.designPromptMode = patch.designPromptMode
         for (const key of ['characterDesignRequirements', 'outfitDesignRequirements']) {
           if (typeof patch[key] === 'string') config[key] = patch[key].slice(0, 4000)
@@ -6238,6 +6241,7 @@ async function loadConfig(overrides) {
   config.promptDefault = normalizeDefaultPromptTemplate(config.promptDefault)
   config.promptEntries = normalizePromptEntries(config.promptEntries)
   if (!['auto', 'tags', 'natural', 'mixed', 'structured'].includes(config.promptMode)) config.promptMode = 'auto'
+  if (!['tags', 'natural', 'mixed', 'structured'].includes(config.worldbookEditorFormat)) config.worldbookEditorFormat = ''
   if (!['auto', 'chinese', 'tags'].includes(config.designPromptMode)) config.designPromptMode = 'auto'
   for (const key of ['characterDesignRequirements', 'outfitDesignRequirements']) config[key] = String(config[key] ?? '').slice(0, 4000)
   config.activePromptPreset = validPromptPresetId(config, String(config.activePromptPreset ?? '').slice(0, 80))

@@ -38,7 +38,7 @@
         note ? h('div', { role: 'status', style: { fontSize: '12px', marginTop: '8px' } }, note) : null)
     }
 
-    function LegacyWorldbookPanel({ initialFormat = 'tags', providers = [] }) {
+    function LegacyWorldbookPanel({ initialFormat = 'tags', save, providers = [] }) {
       const [format, setFormat] = React.useState(initialFormat)
       const [book, setBook] = React.useState('main')
       const [books, setBooks] = React.useState([])
@@ -53,6 +53,13 @@
         setBooks(result.worldbookBooks || [])
       }
       React.useEffect(() => { let alive = true; jsonFetch(BASE + '/worldbook?format=' + encodeURIComponent(format)).then(result => { if (alive) setBooks(result.worldbookBooks || []) }).catch(error => { if (alive) setNote(error.message) }); return () => { alive = false } }, [format])
+      async function changeFormat(next) {
+        const previous = format
+        setFormat(next); setBusy(true); setNote('')
+        const result = await save({ worldbookEditorFormat: next })
+        if (!result) { setFormat(previous); setNote('格式保存失败，请重试') }
+        setBusy(false)
+      }
       async function write(action, body) {
         if (busy) return
         setBusy(true); setNote('')
@@ -62,7 +69,7 @@
         } catch (error) { setNote(error.message) } finally { setBusy(false) }
       }
       return h('section', { 'aria-label': '生图世界书', style: S.card },
-        h('div', { style: S.row }, promptField('世界书格式', h('select', { 'aria-label': '世界书格式', style: S.input, value: format, disabled: busy, onChange: event => setFormat(event.target.value) },
+        h('div', { style: S.row }, promptField('世界书格式', h('select', { 'aria-label': '世界书格式', style: S.input, value: format, disabled: busy, onChange: event => changeFormat(event.target.value) },
           PROMPT_MODES_UI.filter(([key]) => key !== 'auto').map(([key, label]) => h('option', { key, value: key }, label)))),
           h('button', { type: 'button', style: buttonStyle, disabled: busy, onClick: () => write('worldbook-add', {}) }, '新增条目'),
           h('a', { style: buttonStyle, href: BASE + '/worldbook-export?format=' + encodeURIComponent(format) + '&book=' + book, download: 'image-worldbook.json' }, '导出世界书'),

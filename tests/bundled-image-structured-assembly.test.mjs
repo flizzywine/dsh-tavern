@@ -22,6 +22,21 @@ test('默认规则升级接口预览并按指纹更新，陈旧预览不覆盖�
   assert.equal((await runtime.request('worldbook-upgrade?book=invalid')).status, 400)
 })
 
+test('世界书编辑格式自动保存并在重启后保留，生图格式不变', async t => {
+  const fixture = await imagePluginFixture(t, { config: { promptMode: 'natural' } })
+  const runtime = await fixture.start()
+  const saved = await runtime.request('config', { config: { worldbookEditorFormat: 'structured' } })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.body.state.config.worldbookEditorFormat, 'structured')
+  assert.equal(saved.body.state.config.promptMode, 'natural')
+  runtime.close()
+  const restarted = await fixture.start()
+  const state = await restarted.request('state')
+  assert.equal(state.body.config.worldbookEditorFormat, 'structured')
+  assert.equal(state.body.config.promptMode, 'natural')
+  assert.equal(state.body.worldbookFormat, 'natural')
+})
+
 const image = { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: IMAGE_PNG.length, name: '身份.png' }
 const defs = { characters: [{ id: 'jiang', name: '江铭', traits: { face: '旧外貌不应注入' }, referenceImage: image, outfits: [] }], outfits: [] }
 
