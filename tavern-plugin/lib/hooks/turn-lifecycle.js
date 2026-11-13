@@ -12,6 +12,7 @@ import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
 import { turnRepliedByModel } from '../domain/story-alignment.js'
 import { isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
+import { agentForSession } from '../domain/agent-lookup.js'
 import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
@@ -54,6 +55,14 @@ export function registerTurnLifecycleHooks({
   userMessageForTurn,
 }) {
   const hostTools = createHostToolPolicy(ctx)
+
+  // Reply rewrites that reached the save while a turn ran wait for the Agent to go
+  // idle (template-history.js); this writes them once it has.
+  async function synchronizeTemplateHistoryWhenIdle(session) {
+    await agentForSession(session)?.whenIdle()
+    const chat = await hookChatForSession(session.id)
+    if (chat) await synchronizeTemplateHistory(session, chat, value => sessionStore.flush(value))
+  }
 
   ctx.on('agent/turn-stopping', async function (payload) {
     const session = payload.agent && payload.agent.session
@@ -150,6 +159,9 @@ export function registerTurnLifecycleHooks({
     // Edits submitted while this turn ran are replayed now that the round cannot
     // move any more; a target that changed in between drops its text instead.
     if (typeof flushQueuedBodyEdits === 'function') void flushQueuedBodyEdits(session.id)
+    if (!edit) setTimeout(() => {
+      synchronizeTemplateHistoryWhenIdle(session).catch(error => console.warn('dsh-tavern: 模板改写同步失败', session.id, error?.message || error))
+    }, 0)
     const reply = assistantResultForTurn(session, event.data && event.data.turn)
     void autoChoices.completed({ sessionId: session.id, turn: event.data && event.data.turn, messageId: String(reply?.event?.data?.message?.id || ''), reason })
     // A turn whose record went missing (#196) is adopted before the player's next

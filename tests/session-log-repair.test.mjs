@@ -271,3 +271,38 @@ test('a settlement copy written before its edit step moves into that step', need
   const replacement = result.artifact.events.find(event => event.surfaceOp?.op === 'replace')
   assert.ok(replacement.sourceEventSeqs.includes(copy.seq), 'the replacement still cites the moved copy')
 })
+
+// Older versions synchronized a template rewrite inside the player's turn before the
+// Agent's first step: the edit step took step 1, and the Agent then opened step 1 again.
+test('a template edit step written into an open turn is renumbered before the Agent steps', needsHost, async () => {
+  const catalog = await patchedCatalog()
+  const rows = []
+  const add = (type, data, extra = {}) => { const event = { seq: rows.length, type, time: 1, data, ...extra }; rows.push(event); return event }
+  const reply = (turn, step, id, text, source) => ({ turn, step, stream: [], message: { id, role: 'assistant', content: [{ type: 'text', text }], source } })
+  const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
+  add('turn/start', { turn: 1 })
+  add('step/start', { turn: 1, step: 1 })
+  const opening = add('assistant/message', reply(1, 1, 'opening', '开场 金币: 10', { kind: 'model', provider: 'dsh-tavern', model: 'character-card' }), { surfaceOp: 'append' })
+  add('step/end', { turn: 1, step: 1 })
+  add('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  add('turn/start', { turn: 2 })
+  add('user/message', { id: 'u2', role: 'user', content: [{ type: 'text', text: '行动' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  add('step/start', { turn: 2, step: 1 })
+  add('assistant/message', reply(2, 1, 'tavern-template-edit:1', '开场 金币: 20', { kind: 'model', provider: 'dsh-tavern', model: 'character-card' }),
+    { surfaceOp: { op: 'replace', startSeq: opening.seq, endSeq: opening.seq }, sourceEventSeqs: [opening.seq] })
+  add('step/end', { turn: 2, step: 1 })
+  add('step/start', { turn: 2, step: 1 })
+  add('assistant/message', reply(2, 1, 'a2', '正文', model), { surfaceOp: 'append' })
+  add('step/end', { turn: 2, step: 1 })
+  add('turn/end', { turn: 2, reason: { kind: 'completed' } })
+  assert.throws(() => open(catalog, rows), /step\/start does not match the open turn and next step/)
+  const result = repairCurrentSessionBuffer(encodeCurrentGeneration({ ...open(catalog, []), events: rows }, catalog), catalog)
+  assert.equal(result.ok, true, result.reason)
+  assert.equal(result.changed, true)
+  assert.doesNotThrow(() => open(catalog, result.artifact.events))
+  // No row is added, dropped or moved; the Agent's step and its reply follow the edit step.
+  assert.deepEqual(result.artifact.events.map(event => [event.seq, event.type]), rows.map(event => [event.seq, event.type]))
+  assert.deepEqual(result.artifact.events.filter(event => event.type === 'step/start').map(event => [event.data.turn, event.data.step]), [[1, 1], [2, 1], [2, 2]])
+  const answer = result.artifact.events.find(event => event.data?.message?.id === 'a2')
+  assert.deepEqual([answer.data.turn, answer.data.step], [2, 2])
+})

@@ -2,6 +2,48 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { prepareTemplateHistory, synchronizeTemplateHistory } from '../tavern-plugin/lib/domain/template-history.js'
+import path from 'node:path'
+import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
+import { setAgentResolver } from '../tavern-plugin/lib/domain/agent-lookup.js'
+
+// The host catalog is the only judge of whether a stored log opens again.
+async function reopen(session) {
+  const { prepareExpandedPatch } = await import('../tavern-plugin/lib/domain/host-session-patch.js')
+  const { catalog } = await prepareExpandedPatch(process.env.DSH_BOOT_MODULE.split(path.sep + 'node_modules' + path.sep)[0])
+  const restore = catalog.createRestore({ type: 'session', version: catalog.currentVersion, id: session.id, createdAt: 1, cwd: '/tmp', isSeeded: false, delegationDepth: 0, agentPreset: 'tavern' }, { recovery: 'strict', validation: 'current' })
+  for (const event of sessionEvents(session)) restore.decodeRow(structuredClone(event))
+  return restore.finish()
+}
+
+test('卡片更新后的第一轮：模板同步不写进已经开始的回合，回合结束后才改写开场白，存档仍能打开', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE)
+  t.after(() => { setAgentResolver(null); return h.dispose() })
+  // As the plugin does: surface writes find the live Agent of their session.
+  setAgentResolver(sessionId => h.ctx.agents.get(sessionId))
+  await h.importHistory({ ...h.input, operationId: 'template-open-turn', text: [{chat_metadata:{}},{is_user:false,mes:'开场 金币: 10'},{is_user:true,mes:'行动'},{is_user:false,mes:'回复'}].map(JSON.stringify).join('\n') })
+  const before = await h.open().ensureOpening(h.input.sessionId)
+  const after = structuredClone(before)
+  after.messages.find(message => message.role === 'assistant').text = '开场 金币: 20'
+  prepareTemplateHistory(h.target.session, before, after)
+  // The player's next turn has already started when the save carries the rewrite:
+  // the request hooks synchronize inside that open turn, before its first step.
+  h.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembly = await next()
+    await synchronizeTemplateHistory(context.agent.session, after, () => h.checkpoint())
+    return assembly
+  })
+  await h.continueInPlace()
+  await reopen(h.target.session)
+  const texts = () => h.target.session.deriveMessages().flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+  assert(texts().includes('开场 金币: 10'), 'the started turn keeps the opening it was prepared with')
+  // Idle again: the same synchronization writes the new opening in an edit turn of its own.
+  await synchronizeTemplateHistory(h.target.session, after, () => h.checkpoint())
+  await reopen(h.target.session)
+  assert(texts().includes('开场 金币: 20'))
+  assert(!texts().includes('开场 金币: 10'))
+  await h.continueInPlace()
+  await reopen(h.target.session)
+})
 
 test('模板永久改写用户和回复，恢复磁盘后真实 Agent 不再收到旧正文', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const h = await createInitializationNative(process.env.DSH_BOOT_MODULE)
