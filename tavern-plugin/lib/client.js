@@ -39957,6 +39957,47 @@ const TAVERN_DAMPER_TIERS = Object.freeze({
 	})
 })
 
+// 写作模式（作者=全知）没有「受控角色」概念，同一批档位改用写作侧语义。
+const TAVERN_DAMPER_AUTHOR_TIERS = Object.freeze({
+	scene_shift: TAVERN_DAMPER_TIERS.scene_shift,
+	strip_delusion: Object.freeze({
+		tone: 'strip',
+		short: '设定冲突',
+		title: '设定冲突',
+		showScore: false,
+		desc: '新增内容与既有正史直接矛盾（吃书），未追认为既成事实；可改写为伏笔、传闻、误记，或显式改写既有段落并交代改动。'
+	}),
+	resist_pushback: Object.freeze({
+		tone: 'resist',
+		short: '节奏失配',
+		title: '节奏失配',
+		showScore: true,
+		desc: '推进跨度超出当前情境承载，需要补写过渡与动机，而不是直接跳到结果。'
+	}),
+	costly_advance: Object.freeze({
+		tone: 'costly',
+		short: '带代价推进',
+		title: '带代价推进',
+		showScore: true,
+		desc: '推进成立，但须在正文里落下合理后效（时间、资源、关系裂痕、暴露风险或欠下的承诺）。'
+	}),
+	conflicted_half_step: Object.freeze({
+		tone: 'half',
+		short: '有效推进',
+		title: '铺垫成立 · 有效推进',
+		showScore: true,
+		desc: '铺垫成立，允许实质推进；转折须保留可追溯的动机与过程。'
+	}),
+	full_accept: Object.freeze({
+		tone: 'accept',
+		short: '顺势成立',
+		title: '顺势成立',
+		showScore: true,
+		desc: '与既有设定和当前状态自洽，按既定节奏自然延展。'
+	}),
+	legacy_plain: TAVERN_DAMPER_TIERS.legacy_plain
+})
+
 const TAVERN_DAMPER_BYPASS_COPY = Object.freeze({
 	DAMPER_NO_KEY: Object.freeze({
 		short: '未配密钥',
@@ -40055,6 +40096,10 @@ function tavernDamperOutcomeForMessage(message) {
 	return null
 }
 
+function tavernDamperTierTable(outcome) {
+	return outcome && outcome.judgeMode === 'author' ? TAVERN_DAMPER_AUTHOR_TIERS : TAVERN_DAMPER_TIERS
+}
+
 function tavernDamperMetaOf(outcome) {
 	if (!outcome || typeof outcome !== 'object') return null
 	if (outcome.status === 'bypassed') {
@@ -40071,15 +40116,17 @@ function tavernDamperMetaOf(outcome) {
 			desc: copy.hint
 		}
 	}
-	const key = outcome.explicitSceneShift === true ? 'scene_shift' : (TAVERN_DAMPER_TIERS[outcome.rulingTier] ? outcome.rulingTier : 'full_accept')
-	const tier = TAVERN_DAMPER_TIERS[key]
+	const table = tavernDamperTierTable(outcome)
+	const key = outcome.explicitSceneShift === true ? 'scene_shift' : (table[outcome.rulingTier] ? outcome.rulingTier : 'full_accept')
+	const tier = table[key]
 	const score = Number(outcome.leverageScore)
 	const scoreText = tier.showScore && Number.isFinite(score) ? ' ' + score.toFixed(1) : ''
+	const judgePrefix = outcome.judgeMode === 'author' ? '写作 · ' : ''
 	return {
 		bypassed: false,
 		tone: tier.tone,
-		pillText: '阻尼 · ' + tier.short + scoreText,
-		title: tier.title,
+		pillText: '阻尼 · ' + judgePrefix + tier.short + scoreText,
+		title: (outcome.judgeMode === 'author' ? '写作模式 · ' : '') + tier.title,
 		desc: tier.desc,
 		showMetrics: !outcome.explicitSceneShift && outcome.rulingTier !== 'legacy_plain'
 	}
@@ -40155,6 +40202,8 @@ function StoryFloorDamperPanel(props) {
 	if (!meta) return null
 
 	const modeLabel = outcome.mode === 'strict' ? '慢热严苛' : '标准拉扯'
+	const authorMode = outcome.judgeMode === 'author'
+	const judgeLabel = authorMode ? '写作模式' : '角色扮演'
 	const latencyText = outcome.source === 'cache'
 		? '命中缓存'
 		: outcome.source === 'scene-shift'
@@ -40175,9 +40224,9 @@ function StoryFloorDamperPanel(props) {
 	const score = Number.isFinite(Number(outcome.leverageScore)) ? Number(outcome.leverageScore) : 1
 	const scorePct = Math.min(100, Math.max(0, Math.round((score / 3) * 100)))
 	const riskItems = [
-		{ key: 'godmode', label: '越权代笔', value: Number(outcome.godmode) || 0 },
-		{ key: 'retcon', label: '无据篡改', value: Number(outcome.retcon) || 0 },
-		{ key: 'epistemic', label: '场外天眼', value: Number(outcome.epistemic) || 0 }
+		{ key: 'godmode', label: authorMode ? '角色失真' : '越权代笔', value: Number(outcome.godmode) || 0 },
+		{ key: 'retcon', label: authorMode ? '设定冲突' : '无据篡改', value: Number(outcome.retcon) || 0 },
+		{ key: 'epistemic', label: authorMode ? '视角穿帮' : '场外天眼', value: Number(outcome.epistemic) || 0 }
 	]
 
 	const mvuActive = Boolean(receipt || props.hasMvu)
@@ -40227,6 +40276,7 @@ function StoryFloorDamperPanel(props) {
 		h('div', { className: 'dsh-tavern-damper-panel-head' },
 			h('strong', { className: 'dsh-tavern-damper-panel-title' }, '叙事阻尼裁定 · ' + meta.title),
 			h('div', { className: 'dsh-tavern-damper-tags' },
+				outcome.rulingTier !== 'legacy_plain' ? h('span', { className: 'dsh-tavern-damper-tag' }, judgeLabel) : null,
 				outcome.rulingTier !== 'legacy_plain' ? h('span', { className: 'dsh-tavern-damper-tag' }, modeLabel) : null,
 				outcome.deltaBudget ? h('span', { className: 'dsh-tavern-damper-tag', 'data-budget': outcome.deltaBudget },
 					'配额：' + tavernDamperBudgetLabel(outcome.deltaBudget, outcome.mode)) : null,
@@ -40245,7 +40295,7 @@ function StoryFloorDamperPanel(props) {
 					key: risk.key,
 					className: 'dsh-tavern-damper-risk',
 					'data-alert': flagged ? 'true' : undefined,
-					title: '越权判定阈值 ' + Math.round(threshold * 100) + '%'
+					title: (authorMode ? '设定冲突判定阈值 ' : '越权判定阈值 ') + Math.round(threshold * 100) + '%'
 				}, risk.label + ' ' + String(Math.round(risk.value * 100)) + '%')
 			}))) : null,
 		effectFooter)
@@ -46030,6 +46080,14 @@ function TavernCardUpdateDialog(props) {
                                 h(Switch, { label: "启用叙事阻尼器", disabled, checked: config?.enabled === true, onChange: value => savePatch({ enabled: value }) })),
                             h(TavernSettingRow, { title: "在对话楼层显示裁定结果", help: "在每轮回复楼层顶部直观展示叙事阻尼器的生效状态、裁定档位、筹码得分与数值钳制摘要；点击状态胶囊可展开完整指标与未生效原因。" },
                                 h(Switch, { label: "在对话楼层显示裁定结果", disabled, checked: config?.showTurnStatus !== false, onChange: value => savePatch({ showTurnStatus: value }) })),
+                            h(TavernSettingRow, { title: "判定模式", help: "角色扮演：系统认定你只控制自己的角色，替 NPC 落笔反应或调用场外情报会被判越权剥离。写作（上帝）：不存在你的角色，可为任意角色落笔、自由切镜头与场景，只有与既有设定矛盾的吃书才会被判为设定冲突。" },
+                                h(InlineField, { kind: "menu", label: "判定模式", hideLabel: true, disabled,
+                                    value: config?.judgeMode || "roleplay",
+                                    options: [
+                                        { value: "roleplay", label: "角色扮演（受控角色）" },
+                                        { value: "author", label: "写作 · 上帝视角" }
+                                    ],
+                                    onCommit: value => savePatch({ judgeMode: value }) })),
                             h(TavernSettingRow, { title: "阻尼模式", help: "标准拉扯适合大多数恋爱、NTR 与剧情向游玩（常规变动 ±5 / 突破 ±12）；慢热严苛提高破防筹码要求并收紧单轮状态上限（常规 ±3 / 突破 ±8）。" },
                                 h(InlineField, { kind: "menu", label: "阻尼模式", hideLabel: true, disabled,
                                     value: config?.mode || "balanced",
@@ -46080,8 +46138,8 @@ function TavernCardUpdateDialog(props) {
                                             trail: h(React.Fragment, null,
                                                 state.editingKey ? h("button", { type: "button", className: "dsh-tavern-btn", disabled, onClick: () => setState(current => ({ ...current, editingKey: false })) }, "取消") : null,
                                                 testControls) }))),
-                            h(TavernSettingRow, { title: "越权判定阈值", help: "越权代笔、无依据篡改或天眼概率达到此阈值时强制触发剥离（0.50–0.95，数值越低越严格，默认 0.72）。" },
-                                h(InlineField, { kind: "number", label: "越权判定阈值", hideLabel: true, disabled,
+                            h(TavernSettingRow, { title: "判定阈值", help: "概率达到此阈值时触发裁定：角色扮演模式下命中越权代笔、无依据篡改或天眼即剥离；写作模式下命中设定吃书即判为设定冲突（0.50–0.95，数值越低越严格，默认 0.72）。" },
+                                h(InlineField, { kind: "number", label: "判定阈值", hideLabel: true, disabled,
                                     min: 0.5, max: 0.95, step: 0.01, value: config?.godmodeThreshold ?? 0.72,
                                     onCommit: value => savePatch({ godmodeThreshold: Number(value) }) })),
                             h(TavernSettingRow, { title: "请求超时上限", help: "决策请求超过此时长仍未返回时自动静默放行，不阻塞本轮正文生成。" },

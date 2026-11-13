@@ -13,6 +13,8 @@ import {
   createNarrativeDamper,
   defaultNarrativeDamperConfig,
   desensitizeForDecisionJudge,
+  compileTurnRuling,
+  normalizeDecisionRuling,
   nextPlainDamperState,
   readDamperStateSnapshot,
   settlementBudgetRuleText
@@ -645,3 +647,78 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   assert.equal(varDamper.textContent.includes('50'), false)
 })
 
+test('写作模式判定：作者即全知，越权代笔与天眼不再剥离，只有吃书判为设定冲突', async () => {
+  const initial = presentTavernSettings({}, {}).narrativeDamper
+  assert.equal(initial.judgeMode, 'roleplay')
+  assert.throws(() => applyTavernSettingsPatch({}, { narrativeDamper: { judgeMode: 'director' } }), /判定模式无效/)
+  const authorDoc = applyTavernSettingsPatch({}, { narrativeDamper: { judgeMode: 'author', enabled: true } })
+  assert.equal(presentTavernSettings(authorDoc, {}).narrativeDamper.judgeMode, 'author')
+
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-xyz' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true, judgeMode: 'author' }
+  const sentBodies = []
+  let nextAnswers = null
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      sentBodies.push(JSON.parse(init.body))
+      return { ok: true, status: 200, async json() { return { answers: nextAnswers } } }
+    }
+  })
+
+  const chat = {
+    id: 'chat-author-1',
+    mode: 'story',
+    posture: '',
+    timeline: { branchId: 'main' },
+    messages: [
+      { role: 'assistant', swipeId: 0, swipes: ['道场的木地板还留着早晨的水痕。'], variables: [{ stat_data: { 女主好感: 20, 心理防线: 70 } }] }
+    ]
+  }
+  const card = { name: '剑道社', description: '少子化对策法下的配对制度。' }
+
+  nextAnswers = {
+    godmode_outcome: { type: 'noul', noul: 0.96 },
+    unfounded_retcon: { type: 'noul', noul: 0.12 },
+    epistemic_violation: { type: 'noul', noul: 0.9 },
+    leverage_score: { type: 'score', score: 1.4 },
+    ruling_tier: { type: 'choice', choice: 'full_accept' },
+    mvu_delta_budget: { type: 'choice', choice: 'micro_step' }
+  }
+  const accepted = await damper.evaluateTurn({ chat, card, turn: 2, userText: '厚生省把配对名单发到社里：女主被登记与学弟同组。学弟瘦弱白嫩，站在门口不敢抬头。' })
+  assert.equal(accepted.ruling.rulingTier, 'full_accept')
+  assert.equal(accepted.ruling.judgeMode, 'author')
+  assert.equal(accepted.rulingText.includes('越权剥离'), false)
+  assert.match(accepted.rulingText, /写作模式/)
+  assert.match(sentBodies[0].questions.godmode_outcome.instructions, /角色失真/)
+  assert.match(sentBodies[0].questions.unfounded_retcon.instructions, /吃书/)
+  assert.match(sentBodies[0].input, /本轮续写输入（作者视角/)
+  assert.equal(sentBodies[0].input.includes('本轮受控角色输入'), false)
+
+  nextAnswers = {
+    godmode_outcome: { type: 'noul', noul: 0.2 },
+    unfounded_retcon: { type: 'noul', noul: 0.95 },
+    epistemic_violation: { type: 'noul', noul: 0.1 },
+    leverage_score: { type: 'score', score: 0.2 },
+    ruling_tier: { type: 'choice', choice: 'strip_delusion' },
+    mvu_delta_budget: { type: 'choice', choice: 'breakthrough' }
+  }
+  const conflict = await damper.evaluateTurn({ chat, card, turn: 3, userText: '其实女主三年前就嫁给了学弟，只是所有人都忘了。' })
+  assert.equal(conflict.ruling.rulingTier, 'strip_delusion')
+  assert.equal(conflict.ruling.deltaBudget, 'frozen')
+  assert.match(conflict.rulingText, /设定冲突/)
+  assert.equal(conflict.rulingText.includes('越权剥离'), false)
+  assert.match(conflict.rulingText, /不受「受控角色」边界限制/)
+
+  const before = { intimacy_trust: 40, psychological_guard: 60, arousal_or_tension: 30, leverage_depth: 10 }
+  assert.deepEqual(nextPlainDamperState(before, conflict.ruling), before)
+
+  const rpRuling = normalizeDecisionRuling(
+    { godmode: 0.96, retcon: 0.12, epistemic: 0.9, leverageScore: 0.2, rulingTier: 'full_accept', deltaBudget: 'micro_step' },
+    { ...defaultNarrativeDamperConfig(), judgeMode: 'roleplay' }
+  )
+  assert.equal(rpRuling.rulingTier, 'strip_delusion')
+  assert.equal(rpRuling.judgeMode, 'roleplay')
+  assert.match(compileTurnRuling(rpRuling, { stateSnapshot: { kind: 'none', data: null } }), /越权剥离/)
+})

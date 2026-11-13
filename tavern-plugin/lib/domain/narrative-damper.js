@@ -30,6 +30,9 @@ export const DAMPER_KEY_REFS = Object.freeze({
 
 export const DAMPER_KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 export const DAMPER_MODES = Object.freeze(['balanced', 'strict'])
+// 判定模式：roleplay 承认「受控角色」边界（越权代笔/天眼即违规）；author 为写作模式，
+// 作者拥有全知视角与任意角色落笔权，只有「与既有正史矛盾的吃书」才构成不可追认的冲突。
+export const DAMPER_JUDGE_MODES = Object.freeze(['roleplay', 'author'])
 
 export const DEFAULT_PLAIN_DAMPER_STATE = Object.freeze({
   intimacy_trust: 20,
@@ -43,6 +46,7 @@ export function defaultNarrativeDamperConfig() {
     enabled: false,
     showTurnStatus: true,
     mode: 'balanced',
+    judgeMode: 'roleplay',
     provider: 'gemini',
     model: 'gemini-decision-1',
     baseUrl: '',
@@ -85,6 +89,7 @@ export function normalizeNarrativeDamperConfig(value) {
     enabled: raw.enabled === true,
     showTurnStatus: raw.showTurnStatus !== false,
     mode: DAMPER_MODES.includes(raw.mode) ? raw.mode : defaults.mode,
+    judgeMode: DAMPER_JUDGE_MODES.includes(raw.judgeMode) ? raw.judgeMode : defaults.judgeMode,
     provider,
     model,
     baseUrl,
@@ -103,6 +108,7 @@ export function validateNarrativeDamperConfig(value) {
   const raw = object(value)
   if (Object.hasOwn(raw, 'enabled') && typeof raw.enabled !== 'boolean') throw error('DAMPER_INVALID_CONFIG', '启用开关须为布尔值')
   if (Object.hasOwn(raw, 'mode') && !DAMPER_MODES.includes(raw.mode)) throw error('DAMPER_INVALID_CONFIG', '阻尼模式无效')
+  if (Object.hasOwn(raw, 'judgeMode') && !DAMPER_JUDGE_MODES.includes(raw.judgeMode)) throw error('DAMPER_INVALID_CONFIG', '判定模式无效')
   if (Object.hasOwn(raw, 'provider') && !Object.hasOwn(DAMPER_PROVIDERS, raw.provider)) throw error('DAMPER_INVALID_CONFIG', '决策模型提供方无效')
   const provider = Object.hasOwn(DAMPER_PROVIDERS, raw.provider) ? raw.provider : 'gemini'
   const customEndpoint = provider === 'gemini-compatible' || provider === 'openai-compatible'
@@ -246,6 +252,7 @@ export function nextPlainDamperState(previous, ruling) {
   const base = { ...DEFAULT_PLAIN_DAMPER_STATE, ...object(previous) }
   if (!ruling || typeof ruling !== 'object') return base
   const strict = ruling.mode === 'strict'
+  const author = ruling.judgeMode === 'author'
   const budget = str(ruling.deltaBudget)
   const tier = str(ruling.rulingTier)
   let trustDelta = 0
@@ -253,9 +260,16 @@ export function nextPlainDamperState(previous, ruling) {
   let tensionDelta = 0
   let leverageDelta = 0
   if (budget === 'backfire' || tier === 'strip_delusion' || tier === 'resist_pushback') {
-    trustDelta = budget === 'backfire' ? -4 : 0
-    guardDelta = budget === 'backfire' ? 6 : 3
-    tensionDelta = -3
+    if (author && budget !== 'backfire') {
+      // 写作模式下不存在「被冒犯的受控角色」，设定冲突只冻结惯性，不追加防备惩罚。
+      trustDelta = 0
+      guardDelta = 0
+      tensionDelta = 0
+    } else {
+      trustDelta = budget === 'backfire' ? -4 : 0
+      guardDelta = budget === 'backfire' ? 6 : 3
+      tensionDelta = -3
+    }
   } else if (budget === 'frozen') {
     trustDelta = 0
     guardDelta = 1
@@ -337,6 +351,72 @@ const BINARY_FALLBACK_QUESTIONS = Object.freeze([
   { id: 'triggers_backfire', text: '玩家本轮举动是否过于粗暴突兀，足以引发角色的反感、惊惧或心理防线反弹收紧？' }
 ])
 
+// 写作模式（作者=全知）判定集：不存在「受控角色」，因此不判越权代笔与天眼作弊。
+// 三个通道复用同一解析槽位，语义改为：角色失真 / 设定吃书 / 信息边界穿帮。
+const AUTHOR_DAMPER_QUESTIONS = Object.freeze({
+  godmode_outcome: {
+    type: 'noul',
+    instructions: '本轮续写是否让既有角色说出或做出与其性格底色、既定关系、当前处境明显相悖的行为，且正文没有给出任何动机过渡或心理铺垫（角色失真，而非有意图的转变）？'
+  },
+  unfounded_retcon: {
+    type: 'noul',
+    instructions: '本轮续写是否凭空引入与当前状态锚点、前文已发生事件、角色既有设定或世界规则直接矛盾的新事实（吃书：身份、关系、能力、年代、规则被无声改写）？'
+  },
+  epistemic_violation: {
+    type: 'noul',
+    instructions: '本轮续写是否把某角色根本无从得知、或尚未在场获得的情报当作业已成立的事实来使用，造成视角穿帮？'
+  },
+  leverage_score: {
+    type: 'score',
+    instructions: '评估本轮续写为剧情推进提供的铺垫密度：伏笔回收、情绪递进、冲突蓄力、视角与节奏安排是否到位？',
+    criteria: [
+      '0: 无任何过渡的突兀跳阶，直接空投结论或结果',
+      '1: 常规叙事过渡，按既有节奏平推',
+      '2: 承接前文张力自然递进，或新设定有明确落点',
+      '3: 精准回收既有伏笔、兑现既定冲突，或完成极具说服力的结构转折'
+    ]
+  },
+  ruling_tier: {
+    type: 'choice',
+    instructions: '对照既有正史与当前状态，裁定本轮续写的处理档位：',
+    criteria: {
+      full_accept: '内容与既有设定、当前状态自洽，顺畅成立为正史。',
+      conflicted_half_step: '方向成立但铺垫偏薄，允许推进，同时补足动机、过渡或视角交代。',
+      costly_advance: '推进跨越较大，需在正文中落下合理代价或后效（时间流逝、关系裂痕、暴露风险、债务）。',
+      resist_pushback: '节奏明显超出情境承载，需放缓并补写承接过程，而非直接跳到结果。',
+      strip_delusion: '新增内容与既有正史直接矛盾（吃书），不予追认为正史，须按既有设定校正或改写为伏笔/误记/传闻。'
+    }
+  },
+  mvu_delta_budget: {
+    type: 'choice',
+    instructions: '裁定本轮结束后，核心好感/亲密/沦陷/心理防线类状态数值允许的变动幅度配额：',
+    criteria: {
+      backfire: '情绪或冲突急转，指标反向回调（如关系破裂、信任崩解）',
+      frozen: '本轮主要交代设定与过渡，核心关系指标基本不动（变动上限 ±1）',
+      micro_step: '常规叙事推进带来的自然小幅变化',
+      breakthrough: '关键转折或伏笔兑现，阶段性格局松动（仍受单轮上限约束）'
+    }
+  }
+})
+
+const AUTHOR_BINARY_FALLBACK_QUESTIONS = Object.freeze([
+  { id: 'godmode_outcome', text: AUTHOR_DAMPER_QUESTIONS.godmode_outcome.instructions },
+  { id: 'unfounded_retcon', text: AUTHOR_DAMPER_QUESTIONS.unfounded_retcon.instructions },
+  { id: 'epistemic_violation', text: AUTHOR_DAMPER_QUESTIONS.epistemic_violation.instructions },
+  { id: 'strong_leverage', text: '本轮续写是否回收了前文伏笔、利用了既有冲突张力，或安排了恰当的视角与节奏铺垫？' },
+  { id: 'overreaches_state', text: '本轮续写推进的剧情跨度是否明显超出当前情境与既有节奏所能承载的范围？' },
+  { id: 'triggers_backfire', text: '本轮续写是否让角色产生与既有设定断裂且缺少动机铺垫的剧烈转向？' }
+])
+
+function damperQuestionSet(config) {
+  return config?.judgeMode === 'author' ? AUTHOR_DAMPER_QUESTIONS : GEMINI_DAMPER_QUESTIONS
+}
+
+function damperBinaryQuestionSet(config) {
+  return config?.judgeMode === 'author' ? AUTHOR_BINARY_FALLBACK_QUESTIONS : BINARY_FALLBACK_QUESTIONS
+}
+
+
 function compactStateSummary(stateSnapshot) {
   if (!stateSnapshot || !stateSnapshot.data) return '（无显式数值状态）'
   try {
@@ -349,6 +429,7 @@ function compactStateSummary(stateSnapshot) {
 
 export function normalizeDecisionRuling(rawDecision, config) {
   const strict = config.mode === 'strict'
+  const author = config.judgeMode === 'author'
   const threshold = strict ? Math.max(0.5, config.godmodeThreshold - 0.08) : config.godmodeThreshold
   const godmode = Number(rawDecision.godmode) || 0
   const retcon = Number(rawDecision.retcon) || 0
@@ -357,12 +438,23 @@ export function normalizeDecisionRuling(rawDecision, config) {
   let rulingTier = str(rawDecision.rulingTier) || 'full_accept'
   let deltaBudget = str(rawDecision.deltaBudget) || 'micro_step'
 
-  const violated = godmode >= threshold || retcon >= threshold || epistemic >= threshold
-  if (violated && leverageScore < (strict ? 2.4 : 2.1)) {
+  // 角色扮演模式：替他人代笔心智/生理结果、调用场外情报都构成越权。
+  // 写作模式：作者本就全知且可替任意角色落笔，只有「与既有正史矛盾」不可被追认，
+  // 角色失真与视角穿帮仅作正文层面的软提示，不降档为剥离。
+  const violated = author
+    ? retcon >= threshold
+    : (godmode >= threshold || retcon >= threshold || epistemic >= threshold)
+  if (violated && (author || leverageScore < (strict ? 2.4 : 2.1))) {
     rulingTier = 'strip_delusion'
-    if (deltaBudget === 'breakthrough' || deltaBudget === 'micro_step') {
+    if (author) {
+      // 无受控角色可供「反制」，写作模式下的冲突只冻结指标等待校正，不产生反弹惩罚。
+      deltaBudget = 'frozen'
+    } else if (deltaBudget === 'breakthrough' || deltaBudget === 'micro_step') {
       deltaBudget = godmode >= 0.88 && leverageScore < 0.8 ? 'backfire' : 'frozen'
     }
+  } else if (author && rulingTier === 'strip_delusion') {
+    // 模型误判为剥离但「吃书」未过阈值：降为常规推进，保留节奏提示。
+    rulingTier = leverageScore >= 2 ? 'conflicted_half_step' : 'full_accept'
   } else if (strict) {
     if (rulingTier === 'full_accept' && leverageScore < 2.2 && (godmode >= 0.45 || rawDecision.overreachProb >= 0.35)) {
       rulingTier = 'conflicted_half_step'
@@ -376,6 +468,7 @@ export function normalizeDecisionRuling(rawDecision, config) {
   }
   return {
     mode: config.mode,
+    judgeMode: author ? 'author' : 'roleplay',
     godmode: Math.round(godmode * 1000) / 1000,
     retcon: Math.round(retcon * 1000) / 1000,
     epistemic: Math.round(epistemic * 1000) / 1000,
@@ -387,6 +480,64 @@ export function normalizeDecisionRuling(rawDecision, config) {
   }
 }
 
+function compileAuthorTurnRuling(ruling, { stateLine, postureLine }) {
+  const tier = str(ruling && ruling.rulingTier)
+  const score = Number(ruling?.leverageScore || 1).toFixed(2)
+  const perspective = '写作模式：你拥有全知视角，可自由为任意角色落笔、编排群体行动、切换镜头与切分场景，不受「受控角色」边界限制；唯一硬约束是既有设定与已发生事件的连续性。'
+  if (tier === 'strip_delusion') {
+    const reasons = []
+    if (ruling.retcon >= 0.6) reasons.push(`与既有正史冲突 P=${ruling.retcon.toFixed(2)}`)
+    if (ruling.epistemic >= 0.6) reasons.push(`视角穿帮 P=${ruling.epistemic.toFixed(2)}`)
+    if (ruling.godmode >= 0.6) reasons.push(`角色失真 P=${ruling.godmode.toFixed(2)}`)
+    return [
+      '<turn_ruling>',
+      `【本轮叙事阻尼裁定：设定冲突（${reasons.join('，') || '与既有设定不自洽'}）】`,
+      perspective,
+      `1. 正史优先：与当前状态锚点 ${stateLine}${postureLine}、前文已发生事件或角色既有设定直接矛盾的新增内容，暂不追认为既成事实。`,
+      '2. 冲突处理任选其一：改写为伏笔、传闻、误记、角色主观臆测；或按新设定显式改写相关既有段落并交代改动，保持自洽。',
+      '3. 其余内容照常演出：镜头调度、多角色落笔与心理刻画不受影响。',
+      '</turn_ruling>'
+    ].join('\n')
+  }
+  if (tier === 'resist_pushback') {
+    return [
+      '<turn_ruling>',
+      `【本轮叙事阻尼裁定：节奏失配（铺垫得分 ${score}/3.00）】`,
+      perspective,
+      `1. 本轮推进跨度明显超出当前情境 ${stateLine}${postureLine} 可承载的节奏。`,
+      '2. 补写承接：把跳过的过程展开为可见的过渡、动机或环境变化，再落到结果；剧情走向本身不必否定。',
+      '</turn_ruling>'
+    ].join('\n')
+  }
+  if (tier === 'costly_advance') {
+    return [
+      '<turn_ruling>',
+      `【本轮叙事阻尼裁定：带代价推进（铺垫得分 ${score}/3.00）】`,
+      perspective,
+      `1. 本轮推进可以成立，但需在当前状态 ${stateLine}${postureLine} 上落下合理后效。`,
+      '2. 后效任选其一：时间或资源消耗、关系裂痕、暴露风险、欠下的承诺，让转折有重力。',
+      '</turn_ruling>'
+    ].join('\n')
+  }
+  if (tier === 'conflicted_half_step') {
+    return [
+      '<turn_ruling>',
+      `【本轮叙事阻尼裁定：铺垫成立·有效推进（铺垫得分 ${score}/3.00）】`,
+      perspective,
+      `1. 本轮铺垫有效，允许实质推进；受当前状态 ${stateLine}${postureLine} 牵制，转折须有可追溯的动机与过程。`,
+      '2. 避免无过渡的剧烈转向：保留角色的犹疑、自欺或身心错位，让变化可被读者追溯。',
+      '</turn_ruling>'
+    ].join('\n')
+  }
+  return [
+    '<turn_ruling>',
+    `【本轮叙事阻尼裁定：顺势成立（铺垫得分 ${score}/3.00）】`,
+    perspective,
+    `- 本轮续写与当前状态 ${stateLine}${postureLine} 自洽，按既有节奏自然延展。`,
+    '</turn_ruling>'
+  ].join('\n')
+}
+
 export function compileTurnRuling(ruling, { stateSnapshot, posture, explicitSceneShift = false } = {}) {
   const stateLine = compactStateSummary(stateSnapshot)
   const postureLine = str(posture).trim() ? `；现场姿势锚点：${str(posture).trim().slice(0, 140)}` : ''
@@ -396,8 +547,12 @@ export function compileTurnRuling(ruling, { stateSnapshot, posture, explicitScen
       '【本轮叙事阻尼裁定：显式场景转换放行】',
       '- 玩家使用了场景转换标记，允许按指引切换时空、镜头视角或引入客观环境事件。',
       `- 连续性硬约束：场内角色的性格底色、已知情报边界与当前状态锚点（${stateLine}）保持连续惯性，严禁因镜头切换发生无铺垫的人设突变。`,
+      ruling && ruling.judgeMode === 'author' ? '- 写作模式：全知视角与任意角色落笔均为合法权限，只需与既有设定自洽。' : '',
       '</turn_ruling>'
-    ].join('\n')
+    ].filter(Boolean).join('\n')
+  }
+  if (ruling && ruling.judgeMode === 'author') {
+    return compileAuthorTurnRuling(ruling, { stateLine, postureLine })
   }
   const tier = str(ruling && ruling.rulingTier)
   if (tier === 'strip_delusion') {
@@ -405,12 +560,22 @@ export function compileTurnRuling(ruling, { stateSnapshot, posture, explicitScen
     if (ruling.godmode >= 0.6) reasons.push(`越权代笔他者心智/生理结果 P=${ruling.godmode.toFixed(2)}`)
     if (ruling.retcon >= 0.6) reasons.push(`捏造无依据过往/设定 P=${ruling.retcon.toFixed(2)}`)
     if (ruling.epistemic >= 0.6) reasons.push(`调用不在场未知情报 P=${ruling.epistemic.toFixed(2)}`)
+    // 逐条只针对真正命中的轴写处置：嘴上的话照常演，被口胡出来的结果/设定/情报不作数。
+    const clauses = ['台词与动作照常演出，但发言不是结果：只演受控角色亲口说的话、当场发起的尝试，不得据此推定对方的顺从、倾心、生理反应，或事情已经办成。']
+    if (ruling.godmode >= 0.6) {
+      clauses.push('越权结果作废：输入中替其他角色预设的顺从、倾心、生理峰值一律不予追认，只作为玩家角色单方面的口嗨、试探话术或一厢情愿来呈现。')
+    }
+    if (ruling.retcon >= 0.6) {
+      clauses.push('无据设定不予采信：玩家本轮新造的机构、法条、外界安排、他人身份关系或既往事件，与既有设定及状态锚点冲突时不得作为本轮事实地基；剧情按已确立的设定与状态推进，只把该主张留给玩家角色自己说出。')
+    }
+    if (ruling.epistemic >= 0.6) {
+      clauses.push('场外天眼作废：角色只能使用故事里已经获知的情报，不得因为玩家写出来就自然地知道不在场的信息。')
+    }
+    clauses.push(`状态刚性反制：严格依据当前状态锚点（${stateLine}${postureLine}）与角色人设，演出对方真实的错愕、质疑、冷淡推开或心理防备升级。`)
     return [
       '<turn_ruling>',
       `【本轮叙事阻尼裁定：越权剥离（${reasons.join('，') || '跨阶口胡拦截'}）】`,
-      '1. 自由度保留：完整演出受控角色亲口说出的台词与发起的当场动作尝试，不吞没角色自身的主观举动。',
-      '2. 越权结果作废：输入中替其他角色预设的顺从/倾心/生理峰值或凭空补写的场外设定、天眼情报一律不予追认为客观事实，仅将其作为受控角色单方面的口嗨、试探话术或一厢情愿来呈现。',
-      `3. 状态刚性反制：严格依据当前状态锚点（${stateLine}${postureLine}）与角色人设，演出对方真实的错愕、质疑、冷淡推开或心理防备升级。`,
+      ...clauses.map((clause, index) => `${index + 1}. ${clause}`),
       '</turn_ruling>'
     ].join('\n')
   }
@@ -456,11 +621,18 @@ export function compileTurnRuling(ruling, { stateSnapshot, posture, explicitScen
 export function settlementBudgetRuleText(ruling) {
   if (!ruling || typeof ruling !== 'object') return ''
   const strict = ruling.mode === 'strict'
+  const author = ruling.judgeMode === 'author'
   const budget = str(ruling.deltaBudget)
   if (budget === 'backfire') {
+    if (author) {
+      return '【叙事阻尼器·本轮结算配额：反向回调（backfire）】本轮续写出现关系或信任的剧烈反转：好感、信任、亲密、顺从、沦陷类正向指标允许下调，警戒、抗拒、敌意类指标允许上调，但反转须有可见的因果，不得无过渡跳变。'
+    }
     return '【叙事阻尼器·本轮结算配额：反弹收紧（backfire）】本轮玩家行动越界冒进或口胡失效：好感、信任、亲密、顺从、沦陷类正向推进指标严禁上调（允许持平或小幅下调），警戒、抗拒、羞耻防线允许小幅上调。'
   }
   if (budget === 'frozen') {
+    if (author) {
+      return '【叙事阻尼器·本轮结算配额：惯性冻结（frozen）】本轮以交代、过渡或设定校正为主：好感、信任、爱意、沦陷、心理防线等核心关系指标单轮变动幅度须控制在 ±1 以内。'
+    }
     return '【叙事阻尼器·本轮结算配额：防线冻结（frozen）】本轮未形成有效破防：好感、信任、爱意、沦陷、心理防线等核心关系指标单轮变动幅度须控制在 ±1 以内。'
   }
   if (budget === 'breakthrough') {
@@ -468,6 +640,9 @@ export function settlementBudgetRuleText(ruling) {
     return `【叙事阻尼器·本轮结算配额：阶段突破（breakthrough）】本轮有效兑现关键筹码或伏笔：允许关系、沦陷或防线指标发生阶段性松动，但百分制连续指标单轮最大变动幅度仍须控制在 ±${cap} 以内，严禁单轮一步拉满或清零。`
   }
   const cap = strict ? 3 : 5
+  if (author) {
+    return `【叙事阻尼器·本轮结算配额：渐进微调（micro_step）】按既有节奏自然推进：百分制好感、信任、沦陷、唤起、防线等连续指标单轮变动幅度控制在 ±${cap} 以内。`
+  }
   return `【叙事阻尼器·本轮结算配额：渐进微调（micro_step）】保持慢热连续惯性：百分制好感、信任、沦陷、唤起、防线等连续指标单轮变动幅度控制在 ±${cap} 以内。`
 }
 
@@ -529,6 +704,7 @@ export function summarizeDamperRulingOutcome(ruling, meta = {}) {
     status: 'applied',
     source: str(meta.source || ruling.source) || (explicitSceneShift ? 'scene-shift' : 'model'),
     mode: ruling.mode === 'strict' ? 'strict' : 'balanced',
+    judgeMode: ruling.judgeMode === 'author' ? 'author' : 'roleplay',
     ...(str(meta.provider || ruling.provider) ? { provider: str(meta.provider || ruling.provider) } : {}),
     ...(str(meta.model || ruling.model) ? { model: str(meta.model || ruling.model) } : {}),
     rulingTier: str(ruling.rulingTier) || 'full_accept',
@@ -553,6 +729,7 @@ export function clampMvuSubmissionOperationsWithReport(submission, currentVariab
   }
   const baseReport = {
     mode: ruling.mode === 'strict' ? 'strict' : 'balanced',
+    judgeMode: ruling.judgeMode === 'author' ? 'author' : 'roleplay',
     rulingTier: str(ruling.rulingTier) || 'full_accept',
     deltaBudget: str(ruling.deltaBudget) || 'micro_step',
     leverageScore: Number.isFinite(Number(ruling.leverageScore)) ? Math.round(Number(ruling.leverageScore) * 100) / 100 : 1,
@@ -646,13 +823,18 @@ function buildJudgeMaterial({ chat, card, userText, stateSnapshot, config, exclu
     ? '【本局指导 Guide】' + chat.guides.map(g => str(g?.text ?? g)).filter(Boolean).join('；').slice(0, 400)
     : ''
   const rawMaterial = [
+    config.judgeMode === 'author'
+      ? '【视角说明】当前为写作模式：作者拥有全知视角，可为任意角色落笔、编排群体行动、切换镜头与场景。判定只看新增内容是否与既有设定矛盾（吃书）、角色是否失真、视角是否穿帮，不存在「越权代笔」这回事。'
+      : '',
     config.preamble ? `【附加裁判准则】${str(config.preamble).trim()}` : '',
     personaParts ? `【角色人设摘要】\n${personaParts}` : '',
     `【当前状态锚点（${stateSnapshot.kind === 'mvu' ? 'MVU 变量表' : '通用四维状态'}）】\n${JSON.stringify(stateSnapshot.data || {})}`,
     str(chat?.posture).trim() ? `【上一轮结算现场姿势】\n${str(chat.posture).trim().slice(0, 320)}` : '',
     guides,
     recentStoryExcerpt(chat, excludeAssistantIndex),
-    `【本轮受控角色输入】\n${str(userText).trim().slice(0, 2000)}`
+    config.judgeMode === 'author'
+      ? `【本轮续写输入（作者视角，可落笔任意角色）】\n${str(userText).trim().slice(0, 2000)}`
+      : `【本轮受控角色输入】\n${str(userText).trim().slice(0, 2000)}`
   ].filter(Boolean).join('\n\n')
   return config.desensitizeR18 !== false ? desensitizeForDecisionJudge(rawMaterial) : rawMaterial
 }
@@ -664,11 +846,11 @@ function buildProviderRequest(config, material, customBinaryQuestions = null) {
   if (protocol === 'gemini') {
     const questions = customBinaryQuestions
       ? Object.fromEntries(customBinaryQuestions.map(q => [q.id, { type: 'noul', instructions: q.text }]))
-      : GEMINI_DAMPER_QUESTIONS
+      : damperQuestionSet(config)
     const body = JSON.stringify({ model: config.model, input: material, questions })
     return { protocol, url, body, authHeader: key => ({ 'x-goog-api-key': key, 'Content-Type': 'application/json' }) }
   }
-  const list = customBinaryQuestions || BINARY_FALLBACK_QUESTIONS
+  const list = customBinaryQuestions || damperBinaryQuestionSet(config)
   if (protocol === 'jev') {
     const body = JSON.stringify({
       model: config.model,
@@ -685,7 +867,8 @@ function buildProviderRequest(config, material, customBinaryQuestions = null) {
   return { protocol, url, body, authHeader: key => ({ Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }) }
 }
 
-function parseTurnDecisionResponse(protocol, data) {
+function parseTurnDecisionResponse(protocol, data, config = null) {
+  const author = config?.judgeMode === 'author'
   if (protocol === 'gemini') {
     const answers = object(data && data.answers)
     const godmode = Number(answers.godmode_outcome?.noul)
@@ -716,7 +899,7 @@ function parseTurnDecisionResponse(protocol, data) {
   const backfire = probOf('triggers_backfire')
   const leverageScore = strongLeverage * 3
   let rulingTier = 'full_accept'
-  if (godmode >= 0.72 || retcon >= 0.72 || epistemic >= 0.72) rulingTier = 'strip_delusion'
+  if (author ? retcon >= 0.72 : (godmode >= 0.72 || retcon >= 0.72 || epistemic >= 0.72)) rulingTier = 'strip_delusion'
   else if (overreaches >= 0.65 && strongLeverage < 0.45) rulingTier = 'resist_pushback'
   else if (overreaches >= 0.5 && strongLeverage >= 0.45) rulingTier = 'conflicted_half_step'
   else if (backfire >= 0.55) rulingTier = 'costly_advance'
@@ -807,7 +990,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           }
         })()
       ])
-      const rawDecision = parseTurnDecisionResponse(request.protocol, body)
+      const rawDecision = parseTurnDecisionResponse(request.protocol, body, config)
       const ruling = normalizeDecisionRuling(rawDecision, config)
       const latencyMs = Math.round(performance.now() - start)
       const usage = body.usage ? {
@@ -922,6 +1105,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       if (explicitSceneShift) {
         const sceneRuling = {
           mode: config.mode,
+          judgeMode: config.judgeMode === 'author' ? 'author' : 'roleplay',
           godmode: 0,
           retcon: 0,
           epistemic: 0,
@@ -952,6 +1136,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         input: trimmedInput,
         config: {
           mode: config.mode,
+          judgeMode: config.judgeMode,
           provider: config.provider,
           model: config.model,
           baseUrl: config.baseUrl,
@@ -987,6 +1172,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           provider: config.provider,
           model: config.model,
           mode: config.mode,
+          judgeMode: config.judgeMode === 'author' ? 'author' : 'roleplay',
           latencyMs: Math.max(0, Math.round(Number(queryResult.latencyMs) || 0))
         }
         if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: null, outcome, stateSnapshot })
