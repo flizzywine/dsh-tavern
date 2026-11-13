@@ -9,6 +9,10 @@ import { installWorkspaceInstructionPresentation } from '../domain/workspace-ins
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
 import { bodyGenerationFailure } from '../domain/body-generation-failure.js'
+import { toolProtocolDirectiveOf } from '../domain/foreground-orchestration-strategies.js'
+import { STORY_CONTEXT_TOOL_NAME, STORY_SUBMIT_TOOL_NAME } from '../domain/story-tool-submission.js'
+import { isAutoToolOnlyModel, runWithToolProtocolDirective } from '../domain/tool-protocol-enforcement.js'
+import { createToolReplyStreamTracker } from '../domain/tool-reply-stream-parser.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -147,7 +151,24 @@ export function registerModelStreamHooks({
         const direct = await pluginBodyGeneration.direct(session, options.signal)
         if (direct) { yield * direct; return }
       }
-      const stream = next()
+      const baseDirective = options.purpose === undefined ? toolProtocolDirectiveOf(options) : null
+      const activeModel = str(options.model || baseDirective?.model)
+      const activeDirective = baseDirective
+        ? Object.freeze({
+            ...baseDirective,
+            provider: str(options.provider || baseDirective.provider),
+            model: activeModel,
+            forceToolChoice: baseDirective.storyOutputToolCall === true && !isAutoToolOnlyModel(activeModel),
+            ...(Array.isArray(options.tools)
+              ? {
+                  allowedToolNames: options.tools
+                    .map(tool => str(tool?.name))
+                    .filter(name => name !== '' && name !== STORY_CONTEXT_TOOL_NAME)
+                }
+              : {})
+          })
+        : null
+      const stream = runWithToolProtocolDirective(activeDirective, () => next())
       // a director already owns frozen, projected sources.
       const director = backgroundContext?.task === 'stage-director'
       if (director) assertFrozenStageRequest(backgroundContext, options)
@@ -186,6 +207,8 @@ export function registerModelStreamHooks({
       // The story reply of a turn started streaming (正文开始; once per turn, see index.js).
       if (!backgroundContext && !child && options.purpose === undefined && ['story', 'script'].includes(chat?.mode)) replyStarted?.(sessionId, requestCoordinates.get(sessionId)?.turn)
       let responseText = ''
+      let toolStreamedText = ''
+      const toolReplyTracker = createToolReplyStreamTracker(STORY_SUBMIT_TOOL_NAME)
       // A provider can end after emitting visible prose with finish_reason=error,
       // or drop the terminal chunk altogether. The host normally records only an
       // assistant/attempt for those turns, and the failed-turn cleanup then removes
@@ -211,15 +234,22 @@ export function registerModelStreamHooks({
       let iterator, exhausted = false
       try {
         liveness.provider()
-        iterator = stream[Symbol.asyncIterator]()
+        iterator = runWithToolProtocolDirective(activeDirective, () => stream[Symbol.asyncIterator]())
         while (true) {
-          const item = await liveness.wait(iterator.next())
+          const item = await liveness.wait(runWithToolProtocolDirective(activeDirective, () => iterator.next()))
           if (item.done) {exhausted = true; break}
           let chunk = item.value
           liveness.chunk(chunk)
           if (chunk && chunk.type === 'text-delta') {
             responseText += str(chunk.text)
-            replyObserver?.append(str(chunk.text))
+            if (!activeDirective?.storyOutputToolCall) replyObserver?.append(str(chunk.text))
+          }
+          if (chunk && chunk.type === 'tool-call-delta') {
+            const extracted = toolReplyTracker.pushToolDelta(chunk)
+            if (extracted.matched && extracted.contentDelta !== '') {
+              toolStreamedText += extracted.contentDelta
+              replyObserver?.append(extracted.contentDelta)
+            }
           }
           if (chunk && chunk.type === 'finish') {
             const reason = chunk.reason === undefined ? chunk : chunk.reason
@@ -257,7 +287,7 @@ export function registerModelStreamHooks({
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat
         if (owner && requestRecord) {
-          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText, finish, usage, error: failure,
+          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
             interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
         }

@@ -6,6 +6,7 @@
 // (a changed shape, a CSP without eval) leaves the original factory in place.
 import { patchChatSource } from './chat-answer-step.js'
 import { patchReasoningChatSource } from './chat-reasoning-fold.js'
+import { patchToolReplyStreamChatSource } from './chat-tool-reply-stream.js'
 
 export const CHAT_UI_MODULE_ID = '@deepseek-ai/dsh-client-ui-chat'
 
@@ -14,6 +15,7 @@ export function chatAnswerBootScript() {
   var ID = ${JSON.stringify(CHAT_UI_MODULE_ID)}
   var patchChatSource = ${patchChatSource.toString()}
   var patchReasoningChatSource = ${patchReasoningChatSource.toString()}
+  var patchToolReplyStreamChatSource = ${patchToolReplyStreamChatSource.toString()}
   function patchFactory(factory) {
     try {
       var source = String(factory)
@@ -22,6 +24,8 @@ export function chatAnswerBootScript() {
       if (answer.status === 'applied') { source = answer.text; changed = true }
       var reasoning = patchReasoningChatSource(source)
       if (reasoning.status === 'applied') { source = reasoning.text; changed = true }
+      var toolStream = patchToolReplyStreamChatSource(source)
+      if (toolStream.status === 'applied') { source = toolStream.text; changed = true }
       if (!changed) return factory
       var rebuilt = new Function('return (' + source + ')')()
       return typeof rebuilt === 'function' ? rebuilt : factory

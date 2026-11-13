@@ -18,6 +18,7 @@ import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice }
 import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
+import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
 import { patchWebViewportMeta } from './web-viewport-patch.mjs'
@@ -427,6 +428,9 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         const folded = patchChatReasoningFold(chat.directory)
         if (folded === null) console.log('当前 DSH 的对话界面与思维链补丁不符，已跳过；思维链仍按宿主自己的展示规则。')
         else if (folded) console.log('已让 DSH 对话界面的思考行跟随流式展开，写完自动收起。')
+        const toolStreamed = patchChatToolReplyStream(chat.directory)
+        if (toolStreamed === null) console.log('当前 DSH 的对话界面与工具流式预览补丁不符，已跳过。')
+        else if (toolStreamed) console.log('已启用 submit_story 工具调用期间的思维链与正文实时流式显示。')
       }
       if (!isAsarPath(deepseek.directory)) {
         const patched = patchDeepSeekStreamOption(deepseek.directory)
