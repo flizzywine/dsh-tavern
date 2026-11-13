@@ -42,13 +42,17 @@ const BLANK_ALLOWED_PROMPTS = new Set(['system-append'])
 // history had a switch of its own. Reads migrate in place: a merged save turns
 // both on, and an old history-only save turns input on while output stays as it
 // was. Explicit new fields always win over the retired ones.
+export const STORY_TOOL_HISTORY_MODES = Object.freeze(['story', 'bodies', 'envelope'])
+
 export function storyToolCallSettings(document) {
   const source = object(document)
   const merged = Object.hasOwn(source, 'storyToolCall') ? source.storyToolCall === true : null
   const history = Object.hasOwn(source, 'storyHistoryToolCall') ? source.storyHistoryToolCall === true : null
   return {
     input: Object.hasOwn(source, 'storyInputToolCall') ? source.storyInputToolCall === true : (history === null ? merged === true : history),
-    output: Object.hasOwn(source, 'storyOutputToolCall') ? source.storyOutputToolCall === true : merged === true
+    output: Object.hasOwn(source, 'storyOutputToolCall') ? source.storyOutputToolCall === true : merged === true,
+    thinking: source.storyToolThinking === true,
+    historyMode: STORY_TOOL_HISTORY_MODES.includes(source.storyToolHistoryMode) ? source.storyToolHistoryMode : 'story'
   }
 }
 
@@ -376,6 +380,14 @@ export function applyTavernSettingsPatch(current, patch) {
     delete next.storyToolCall
     delete next.storyHistoryToolCall
   }
+  if (Object.hasOwn(input, 'storyToolThinking')) {
+    if (typeof input.storyToolThinking !== 'boolean') throw new Error('工具内思考槽设置必须是布尔值')
+    next.storyToolThinking = input.storyToolThinking
+  }
+  if (Object.hasOwn(input, 'storyToolHistoryMode')) {
+    if (!STORY_TOOL_HISTORY_MODES.includes(input.storyToolHistoryMode)) throw new Error('无效的工具回放结构设置')
+    next.storyToolHistoryMode = input.storyToolHistoryMode
+  }
   if (Object.hasOwn(input, 'retryOnFailure')) {
     if (typeof input.retryOnFailure !== 'boolean') throw new Error('自动重试设置必须是布尔值')
     next.retryOnFailure = input.retryOnFailure
@@ -512,6 +524,8 @@ export function presentTavernSettings(document, defaults) {
     storyPluginOutputRegex: document?.storyPluginOutputRegex === true,
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
+    storyToolThinking: storyToolCalls.thinking,
+    storyToolHistoryMode: storyToolCalls.historyMode,
     // A failed model request is resent once by default (tavern-retry-limiter); off means
     // the turn ends right there and the reply is only remade when the player asks.
     retryOnFailure: object(document).retryOnFailure !== false,

@@ -4,9 +4,20 @@ import { projectPlayerContent } from './player-input-content.js'
 import { resolveRuntimePresetMacros } from './runtime-presets.js'
 import { projectRuntimePresetRequest } from './runtime-preset-lifecycle.js'
 import { BODY_GENERATION_PROMPT } from './plugin-body-generation.js'
-import { STORY_GENERATE_TOOL_NAME, STORY_INPUT_ONLY_PROMPT, STORY_SUBMIT_PROMPT, STORY_SUBMIT_PROMPT_STRICT, STORY_SUBMIT_TOOL_NAME, withStorySubmitAck } from './story-tool-submission.js'
+import {
+  STORY_CONTEXT_TOOL_NAME,
+  STORY_GENERATE_TOOL_NAME,
+  STORY_INPUT_ONLY_PROMPT,
+  STORY_SUBMIT_PROMPT,
+  STORY_SUBMIT_PROMPT_STRICT,
+  STORY_SUBMIT_THINK_NOTE,
+  STORY_SUBMIT_TOOL_NAME,
+  buildStorySubmitWireSchema,
+  withStorySubmitAck
+} from './story-tool-submission.js'
 import { NO_FOREGROUND_TOOLS_PROMPT, normalizeDisabledForegroundTools } from './foreground-tools.js'
-import { projectHistoryAsToolCalls } from './history-tool-call.js'
+import { projectEnvelopeRequest, projectHistoryAsToolCalls } from './history-tool-call.js'
+import { isAutoToolOnlyModel } from './tool-protocol-enforcement.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
 import { inputKind } from './session-turn-input.js'
 import { isProducerSource, isSystemPromptSource } from './message-source.js'
@@ -18,6 +29,11 @@ const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-s
 // files anyway; a large card's reference material would dominate each request.
 export const CARD_REFERENCE_WORLDBOOK_LIMIT = 8000
 export const CARD_REFERENCE_SECTION_LIMIT = 8000
+export const TOOL_PROTOCOL_DIRECTIVE = Symbol.for('dsh-tavern.tool-protocol-directive')
+
+export function toolProtocolDirectiveOf(request) {
+  return request && typeof request === 'object' ? request[TOOL_PROTOCOL_DIRECTIVE] || null : null
+}
 
 function cardReferenceSection(section) {
   const text = str(section.text)
@@ -333,8 +349,13 @@ export function createNativePlayOrchestrationStrategy(options) {
       const historyWanted = typeof options.historyToolCall === 'function' ? (await options.historyToolCall()) === true : false
       const pluginGeneration = (await options.bodyGeneration?.(sessionId))?.mode?.startsWith('plugin-')
       const outputWanted = !pluginGeneration && typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
-      const submitVisible = typeof options.visibleTools !== 'function'
-        || (await options.visibleTools(sessionId)).includes(STORY_SUBMIT_TOOL_NAME)
+      const thinkWanted = typeof options.storyToolThinking === 'function' ? (await options.storyToolThinking()) === true : false
+      const visibleList = typeof options.visibleTools === 'function' ? await options.visibleTools(sessionId) : null
+      const submitVisible = visibleList === null || visibleList.includes(STORY_SUBMIT_TOOL_NAME)
+      const contextToolVisible = visibleList === null || visibleList.includes(STORY_CONTEXT_TOOL_NAME)
+      const callableToolNames = Array.isArray(visibleList)
+        ? visibleList.filter(name => name !== STORY_CONTEXT_TOOL_NAME)
+        : [STORY_SUBMIT_TOOL_NAME]
       const submitOffered = historyWanted && submitVisible
       stagedRequests.set(sessionId, {
         turn: Math.max(0, Number(payload.turn) || 0),
@@ -344,6 +365,9 @@ export function createNativePlayOrchestrationStrategy(options) {
         // Resolved here because the request projection below is synchronous.
         historyToolCall: submitOffered,
         storyOutputToolCall: outputWanted && submitVisible,
+        storyToolThinking: thinkWanted,
+        contextToolVisible,
+        callableToolNames,
         historyLayout: typeof options.historyLayout === 'function' ? String(await options.historyLayout() || 'story') : 'story'
       })
     }
@@ -411,38 +435,97 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (passbackMessages !== request.messages) request = Object.assign({}, request, { messages: passbackMessages })
     const thinkingMessages = projectAnthropicPriorThinking(request.messages)
     if (thinkingMessages !== request.messages) request = Object.assign({}, request, { messages: thinkingMessages })
-    // Past bodies replayed as the submission tool's arguments instead of prose the
-    // model wrote. Runs last so the earlier passes see the shape the host built;
-    // the save, the view and every floor control keep the plain text. Only this
-    // turn's own input stays a message — it is the prompt being answered.
-    if (staged.historyToolCall === true) {
-      const source = request.messages
+    const signaturesByCallId = {}
+    const targetProvider = str(optionsValue.provider)
+    const targetModel = str(optionsValue.model)
+    const contextDeclared = !Array.isArray(request.tools)
+      ? staged.contextToolVisible !== false
+      : request.tools.some(tool => tool?.name === STORY_CONTEXT_TOOL_NAME)
+    const useEnvelope = staged.historyToolCall === true && staged.historyLayout === 'envelope' && contextDeclared
+
+    if (useEnvelope) {
+      const labelledFirst = labelPresetFront(request.messages, frontTexts.get(sessionId))
+      const source = labelledFirst
       let inputIndex = -1
       for (let index = source.length - 1; index >= 0; index--) {
         if (isTurnInput(source[index])) { inputIndex = index; break }
       }
-      const historyMessages = projectHistoryAsToolCalls(source, {
+      const enveloped = projectEnvelopeRequest({
+        system: str(request.system),
+        messages: source,
         toolName: STORY_SUBMIT_TOOL_NAME,
-        layout: staged.historyLayout,
-        // `everything` deliberately replays the input too, leaving a receipt last.
-        preserve: staged.historyLayout === 'everything' ? null : (_message, index) => index === inputIndex
+        contextToolName: STORY_CONTEXT_TOOL_NAME,
+        includeThink: staged.storyToolThinking === true,
+        outputToolCall: staged.storyOutputToolCall === true,
+        turn: staged.turn,
+        inputIndex,
+        targetProvider,
+        targetModel,
+        signaturesByCallId
       })
-      if (historyMessages !== request.messages) request = Object.assign({}, request, { messages: historyMessages })
+      request = Object.assign({}, request, {
+        system: enveloped.system,
+        messages: enveloped.messages
+      })
+    } else {
+      if (staged.historyToolCall === true) {
+        const source = request.messages
+        let inputIndex = -1
+        for (let index = source.length - 1; index >= 0; index--) {
+          if (isTurnInput(source[index])) { inputIndex = index; break }
+        }
+        const historyMessages = projectHistoryAsToolCalls(source, {
+          toolName: STORY_SUBMIT_TOOL_NAME,
+          layout: staged.historyLayout,
+          includeThink: staged.storyToolThinking === true,
+          targetProvider,
+          targetModel,
+          signaturesByCallId,
+          // `everything` deliberately replays the input too, leaving a receipt last.
+          preserve: staged.historyLayout === 'everything' ? null : (_message, index) => index === inputIndex
+        })
+        if (historyMessages !== request.messages) request = Object.assign({}, request, { messages: historyMessages })
+      }
+      // DSH's renderer returns '' for no sections; adapters otherwise serialize
+      // it as an empty system message. Preserve any explicit non-empty prompt.
+      if (request.system === '') {
+        request = Object.assign({}, request)
+        delete request.system
+      }
+      const labelled = labelPresetFront(request.messages, frontTexts.get(sessionId))
+      if (labelled !== request.messages) request = Object.assign({}, request, { messages: labelled })
+      // A real assistant turn placed before the current player input, not after
+      // it: providers still see the player's message last, and the model reads its
+      // own submission commitment right before answering.
+      if (staged.storyOutputToolCall === true) {
+        const acknowledged = withStorySubmitAck(request.messages, staged.turn)
+        if (acknowledged !== request.messages) request = Object.assign({}, request, { messages: acknowledged })
+      }
     }
-    // DSH's renderer returns '' for no sections; adapters otherwise serialize
-    // it as an empty system message. Preserve any explicit non-empty prompt.
-    if (request.system === '') {
-      request = Object.assign({}, request)
-      delete request.system
-    }
-    const labelled = labelPresetFront(request.messages, frontTexts.get(sessionId))
-    if (labelled !== request.messages) request = Object.assign({}, request, { messages: labelled })
-    // A real assistant turn placed before the current player input, not after
-    // it: providers still see the player's message last, and the model reads its
-    // own submission commitment right before answering.
-    if (staged.storyOutputToolCall === true) {
-      const acknowledged = withStorySubmitAck(request.messages, staged.turn)
-      if (acknowledged !== request.messages) request = Object.assign({}, request, { messages: acknowledged })
+
+    if (staged.storyOutputToolCall === true || staged.historyToolCall === true) {
+      const requestToolNames = Array.isArray(request.tools)
+        ? request.tools.map(tool => str(tool?.name)).filter(name => name !== '' && name !== STORY_CONTEXT_TOOL_NAME)
+        : staged.callableToolNames || [STORY_SUBMIT_TOOL_NAME]
+      const forceToolChoice = staged.storyOutputToolCall === true && !isAutoToolOnlyModel(targetModel)
+      const directive = Object.freeze({
+        provider: targetProvider,
+        model: targetModel,
+        forceToolChoice,
+        storyOutputToolCall: staged.storyOutputToolCall === true,
+        storyToolThinking: staged.storyToolThinking === true,
+        allowedToolNames: requestToolNames.length > 0 ? requestToolNames : [STORY_SUBMIT_TOOL_NAME],
+        signaturesByCallId,
+        resolveToolSchema(toolName, ctx) {
+          if (toolName !== STORY_SUBMIT_TOOL_NAME) return null
+          const includeThink = staged.storyToolThinking === true || ctx?.anthropicThinkingStripped === true
+          return buildStorySubmitWireSchema({ includeThink })
+        }
+      })
+      request = Object.assign({}, request, {
+        ...(forceToolChoice ? { toolChoice: 'any' } : {}),
+        [TOOL_PROTOCOL_DIRECTIVE]: directive
+      })
     }
     if (request === optionsValue) return null
     return markRequestHandled(request, PROJECTED)
@@ -524,18 +607,19 @@ export function createNativePlayOrchestrationStrategy(options) {
     // The strict wording is only true when submit_story is the single tool.
     if (playMode) {
       const toolNames = new Set(finalTools.map(schema => schema.name))
+      const callableCount = [...toolNames].filter(name => name !== STORY_CONTEXT_TOOL_NAME).length
       const outputToolCall = typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
-      // Hosts that overwrite assembly.tools deliver every registered tool,
-      // including tavern_generate_body when plugin generation is off. The
-      // output contract follows Tavern's own tool gate, not those raw
-      // declarations: otherwise the model is told to write no prose, the tool
-      // replies "plugin generation is not enabled" and the turn ends empty.
+      const toolThinking = typeof options.storyToolThinking === 'function' ? (await options.storyToolThinking()) === true : false
       const pluginGeneration = visible.has(STORY_GENERATE_TOOL_NAME)
       if (pluginGeneration) {
         sections.push({ name: 'tavern:plugin-body-generation', text: BODY_GENERATION_PROMPT })
       } else if (toolNames.has(STORY_SUBMIT_TOOL_NAME)) {
         if (outputToolCall) {
-          sections.push({ name: 'tavern:story-tool-submission', text: toolNames.size === 1 ? STORY_SUBMIT_PROMPT_STRICT : STORY_SUBMIT_PROMPT })
+          const basePrompt = callableCount === 1 ? STORY_SUBMIT_PROMPT_STRICT : STORY_SUBMIT_PROMPT
+          const text = toolThinking
+            ? basePrompt.replace('</output_method>', STORY_SUBMIT_THINK_NOTE + '\n</output_method>')
+            : basePrompt
+          sections.push({ name: 'tavern:story-tool-submission', text })
         } else {
           sections.push({ name: 'tavern:story-tool-submission', text: STORY_INPUT_ONLY_PROMPT })
         }

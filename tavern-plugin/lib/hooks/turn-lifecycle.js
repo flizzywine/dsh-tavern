@@ -75,6 +75,18 @@ export function registerTurnLifecycleHooks({
       await turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message, failure: error.failure })
       throw error
     }
+    if (assistant?.refusalAborted === true || (assistant?.plainTextRefusal === true && typeof storyOutputToolCall === 'function' && (await storyOutputToolCall()) === true)) {
+      const message = assistant.generationError || '模型未通过 submit_story 提交有效剧情正文；请重新生成本轮正文。'
+      await turnOrchestrator.recordFailure({
+        sessionId,
+        turn: payload.turn,
+        requestId,
+        code: 'content-filter',
+        message,
+        ...(assistant.failure ? { failure: assistant.failure } : {})
+      })
+      throw new Error(message)
+    }
     if (assistant === null || assistant.text === '') {
       const reasoningOnly = assistant !== null && assistant.reasoningOnly === true
       const message = reasoningOnly
