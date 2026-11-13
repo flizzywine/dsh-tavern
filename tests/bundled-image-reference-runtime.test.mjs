@@ -148,6 +148,22 @@ test('规划只收文字及清单，结构化subjects到实际图片编号绑定
   assert.equal(calls.length, count)
 })
 
+test('提示词开头的 JSON 主体清单用于参考图，提交给模型的提示词只含画面描述', async t => {
+  const calls = []
+  globalThis.fetch = atlasMock(calls)
+  const output = '<image><regex>她站在窗边。</regex><prompts>{"subjects":[{"characterId":"lin","outfitId":""}]} A woman stands by the window.</prompts></image>'
+  const { runtime } = await prepare(t, { config: { promptSystem: 'workbench' }, llm: {
+    async *stream() { yield { type: 'text-delta', text: output } },
+  } })
+  const result = await runtime.request('plan', { text: '她站在窗边。', messageId: 'turn-embedded-roster', count: 1, manual: true })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  const job = await runtime.terminal(result.body.plans[0].jobId)
+  assert.equal(job.generationMode, 'reference')
+  assert.equal(job.references[0].characterId, 'lin')
+  assert.match(job.submittedPrompt, /stands by the window/)
+  assert.doesNotMatch(job.submittedPrompt, /"subjects"|"characterId"/)
+})
+
 test('多人含无图人物与未知人物时保留文字，明确更新快照可按新提示词重新选人', async t => {
   const calls = []; globalThis.fetch = atlasMock(calls)
   const { runtime, referenceImage, defs } = await prepare(t)

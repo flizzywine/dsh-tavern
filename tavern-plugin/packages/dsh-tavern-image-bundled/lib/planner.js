@@ -174,6 +174,23 @@ export function preserveCharacterMetadata(originalText, revisedText, fallbackCha
   return lines.join('\n')
 }
 
+function normalizeImageSubjects(value) {
+  if (!Array.isArray(value)) throw new Error('subjects 必须是 JSON 数组')
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('第 ' + (index + 1) + ' 个主体必须是对象')
+    for (const key of ['characterId', 'outfitId', 'name']) {
+      if (item[key] !== undefined && typeof item[key] !== 'string') throw new Error(key + ' 必须是字符串')
+    }
+    const characterId = String(item.characterId ?? '').trim(), name = String(item.name ?? '').trim()
+    if (!characterId && !name) throw new Error('主体需要 characterId，未知人物需要 name')
+    const subject = {}
+    if (characterId) subject.characterId = characterId
+    if (name) subject.name = name
+    if (item.outfitId !== undefined) subject.outfitId = item.outfitId.trim()
+    return subject
+  })
+}
+
 /** Optional reference roster. Omission remains distinct from an explicit empty list. */
 function parseImageSubjects(body) {
   if (!/<\/?subjects\b/i.test(body)) return {}
@@ -182,25 +199,31 @@ function parseImageSubjects(body) {
   const blocks = [...body.matchAll(/<subjects\b[^>]*>([\s\S]*?)<\/subjects\s*>/gi)]
   try {
     if (starts.length !== 1 || ends.length !== 1 || blocks.length !== 1) throw new Error('必须是一个完整且唯一的 subjects 块')
-    const value = JSON.parse(blocks[0][1])
-    if (!Array.isArray(value)) throw new Error('subjects 必须是 JSON 数组')
-    const subjects = value.map((item, index) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('第 ' + (index + 1) + ' 个主体必须是对象')
-      for (const key of ['characterId', 'outfitId', 'name']) {
-        if (item[key] !== undefined && typeof item[key] !== 'string') throw new Error(key + ' 必须是字符串')
-      }
-      const characterId = String(item.characterId ?? '').trim(), name = String(item.name ?? '').trim()
-      if (!characterId && !name) throw new Error('主体需要 characterId，未知人物需要 name')
-      const subject = {}
-      if (characterId) subject.characterId = characterId
-      if (name) subject.name = name
-      if (item.outfitId !== undefined) subject.outfitId = item.outfitId.trim()
-      return subject
-    })
-    return { subjects }
+    return { subjects: normalizeImageSubjects(JSON.parse(blocks[0][1])) }
   } catch (error) {
     return { subjectsError: '画面主体清单无效：' + error.message }
   }
+}
+
+// Some planners put a JSON roster at the front of the scene. Read just that
+// object, ignoring braces inside quoted names, then leave the scene prose alone.
+function splitSceneSubjects(scene) {
+  if (!/^\{\s*"subjects"\s*:/.test(scene)) return { scene }
+  let depth = 0
+  for (const token of scene.matchAll(/"(?:[^"\\]|\\[\s\S])*"|[{}]/g)) {
+    if (token[0] === '{') depth++
+    else if (token[0] === '}' && --depth === 0) {
+      const end = token.index + 1
+      try {
+        const value = JSON.parse(scene.slice(0, end))
+        if (Object.keys(value).length !== 1) return { scene }
+        return { scene: scene.slice(end).trimStart(), subjects: normalizeImageSubjects(value.subjects) }
+      } catch (error) {
+        return { scene: scene.slice(end).trimStart(), subjectsError: '画面主体清单无效：' + error.message }
+      }
+    }
+  }
+  return { scene }
 }
 
 /** Parse complete image blocks only; partial streamed blocks must not be submitted. */
@@ -213,7 +236,9 @@ export function parseImagePlan(text) {
     const pick = (...tags) => tags.map(tag => tagInner(body, tag)).find(Boolean) || ''
     const rawPrompts = pick('prompts', 'prompt') || pick('scene_composition')
     if (!rawPrompts) continue
-    const { scene, characters } = splitPromptsBlock(rawPrompts, body)
+    const { scene: rawScene, characters } = splitPromptsBlock(rawPrompts, body)
+    const { scene, ...embeddedSubjects } = splitSceneSubjects(rawScene)
+    const taggedSubjects = parseImageSubjects(body)
     if (!scene.trim() && !characters.length) continue
     images.push({
       mount: pick('regex', '挂载文本', 'regex_mount'),
@@ -223,7 +248,7 @@ export function parseImagePlan(text) {
       prompts: scene,
       ...(pick('negative_prompt', 'negative') ? { negative: pick('negative_prompt', 'negative') } : {}),
       characters,
-      ...parseImageSubjects(body),
+      ...(taggedSubjects.subjects || taggedSubjects.subjectsError ? taggedSubjects : embeddedSubjects),
     })
   }
   return images
