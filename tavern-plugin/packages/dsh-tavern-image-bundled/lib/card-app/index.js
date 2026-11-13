@@ -7,7 +7,7 @@ import { IMAGE_PROVIDERS } from '../image-providers.js'
 import { publicChannels } from '../image-channels.js'
 import { imageReferenceLimit, effectiveImageProvider } from '../image-provider-capabilities.js'
 import { resolvePromptMode } from '../prompt-presets.js'
-import { CARD_SIZES, SEED_CONTROLS, cardSelection } from './generation.js'
+import { CARD_SIZES, SEED_CONTROLS, TERMINAL_STATES, cardImageResult, cardSelection } from './generation.js'
 import { atomicWrite, readJson, serialQueue } from './storage.js'
 import { createCardGallery } from './gallery.js'
 import { createCardWorldbook } from './worldbook.js'
@@ -84,7 +84,7 @@ export function apply(ctx, { ready }) {
 
   const generate = {
     name: 'gen_image',
-    description: '在卡片工作台生成图片，返回带完整 HTTP(S) 地址的 Markdown。把返回的 markdown 原样写进回复，不要省略域名、端口或改成相对路径。先用 read_image_config 查看渠道及提示词格式，按 image-prompt Skill 描述用户要求的一个画面。使用当前配图渠道或临时指定渠道，支持现有全部在线协议和 ComfyUI。用户已授权直接出图时直接提交。失败或任务不确定时先查配图记录，不能自动重复提交。',
+    description: '在卡片工作台生成图片，返回带完整 HTTP(S) 地址的 Markdown。把返回的 markdown 原样写进回复，不要省略域名、端口或改成相对路径。先用 read_image_config 查看渠道及提示词格式，按 image-prompt Skill 描述用户要求的一个画面。使用当前配图渠道或临时指定渠道，支持现有全部在线协议和 ComfyUI。用户已授权直接出图时直接提交。一次要好几张、或想同时用几个渠道时改用 gen_image_submit 加 gen_image_status：提交即返回任务号，取图时可一次查多个。失败或任务不确定时先查配图记录，不能自动重复提交。',
     parameters: schema({
       prompt: { type: 'string', description: '画面描述。自然语言渠道可用中文或英文完整句；标签模型用其支持的 tag；structured 按设置保留分节。画风与参考图绑定由引擎追加。' },
       template: { type: 'string', description: '工作台模式使用的模板名称或精确 ID；省略则用当前默认模板或随机范围。先 read_image_config 查看可用模板。' },
@@ -128,6 +128,102 @@ export function apply(ctx, { ready }) {
         }
       }
       return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, preset: (picked.preset && picked.preset.name) || '', elapsedMs: Date.now() - started })
+    },
+  }
+
+  const submit = {
+    name: 'gen_image_submit',
+    description: '提交生图任务后立即返回任务号，不等出图；随后用 gen_image_status 取图。多个渠道、或一个渠道多张图可以连续提交，任务并行推进，出来一张取一张。参数与 gen_image 完全相同。先用 read_image_config 选渠道，用户已授权直接出图时直接提交。',
+    parameters: structuredClone(generate.parameters),
+    output: output((_args, value) => [{ type: 'text', text: [
+      `已提交 ${value.jobs.length} 张，渠道：${value.channel || '未知'}。`,
+      ...value.jobs.map(item => `任务号 ${item.jobId}`),
+      '生成需要时间，先去做别的；要图时调用 gen_image_status 传这些任务号。',
+    ].join('\n') }]),
+    async execute(args, exec) {
+      await assertOpen()
+      const count = args.count ?? 1
+      if (!Number.isSafeInteger(count) || count < 1 || count > 4) throw fail('INVALID_ARGUMENT', 'count 必须是 1–4 的整数')
+      if (typeof args.prompt !== 'string' || !args.prompt.trim() || args.prompt.length > 16000) throw fail('INVALID_ARGUMENT', 'prompt 必须是 1–16000 字')
+      if (args.negative !== undefined && (typeof args.negative !== 'string' || args.negative.length > 8000)) throw fail('INVALID_ARGUMENT', 'negative 最多 8000 字')
+      // 图片服务地址拿不到就在这里停：提交成功却给不出地址，等于白花一次额度。
+      imageOrigin()
+      const engine = await ready(), picked = cardSelection(engine.currentConfig(), engine.cardWorkflows(), args)
+      const values = await seeds(picked, args, count), sessionId = String(exec?.agent?.session?.id || ''), jobs = [], started = Date.now()
+      for (let index = 0; index < count; index++) {
+        await assertOpen()
+        // 任务进了队列就归队列管：跟随这次工具调用的取消信号，等于提交即取消。
+        const created = await engine.submitCardImage({ ...args, templateId: picked.template?.id, seed: values[index] },
+          { sessionId, signal: controller.signal, key: 'card-' + randomUUID(), bindAbort: false })
+        created.job.cardPreset = (picked.preset && picked.preset.name) || ''
+        jobs.push(omitUndefined({ jobId: created.job.id, seed: created.job.seed, state: created.job.state }))
+      }
+      return omitUndefined({ ok: true, channel: picked.channel, promptMode: picked.promptMode, preset: (picked.preset && picked.preset.name) || '', jobs, elapsedMs: Date.now() - started })
+    },
+  }
+
+  const status = {
+    name: 'gen_image_status',
+    description: '按任务号取回 gen_image_submit 提交的图片，一次可查多个。已完成的直接返回 Markdown 图片地址；还在生成的返回状态，可以稍后再查；失败或结果不确定的返回原因和能否重新提交。',
+    parameters: schema({
+      jobIds: { type: 'array', items: { type: 'string' }, description: 'gen_image_submit 返回的任务号，1–20 个。' },
+      wait: { type: 'integer', description: '最多等待秒数，0–120，默认 30。等到又有一张出图、或这些任务都有了结论就提前返回。' },
+    }, ['jobIds']),
+    output: output((_args, value) => {
+      const images = value.jobs.filter(item => item.markdown), rest = value.jobs.filter(item => !item.markdown)
+      // 种子跟图片一一对应地列在最后：要复现或微调同一张图，靠的就是它。
+      const seeds = images.filter(item => Number.isSafeInteger(item.seed)).map(item => item.seed)
+      return [{ type: 'text', text: [
+        images.length ? `已生成 ${images.length} 张。` : '',
+        ...images.map(item => item.markdown),
+        ...rest.map(item => `${item.jobId}（${item.channel || '渠道未知'}）：${item.error || item.note}`),
+        seeds.length ? (seeds.length === 1 ? `种子：${seeds[0]}` : `种子：${seeds.join(' / ')}`) : '',
+      ].filter(Boolean).join('\n\n') }]
+    }),
+    async execute(args, exec) {
+      await assertOpen()
+      const ids = [...new Set((Array.isArray(args.jobIds) ? args.jobIds : [])
+        .filter(id => typeof id === 'string' && id.trim()).map(id => id.trim().slice(0, 100)))].slice(0, 20)
+      if (!ids.length) throw fail('INVALID_ARGUMENT', 'jobIds 至少要给一个任务号')
+      const engine = await ready(), sessionId = String(exec?.agent?.session?.id || '')
+      const seconds = Math.max(0, Math.min(120, Math.trunc(Number(args.wait ?? 30)) || 0))
+      // 只等「又有一张出图」或「全部有结论」：先出来的那张先交出去，剩下的下次再查。
+      // 已经完成过的任务不再算数，否则第二次查询会立刻带着老图返回、永远等不到新的那张。
+      const settled = job => Boolean(job) && TERMINAL_STATES.includes(job.state)
+      const doneAtEntry = ids.filter(id => engine.getJob(id)?.state === 'done').length
+      const deadline = Date.now() + seconds * 1000
+      while (Date.now() < deadline) {
+        const watched = ids.map(id => engine.getJob(id))
+        if (watched.filter(job => job?.state === 'done').length > doneAtEntry) break
+        if (watched.every(settled)) break
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+      const jobs = []
+      for (const id of ids) {
+        const job = engine.getJob(id)
+        if (!job) { jobs.push({ jobId: id, state: 'unknown', note: '没有这个任务号；确认它是不是别的会话提交的' }); continue }
+        const base = omitUndefined({ jobId: job.id, state: job.state, channel: job.channelName || job.channelId || '', seed: job.resultSeed ?? job.seed })
+        if (job.state === 'done') {
+          let item = null
+          try { item = await gallery.add(cardImageResult(job, { preset: job.cardPreset || '' }), { sessionId }); item.url = new URL(item.url, imageOrigin()).href }
+          catch (error) { item = null; logger.warn?.('dsh-tavern-image: 异步生图写入图库失败 ' + (error?.message ?? error)) }
+          if (!item) { jobs.push({ ...base, note: '图片已生成，但没能写进工作台图库或取不到图片服务地址，请到配图记录查看' }); continue }
+          jobs.push(omitUndefined({ ...base, url: item.url, markdown: `![图片](${item.url})`, size: item.size, preset: item.preset || job.cardPreset || '', channel: item.channel || base.channel, note: '已生成' }))
+          continue
+        }
+        if (job.state === 'uncertain') {
+          jobs.push(omitUndefined({ ...base, error: job.error || '平台是否接单无法确认', requestMayHaveSucceeded: true, note: '平台可能已经接单，先到平台或配图记录确认，不要重复提交' }))
+          continue
+        }
+        if (job.state === 'failed' || job.state === 'cancelled') {
+          const ambiguous = job.requestMayHaveSucceeded === true || job.cancelMayHaveContinued === true
+          jobs.push(omitUndefined({ ...base, error: job.error || '生图失败', retryable: !ambiguous, requestMayHaveSucceeded: ambiguous,
+            note: ambiguous ? '请求可能已被平台接受，先确认再决定是否重提' : '没有提交成功，可以重新提交' }))
+          continue
+        }
+        jobs.push(omitUndefined({ ...base, note: job.state === 'pending' ? '排队中，还没轮到' : '生成中' }))
+      }
+      return { ok: true, settled: jobs.filter(item => item.state === 'done').length, jobs }
     },
   }
 
@@ -195,7 +291,7 @@ export function apply(ctx, { ready }) {
       return { matched: hits.length, hits: hits.slice(0, Math.max(1, Math.min(20, Math.trunc(Number(args.limit) || 8)))) }
     },
   }
-  const tools = [generate, character, outfit, configuration, lookup]
+  const tools = [generate, submit, status, character, outfit, configuration, lookup]
 
   function send(response, status, value) {
     if (response.headersSent) return

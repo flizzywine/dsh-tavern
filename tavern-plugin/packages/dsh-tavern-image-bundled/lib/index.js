@@ -46,7 +46,7 @@ import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-l
 import { createDefinitionsStore } from './definitions-store.js'
 import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
-import { runCardImage } from './card-app/generation.js'
+import { runCardImage, submitCardImage } from './card-app/generation.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -6020,6 +6020,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       generateTemplateAsset: generateTemplateAsset,
       cardWorkflows: () => usable(),
       generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
+      // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
+      submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {

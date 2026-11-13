@@ -20,7 +20,7 @@ async function studio(t, options = {}) {
   let registered
   const complete = new Promise(resolve => { registered = resolve })
   const fixture = await imagePluginFixture(t, { definitions: { characters: [], outfits: [] }, ...options,
-    tools: { register(tool) { tools.set(tool.name, tool); if (tools.size === 5) registered(); return () => tools.delete(tool.name) } },
+    tools: { register(tool) { tools.set(tool.name, tool); if (tools.size === 7) registered(); return () => tools.delete(tool.name) } },
     tavern: { toolModes(value) { scopes.push(value); return () => {} }, skillSource(value) { skills.push(value); return () => {} },
       registerGalleryProvider(value) { galleries.push(value); return () => {} }, ...options.tavern },
   })
@@ -34,7 +34,7 @@ test('workbench tools are scoped to card mode and do not install a global prompt
   const f = await studio(t)
   globalThis.fetch = async () => { calls++; throw new Error('should stay local') }
   const config = await f.tools.get('read_image_config').execute({})
-  assert.equal(f.scopes.length, 5)
+  assert.equal(f.scopes.length, 7)
   assert.ok(f.scopes.every(item => item.modes.join() === 'card'))
   assert.ok(config.channels.some(item => item.provider === 'atlascloud'))
   assert.doesNotMatch(JSON.stringify(config), /PRIVATE|TEST_SECRET/)
@@ -231,7 +231,7 @@ test('workbench saves share the live definitions store and reject stale versions
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: false })).body.enabled, false)
   assert.equal(f.tools.size, 0)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: true })).body.enabled, true)
-  assert.equal(f.tools.size, 5)
+  assert.equal(f.tools.size, 7)
 })
 
 test('partial batches retain generated pictures and stop after one definitive failure', async t => {
@@ -265,6 +265,60 @@ test('card requests and story images share the configured concurrency limit', as
   assert.equal((await f.runtime.terminal(ordinary.body.id)).state, 'done')
   assert.equal(peak, 1)
   assert.equal(calls, 3)
+})
+
+test('async card tools return at once and hand back each picture as it lands', { timeout: 30000 }, async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'relay-a', imageConcurrency: 2,
+    imageChannels: [channel('openai', {}, { id: 'relay-a', name: 'relay a' }), channel('openai', {}, { id: 'relay-b', name: 'relay b' })] } })
+  const releases = []
+  globalThis.fetch = async () => new Promise(resolve => releases.push(() => resolve(json({ data: [{ b64_json: b64 }] }))))
+  const submit = f.tools.get('gen_image_submit'), poll = f.tools.get('gen_image_status')
+  const first = await submit.execute({ channel: 'relay-a', prompt: 'a traveler' }, own)
+  const second = await submit.execute({ channel: 'relay-b', prompt: 'another traveler' }, own)
+  assert.equal(first.channel, 'relay a')
+  assert.equal(second.channel, 'relay b')
+  assert.notEqual(first.jobs[0].jobId, second.jobs[0].jobId)
+  for (let i = 0; releases.length < 2 && i < 400; i++) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(releases.length, 2, '两个渠道同时到达传输层：提交互不等待')
+  const waiting = await poll.execute({ jobIds: [first.jobs[0].jobId], wait: 0 }, own)
+  assert.equal(waiting.jobs[0].state, 'running')
+  assert.equal(waiting.jobs[0].markdown, undefined)
+  const pending = poll.execute({ jobIds: [first.jobs[0].jobId, second.jobs[0].jobId], wait: 10 }, own)
+  releases.shift()()
+  const one = await pending
+  assert.equal(one.settled, 1, '出来一张就先交一张，不等另一张')
+  const image = one.jobs.find(item => item.state === 'done')
+  assert.match(image.markdown, /^!\[图片\]\(http:\/\/127\.0\.0\.1:\d+\/dsh-tavern-gen\/img\/[^)]+\)$/)
+  assert.match(poll.output.render({}, one)[0].text, /种子：\d+/, '种子要出现在模型看到的那段文本里，复现同一张图全靠它')
+  releases.shift()()
+  const rest = await poll.execute({ jobIds: [first.jobs[0].jobId, second.jobs[0].jobId], wait: 10 }, own)
+  assert.equal(rest.settled, 2)
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.length, 2)
+  const again = await poll.execute({ jobIds: [first.jobs[0].jobId], wait: 0 }, own)
+  assert.equal(again.jobs[0].url, rest.jobs.find(item => item.jobId === first.jobs[0].jobId).url, '重复查询复用同一条记录')
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.length, 2, '重复查询不重复建记录')
+})
+
+test('async submission survives the tool call that started it', { timeout: 30000 }, async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  globalThis.fetch = async () => new Promise(resolve => setTimeout(() => resolve(json({ data: [{ b64_json: b64 }] })), 120))
+  const controller = new AbortController()
+  const submitted = await f.tools.get('gen_image_submit').execute({ prompt: 'a traveler' }, { ...own, signal: controller.signal })
+  controller.abort(new Error('stop after submit'))
+  const done = await f.tools.get('gen_image_status').execute({ jobIds: [submitted.jobs[0].jobId], wait: 10 }, own)
+  assert.equal(done.jobs[0].state, 'done', '工具返回后的取消信号不能带走已经提交的任务')
+  assert.ok(done.jobs[0].markdown)
+})
+
+test('async status separates a definitive failure from an ambiguous one', { timeout: 30000 }, async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  // 站点明确拒绝（HTTP 429）时请求没有计费，重新提交是安全的。
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: 'rate limited' }), { status: 429, headers: { 'content-type': 'application/json' } })
+  const submitted = await f.tools.get('gen_image_submit').execute({ prompt: 'a traveler' }, own)
+  const state = await f.tools.get('gen_image_status').execute({ jobIds: [submitted.jobs[0].jobId], wait: 10 }, own)
+  assert.equal(state.jobs[0].state, 'failed')
+  assert.equal(state.jobs[0].retryable, true, '站点明确拒绝时不算花过额度，可以重新提交')
+  assert.match(state.jobs[0].error, /429/)
 })
 
 test('card and play galleries stay separate while task history, reload and legacy records preserve both pictures', async t => {
