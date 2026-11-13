@@ -150,3 +150,17 @@ test('custom provider errors redact entered keys and endpoint URLs', async () =>
     return true
   })
 })
+
+test('OpenAI-compatible image responses decode large base64 without stack overflow', async () => {
+  const bytes = Buffer.concat([PNG, Buffer.alloc(3_600_000)])
+  const result = await generateImage(custom(), { positive: 'lake' }, {
+    fetchImpl: async () => json({ data: [{ b64_json: bytes.toString('base64') }] }),
+  })
+  assert.equal(result.mediaType, 'image/png')
+  assert.deepEqual(result.bytes, bytes)
+  for (const invalid of ['A===', 'AB=CD', 'A', 'not!!base64!!!']) {
+    await assert.rejects(generateImage(custom(), { positive: 'lake' }, {
+      fetchImpl: async () => json({ data: [{ b64_json: invalid }] }),
+    }), /图片编码无效或过大/)
+  }
+})

@@ -1,6 +1,10 @@
 # DSH Tavern Image
 
 
+## 3.15.6 大图片解码修复
+
+修复渠道返回较大 Base64 图片时解码失败。
+
 ## 3.15.5 Atlas Cloud 尺寸修复
 
 保留手动填写的尺寸格式，支持各模型要求的分隔符。
@@ -579,7 +583,7 @@ Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图�
 
 ## 兼容与许可
 
-当前 Tavern 内置生图插件版本为 **3.15.5**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
+当前 Tavern 内置生图插件版本为 **3.15.6**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
 
 在 DSH 0.2.1-rc.2 + Tavern 3.0.0 上核对过：插件 bundle 正常加载（宿主加载器返回 0 个被跳过的包），本插件调用的 14 个 Tavern 接口（`attach`、`update`、`remove`、`list`、`getTurn`、`readTurnData`、`saveTurnData`、`promptSection`、`onTurnSettled`、`onGameRemoved`、`onTimelineChanged`、`getCardContext`、`backgroundModel`、`apiVersion`）在 Tavern 3.0 中全部保留，3.0 相对 2.7 的接口变化是纯新增（例如 `versionSignal`）。
 

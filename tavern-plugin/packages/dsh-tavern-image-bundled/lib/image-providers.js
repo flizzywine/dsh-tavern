@@ -175,7 +175,7 @@ async function fetchRaw(fetchImpl, url, init, max, signal, channel) {
 }
 function decodeBase64(value, max, declared = '') {
   const clean = String(value).replace(/\s/g, '')
-  if (clean.length > Math.ceil(max * 4 / 3) + 8 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(clean)) throw new Error('服务返回的图片编码无效或过大')
+  if (clean.length > Math.ceil(max * 4 / 3) + 8 || (clean.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(clean))) throw new Error('服务返回的图片编码无效或过大')
   const bytes = Buffer.from(clean, 'base64')
   if (!bytes.length || bytes.length > max) throw new Error('服务返回的图片超过允许大小')
   return { bytes, mediaType: imageType(bytes, declared) }
