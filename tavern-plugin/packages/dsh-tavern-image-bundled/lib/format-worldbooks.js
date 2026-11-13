@@ -103,6 +103,39 @@ function structuredWorldbookDefaultsV1() {
   }
 }
 
+// Fingerprints of the released, normalized books previously copied to natural.
+// Keep these frozen if the shipped tags/mixed seeds change in the future.
+const LEGACY_NATURAL_DEFAULTS = {
+  main: '8b4909a846e72563716a1e50b793e20767205e6d23f6f68620e9fcdcd1b58439',
+  outfits: '9a6e56b3ad3f8b7f06250805cbb90b37c55d07d24a86811513d0f0015d255e9e',
+}
+
+function naturalWorldbookDefaults() {
+  const entry = (id, comment, lines) => ({ id, comment, content: lines.join('\n'), enabled: true, activation: 'always', keywords: [], andKeywords: [], backends: ['natural'] })
+  return {
+    main: { name: '自然语言 · 生图规则', entries: [
+      entry('natural-prose', '自然语言画面描述', [
+        '在 <prompts> 内用通顺的自然语言描述画面，按当前渠道要求选择语言。可以分成几句，句尾不追加标签串、人数标签、画师名、质量词或接口参数。外层输出和插图定位遵循插件协议。',
+        '每张图选择一个明确的瞬间，写当前可见的人物、衣着、动作、环境和光线。以正文和已确立的画面事实为准，不把内心、回忆或后续动作画进同一张图。',
+      ]),
+      entry('natural-composition', '统一镜头与多人动作', [
+        '只描述一次全图景别和机位。分别说明入镜人物的站位、身体和面部朝向、视线与动作，用稳定称呼写清谁在做什么、与谁互动。',
+        '先确定裁切，再写实际可见的衣服、外貌和道具。面部和手部特写只写能看到的部位，例如衣领和袖口；画外的衣物不影响穿着记录。',
+      ]),
+    ] },
+    outfits: { name: '自然语言 · 角色与服装库', entries: [
+      entry('natural-identity', '人物称呼与参考图', [
+        '调用已识别的库中人物时按插件协议使用角色宏。宏前不另列人物姓名，正文中用稳定称呼描述人物当下的表情、朝向和动作。库外人物按正文自然描述可见外貌。',
+        '身份参考图约束人物的固定外观；正文着重写当前状态。没有身份参考图时才用库内文字和正文补足可见外貌。参考图编号和绑定由插件生成，正文不重复绑定，也不写入内部标识。',
+      ]),
+      entry('natural-clothes', '当刻穿着与参考范围', [
+        '按每张图的剧情时点描述穿着，正文明确变化时优先写当下状态。确定是库内某套服装时使用准确的服装名；其余用自然语言描述已知并且可见的衣服。',
+        '服装参考图约束服饰设计。人物身份、姿势与环境按各自的参考和正文确定。只描述本张有关且可见的衣着变化，避免照抄通用衣物状态清单。',
+      ]),
+    ] },
+  }
+}
+
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical)
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))
@@ -246,8 +279,8 @@ function upgradeStatus(book, key) {
  * An immutable migration snapshot pins both old sources before any copy is made.
  * Originals are never modified; exact source bytes are backed up. Restarting a
  * partial migration creates missing books from that snapshot. Structured defaults
- * then upgrade only fingerprint-confirmed old entries, with exact-byte backups;
- * empty groups, deletions, disabled entries and user edits are never auto-restored.
+ * then upgrade only fingerprint-confirmed old entries, with exact-byte backups.
+ * Natural defaults replace only pristine copies of the old bundled rule books.
  */
 export function createFormatWorldbooks({ root, io = nodeFs } = {}) {
   if (typeof root !== 'string' || !root.trim()) throw new Error('需要世界书根目录 root')
@@ -318,6 +351,26 @@ export function createFormatWorldbooks({ root, io = nodeFs } = {}) {
       : normalizeFormatWorldbook(parse(text, file), { name: book.label })
     return { file: text === null ? null : file, text, document }
   }
+  async function replaceWithUpgradeBackup(file, key, old, next) {
+    const backupFile = join(base, 'backups', 'format-worldbooks-upgrades', key + '-' + Date.now() + '-' + randomUUID() + '.json')
+    await publish(backupFile, old)
+    // Check again before every rename attempt, including after a Windows sharing error.
+    await publish(file, json(next), true, async () => {
+      if (await readText(file) !== old) throw Object.assign(new Error('世界书已变更，请刷新升级预览后重试'), { code: 'WORLDBOOK_UPGRADE_STALE' })
+    })
+    return backupFile
+  }
+  async function upgradeNaturalBook(key, defaults) {
+    const file = fileFor('natural', key)
+    return serialize(file, async () => {
+      const old = await readText(file)
+      if (old === null) return null
+      const book = normalizeFormatWorldbook(parse(old, file), { name: BOOKS[key].label })
+      if (fingerprint(book) !== LEGACY_NATURAL_DEFAULTS[key]) return null
+      const backupFile = await replaceWithUpgradeBackup(file, 'natural-' + key, old, defaults)
+      return { format: 'natural', key, backupFile }
+    })
+  }
   async function initialize() {
     let saved = await readText(migrationFile)
     if (saved === null) {
@@ -342,16 +395,24 @@ export function createFormatWorldbooks({ root, io = nodeFs } = {}) {
         if (await readText(target) !== source.text) throw new Error('世界书迁移备份与快照不一致：' + source.file)
       }
     }
-    const defaults = structuredWorldbookDefaults()
+    const structured = structuredWorldbookDefaults()
+    const natural = naturalWorldbookDefaults()
     const created = []
     for (const mode of FORMAT_WORLDBOOK_MODES) {
       for (const key of FORMAT_WORLDBOOK_GROUPS) {
-        const document = mode === 'structured' ? defaults[key] : snapshot.sources[key].document
+        const source = snapshot.sources[key]
+        let document = source.document
+        if (mode === 'structured') document = structured[key]
+        if (mode === 'natural' && (source.file === null || fingerprint(document) === LEGACY_NATURAL_DEFAULTS[key])) document = natural[key]
         if (await publish(fileFor(mode, key), json(document))) created.push({ mode, key })
       }
     }
     const upgrades = []
     for (const key of FORMAT_WORLDBOOK_GROUPS) upgrades.push(await upgradeBook(key, { automatic: true }))
+    for (const key of FORMAT_WORLDBOOK_GROUPS) {
+      const upgrade = await upgradeNaturalBook(key, natural[key])
+      if (upgrade) upgrades.push(upgrade)
+    }
     return { version: MIGRATION_VERSION, created, migrationFile, backupFolder, upgrades }
   }
   function ensure() {
@@ -394,13 +455,7 @@ export function createFormatWorldbooks({ root, io = nodeFs } = {}) {
       }
       if (fingerprint(next) === fingerprint(book)) return status
       next.defaultSeed = structuredWorldbookDefaults()[key].defaultSeed
-      const backupFile = join(base, 'backups', 'format-worldbooks-upgrades', key + '-' + Date.now() + '-' + randomUUID() + '.json')
-      await publish(backupFile, old)
-      // Reject an external edit observed while the backup was being written.
-      if (await readText(file) !== old) throw Object.assign(new Error('世界书已变更，请刷新升级预览后重试'), { code: 'WORLDBOOK_UPGRADE_STALE' })
-      await publish(file, json(next), true, async () => {
-        if (await readText(file) !== old) throw Object.assign(new Error('世界书已变更，请刷新升级预览后重试'), { code: 'WORLDBOOK_UPGRADE_STALE' })
-      })
+      const backupFile = await replaceWithUpgradeBackup(file, key, old, next)
       return { ...upgradeStatus(next, key), backupFile }
     })
   }

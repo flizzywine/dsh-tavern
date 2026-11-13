@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { selectPlannerContext } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner-context.js'
-import { characterRoster } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js'
+import { buildPlannerSystem, characterRoster } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js'
+import { structuredWorldbookDefaults } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/format-worldbooks.js'
+import { normalizeReferenceImage, referencePlannerGuidance } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
 import { imagePluginFixture } from './fixtures/image-plugin-runtime.mjs'
 
 const people = () => [
@@ -25,6 +27,36 @@ test('the roster says a recorded outfit may be wrong and a matching garment is n
   const roster = characterRoster({ characters: [{ id: 's', name: '苏小雨', enabled: true, traits: {}, outfits, current: { outfit: '白色背心' } }] }, { text: '淌到脚踝边那团牛仔短裤上' })
   assert.match(roster, /当前穿着（插件之前的记录，可能记错/)
   assert.match(roster, /不说明画面里的人是她/)
+})
+
+test('prose planning separates pictured identity from history and preserves unknown wardrobe', () => {
+  const outfits = Array.from({ length: 7 }, (_, i) => ({ id: 'o' + i, name: '包臀裙' + i, upper: '蓝色上衣' }))
+  const definitions = { characters: [
+    { id: 'a', name: '人物甲', traits: { face: '黑色齐耳发' }, imagePrompt: '资料中的黑发人物',
+      referenceImage: { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: 128 }, outfits, current: { outfit: 'unknown' } },
+    { id: 'b', name: '人物乙', traits: { face: '短棕发' } },
+  ] }
+  const rosterOptions = { identityReferences: true, strictWardrobe: true, text: '人物甲换了衣服，人物乙穿着包臀裙。',
+    hasIdentityReference: character => Boolean(normalizeReferenceImage(character.referenceImage)) }
+  const roster = characterRoster(definitions, rosterOptions)
+  assert.match(roster, /固定外貌由生图模型依据身份图处理/)
+  assert.match(roster, /短棕发/)
+  assert.doesNotMatch(roster, /黑色齐耳发|资料中的黑发人物|选颜色、款式最接近的一套/)
+  assert.match(roster, /已换衣，款式未明确/)
+  assert.match(characterRoster(definitions), /资料中的黑发人物/)
+
+  const worldbooks = structuredWorldbookDefaults()
+  const rules = Object.values(worldbooks).flatMap(book => book.entries.map(entry => entry.content)).join('\n')
+  const historyRoster = characterRoster(definitions, { ...rosterOptions, fullTraits: true })
+  for (const promptMode of ['structured', 'natural']) {
+    const system = buildPlannerSystem({ rules: promptMode === 'structured' ? rules : '', roster: historyRoster, promptMode,
+      extra: referencePlannerGuidance(definitions, { structured: promptMode === 'structured' }), characterUpdates: true, count: 1, identityReferences: true })
+    assert.match(system, /固定外貌旧值（仅用于 character_updates[^\n]+\n[^\n]+黑色齐耳发/)
+    assert.match(system, /无身份图的角色依据清单和正文写可见外貌/)
+    assert.match(system, /current\.outfit 写 "unknown"/)
+    assert.match(system, /"outfit":"unknown"/)
+    assert.doesNotMatch(system, /按这里的白描写外貌|从这个角色的服装库里挑一套|NSFW tag|按逗号分成单个 tag/)
+  }
 })
 
 test('draw-turn hands the planner the end of the previous reply', async t => {

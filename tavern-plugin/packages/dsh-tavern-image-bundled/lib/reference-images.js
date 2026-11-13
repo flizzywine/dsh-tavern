@@ -577,25 +577,26 @@ function structuredIdentityNames(items) {
   }))
 }
 
-function structuredReferenceLabels(items) {
+function structuredReferenceLabels(items, definitions) {
   const identities = items.filter(item => item.kind !== 'outfit')
   const names = structuredIdentityNames(items)
+  for (const person of arr(definitions?.characters)) if (person.promptLabel) names.set(idOf(person), person.promptLabel)
   const labels = items.map(item => {
     if (item.kind === 'character') return names.get(item.characterId)
     let label = cleanText(item.label)
     const owner = identities.find(person => person.characterId === item.characterId)
-    const ownerLabel = owner && identityLabel(owner)
-    if (ownerLabel && label.startsWith(ownerLabel + '／')) label = names.get(owner.characterId) + label.slice(ownerLabel.length)
+    const ownerLabel = owner ? identityLabel(owner) : arr(definitions?.characters).find(person => idOf(person) === item.characterId)?.name
+    if (ownerLabel && names.has(item.characterId) && label.startsWith(ownerLabel + '／')) label = names.get(item.characterId) + label.slice(ownerLabel.length)
     // Shared costumes may belong to several wearers, not to their library owner.
     for (const person of identities) label = label.replaceAll(identityLabel(person) + ' [characterId=' + person.characterId + ']', names.get(person.characterId))
-    return cleanReferenceLabel(label)
+    return cleanReferenceLabel(label.replace(/([^（：、]+) \[characterId=([^\]\r\n]+)\]/g, (match, name, id) => names.get(id) || name))
   })
   return labels.map((label, index) => items[index].kind !== 'character' && items.some((other, at) => at !== index && other.kind === items[index].kind && labels[at] === label)
     ? label + '（对象' + (index + 1) + '）' : label)
 }
 
 /** Render trusted bindings once; IDs stay in the job metadata, not visual prose. */
-export function buildStructuredReferenceText(references) {
+export function buildStructuredReferenceText(references, definitions) {
   const items = checkedReferences(references)
   if (!items.length) return ''
   const lines = []
@@ -603,7 +604,7 @@ export function buildStructuredReferenceText(references) {
   if (items.some(item => item.kind === 'outfit')) lines.push('服装图仅约束服饰设计，不继承模特身份、面部、发型、体型、姿势或背景。')
   if (items.some(item => item.kind === 'character-outfit')) lines.push('角色×服装设定图同时约束人物身份与该套服饰，不继承姿势、表情或背景。')
   lines.push('')
-  const labels = structuredReferenceLabels(items)
+  const labels = structuredReferenceLabels(items, definitions)
   for (const [index, item] of items.entries()) {
     const label = labels[index]
     const purpose = item.kind === 'character' ? '身份参考' : item.kind === 'character-outfit' ? '角色×服装参考' : '服装参考'
@@ -658,7 +659,7 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
 /**
  * Clone, never mutate the library. Supplying resolved subjects also restricts
  * automatic outfit injection to the exact per-image choice ('' means none).
- * Legacy tag/natural callers retain face/upper markers. Structured callers use
+ * Legacy tag callers retain face/upper markers. Natural-language callers use
  * markers:false: identity and reference numbering travel as separate metadata,
  * never as fake visual traits. Re-scoping also upgrades old frozen definitions.
  */
@@ -723,6 +724,21 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
         const entry = original.outfits.find(item => !item.owner && idOf(item.item) === reference.outfitId)
         if (entry) result.outfits.push(entry.item)
       }
+    }
+  }
+  if (!markers) {
+    const people = arr(result.characters).filter(enabled)
+    const counts = new Map()
+    for (const person of people) {
+      const name = displayName(person)
+      counts.set(name, (counts.get(name) || 0) + 1)
+    }
+    let next = checked.length + 1
+    for (const person of people) {
+      const name = displayName(person)
+      if (counts.get(name) > 1) {
+        person.promptLabel = name + '（对象' + (characterRefs.get(idOf(person))?.index ?? next++) + '）'
+      } else if (characterRefs.has(idOf(person))) person.promptLabel = name
     }
   }
   return result

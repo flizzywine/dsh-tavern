@@ -135,7 +135,11 @@ export function prepareImagePrompt({ workflow, params, config, definitions, onSt
   // 自然语言模型（LLM 文本编码器）不认 (tag:1.2) 这种权重，总是去掉；tag 模型按设置处理。
   // 画风词和按名字补上的外貌是在规划提示词清理之后才拼进来的，tag 写法再去一次重。
   const injectedText = mode === 'tags' ? dedupeTags(injected.text) : injected.text
-  const positive = formatPromptForBackend(applyWeights(injectedText, resolveWeightMode(config, backend, mode)), backend, mode)
+  let positive = formatPromptForBackend(applyWeights(injectedText, resolveWeightMode(config, backend, mode)), backend, mode)
+  if (mode === 'natural' && params.referenceText) {
+    const references = '【参考图对应与一致性】\n' + params.referenceText
+    positive = [references, positive.replace(references, '').trim()].filter(Boolean).join('\n\n')
+  }
   stage('compile-positive', { mode, artistPosition: params.artistPosition ?? config.artistPosition, artist, rawBase, afterPreset: base, afterInjection: injected.text, final: positive, hits: injected.hits, provenance })
 
   const workflowNegative = String(

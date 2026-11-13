@@ -259,7 +259,8 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       const historyEnabled = api2 && config.characterAutoUpdate !== false
       const saveHistory = historyEnabled && !task.instruction
       // 自动配图只在能出图时规划；手动请求照常规划，出图时报出缺什么。
-      const shouldGenerate = config.imageEnabled !== false && (task.manual || config.plannerEnabled !== false && engine.imageReady?.() !== false)
+      const ready = task.manual || engine.imageReady?.() !== false
+      const shouldGenerate = config.imageEnabled !== false && (task.manual || config.plannerEnabled !== false && ready)
       const planAndSave = async () => {
         // 可选的宿主口子：宿主这一轮还要先准备好东西（例如刚出场人物的人物库记录）时，规划前等它放行；没有这个口子就照旧。
         // 等完重读这一轮：等待期间宿主可能改了卡。
@@ -281,7 +282,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           messageId: (messageId || ('turn-' + gameId + '-' + turn)) + '|' + textVersion,
           turn, textVersion, sessionId: gameId, manual: task.manual, force: task.manual, count: task.count,
           smartSelection: !task.manual && config.smartImageSelection !== false,
-          imageGeneration: shouldGenerate, characterUpdates: historyEnabled && !task.instruction, historySnapshot,
+          imageGeneration: shouldGenerate, automaticTurn: !task.manual, characterUpdates: historyEnabled && !task.instruction, historySnapshot,
           reusePlan: shouldGenerate && !task.manual && config.smartImageSelection === false,
           instruction: task.instruction,
           signal: task.controller.signal, onPlan: beginImage,
@@ -317,7 +318,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
         }
       }
       const successfulEmpty = result.total === 0 && !result.error && (result.skipped || !shouldGenerate)
-      if (!task.manual && (successfulEmpty || (result.total > 0 && result.attached === result.total)) && !result.error) {
+      if (!task.manual && (ready || config.imageEnabled === false || config.plannerEnabled === false) && (successfulEmpty || (result.total > 0 && result.attached === result.total)) && !result.error) {
         completed.set(versionKey(task), { result, jobIds: plans.map(item => String(item.jobId ?? '')) })
         if (completed.size > 200) completed.delete(completed.keys().next().value)
       }
@@ -471,7 +472,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       // 没有可用的生图渠道或工作流（例如刚装好、还没配）：不规划配图，也就不会每轮出一张「生成失败」；只提示一次。
       const ready = engine.imageReady?.() !== false
       if (ready) unreadyNoted = false
-      else if (config.imageEnabled !== false && !unreadyNoted) { unreadyNoted = true; warn('还没有可用的生图渠道或工作流，自动配图先不规划；在 配图 设置里添加并选中渠道后自动恢复') }
+      else if (config.imageEnabled !== false && config.plannerEnabled !== false && !unreadyNoted) { unreadyNoted = true; warn('还没有可用的生图渠道或工作流，自动配图先不规划；在 配图 设置里添加并选中渠道后自动恢复') }
       if ((config.imageEnabled === false || config.plannerEnabled === false || !ready) && !canUpdate) return
       // 不返回配图 Promise，宿主结算通知无需等待模型和 GPU。
       void attachTurn({

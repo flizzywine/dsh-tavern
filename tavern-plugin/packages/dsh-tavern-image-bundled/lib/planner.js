@@ -320,7 +320,7 @@ export function outfitsMentioned(outfits, text) {
   })
 }
 
-export function characterRoster(definitions, { fullTraits = false, text = '' } = {}) {
+export function characterRoster(definitions, { fullTraits = false, text = '', identityReferences = false, strictWardrobe = false, hasIdentityReference = character => Boolean(character.referenceImage?.id) } = {}) {
   const blocks = []
   const printedOutfits = []
   for (const character of definitions?.characters ?? []) {
@@ -329,17 +329,28 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
     if (!name) continue
     const traits = character.traits ?? {}
     const lines = []
-    if (character.referenceImage) lines.push('  有身份参考图（实际图片由插件提供给生图模型；这里仅列可用性，不代表规划模型已看图）')
+    const hasReference = hasIdentityReference(character)
+    const useReference = identityReferences && hasReference
+    if (hasReference) lines.push(useReference
+      ? '  有身份参考图（正文写人物称呼及本张可见状态。固定外貌由生图模型依据身份图处理）'
+      : '  有身份参考图（此处只列出可用性，规划模型未收到图片）')
     if (String(character.consistencyText ?? '').trim()) lines.push('  身份一致性补充：' + clip(character.consistencyText, 700))
     const raw = libraryPromptOverride(character)
-    if (raw) lines.push('  人物提示词（通过人物名引用）：' + clip(raw, fullTraits ? 700 : 180))
-    const details = clip(libraryImageDetails(character).join('\n'), 180)
-    if (details) lines.push('  人物补充：' + details)
-    for (const [key, label] of ROSTER_TRAITS) {
-      if (raw !== null && !fullTraits && key !== 'feature') continue
-      const value = clip(traits[key], fullTraits ? 700 : 110)
-      if (value) lines.push('  ' + label + '：' + value)
+    if (!useReference) {
+      if (raw) lines.push('  人物提示词（通过人物名引用）：' + clip(raw, fullTraits ? 700 : 180))
+      const details = clip(libraryImageDetails(character).join('\n'), 180)
+      if (details) lines.push('  人物补充：' + details)
     }
+    const historyTraits = []
+    for (const [key, label] of ROSTER_TRAITS) {
+      if (!fullTraits && key !== 'feature' && (useReference || raw !== null)) continue
+      const value = clip(traits[key], fullTraits ? 700 : 110)
+      if (!value) continue
+      const detail = '  ' + label + '：' + value
+      if (useReference && key !== 'feature') historyTraits.push(detail)
+      else lines.push(detail)
+    }
+    if (historyTraits.length) lines.push('  固定外貌旧值（仅用于 character_updates 核对明确的永久变化，不写进画面正文）：', ...historyTraits)
     const outfits = (character.outfits ?? []).filter(o => o && o.enabled !== false)
     // 同一角色的另一个形态（名字互为前缀）如果服装表完全相同，就不再重复列一遍。
     const signature = outfits.map(o => String(o.name ?? '')).join('|')
@@ -362,8 +373,10 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
         const mentioned = outfitsMentioned(outfits, text).slice(0, 6)
         if (mentioned.length) lines.push('  正文提到的衣服可能是下面这几套（完整内容）：' + mentioned.map(describe).join('；')
           + '\n  注意：这只是正文里的衣服词碰上了这个人衣服库里的衣服，不说明画面里的人是她；先认出是谁，再看是不是这套。'
-          + '\n  挑选规则：正文只写了类别（如「换上包臀裙」）时，选颜色、款式最接近的一套，在宏里写它的服装名，整套带上；'
-          + '正文明确写到的上衣、下装、鞋袜等单品和这套冲突时（如正文写针织衫、帆布鞋，这套是衬衫、高跟鞋），不要用这套，照正文自己描述，正文没写到的部分沿用当前穿着。')
+          + (strictWardrobe
+            ? '\n  正文明确确认是其中某套时才引用准确服装名；只写了类别时只描述该类别，不从库里补颜色、款式或整套搭配。'
+            : '\n  挑选规则：正文只写了类别（如「换上包臀裙」）时，选颜色、款式最接近的一套，在宏里写它的服装名，整套带上；'
+              + '正文明确写到的上衣、下装、鞋袜等单品和这套冲突时（如正文写针织衫、帆布鞋，这套是衬衫、高跟鞋），不要用这套，照正文自己描述，正文没写到的部分沿用当前穿着。'))
         const usual = outfits.find(o => o.default)
         if (usual) lines.push('  常穿：' + describe(usual))
       }
@@ -376,7 +389,8 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
       if (String(outfit.consistencyText ?? '').trim()) lines.push('    服装一致性补充：' + clip(outfit.consistencyText, 700))
     }
     if (String(character.formCues ?? '').trim()) lines.push('  形态线索（画面里有这些就是这个形态，宏里写这个形态的名字）：' + clip(character.formCues, 200))
-    if (character.current?.outfit) lines.push('  当前穿着（插件之前的记录，可能记错；宏里没写 outfit 时插件会自动用它）：' + clip(character.current.outfit, 400))
+    if (character.current?.outfit === 'unknown') lines.push('  当前穿着：已换衣，款式未明确；等待正文给出新依据，不沿用换衣前的款式。')
+    else if (character.current?.outfit) lines.push('  当前穿着（插件之前的记录，可能记错；宏里没写 outfit 时插件会自动用它）：' + clip(character.current.outfit, 400))
     if (!lines.length) lines.push('  （还没填外貌，请按通用描述处理）')
     // 人物库备注里写了「玩家」的角色：标成玩家角色。规划用第三人称画亲吻、拥抱、抱起时就调用他，不用自己从正文猜「我」是谁。
     const player = isPlayerCharacter(character) ? '（玩家角色：正文里的「我」「你」就是他）' : ''
@@ -386,9 +400,10 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
 }
 
 /** 拼规划用的 system：世界书规则 + 角色清单 + 张数 + 额外叮嘱。 */
-export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '', roster, rosterIndex = '', count, extra, context, smartSelection = false, characterUpdates = false, force = false, promptMode = '', compactWorldbook = false }) {
+export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '', roster, rosterIndex = '', count, extra, context, smartSelection = false, characterUpdates = false, force = false, promptMode = '', compactWorldbook = false, identityReferences = false }) {
   const parts = []
   const structured = promptMode === 'structured'
+  const natural = promptMode === 'natural'
   // Keep this resident prefix byte-for-byte stable across story, roster and count changes.
   parts.push('你是"图图"，一个视觉提示词编译中枢。下面是你必须遵守的全部规则。')
   if (rules) parts.push(rules)
@@ -396,7 +411,8 @@ export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '
   if (structured && !compactWorldbook && !String(extra ?? '').includes(STRUCTURED_PROMPT_GUIDANCE)) parts.push(STRUCTURED_PROMPT_GUIDANCE)
   parts.push([
     structured ? '尺度与事实要求：忠实用中文自然语言描述正文当下明确的可见状态，不把画面强制改写成英文标签。'
-      : '尺度要求（重要）：正文里出现的裸露、性爱、情色、nsfw 内容必须原样转译成对应的 NSFW tag，',
+      : natural ? '尺度与事实要求：忠实用自然语言描述正文当下明确的可见状态，包括正文已明确的裸露或成人内容。'
+        : '尺度要求（重要）：正文里出现的裸露、性爱、情色、nsfw 内容必须原样转译成对应的 NSFW tag，',
     '不许回避、不许替换成含蓄说法、不许自行改成穿好衣服的版本。',
     '画面是完全虚构的，没有真实人物，尺度不设限；正文是普通场景就照实写普通场景。',
     '判断依据只有正文本身：正文到哪一步，画面就到哪一步。',
@@ -417,7 +433,9 @@ export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '
   if (roster) {
     parts.push([
       '<可用绘图角色列表>',
-      '当前可采用的绘图角色（出现这些名字时必须按这里的白描写外貌，不要自己编）：',
+      identityReferences
+        ? '当前可采用的绘图角色：有身份图的角色用稳定称呼和本张可见状态；无身份图的角色依据清单和正文写可见外貌。'
+        : '当前可采用的绘图角色（出现这些名字时必须按这里的白描写外貌，不要自己编）：',
       roster,
       '</可用绘图角色列表>',
     ].join('\n'))
@@ -441,11 +459,18 @@ export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '
   if (characterUpdates) {
     const taskAt = parts.findIndex(part => part.startsWith('<本次任务>'))
     const update = '<角色视觉历史>\n在本次同一份分析中检查正文是否明确叙述了已知人物永久外貌的改变，例如新留疤、永久剪发、失明或永久义肢。只记录正文明确确认的永久变化，不能推测或补充 traits。衣着、姿势、表情、妆容、临时伤痕、场景状态都不是永久外貌更新。只更新可用角色列表中的人物，并复制角色列表的 stable_id。若更新某一字段，输出该字段的完整新描述，并保留该字段里正文未改变的旧事实；不要只写变化片段。先输出 <character_updates>{"updates":[{"id":"stable_id","name":"角色原名","permanent":true,"fields":{"face":"该字段完整的新描述"},"reason":"引用正文明确叙述的永久变化"}]}</character_updates>，无变化时也必须输出空数组。必须在 decision 与任何 image 块之前完整输出这个标签。字段只可用 feature、face、faceBack、bodySFW、bodySFWBack、lowerSFW、lowerSFWBack、bodyNSFW、bodyNSFWBack、lowerNSFW、lowerNSFWBack。'
-      + '\n另外记录人物的当前穿着（这不是永久外貌，不要写 permanent）：本段正文写到某个可用角色此刻身上穿着什么（换了衣服，或第一次写到），就在同一个 updates 数组里加一条 {"id":"stable_id","name":"角色原名","current":{"outfit":"完整描述（上衣、下装、鞋袜等身上正穿着的，每件都写颜色，颜色照正文写的来，正文没写才沿用服装库或之前记录里的颜色；角色列表里这个人的外貌是中文写的就用中文，否则用英文，例如 white blouse, light grey trousers, beige apron；只写衣服本身，不写湿了、沾了泥、被水洇出深色、皱了、敞开这类会变的状态）；如果正文只说了类别、你从服装库里挑了一套，就直接写那套的服装名（正文写到的单品和那套冲突时不要用它，照正文写，没写到的部分沿用之前的记录）；全身脱光时写 nude"},"reason":"引用正文"}。'
-      + '只写正文明确写到的；手里拿着或放在一旁的衣服不算；衣服临时的状态（湿、脏、洇出水渍、扣子解开、袖子挽起）不记进当前穿着，只在那一张图的宏里写，下一张正文没再提就不写——记进去的话之后每张图都会一直带着；正文没写到穿着就不要输出这一条，插件会沿用之前的记录。正文只说换了衣服、没写换成什么时，从这个角色的服装库里挑一套最符合当时场景的（例如出门挑外出的、睡前挑睡衣、上班挑职场装），current.outfit 写那套的服装名，这一轮之后的画面宏里也写同一个服装名；服装库里没有合适的才沿用之前的记录。画面宏里写 outfit 时：已经确定是服装库里的某一套（包括「当前穿着」里记的服装名），就直接写服装名，不要改写成英文描述；' + (structured
-        ? '画面提示词里的衣着描述使用中文自然语言，明确每件衣服的颜色、款式和当刻状态，不要求按逗号拆成标签。character_updates 的英文描述仅供跨格式共用的内部历史记录，不能使 <prompts> 变成英文标签。'
-        : '自己描述时按逗号分成单个 tag，每件衣服前面写颜色，例如 burgundy dress, halterneck, bodycon, side slit，不要写成一整句长描述（长句里的颜色模型常常画错）。') + '同一角色的不同形态共用这条记录，写其中一个即可。'
-      + '本段正文里有人换了衣服时，current.outfit 写换完之后的穿着；同时这一轮每张 image 里这个人物的宏都必须写 "outfit" 字段，填那张图那一刻身上穿的（换衣之前的画面写换之前的，之后的写之后的），不要留空让插件自动补。'
+      + (structured
+        ? '\n另外记录人物的当前穿着（不是永久外貌，不要写 permanent）：正文首次明确穿着或确实发生换衣时，在 updates 加入 {"id":"stable_id","name":"角色原名","current":{"outfit":"换完后已明确的穿着"},"reason":"引用正文"}。'
+          + '衣物颜色、款式、配饰只记录正文或同一穿着已有依据的事实；仅给出衣服类别时只记录类别，只有明确是库中那套才记录准确服装名。手里拿着、放在一旁或已脱下的不算当前穿着。湿、脏、敞开等临时状态只描述在对应画面，不写入穿着记录；全身明确脱光时写 nude。正文完全没说到穿着变化时不更新记录。'
+          + '正文只确认已经换衣、款式尚未明确时，current.outfit 写 "unknown"，不要从服装库猜一套，也不要沿用旧衣服。该值仅用于记录；换衣后的画面不描写未确认的穿着，若使用人物宏则写 "outfit":"unknown"，不要把 unknown 写进画面正文。换衣前的画面仍可描述此前已确认的穿着。'
+          + '画面提示词里的衣着使用中文自然语言，只写当前可见且已有依据的衣物细节。character_updates 的英文描述仅供跨格式共用的内部历史记录，不能使 <prompts> 变成英文标签。同一角色的不同形态共用这条记录，写其中一个即可。'
+        : natural
+          ? '\n另外记录人物的当前穿着（不是永久外貌）：正文首次明确穿着或确实发生换衣时，在 updates 加入 {"id":"stable_id","name":"角色原名","current":{"outfit":"换完后已明确的穿着"},"reason":"引用正文"}。'
+            + '只记录已有依据的衣物。只确认换衣却没说明穿什么时，current.outfit 写 "unknown"；明确全身脱光时写 nude。手持或已脱下的衣物不算当前穿着，湿、脏、敞开等临时状态只写进对应画面。正文未写变化时保留旧记录。'
+            + '画面提示词使用完整自然语言，只描述当前时点实际入镜的已知服装。明确引用库中服装时使用准确服装名。换衣后款式未知时省略衣着描述，若使用人物宏则写 "outfit":"unknown"。同一角色的不同形态共用这条记录，写其中一个即可。'
+          : '\n另外记录人物的当前穿着（这不是永久外貌，不要写 permanent）：本段正文写到某个可用角色此刻身上穿着什么（换了衣服，或第一次写到），就在同一个 updates 数组里加一条 {"id":"stable_id","name":"角色原名","current":{"outfit":"完整描述（上衣、下装、鞋袜等身上正穿着的，每件都写颜色，颜色照正文写的来，正文没写才沿用服装库或之前记录里的颜色；角色列表里这个人的外貌是中文写的就用中文，否则用英文，例如 white blouse, light grey trousers, beige apron；只写衣服本身，不写湿了、沾了泥、被水洇出深色、皱了、敞开这类会变的状态）；如果正文只说了类别、你从服装库里挑了一套，就直接写那套的服装名（正文写到的单品和那套冲突时不要用它，照正文写，没写到的部分沿用之前的记录）；全身脱光时写 nude"},"reason":"引用正文"}。'
+        + '只写正文明确写到的；手里拿着或放在一旁的衣服不算；衣服临时的状态（湿、脏、洇出水渍、扣子解开、袖子挽起）不记进当前穿着，只在那一张图的宏里写，下一张正文没再提就不写——记进去的话之后每张图都会一直带着；正文没写到穿着就不要输出这一条，插件会沿用之前的记录。正文只说换了衣服、没写换成什么时，从这个角色的服装库里挑一套最符合当时场景的（例如出门挑外出的、睡前挑睡衣、上班挑职场装），current.outfit 写那套的服装名，这一轮之后的画面宏里也写同一个服装名；服装库里没有合适的才沿用之前的记录。画面宏里写 outfit 时：已经确定是服装库里的某一套（包括「当前穿着」里记的服装名），就直接写服装名，不要改写成英文描述；自己描述时按逗号分成单个 tag，每件衣服前面写颜色，例如 burgundy dress, halterneck, bodycon, side slit，不要写成一整句长描述（长句里的颜色模型常常画错）。同一角色的不同形态共用这条记录，写其中一个即可。'
+        + '本段正文里有人换了衣服时，current.outfit 写换完之后的穿着；同时这一轮每张 image 里这个人物的宏都必须写 "outfit" 字段，填那张图那一刻身上穿的（换衣之前的画面写换之前的，之后的写之后的），不要留空让插件自动补。')
     parts.splice(taskAt < 0 ? parts.length : taskAt, 0, update)
   }
   return parts.join('\n\n').replace('\n\n<本轮上下文>\n\n', '\n\n<本轮上下文>\n')

@@ -31,7 +31,7 @@ async function seedLegacy(root, a = main, b = outfits) {
 }
 const pathFor = (root, mode, key = 'main') => join(root, 'format-worldbooks', mode, key === 'main' ? 'worldbook.json' : 'worldbook-outfits.json')
 
-test('first migration independently copies both old books into three formats and backs up exact original bytes', async t => {
+test('first migration copies custom old books into three formats and backs up exact original bytes', async t => {
   const root = await fixture(t), { text, outfitText } = await seedLegacy(root)
   const store = createFormatWorldbooks({ root })
   const result = await store.ensure()
@@ -54,6 +54,49 @@ test('first migration independently copies both old books into three formats and
   assert.match(structured.entries.map(e => e.content).join('\n'), /结构化中文自然语言/)
   assert.doesNotMatch(structured.entries.map(e => e.content).join('\n'), /旧规则常驻|画面任务/)
   assert.deepEqual(structured.books.map(book => book.key), ['main', 'outfits'])
+})
+
+async function bundledLegacySeeds() {
+  const directory = new URL('../tavern-plugin/packages/dsh-tavern-image-bundled/', import.meta.url)
+  return Promise.all(['世界书-通用生图规则.json', '世界书-角色与服装库.json'].map(async file => JSON.parse(await fs.readFile(new URL(file, directory), 'utf8'))))
+}
+
+test('fresh natural worldbooks use prose, while mixed retains the original tag rules', async t => {
+  const root = await fixture(t)
+  await seedLegacy(root, ...await bundledLegacySeeds())
+  const store = createFormatWorldbooks({ root })
+  const natural = await store.readFormat('natural')
+  const context = selectPlannerContext({ entries: natural.entries, promptMode: 'natural', backend: 'openai', text: '侧面特写' })
+  assert.match(context.staticRules, /自然语言描述画面.*句尾不追加标签串/)
+  assert.match(context.staticRules, /宏前不另列人物姓名/)
+  assert.match(context.staticRules, /只描述一次全图景别和机位/)
+  assert.doesNotMatch(context.staticRules, /句尾核心 Tag 锚定|常用 Tag 参考|全是英文 Tag/)
+  const mixed = await store.readBook('mixed', 'main')
+  assert.match(mixed.entries[2].content, /句尾核心 Tag 锚定/)
+})
+
+test('natural migration backs up pristine legacy rules and preserves edited books and mixed bytes', async t => {
+  const root = await fixture(t)
+  const legacy = await bundledLegacySeeds()
+  await seedLegacy(root, ...legacy)
+  const first = createFormatWorldbooks({ root })
+  await first.ensure()
+  legacy[1].entries[0].content = '保留用户修改过的服装规则'
+  const [oldMain, editedOutfits] = legacy.map(book => JSON.stringify(normalizeFormatWorldbook(book), null, 3) + '\n\n')
+  await fs.writeFile(pathFor(root, 'natural'), oldMain)
+  await fs.writeFile(pathFor(root, 'natural', 'outfits'), editedOutfits)
+  const mixedPath = pathFor(root, 'mixed')
+  const mixedBytes = await fs.readFile(mixedPath, 'utf8')
+  const restart = createFormatWorldbooks({ root })
+  const result = await restart.ensure()
+  const upgrades = result.upgrades.filter(upgrade => upgrade.format === 'natural')
+  assert.equal(upgrades.length, 1)
+  assert.equal(upgrades[0].key, 'main')
+  assert.equal(await fs.readFile(upgrades[0].backupFile, 'utf8'), oldMain)
+  assert.equal((await restart.readBook('natural', 'main')).name, '自然语言 · 生图规则')
+  assert.equal(await fs.readFile(pathFor(root, 'natural', 'outfits'), 'utf8'), editedOutfits)
+  assert.equal(await fs.readFile(mixedPath, 'utf8'), mixedBytes)
+  assert.equal((await createFormatWorldbooks({ root }).ensure()).upgrades.some(upgrade => upgrade.format === 'natural'), false)
 })
 
 test('readFormat provides stable global indexes plus original group indexes and keeps enabled activation', async t => {

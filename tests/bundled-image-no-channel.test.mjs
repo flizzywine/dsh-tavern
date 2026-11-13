@@ -55,3 +55,32 @@ test('control: with a channel the same settled turn is planned', async t => {
   await until(() => calls.length)
   assert.ok(calls.length > 0)
 })
+test('history-only work does not block planning the same turn after a channel becomes ready', async () => {
+  const { installTavernBridge } = await import('../tavern-plugin/packages/dsh-tavern-image-bundled/lib/tavern-bridge.js')
+  let ready = false, gates = 0, saved = 0
+  const calls = []
+  const bridge = installTavernBridge({
+    tavern: {
+      apiVersion: 5, list: async () => [], getTurn: async () => ({ textVersion: 'v1' }),
+      beforeImagePlan: async () => { gates++ }, saveTurnData: async () => { saved++ },
+      onTurnSettled: () => () => {},
+    },
+    attachments: {}, getConfig: () => ({}), logger: {},
+    engine: {
+      imageReady: () => ready,
+      planMessage: async options => { calls.push(options); return { plans: [], characterSnapshot: {} } },
+    },
+  })
+  try {
+    const turn = { gameId: 'g', turn: 1, textVersion: 'v1', text: '正文' }
+    await bridge.attachTurn(turn)
+    assert.equal(calls[0].imageGeneration, false)
+    assert.equal(calls[0].characterUpdates, true)
+    assert.equal(saved, 1)
+    assert.equal(gates, 0)
+    ready = true
+    await bridge.attachTurn(turn)
+    assert.equal(calls[1].imageGeneration, true)
+    assert.equal(gates, 1)
+  } finally { bridge.dispose() }
+})

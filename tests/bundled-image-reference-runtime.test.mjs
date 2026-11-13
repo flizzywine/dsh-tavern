@@ -304,3 +304,65 @@ test('a waiting picture uses the reference added by the host while other picture
     assert.equal(job.references[0].image.id, referenceImage.id)
   } finally { release(); await drawing }
 })
+
+test('natural reference submission and redraw bind one concise reference block before the scene', async t => {
+  const calls = []; globalThis.fetch = atlasMock(calls)
+  const { runtime, defs } = await prepare(t, { config: { promptSystem: 'worldbook', promptMode: 'natural' } })
+  defs.characters[0].outfits[0] = { id: 'shirt', name: '白衬衫', upper: 'white collar', lower: 'black trousers', shoes: 'white sneakers', full: 'complete uniform' }
+  assert.equal((await runtime.request('definitions', { definitions: defs })).status, 200)
+  const tag = '${"name":"lin","outfit":"白衬衫","expression":"眉头微蹙","angle":"from side"}$。A close-up from the side.'
+  const start = await runtime.request('jobs', { tag, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })
+  assert.equal(start.status, 200, JSON.stringify(start.body))
+  const original = await runtime.terminal(start.body.id)
+  assert.equal(original.state, 'done', original.error)
+  const redraw = await runtime.request('redraw', { jobId: original.id, prompt: original.submittedPrompt + '\nThe background is softly blurred.' })
+  assert.equal(redraw.status, 200, JSON.stringify(redraw.body))
+  assert.equal((await runtime.terminal(redraw.body.jobId)).state, 'done')
+  for (const call of calls.filter(call => call.url.endsWith('/generateImage'))) {
+    const { prompt } = JSON.parse(call.init.body)
+    assert.match(prompt, /^【参考图对应与一致性】/)
+    assert.equal((prompt.match(/参考图1 →/g) || []).length, 1)
+    assert.match(prompt, /保留眼角的小痣/)
+    assert.match(prompt, /white collar/)
+    assert.match(prompt, /眉头微蹙/)
+    assert.doesNotMatch(prompt, /characterId|outfitId|身份参照图|red hair|black trousers|white sneakers|complete uniform|镜头从侧面/)
+  }
+})
+
+test('structured reference submission shares identities across prose and character blocks, and replacement clears removed blocks', async t => {
+  const calls = []; globalThis.fetch = atlasMock(calls)
+  const { runtime, defs } = await prepare(t, { config: { promptSystem: 'worldbook', promptMode: 'structured' } })
+  defs.characters.push({ id: 'other', name: '林月', traits: { face: '短棕发' } })
+  defs.characters[0].outfits[0] = { id: 'shirt', name: '白衬衫', upper: '白色衣领', lower: '黑色长裤', shoes: '运动鞋', full: '整套制服' }
+  assert.equal((await runtime.request('definitions', { definitions: defs })).status, 200)
+  const a = 'c1700000000000aaa', b = 'c1700000000000bbb'
+  const tag = [
+    '【镜头】\n林月的面部特写，下半身不入镜。',
+    '${"name":"lin","expression":"眉头微蹙"}$拿着书。',
+    '${"name":"other"}$端着杯子。',
+    a + '递伞。',
+  ].join('\n')
+  const start = await runtime.request('jobs', { tag, subjects: [{ characterId: 'lin', outfitId: 'shirt' }, { characterId: 'other' }],
+    characters: [{ prompt: b + '坐在身后。' + a + '正在递伞。', uc: '不要遮住' + b + '。' }] })
+  assert.equal(start.status, 200, JSON.stringify(start.body))
+  const original = await runtime.terminal(start.body.id)
+  assert.equal(original.state, 'done', original.error)
+  const originalPrompt = original.submittedPrompt
+  assert.match(originalPrompt, /参考图1 → 林月（对象1）/)
+  assert.match(originalPrompt, /林月（对象2）端着杯子/)
+  assert.match(originalPrompt, /短棕发/)
+  assert.match(originalPrompt, /眉头微蹙/)
+  assert.match(originalPrompt, /白色衣领/)
+  assert.doesNotMatch(originalPrompt, /黑色长裤|运动鞋|整套制服|characterId|outfitId/)
+  assert.match(originalPrompt, /未匹配人物1递伞/)
+  assert.match(originalPrompt, /未匹配人物2坐在身后。未匹配人物1正在递伞/)
+  assert.match(originalPrompt, /不要遮住未匹配人物2/)
+  const detail = (await runtime.request('job-detail?id=' + original.id)).body.job
+  assert.deepEqual(detail.promptAssembly.unresolvedCharacterIds, [a, b])
+  const redraw = await runtime.request('redraw', { jobId: original.id, prompt: '【动作】\n林月撑着伞。' })
+  assert.equal(redraw.status, 200, JSON.stringify(redraw.body))
+  const replaced = await runtime.terminal(redraw.body.jobId)
+  assert.equal(replaced.state, 'done', replaced.error)
+  assert.match(replaced.submittedPrompt, /撑着伞/)
+  assert.doesNotMatch(replaced.submittedPrompt, /坐在身后|正在递伞|未匹配人物/)
+})
