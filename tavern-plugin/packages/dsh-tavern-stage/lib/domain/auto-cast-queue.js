@@ -1,7 +1,7 @@
 // 自动选角's generation queue. Pure: the record (one per card, kept by the runtime) and
 // the cast it reads (the figures of the card's 自动生成 pack) in, the next picture out. Nothing here draws or writes.
 //
-// Record: {version:1, misses:{[figure]:{[emotionId]:n}}, lines:{[figure]:n}, jobs:{[jobKey]:{…}},
+// Record: {version:1, misses:{[figure]:{[emotionId]:n}}, lines:{[figure]:n}, wanted:{[figure]:true} (a CG waits for its 人设图), jobs:{[jobKey]:{…}},
 // channels:{[channel]:{transparent:false}}, drawn:[…]}. `figure` is packId/figureId. A job is only kept while it is ready (drawn,
 // not yet landed) or has failed; what is done is read from the cast, never stored twice. `drawn` keeps every call to the channel
 // (redraws and failures too): what it drew, when, how long it took and, when the channel tells, what it cost.
@@ -10,7 +10,7 @@
 export const AUTO_CAST_EMOTIONS = Object.freeze(['calm', 'anxious', 'joy', 'sad', 'shy', 'crying', 'disgust', 'anger', 'love'])
 const COMMON = 3, MAX_FAILURES = 2, FAILURE_PAUSE_MS = 30 * 60_000
 
-export const emptyAutoCastRecord = () => ({version:1, misses:{}, lines:{}, jobs:{}, channels:{}, cast:{}, same:{}, appearance:{}, drawn:[]})
+export const emptyAutoCastRecord = () => ({version:1, misses:{}, lines:{}, wanted:{}, jobs:{}, channels:{}, cast:{}, same:{}, appearance:{}, drawn:[]})
 export const figureKey = ref => ref.packId + '/' + ref.figureId
 // One picture: a figure's 人设图, or one emotion's 立绘 (in the outfit it lands in; null = the figure's first outfit).
 export const jobKey = job => JSON.stringify([job.kind, job.ref.packId, job.ref.figureId, job.kind === 'sprite' ? job.emotionId : null])
@@ -57,6 +57,8 @@ export function planAutoCast(record, cast, level, {busy = new Set(), sprites = t
   const asked = figure => Object.entries(record.misses[figureKey(figure.ref)] || {}).filter(([id]) => !figure.sprites.includes(id)).sort((a, b) => b[1] - a[1])
   const total = figure => asked(figure).reduce((sum, [, n]) => sum + n, 0)
   const requested = cast.filter(figure => total(figure) > 0)
+  // 0. a picture (a CG) waits for this figure: its 人设图 before anything else.
+  for (const figure of cast.filter(row => !row.settei && record.wanted?.[figureKey(row.ref)])) add(figure, null)
   // 1a. no 立绘 yet: its 人设图, else its first 立绘, first; the figure missed most first.
   for (const figure of requested.filter(row => !row.sprites.length).sort((a, b) => total(b) - total(a))) add(figure, asked(figure)[0][0])
   // 1b. every other requested (figure, emotion), by misses.
@@ -70,6 +72,16 @@ export function planAutoCast(record, cast, level, {busy = new Set(), sprites = t
   for (const [from, to] of [[0, COMMON], [COMMON, AUTO_CAST_EMOTIONS.length]]) for (const figure of ordered)
     for (const emotionId of AUTO_CAST_EMOTIONS.slice(from, to)) add(figure, emotionId)
   return jobs
+}
+
+// A picture of these figures (a CG of the image plugin) waits for their 人设图: each one without is drawn first (planAutoCast 0.).
+export function wantSettei(record, refs) {
+  return {...record, wanted:{...record.wanted, ...Object.fromEntries(refs.map(ref => [figureKey(ref), true]))}}
+}
+// A 人设图 that will not come: it failed MAX_FAILURES times in a row and waits out its pause.
+export function setteiGivenUp(record, ref, now) {
+  const job = record.jobs[jobKey({kind:'identity-settei', ref})]
+  return job?.status === 'failed' && job.failures >= MAX_FAILURES && now - job.at < FAILURE_PAUSE_MS
 }
 
 // Bookkeeping of one job: drawn (bytes kept by the runtime until landed), failed, or landed (forgotten; a landed 立绘 also

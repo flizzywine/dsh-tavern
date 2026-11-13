@@ -181,6 +181,9 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
+  // Host-only: whoever prepares what a picture needs (the stage's 自动素材), behind tavern.beforeImagePlan /
+  // beforeImageGenerate (null: nothing to wait for).
+  let imageGateProvider = null
   // Runtime name -> 'host' | 'tavern' | 'conflict', as the Cordis loader attributes each caller's fiber
   // (deps.loaderOrigin). A plugin a host/profile entry loaded is global; only Tavern guards load card plugins.
   const loaderOrigins = new Map()
@@ -549,6 +552,33 @@ export function createTavernPluginApi(deps) {
       if (typeof handler !== 'function') throw new TypeError('onTurnSettled 需要一个函数')
       const entry = { owner: ownerOf(this), handler }
       return owned(this, () => { settledHandlers.add(entry); return () => settledHandlers.delete(entry) }, 'tavern.onTurnSettled()')
+    },
+
+    // The image plugin's gates (its optional host hooks): it plans a settled turn once beforeImagePlan returns, and draws a
+    // picture once beforeImageGenerate does, skipping it on {skip, reason}. Tavern releases a turn once its new people are
+    // written (their 人物库 records exist, with their 外貌), and a picture once each of its people linked to a pack figure
+    // without a 参考图 has one: their 人设图 is drawn first; at once when nothing is being prepared.
+    async beforeImagePlan({ gameId, turn, signal } = {}) {
+      if (typeof gameId !== 'string' || !gameId || !Number.isSafeInteger(turn)) throw new TypeError('beforeImagePlan 需要 gameId 与整数 turn')
+      if (!imageGateProvider) return
+      await imageGateProvider.beforePlan({ gameId, turn, signal })
+      // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
+      await deps.imageCharactersSettled?.()
+    },
+    async beforeImageGenerate({ gameId, subjects, signal } = {}) {
+      if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
+      if (!imageGateProvider) return {}
+      const ids = [...new Set(subjects.map(subject => subject?.characterId).filter(id => typeof id === 'string' && id))]
+      const libraries = ids.length ? await imageCatalog.recordLibraries({}) : []
+      const records = (await Promise.all(ids.flatMap(characterId => libraries.map(({ providerId }) => imageCatalog.record('getCharacter', {}, { providerId, characterId })
+        .then(found => found.character, error => { if (error.code === 'NOT_FOUND') return null; throw error }))))).filter(Boolean)
+      const figures = records.filter(record => record.figureId && record.figurePackId && !record.referenceImage)
+        .map(record => ({ packId: record.figurePackId, figureId: record.figureId, name: record.name }))
+      if (!figures.length) return {}
+      const { unavailable } = await imageGateProvider.awaitReferences({ gameId, figures: figures.map(({ packId, figureId }) => ({ packId, figureId })), signal })
+      await deps.imageCharactersSettled?.()
+      const missing = figures.filter(figure => unavailable.some(ref => ref.packId === figure.packId && ref.figureId === figure.figureId))
+      return missing.length ? { skip: true, reason: '「' + missing.map(figure => figure.name).join('、') + '」的人设图没有画出来，有他们的图这次没有出' } : {}
     },
 
     // A moment of the event table, Tavern's (玩家发送, 正文开始, 正文写完, 本轮结算完, 回合作废,
@@ -1566,6 +1596,11 @@ export function createTavernPluginApi(deps) {
     pictureObservers.add(observer)
     return () => pictureObservers.delete(observer)
   }
+  /** Host-only: the stage's 自动素材 answers tavern.beforeImagePlan / beforeImageGenerate ({beforePlan, awaitReferences}). */
+  function imageGates(provider) {
+    imageGateProvider = provider
+    return () => { if (imageGateProvider === provider) imageGateProvider = null }
+  }
 
   /** Called by Tavern after the player removed pictures of a plugin's media item; only its owner hears. */
   function mediaRemoved(gameId, item, pictures, itemRemoved) {
@@ -2083,7 +2118,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
+  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

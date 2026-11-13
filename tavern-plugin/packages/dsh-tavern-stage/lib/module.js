@@ -304,6 +304,13 @@ export async function createStageModule(core) {
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
       void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
+      // 场景生图's gates (tavern.beforeImagePlan / beforeImageGenerate) wait for 自动素材: a settled turn's new people are
+      // written before its pictures are planned, and a person's 人设图 is their record's 参考图 before a picture of them is drawn.
+      const castCard = async gameId => autoCast && (await core.chatHeaderForSession(gameId, ['cardPath']))?.cardPath
+      ctx.effect(() => deps.pluginApi.imageGates({
+        async beforePlan({gameId, turn, signal}) { const cardPath = await castCard(gameId); if (cardPath) await autoCast.awaitCast(cardPath, gameId, turn, signal) },
+        async awaitReferences({gameId, figures, signal}) { const cardPath = await castCard(gameId); return cardPath ? autoCast.awaitSettei(cardPath, figures, signal) : {unavailable:[]} }
+      }), 'dsh-tavern: CG waits for 自动素材')
       const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport,autoCastSettings,
         autoCastStatus:async path => path && autoCast ? autoCast.status(path) : null})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')

@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {deflateSync} from 'node:zlib'
 import {checkAssetImage} from '../tavern-plugin/lib/domain/asset-image-processing.js'
-import {emptyAutoCastRecord, noteRound, planAutoCast, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteDrawn, noteWriteFailure, autoCastProblem, AUTO_CAST_EMOTIONS} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteRound, planAutoCast, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteDrawn, noteWriteFailure, autoCastProblem, AUTO_CAST_EMOTIONS, wantSettei, setteiGivenUp} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
 import {createAutoCast, roundRequests} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 
 const PACK = '11111111-1111-4111-8111-111111111111', OWN = '22222222-2222-4222-8222-222222222222'
@@ -40,6 +40,18 @@ test('晚一轮: a figure without any picture gets its 人设图 and first 立�
   assert.deepEqual(summary(planAutoCast(record, withSettei, 'late', {sprites:false})), [], 'no 立绘 for a channel without transparency')
   const landed = jobsLanded(record, [{kind:'sprite', ref:A, emotionId:'joy'}])
   assert.equal(landed.misses[PACK + '/' + A.figureId].joy, undefined)
+})
+
+test('a CG waiting for a figure puts its 人设图 first, even when it never spoke; two failures in a row give it up for the pause', () => {
+  const cast = [figure(A, {settei:true, sprites:['calm']}), figure(B)]
+  const record = wantSettei(noteRound(emptyAutoCastRecord(), [{ref:A, emotionId:'joy'}], cast), [B])
+  assert.deepEqual(summary(planAutoCast(record, cast, 'late')), ['B:settei', 'A:joy'], 'B never spoke: only its 人设图, no 立绘')
+  assert.deepEqual(summary(planAutoCast(record, [cast[0], figure(B, {settei:true})], 'late')), ['A:joy'], 'once it has one, nothing more for B')
+  const once = jobFailed(record, {kind:'identity-settei', ref:B}, 10, null, 'm')
+  assert.equal(setteiGivenUp(once, B, 20), false)
+  const twice = jobFailed(once, {kind:'identity-settei', ref:B}, 20, null, 'm')
+  assert.equal(setteiGivenUp(twice, B, 30), true)
+  assert.equal(setteiGivenUp(twice, B, 20 + 31 * 60_000), false, 'tried again after the pause')
 })
 
 test('积极: the common three for each figure in turn (more lines first), then the rest; 全部 reaches figures who never spoke', () => {
@@ -81,7 +93,7 @@ const sprite = ({edge = false, opaque = false} = {}) => png(512, 768, (x, y) => 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 async function settle(predicate) { for (let i = 0; i < 200 && !predicate(); i++) await tick() }
 
-function harness({replies, transparent, matte, cost, refuse} = {}) {
+function harness({replies, transparent, matte, cost, refuse, failDraw} = {}) {
   const files = new Map(), writes = [], prompts = [], generated = []
   const store = {readJson:async key => files.has(key) ? structuredClone(files.get(key)) : null, writeJson:async (key, value) => files.set(key, structuredClone(value)),
     updateJson:async (key, fn) => files.set(key, fn(files.get(key) ?? null)), readBytes:async key => files.get(key) ?? null, writeBytes:async (key, data) => files.set(key, Buffer.from(data)), remove:async key => files.delete(key)}
@@ -97,14 +109,14 @@ function harness({replies, transparent, matte, cost, refuse} = {}) {
   const queue = [...(replies || [])]
   const images = {prompt:async input => { prompts.push(input); return {prompt:'p:' + input.kind, output:input.kind === 'sprite' ? {size:'1024x1536', background:'transparent', quality:'high'} : {size:'1536x1024', background:'opaque', quality:'high'}} },
     check:(data, kind) => checkAssetImage(data, kind),
-    generate:async input => { generated.push(input); const next = queue.shift() || (input.background === 'transparent' ? sprite() : settei()); return {data:new Uint8Array(next), mediaType:'image/png', ...(cost ? {cost} : {})} },
+    generate:async input => { generated.push(input); if (failDraw) throw Object.assign(new Error('渠道拒绝'), {code:'GENERATION_FAILED'}); const next = queue.shift() || (input.background === 'transparent' ? sprite() : settei()); return {data:new Uint8Array(next), mediaType:'image/png', ...(cost ? {cost} : {})} },
     status:async () => ({ready:true, model:'m', ...(transparent === undefined ? {} : {transparent})}), ...(matte ? {matte} : {})}
   const settings = {enabled:true, level:'late'}
   const cast = createAutoCast({store, settings:async () => settings, library, images, now:() => 1000})
   // holdWrites(): pack writes wait (never released) — the pictures stay drawn and not landed, as a restart finds them.
   return {cast, files, writes, prompts, generated, state, settings, holdWrites() { held = new Promise(() => {}) }}
 }
-const chat = {id:'chat-1', timeline:{branchId:'b1', revision:3}, messages:[{role:'assistant', turn:2, id:'m2'}]}
+const chat = {id:'chat-1', sessionId:'s-1', timeline:{branchId:'b1', revision:3}, messages:[{role:'assistant', turn:2, id:'m2'}]}
 const kinds = writes => writes.flatMap(w => w.changes.flatMap(c => [...(c.settei ? ['identity-settei'] : []), ...(c.sprites || []).map(() => 'sprite')])).sort()
 const body = lines => ({paragraphs:lines.map(([name, mood], i) => ({paragraphId:'p' + i, kind:'line', segment:{name, mood, text:'……'}}))})
 
@@ -126,6 +138,24 @@ test('a new figure: 人设图 then its first 立绘 from it, each landed at once
   assert.deepEqual(h.writes[0].source, {chatId:'chat-1', branchId:'b1', revision:3, turn:2, messageId:'m2', paragraphIds:['p0']}, 'the write serves the round')
   await settle(() => ![...h.files.keys()].some(key => key.endsWith('.png')))
   assert.deepEqual([...h.files.keys()].filter(key => key.endsWith('.png')), [], 'landed pictures leave the disk')
+})
+
+test('a CG of the image plugin waits for the round’s casting, then for the 人设图 of the figures in it; a 人设图 that fails twice is unavailable', async () => {
+  const h = harness()
+  let cast = false
+  const waiting = h.cast.awaitCast('cards/c.json', 's-1', 2).then(() => { cast = true })
+  await tick()
+  assert.equal(cast, false, 'the turn is not cast yet')
+  await h.cast.round('cards/c.json', body([['路人', '']]), chat)
+  await waiting
+  assert.equal(cast, true)
+  const ready = await h.cast.awaitSettei('cards/c.json', [A, {packId:OWN, figureId:'x'}])
+  assert.deepEqual(ready, {unavailable:[]})
+  assert.deepEqual(kinds(h.writes), ['identity-settei'], 'A never spoke: only its 人设图 is drawn, for the CG')
+  assert.deepEqual(await h.cast.awaitSettei('cards/c.json', [A]), {unavailable:[]}, 'it has one now: no wait')
+  const failing = harness({failDraw:true})
+  assert.deepEqual(await failing.cast.awaitSettei('cards/c.json', [A]), {unavailable:[A]})
+  assert.equal(failing.generated.length, 2, 'tried twice, then given up')
 })
 
 test('a failed cheap check redraws once, then the second picture is used; every call is kept with its cost', async () => {
