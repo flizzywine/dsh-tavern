@@ -29,7 +29,7 @@ function harness() {
         return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value }]
       }
     },
-    useCandidatePanel: () => null, useRegenPanel: () => regen,
+    useCandidatePanel: () => null, loadSavedCandidates: async () => null, useRegenPanel: () => regen,
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
     // bareView：视图在、但没带上 canRegenerate/canRollback 这一栏（投影视图、落盘前那一秒）。
     useLiveTavernView: () => (noView ? { view: null } : { view: bareView ? { undoRollbackTurn: undoTurn, ...extraView } : { canRollback, undoRollbackTurn: undoTurn, ...extraView } }),

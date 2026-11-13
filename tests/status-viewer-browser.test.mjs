@@ -21,13 +21,15 @@ test('第二个 HTTP 浏览器没有脚本执行器时，旧卡 parent.Mvu 状�
   const viewer = client.buildTavernFrameDocument({ token: 'viewer', helperContext: context(10), trustedCardMode: true, persistent: true, preserveInstance: true, content })
   const executor = client.buildTavernHelperScriptDocument({ token: 'executor', context: context(10), trustedCardMode: true,
     scripts: [{ id: 'start', content: 'parent.executorStarts=(parent.executorStarts||0)+1;' }] })
+  // The trusted executor frame asks its host page for jQuery before it starts any script.
+  const desktopPage = '<body><script src="/api/dsh-tavern/vendor/runtime-assets/jquery/jquery.min.js"></script><script>const frame=document.createElement("iframe");frame.__dshTavernPrepareTrustedHost=async()=>{};frame.src="/executor";document.body.appendChild(frame)</script></body>'
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname
     const asset = await readTavernRuntimeAsset(path)
     if (asset) { res.setHeader('content-type', asset.mediaType); res.end(asset.body); return }
     res.setHeader('content-type', 'text/html')
     res.end(path === '/viewer' ? viewer : path === '/executor' ? executor
-      : `<iframe src="${path === '/desktop' ? '/executor' : '/viewer'}"></iframe>`)
+      : path === '/desktop' ? desktopPage : `<iframe src="/viewer"></iframe>`)
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
