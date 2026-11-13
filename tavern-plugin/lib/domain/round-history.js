@@ -460,8 +460,20 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (typeof sessionId === 'string' && sessionId !== '') chat.sessionId = sessionId
     if (typeof chat.sessionId !== 'string' || chat.sessionId === '') throw new Error('会话未绑定 DSH 会话')
     const effectiveSessionId = chat.sessionId
-    const agent = sessions.get(effectiveSessionId)
-    if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + effectiveSessionId)
+    const activeAgent = sessions.get(effectiveSessionId)
+    const restoredHandle = !activeAgent?.session && typeof sessions.resume === 'function'
+      ? await sessions.resume(effectiveSessionId) : undefined
+    try {
+      return await regenerateInSession(chat, card, storedSessionId, sessionId, activeRound, guidance, options,
+        restoredHandle?.agent || activeAgent)
+    } finally {
+      await restoredHandle?.dispose?.()
+    }
+  }
+
+  async function regenerateInSession(chat, card, storedSessionId, sessionId, activeRound, guidance, options, agent) {
+    const effectiveSessionId = chat.sessionId
+    if (!agent?.session) throw new Error('无法访问 DSH 会话: ' + effectiveSessionId)
     if (agent.phase?.kind === 'running') throw new Error('前台正在生成，请完成或停止后再重新生成')
     const session = agent.session
     // A tail the round never answered is a failed turn, not a round: there is no

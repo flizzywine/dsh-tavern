@@ -108,6 +108,20 @@ function harness({ checkpoint = false, mode = 'story', journal = false } = {}) {
     setGeneration(value) { generation = value }, setSettlement(value) { settlementOutcome = value }, beforeGenerate(fn) { beforeGenerate = fn }, revisions }
 }
 
+test('regeneration resumes and releases a nonresident foreground Agent', async () => {
+  const h = harness()
+  h.options.sessions.get = () => undefined
+  h.options.sessions.resume = async id => {
+    assert.equal(id, 'session')
+    h.calls.push('resume')
+    return { agent: h.agent, dispose: async () => h.calls.push('dispose') }
+  }
+  const result = await h.create().regenerate('chat', '', 'session')
+  assert.equal(result.adopted.text, '新正文3')
+  assert.ok(h.calls.indexOf('resume') < h.calls.indexOf('followup'))
+  assert.equal(h.calls.at(-1), 'dispose')
+})
+
 for (const stored of [true, false]) test('rollback after foreground Agent release, stored Session=' + stored, async () => {
   const h = harness({checkpoint:true,journal:true})
   h.chat._storageRevision=9

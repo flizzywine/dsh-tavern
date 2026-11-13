@@ -38,6 +38,22 @@ function repair(h, repairId = 'r1') {
   return result
 }
 
+test('分叉投影为新会话保留系统消息头，宿主可追加下一轮系统提示', () => {
+  const source = game(1)
+  const session = Session.create('seeded-fork', [], { ...source.session.header, id: 'seeded-fork', version: 4 })
+  const result = repairNativeSurface(session, source.chat, { repairId: 'seed-fork' })
+  assert.equal(result.applied, true)
+  const events = sessionEvents(session)
+  assert.equal(events.find(event => event.seq === session.surface.nodes[0]).type, 'system/message')
+  assert.deepEqual(nodeTexts(session), ['', '开场', '行动2', '正文2'])
+  appendSessionEvent(session, 'turn/start', { turn: 2 })
+  appendSessionEvent(session, 'step/start', { turn: 2, step: 1 })
+  appendSessionEvent(session, 'system/message', { turn: 2, step: 1, message: {
+    id: 'updated-system', role: 'system', content: [{ type: 'text', text: '提示词' }], source: { kind: 'system-prompt' }
+  } }, { surfaceOp: 'append' })
+  assert.doesNotThrow(() => Session.fromRestore(session.id, sessionEvents(session), session.header, 0, 'detached'))
+})
+
 test('一致的存档不写任何东西', () => {
   const h = game(3)
   const before = h.session.surface.nodes.slice()

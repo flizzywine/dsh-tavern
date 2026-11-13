@@ -5,6 +5,7 @@ import { isCompactionCheckpoint } from './compaction-checkpoint.js'
 import { isTurnInput } from './session-turn-input.js'
 import { nativeOpeningMessageId } from './native-opening.js'
 import { RETAINED_STORY_ROUNDS } from './story-compaction.js'
+import { producerSource } from './message-source.js'
 
 // The Chat is the save; the native surface is its projection (Wiki「设计：native-session-repair」).
 // Repair keeps the longest surface prefix that still agrees with the Chat and rewrites
@@ -206,7 +207,13 @@ export function applyNativeSurfaceRepair(session, chat, plan, { repairId }) {
   // The repair runs between rounds, where no step is open: all its writes share one
   // edit step. Each reply keeps its story turn in tavernStoryTurn (story alignment
   // reads it), since its event carries the edit step's numbers.
-  mutator.editStep(() => {
+  mutator.editStep((turn, step) => {
+    if (session.header?.version >= 3 && session.surface.nodes.length === 0 && plan.rounds.length > 0) {
+      mutator.append('system/message', { turn, step, message: {
+        id: 'tavern-system-head:' + session.id, role: 'system', content: [],
+        source: producerSource('@deepseek-ai/dsh-system-prompt', undefined, 'system'),
+      } }, { surfaceOp: 'append' })
+    }
     for (const [index, round] of plan.rounds.entries()) {
       const id = `tavern-native-repair:${repairId}:${index}`
       const turn = round.turn
