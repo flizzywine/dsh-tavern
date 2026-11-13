@@ -8,8 +8,8 @@ import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './charac
 const TASK_PROMPT_PROSE = Object.freeze({
   p001: "\n\nExtra user requirements:\n",
   p002: "\n\nThe extra requirements don't change the ",
-  p003: "script direction, ",
-  p004: "-choice count or type rules.",
+  p003: "script direction, 1-choice count or type rules.",
+  p004: "actor grouping, per-tab count or global event/scene rules.",
   p005: "\n\nChoice point: story revision ",
   p006: "; latest story turn ",
   p007: ". Continue from the end of the latest story text with its current identities, names, place and time; don't roll renamed or finished plot back to the card's opening.",
@@ -72,7 +72,8 @@ function parseJsonLenient(text) {
 function choiceType(value) {
   const type = str(value).trim().toLowerCase()
   if (type === 'action' || type === '人物行为' || type === '行动') return 'action'
-  if (type === 'scene' || type === 'scene2' || type === 'newscene' || type === '场景' || type === '新场景' || type === '场景变化') return 'scene'
+  if (type === 'event' || type === '突发事件' || type === '突发互动' || type === '全局事件' || type === '插曲') return 'event'
+  if (type === 'scene' || type === 'scene2' || type === 'newscene' || type === '场景' || type === '新场景' || type === '场景变化' || type === '场景切换') return 'scene'
   return null
 }
 
@@ -96,21 +97,31 @@ export function decodeLiteralUnicodeEscapes(value) {
   })
 }
 
+const MAX_ACTOR_GROUPS = 4
+const MAX_ACTIONS_PER_ACTOR = 3
+const MAX_SAVED_STORY_CHOICES = 16
+
+function cleanCandidateText(value, card, chat) {
+  return decodeLiteralUnicodeEscapes(projectCandidateIdentityMacros(value, card, chat)).trim()
+}
+
 function validatedChoices(source, scriptMode, logger) {
   const choices = []
   for (const item of Array.isArray(source) ? source : []) {
     if (item === null || typeof item !== 'object') continue
-    const type = choiceType(item.type)
+    const rawType = choiceType(item.type)
+    const type = scriptMode && rawType === 'event' ? 'action' : rawType
     const text = decodeLiteralUnicodeEscapes(item.text).trim()
     if (type === null || text === '' || choices.some(function (choice) { return choice.text === text })) continue
-    choices.push({ type, text })
+    const actor = type === 'action' ? decodeLiteralUnicodeEscapes(item.actor).trim() : ''
+    choices.push(actor !== '' ? { type, actor, text } : { type, text })
   }
   if (scriptMode) {
     if (choices.length === 0) throw new Error('模型没有返回至少 1 个有效候选项')
     if (choices.length > 1 && logger && typeof logger.warn === 'function') {
       logger.warn(`dsh-tavern: 模型候选项返回 ${choices.length} 个剧本候选，已裁剪为 1 个。`)
     }
-    return choices.slice(0, 1)
+    return choices.slice(0, 1).map(function (item) { return { type: item.type, text: item.text } })
   }
   const actions = choices.filter(function (choice) { return choice.type === 'action' })
   const scenes = choices.filter(function (choice) { return choice.type === 'scene' })
@@ -121,6 +132,102 @@ function validatedChoices(source, scriptMode, logger) {
     logger.warn(`dsh-tavern: 模型候选项返回 ${actions.length} 个行动候选和 ${scenes.length} 个场景候选，已裁剪为 4 + 1。`)
   }
   return actions.slice(0, 4).concat(scenes.slice(0, 1))
+}
+
+function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGlobal = false, logger } = {}) {
+  const payload = args !== null && typeof args === 'object' ? args : {}
+  if (Array.isArray(payload.actors) && payload.actors.length > 0) {
+    const seenTexts = new Set()
+    const actorMap = new Map()
+    for (const entry of payload.actors) {
+      if (entry === null || typeof entry !== 'object') continue
+      const name = cleanCandidateText(entry.name || entry.actor, card, chat)
+      if (name === '') continue
+      if (!actorMap.has(name)) {
+        if (actorMap.size >= MAX_ACTOR_GROUPS) {
+          if (logger && typeof logger.warn === 'function') logger.warn(`dsh-tavern: 模型候选项超过 ${MAX_ACTOR_GROUPS} 个角色分组，已忽略多余分组 ${name}。`)
+          continue
+        }
+        actorMap.set(name, [])
+      }
+      const list = actorMap.get(name)
+      const rawActions = Array.isArray(entry.actions) ? entry.actions : []
+      for (const rawAction of rawActions) {
+        if (list.length >= MAX_ACTIONS_PER_ACTOR) break
+        const text = cleanCandidateText(typeof rawAction === 'string' ? rawAction : rawAction?.text, card, chat)
+        if (text === '' || seenTexts.has(text)) continue
+        seenTexts.add(text)
+        list.push(text)
+      }
+    }
+    const events = []
+    const scenes = []
+    function pushGlobal(kind, rawValue) {
+      const text = cleanCandidateText(rawValue, card, chat)
+      if (text === '' || seenTexts.has(text)) return
+      seenTexts.add(text)
+      if (kind === 'scene') scenes.push(text)
+      else events.push(text)
+    }
+    if (payload.event !== undefined) pushGlobal('event', typeof payload.event === 'string' ? payload.event : payload.event?.text)
+    if (payload.scene !== undefined) pushGlobal('scene', typeof payload.scene === 'string' ? payload.scene : payload.scene?.text)
+    if (Array.isArray(payload.global)) {
+      for (const item of payload.global) {
+        if (typeof item === 'string') pushGlobal(events.length === 0 ? 'event' : 'scene', item)
+        else if (item && typeof item === 'object') {
+          const kind = choiceType(item.type) === 'scene' ? 'scene' : 'event'
+          pushGlobal(kind, item.text)
+        }
+      }
+    }
+    if (scriptMode) {
+      const flat = []
+      for (const actions of actorMap.values()) {
+        for (const text of actions) flat.push({ type: 'action', text })
+      }
+      for (const text of events) flat.push({ type: 'action', text })
+      for (const text of scenes) flat.push({ type: 'scene', text })
+      return validatedChoices(flat, true, logger)
+    }
+    const groups = []
+    for (const [name, actions] of actorMap.entries()) {
+      if (actions.length > 0) groups.push({ name, actions })
+    }
+    const totalActorActions = groups.reduce(function (sum, group) { return sum + group.actions.length }, 0)
+    if (groups.length === 0 || totalActorActions < 3) {
+      throw new Error('模型没有返回至少 3 条有效角色行动候选（actors）')
+    }
+    if (!lenientGlobal && groups.some(function (group) { return group.actions.length < 2 })) {
+      throw new Error('每个在场角色分组（actors）至少需要提供 2 条行动候选')
+    }
+    if (!lenientGlobal && (events.length < 1 || scenes.length < 1)) {
+      throw new Error('自由故事需要同时提供 1 条突发互动/事件（event）和 1 条场景切换（scene）')
+    }
+    if (lenientGlobal && events.length < 1 && scenes.length < 1) {
+      throw new Error('模型没有返回有效的全局候选项（event 或 scene）')
+    }
+    const choices = []
+    for (const group of groups) {
+      for (const text of group.actions) choices.push({ type: 'action', actor: group.name, text })
+    }
+    if (events.length > 0) choices.push({ type: 'event', text: events[0] })
+    if (scenes.length > 0) choices.push({ type: 'scene', text: scenes[0] })
+    return choices
+  }
+
+  const rawActions = Array.isArray(payload.actions) ? payload.actions : []
+  const actions = rawActions.map(function (item) {
+    const text = typeof item === 'string' ? item : str(item && item.text)
+    return cleanCandidateText(text, card, chat)
+  }).filter(Boolean)
+  const eventText = typeof payload.event === 'string' ? payload.event : str(payload.event && payload.event.text)
+  const event = cleanCandidateText(eventText, card, chat)
+  const sceneText = typeof payload.scene === 'string' ? payload.scene : str(payload.scene && payload.scene.text)
+  const scene = cleanCandidateText(sceneText, card, chat)
+  const items = actions.map(function (text) { return { type: 'action', text } })
+  if (scriptMode && event !== '') items.push({ type: 'action', text: event })
+  if (scene !== '') items.push({ type: 'scene', text: scene })
+  return validatedChoices(items, scriptMode, logger)
 }
 
 function buildMessages(chat, card, selection, now, limit = 3) {
@@ -151,15 +258,15 @@ export const FOREGROUND_CANDIDATES_PROMPT = [
   '<foreground_story_candidates>',
   'After finishing the story prose for this turn, append a `<story_choices>` block at the very end on a new line (inside `submit_story` `content` if using tool submission, or at the end of your text reply):',
   '<story_choices>',
-  '{"actions":["...","...","...","..."],"scene":"..."}',
+  '{"actors":[{"name":"...","actions":["...","...","..."]},{"name":"...","actions":["...","...","..."]}],"event":"...","scene":"..."}',
   '</story_choices>',
-  'Requirements for the choices:',
-  '- `actions` holds exactly 4 distinct character-action director instructions (~40 characters each, in the story\'s language), spanning 4 directorial angles:',
-  '  1. Escalate: follow the current momentum and deepen the ongoing action, intimacy, or conflict.',
-  '  2. Shift dynamic: change the pace, posture, initiative, or power balance in the interaction.',
-  '  3. Tension & dialogue: pause or slow physical progression to focus on verbal interplay, teasing, questioning, or emotional tension.',
-  '  4. Physical & detail focus: center on a specific bodily touch, object, garment, or immediate physical surroundings.',
-  '- `scene` holds 1 scene-change direction (~40 characters) transitioning to a new time, location, or incoming event.',
+  'Requirements for the choices (~40 characters each, in the story\'s language):',
+  '- `actors` lists the active characters in the scene, placing the current focal counterpart / spotlight partner FIRST:',
+  '  - Follow the story\'s narrative perspective: if a first-person player avatar (`我`) is in the scene, include `"我"` with 3 actions; if the story is third-person or has no `"我"`, use actual character names and do not invent `"我"`.',
+  '  - Include up to 3 active non-player characters currently in the scene or poised to intervene: 3 actions when 1 other character is present, or 2 actions each when 2–3 other characters are present (in pure third-person ensemble prose without a single player avatar, list 1–3 main present characters: 3 actions each for 1–2 characters, or 3 for the focal character and 2 each for the others when 3 characters are present).',
+  '  - State the acting character clearly in every action and span distinct angles (escalate momentum, shift initiative or posture, verbal/emotional tension, physical or environmental detail) with no overlap.',
+  '- `event` holds 1 sudden interaction, external interruption, or multi-party situation shift within the current scene.',
+  '- `scene` holds 1 scene-change direction transitioning to a new time, location, or incoming situation.',
   '- Write as concrete director staging instructions matching the current tone and rating (both SFW and explicit NSFW are fully supported). Do not write anything after `</story_choices>`.',
   '</foreground_story_candidates>'
 ].join('\n')
@@ -172,7 +279,7 @@ export function foregroundCandidatePrompt(chat) {
 /**
  * Extract trailing `<story_choices>...</story_choices>` from a foreground reply.
  * Returns `{ proseText, choices, hadTag }`, where `choices` is either a validated
- * 4+1 choice array or `null` if no valid block was present. Any trailing `<story_choices>`
+ * choice array or `null` if no valid block was present. Any trailing `<story_choices>`
  * block (complete or truncated at max-tokens) is stripped from `proseText`.
  */
 export function extractForegroundStoryChoices(rawText, { card, chat, logger } = {}) {
@@ -186,16 +293,7 @@ export function extractForegroundStoryChoices(rawText, { card, chat, logger } = 
   if (payload === '') return { proseText, choices: null, hadTag: true }
   try {
     const parsed = parseJsonLenient(payload)
-    const rawActions = Array.isArray(parsed.actions) ? parsed.actions : []
-    const actions = rawActions.map(function (item) {
-      const text = typeof item === 'string' ? item : str(item && item.text)
-      return projectCandidateIdentityMacros(text, card, chat).trim()
-    }).filter(Boolean)
-    const sceneText = typeof parsed.scene === 'string' ? parsed.scene : str(parsed.scene && parsed.scene.text)
-    const scene = projectCandidateIdentityMacros(sceneText, card, chat).trim()
-    const items = actions.map(function (text) { return { type: 'action', text } })
-    if (scene !== '') items.push({ type: 'scene', text: scene })
-    const choices = validatedChoices(items, false, logger)
+    const choices = parseSubmittedChoices(parsed, { card, chat, scriptMode: false, lenientGlobal: true, logger })
     return { proseText, choices, hadTag: true }
   } catch (_error) {
     return { proseText, choices: null, hadTag: true }
@@ -206,15 +304,28 @@ export const CANDIDATE_SUBMIT_TOOL_NAME = 'candidate_submit_choices'
 
 export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
   name: CANDIDATE_SUBMIT_TOOL_NAME,
-  description: '提交本轮候选项。自由故事提交 4 个行动候选和 1 个场景候选；剧本模式只提交 1 项变化，填入 actions 或 scene，另一项留空。',
+  description: '提交本轮候选项。自由故事提交 actors（按焦点对手戏角色优先排列的在场角色行动分组，含第一人称「我」或第三人称角色名）、event（1 条当前场景突发互动/事件）和 scene（1 条场景切换）；剧本模式只提交 1 项变化，填入 actions 或 scene，另一项留空。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
     properties: {
+      actors: {
+        type: 'array',
+        maxItems: 4,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', minLength: 1 },
+            actions: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1 } }
+          },
+          required: ['name', 'actions']
+        }
+      },
+      event: { type: 'string' },
       actions: { type: 'array', minItems: 0, maxItems: 4, items: { type: 'string', minLength: 1 } },
       scene: { type: 'string' }
-    },
-    required: ['actions', 'scene']
+    }
   })
 })
 
@@ -398,7 +509,7 @@ export function createCandidateGenerator(options) {
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = PROMPT_PROSE.p001
-    if (guidance !== '') request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + (scriptMode ? TASK_PROMPT_PROSE.p003 : '') + (scriptMode ? 1 : 5) + TASK_PROMPT_PROSE.p004
+    if (guidance !== '') request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + (scriptMode ? TASK_PROMPT_PROSE.p003 : TASK_PROMPT_PROSE.p004)
     // A synced participant revision records task commits, not delivery of story text.
     // Always anchor choices in the current timeline, even in a persistent background session.
     const recentMessages = buildMessages(chat, card, selection, now)
@@ -426,13 +537,7 @@ export function createCandidateGenerator(options) {
       if (call && call.name === CANDIDATE_SUBMIT_TOOL_NAME) {
         try {
           const args = call.arguments !== null && typeof call.arguments === 'object' ? call.arguments : parseJsonLenient(call.arguments)
-          const actions = Array.isArray(args.actions) ? args.actions.map(function (text) {
-            return projectCandidateIdentityMacros(text, card, chat).trim()
-          }).filter(Boolean) : []
-          const scene = projectCandidateIdentityMacros(args.scene, card, chat).trim()
-          const source = actions.map(function (text) { return { type: 'action', text } })
-          if (scene !== '') source.push({ type: 'scene', text: scene })
-          submittedChoices = validatedChoices(source, scriptMode, logger)
+          submittedChoices = parseSubmittedChoices(args, { card, chat, scriptMode, lenientGlobal: false, logger })
           submissionError = null
           return JSON.stringify({ ok: true, accepted: submittedChoices.length })
         } catch (error) {
@@ -570,10 +675,16 @@ export function createCandidateGenerator(options) {
     // 其余调用方仍按消息 id 精确核对。
     const asked = str(input.messageId)
     if (input.latest !== true && str(chat.candidates.messageId) !== asked) return null
-    const limit = (chat.mode || 'story') === 'script' ? 1 : 5
+    const isScript = (chat.mode || 'story') === 'script'
+    const limit = isScript ? 1 : MAX_SAVED_STORY_CHOICES
     const choices = Array.isArray(chat.candidates.choices) ? chat.candidates.choices.map(function (item) {
-      return { type: item.type === 'scene' || item.type === 'scene2' ? 'scene' : 'action', text: str(item.text).trim() }
-    }).filter(function (item) { return item.text !== '' }).slice(0, limit) : []
+      if (item === null || typeof item !== 'object') return null
+      const normalizedType = choiceType(item.type)
+      const type = isScript && normalizedType === 'event' ? 'action' : (normalizedType || 'action')
+      const text = str(item.text).trim()
+      const actor = !isScript && type === 'action' ? str(item.actor).trim() : ''
+      return actor !== '' ? { type, actor, text } : { type, text }
+    }).filter(function (item) { return item !== null && item.text !== '' }).slice(0, limit) : []
     if (choices.length === 0) return null
     const traceSessionIds = Array.isArray(chat.candidates.traceSessionIds) ? chat.candidates.traceSessionIds.map(str).filter(function (id) { return id !== '' }) : []
     const traceSessionId = str(chat.candidates.traceSessionId) || traceSessionIds[traceSessionIds.length - 1] || ''

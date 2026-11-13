@@ -430,6 +430,13 @@
 /* Long options wrap to balanced centred lines. A scene jump (time skip / change of place) is drawn exactly like any
    other choice (no tag). */
 .fork-gal-choice-text { min-width: 0; text-wrap: balance; }
+.fork-gal-choice-tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 2px var(--gal-ui-ribbon-fade) 4px; }
+.fork-gal-stage .fork-gal-choice-tab { display: inline-flex; align-items: center; gap: .38em; padding: .28em .82em; border: 1px solid color-mix(in srgb, var(--gal-ui-accent) 34%, transparent); border-radius: 999px; background: var(--gal-ui-veil); color: var(--gal-ui-muted); font: 600 var(--gal-ui-meta-size)/1.35 var(--gal-ui-font); letter-spacing: .03em; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.fork-gal-stage .fork-gal-choice-tab:hover:not(:disabled) { border-color: var(--gal-ui-accent); background: linear-gradient(var(--gal-ui-hover), var(--gal-ui-hover)), var(--gal-ui-veil); color: var(--gal-ui-ink); }
+.fork-gal-stage .fork-gal-choice-tab.is-active { border-color: var(--gal-ui-accent); background: linear-gradient(var(--gal-ui-active), var(--gal-ui-active)), var(--gal-ui-veil); color: var(--gal-ui-ink); }
+.fork-gal-stage .fork-gal-choice-tab:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+.fork-gal-choice-tab-count { font-size: .86em; opacity: .78; }
+.fork-gal-choice-badge { margin-right: .22em; color: var(--gal-ui-accent); font-weight: 600; }
 /* The ✎ of a story choice: a round quiet icon at the ribbon's right, inside the solid part. With a mouse it shows while
    the ribbon is hovered or holds focus; on touch it stays, faint. A suggestion edited and left (a click away kept its
    text) keeps an accent ✎. */

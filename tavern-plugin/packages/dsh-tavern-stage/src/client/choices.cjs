@@ -52,6 +52,37 @@ function galFill(sessionId, text) {
     galFills.set(String(sessionId), String(text));
     for (const fn of [...galFillListeners]) fn();
 }
+function galBuildChoiceTabs(choices) {
+    if (!choices.some(choice => Boolean(choice.actor) || choice.type === "event")) {
+        return { hasTabs: false, tabs: [], current: { key: "all", kind: "all", items: choices } };
+    }
+    const actorMap = new Map(), globalItems = [];
+    for (const item of choices) {
+        if (item.type === "scene" || item.type === "event") { globalItems.push(item); continue; }
+        const actor = String(item.actor || "").trim() || "行动";
+        if (!actorMap.has(actor)) actorMap.set(actor, []);
+        actorMap.get(actor).push(item);
+    }
+    const actorGroups = [...actorMap.values()], featuredActors = [];
+    for (let round = 0; featuredActors.length < 4; round++) {
+        let progressed = false;
+        for (let g = 0; g < actorGroups.length && featuredActors.length < 4; g++) {
+            if (round < actorGroups[g].length) { featuredActors.push(actorGroups[g][round]); progressed = true; }
+        }
+        if (!progressed) break;
+    }
+    const tabs = [{ key: "featured", label: "精选", kind: "featured", items: featuredActors.concat(globalItems) }];
+    for (const [actor, list] of actorMap.entries()) tabs.push({ key: "actor:" + actor, label: actor, kind: "actor", actor, items: list });
+    if (globalItems.length > 0) tabs.push({ key: "global", label: "全局", kind: "global", items: globalItems });
+    return { hasTabs: tabs.length > 1, tabs, current: tabs[0] };
+}
+function galChoiceBadge(choice, tabKind, hasTabs) {
+    if (!hasTabs) return null;
+    if (choice.type === "event") return { kind: "event", label: "突发事件" };
+    if (choice.type === "scene") return { kind: "scene", label: "场景变化" };
+    if (tabKind === "featured" && choice.actor) return { kind: "actor", label: choice.actor };
+    return null;
+}
 function GalChoices(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
@@ -69,8 +100,10 @@ function GalChoices(props) {
     const [error, setError] = React.useState("");
     // the suggestion being picked while its motion plays (null otherwise).
     const [picked, setPicked] = React.useState(null);
+    const [activeTab, setActiveTab] = React.useState("featured");
     const editorRef = React.useRef(null);
     const requestRef = React.useRef(false);
+    React.useEffect(() => { setActiveTab("featured"); }, [messageId, panel && panel.choices]);
     React.useEffect(() => {
         const take = () => {
             if (!galFills.has(String(sessionId))) return;
@@ -94,12 +127,21 @@ function GalChoices(props) {
     // galgame UI cues (ui-sfx.js): a chime when this reply's options appear, confirm on sending.
     const rootRef = React.useRef(null);
     useForkUiSfxControls(rootRef, state !== "hidden");
+    const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => {
+        if (choice !== null && typeof choice === "object") {
+            const actor = choice.actor ? props.decode(String(choice.actor)).trim() : "";
+            return { ...choice, ...(actor ? { actor } : {}), text: props.decode(choice.text) };
+        }
+        return { type: "action", text: props.decode(String(choice)) };
+    }) : [];
+    const tabGroup = galBuildChoiceTabs(rawChoices);
+    const currentTab = tabGroup.hasTabs ? (tabGroup.tabs.find(tab => tab.key === activeTab) || tabGroup.tabs[0]) : tabGroup.current;
     // A short stage: when the list overflows its bottom rows stay in view and the choices above scroll.
-    const choiceCount = panel && panel.phase === "ready" && panel.choices ? panel.choices.length : 0;
+    const choiceCount = currentTab.items.length;
     (React.useLayoutEffect || React.useEffect)(function () {
         const el = rootRef.current;
         if (el && el.scrollHeight > el.clientHeight + 1) el.scrollTop = el.scrollHeight;
-    }, [state, choiceCount]);
+    }, [state, choiceCount, currentTab.key]);
     // Image bars on the pixel step (galSnapChoices): after layout, on every resize of the list or the window, and
     // when the screen's pixel ratio changes (a window moved to another monitor, the zoom).
     // only new choices, a new state or a resize
@@ -159,7 +201,7 @@ function GalChoices(props) {
             later();
         };
         return function () { stopped = true; resnapRef.current = null; if (frame) cancelAnimationFrame(frame); observer?.disconnect(); window.removeEventListener("resize", resize); media?.removeEventListener?.("change", onRatio); };
-    }, [state, choiceCount]);
+    }, [state, choiceCount, currentTab.key]);
     (React.useLayoutEffect || React.useEffect)(function () {
         const field = rootRef.current?.querySelector?.(":scope > .is-editing") || null;
         // An opened suggestion is edited from its end: the caret after its text (autoFocus left it at the start).
@@ -278,8 +320,14 @@ function GalChoices(props) {
         forkUiSfx.play('confirm');requestRef.current=true;
         try {await commands.generate();}finally{requestRef.current=false;}
     }
-    const choices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => choice !== null && typeof choice === "object" ? { ...choice, text: props.decode(choice.text) } : { type: "action", text: props.decode(String(choice)) }) : [];
-    const textOf = choice => (choice.type === "scene" ? "【场景变化】" : "") + choice.text;
+    const choices = rawChoices;
+    const visibleChoices = currentTab.items;
+    const textOf = choice => {
+        if (choice.type === "scene") return "【场景变化】" + choice.text;
+        if (choice.type === "event") return "【突发事件】" + choice.text;
+        if (choice.actor && choice.actor !== "我" && !choice.text.includes(choice.actor)) return choice.actor + "：" + choice.text;
+        return choice.text;
+    };
     // The reply deadline's fallback goes through this panel's one send lock, synchronously checked: nothing typed or picked,
     // nothing sending. It returns whether it was sent (the caller marks the offer consumed before, so it is never retried).
     if (props.fallbackRef) props.fallbackRef.current = function (text) {
@@ -333,7 +381,7 @@ function GalChoices(props) {
     // while the choices generate neither shows (an open field stays).
     const freeShown = !(state === "generating" && editingAt !== GAL_FREE);
     const toolShown = canRegenerate || (freeShown && (editingAt === GAL_FREE || Boolean(freeDraft)));
-    const rows = choices.length + (statusRow ? 1 : 0) + (freeShown || toolShown ? 1 : 0);
+    const rows = visibleChoices.length + (tabGroup.hasTabs ? 1 : 0) + (statusRow ? 1 : 0) + (freeShown || toolShown ? 1 : 0);
     // 重新生成 opens the stage's own regenerate dialog (gal-regenerate.js: 正文 / MVU / 舞台指导 / 选项, 正文 preselected,
     // optional guidance + 确定; 正文 is the same regenBody RPC as the chat view's 「重新生成正文」); the stage passes onRegenerate,
     // its busy rule and the G key (gal-stage.js presses this control). After 自由输入 in the DOM, so in focus order too.
@@ -346,17 +394,34 @@ function GalChoices(props) {
             disabled: sending || !freeDraft, onClick: e => { e.stopPropagation(); send(drafts[GAL_FREE]); } }, h(Icon, { name: "send", size: 17 }), h("span", null, "发送"))
         : h("button", { key: "regenerate", type: "button", role: "menuitem", "data-action": "regenerate", "data-tool": "regenerate", "data-swap": swap, className: "fork-gal-choice-tool", title: "重新生成（G）", "aria-label": "重新生成", "aria-keyshortcuts": "G",
             disabled: sending || Boolean(props.regenerateDisabled), onClick: e => { e.stopPropagation(); closeField(false); props.onRegenerate(); } }, h(Icon, { name: "replay", size: 17 }), h("span", null, "重新生成"))) : null;
+    function onStageTabKeyDown(e) {
+        if (!tabGroup.hasTabs || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+        e.preventDefault(); e.stopPropagation();
+        const at = tabGroup.tabs.findIndex(tab => tab.key === currentTab.key);
+        const nextAt = (at + (e.key === "ArrowRight" ? 1 : tabGroup.tabs.length - 1)) % tabGroup.tabs.length;
+        const nextTab = tabGroup.tabs[nextAt];
+        closeField(false); setActiveTab(nextTab.key);
+        e.currentTarget.querySelectorAll("[role='tab']")[nextAt]?.focus();
+    }
     return h("div", { ref: rootRef, className: "fork-gal-choices fork-gal-endpanel", style: props.hidden ? { display: "none" } : { "--rows": rows }, "data-hidden": props.hidden ? "" : undefined, "data-state": state, "data-settled": settledRef.current ? "" : undefined, "data-picked": picked !== null ? "" : undefined, role: "menu", "aria-label": "接下来", onClick: e => e.stopPropagation(), onWheel: e => e.stopPropagation() },
-        choices.map(function (choice, index) {
+        tabGroup.hasTabs ? h("div", { key: "tabs", className: "fork-gal-choice-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onStageTabKeyDown },
+            tabGroup.tabs.map(tab => {
+                const isActive = tab.key === currentTab.key;
+                return h("button", { key: tab.key, type: "button", role: "tab", "data-tab": tab.key, "data-kind": tab.kind, "aria-selected": isActive ? "true" : "false", tabIndex: isActive ? 0 : -1, className: "fork-gal-choice-tab" + (isActive ? " is-active" : ""), disabled: sending, onClick: () => { closeField(false); setActiveTab(tab.key); } },
+                    h("span", { className: "fork-gal-choice-tab-label" }, tab.label),
+                    h("span", { className: "fork-gal-choice-tab-count" }, String(tab.items.length)));
+            })) : null,
+        visibleChoices.map(function (choice, index) {
             const key = textOf(choice), draft = drafts[key];
+            const badge = draft == null ? galChoiceBadge(choice, currentTab.kind, tabGroup.hasTabs) : null;
             // data-index stays on the open field: a numbered skin keeps its number in the cell (theme.css) and the rows below it theirs.
-            if (editingAt === key) return h("div", { key: index, ref: editorRef, className: "fork-gal-choice is-editing", "data-type": choice.type, "data-index": index }, editor(key, '[data-index="' + index + '"] > .fork-gal-choice-main'));
+            if (editingAt === key) return h("div", { key: key, ref: editorRef, className: "fork-gal-choice is-editing", "data-type": choice.type, "data-index": index }, editor(key, '[data-index="' + index + '"] > .fork-gal-choice-main'));
             // A suggestion edited and left (click away) reads as its draft and sends what it shows; Esc in its field reverts it.
-            return h("div", { key: index, className: "fork-gal-choice" + (picked === key ? " is-picked" : ""), "data-type": choice.type, "data-index": index, "data-edited": draft != null ? "" : undefined },
+            return h("div", { key: key, className: "fork-gal-choice" + (picked === key ? " is-picked" : ""), "data-type": choice.type, "data-actor": choice.actor || undefined, "data-index": index, "data-edited": draft != null ? "" : undefined },
                 h("button", { type: "button", role: "menuitem", className: "fork-gal-choice-main", disabled: sending, onClick: () => pick(key, draft != null ? draft : key), onPointerEnter: () => forkUiSfx.play("move") },
-                    // a scene jump reads like any other choice - no tag, same card (its
-                    // 【场景变化】 prefix is only in the message sent).
-                    h("span", { className: "fork-gal-choice-text" }, draft != null ? draft : choice.text)),
+                    h("span", { className: "fork-gal-choice-text" },
+                        badge ? h("span", { className: "fork-gal-choice-badge is-" + badge.kind }, "〔" + badge.label + "〕") : null,
+                        draft != null ? draft : choice.text)),
                 h("button", { type: "button", className: "fork-gal-choice-edit", "data-ui-sfx": "toggle", "aria-label": "改一改再发送", title: "改一改再发送", disabled: sending, onClick: () => open(key) }, h(Icon, { name: "pencil", size: 15 })), layout.galChoiceArt());
         }),
         statusRow,

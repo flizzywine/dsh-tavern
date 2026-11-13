@@ -3702,7 +3702,7 @@ export async function apply(ctx) {
     }
     if (header?.backgroundTasks?.foregroundCandidates === true) {
       sections.push({ owner: 'dsh-tavern', name: 'foreground-candidates', position: 'after',
-        text: promptSection('story_choices_reminder', '正文全部写完后，在最末尾另起一行附上 `<story_choices>{"actions":["...","...","...","..."],"scene":"..."}</story_choices>`（4 条不同导演视角的行动指引 + 1 条场景变化指引，每条约 40 字）。') })
+        text: promptSection('story_choices_reminder', '正文全部写完后，在最末尾另起一行附上 `<story_choices>{"actors":[{"name":"...","actions":["..."]}],"event":"...","scene":"..."}</story_choices>`（按焦点角色优先排列的在场角色行动分组 + 1 条当前场景突发互动/事件 + 1 条场景切换，每条约 40 字）。') })
     }
     return sections
   }

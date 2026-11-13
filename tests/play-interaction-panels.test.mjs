@@ -178,3 +178,73 @@ test('宿主没有消息 id 时，候选面板仍然显示这一局的候选项'
   assert.match(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, /接下来的行动/)
   await act(async () => root.unmount())
 })
+
+test('多角色与全局候选默认停在 [精选]，焦点角色排前，支持无“我”第三人称及跨 Tab 勾选拼接', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
+  const { createRoot } = await import('react-dom/client')
+  const signals = createSessionSignalTransport()
+  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
+    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
+  let draft = ''
+  const context = vm.createContext({ React, ...clientControls(React),
+    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
+    window: dom.window, document: dom.window.document,
+    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    latestTavernAssistantMessageId: () => 'm-1', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
+  vm.runInContext(source, context)
+  const panels = context.createPlayInteractionPanels({ interactions,
+    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
+    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
+    useRegenPanel: () => null, usePhonePlay: () => false })
+  const makeProps = () => ({ sessionId: 'a', useSession: select => select({ running: false }),
+    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft }),
+    inputActions: { setDraft(next) { draft = next } } })
+  const root = createRoot(dom.window.document.querySelector('main'))
+
+  // 第三人称群像（无“我”）：苏晚(焦点, 3条) + 陆沉(3条) + 全局(突发事件 + 场景变化)
+  const choices = [
+    { type: 'action', actor: '苏晚', text: '苏晚突然拉开门审视门外' },
+    { type: 'action', actor: '苏晚', text: '苏晚故意放轻脚步走向窗边' },
+    { type: 'action', actor: '苏晚', text: '苏晚开口唤了一声门外的人' },
+    { type: 'action', actor: '陆沉', text: '陆沉推门而入坦然应对' },
+    { type: 'action', actor: '陆沉', text: '陆沉退回走廊暗处观察' },
+    { type: 'action', actor: '陆沉', text: '陆沉敲响门框递上手中信件' },
+    { type: 'event', text: '走廊尽头突然传来急促脚步声' },
+    { type: 'scene', text: '转入次日清晨的议事厅' }
+  ]
+  interactions.candidates.set({ sessionId: 'a', messageId: 'm-1', phase: 'ready', expanded: true, choices })
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+
+  const tabs = [...dom.window.document.querySelectorAll('.dsh-tavern-question-tab')]
+  assert.deepEqual(tabs.map(el => el.querySelector('.dsh-tavern-question-tab-label').textContent), ['精选', '苏晚', '陆沉', '全局'])
+  assert.equal(tabs[0].getAttribute('aria-selected'), 'true', '首屏默认停在 [精选]')
+
+  // [精选] 包含各角色代表项 + 全局事件与场景，且带角色/事件/场景标签
+  const featuredOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
+  assert.equal(featuredOptions.length, 6)
+  assert.equal(featuredOptions[0].querySelector('.dsh-tavern-question-tag-actor').textContent, '苏晚')
+  assert.equal(featuredOptions[4].querySelector('.dsh-tavern-question-tag-event').textContent, '突发事件')
+  assert.equal(featuredOptions[5].querySelector('.dsh-tavern-question-tag-scene').textContent, '场景变化')
+
+  // 切到 [苏晚] Tab 点选第 1 条，再切到 [全局] Tab 点选突发事件，草稿按行拼接且 [苏晚] Tab 显示 ✓1
+  await act(async () => tabs[1].click())
+  const suwanOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
+  assert.equal(suwanOptions.length, 3)
+  assert.equal(suwanOptions[0].querySelector('.dsh-tavern-question-tag'), null, '单角色 Tab 内不重复显示角色名标签')
+  await act(async () => suwanOptions[0].click())
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+
+  const updatedTabs = [...dom.window.document.querySelectorAll('.dsh-tavern-question-tab')]
+  assert.equal(updatedTabs[1].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+  await act(async () => updatedTabs[3].click())
+  const globalOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
+  assert.equal(globalOptions.length, 2)
+  await act(async () => globalOptions[0].click())
+  assert.equal(draft, '苏晚突然拉开门审视门外\n【突发事件】走廊尽头突然传来急促脚步声')
+
+  await act(async () => root.unmount())
+})

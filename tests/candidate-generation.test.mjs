@@ -259,4 +259,69 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
   assert.equal(broken.hadTag, true)
   assert.equal(broken.proseText, '正文内容。')
   assert.equal(broken.choices, null)
+
+  // 多角色分组 + 全局事件/场景结构化提取（支持第三人称无“我”场景）
+  const structuredRaw = [
+    '大厅烛火摇曳。',
+    '<story_choices>',
+    JSON.stringify({
+      actors: [
+        { name: '{{char}}', actions: ['{{char}}突然按住剑柄逼近一步', '{{char}}冷笑一声踢翻脚边木椅'] },
+        { name: '陆沉', actions: ['陆沉不动声色挡在苏晚身前', '陆沉举起酒杯缓和气氛', '陆沉暗中向门外卫兵打手势'] },
+        { name: '苏晚', actions: ['苏晚合上账册反问{{char}}来意', '苏晚借整理披肩退向暗门'] }
+      ],
+      event: '钟楼方向突然传来急促的警钟声打破对峙',
+      scene: '深夜众人散去后转入地下密室议事'
+    }),
+    '</story_choices>'
+  ].join('\n')
+  const structured = extractForegroundStoryChoices(structuredRaw, {
+    card: { name: '阿芙拉' },
+    chat: { macroState: { userName: '陆沉' } }
+  })
+  assert.equal(structured.proseText, '大厅烛火摇曳。')
+  assert.equal(structured.choices.length, 9)
+  assert.deepEqual(structured.choices[0], { type: 'action', actor: '阿芙拉', text: '阿芙拉突然按住剑柄逼近一步' })
+  assert.deepEqual(structured.choices[2], { type: 'action', actor: '陆沉', text: '陆沉不动声色挡在苏晚身前' })
+  assert.deepEqual(structured.choices[7], { type: 'event', text: '钟楼方向突然传来急促的警钟声打破对峙' })
+  assert.deepEqual(structured.choices[8], { type: 'scene', text: '深夜众人散去后转入地下密室议事' })
+})
+
+test('自由故事支持按焦点角色优先的多主体分组 + 全局突发事件与场景切换，并完整持久化', async () => {
+  const errors = []
+  const run = harness({
+    outputs: [async function (options) {
+      const bad = JSON.parse(await options.onToolCall({
+        name: 'candidate_submit_choices',
+        arguments: {
+          actors: [{ name: '阿芙拉', actions: ['阿芙拉推开拉门看向走廊'] }],
+          scene: '清晨集市'
+        }
+      }))
+      errors.push(bad)
+      await options.onToolCall({
+        name: 'candidate_submit_choices',
+        arguments: {
+          actors: [
+            { name: '{{char}}', actions: ['{{char}}察觉门外气息主动拉开拉门', '{{char}}故意压低嗓音引门外人现身', '{{char}}吹灭烛火退到屏风后戒备'] },
+            { name: '我', actions: ['我推开拉门坦然迈进房间', '我屏住呼吸悄悄退回走廊拐角', '我轻叩门框出声试探{{char}}'] }
+          ],
+          event: '走廊尽头突然传来巡夜人的脚步声与灯笼光亮',
+          scene: '时间来到次日清晨的旅店大堂'
+        }
+      })
+      return ''
+    }]
+  })
+  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-actors', guidance: '加强角色互动' })
+  assert.equal(errors[0].ok, false)
+  assert.equal(errors[0].retryable, true)
+  assert.equal(result.choices.length, 8)
+  assert.deepEqual(result.choices.slice(0, 3).map(c => c.actor), ['阿芙拉', '阿芙拉', '阿芙拉'])
+  assert.deepEqual(result.choices.slice(3, 6).map(c => c.actor), ['我', '我', '我'])
+  assert.equal(result.choices[6].type, 'event')
+  assert.equal(result.choices[7].type, 'scene')
+
+  const saved = await run.candidates.find({ sessionId: 'session-1', messageId: 'message-actors' })
+  assert.deepEqual(saved, result)
 })

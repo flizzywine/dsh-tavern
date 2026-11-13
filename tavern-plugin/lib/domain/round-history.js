@@ -75,10 +75,15 @@ function cloneChat(value) {
 // runs, so the request itself is the only place the body can come back. A body the
 // player edited (正文编辑/精修) must therefore travel with the request even when no
 // guidance is given: otherwise the model rewrites from nothing and the edit is gone.
+// Only the edit marker proves that edit. projectionText is sourceText with the
+// Tavern macros rendered, so it differs from sourceText on any ordinary round that
+// carries {{setvar}} or <user>/<char>: reading that difference as "the player
+// changed the body" put the old prose into every plain reroll and asked the model to
+// rewrite the version the player had just discarded, instead of sampling the round
+// again from scratch.
 function editedReplyBody(message) {
   if (message === null || typeof message !== 'object') return false
-  if (message.bodyEdit) return true
-  return typeof message.projectionText === 'string' && typeof message.sourceText === 'string' && message.projectionText !== message.sourceText
+  return Boolean(message.bodyEdit)
 }
 
 export function regenerationInputText(userText, guidance, rewriteBody, options = {}) {
