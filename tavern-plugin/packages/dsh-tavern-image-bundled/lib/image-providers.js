@@ -608,9 +608,10 @@ async function generateAtlascloud(channel, request, ctx) {
     const { width, height } = dims(request)
     const sizeMode = option(ch, 'sizeMode', 'size')
     if (sizeMode === 'size') {
-      const size = String(option(ch, 'size', `${width}*${height}`)).trim().match(/^(\d{2,5})\s*[x×*]\s*(\d{2,5})$/i)
+      const sizeText = String(option(ch, 'size', `${width}*${height}`)).trim()
+      const size = sizeText.match(/^(\d{2,5})\s*[x×*]\s*(\d{2,5})$/i)
       if (!size || Number(size[1]) <= 0 || Number(size[2]) <= 0) throw new Error('atlas cloud 尺寸请填写宽×高，例如 1024x1536')
-      payload.size = `${Number(size[1])}*${Number(size[2])}`
+      payload.size = sizeText
     } else if (sizeMode === 'aspect_ratio') {
       payload.aspect_ratio = String(option(ch, 'aspectRatio', closestRatio(width, height))).trim()
     } else if (sizeMode !== 'none') throw new Error('atlas cloud 尺寸参数模式无效')

@@ -119,7 +119,9 @@ test('Atlas 同步完成/成功别名兼容 outputs、旧 output、对象 URL �
 test('Atlas 尺寸模式按模型选择，仅发送对应字段，支持自定义根地址与路径', async t => {
   for (const [options, expected] of [
     [{}, { size: '1024*1536' }],
-    [{ size: '2048 × 2048' }, { size: '2048*2048' }],
+    [{ size: ' 2048 × 2048 ' }, { size: '2048 × 2048' }],
+    [{ size: '1024x1024' }, { size: '1024x1024' }],
+    [{ size: '1024X1024' }, { size: '1024X1024' }],
     [{ size: '1024*1024' }, { size: '1024*1024' }],
     [{ sizeMode: 'aspect_ratio' }, { aspect_ratio: '2:3' }],
     [{ sizeMode: 'aspect_ratio', aspectRatio: '16:9', size: '2048x2048' }, { aspect_ratio: '16:9' }],
