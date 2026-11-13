@@ -264,8 +264,18 @@ export function enhanceToolProtocolPayload(body, { url = '', headers = undefined
       }
     }
     if (forceWanted) {
+      // Keep every field the adapter already put here. pi-ai sets
+      // `streamFunctionCallArguments` beside the mode so Vertex streams the tool
+      // arguments; replacing the object would silently fall back to one whole
+      // argument object per call.
+      const existingConfig = nextBody.toolConfig && typeof nextBody.toolConfig === 'object' ? nextBody.toolConfig : {}
+      const existingCalling = existingConfig.functionCallingConfig && typeof existingConfig.functionCallingConfig === 'object'
+        ? existingConfig.functionCallingConfig
+        : {}
       nextBody.toolConfig = {
+        ...existingConfig,
         functionCallingConfig: {
+          ...existingCalling,
           mode: 'ANY',
           ...(allowed.length > 0 ? { allowedFunctionNames: allowed } : {})
         }

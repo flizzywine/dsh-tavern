@@ -6,6 +6,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import net from 'node:net'
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { patchPiAiVertexStream } from './pi-ai-vertex-stream-patch.mjs'
+import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
@@ -319,8 +320,15 @@ function ensureRuntimePatches(dsh, host) {
     const cliEntry = resolveDshCliEntry({ dsh })
     if (cliEntry && !isAsarPath(cliEntry)) {
       const sdkDirectory = path.resolve(path.dirname(realpathSync(cliEntry)), '..', '..', '..', '@earendil-works', 'pi-ai')
-      if (existsSync(path.join(sdkDirectory, 'package.json')) && patchPiAiVertexStream({ sdkDirectory })) {
-        console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
+      const adapterDirectory = path.resolve(path.dirname(sdkDirectory), '..', 'dsh-llm-pi-ai')
+      if (existsSync(path.join(sdkDirectory, 'package.json'))) {
+        if (patchPiAiVertexStream({ sdkDirectory })) console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
+        // The adapter must pass the caller's toolChoice through: without it a forge-style
+        // request reaches Vertex as `auto`, and Vertex then returns one whole argument
+        // object instead of a streamed argument list.
+        if (existsSync(path.join(adapterDirectory, 'package.json')) && patchPiAiNonStream({ adapterDirectory, sdkDirectory })) {
+          console.log('已为 pi-ai 适配器打开流式开关与 toolChoice 透传。')
+        }
       }
     }
   } catch {}

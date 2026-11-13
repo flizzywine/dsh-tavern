@@ -68,6 +68,29 @@ test('Gemini 原生：注入 mode=ANY、allowedFunctionNames、base64 哨兵/真
   assert.deepEqual(submitParams.propertyOrdering, ['think', 'content'])
 })
 
+test('Gemini 原生：强制 mode=ANY 时保留适配器已设的 streamFunctionCallArguments', () => {
+  const raw = {
+    contents: [{ role: 'user', parts: [{ text: '开始' }] }],
+    tools: [{ functionDeclarations: [{ name: 'submit_story', parametersJsonSchema: { type: 'object', properties: { content: { type: 'string' } } } }] }],
+    toolConfig: { functionCallingConfig: { streamFunctionCallArguments: true } },
+  }
+  const { body, changed, applied } = enhanceToolProtocolPayload(raw, {
+    url: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/models/gemini-4-hydrogen:streamGenerateContent',
+    directive: {
+      provider: 'google-vertex',
+      model: 'gemini-4-hydrogen',
+      forceToolChoice: true,
+      allowedToolNames: ['submit_story'],
+      signaturesByCallId: {},
+    }
+  })
+  assert.equal(changed, true)
+  assert.equal(applied.forcedToolChoice, 'gemini-any')
+  assert.deepEqual(body.toolConfig, {
+    functionCallingConfig: { streamFunctionCallArguments: true, mode: 'ANY', allowedFunctionNames: ['submit_story'] }
+  })
+})
+
 test('OpenAI 兼容 Gemini：单工具走命名 tool_choice 锁死出口，注入 extra_content.google.thought_signature，pg- 模型自动回退', () => {
   const raw = {
     model: 'google/gemini-3-pro-preview',
