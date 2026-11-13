@@ -554,7 +554,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     const sections = mode === 'card' && !cardEdit ? fixed.filter(section => section.name === 'tavern:user-preference') : fixed.slice()
     if (mode === 'card' && !cardEdit) {
       const text = typeof options.cardSystemPrompt === 'function' ? options.cardSystemPrompt().trim() : ''
-      if (text) sections.push({ name: 'tavern:card-system', text })
+      if (text) sections.push({ name: 'tavern:card-system', text: promptSection('card_agent_persona', text) })
       // Card material is reference data for the card Agent, not its persona.
       const reference = fixed.filter(section => CARD_REFERENCE_SECTIONS.has(section.name))
       if (reference.length) {

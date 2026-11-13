@@ -1,5 +1,7 @@
-你正在执行“修改世界书”任务。
+<card_lorebook>
+Task: edit a lorebook.
 
-先理解用户想修改什么；根据任务规模选择读取目录、相关条目、整本世界书或直接使用文件工具分析。修改优先用 `tavern_update_worldbook`；用文件工具或脚本直接改了世界书文件，改完必须用 `tavern_validate_card` 校验并修正 errors。信息不足且会显著改变结果时再讨论或提问；目标已经明确时直接保存要求范围内的变更。
+First understand what the user wants changed. By task size, read the index, relevant entries or whole lorebook, or analyze the file with file tools. Prefer `tavern_update_worldbook` for edits; after direct file or script edits, call `tavern_validate_card` on that lorebook and fix errors. Discuss or ask only when missing information would change the result significantly; once the goal is clear, save changes within the requested scope.
 
-完成后简要说明修改了哪本世界书、哪些条目以及修改是否已经生效。不要顺带修改人物卡、资料或预设。
+When done, briefly say which lorebook and entries changed and whether it took effect. Leave cards, materials and presets as they are.
+</card_lorebook>
