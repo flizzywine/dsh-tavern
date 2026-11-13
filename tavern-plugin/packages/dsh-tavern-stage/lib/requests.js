@@ -6,8 +6,8 @@ import {CLIP_EXPORT_METHODS} from './clip/clip-export.js'
 import {AUTO_CAST_METHODS} from './asset-engine.js'
 
 const remoteReads = new Set(['getStageDirection', 'getStageModHistory', 'getDialogueBubbles'])
-const widgetMethods = new Set(['readWidgetVariables', 'proposeWidgetVariables', 'widgetVariableStatus', 'invalidateWidgetVariables'])
-const inputOf = args => {const {_performance, _traceId, ...input} = args || {};return input}
+// The browser transport adds _performance, _traceId and _sessionPatchPage to every request; no stage method sees them (many check their fields strictly).
+const inputOf = args => {const {_performance, _traceId, _sessionPatchPage, ...input} = args || {};return input}
 const unavailable = () => Object.assign(new Error('舞台模块已停用'), {code:'STAGE_UNAVAILABLE'})
 
 // Private stage composition, not a public plugin interface. The host sees only
@@ -37,7 +37,7 @@ export function createStageRequests(deps, modules = deps) {
       if (delegated.has(method)) result = await delegated.get(method)(inputOf(args),authority,serverTemplate)
       else {
         if (!Object.hasOwn(handlers,method)) throw Object.assign(new Error('未知舞台方法: '+method), {code:'STAGE_METHOD_UNKNOWN'})
-        result = await handlers[method](widgetMethods.has(method) ? inputOf(args) : args,method,serverTemplate,authority)
+        result = await handlers[method](inputOf(args),method,serverTemplate,authority)
       }
       // Requests already admitted may complete their own work, but their results
       // must not be delivered as if the disposed stage were still available.
