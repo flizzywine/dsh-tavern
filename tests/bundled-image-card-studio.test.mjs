@@ -293,6 +293,33 @@ test('read_character gives macros by default and full traits only on request', a
   assert.equal(full.outfits[0].upper, '白色吊带')
 })
 
+test('read_image_config lists presets by name only and expands one on request', async t => {
+  const f = await studio(t, {
+    config: {
+      imageChannels: [channel('openai')],
+      stylePresets: [
+        { id: 'p1', name: 'flat', artist: '1.3::artist:foo::, dot nose', negative: 'lowres, blurry', enabled: true },
+        { id: 'p2', name: 'real', artist: 'photorealistic, skin texture', negative: 'cartoon', enabled: true },
+        { id: 'p3', name: 'hidden', artist: 'should never appear', enabled: false },
+      ],
+      activePreset: 'p1',
+    },
+  })
+  const config = await f.tools.get('read_image_config').execute({})
+  // 清单只给名字和 ID：三十多套正面词合起来过万字，挑画风时用不上。
+  assert.deepEqual(config.presets, [{ id: 'p1', name: 'flat', active: true }, { id: 'p2', name: 'real', active: false }])
+  assert.equal(JSON.stringify(config).includes('dot nose'), false)
+  assert.equal(JSON.stringify(config).includes('should never appear'), false)
+  // 点名才展开，且只给正面词，负面词由引擎自动带上，不返回。
+  const one = await f.tools.get('read_image_config').execute({ preset: 'flat' })
+  assert.deepEqual(one, { id: 'p1', name: 'flat', artist: '1.3::artist:foo::, dot nose', active: true })
+  assert.equal(JSON.stringify(one).includes('lowres'), false)
+  // 按 ID 也能取。
+  assert.equal((await f.tools.get('read_image_config').execute({ preset: 'p2' })).name, 'real')
+  // 找不到就报错，不静默给空。
+  await assert.rejects(f.tools.get('read_image_config').execute({ preset: '不存在的画风' }), /未找到|清单/)
+})
+
 test('independent batch tasks keep the pictures that succeeded when one fails', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
   let calls = 0
@@ -541,7 +568,7 @@ test('workbench preset overrides match the submitted prompt and keep the saved p
   // 但那属于 payload 层，第 370 行已经验过正面提示词没被污染。
   assert.doesNotMatch(rendered, /watermark|saved artist|fallback artist/)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items[0].preset, '工作台画风')
-  assert.equal((await f.tools.get('read_image_config').execute({}, own)).presets[0].artist, 'saved artist')
+  assert.equal((await f.tools.get('read_image_config').execute({ preset: 'p1' }, own)).artist, 'saved artist')
 })
 
 test('gallery writes do not lose concurrent additions and remove compares stable IDs', async t => {

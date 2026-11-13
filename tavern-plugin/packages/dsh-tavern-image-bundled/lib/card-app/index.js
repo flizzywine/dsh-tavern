@@ -277,10 +277,17 @@ export function apply(ctx, { ready }) {
     },
   }
   const configuration = {
-    name: 'read_image_config', description: '读取全部已保存渠道、当前默认渠道、提示词格式、参考图及种子能力、画风和 ComfyUI 工作流。只读本地配置，不联网探测或生成。指定渠道和预设时优先使用唯一名称，重名时使用 ID。', parameters: schema({}), output: output(),
-    async execute() {
+    name: 'read_image_config', description: '读取渠道、提示词格式、参考图及种子能力、画风清单和 ComfyUI 工作流。只读本地配置，不联网探测或生成。不传 preset 只给画风的名字和 ID；要看某一套的正面词就传 preset（名称或精确 ID）。指定渠道时优先使用唯一名称，重名时使用 ID。', parameters: schema({ preset: { type: 'string', description: '画风名称或精确 ID。填了就只返回这一套的正面词，不填只列名字。' } }), output: output(),
+    async execute(args) {
       await assertOpen()
       const engine = await ready(), cfg = engine.currentConfig(), workflows = engine.cardWorkflows()
+      const presets = (cfg.stylePresets || []).filter(item => item.enabled !== false)
+      const asked = text(args?.preset, 200).trim()
+      // 点名某一套时只给这一套的正面词。负面词由引擎按预设自动带上，模型不需要看。
+      if (asked) {
+        const hit = pick(presets, asked)
+        return { id: hit.id, name: hit.name, artist: hit.artist || '', active: hit.id === cfg.activePreset }
+      }
       const channels = (cfg.imageChannels || []).map(item => {
         const protocol = effectiveImageProvider(item)
         return { id: item.id, name: item.name, provider: protocol, model: item.model, promptMode: resolvePromptMode(cfg, protocol), maxReferences: imageReferenceLimit(item), supportsSeed: ['novelai', 'qwen', 'sdwebui'].includes(protocol) && item.options?.protocol !== 'chat', authMode: item.authMode }
@@ -289,8 +296,9 @@ export function apply(ctx, { ready }) {
         const picked = cardSelection(cfg, workflows, { channel: 'comfyui', workflow: item.id })
         channels.push({ id: 'comfyui', workflowId: item.id, name: item.label, provider: 'comfyui', promptMode: picked.promptMode, maxReferences: picked.maxReferences, supportsSeed: picked.supportsSeed })
       }
+      // 画风只列名字和 ID：三十多套的正面词合起来过万字，模型挑的时候用不上，要哪套再单独取。
       return { promptSystem: cfg.promptSystem || 'workbench', templates: engine.templateModels?.() || [], randomTemplates: cfg.randomPromptTemplates === true, activeTemplateId: cfg.activePromptPreset || '__default__', activeChannelId: cfg.imageBackend === 'comfyui' ? 'comfyui' : cfg.activeImageChannel, channels, defaultWorkflow: cfg.defaultWorkflow,
-        presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name, artist: item.artist || '' })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
+        presets: presets.map(item => ({ id: item.id, name: item.name, active: item.id === cfg.activePreset })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
     },
   }
   const lookup = {
