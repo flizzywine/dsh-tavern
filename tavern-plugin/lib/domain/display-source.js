@@ -75,7 +75,10 @@ function splitHtmlBoundaries(source, editing = false) {
           if (/^<\//.test(next[0])) depth--
           else if (!/\/\s*>$/.test(next[0])) depth++
         }
-        tokens.lastIndex = depth ? source.length : boundary.lastIndex
+        // An unterminated block hides only its own tag. Swallowing the rest of
+        // the reply hid a whole round: a stripping regex ate `</thinking>`, the
+        // story text stayed in the reply, and the fold took it for protocol data.
+        tokens.lastIndex = depth ? tokens.lastIndex : boundary.lastIndex
       }
       append('marker', source.slice(token.index, tokens.lastIndex))
       cursor = tokens.lastIndex
