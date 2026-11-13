@@ -101,8 +101,14 @@ function wait(signal, ms) {
   })
 }
 
-/** Use the existing persistent jobs, channel adapters, queue, reference resolver and recovery. */
-export async function runCardImage(engine, args, { sessionId, signal, key, onJob } = {}) {
+export const TERMINAL_STATES = ['done', 'failed', 'cancelled', 'uncertain']
+
+/**
+ * 提交一张卡片生图作业并立即返回作业句柄，不等出图。
+ * 同步工具随后调 waitCardImage 把结果等回来；工作台的异步工具拿 jobId 就走人。
+ * bindAbort=false 时任务不归调用方信号管：工具一返回，排队中的任务就会被取消信号带走。
+ */
+export async function submitCardImage(engine, args, { sessionId, signal, key, onJob, bindAbort = true } = {}) {
   signal?.throwIfAborted()
   const picked = cardSelection(engine.config(), engine.workflows(), args)
   const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
@@ -110,25 +116,49 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
   const mode = args.generation_mode || 'text'
   if (!['text', 'reference'].includes(mode)) throw fail('generation_mode 无效')
   let job
-  const abort = () => { if (job) engine.cancelJob(job.id) }
-  signal?.addEventListener('abort', abort, { once: true })
+  const abort = bindAbort ? () => { if (job) engine.cancelJob(job.id) } : null
+  if (abort) signal?.addEventListener('abort', abort, { once: true })
+  const release = () => { if (abort) signal?.removeEventListener('abort', abort) }
   try {
     const created = await engine.startJob({ tag: prompt, rawTag: prompt, size: picked.size, explicitSize: true, seed: args.seed,
       sessionId, key, negative: args.negative || '', generationMode: mode, subjects: args.subjects, characters: args.characters,
       assetBackground: args.background, assetQuality: args.quality, templateId: picked.template?.id || args.templateId, imagePurpose: args.sourceImages?.length ? 'edit' : 'generate', promptUsage: args.promptUsage, promptSubjects: args.promptSubjects, inputs: args.inputs, sourceImages: args.sourceImages },
-    { signal, cardRequest: true, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (signal?.aborted) abort() } })
+    { signal, cardRequest: true, cardMetadata: { preset: picked.preset?.name || '', supportsSeed: picked.supportsSeed }, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (abort && signal?.aborted) abort() } })
     job ||= engine.getJob(created.id)
     await onJob?.(created)
-    const deadline = Date.now() + 10 * 60_000
-    while (job && !['done', 'failed', 'cancelled', 'uncertain'].includes(job.state)) {
-      signal?.throwIfAborted()
-      if (Date.now() >= deadline) { abort(); throw new Error('等待超时，任务已保留，请先到配图记录查询，勿重复提交') }
-      if (job.backend === 'comfyui') await engine.refresh(job)
-      if (job.state !== 'done') await wait(signal, 250)
-    }
-    if (job?.state !== 'done') throw Object.assign(new Error(job?.error || '生图未完成，请检查配图记录'), { jobId: job?.id, requestMayHaveSucceeded: Boolean(job?.requestMayHaveSucceeded || job?.cancelMayHaveContinued) })
-    return { jobId: job.id, file: job.file, mediaType: job.mediaType, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), seed: job.resultSeed ?? (picked.supportsSeed ? job.seed : undefined),
-      prompt: job.cardPositive ?? (job.submittedPrompt || job.positive), negative: job.cardNegative ?? job.negative,
-      negativeInPrompt: job.cardPositive === undefined && job.submittedPrompt !== job.positive, characters: job.cardCharacterPrompts, preset: (picked.preset && picked.preset.name) || '', size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
-  } finally { signal?.removeEventListener('abort', abort) }
+    if (!job) throw Object.assign(new Error('生图任务已创建但读不回来，请到配图记录查询'), { jobId: created?.id })
+    return { job, picked, release }
+  } catch (error) { release(); throw error }
+}
+
+/** 等到作业进入终态；超时与未完成的报错沿用同步工具的原有语义。 */
+export async function waitCardImage(engine, { job }, { signal } = {}) {
+  const deadline = Date.now() + 10 * 60_000
+  while (job && !TERMINAL_STATES.includes(job.state)) {
+    signal?.throwIfAborted()
+    if (Date.now() >= deadline) { engine.cancelJob(job.id); throw new Error('等待超时，任务已保留，请先到配图记录查询，勿重复提交') }
+    if (job.backend === 'comfyui') await engine.refresh(job)
+    if (job.state !== 'done') await wait(signal, 250)
+  }
+  if (job?.state !== 'done') throw Object.assign(new Error(job?.error || '生图未完成，请检查配图记录'), { jobId: job?.id, requestMayHaveSucceeded: Boolean(job?.requestMayHaveSucceeded || job?.cancelMayHaveContinued) })
+  return job
+}
+
+/** 已完成的作业 → 工作台图库与工具返回共用的结果结构。取自作业本身，重启后取图同样成立。 */
+export function cardImageResult(job, { picked = null, preset = '' } = {}) {
+  return { jobId: job.id, file: job.file, mediaType: job.mediaType, ...(job.usage ? { usage: structuredClone(job.usage) } : {}),
+    seed: picked ? (job.resultSeed ?? (picked.supportsSeed ? job.seed : undefined)) : (job.resultSeed ?? (job.cardSeedSupported === true ? job.seed : undefined)),
+    prompt: job.cardPositive ?? (job.submittedPrompt || job.positive), negative: job.cardNegative ?? job.negative,
+    negativeInPrompt: job.cardPositive === undefined && job.submittedPrompt !== job.positive, characters: job.cardCharacterPrompts,
+    preset: (picked?.preset?.name) || preset || '', size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定',
+    channel: picked?.channel || job.channelName || job.channelId || '', promptMode: picked?.promptMode }
+}
+
+/** Use the existing persistent jobs, channel adapters, queue, reference resolver and recovery. */
+export async function runCardImage(engine, args, options = {}) {
+  const submitted = await submitCardImage(engine, args, options)
+  try {
+    const job = await waitCardImage(engine, submitted, { signal: options?.signal })
+    return cardImageResult(job, { picked: submitted.picked })
+  } finally { submitted.release() }
 }

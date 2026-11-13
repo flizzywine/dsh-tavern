@@ -46,7 +46,7 @@ import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-l
 import { createDefinitionsStore } from './definitions-store.js'
 import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
-import { runCardImage } from './card-app/generation.js'
+import { runCardImage, submitCardImage } from './card-app/generation.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -1510,6 +1510,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               characterSnapshot: job.characterSnapshot ?? null, comfySimple: job.comfySimple ?? null,
               generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode,
               referenceSnapshot: job.referenceSnapshot ?? null, submittedPrompt: job.submittedPrompt ?? '', promptAssembly: job.promptAssembly ?? null,
+              cardPositive: job.cardPositive, cardNegative: job.cardNegative, cardCharacterPrompts: job.cardCharacterPrompts, cardPreset: job.cardPreset, cardSeedSupported: job.cardSeedSupported,
               submissionTracked: job.submissionTracked === true,
               gameId: job.gameId ?? '', turn: job.turn ?? null, textVersion: job.textVersion ?? '',
               imageOutputWarning: job.imageOutputWarning ?? '',
@@ -2073,7 +2074,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       } })
     }
 
-    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false, preview = false, previewToken = '', signal: preparationSignal, jobDefinitions } = {}) {
+    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false, cardMetadata = null, preview = false, previewToken = '', signal: preparationSignal, jobDefinitions } = {}) {
       // 浏览器半边只传 tag 和 key，其余（画师串、画幅）由控制台配置兜底。
       let params = {
         tag: String(rawParams?.tag ?? ''),
@@ -2332,7 +2333,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         referenceSnapshot: referenceState,
         promptSystem: jobConfig.promptSystem || 'workbench', promptTemplate: jobConfig.promptSelectionTemplate || null,
         ...(cardRequest && {
-          cardCharacterPrompts: compiled.characters,
+          cardCharacterPrompts: compiled.characters, cardPreset: String(cardMetadata?.preset || ''), cardSeedSupported: cardMetadata?.supportsSeed === true,
           ...(workflow && { cardPositive: boundPrompt('positive'), cardNegative: boundPrompt('negative') }),
           ...(novelaiChat && { cardPositive: novelaiChatPrompt(compiled.positive), cardNegative: novelaiChatPrompt(compiled.negative) }),
         }),
@@ -6020,6 +6021,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       generateTemplateAsset: generateTemplateAsset,
       cardWorkflows: () => usable(),
       generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
+      // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
+      submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
