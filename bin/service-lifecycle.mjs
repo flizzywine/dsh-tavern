@@ -2,8 +2,10 @@ import { DEFAULT_BIND_HOST, resolveBindHost, serviceOrigin, isLoopbackHost } fro
 import { inspectRecordedProcess as inspectProcess, processStartToken } from './service-process-identity.mjs'
 import { startupTimeoutMs, waitForServiceStartup, stopStartupChild } from './service-startup.mjs'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
+import { isAsarPath } from './desktop-host-paths.mjs'
+import { patchPiAiVertexStream } from './pi-ai-vertex-stream-patch.mjs'
 import { resolveDesktopAsarCommand, resolveDshCliEntry } from './plugin-dependencies.mjs'
 import path from 'node:path'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
@@ -357,6 +359,17 @@ export async function startService() {
   }
   const runtimeHost = RUNTIME_HOST
   const dsh = findDshCommand(runtimeHost)
+  try {
+    const cliEntry = resolveDshCliEntry({ dsh })
+    if (cliEntry && !isAsarPath(cliEntry)) {
+      const resolvedEntry = realpathSync(cliEntry)
+      const sdkDirectory = path.resolve(path.dirname(resolvedEntry), '..', '..', '..', '@earendil-works', 'pi-ai')
+      if (existsSync(path.join(sdkDirectory, 'package.json'))) {
+        const vertexPatched = patchPiAiVertexStream({ sdkDirectory })
+        if (vertexPatched) console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
+      }
+    }
+  } catch {}
   const invocation = resolveDshInvocation(
     dsh,
     serviceDshArgs(state.bindHost, state.port),

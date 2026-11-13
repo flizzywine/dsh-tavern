@@ -438,4 +438,12 @@ function buildParams(model, context, options = {}) {
   assert.equal(patchPiAiGoogleVertexSource('unknown').status, 'unmatched')
   assert.equal(patchPiAiGoogleSharedSource('unknown').status, 'unmatched')
   assert.equal(patchPiAiGoogleVertexModelsJson('{bad').status, 'unmatched')
+
+  // 模型 JSON 键顺序不同但语义一致时不重复重写
+  const reordered = {}
+  for (const [k, v] of Object.entries(LATEST_GOOGLE_VERTEX_MODELS)) {
+    const { thinkingLevelMap, ...rest } = v
+    reordered[k] = thinkingLevelMap ? { id: rest.id, thinkingLevelMap, ...rest } : v
+  }
+  assert.equal(patchPiAiGoogleVertexModelsJson(JSON.stringify({ 'google-vertex': reordered })).status, 'patched')
 })

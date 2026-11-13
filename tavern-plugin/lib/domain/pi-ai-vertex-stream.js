@@ -1,6 +1,8 @@
 // Patch `@earendil-works/pi-ai`'s Vertex adapter to enable `streamFunctionCallArguments`,
 // project Vertex `partialArgs` into append-only `toolcall_delta` JSON fragments, and keep
 // the built-in `google-vertex` Gemini model catalog and Gemini 4 thinking-level detection current.
+import { isDeepStrictEqual } from 'node:util'
+
 export const PI_AI_VERTEX_STREAM_MARKER = '/* dsh-tavern:pi-ai-vertex-stream */'
 export const PI_AI_GOOGLE_SHARED_MODELS_MARKER = '/* dsh-tavern:pi-ai-google-shared-models */'
 
@@ -76,7 +78,7 @@ export const LATEST_GOOGLE_VERTEX_MODELS = Object.freeze({
   'chat:gemini-3.5-flash-lite': vertexModel('gemini-3.5-flash-lite', 'Gemini 3.5 Flash Lite', { input: 0.3, output: 2.5, cacheRead: 0.03 }, { thinkingLevelMap: THINKING_LEVEL_ALL }),
   'chat:gemini-3.6-flash': vertexModel('gemini-3.6-flash', 'Gemini 3.6 Flash', { input: 0.75, output: 3.75, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_ALL }),
   'chat:gemini-3.7-flash': vertexModel('gemini-3.7-flash', 'Gemini 3.7 Flash', { input: 0.75, output: 3.75, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_ALL }),
-  'chat:gemini-3.8-flash': vertexModel('gemini-3.8-flash', 'Gemini 3.8 Flash', { input: 0.75, output: 3.75, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
+  'chat:gemini-3.8-flash': vertexModel('gemini-3.8-flash', 'Gemini 3.8 Flash', { input: 0.75, output: 3.75, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_ALL }),
   'chat:gemini-4-argon': vertexModel('gemini-4-argon', 'Gemini 4 Argon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
   'chat:gemini-4-carbon': vertexModel('gemini-4-carbon', 'Gemini 4 Carbon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
   'chat:gemini-4-hydrogen': vertexModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen', { input: 1.5, output: 7.5, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
@@ -540,8 +542,7 @@ export function patchPiAiGoogleVertexModelsJson(source) {
   let changed = false
   const next = { ...existing }
   for (const [key, model] of Object.entries(LATEST_GOOGLE_VERTEX_MODELS)) {
-    const serialized = JSON.stringify(model)
-    if (!existing[key] || JSON.stringify(existing[key]) !== serialized) {
+    if (!existing[key] || !isDeepStrictEqual(existing[key], model)) {
       next[key] = structuredClone(model)
       changed = true
     }
