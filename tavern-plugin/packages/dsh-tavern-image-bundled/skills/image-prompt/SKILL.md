@@ -6,11 +6,11 @@ description: "卡片工作台生图。按实际渠道选择标签、自然语言
 # 卡片工作台生图
 
 1. `read_image_config` 查渠道、提示词格式、工作流、参考图与种子能力，以及画风清单。只读本地，不出图。画风清单只给名字和 ID；想知道某一套画风的具体正面词，再传 `preset`（名称或精确 ID）单独取。
-2. 画面有库中角色时用 `read_character`：不传 `name` 列全部人物；传 `name` 拿 `macroName`、`macro`、`outfitMacro`，默认轻量，不含外貌与服装原文。用户要改这个角色的外貌或服装时才加 `full: true`，返回 traits 与服装原文，不含宏。
+2. 画面有库中角色时用 `read_character`：不传 `name` 列全部人物；传 `name` 拿 `macroName`、`macro` 和这套角色的 `outfits` 正文。人物外貌只以宏的形式出现，不再给 traits；用户要改这个角色的外貌时才加 `full: true`，那时给 traits 原文、不含宏。
 3. 提示词写法以 `references` 里 `always` 条目为准，并按 `read_image_config` 返回的 `promptMode` 分渠道：标签类（NovelAI、SD WebUI、标签式 ComfyUI）和自然语言类要求不同，别把标签写法套到所有模型上。
-4. 人物宏和服装宏原样嵌进串里，展开成标签还是句子由引擎按渠道决定。**有宏就别再手动拼外貌块**：`references` 里那些拼 `face` / `bodySFW` 的旧做法，在有宏的角色身上不用重做一遍，两套说法会打架。
-5. 穿常穿那套直接贴 `outfitMacro`；换库里的另一套就改服装宏的 `name`。库里没有的写进人物宏的 `outfit` 键（`"outfit":"sailor uniform, pleated skirt"`）——服装宏的名字对不上库时，人物宏会照补常穿，两套打架。服装宏的 `upperBody` / `lowerBody` 保持 `visible`。衣服不该入画就别写这个宏——填 `hidden` 不会让它消失。
-6. 多人：每人一套（人物宏 + 服装宏），描述里用各自外貌或 `the woman` / `the man` 分开做主语，不写 `they`、`the two of them`、"two girls"。每人至少两项可区分特征（发色发型、衣服、体型）。句尾写明人数。宏和衣服只属于它那个人。
+4. 人物宏原样嵌进串里，展开成标签还是句子由引擎按渠道决定。**有宏就别再手动拼外貌块**：`references` 里那些拼 `face` / `bodySFW` 的旧做法，在有宏的角色身上不用重做一遍，两套说法会打架。
+5. 衣服从 `read_character` 返回的 `outfits` 里挑：`upper` / `lower` / `shoes` / `accessory` / `full` / `back` 整块原样写进串，块内不改、不去重、不拆括号——权重掉了角色就变样。穿的不是常穿那套就换用那一套的字段；库里没有的衣服，把英文描述写进人物宏的 `outfit` 键。
+6. 多人：每人一个宏，描述里用各自外貌或 `the woman` / `the man` 分开做主语，不写 `they`、`the two of them`、"two girls"。每人至少两项可区分特征（发色发型、衣服、体型）。句尾写明人数。宏只属于它那个人，衣服各写各的。
 7. 多形态角色（名字带后缀）在宏里写形态自己的英文名，不写短名。
 8. 镜头和角度写明；画面看不到的部位不写对应 tag（背影不写瞳色，遮脸不写瞳色）。
 9. 用 `tavern_read_skill_reference` 按 `references/INDEX.md` 读规则：`always` 编写前、`prescan` 提交前、`manual` 改库前，`lookup` 用 `find_prompt`。没匹配条目就按用户要求写，不反复找文件。
@@ -38,7 +38,7 @@ description: "卡片工作台生图。按实际渠道选择标签、自然语言
 
 读一次全量，省下的 token 全还回去。
 
-## sfw / nsfw / hidden / visible
+## sfw / nsfw / hidden
 
 人物宏的 `upperBody` / `lowerBody` 决定引擎从库取哪套外貌，不是"露多少"的修饰。
 
@@ -48,4 +48,4 @@ description: "卡片工作台生图。按实际渠道选择标签、自然语言
 | `nsfw` | 取裸露状态的外貌（`bodyNSFW` / `lowerNSFW`），**且不再自动补常穿服装** |
 | `hidden` | 该部位不入画，不取外貌 |
 
-填了 `nsfw`，引擎就不再补常穿那套，衣服必须自己写：半脱时服装宏照给，露出的部位填 `nsfw`；只填 `nsfw` 不给服装宏，画面就是全裸。衣服确实不在画面里，就别调用服装宏。
+填了 `nsfw`，引擎就不再补常穿那套，衣服必须自己从 `outfits` 里挑着写进串。半脱就是这种：衣服照写，露出来的部位填 `nsfw`。只填 `nsfw` 不写衣服，画面就是全裸。
