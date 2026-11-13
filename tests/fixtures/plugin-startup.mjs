@@ -37,7 +37,7 @@ try {
     assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered by the stage')
   }
   const tavern = host.services.get('tavern')
-  assert.equal(tavern?.apiVersion, 7, 'public plugin service provided')
+  assert.equal(tavern?.apiVersion, 8, 'public plugin service provided')
   const plugin = Object.create(tavern)
   plugin.ctx = { fiber: { name: 'mode-smoke' } }
   const unregister = plugin.gameMode({ name: 'counter', version: 1,

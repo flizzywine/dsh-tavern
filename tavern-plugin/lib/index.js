@@ -5,6 +5,7 @@ import { promptSection } from './domain/prompt-section.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
+import {createReplyStreamRewriters} from './domain/reply-stream-rewrite.js'
 import {createSpeechRecognitionHost} from './speech-recognition-host.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
@@ -920,8 +921,11 @@ export async function apply(ctx) {
   // Told after a card's working copy changed (plugins' onCardChanged).
   const cardRevisionListeners = new Set()
   const presentationObservers = createPresentationObservers({warn:({owner,phase,error}) => console.warn('dsh-tavern: presentation observer failed', owner, phase, error?.message || error)})
+  // 正文流式改写：外部插件（revnovel 润色等）注册改写器，正文 token 流经这里改写后再落库/显示。
+  const replyStreamRewriters = createReplyStreamRewriters({warn:({owner,error}) => console.warn('dsh-tavern: 正文流式改写失败', owner, error?.message || error)})
   const settlementParticipants = createSettlementParticipants({warn:({owner,phase,error}) => console.warn('dsh-tavern: settlement participant failed', owner, phase, error?.code || error?.message || error)})
   ctx.effect(() => () => presentationObservers.dispose())
+  ctx.effect(() => () => replyStreamRewriters.dispose())
   async function cardProjectionRevision(cardPath) {
     return cardProjectionRevisionOf(await readJson(CARD_PROJECTION_REVISIONS), cardPath)
   }
@@ -3050,6 +3054,7 @@ export async function apply(ctx) {
   const gameForegroundQueues = new Map()
   const pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
+    replyStreamRewriters,
     logger: console,
     storyEvents,
     workflow,
@@ -4541,6 +4546,7 @@ export async function apply(ctx) {
     updateChat,
     worldbookRecallLog,
     openReplyObservers: presentationObservers.openReply,
+    replyStreamRewriters,
     storyRetention,
   })
   registerTurnLifecycleHooks({

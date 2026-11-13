@@ -34,6 +34,7 @@ export function registerModelStreamHooks({
   pluginCompactionNotes,
   pluginSettlementProgress,
   replyStarted,
+  replyStreamRewriters,
   requestCoordinates,
   storyRetention,
   runtimePrompt,
@@ -228,7 +229,23 @@ export function registerModelStreamHooks({
       const replyObserver = openReplyObservers?.({signal:options.signal, sessionId:ownerSessionId,
         turn:requestCoordinates.get(sessionId)?.turn,
         enabled:!backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)})
+      // 正文流式润色：插件注册了改写器时，text-delta 先攒成安全段落、改写后再往前端吐。
+      // 工具提交的正文（submit_story 的 JSON 参数）不经过这里，那种模式仍走结算后替换。
+      const rewriteStream = replyStreamRewriters?.active
+        && !backgroundContext && !child && options.purpose === undefined
+        && chat && ['story', 'script'].includes(chat.mode)
+        && !activeDirective?.storyOutputToolCall
+        ? replyStreamRewriters.open({
+            sessionId: ownerSessionId,
+            chatId: chat.id,
+            turn: requestCoordinates.get(sessionId)?.turn,
+            mode: chat.mode,
+            signal: options.signal
+          })
+        : null
       let finish = null, usage = null
+      // 改写补出来的 text-delta 要沿用同一段正文的 index，assembler 靠它把 token 并进同一个正文块。
+      let rewriteIndex = null
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false
@@ -241,8 +258,27 @@ export function registerModelStreamHooks({
           let chunk = item.value
           liveness.chunk(chunk)
           if (chunk && chunk.type === 'text-delta') {
-            responseText += str(chunk.text)
-            if (!activeDirective?.storyOutputToolCall) replyObserver?.append(str(chunk.text))
+            const delta = str(chunk.text)
+            if (rewriteStream) {
+              if (Number.isInteger(chunk.index)) rewriteIndex = chunk.index
+              const rewritten = rewriteStream.push(delta)
+              if (!rewritten) { progress('output'); continue }
+              responseText += rewritten
+              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rewritten)
+              chunk = { ...chunk, text: rewritten }
+            } else {
+              responseText += delta
+              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(delta)
+            }
+          }
+          if (chunk && chunk.type === 'finish' && rewriteStream) {
+            // 收尾段也要改写后才能发 finish，否则前端会把最后一段当新消息接在后面。
+            const rest = await rewriteStream.drain()
+            if (rest) {
+              responseText += rest
+              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
+              yield { type: 'text-delta', ...(rewriteIndex === null ? {} : { index: rewriteIndex }), text: rest }
+            }
           }
           if (chunk && chunk.type === 'tool-call-delta') {
             const extracted = toolReplyTracker.pushToolDelta(chunk)
@@ -263,6 +299,15 @@ export function registerModelStreamHooks({
           if (chunk && chunk.type === 'usage') usage = chunk.usage
           if (chunk && ['text-delta', 'reasoning-delta', 'tool-call-delta'].includes(chunk.type)) progress('output')
           yield chunk
+        }
+        if (rewriteStream) {
+          // 没有 finish（中断/空流）时把缓冲里的正文放出来；已 drain 过就是空串。
+          const rest = await rewriteStream.drain()
+          if (rest) {
+            responseText += rest
+            if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
+            yield { type: 'text-delta', ...(rewriteIndex === null ? {} : { index: rewriteIndex }), text: rest }
+          }
         }
         if (!finish || finish.kind === 'aborted') {
           const recovered = !finish ? recoveredFinish(null) : null

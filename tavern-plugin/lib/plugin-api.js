@@ -17,7 +17,7 @@ import { normalizeGameSettings, coerceSetting, settingValues } from './domain/pl
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
 // name and field. Internals are reached through `deps`, never exposed.
-export const TAVERN_PLUGIN_API_VERSION = 7
+export const TAVERN_PLUGIN_API_VERSION = 8
 const TRACKER = Symbol.for('cordis.tracker')
 const SECTION_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const MAX_SECTION_TEXT = 8000
@@ -552,6 +552,16 @@ export function createTavernPluginApi(deps) {
       if (typeof handler !== 'function') throw new TypeError('onTurnSettled 需要一个函数')
       const entry = { owner: ownerOf(this), handler }
       return owned(this, () => { settledHandlers.add(entry); return () => settledHandlers.delete(entry) }, 'tavern.onTurnSettled()')
+    },
+
+    // 正文流式润色：注册一个改写器后，故事正文的 token 流会在写出前按段落过一遍这里。
+    // plan(buffer, {eof}) 给出可以切走的字符数（null = 继续等）；rewrite(text, context) 返回改写后的文字。
+    // 只在纯文本正文流生效；tool 提交的正文仍走结算后的 editTurn。
+    replyRewriter({ plan, rewrite } = {}) {
+      const owner = ownerOf(this)
+      if (typeof plan !== 'function' || typeof rewrite !== 'function') throw new TypeError('replyRewriter 需要 plan 与 rewrite 两个函数')
+      if (!deps.replyStreamRewriters) throw new Error('宿主没有正文流式改写能力，请更新酒馆本体')
+      return owned(this, () => deps.replyStreamRewriters.register(owner, { plan, rewrite }), 'tavern.replyRewriter()')
     },
 
     // The image plugin's gates (its optional host hooks): it plans a settled turn once beforeImagePlan returns, and draws a

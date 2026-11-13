@@ -1,6 +1,6 @@
 # Tavern 插件接口总览
 
-接口版本：**7**（宿主侧；浏览器侧 `tavernUi.apiVersion` 为 **8**）
+接口版本：**8**（宿主侧；浏览器侧 `tavernUi.apiVersion` 为 **8**）
 
 DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视频、配音，以及记忆、叙事锚点这类需要参与提示词和后台结算的功能。Tavern 提供一层稳定的接口：让插件知道「这一轮写完了、写了什么」，把图片或别的内容「挂回这一轮」，并往正文请求和后台结算里**添加**内容。v4 另提供仅对当前人物卡卡内插件开放的官方 MVU 变量结算 provider。多数是添加类接口，插件出错只会丢掉它自己那一份，游戏照常进行；少数替换类接口（如 `replaceSettlement`）让插件接管某个流程，插件失败时自动退回 Tavern 自己的做法。
 
@@ -173,6 +173,35 @@ ctx.tavern.worldbookStrategy({
 
 卡内插件只能参与所属人物卡的游戏；异步回调结束时再次核对作用域和卸载状态。异常、超时、非法引用、插件不可用时退回现有召回，不覆盖玩家保存的策略选择。插件代码不得在选择回调中产生游戏外副作用。可以用 `tavern.capabilities.worldbookStrategy === 1` 检查支持情况。
 
+## 正文边写边润（replyRewriter）
+
+`ctx.tavern.replyRewriter({ plan, rewrite })` 注册一个正文改写器（v8 起）。模型写正文的 token 流会在写出前先过一遍这里：插件按段落拿走已经写稳的文字、改写完再交回来，玩家看到的、存进存档的都是改写后的正文，不会出现「先原文、再整段跳变」。
+
+```js
+ctx.tavern.replyRewriter({
+  // 返回可以从缓冲里切走的字符数；null 表示再等等。eof 为 true 时正文已经写完。
+  plan(buffer, { eof }) {
+    if (eof) return buffer.length
+    const at = buffer.lastIndexOf('\n\n')
+    return at >= 0 && at + 2 >= 400 ? at + 2 : null
+  },
+  // 改写这一段；抛错或返回空串时这一段原样显示，正文不会断。
+  async rewrite(text, { signal, sessionId, chatId, turn, mode }) {
+    return await polish(text, { signal })
+  }
+})
+```
+
+约定：
+
+- 只在**纯文本正文流**里生效。打开「输出走工具调用」（`storyOutputToolCall`）时正文在 `submit_story` 的参数里，改写器不会介入，仍走结算后的 `editTurn`。
+- `plan` 必须自己保证切点落在完整段落/标记之外：没闭合的代码围栏、`<UpdateVariable>`、插件自己的正文标记不能被切进改写段里。
+- 只允许一个插件注册改写器；重复注册报错。插件卸载或调用返回的撤销函数后立即停止介入。
+- 一段在改写时不会开始下一段，输出顺序与原文一致；`rewrite` 抛错、超时、正文被中断（`signal`）时，缓冲里的原文照原样写出。
+- 改写发生在落库之前，`onTurnSettled` 拿到的 `rawText`/`textVersion` 就是改写后的版本，不会触发 `TAVERN_PLUGIN_STALE_VERSION`。
+- 宿主自己也会写正文的场景不受影响：自动精修、玩家手动编辑、重新生成仍按各自流程覆盖正文。
+- 用 `ctx.tavern.apiVersion >= 8` 判断宿主是否支持。
+
 ## 暂时没有的
 
 下面这些目前还没有接口，不代表不能开放。有实际需要时请提[插件接口需求](https://github.com/flizzywine/dsh-tavern/issues/new?template=plugin-api.yml)，写清要做的插件和卡在哪一步，能开放的会按需补上。
@@ -192,6 +221,7 @@ ctx.tavern.worldbookStrategy({
 
 - 修改插件的宿主侧代码（`index.mjs`）后要重启 DSH 才生效。这是 DSH 的机制。
 - 开场白不触发 `onTurnSettled`。
+- 正文流式改写只覆盖纯文本正文；`submit_story` 工具提交的正文仍只能用结算后的 `editTurn`。
 
 ## 缺接口怎么办
 
