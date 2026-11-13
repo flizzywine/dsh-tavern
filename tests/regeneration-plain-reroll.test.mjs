@@ -85,15 +85,26 @@ test('宏渲染过的普通回合：指导为空重新生成不带旧正文，�
   assert.equal(h.chat.messages[2].text, '新正文')
 })
 
-test('玩家编辑过的正文（bodyEdit 标记）：没有指导也要随请求带上，不能丢改动', async () => {
+test('正文被编辑过（bodyEdit 标记）、没有指导：仍然只发玩家输入，重新采样', async () => {
   const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
     bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
   await h.create().regenerate('', '', 'session')
   assert.equal(h.prepared.length, 1)
+  assert.equal(h.prepared[0].userText, '原输入', '没写意见就不是改写，编辑过也不当 draft')
+  assert.equal(h.prepared[0].userText.includes('current_body'), false)
+  assert.equal(h.chat.messages[2].text, '新正文')
+})
+
+test('写了意见才改写：正文（含编辑标记）随请求送出并带改写说明', async () => {
+  const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
+    bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
+  await h.create().regenerate('', '写得更克制一点', 'session')
+  assert.equal(h.prepared.length, 1)
   const sent = h.prepared[0].userText
   assert.ok(sent.startsWith('原输入'), '玩家输入仍在最前面')
-  assert.ok(sent.includes('<current_body>\n她轻声笑了。\n</current_body>'), '编辑过的正文必须随请求送出')
-  assert.ok(sent.includes('<rewrite_request>'), '编辑过的正文要带改写说明')
+  assert.ok(sent.includes('<current_body>\n她轻声笑了。\n</current_body>'), '有意见时正文是改写的底稿')
+  assert.ok(sent.includes('写得更克制一点'))
+  assert.ok(sent.includes('<rewrite_request>'))
   assert.equal(h.chat.messages[2].text, '新正文')
 })
 

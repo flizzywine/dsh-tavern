@@ -72,25 +72,16 @@ function cloneChat(value) {
 }
 
 // Regeneration takes the round's old body off the native surface before the model
-// runs, so the request itself is the only place the body can come back. A body the
-// player edited (正文编辑/精修) must therefore travel with the request even when no
-// guidance is given: otherwise the model rewrites from nothing and the edit is gone.
-// Only the edit marker proves that edit. projectionText is sourceText with the
-// Tavern macros rendered, so it differs from sourceText on any ordinary round that
-// carries {{setvar}} or <user>/<char>: reading that difference as "the player
-// changed the body" put the old prose into every plain reroll and asked the model to
-// rewrite the version the player had just discarded, instead of sampling the round
-// again from scratch.
-function editedReplyBody(message) {
-  if (message === null || typeof message !== 'object') return false
-  return Boolean(message.bodyEdit)
-}
-
-export function regenerationInputText(userText, guidance, rewriteBody, options = {}) {
+// runs, so a rewrite can only happen when the request itself carries the body. That
+// body goes in exactly one case: the player wrote guidance and asked for a revision
+// of what they are reading. Without guidance the request is a plain resample of the
+// round — the old prose, an edited body included, is not sent back as a draft.
+// (A round's projectionText differs from its sourceText whenever it carried macros,
+// which made an earlier "was this edited?" check fire on every reroll; the player
+// then got their discarded version rewritten instead of a fresh sample.)
+export function regenerationInputText(userText, guidance, rewriteBody) {
   const input = str(userText).trim(), guide = str(guidance).trim(), draft = str(rewriteBody).trim()
-  const body = '\n\n' + promptSection('current_body', draft) + '\n\n'
-  if (draft !== '' && guide !== '') return input + body + promptSection('rewrite_request', '在当前正文基础上改写本轮正文：' + guide)
-  if (draft !== '' && options.keepBody === true) return input + body + promptSection('rewrite_request', '这是玩家手上的正文版本（可能改过）：以它为准重写这一轮，保留其中的改动与设定，不要回到更早的版本。')
+  if (draft !== '' && guide !== '') return input + '\n\n' + promptSection('current_body', draft) + '\n\n' + promptSection('rewrite_request', '在当前正文基础上改写本轮正文：' + guide)
   return input + (guide !== '' ? '\n\n' + promptSection('turn_extra_request', guide) : '')
 }
 
@@ -546,21 +537,17 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const guide = str(guidance).trim()
     // There is no body to revise on an unanswered tail, so guidance is only an
     // extra instruction on the same input.
-    // An edited body must reach the model even without guidance: the old body was
-    // already taken off the native surface, so this request is its only copy.
+    // The body is carried only when guidance asks for a revision of it. Without
+    // guidance this is a plain resample of the round, whatever the round's edit
+    // marker says: a reroll the player asked for must not come back rewritten.
     const currentBody = failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex])
-    // A fresh request (长按发送键 1 秒重新生成) is a plain resample by definition: the
-    // player asked for a new version of the round, so an edited body is not carried
-    // as the draft to revise. Guidance still applies as an extra instruction.
-    const fresh = options.fresh === true
-    const editedBody = !failedTail && !fresh && editedReplyBody(msgs0[oldAssistantIndex])
-    const syntheticText = regenerationInputText(originalUserText, guide, currentBody, { keepBody: editedBody })
+    // A fresh request (长按发送键 1 秒重新生成) never carries the body either, even
+    // if it ever comes with guidance.
+    const draft = options.fresh === true ? '' : currentBody
+    const syntheticText = regenerationInputText(originalUserText, guide, draft)
     // Only a body that the regeneration request actually carries can change the
-    // prepared frame. A plain reroll drops the old prose, so it stays out of the
-    // cache key while the player input and any guidance remain in it.
-    const cacheText = str(currentBody).trim() !== '' && (guide !== '' || editedBody)
-      ? syntheticText
-      : regenerationInputText(originalUserText, guide, '')
+    // prepared frame, so a plain reroll keeps the old prose out of the cache key.
+    const cacheText = syntheticText
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     const candidateTurn = beforeLastTurn + 1
     // A fresh sample of the same round removes its old reply before the model
