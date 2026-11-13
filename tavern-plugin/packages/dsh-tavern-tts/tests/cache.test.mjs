@@ -27,6 +27,14 @@ test('QA metadata survives cache hits and reload without changing the audio key'
   assert.deepEqual((await readdir(join(dataDir,'cache','audio-v2'))).sort(),[key + '.json',key + '.wav'])
 })
 
+test('a clip placed in the directory after the index was read is found (cache rekey while running)', async t => {
+  const dataDir = await directory(t), cache = createCache({dataDir})
+  await cache.put(key,audio,['chat'])
+  assert.equal((await cache.stats()).count,1)
+  await createCache({dataDir}).put(other,audio,['chat'])
+  assert.deepEqual(await cache.get(other,'chat'),audio)
+})
+
 test('cache expires unused entries on load and deletes audio and manifests',async t => {
   const dataDir = await directory(t), root = join(dataDir,'cache','audio-v2')
   let now = 0; t.mock.method(Date,'now',() => now)

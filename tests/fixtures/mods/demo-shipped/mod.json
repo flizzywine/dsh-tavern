@@ -1,0 +1,166 @@
+{
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
+  "experimental": true,
+  "id": "dsh.demo",
+  "name": "框架演示",
+  "packageName": "dsh-tavern-mod-demo",
+  "version": "1.1.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "coreAssets": [],
+  "permissions": [],
+  "performances": [],
+  "entry": "runtime.js",
+  "summary": "用于验证模组框架的第一方演示。",
+  "commandPrompts": [
+    {
+      "id": "marker-rule",
+      "path": "prompts/demo.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 10
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "mark",
+      "op": "mod.dsh.demo.mark",
+      "dsl": {
+        "verb": "demo",
+        "syntax": "demo mark label=<text>"
+      },
+      "params": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "marker",
+      "handler": "command",
+      "promptId": "marker-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 20
+      },
+      "caps": {
+        "perTurn": 4,
+        "bytes": 1024
+      },
+      "mode": "adds"
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "caption",
+        "type": "text",
+        "label": "标题",
+        "help": "静态标题，不会进入提示词。",
+        "default": "演示",
+        "maxLength": 80,
+        "scope": "global"
+      },
+      {
+        "key": "visible",
+        "type": "toggle",
+        "label": "显示",
+        "default": true,
+        "scope": "global"
+      },
+      {
+        "key": "opacity",
+        "type": "slider",
+        "label": "不透明度",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 0.1,
+        "scope": "global",
+        "dependsOn": {
+          "key": "visible",
+          "equals": true
+        }
+      },
+      {
+        "key": "size",
+        "type": "segmented",
+        "label": "尺寸",
+        "default": "small",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "small",
+            "label": "小"
+          },
+          {
+            "value": "large",
+            "label": "大"
+          }
+        ]
+      },
+      {
+        "key": "accent",
+        "type": "colour",
+        "label": "强调色",
+        "default": "#225566",
+        "scope": "global"
+      }
+    ],
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "外观",
+        "help": "用于验证两级设置布局。",
+        "groups": [
+          {
+            "id": "general",
+            "title": "基本",
+            "fields": [
+              "caption",
+              "visible"
+            ]
+          },
+          {
+            "id": "visual",
+            "title": "视觉",
+            "help": "二级分组独立保存折叠状态。",
+            "fields": [
+              "opacity",
+              "size",
+              "accent"
+            ],
+            "folded": true
+          }
+        ],
+        "folded": false
+      }
+    ]
+  }
+}

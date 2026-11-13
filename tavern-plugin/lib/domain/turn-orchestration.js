@@ -1,9 +1,8 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
-import { promptSection } from './prompt-section.js'
-import { captureChatHeader } from './chat-persistence.js'
-import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity } from './chat-field-transaction.js'
+import { captureChatHeader, chatStampPath } from './chat-persistence.js'
+import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity, sameChatMessageStory } from './chat-field-transaction.js'
 import { validAnchor } from './round-anchor.js'
 import { CARD_MEMORY_TOOLS } from '../../packages/dsh-tavern-card-memory/index.js'
 import { inputAttachments } from './player-input-content.js'
@@ -27,12 +26,6 @@ import { readRowsAt } from './bounded-history.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createHash } from 'node:crypto'
 import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
-
-// Prompt prose source. Keys are stable; interpolation arguments are data.
-export const PROMPT_PROSE = Object.freeze({
-  p001: "A background agent settles variables after the story is submitted. Output only story prose: no `<UpdateVariable>`, JSON Patch or variable-update notes.",
-  p002: "No character card is selected yet. Briefly ask the user to choose one in the interface first."
-})
 
 export const cordisToolNames = Object.freeze([
   'cordis_inspect_list',
@@ -63,19 +56,19 @@ function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
 
-function preparationConflict() {
-  return Object.assign(new Error('存档在准备正文期间发生冲突，本轮已停止'), { code: 'TAVERN_PREPARE_CONFLICT' })
+// reason: what moved under the preparation; details for the host log (the player sees only the message),
+// with writers: who committed meanwhile.
+function preparationConflict(reason, details) {
+  return Object.assign(new Error('存档在准备正文期间发生冲突，本轮已停止'), {
+    code: 'TAVERN_PREPARE_CONFLICT', conflict: { reason, ...details }
+  })
 }
 
 function storageStamp(change) {
   return change.path[0] === '_storageRevision' || change.path[0] === 'updatedAt'
 }
 
-function compatiblePreparationHeaderChange({ path }) {
-  return path[0] === 'variables' || path[0] === 'tavernHelperScriptVariables'
-    || (path[0] === 'macroState' && path[1] === 'userName')
-    || (path[0] === 'rollbackUndo' && path[1] === 'storageRevision')
-}
+const changedPaths = changes => [...new Set(changes.map(change => change.path.slice(0, 2).join('.')))].join(', ')
 
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -310,7 +303,7 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
   if (usesOfficialMvu(chat)) {
     inputs.push({
       kind: 'foreground.writing-rules',
-      text: promptSection('variable_ownership', PROMPT_PROSE.p001),
+      text: '变量更新由正文提交后的后台 Agent 独立结算。只输出剧情正文，不要输出 <UpdateVariable>、JSON Patch 或变量更新说明。',
       required: true,
       source: { stage: 'mvu-background-owner' }
     })
@@ -460,7 +453,7 @@ export function createTurnOrchestrator(options) {
         ready: false,
         mode: 'unbound',
         cardName: '',
-        text: promptSection('tavern_state', PROMPT_PROSE.p002)
+        text: '【酒馆状态】\n尚未选择人物卡。请简短提示用户先在界面中选择人物卡。'
       }
     }
     const preview = input.preview === true
@@ -525,7 +518,8 @@ export function createTurnOrchestrator(options) {
         const baseline = preparationBase
         const revision = Number(baseline?._storageRevision)
         const count = chat.messages.length
-        if (!Number.isSafeInteger(revision)) throw preparationConflict()
+        if (!Number.isSafeInteger(revision)) throw preparationConflict('invalid-base-revision')
+        const conflict = (reason, details) => preparationConflict(reason, { ...details, writers: store.writersSince?.(chat.id, revision) })
         const userIndex = savedUserIndex >= 0 ? savedUserIndex : withUser ? count : null
         const assistantIndex = count + rows.length - 1
         operation.placeholder = { userIndex, assistantIndex }
@@ -534,21 +528,32 @@ export function createTurnOrchestrator(options) {
         let refreshedFrame
         const receipt = await commitChatFields(store.patchChat, chat.id, { source: 'foreground.prepare' }, async attempt => {
           if (attempt > 0) selected = await store.readChatSlice(input.sessionId, [])
-          if (!selected?.denseMessages || selected.chat.id !== chat.id || selected.messageCount !== count) throw preparationConflict()
+          if (!selected?.denseMessages || selected.chat.id !== chat.id || selected.messageCount !== count) {
+            throw conflict('message-layout-changed', { revision, count, currentCount: selected?.messageCount })
+          }
           const currentRevision = selected.chat._storageRevision
+          const versions = { revision, currentRevision }
           let latestUser = savedUser
           let changes = [...prepared]
           const changedRows = new Map()
           let refreshNeeded = false
           refreshedFrame = undefined
           if (currentRevision !== revision) {
-            const concurrent = diffJson(baseline, captureChatHeader(selected.chat)).filter(change => !storageStamp(change))
-            if (!concurrent.every(compatiblePreparationHeaderChange)) throw preparationConflict()
+            // Other parts of Tavern keep writing while a turn is prepared (settlement, candidates, template
+            // display, stage direction, card scripts). Like any header write, their fields merge with the
+            // preparation's own; only an edit of the same field, or a story that moved, stops the turn.
+            const concurrent = diffJson(baseline, captureChatHeader(selected.chat)).filter(change => !chatStampPath(change.path))
+            if (concurrent.some(({ path }) => path[0] === 'timeline' && (path.length === 1 || path[1] === 'branchId' || path[1] === 'revision'))) {
+              throw conflict('timeline-moved', versions)
+            }
             refreshNeeded = concurrent.some(change => change.path[0] !== 'rollbackUndo')
             changes = rebaseChatChanges(prepared, concurrent)
-            if (!changes) throw preparationConflict()
+            if (!changes) throw conflict('overlapping-header-changes', { ...versions, fields: changedPaths(concurrent) })
             const changed = await store.readChangedSlice?.(chat.id, revision)
-            if (!changed?.denseMessages || changed.layoutChanged || changed.messageCount !== count) throw preparationConflict()
+            if (!changed?.denseMessages) throw conflict('missing-change-history', versions)
+            if (changed.layoutChanged || changed.messageCount !== count) {
+              throw conflict('message-layout-changed', { ...versions, count, currentCount: changed.messageCount })
+            }
             if (changed.chat._storageRevision !== currentRevision) return undefined
             const unloaded = changed.indices.filter(index => !chat.messages[index])
             const historical = unloaded.length && store.readWindow ? await readRowsAt(store.readWindow, chat.id, revision, unloaded) : null
@@ -556,10 +561,12 @@ export function createTurnOrchestrator(options) {
             for (const [offset, index] of changed.indices.entries()) {
               const before = chat.messages[index] ?? historicalRows.get(index)
               const after = changed.chat.messages[offset]
-              if (!before || !after) throw preparationConflict()
-              const { variables: _beforeVariables, messageUid: _beforeUid, displayRuntime: _beforeDisplay, ...beforeMessage } = before
-              const { variables: _afterVariables, messageUid: _afterUid, displayRuntime: _afterDisplay, ...afterMessage } = after
-              if (!sameChatMessageIdentity(before, after, index) || !isDeepStrictEqual(beforeMessage, afterMessage)) throw preparationConflict()
+              if (!before || !after) throw conflict('missing-message', { ...versions, index })
+              // A floor's own story must stay; what others write beside it (variables, template display,
+              // stage direction, settlement checkpoints, display captures) does not change this turn.
+              if (!sameChatMessageIdentity(before, after, index) || !sameChatMessageStory(before, after)) {
+                throw conflict('message-changed', { ...versions, index })
+              }
               changedRows.set(index, after)
               if (!isDeepStrictEqual(before.variables, after.variables)) refreshNeeded = true
               if (index === savedUserIndex) latestUser = after
@@ -594,7 +601,7 @@ export function createTurnOrchestrator(options) {
           changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: rows })
           return { revision: currentRevision, changes }
         })
-        if (!receipt) throw preparationConflict()
+        if (!receipt) throw conflict('revision-retries-exhausted', { revision, currentRevision: selected?.chat._storageRevision })
         return refreshedFrame
       }
       // Legacy/flat saves use the same identity rule as the scoped patch path.
@@ -745,13 +752,16 @@ export function createTurnOrchestrator(options) {
     const foregroundWorldBook = typeof options.projectForegroundWorldbook === 'function'
       ? await options.projectForegroundWorldbook({ chat, card, turn, userText: runtimeUserText, requestKey: foregroundOperation.operationId }) : null
     if (typeof options.projectForegroundWorldbook === 'function') {
+      const screenedFrom = Number(preparationBase?._storageRevision)
       if (!preview) {
         chat = await contextForSession(input.sessionId)
         if (chat) preparationBase = captureChatHeader(chat)
       }
       const current = chat && timeline.inspect({ chat })
       if (!current || current.branchId !== foregroundOperation.basedOn.branchId || current.revision !== foregroundOperation.basedOn.revision ||
-          current.operations[foregroundOperation.operationId]?.status !== 'running') throw preparationConflict()
+          current.operations[foregroundOperation.operationId]?.status !== 'running') {
+        throw preparationConflict('timeline-changed-during-worldbook', { writers: chat ? store.writersSince?.(chat.id, screenedFrom) : [] })
+      }
       const stage = chat.promptTemplateInput
       const row = chat.messages[requestUserIndex(chat.messages, requestId)]
       if (stage?.turn === turn && inputVariablesChanged(stage, row, row)) copyInputVariables(stage.message, row)
@@ -1256,9 +1266,11 @@ export function createTurnOrchestrator(options) {
     })
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
-    if (input.adopt !== true && extractedForegroundChoices.choices) {
+    // 这一局只留最近一轮的候选项：没有的一轮必须把上一轮清掉，否则旧选项会被
+    // 当成这一轮的选项显示出来（页面按「最近一轮」读，不靠消息 id 对齐）。
+    if (input.adopt !== true) {
       const messageId = str(input.replyMessageId)
-      if (messageId !== '') {
+      if (extractedForegroundChoices.choices && messageId !== '') {
         chat.candidates = {
           messageId,
           choices: extractedForegroundChoices.choices,
@@ -1271,7 +1283,7 @@ export function createTurnOrchestrator(options) {
           traceMode: 'one-shot',
           basedOn: { branchId: chat.timeline.branchId, revision: chat.timeline.revision }
         }
-      }
+      } else if (chat.candidates) delete chat.candidates
     }
     await writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply, candidates: chat.candidates || null }

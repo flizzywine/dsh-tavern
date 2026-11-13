@@ -422,7 +422,9 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         let fishModels = customFish ? [] : structuredClone(FISH_MODELS)
         const speaking = model => {
           const found = model ? fishModels.find(m => m.id === model) : fishModels.find(m => m.id === FISH_DEFAULT_MODEL) || fishModels[0]
-          const m = found || (model ? {id:model,label:model,billing:customFish ? 'unknown' : fishModel(model).billing} : null)
+          // Until a server has answered, a named model takes directions as the known model does: the spoken text (and the
+          // cached line it names) must not depend on whether the server was asked yet.
+          const m = found || (model ? {id:model,label:model,billing:customFish ? 'unknown' : fishModel(model).billing,voiceDirections:fishModel(model).voiceDirections} : null)
           return m ? {model:m.id,modelLabel:m.label,billing:m.billing || 'unknown',paid:m.billing !== 'free',voiceDirections:m.voiceDirections === true} : {billing:'unknown',paid:true,voiceDirections:false}
         }
         // 配音来源 (Provider.capabilities.voiceSources): what the protocol always serves (its kind's declaration); a Fish

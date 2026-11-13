@@ -1,5 +1,3 @@
 /edit-card
 
-<card_edit>
-I want to edit the character card. My requirements:
-</card_edit>
+我要修改人物卡，以下是我的要求：

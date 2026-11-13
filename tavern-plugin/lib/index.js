@@ -36,6 +36,7 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
+import { assetPromptPreset } from './image-asset-preset.js'
 import { runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
@@ -2798,6 +2799,7 @@ export async function apply(ctx) {
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   // Asset pictures come from an image plugin (tavern.imageProvider); Tavern keeps no image channels.
   const assetGeneration = createAssetGeneration({store:profileData, imageProvider:() => pluginApi.imageProviders()[0], getLibrary:() => ctx.get('assetLibrary'),
+    promptPreset:assetPromptPreset({pluginsDir:userPluginPaths(dataRoot).plugins, running:runningUserPlugins}),
     // a figure linked to the 配图 人物库 takes its 外貌 from there (the one store); unlinked figures keep the pack text.
     linkedAppearance: async ({packId, figureId, outfitKey}) => {
       const linked = await findFigureImageCharacter(pluginApi, {packId, figureId})
@@ -3308,7 +3310,7 @@ export async function apply(ctx) {
         checkedCompactionPressure.add(target)
       }
       const background = backgroundAgentRunner.requestContext(target.session.id)
-      if (background && background.task !== 'phone') {
+      if (background) {
         return compactBackgroundIfNeeded({
           trigger, forced, native: fallback,
           pressure: () => measureBackgroundBudget({
@@ -3332,7 +3334,7 @@ export async function apply(ctx) {
     }
     async function compactionRegionGuard(target) {
       const background = backgroundAgentRunner.requestContext(target.session.id)
-      if (!background || background.task === 'phone') return
+      if (!background) return
       const chat = await chatHeaderForSession(background.parentSessionId, [])
       if (!chat) throw new Error('后台压缩找不到所属对话')
       // The Session belongs to its task's member (书记 for a task without a timeline member).
@@ -3357,7 +3359,7 @@ export async function apply(ctx) {
     // old frames stay model-visible until a whole-turn compaction consumes them.
     // ephemeral director corrections must not acquire/prune a story compaction surface.
     if (background?.task === 'stage-director') return next()
-    if ((background && ['phone'].includes(background.task)) || chat?.mode === 'card') {
+    if (chat?.mode === 'card') {
       await configureAgentCompaction(payload.agent)
       return next()
     }
@@ -3663,6 +3665,7 @@ export async function apply(ctx) {
       readChatSlice: chatSliceForSession,
       readChangedSlice: chatPersistence.readChangedSlice,
       readWindow: chatPersistence.readWindow,
+      writersSince: chatPersistence.writersSince,
       patchChat,
       updateCard,
       createCard: createWorkspaceCard

@@ -116,6 +116,14 @@ function TavernStageTab(props) {
     const sessionId=props.scope?.sessionId || '',data=useBubbles(sessionId,true),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
     return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:data?.cardPath,cardName:data?.cardName,loading:!data,prompts});
 }
+// One provider for the library tab body: client apply offers it at startup (so `dsh-asset-library`
+// never waits for a play session), and the launcher below offers it again when the host starts there.
+let assetPackWorkbenchProvided = false;
+function provideAssetPackWorkbench(ctx) {
+    if (assetPackWorkbenchProvided) return;
+    assetPackWorkbenchProvided = true;
+    ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
+}
 function installTavernAssetLaunchers(ctx, slots) {
     if (ctx.betterSidebar) { const sidebar = ctx.betterSidebar; stageSidebar = sidebar; ctx.effect(() => () => { if (stageSidebar === sidebar) stageSidebar = undefined; }); }
     ctx.inject(['ttsClient'], child => {
@@ -142,7 +150,7 @@ function installTavernAssetLaunchers(ctx, slots) {
         transport.start();
         return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };
     });
-    ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
+    provideAssetPackWorkbench(ctx);
     // the global 读音词典 drawn with the shared panel components; the 配音
     // page (dsh-tavern-tts) places it and supplies its control RPC.
     ctx.provide('ttsReadingsEditor',{render:props=>React.createElement(StagePackView,{view:ui=>ui.ReadingsEditor,...props})});

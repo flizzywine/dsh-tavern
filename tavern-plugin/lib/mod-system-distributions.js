@@ -21,7 +21,17 @@ async function filesIn(directory,prefix='') {
 // The CLI and native owner publish the same prebuilt code; runtime never loads a compiler.
 // Only the user-plugin loader imports the installed entry after code consent.
 // Every folder under tavern-plugin/mods is one first-party mod (docs/mod-authoring.md); the folder list is the only list.
-export const firstPartyModIds = (await fs.readdir(path.join(root,'tavern-plugin/mods'),{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort()
+// A folder without mod.json is not a mod: a retired one (mods/demo) survives in installs that were updated in place,
+// and reading it would fail this whole module's import — the host plugin then never loads, so the web client never
+// gets tavernUi and every plugin that injects it stays pending. Skip such folders instead of throwing.
+const modsRoot = path.join(root,'tavern-plugin/mods')
+export const firstPartyModIds = (await Promise.all((await fs.readdir(modsRoot,{withFileTypes:true}))
+  .filter(entry=>entry.isDirectory())
+  .map(async entry=>{
+    const ok = await fs.stat(path.join(modsRoot,entry.name,'mod.json')).then(()=>true,()=>false)
+    if(!ok) console.warn(`[dsh-tavern] 跳过没有 mod.json 的目录：tavern-plugin/mods/${entry.name}`)
+    return ok ? entry.name : null
+  }))).filter(name=>name!==null).sort()
 // Their manifest ids (mod.json id, dsh.<folder>), for the readers that tell a first-party managed mod from others.
 export const firstPartyManifestIds = await Promise.all(firstPartyModIds.map(async folder => JSON.parse(await fs.readFile(path.join(root,'tavern-plugin/mods',folder,'mod.json'),'utf8')).id))
 export const firstPartyModDirectory = folder => pathToFileURL(path.join(root,'tavern-plugin/mods',folder)+path.sep)

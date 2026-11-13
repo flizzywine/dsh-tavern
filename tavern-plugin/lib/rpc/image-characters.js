@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import { figureOutfitReference } from '../domain/figure-sprite-reference.js'
-import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter, putPackReference } from '../domain/image-character-appearance.js'
+import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter, putPackReference, packReferenceName, referencePatch } from '../domain/image-character-appearance.js'
 
 // The image plugin owns these records. Asset-pack edits never store a second copy.
 export function createImageCharacterHandlers({ ctx, pluginApi }) {
@@ -15,11 +15,6 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
     const figure = pack?.figures[figureId]
     if (!figure) throw fail('NOT_FOUND', '人物已删除，请重新载入')
     return { library, pack, figure }
-  }
-  // Every other installed figure: a 人物库 alias must name only this one (imageAliasesFromFigure).
-  async function otherFigures(library, packId, figureId) {
-    return (await library.listPacks()).filter(pack => pack.manifest).flatMap(pack => Object.values(pack.figures)
-      .filter(figure => pack.manifest.id !== packId || figure.id !== figureId))
   }
   async function linkedRecord(args) {
     const context = await figureOf(args?.packId, args?.figureId)
@@ -42,13 +37,13 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
     linkFigureImageCharacter(args) {
       const key = JSON.stringify([args?.packId, args?.figureId])
       const run = (links.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
-        const { library, figure } = await figureOf(args?.packId, args?.figureId)
+        const { figure } = await figureOf(args?.packId, args?.figureId)
         const linked = await findFigureImageCharacter(pluginApi, args)
         if (linked.status === 'linked') {
           if (args.characterId && (args.characterId !== linked.character.id || args.providerId !== linked.providerId)) throw fail('INVALID_ARGUMENT', '人物已关联其他记录，请重新载入')
           return linked
         }
-        if (!args.characterId) return { ...await records('createCharacter', { providerId: args.providerId, character: imageCharacterFromFigure(figure, args.packId, await otherFigures(library, args.packId, args.figureId)) }), status: 'linked' }
+        if (!args.characterId) return { ...await records('createCharacter', { providerId: args.providerId, character: imageCharacterFromFigure(figure, args.packId) }), status: 'linked' }
         if (!args.providerId) throw fail('INVALID_ARGUMENT', '关联已有记录时必须指定人物库来源')
         const { character } = await records('getCharacter', { providerId: args.providerId, characterId: args.characterId })
         if (character.figureId && (character.figureId !== args.figureId || character.figurePackId !== args.packId)) throw fail('INVALID_ARGUMENT', '该人物库记录已关联其他素材库人物')
@@ -78,10 +73,8 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
       const hash = spriteFallback ? fallback?.hash : outfit ? outfit.settei : figure.identitySettei?.board
       if (!hash) throw fail('INVALID_ARGUMENT', '还没有设定图')
       const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash,
-        name: figure.name + (outfit ? '／' + outfit.label : '') + (spriteFallback ? {sprite:' 立绘参考', emotion:' 差分参考', avatar:' 头像参考'}[fallback.kind] : ' 设定图') })
-      const patch = !outfit ? { referenceImage } : { outfits: [{ id: outfit.key, characterOutfitImage: referenceImage,
-        ...(character.outfits.some(item => item.id === outfit.key) ? {} : { name: outfit.label }) }] }
-      return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch })
+        name: packReferenceName(figure, outfit, spriteFallback ? {sprite:' 立绘参考', emotion:' 差分参考', avatar:' 头像参考'}[fallback.kind] : undefined) })
+      return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: referencePatch(character, outfit, referenceImage) })
     },
   }
 }

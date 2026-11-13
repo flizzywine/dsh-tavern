@@ -1,20 +1,5 @@
-import { promptSection } from './prompt-section.js'
 import { createHash } from 'node:crypto'
 import { isProducerSource } from './message-source.js'
-
-// Prompt prose source: task-specific additions, unchanged in phase 1.
-const TASK_PROMPT_PROSE = Object.freeze({
-  p001: "This turn's script window matches the full text sent earlier; reuse the text marked 【剧本窗口版本 ",
-  p002: "】. ",
-  p003: "Use only the script chunks listed this turn; old cursors aren't the current state. If that text was compacted or can't be found, first call tavern_read_script for each position: "
-})
-
-
-// Prompt prose source. Keys are stable; interpolation arguments are data.
-export const PROMPT_PROSE = Object.freeze({
-  p001: "【剧本窗口版本 "
-})
-
 
 const digest = text => createHash('sha256').update(text).digest('hex')
 
@@ -41,9 +26,9 @@ export function projectCandidateScriptContext(session, input) {
       if (text.slice(span.start, span.start + span.length) === window.text) { known = true; break }
     }
   } catch { /* No proven visible body: send the full window. */ }
-  if (!known) return { turnContext: input.turnContext + '\n' + promptSection('script_version', PROMPT_PROSE.p001 + version + '】'), body: window.text, digest: version }
+  if (!known) return { turnContext: input.turnContext + '\n【剧本窗口版本 ' + version + '】', body: window.text, digest: version }
   const reference = window.heading + '\n' +
-    TASK_PROMPT_PROSE.p001 + version + TASK_PROMPT_PROSE.p002 +
-    TASK_PROMPT_PROSE.p003 + window.positions.join('、') + '。' + (window.text.startsWith('<script_window>\n') ? '\n</script_window>' : '')
+    '本轮剧本窗口与此前完整正文完全相同，请复用标有【剧本窗口版本 ' + version + '】的全文。' +
+    '只使用本轮列出的剧本块；不要把旧游标当作当前状态。若全文已被压缩或无法找到，必须先调用 tavern_read_script，按 position 分别读取：' + window.positions.join('、') + '。'
   return { turnContext: input.turnContext.slice(0, -window.text.length) + reference }
 }

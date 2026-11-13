@@ -14,6 +14,8 @@ import {syntheticPack,PACK_ID,FIGURE_ID} from './fixtures/asset-packs/pack.mjs'
 import {migrateReadingVoices} from '../tavern-plugin/packages/dsh-tavern-stage/lib/reading-voice-migration.js'
 import {validateCardStage} from '../tavern-plugin/lib/domain/card-stage-settings.js'
 
+const PACK_NAME = '系统设置（请勿删除）'
+
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(),'reading-voices-')), pack = await syntheticPack()
   await sealPack(pack.manifest,pack.files)
@@ -36,18 +38,21 @@ function fakeTts(reading = {general:{figure:null}, narrator:{enabled:true, figur
     async setReading(patch) { writes.push(structuredClone(patch)); reading = {...reading, ...Object.fromEntries(Object.entries(patch).map(([k,v]) => [k, {...reading[k], ...v}]))}; return structuredClone(reading) }}
 }
 
-test('an own 通用声音 becomes a voice-only figure in a new unlit pack, 旁白 follows its figure, then the store is dropped', async t => {
+const roleFigure = async (library, tts, role) => { const ref = tts.reading()[role].figure, pack = await library.getPackSnapshot({packId:ref.packId}); return {pack, figure:pack.figures[ref.figureId]} }
+
+test('an own 通用声音 goes onto 「通用声音」 in a new 系统设置（请勿删除）pack, named after it; 旁白 follows its link; then the store is dropped', async t => {
   const f = await fixture(t), tts = fakeTts()
   await legacyStore(f, {general:'own', narrator:{link:{packId:PACK_ID, figureId:FIGURE_ID}, language:'ja'}})
-  const done = await migrateReadingVoices({library:f.library, tts})
-  const made = await f.library.getPackSnapshot({packId:done.pack}), figureId = done.pointers.general.figureId, figure = made.figures[figureId]
-  assert.equal(made.manifest.name, '专用声音')
+  await migrateReadingVoices({library:f.library, tts})
+  const {pack, figure} = await roleFigure(f.library, tts, 'general')
+  assert.equal(pack.manifest.name, PACK_NAME)
   assert.equal(figure.name, '通用声音')
   assert.equal(figure.voice.language, 'zh', 'spoken as before')
-  const spec = made.manifest.voiceLibrary.voices[figure.voice.voice], clips = Object.values(spec.sources).flatMap(s => s.references || [])
+  const spec = pack.manifest.voiceLibrary.voices[figure.voice.voice], clips = Object.values(spec.sources).flatMap(s => s.references || [])
+  assert.equal(spec.name, '通用声音', 'the voice is named after its figure, not the voice it was copied from')
   assert.ok(clips.length > 0)
-  for (const ref of clips) assert.ok(made.manifest.blobs[ref.media], 'its clips are copied into the pack')
-  assert.deepEqual(tts.writes, [{general:{figure:{packId:done.pack, figureId}}, narrator:{figure:{packId:PACK_ID, figureId:FIGURE_ID}}}])
+  for (const ref of clips) assert.ok(pack.manifest.blobs[ref.media], 'its clips are copied into the pack')
+  assert.deepEqual(tts.reading().narrator.figure, {packId:PACK_ID, figureId:FIGURE_ID})
   assert.deepEqual(await f.library.legacyReadingVoices(), [])
   const index = JSON.parse(await readFile(path.join(f.assetRoot,'voice-templates','index.json'),'utf8'))
   assert.equal('readings' in index || 'readingMedia' in index, false)
@@ -55,15 +60,40 @@ test('an own 通用声音 becomes a voice-only figure in a new unlit pack, 旁�
   assert.deepEqual(validateCardStage({narrator:{enabled:true, voice:{packId:PACK_ID, figureId:FIGURE_ID}}}).narrator, {enabled:true})
 })
 
-test('旁白 never set points at 通用声音\'s figure; a pointer already set is kept', async t => {
+test('旁白 never set gets a copy of an own 通用声音 on 「旁白声音」, so each is edited on its own', async t => {
+  const f = await fixture(t), tts = fakeTts()
+  await legacyStore(f, {general:'own'})
+  await migrateReadingVoices({library:f.library, tts})
+  const general = await roleFigure(f.library, tts, 'general'), narrator = await roleFigure(f.library, tts, 'narrator'), voices = narrator.pack.manifest.voiceLibrary.voices
+  assert.equal(narrator.pack.manifest.id, general.pack.manifest.id, 'one pack')
+  assert.equal(narrator.figure.name, '旁白声音')
+  assert.notEqual(narrator.figure.voice.voice, general.figure.voice.voice, 'a voice of its own, not shared')
+  assert.equal(voices[narrator.figure.voice.voice].name, '旁白声音')
+  assert.deepEqual(voices[narrator.figure.voice.voice].sources, voices[general.figure.voice.voice].sources, 'sounds the same as 通用声音')
+})
+
+test('旁白 never set points at the figure 通用声音 followed; a pointer already set is kept', async t => {
   const f = await fixture(t), kept = {packId:PACK_ID, figureId:FIGURE_ID}, tts = fakeTts({general:{figure:null}, narrator:{enabled:false, figure:kept}})
   await legacyStore(f, {general:{link:{packId:PACK_ID, figureId:FIGURE_ID}}})
   const done = await migrateReadingVoices({library:f.library, tts})
   assert.equal(done.pack, null, 'a link needs no new pack')
-  assert.deepEqual(done.pointers, {general:kept, narrator:kept})
   assert.deepEqual(tts.writes, [{general:{figure:kept}}], '旁白 already pointed: not rewritten')
 })
 
+test('a new library makes the pack once, both figures speaking the browser voice; then it is an ordinary pack', async t => {
+  const f = await fixture(t), tts = fakeTts()
+  const done = await migrateReadingVoices({library:f.library, tts})
+  for (const role of ['general', 'narrator']) {
+    const {pack, figure} = await roleFigure(f.library, tts, role), spec = pack.manifest.voiceLibrary.voices[figure.voice.voice]
+    assert.equal(pack.manifest.name, PACK_NAME)
+    assert.equal(figure.name, {general:'通用声音', narrator:'旁白声音'}[role])
+    assert.deepEqual(spec.sources, {main:{kind:'preset', provider:'browser'}})
+  }
+  const pack = await f.library.getPackSnapshot({packId:done.pack})
+  await f.library.removePack({packId:done.pack, expectedRevision:pack.revision})
+  assert.equal(await migrateReadingVoices({library:f.library, tts}), null, 'deleted is deleted: not made again')
+  assert.equal(await f.library.getPackSnapshot({packId:done.pack}), null)
+})
 test('a pointed figure speaks with its own voice in its own 配音语言; none = the browser; one gone = VOICE_NOT_FOUND', async t => {
   const {library, snapshot} = await fixture(t), effective = {serviceId:'local', serviceRevision:'1', capabilities:{}}
   const tts = {apiVersion:1, resolveVoiceService:async () => ({effective, issues:[]})}

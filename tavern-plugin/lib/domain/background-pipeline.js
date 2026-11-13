@@ -5,13 +5,13 @@
 // sit in the background session's cached prefix and never change; which may be called this
 // turn is stated in the per-turn task text.
 
-const PLUGIN_HEADER = '## Plugin settlement tasks'
+const PLUGIN_HEADER = '【插件附加的结算任务】'
 
 function pluginText(names, notes) {
   if (!notes.length && !names.available.length && !names.unavailable.length) return ''
   return [PLUGIN_HEADER,
-    ...(names.available.length ? ['Plugin tools available this turn: ' + names.available.join('、') + ". This list is current; earlier turns where they were off or failed no longer apply. Call them as needed before submitting this turn's settlement; a plugin tool failure doesn't affect it."] : []),
-    ...(names.unavailable.length ? ['Plugin tools unavailable this turn (the player turned off their plugins for this game): ' + names.unavailable.join('、') + ". Don't call them this turn."] : []),
+    ...(names.available.length ? ['本轮可用插件工具：' + names.available.join('、') + '。以本轮列出的为准：之前回合里这些工具被关闭或报错的情况已不再适用。需要时在提交本轮结算之前调用；插件工具失败不影响本轮结算。'] : []),
+    ...(names.unavailable.length ? ['本轮不可用的插件工具（玩家在本局关闭了对应插件）：' + names.unavailable.join('、') + '。本轮不要调用。'] : []),
     ...notes.map(note => note.text)].join('\n\n')
 }
 
@@ -95,8 +95,8 @@ export async function runPipelineStages(stages) {
 export const CHARACTER_DESIGN_ITEM = Object.freeze({
   id: 'tavern.character-design',
   trigger: 'manual',
-  requirement: 'Character design task started manually by the user. With empty design notes, pick the important characters needing a new or fuller design from the current story and existing files; with notes, follow them first. ',
-  protocol: "Load character-design with skill, then check this game's worldbook and existing files by name or alias with character_design_read. If the worldbook already defines a character, character_design_reuse completes it with no new file; call character_design_save only for new characters without a definition or to revise an existing design file. Leave variables, postures and story text untouched.",
+  requirement: '本次执行用户手动发起的人物设计。设计意见留空时，根据当前剧情和已有档案，自行选择需要建立或补充设计的重要人物；有意见时优先遵循意见。',
+  protocol: '先调用 skill 加载 character-design，再用 character_design_read 按姓名或别名检查本局世界书与已有档案。世界书已有该人物设定时调用 character_design_reuse 复用即可完成，不另建档案；只有缺少设定的新人物或已有设计档案的修订才调用 character_design_save。不得执行变量或姿势结算，不得改写正文。',
   system() { return this.requirement + this.protocol }
 })
 
@@ -104,9 +104,9 @@ export function createLedgerItem({ rules }) {
   return Object.freeze({
     id: 'tavern.ledger',
     trigger: 'manual',
-    requirement: 'This is a ledger update the player started manually. The ledger is a memo for the player, and the next story turn reads it once after the update. ',
+    requirement: '本次执行玩家手动发起的台账整理。台账是给玩家查阅的备忘录，整理后下一轮正文会参考一次。',
     rules,
-    protocol: ({ from, through }) => 'Read the given story (turns ' + from + '–' + through + '), compare it with the current ledger, and call ledger_submit once with the changes that story brings; submit {} if nothing changed. Leave story text, variables and postures untouched.',
+    protocol: ({ from, through }) => '阅读给出的剧情（第 ' + from + '–' + through + ' 轮），对照当前台账，调用一次 ledger_submit 提交这些剧情带来的增量；没有变化也提交 {}。不得改写正文、变量或姿势。',
     system(range) { return this.requirement + this.protocol(range) + '\n\n' + this.rules }
   })
 }

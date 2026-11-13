@@ -3065,7 +3065,9 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (image.subjectsError) throw new Error(image.subjectsError)
             // 可选的宿主口子：出这张图之前由宿主放行；宿主说跳过就不出这张，原因写进这一轮的提示。没有这个口子就照旧。
             if (sessionId && typeof deps.tavern?.beforeImageGenerate === 'function') {
-              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: image.subjects || [], manual: Boolean(manual), signal: task.controller.signal })
+              // 规划没写 <subjects> 时，出图会按这张图的文字认人（resolveImageReferences）；把同样认出的人告诉宿主，宿主才知道要等谁。
+              const gateSubjects = image.subjects ?? resolveImageReferences({ text: sceneText, characters: planCharacters, definitions: scoped }).subjects
+              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: gateSubjects, manual: Boolean(manual), signal: task.controller.signal })
               task.controller.signal.throwIfAborted()
               if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
             }

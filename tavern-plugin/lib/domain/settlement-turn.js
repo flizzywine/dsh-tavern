@@ -1,4 +1,3 @@
-import { promptSection } from './prompt-section.js'
 import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 
 // What one background settlement reads from the latest round and writes back to the save.
@@ -28,19 +27,19 @@ export function settleUserText(chat, includePosture = true, knownPosture = '') {
   }).slice(-2)
   const repeatPosture = includePosture && !(str(chat.posture).trim() !== '' && str(chat.posture).trim() === knownPosture)
   const lines = [
-    ...(repeatPosture ? ['Last settled posture:',
-    str(chat.posture) !== '' ? projectAgentContent(chat.posture, { charName: chat.cardName, macroState: chat.macroState }).agentText : '(none)'] : []),
+    ...(repeatPosture ? ['【上一轮结算姿势】',
+    str(chat.posture) !== '' ? projectAgentContent(chat.posture, { charName: chat.cardName, macroState: chat.macroState }).agentText : '（无）'] : []),
     ...[openingSettlementContext(chat.messages || [], (chat.messages || []).lastIndexOf(msgs.at(-1)))].filter(Boolean),
-    'Latest exchange:'
+    '【最新一轮对话】'
   ]
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
     if (m === null || typeof m !== 'object') continue
     const text = projectAgentMessageText(m, { charName: chat.cardName, macroState: chat.macroState })
     if (text.trim() === '') continue
-    lines.push((m.role === 'assistant' ? 'Story' : 'Player') + ': ' + text)
+    lines.push((m.role === 'assistant' ? '正文' : '玩家') + ': ' + text)
   }
-  return promptSection('settlement_context', lines.join('\n'))
+  return lines.join('\n')
 }
 export function applySettlement(chat, result) {
   let postureUpdated = false

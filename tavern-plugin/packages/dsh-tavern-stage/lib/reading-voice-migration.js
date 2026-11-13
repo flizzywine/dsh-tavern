@@ -1,31 +1,30 @@
-// One-time move of 通用声音 / 旁白's voices off the library's retired reading-voice store (owner
-// 2026-11-11): they now only point at a figure (tts.reading general / narrator .figure). A reading that was its own voice
-// becomes a plain voice-only figure in a new, unlit pack 「专用声音」 (its voice, binding and reference clips as they were,
-// so it sounds the same), and the pointer names it; a reading that followed a figure (link) points at that figure. 旁白 that
-// was never set keeps sounding like 通用声音 by pointing at the same figure. A pointer already set is kept. Then the store
-// is dropped; afterwards this does nothing. Runs when the asset library and TTS are both up.
-const NAMES = {general:'通用声音', narrator:'旁白'}
+// 通用声音 / 旁白 point at a figure each (tts.reading general / narrator .figure). Once, at startup, a role that points at
+// nothing gets the figure 「通用声音」 / 「旁白声音」 in a new ordinary pack 「系统设置（请勿删除）」 (owner 11-12), and is
+// pointed at it: carrying its voice from the library's retired reading-voice store when it had one there (旁白 never set
+// takes 通用声音's, a copy of its own), else the browser's voice. A role that followed a figure (link) points at that figure.
+// Runs only while both roles point at nothing or the retired store still holds something; afterwards the pack is an
+// ordinary pack (deleting it leaves the roles pointing at a figure that is gone).
+const PACK = {name:'系统设置（请勿删除）', description:'通用声音和旁白声音用的是这个包里的人物。'}
+const NAMES = {general:'通用声音', narrator:'旁白声音'}
+const browserVoice = name => ({name, language:'zh', defaultSource:'main', sources:{main:{kind:'preset', provider:'browser'}}})
 
 export async function migrateReadingVoices({library, tts}) {
-  const rows = await library.legacyReadingVoices?.()
+  const rows = await library.legacyReadingVoices?.(), reading = tts.reading()
   if (!rows) return null
-  if (!rows.length) return (await library.dropLegacyReadingVoices()).dropped ? {pointers:{}} : null
+  if (!rows.length && (reading.general.figure || reading.narrator.figure)) return (await library.dropLegacyReadingVoices()).dropped ? {pointers:{}} : null
   const byId = new Map(rows.map(row => [row.id, row])), pointers = {}
   let pack = null
   for (const id of ['general', 'narrator']) {
-    const row = byId.get(id)
-    if (!row) continue
-    if (row.link) { pointers[id] = {packId:row.link.packId, figureId:row.link.figureId}; continue }
-    pack ||= (await library.createPack({name:'专用声音', description:'通用声音 / 旁白原来自己的声音（迁移时建的，不对卡启用；可以改名或删除）', expectedRevision:null})).snapshot
+    if (reading[id].figure) continue
+    const row = byId.get(id) || byId.get('general')
+    if (row?.link) { pointers[id] = {packId:row.link.packId, figureId:row.link.figureId}; continue }
+    pack ||= (await library.createPack({...PACK, expectedRevision:null})).snapshot
     const created = await library.createFigure({packId:pack.manifest.id, expectedRevision:pack.revision, figure:{schemaVersion:1, name:NAMES[id], aliases:[], enabled:true, outfits:[]}})
-    pack = (await library.assignLegacyReadingVoice({packId:pack.manifest.id, expectedRevision:created.snapshot.revision, readingId:id, figureId:created.figureId})).snapshot
+    const input = {packId:pack.manifest.id, expectedRevision:created.snapshot.revision, figureId:created.figureId}
+    pack = (row ? await library.assignLegacyReadingVoice({...input, readingId:row.id}) : await library.createAndAssignPackVoice({...input, voiceSpec:browserVoice(NAMES[id])})).snapshot
     pointers[id] = {packId:pack.manifest.id, figureId:created.figureId}
   }
-  pointers.narrator ||= pointers.general
-  const reading = tts.reading(), patch = {}
-  if (pointers.general && !reading.general.figure) patch.general = {figure:pointers.general}
-  if (pointers.narrator && !reading.narrator.figure) patch.narrator = {figure:pointers.narrator}
-  if (Object.keys(patch).length) await tts.setReading(patch)
-  await library.dropLegacyReadingVoices()
+  if (Object.keys(pointers).length) await tts.setReading(Object.fromEntries(Object.entries(pointers).map(([id, figure]) => [id, {figure}])))
+  if (rows.length) await library.dropLegacyReadingVoices()
   return {pack:pack?.manifest.id ?? null, pointers}
 }

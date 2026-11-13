@@ -32,14 +32,16 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 export function createBuiltinModService({workbenchAuthority,management,readCard,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
   let service,library,runtime,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   let grammarRevision,grammarCommands
-  const proofs=new Map(),prepared=new Map(),commands=new WeakMap()
+  // hosts: each prepared snapshot's own runtime. A library change opens a new runtime for later rounds;
+  // the round in flight keeps commanding the one it prepared with (stage-state.md: 在途导演用开始时的快照跑完).
+  const proofs=new Map(),prepared=new Map(),commands=new WeakMap(),hosts=new WeakMap()
   const corrections=stage?createModStageCorrections(stage):null
   const deliveryLog=(context,command,phase,error)=>onLog({kind:'mod-delivery',sessionId:context.gameId,turn:context.turn,
     sourceKey:context.source.sourceKey,generation:context.source.generation,modId:context.modId,key:command.key,commandId:command.commandId,at:command.at,phase,
     ...(error?{error:{code:error.code || 'MOD_RUNTIME_FAILED',message:String(error.message),...(error.path?{path:error.path}:{})}}:{})})
   const current=context=>{
     const proof=proofs.get(context.gameId)
-    return active && !dirty && proof?.active===true && proof.key===context.source.sourceKey && proof.branchId===context.source.branchId && proof.turn===context.turn && proof.value[1]===context.source.generation
+    return active && proof?.active===true && proof.key===context.source.sourceKey && proof.branchId===context.source.branchId && proof.turn===context.turn && proof.value[1]===context.source.generation
   }
   const proofFor=(context,isCurrent)=>{
     check(isCurrent() && current(context),'$.source','Mod source changed','MOD_SOURCE_STALE')
@@ -84,7 +86,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       },
     },
   }:undefined
-  function invalidate() {epoch++;dirty=true;runtime?.dispose();prepared.clear();onChange()}
+  function invalidate() {epoch++;dirty=true;prepared.clear();onChange()}
   // A settings save invalidates once, after it has returned (not mid-write on the serial lane).
   let writingSettings=false
   const unsubscribe=management.settings.subscribe(()=>{if(!writingSettings)invalidate()})
@@ -92,9 +94,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
   async function open() {
     check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')
     if(!dirty)return
-    const builtin=await builtins
+    const opened=epoch,builtin=await builtins
     library=await managedExecutionView({management,builtins:builtin})
-    dirty=false
+    // A change while the view was read opens again on the next call.
+    dirty=epoch!==opened
     settledSource=variables && stage?.source?createSettledModSource({...variables,source:stage.source}):null
     runtime=createModHostRuntime({library,builtins:builtin,sourceCurrent:current,coreCommands,
       onError:diagnostic=>onLog({kind:'mod-runtime-failure',...diagnostic}),
@@ -253,17 +256,20 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         stageState:stageState && modFreeze(structuredClone(stageState)),commands:new Map()})
       while(proofs.size>64)proofs.delete(proofs.keys().next().value)
       const ownEpoch=epoch,host=runtime
-      // Release the management queue before invoking code; disabling remains immediate.
+      // Release the management queue before invoking code. A library change meanwhile (a mod switch, a card or
+      // settings write) takes effect from the next round; this round finishes on the runtime it started with.
       return async()=>{
         const result=await host.prepare({cardId:card.meta.id,gameId:chat.sessionId,turn,
           source:{branchId:target.branchId,sourceKey:key,generation:message.stageDirectionGeneration || 0,textVersion:key},authorityEpoch:ownEpoch,catalogueRevision:version,catalogues,settingsByMod,selectedModIds})
-        check(ownEpoch===epoch && isCurrent(),'$.source','Director source changed','MOD_SOURCE_STALE')
+        check(isCurrent(),'$.source','Director source changed','MOD_SOURCE_STALE')
         const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews:turnSourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
-        prepared.set(cacheKey,snapshot);while(prepared.size>64)prepared.delete(prepared.keys().next().value)
+        hosts.set(snapshot,host)
+        // Previews after a library change read the new library, not this round's.
+        if(ownEpoch===epoch){prepared.set(cacheKey,snapshot);while(prepared.size>64)prepared.delete(prepared.keys().next().value)}
         return snapshot
       }
     }).then(value=>typeof value==='function'?value():value)},
-    command:(snapshot,input)=>runtime.command(snapshot,input),
+    command:(snapshot,input)=>hosts.get(snapshot).command(snapshot,input),
     applied(snapshot,effect) {
       if(!snapshot)return
       let seen=commands.get(snapshot);if(!seen)commands.set(snapshot,seen=new Set())
@@ -284,7 +290,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
           const patch=change?.choices.find(row=>row.value===op.params[change.parameter])?.patch
           proofs.get(context.gameId).commands.set(key,{modId:op.modId,commandId:op.commandId,at,params:op.params,source:command.admission?.source,patch,state:state?.modState?.[op.modId] || {}})
           deliveryLog(context,identity,'applied')
-          const result=await runtime.command(snapshot,op,{key,at})
+          const result=await hosts.get(snapshot).command(snapshot,op,{key,at})
           if(!result.ok){deliveryLog(context,identity,'failed',result.error);onError(result.error)}
           else if(sourceViews.of(op.modId))deliveryLog(context,identity,'source-mark')
         } catch(error) {deliveryLog(context,identity,'failed',error);throw error}

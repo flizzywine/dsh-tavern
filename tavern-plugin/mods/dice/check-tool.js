@@ -43,11 +43,12 @@ const requireText = (args, field) => {
  * an awaiting one is the open check. `records` are the parsed result texts of this tool (core reader).
  * `variables` (the game's settled MVU stat_data) hold the resources a card keeps there: they are the truth between
  * turns, while within the running `turn` the latest record already follows from them (variables settle after it).
+ * A card updated mid-game may declare resources its earlier records never had: those start at their initial value.
  */
 export function checkLedger(rules, records, { variables, turn } = {}) {
   const rows = records.filter(row => row && typeof row === 'object' && row.state)
   const numbered = rows.filter(row => row.id), last = numbered.at(-1), latest = rows.at(-1)
-  const state = latest ? latest.state : initialState(rules)
+  const state = latest ? { resources: { ...initialState(rules).resources, ...latest.state.resources } } : initialState(rules)
   return { state: variables && !(latest && latest.turn === turn) ? withVariables(rules, state, variables) : state,
     awaiting: last?.status === 'awaiting' ? last : null, count: numbered.length }
 }

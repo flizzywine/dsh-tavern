@@ -96,21 +96,16 @@ test('wrong figure, missing pack and stale associations cannot change a characte
   assert.deepEqual(f.images.store.images, [])
 })
 
-test('the 人物库 aliases are the 触发词 that name only this figure, readable Latin name first', () => {
-  const yuno = { id: 'f-yuno', name: '千石由乃', aliases: ['由乃', '千石', 'yuno_c', 'Yuno', 'Kaname', 'Ai'] }
-  const others = [{ id: 'f-nadeko', name: '千石抚子', aliases: ['抚子', 'Nadeko'] }, { id: 'f-rana', name: '要乐奈', aliases: ['KANAME', 'rana_k'] },
-    { id: 'f-aiko', name: 'Aiko', aliases: ['愛子'] }]
-  // 千石 is in another name, Kaname another's alias (any case); the actor key never goes; Ai is not a word of Aiko
-  assert.deepEqual(imageAliasesFromFigure(yuno, others), ['Yuno', '由乃', 'Ai'])
-  // kana run on inside kana, as the 人物库 matches them
-  assert.deepEqual(imageAliasesFromFigure({ id: 'f-s', name: '時雨羽衣', aliases: ['しぐれ', 'Shigure'] }, [{ id: 'f-u', name: 'しぐれうい' }]), ['Shigure'])
+test('the 人物库 aliases are the 触发词 without actor keys, readable Latin name first, shared words kept', () => {
+  // 千石 and Kaname are also other people's words: they stay (the 配图 plugin does not resolve a word several people on a card answer to)
+  assert.deepEqual(imageAliasesFromFigure({ id: 'f-yuno', name: '千石由乃', aliases: ['由乃', '千石', 'yuno_c', 'Yuno', 'Kaname', 'Ai'] }), ['Yuno', '由乃', '千石', 'Kaname', 'Ai'])
 })
 
-test('a new record leaves out a 触发词 another installed figure also answers to', async t => {
+test('a new record keeps a 触发词 another installed figure also answers to', async t => {
   const f = await fixture(t)
   const next = (await f.library.createFigure({ packId: f.pack.manifest.id, expectedRevision: f.pack.revision, figure: { schemaVersion: 1, name: '佐仓爱里', aliases: ['Kyoko的友人', 'Kyoko'], enabled: true, appearance: 'sprite', recall: { mode: 'keyword' }, outfits: [] } })).snapshot
   const linked = await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
-  assert.equal(linked.character.match, '')
+  assert.equal(linked.character.match, 'Kyoko')
   assert.equal(next.manifest.figures.length, 2)
 })
 

@@ -3307,8 +3307,9 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
     padding-top: max(12px, env(safe-area-inset-top, 0px));
     /* 抽屉底部还有宿主自己的一行「设置」（宿主侧栏 footArea 排在 regionArea 之后）。
-       整屏侧栏按视口铺开，版本行和更新状态会压到那行上面；这里让出宿主实测的底栏高度
-       （sidebar.js 写入 --dsh-tavern-host-foot-inset，宿主版本、账号状态不同高度也不同）。 */
+       整屏侧栏铺开后，版本行和更新状态会压到那行上面；这里让出「侧栏盒子压住宿主底栏的那一截」
+       （sidebar.js 写入 --dsh-tavern-host-foot-inset，宿主版本、账号状态不同高度也不同）。
+       不能用视口高度减去底栏上沿：手机上布局视口比外壳可视区高一截，那样会让出多余空白。 */
     padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + max(12px, env(safe-area-inset-bottom, 0px)));
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse {

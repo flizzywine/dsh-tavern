@@ -53,7 +53,6 @@ test('tavern-background 预设声明了后台任务 restrict 会点名的全部�
   }
   for (const name of names) {
     const specifier = hostToolRowFor[name]
-    if (name === 'phone') continue // restrict 条件中的任务名，不是工具
     if (specifier === undefined) {
       assert.ok(['tavern_read_skill_reference', 'worldbook_list', 'worldbook_grep'].includes(name), `未校验的后台工具：${name}，必须补充注册来源` )
       continue

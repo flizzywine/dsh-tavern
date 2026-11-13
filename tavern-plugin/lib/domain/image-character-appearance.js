@@ -1,6 +1,5 @@
 // A figure's 外貌 lives in the 配图 人物库 record (schema 4, per view). Asset generation draws standing, clothed,
 // front-facing pictures, so it reads the front SFW views and the outfit's front parts.
-import { normalizeCatalogueText } from './asset-pack-lexical.js'
 import { IMAGE_CHARACTER_TRAITS } from './plugin-image-catalog.js'
 
 // A pack that leaves this library (export, copy) carries each figure's record 外貌 as this figure extension; the host moves
@@ -23,42 +22,23 @@ export function imageCharacterExtension(character) {
 // chats, not a name anybody writes (the figure page hides the same words).
 export const internalAliasCode = word => /^[a-z][a-z0-9_]*$/.test(String(word))
 const readableLatin = word => /^[a-z][a-z0-9 .'-]*$/i.test(word) && !internalAliasCode(word)
-const hasHan = text => /\p{Script=Han}/u.test(text)
-// The 人物库 finds a person in prompt text by alias: one with a Chinese character as a substring, any other between
-// non-ASCII-word characters (so kana run on inside kana, as there).
-const namedIn = word => {
-  const key = normalizeCatalogueText(word)
-  if (hasHan(key)) return text => text.includes(key)
-  const pattern = new RegExp('(?<![A-Za-z0-9_])' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])')
-  return text => pattern.test(text)
-}
 
-/** The 配图 人物库 aliases of a figure: its 触发词 that name only this figure — not an actor key, and not found in any
- *  other figure's name or 触发词 (`others`, the whole library: the 人物库 matches every record in every game, so a word
- *  that names two people would bring both into a picture) — with the first readable Latin name first, which the 人物库
- *  writes as the person's name in English prompts. One 触发词 list; this is its 生图 view.
- *  The planner model could tell shared names apart; the 人物库's own lookups after it (按名字补外貌, macro names) cannot,
- *  and both read this one field. Once the 配图 plugin keys those lookups on stable_id (contrib PR, REPORT §11), shared
- *  words go back in (owner/lead 11-09, decision B). */
-export function imageAliasesFromFigure(figure, others) {
-  const taken = others.flatMap(other => [other.name, ...(other.aliases || []).filter(word => !internalAliasCode(word))]).map(normalizeCatalogueText)
-  const own = (figure.aliases || []).filter(word => !internalAliasCode(word) && !taken.some(namedIn(word)))
+/** The 配图 人物库 aliases of a figure: its 触发词 except actor keys, with the first readable Latin name first, which the
+ *  人物库 writes as the person's name in English prompts. One 触发词 list; this is its 生图 view. A word several people
+ *  answer to stays (owner 11-12): the 配图 plugin, within the people a card can use, does not resolve a word that names
+ *  more than one of them, as the stage does not. */
+export function imageAliasesFromFigure(figure) {
+  const own = (figure.aliases || []).filter(word => !internalAliasCode(word))
   const latin = own.find(readableLatin)
   return latin ? [latin, ...own.filter(word => word !== latin)] : own
 }
 
 /** What a linked record's name and aliases must become (方案甲: the figure is their one home, the record shows them);
  *  null when they already match. */
-export function identityPatchFromFigure(character, figure, others) {
-  const match = imageAliasesFromFigure(figure, others).join(', ')
+export function identityPatchFromFigure(character, figure) {
+  const match = imageAliasesFromFigure(figure).join(', ')
   const patch = { ...(character.name !== figure.name ? { name: figure.name } : {}), ...(character.match !== match ? { match } : {}) }
   return Object.keys(patch).length ? patch : null
-}
-
-/** Does one of `figure`'s 触发词 also name a figure in `changed` (so a change there can change this figure's 人物库 aliases)? */
-export function aliasesMeet(figure, changed) {
-  const texts = changed.flatMap(other => [other.name, ...(other.aliases || [])]).map(normalizeCatalogueText)
-  return (figure.aliases || []).some(word => !internalAliasCode(word) && texts.some(namedIn(word)))
 }
 
 const joined = values => values.map(value => typeof value === 'string' ? value.trim() : '').filter(Boolean).join('；')
@@ -72,10 +52,10 @@ export function appearanceFromImageCharacter(character, outfitKey) {
 }
 
 /** The first 人物库 record of a figure: its names, its 外貌 text and its outfits' text (identityAppearance → face,
- *  outfitAppearance → upper, as the 人物库 reads its own single-text legacy fields). `others`: the library's other figures. */
-export function imageCharacterFromFigure(figure, packId, others = []) {
+ *  outfitAppearance → upper, as the 人物库 reads its own single-text legacy fields). */
+export function imageCharacterFromFigure(figure, packId) {
   return {
-    name: figure.name, match: imageAliasesFromFigure(figure, others).join(', '), figureId: figure.id, ...(packId ? { figurePackId: packId } : {}),
+    name: figure.name, match: imageAliasesFromFigure(figure).join(', '), figureId: figure.id, ...(packId ? { figurePackId: packId } : {}),
     ...(figure.identityAppearance ? { traits: { face: figure.identityAppearance } } : {}),
     outfits: figure.outfits.map(outfit => ({ id: outfit.key, name: outfit.label, ...(outfit.outfitAppearance ? { upper: outfit.outfitAppearance } : {}) })),
   }
@@ -134,6 +114,15 @@ export function linkPatchFromFigure(character, figure, packId) {
 
 /** 设定图→参考图: the one way a pack picture becomes a 人物库 参考图 (the 人物 page's button and the follow). The 配图 plugin stores it
  * (`putReferenceImage`); the caller patches it onto the record or outfit. */
+/** The 参考图 name a pack picture gets in the 人物库 (`suffix` names its kind: 设定图, or a sprite fallback's). */
+export const packReferenceName = (figure, outfit, suffix = ' 设定图') => figure.name + (outfit ? '／' + outfit.label : '') + suffix
+
+/** The record patch that makes a 参考图 the person's (no outfit) or one outfit's; a new outfit takes the outfit's label. */
+export function referencePatch(character, outfit, referenceImage) {
+  return !outfit ? { referenceImage } : { outfits: [{ id: outfit.key, characterOutfitImage: referenceImage,
+    ...((character.outfits || []).some(item => item.id === outfit.key) ? {} : { name: outfit.label }) }] }
+}
+
 export async function putPackReference(api, library, { providerId, packId, revision, hash, name }) {
   const { bytes, descriptor } = await library.readMedia({ packId, expectedRevision: revision, hash })
   return (await api.imageCharacters('putReferenceImage', { providerId, data: new Uint8Array(bytes), mediaType: descriptor.mime, name })).referenceImage

@@ -1,6 +1,7 @@
 import { boundedCompaction } from './bounded-compaction.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
 import { isPluginSource, sourceProducerName } from './message-source.js'
+import { withoutReplayReasoning } from './prefix-bound-reasoning.js'
 
 // Internal metadata-only events are persisted on the Session surface but are
 // not user utterances. Native compaction replays that surface independently of
@@ -11,16 +12,10 @@ export function projectCompactionRequest(request) {
     if (message?.role === 'user' && Array.isArray(message.content) && message.content.length === 0 &&
       isPluginSource(message.source) &&
       ['dsh-tavern', 'dsh-tavern-failed-turn-cleanup'].includes(sourceProducerName(message.source))) return []
-    if (message?.role !== 'assistant' || !Array.isArray(message.content)) return [message]
-    // Summary projection changes the signed prefix. Replay reasoning is not story
-    // content; remove whole blocks, including redacted reasoning, only in this copy.
-    const content = message.content.filter(block => block.type !== 'reasoning')
-    if (content.length === message.content.length) return [message]
-    if (!content.length) return []
-    // Adapter-owned replay metadata indexes the original block array. Use the
-    // provider-neutral contract rather than passing stale indexes to the adapter.
-    const { replayState, ...source } = message.source || {}
-    return [{ ...message, content, ...(message.source ? { source } : {}) }]
+    // Summary projection changes the signed prefix, and the summary reads story, not
+    // reasoning: every message drops it, only in this copy.
+    const kept = withoutReplayReasoning(message)
+    return kept ? [kept] : []
   })
   return messages.length === request.messages.length && messages.every((message, index) => message === request.messages[index])
     ? request : { ...request, messages }

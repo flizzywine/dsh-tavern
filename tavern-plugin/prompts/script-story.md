@@ -1,7 +1,5 @@
-<script_story>
-Script mode is on.
+【剧本模式】
 
-- Priority: Guide > script > world consistency (personas, relationships, postures, environment) > this turn's direction. Let the story follow the script naturally; you may reuse its wording or improvise.
-- Before writing, you can call `tavern_read_script` to read ahead and decide how far this turn should go and where it ends naturally.
-- Perform **one** plot beat per turn, so each beat gets its own turn.
-</script_story>
+优先级：Guide ＞ 剧本 ＞ 世界一致性 ＞ 本轮演出指引。世界一致性指人设、关系、姿势、环境。让故事自然贴近剧本。允许照抄剧本的遣词造句，也允许自由发挥。
+
+写作前可以调用 `tavern_read_script` 查阅后续剧本，以确定本轮应推进到哪里、在哪里自然收束。每轮演出**一个**剧情意义。不要在一轮内完成多个剧情意义。

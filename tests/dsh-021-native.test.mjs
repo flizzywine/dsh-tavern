@@ -16,7 +16,7 @@ async function restorePristineFontLimit(directory) {
     const code = await readFile(file, 'utf8')
     await writeFile(file, code
       .replace('const FONT_SIZE_MAX = 32;', 'const FONT_SIZE_MAX = 22;')
-      .replace(/(variable: "--dsh-content-font-size",\s+min: 10,\s+max: )32,/, '$122,'))
+      .replace(/(variable\s*:\s*(["'`])--dsh-content-font-size\2\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*)32(\s*,)/, '$122$3'))
   }
 }
 
@@ -32,16 +32,16 @@ test('目标宿主字号补丁只扩大正文字号，重复安装幂等，锚�
   assert.equal(patchThemeFontLimit(directory), false)
   for (const name of ['index.js', 'client.js']) {
     const code = await readFile(path.join(directory, 'lib', name), 'utf8')
-    assert.match(code, /variable: "--dsh-content-font-size",\s+min: 10,\s+max: 32,/)
-    assert.match(code, /variable: "--dsh-code-font-size",\s+min: 10,\s+max: 16,/)
-    assert.match(code, /variable: "--dsh-terminal-font-size",\s+min: 10,\s+max: 20,/)
+    assert.match(code, /variable\s*:\s*(["'`])--dsh-content-font-size\1\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*32\s*,/)
+    assert.match(code, /variable\s*:\s*(["'`])--dsh-code-font-size\1\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*16\s*,/)
+    assert.match(code, /variable\s*:\s*(["'`])--dsh-terminal-font-size\1\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*20\s*,/)
   }
   await cp(source, directory, { recursive: true })
   await restorePristineFontLimit(directory)
   const client = path.join(directory, 'lib/client.js')
   const host = path.join(directory, 'lib/index.js')
   const originalHost = await readFile(host, 'utf8')
-  const drifted = (await readFile(client, 'utf8')).replace('max: 22,', 'max: 23,')
+  const drifted = (await readFile(client, 'utf8')).replace(/(variable\s*:\s*(["'`])--dsh-content-font-size\2\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*)22(\s*,)/, '$123$3')
   await writeFile(client, drifted)
   assert.equal(patchThemeFontLimit(directory), null)
   assert.equal(await readFile(host, 'utf8'), originalHost)

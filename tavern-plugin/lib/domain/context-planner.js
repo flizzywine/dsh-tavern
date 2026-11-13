@@ -5,30 +5,11 @@ import { cardSystemPromptText } from './card-system-prompt.js'
 import { styleReferenceSource } from './style-reference.js'
 import { variableUpdateText } from './variable-update.js'
 
-// Prompt prose source. Keys are stable; interpolation arguments are data.
+// Prompt prose of the stage director's script window (stage-owned). Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
-  p001: "Worldbook context for this turn",
-  p002: "User Guide (takes priority):\n",
-  p003: "Main characters' current state (settled every turn; stay consistent with it):\n",
-  p004: "Name: ",
-  p005: "Description: ",
-  p006: "{{user}} is the player.",
-  p007: "Personality: ",
-  p008: "Opening scenario: ",
-  p009: "Style examples:\n",
-  p010: "Card instructions:\n",
-  p011: " · chunk ",
-  p012: "",
-  p013: "Script reference for this turn",
   p014: "Script reference for staging (unplayed content is not a story fact)",
-  p015: "Script reference for choices",
   p016: " · cursor ",
-  p017: "The script has ended. Stage only from the finished story text.",
-  p018: "The script has ended. Wrap up naturally from the recent story, or offer a choice opening a new scene.",
-  p019: "Card instructions:\n",
-  p020: "Material for this turn: chunks ",
-  p021: " of ",
-  p022: "\n"
+  p017: "The script has ended. Stage only from the finished story text."
 })
 
 
@@ -62,23 +43,24 @@ export function createContextPlanner(options = {}) {
     // Rendered worldbook entries have already crossed the runtime projection seam.
     const entries = input.worldBookEntries?.filter(entry => entry.location === 'foreground')
     const projectedWorldBook = entries ? entries.map(entry => entry.text).join('\n\n') : projectText(input.worldBookContext)
-    const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: promptSection(input.stableFirst ? 'constant_worldbook' : 'worldbook_context', projectedWorldBook), ...(entries ? { entries } : {}) }
+    const worldBookLabel = input.stableFirst ? '常驻世界书' : '本轮世界书上下文'
+    const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: '【' + worldBookLabel + '】\n' + projectedWorldBook, ...(entries ? { entries } : {}) }
     const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
     const projectedGuides = guides.map(function (item) { return projectText(str(item.text).trim()) }).filter(Boolean)
-    const guideSection = input.includeGuides === false || projectedGuides.length === 0 ? null : { kind: 'guide', required: true, text: promptSection('user_guide', PROMPT_PROSE.p002 + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n')) }
+    const guideSection = input.includeGuides === false || projectedGuides.length === 0 ? null : { kind: 'guide', required: true, text: '【用户指导 Guide · 优先遵循】\n' + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n') }
     const projectedPosture = input.includePosture === false ? '' : projectText(postureForContext(input.chat))
-    const postureSection = input.includePosture === false || projectedPosture === '' ? null : { kind: 'posture', required: true, text: promptSection('character_state', PROMPT_PROSE.p003 + projectedPosture) }
+    const postureSection = input.includePosture === false || projectedPosture === '' ? null : { kind: 'posture', required: true, text: '【现场 · 主要人物状态（每轮结算更新，务必与之一致）】\n' + projectedPosture }
     const cardInfoSections = []
     const instructionSections = []
-    if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: promptSection('character_card', PROMPT_PROSE.p004 + str(input.card.name)) })
+    if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: '【故事设定 · 人物卡】\n名字: ' + str(input.card.name) })
     if (input.includeDetails === true) {
-      if (input.includeDescription !== false) cardInfoSections.push({ kind: 'card', required: false, text: promptSection('character_description', PROMPT_PROSE.p005 + projectText([str(input.card.description), PROMPT_PROSE.p006].filter(Boolean).join('\n'))) })
-      if (input.includePersonality !== false && str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: promptSection('character_personality', PROMPT_PROSE.p007 + projectText(input.card.personality)) })
-      if (input.includeScenario !== false && str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: promptSection('opening_scenario', PROMPT_PROSE.p008 + projectText(input.card.scenario)) })
-      if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: promptSection('style_examples', PROMPT_PROSE.p009 + projectText(input.card.mes_example)) })
+      if (input.includeDescription !== false) cardInfoSections.push({ kind: 'card', required: false, text: '设定: ' + projectText([str(input.card.description), '{{user}} 表示玩家。'].filter(Boolean).join('\n')) })
+      if (input.includePersonality !== false && str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '主要人物性格: ' + projectText(input.card.personality) })
+      if (input.includeScenario !== false && str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '开场情境: ' + projectText(input.card.scenario) })
+      if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: '【文风示例】\n' + projectText(input.card.mes_example) })
     }
     if (input.includeInstructions !== false) {
-      if (input.includePostHistory !== false && str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: promptSection('post_history', PROMPT_PROSE.p010 + projectText(input.card.post_history_instructions)) })
+      if (input.includePostHistory !== false && str(input.card.post_history_instructions) !== '') instructionSections.push({ kind: 'card-instruction', required: true, text: '【附加要求】\n' + projectText(input.card.post_history_instructions) })
       if (input.includeSystemPrompt !== false && str(input.card.system_prompt) !== '') instructionSections.push({ kind: 'card-system-prompt', required: true, text: cardSystemPromptText(projectText(input.card.system_prompt)) })
     }
     if (input.stableFirst === true) {
@@ -157,8 +139,8 @@ export function createContextPlanner(options = {}) {
       const systemPromptText = projectText(input.card.system_prompt)
       if (input.scriptReference !== null && input.scriptReference !== undefined && str(input.scriptReference.text) !== '') {
         const order = Number(input.scriptReference.order)
-        const position = Number.isInteger(order) && order >= 0 ? PROMPT_PROSE.p011 + (order + 1) + PROMPT_PROSE.p012 : ''
-        sections.push({ kind: 'script', required: true, text: promptSection('script_reference', PROMPT_PROSE.p013 + position + '\n' + projectText(input.scriptReference.text)) })
+        const position = Number.isInteger(order) && order >= 0 ? ' · 第 ' + (order + 1) + ' 块' : ''
+        sections.push({ kind: 'script', required: true, text: '【本轮剧本参考' + position + '】\n' + projectText(input.scriptReference.text) })
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
       if (input.variableUpdate) sections.push({ kind: 'variable-update', required: true, text: variableUpdateText(input.variableUpdate) })
@@ -197,20 +179,24 @@ export function createContextPlanner(options = {}) {
         const window = input.scriptWindow
         dynamicSections.push({
           kind: 'script', required: true,
-          text: promptSection('script_window', (director ? PROMPT_PROSE.p014 : PROMPT_PROSE.p015) + PROMPT_PROSE.p016 + Math.min(window.cursor + 1, window.total) + ' / ' + window.total + '\n' + (window.ended
-            ? (director ? PROMPT_PROSE.p017 : PROMPT_PROSE.p018)
-            : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + projectText(chunk.text) }).join('\n\n')))
+          text: director
+            ? promptSection('script_window', PROMPT_PROSE.p014 + PROMPT_PROSE.p016 + Math.min(window.cursor + 1, window.total) + ' / ' + window.total + '\n' + (window.ended
+              ? PROMPT_PROSE.p017
+              : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + projectText(chunk.text) }).join('\n\n')))
+            : '【剧本候选参考 · 游标 ' + Math.min(window.cursor + 1, window.total) + ' / ' + window.total + '】\n' + (window.ended
+              ? '剧本已到结尾。按最近剧情自然收束，或给出一个新场景开头候选。'
+              : window.chunks.map(function (chunk) { return '[' + chunk.id + ']\n' + projectText(chunk.text) }).join('\n\n'))
         })
         if (!director && !window.ended && window.chunks.length) {
           const text = dynamicSections.at(-1).text
-          candidateScriptWindow = { text, heading: text.split('\n').slice(0, 2).join('\n'), positions: window.chunks.map((_, index) => window.cursor + index + 1) }
+          candidateScriptWindow = { text, heading: text.split('\n')[0], positions: window.chunks.map((_, index) => window.cursor + index + 1) }
         }
       }
       const systemPromptText = projectText(input.card.system_prompt)
       if (systemPromptText.trim()) stableSections.push({ kind: 'card-system-prompt', required: true, text: cardSystemPromptText(systemPromptText) })
       const postHistoryText = projectText(input.card.post_history_instructions)
       const instructionSections = [
-        ...(postHistoryText ? [{ kind: 'card-post-history', required: true, text: promptSection('post_history', PROMPT_PROSE.p019 + postHistoryText) }] : [])
+        ...(postHistoryText ? [{ kind: 'card-post-history', required: true, text: '【人物卡历史后指令】\n' + postHistoryText }] : [])
       ]
       const result = resultOf([taskSection].concat(stableSections, instructionSections, dynamicSections), warnings)
       result.stableText = stableSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
@@ -226,7 +212,7 @@ export function createContextPlanner(options = {}) {
       const prepared = input.sourcePrepared
       const sections = []
       if (prepared !== null && typeof prepared === 'object' && Array.isArray(prepared.window) && prepared.window.length > 0) {
-        sections.push({ kind: 'card-source', required: true, text: promptSection('card_source', PROMPT_PROSE.p020 + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + PROMPT_PROSE.p021 + prepared.total + PROMPT_PROSE.p022 + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n')) })
+        sections.push({ kind: 'card-source', required: true, text: '【本轮素材 · 第 ' + (Number(prepared.cursorBefore) + 1) + '~' + (Number(prepared.cursorBefore) + prepared.window.length) + ' 块 / 共 ' + prepared.total + ' 块】\n' + prepared.window.map(function (chunk) { return '[' + chunk.title + '] ' + chunk.text }).join('\n\n') })
       }
       return resultOf(sections, warnings)
     }

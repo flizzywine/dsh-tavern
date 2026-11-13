@@ -27,12 +27,10 @@ export function backgroundPrompt(messages, turnContext, task, taskProtocol, inpu
     sections.push('【本轮权威状态】\n' + (task === 'stage-director' ? '这是最新状态；与后台会话中较早的游标、姿势或指引冲突时，以本节为准。\n' : '') + authoritative)
   }
   const recent = (messages || []).map(function (message) {
-    const role = task === 'phone'
-      ? (message && message.role === 'assistant' ? '联系人' : '你')
-      : (message && message.role === 'assistant' ? '正文' : '用户')
+    const role = message && message.role === 'assistant' ? '正文' : '用户'
     return '[' + role + ']\n' + messageText(message)
   }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  const taskName = task === 'stage-director' ? '舞台导演' : task === 'settlement' ? '状态结算' : task === 'phone' ? '手机私聊' : task === 'character-design' ? '人物设计' : task === 'ledger' ? '台账整理' : task === 'plugin' ? '插件任务' : '候选生成'
+  const taskName = task === 'stage-director' ? '舞台导演' : task === 'settlement' ? '状态结算' : task === 'character-design' ? '人物设计' : task === 'ledger' ? '台账整理' : task === 'plugin' ? '插件任务' : '候选生成'
   sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
   const protocol = str(taskProtocol).trim()
   if (protocol !== '') sections.push('【任务要求】\n' + (task === 'stage-director' ? 'DSH 后台任务协议（最终指令）：\n' : '') + protocol)

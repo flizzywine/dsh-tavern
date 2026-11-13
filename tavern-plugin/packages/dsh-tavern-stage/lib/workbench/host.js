@@ -6,7 +6,7 @@ import {runWorkbenchAction} from './actions.js'
 // user approval before any change that reaches beyond the current card.
 const globalAssets=new Set(['global-packs','catalogue-settings'])
 const localVoice=new Set(['assign-figure','binding','pack-voice','assign-template'])
-export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,getTtsControl,rpc,approval,readChat,cardIdentity}) {
+export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,getTtsControl,rpc,approval,readChat,cardIdentity,core}) {
   const plans=new Map()
   const callRpc=async(method,args)=>{
     const value=await rpc(method,args)
@@ -40,6 +40,7 @@ export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,g
     if(name==='assets_patch') return globalAssets.has(input.action)?'global':input.action==='bind'?'card':await shared({...input,packId:input.packId || input.target?.packId},chat)?'shared':input.action.startsWith('remove-')?'delete':'card'
     if(name==='media_upload') return input.action==='mod-file'&&input.layer==='global'?'global':await shared(input,chat)?'shared':'card'
     if(name==='assets_transfer'&&input.action.startsWith('apply-')) return 'import'
+    if(name==='script_manage'&&['unbind','point','chunk-size'].includes(input.action)) return 'play'
     return 'read'
   }
   return {
@@ -51,7 +52,7 @@ export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,g
         if(chat?.mode!=='card') throw featureError('CARD_MODE_REQUIRED','$','Use a card workbench session.')
         exec.signal?.throwIfAborted()
         const library=getLibrary(),files=createWorkbenchFiles(session.header?.cwd)
-        const context={input,chat,exec,library,files,plans,sessionId:session.id,rpc:callRpc,packSettings:getPackSettings(),tts:getTtsControl(),
+        const context={input,chat,exec,library,files,plans,core,sessionId:session.id,rpc:callRpc,packSettings:getPackSettings(),tts:getTtsControl(),
           async path(value){
             const path=value || chat.cardPath
             if(!path) throw featureError('SOURCE_UNAVAILABLE','$.path','Supply path for the target card, or attach a card to this workbench first.')
@@ -75,7 +76,7 @@ export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,g
         }
         const kind=await scope(name,input,chat)
         if(!['card','read'].includes(kind)) {
-          const prefix={global:'这是全局设置，影响所有卡片，不只当前卡。',shared:'影响所有引用此共享素材的卡；全局启用包也会影响所有卡片。',paid:'一次测试请求，当前渠道可能收费；失败、超时或取消不保证免费。',delete:'将删除所选素材，已有引用可能不可用。',import:'将应用这次导入决策，可能影响所有引用共享素材的卡；脚本与声音回退风险须一并复核。'}[kind]
+          const prefix={global:'这是全局设置，影响所有卡片，不只当前卡。',shared:'影响所有引用此共享素材的卡；全局启用包也会影响所有卡片。',paid:'一次测试请求，当前渠道可能收费；失败、超时或取消不保证免费。',delete:'将删除所选素材，已有引用可能不可用。',import:'将应用这次导入决策，可能影响所有引用共享素材的卡；脚本与声音回退风险须一并复核。',play:'将改变关联游玩的剧本定位/切块，或解除当前卡绑定。'}[kind]
           await approve(exec,name,prefix+'\n'+JSON.stringify({tool:name,...featureProjection(input)}))
           context.approved=true
         }

@@ -31,7 +31,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         React.useEffect(function () {
                 setAdded([]);
             }, [panel?.choices]);
-        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || panel.messageId !== latestMessageId || running) {
+        // 候选项属于这一局最近一轮（服务端只留那一份）。页面手里的消息 id 可能为空（宿主
+        // 没有投影节点）或另一套 id，判断只认这一局，不认两个 id 是否相等。
+        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running) {
             return null;
         }
         const h = React.createElement;
@@ -96,7 +98,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			const [guidance, setGuidance] = React.useState("");
             React.useEffect(() => setGuidance(""), [props.sessionId, panel?.messageId]);
 			const h = React.createElement;
-			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId || panel.messageId !== latestMessageId) {
+			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) {
 				return null;
 			}
 			const isScript = sessionMode === "script";

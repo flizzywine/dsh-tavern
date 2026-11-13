@@ -129,7 +129,7 @@ export function stageHostScript() {
     configScreen:{matchMedia,rpc,sections:[],useSounds:noop,sounds,Icon},
     configFields:{HelpTip,Segmented:Nothing,Slider:Nothing,ResetButton:Nothing,FontPicker:Nothing,InlineField:Nothing,sounds,classify:()=>null},
     phoneLayout:{storage:null,width:()=>innerWidth,ResetButton:Nothing,sections:[]},
-    sourceWidgets:{storage:null,foreground,rpc,sounds,fillInput:noop,signals:{subscribe:off},characters:{character:()=>null,mood:()=>null,moods:()=>[],actor:()=>null},avatarCache:null,
+    sourceWidgets:{storage:null,foreground,rpc,sounds,fillInput:noop,signals:{subscribe:off},characters:{character:()=>null,mood:()=>null,moods:()=>[],actor:()=>null,face:()=>null},avatarCache:null,
       phoneProtocol:{phoneModDirect:()=>null,phoneModOwnership:()=>null,run:async()=>null},figureResolution:{resolveFigureName:()=>null},playerErrorText:error=>String(error?.message||error||''),fetch,createImageBitmap,
       sandbox:{stopSfx:noop,scroll:noop,theme:()=>null}},
     presentation:{foreground,titleTiming:STAGE_EFFECTS.title,matchMedia,getComputedStyle,ResizeObserver,MutationObserver},

@@ -120,7 +120,13 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const resolveMood = Object.hasOwn(moodResolvers, p.kind) ? moodResolvers[p.kind] : undefined
       const spoken = text => normalizeDashes(readings.apply(text, input.language))
       const text = p.kind === 'fish-audio' ? fishSpeechText(input.text, params, p.speaking ? p.speaking(params.model).voiceDirections : p.capabilities?.voiceDirections, spoken) : voiceCues.projectVoiceCues(input.text, {spoken})
-      const identity = { version: 3, profileId, source: source.sourceId, voice, provider: { id:p.id, revision:p.revision }, mood: input.mood || 'default', ...(resolveMood ? { resolvedMood: resolveMood({ params, mood: input.mood, moodStyles: voice.moodStyles }) } : {}), language: input.language, params, readings: readings.revision, text }
+      // A line's identity is what its audio is made of: the service that speaks it, the voice's references (with the prompt
+      // text the readings make of each transcript) and parameters, the mood, language and the spoken text (readings applied).
+      // Never a display name (of the service or the voice), the service's connection settings, the rest of the figure or the
+      // reading dictionary as a whole: an edit to it re-voices only the lines whose spoken or prompt text it changes.
+      const {label:_label, enabled:_enabled, languages:_languages, ...sound} = voice
+      const prompts = voice.references?.map(item => readings.apply(item.transcript, item.language))
+      const identity = { version: 5, profileId, provider: p.id, voice: sound, ...(prompts ? {prompts} : {}), mood: input.mood || 'default', ...(resolveMood ? { resolvedMood: resolveMood({ params, mood: input.mood, moodStyles: voice.moodStyles }) } : {}), language: input.language, params, text }
       const key = ttsCacheKey(identity)
       return {g,source,voice,entry,p,ref,params,readings,identity,key}
   }
@@ -300,11 +306,12 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return structuredClone(items)
     },
     async health({ serviceId, signal } = {}) { alive(); const items = serviceId ? [providers.get(serviceId)].filter(Boolean) : [...providers.values()]; return Promise.all(items.map(async ({provider:p}) => ({ id:p.id, ...await p.health({signal}) }))) },
-    // Maintenance/export identity only: no cache hydration, credentials, network or synthesis.
+    // Maintenance/export identity only: no cache hydration, credentials, network or synthesis. source, voice and service are
+    // what the identity was derived from (a maintenance tool proving an entry recorded under an earlier identity uses them).
     async cacheIdentity(input, options) {
-      const {key,identity} = await resolveUtterance(input, options, true)
+      const {key,identity,source,voice,p,readings} = await resolveUtterance(input, options, true)
       grantFor(options.grant)
-      return {key,identity:structuredClone(identity)}
+      return {key,identity:structuredClone(identity),source:source.sourceId,voice:structuredClone(voice),service:{id:p.id,revision:p.revision},readings:readings.revision}
     },
     async readCached(input, options) {
       const {key} = await resolveUtterance(input, options, true)
@@ -318,6 +325,22 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     },
     async synthesize(input, options) {
       if (options?.priority !== undefined && !['call','story'].includes(options.priority)) fail('INVALID_INPUT')
+      const played = async ({g, source, voice, p, key}, cached, started) => {
+        const voiceKey = hash([source.sourceId, voice.id, p.id]), loudness = await cache.loudness(key)
+        if (!await voiceLoudness.estimate(voiceKey)) await voiceLoudness.record(voiceKey, loudness)
+        grantFor(options.grant); if (started !== epoch) fail('CACHE_CLEARED')
+        g.keys.add(key); return { key, mime:'audio/wav', durationMs:durationMs(cached), loudness, cacheHit:true }
+      }
+      // A line already in the cache plays from it without waking or asking its service: a stopped local worker or a
+      // service waiting for the card does not hold back audio that exists. A line the service has not answered for yet
+      // (its identity may still change with what the service reports) goes the full way below.
+      // A grant that authorizes each request once (a paid preview) is spent by the full resolution below only.
+      const known = grants.get(options?.grant)?.authorize ? null : await resolveUtterance(input, options, true).catch(() => null)
+      if (known) {
+        const started = epoch, cached = await cache.get(known.key, known.g.scope)
+        grantFor(options.grant); if (started !== epoch) fail('CACHE_CLEARED')
+        if (cached) return played(known, cached, started)
+      }
       const {g,source,voice,entry,p,ref,params,readings,identity,key} = await resolveUtterance(input, options)
       const voiceKey = hash([source.sourceId, voice.id, p.id])
       const started = epoch
@@ -326,12 +349,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       try {
         const cached = await cache.get(key, g.scope)
         grantFor(options.grant); if (started !== epoch) fail('CACHE_CLEARED')
-        if (cached) {
-          const loudness = await cache.loudness(key)
-          if (!await voiceLoudness.estimate(voiceKey)) await voiceLoudness.record(voiceKey, loudness)
-          grantFor(options.grant); if (started !== epoch) fail('CACHE_CLEARED')
-          g.keys.add(key); return { key, mime:'audio/wav', durationMs:durationMs(cached), loudness, cacheHit:true }
-        }
+        if (cached) return played({g, source, voice, p, key}, cached, started)
         let flight = flights.get(key)
         if (!flight) {
           const abort = new AbortController()

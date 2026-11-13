@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 
-for (const task of ['settlement', 'image', 'phone']) test(task + ' 复用会话时置顶最新指令且清空后移除', async () => {
+for (const task of ['settlement', 'image', 'plugin']) test(task + ' 复用会话时置顶最新指令且清空后移除', async () => {
   let assemble, completeSection, pending, text = '第一版'
   const seen = []
   const session = { id: task, header: {}, events: [], append(type, data) { this.events.push({ type, data }) } }
@@ -23,8 +23,8 @@ for (const task of ['settlement', 'image', 'phone']) test(task + ' 复用会话�
   })
   try {
     for (text of ['第一版', '第二版', '']) await runner.run({ sessionId: 'parent', persistent: true, task, selection: { provider: 'test', model: 'fake' }, messages: [], tools: [] })
-    const first = '<system_append>\n第一版\n</system_append>'
-    const second = '<system_append>\n第二版\n</system_append>'
+    const first = '第一版'
+    const second = '第二版'
     assert.deepEqual(seen.map(result => result.hook), [[first, '原有指令'], [second, '原有指令'], ['原有指令']])
     assert.ok(seen[0].system.startsWith(first + '\n\n'))
     assert.ok(seen[1].system.startsWith(second + '\n\n'))

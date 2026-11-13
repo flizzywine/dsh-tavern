@@ -35,7 +35,7 @@ test('rendered entry reuse follows the visible effective version, keeps prefix b
   const commit = messages => messages.map(data => appendSessionEvent(session, 'user/message', data, { surfaceOp: 'append' }))
   const first = commit(await prepare([season, equipment]))[0]
   assert.deepEqual(first.data.source.worldbookSnapshot.entries.map(e => e.ref), [equipment.ref, season.ref])
-  assert.equal(first.data.source.worldbookSnapshot.rendered, '<worldbook_context>\n' + first.data.source.worldbookSnapshot.text + '\n</worldbook_context>')
+  assert.equal(first.data.source.worldbookSnapshot.rendered, '【本轮世界书上下文】\n' + first.data.source.worldbookSnapshot.text)
   const prefix = JSON.stringify(first.data)
   const second = await prepare([season, person])
   assert.equal(second.length, 1)
@@ -78,13 +78,13 @@ test('rendered entry reuse follows the visible effective version, keeps prefix b
   assert.deepEqual(worldbookSnapshot(null, projected).entries, projected)
   assert.equal(worldbookSnapshot(null, projected, [message(worldbookSnapshot(null, projected))]), null)
 
-  // opaque sections unwrap only recognized envelopes, preserving payload bytes.
-  for (const tag of ['worldbook_context', 'constant_worldbook']) {
+  // opaque sections drop only the recognized worldbook heading, preserving payload bytes.
+  for (const label of ['本轮世界书上下文', '常驻世界书']) {
     const text = '  Opaque payload\n<custom>kept</custom>  '
-    const frame = { kind: 'foreground', frameId: 'opaque:' + tag, contributions: [{ slot: 'activeWorldbook', text: `<${tag}>\n${text}\n</${tag}>` }] }
+    const frame = { kind: 'foreground', frameId: 'opaque:' + label, contributions: [{ slot: 'activeWorldbook', text: `【${label}】\n${text}` }] }
     const opaque = adapter.append({ frame, step: 1, messages: [] }).messages[0].source.worldbookSnapshot
     assert.equal(opaque.text, text)
-    assert.equal(opaque.rendered, `<worldbook_context>\n${text}\n</worldbook_context>`)
+    assert.equal(opaque.rendered, `【本轮世界书上下文】\n${text}`)
   }
 
   const group = [{ ref: 'entry:301', text: '<cast>' }, { ref: 'entry:302', text: 'First member' }, { ref: 'entry:303', text: '</cast>' }]
