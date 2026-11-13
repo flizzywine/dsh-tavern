@@ -364,7 +364,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                                 { value: "strict", label: "慢热严苛" }
                             ],
                             onCommit: value => savePatch({ mode: value }) })),
-                    h(TavernSettingRow, { title: "R18 送审语义分级脱敏", help: "仅对发往决策模型的临时评估副本将露骨词汇映射为强度等级标签，防止触发云端决策接口的内容拦截；发给主写作模型的提示词保留完整原文。" },
+                    h(TavernSettingRow, { title: "R18 送审语义分级脱敏", help: "仅对发往决策模型的临时评估副本将露骨词汇映射为强度等级标签，防止触发云端决策接口的内容拦截；发给主写作模型的提示词保留完整原文。送审副本按露骨程度自动选择三级投影：全量脱敏 → 骨架（去前文摘录）→ 结构摘要（仅保留状态锚点与动作类别标签），被远端过滤拒绝时自动下一级重试，只有三级全被拒才放行本轮。" },
                         h(Switch, { label: "R18 送审语义分级脱敏", disabled, checked: config?.desensitizeR18 !== false, onChange: value => savePatch({ desensitizeR18: value }) })),
                     h(TavernSettingRow, { title: "后台 MVU 数值涨跌钳制", help: "根据本轮决策配额（反弹 / 冻结 / 微调 / 突破），在后台 MVU 结算落盘前硬性限制好感、信任、沦陷、防线等指标的单轮跳变幅度。" },
                         h(Switch, { label: "后台 MVU 数值涨跌钳制", disabled, checked: config?.clampMvuDelta !== false, onChange: value => savePatch({ clampMvuDelta: value }) })),

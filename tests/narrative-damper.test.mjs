@@ -13,6 +13,11 @@ import {
   createNarrativeDamper,
   defaultNarrativeDamperConfig,
   desensitizeForDecisionJudge,
+  damperInputRiskScore,
+  damperProjectionTier,
+  digestForSafetyFallback,
+  skeletonizeForSafetyFallback,
+  summarizeBeatsForDecisionJudge,
   compileTurnRuling,
   normalizeDecisionRuling,
   nextPlainDamperState,
@@ -988,3 +993,266 @@ test('决策模型返回后生成中楼层立即显示阻尼胶囊：涵盖新�
   assert.match(pills[0].textContent, /阻尼 · 防线受阻 0\.6/)
 })
 
+
+function damperDecisionAnswers(rulingTier = 'resist_pushback') {
+  return {
+    answers: {
+      godmode_outcome: { type: 'noul', noul: 0.9 },
+      unfounded_retcon: { type: 'noul', noul: 0.8 },
+      epistemic_violation: { type: 'noul', noul: 0.1 },
+      leverage_score: { type: 'score', score: 0.2 },
+      ruling_tier: { type: 'choice', choice: rulingTier, probabilities: { [rulingTier]: 0.9 } },
+      mvu_delta_budget: { type: 'choice', choice: 'backfire' }
+    },
+    usage: { total_input_tokens: 280, total_output_tokens: 0 }
+  }
+}
+
+const DAMPER_DIGEST_MARKER = /【裁判素材 · 结构化摘要/
+
+test('NSFW 送审预检：显式场景直接降到结构摘要层，不再先吃一次远端输入拦截', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body))
+      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
+    }
+  })
+  const explicit = '我掏出勃起的肉棒顶进她的小穴抽插，龟头磨着花穴，内射后精液灌满子宫，她高潮失神淫水横流。'
+  const chat = {
+    id: 'chat-tier-1',
+    mode: 'story',
+    posture: '会长室内，她跪在地毯上。',
+    timeline: { branchId: 'main' },
+    messages: [{ role: 'assistant', swipeId: 0, swipes: ['她低头整理衣角。'], variables: [{ stat_data: { 沦陷度: 40 } }] }]
+  }
+  const result = await damper.evaluateTurn({ chat, card: { name: '纱织', description: '已婚职员。' }, turn: 1, userText: explicit })
+  assert.equal(sent.length, 1, '预检命中后只应发生一次送审请求')
+  assert.match(sent[0].input, DAMPER_DIGEST_MARKER)
+  assert.equal(result.outcome.status, 'applied')
+  assert.equal(result.outcome.judgeTier, 'digest')
+  for (const token of ['肉棒', '小穴', '抽插', '内射', '龟头', '花穴', '精液', '子宫', '淫水', '高潮']) {
+    assert.equal(sent[0].input.includes(token), false, '送审副本不得残留原文词：' + token)
+  }
+})
+
+test('送审阶梯：骨架层被远端拦截后自动降到结构摘要层，裁定照常生效并留痕降级', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body)
+      sent.push(body)
+      if (!DAMPER_DIGEST_MARKER.test(body.input)) {
+        return {
+          ok: false,
+          status: 400,
+          async json() {
+            // 真实端点常见形态：数字 code + INVALID_ARGUMENT + 策略措辞
+            return { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Request rejected: input violates prohibited content policy' } }
+          }
+        }
+      }
+      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
+    }
+  })
+  const chat = {
+    id: 'chat-tier-2',
+    mode: 'story',
+    posture: '会长室内，她靠着办公桌。',
+    timeline: { branchId: 'main' },
+    messages: [{ role: 'assistant', swipeId: 0, swipes: ['她把文件放回抽屉。'], variables: [{ stat_data: { 沦陷度: 45 } }] }]
+  }
+  const result = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 1, userText: '我压住她，说早就催眠洗脑过她了，她立刻高潮着跪下。' })
+  assert.equal(sent.length, 2, '骨架层被拦后应再送一次结构摘要层')
+  assert.equal(DAMPER_DIGEST_MARKER.test(sent[0].input), false)
+  assert.match(sent[1].input, DAMPER_DIGEST_MARKER)
+  assert.equal(result.outcome.status, 'applied')
+  assert.equal(result.outcome.judgeTier, 'digest')
+  assert.deepEqual(result.outcome.safetyBlockedTiers, ['skeleton'])
+  assert.equal(result.outcome.safetyEscalated, true)
+  assert.equal(result.outcome.retriedSafetyFallback, true)
+})
+
+test('送审阶梯：全层被拦才放行，结果保留降级轨迹与拦截码', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body))
+      return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'blocked' } } } }
+    }
+  })
+  const chat = { id: 'chat-tier-3', mode: 'story', posture: '卧室床边。', timeline: { branchId: 'main' }, messages: [{ role: 'assistant', swipeId: 0, swipes: ['她拉开窗帘。'], variables: [{ stat_data: { 沦陷度: 30 } }] }] }
+  const result = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 1, userText: '我把她按倒，肉棒抵着小穴抽插，她高潮失神。' })
+  assert.equal(result.ruling, null)
+  assert.equal(result.outcome.status, 'bypassed')
+  assert.equal(result.outcome.code, 'DAMPER_SAFETY_BLOCKED')
+  assert.equal(sent.length, 2, '骨架与摘要两层都应尝试过')
+  assert.deepEqual(result.outcome.safetyBlockedTiers, ['skeleton', 'digest'])
+  assert.equal(result.outcome.judgeTier, 'digest')
+})
+
+test('送审阶梯：403 带敏感词码按拦截处理而非密钥失效，普通回合从全量层起送', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body)
+      sent.push(body)
+      if (!DAMPER_DIGEST_MARKER.test(body.input) && sent.length === 1) {
+        return { ok: false, status: 403, async json() { return { error: { code: 'prohibited_content', message: 'input blocked' } } } }
+      }
+      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
+    }
+  })
+  const chat = {
+    id: 'chat-tier-4',
+    mode: 'story',
+    posture: '傍晚的道场，木地板微凉。',
+    timeline: { branchId: 'main' },
+    messages: [{ role: 'assistant', swipeId: 0, swipes: ['她把竹刀放回刀架。'], variables: [{ stat_data: { 亲密信任: 28 } }] }]
+  }
+  const result = await damper.evaluateTurn({ chat, card: { name: '千鹤', description: '剑道少女。' }, turn: 1, userText: '我走过去把毛巾递给她，说今天的训练辛苦了。' })
+  assert.equal(result.outcome.code, undefined)
+  assert.equal(result.outcome.status, 'applied')
+  assert.equal(sent.length, 2)
+  assert.equal(DAMPER_DIGEST_MARKER.test(sent[0].input), false)
+  assert.match(sent[0].input, /【角色人设摘要】/)
+  assert.equal(result.outcome.judgeTier, 'skeleton')
+})
+
+test('结构摘要副本：原文长文本变量与外显词汇不入送审，只保留数值锚点与结构标签', () => {
+  const digest = digestForSafetyFallback({
+    stateSnapshot: { 沦陷度: 42, 情绪: '压抑', 备注: '她昨晚被内射后一直高潮不止，精液从小穴里流出来' },
+    posture: '浴室里，水汽弥漫。',
+    userText: '我按倒她，肉棒抵着小穴抽插，她娇喘着求饶。',
+    config: { judgeMode: 'author' }
+  })
+  assert.match(digest, DAMPER_DIGEST_MARKER)
+  assert.match(digest, /【视角】作者全知视角/)
+  assert.match(digest, /"沦陷度":42/)
+  assert.match(digest, /"情绪":"压抑"/)
+  assert.equal(digest.includes('备注'), false, '超长叙事变量不进入送审副本')
+  assert.match(digest, /【上一轮现场类别】室内私密/)
+  assert.match(digest, /【本轮输入结构】/)
+  assert.match(digest, /类别=/)
+  assert.match(digest, /【输入结构汇总】/)
+  for (const token of ['内射', '高潮', '精液', '小穴', '肉棒', '抽插', '娇喘', '求饶', '按倒']) {
+    assert.equal(digest.includes(token), false, '结构摘要不得包含原文词：' + token)
+  }
+})
+
+test('送审风险预检：风险分级与投影层选取、结构特征标记', () => {
+  assert.equal(damperInputRiskScore('今天天气不错，我们在走廊上聊了两句。'), 0)
+  assert.equal(damperProjectionTier(0), 'full')
+  assert.equal(damperProjectionTier(3), 'skeleton')
+  assert.equal(damperProjectionTier(9), 'digest')
+  assert.equal(damperProjectionTier(9, { desensitizeR18: false }), 'full')
+  assert.ok(damperInputRiskScore('他掏出了 cock，又说起 creampie。') >= 2, '英文露骨词必须计入风险')
+
+  const beats = summarizeBeatsForDecisionJudge('她贴了上来。夜深了，我按住她的手腕。「你早就想这样了吧？」')
+  assert.equal(beats.clauseCount, 3)
+  assert.match(beats.summary, /含台词的子句=1/)
+  assert.match(beats.summary, /时间推进=无/)
+  assert.match(beats.lines[0], /亲密接触|身体约束/)
+  assert.equal(beats.lines.join('\n').includes('你早就想这样了吧'), false, '台词正文不进入结构标签')
+
+  assert.equal(desensitizeForDecisionJudge('她解开了内裤').includes('内裤'), false)
+  assert.match(desensitizeForDecisionJudge('他掏出cock'), /\[Lv3亲密行为英文标记\]/)
+  assert.match(desensitizeForDecisionJudge('十四岁的幼女角色卡'), /\[设定要素已省略\]/)
+})
+
+test('送审预检分级：本轮输入温和但前文摘录露骨时只降到骨架层，不牺牲到结构摘要', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body))
+      return { ok: true, status: 200, async json() { return damperDecisionAnswers('full_accept') } }
+    }
+  })
+  const chat = {
+    id: 'chat-tier-5',
+    mode: 'story',
+    posture: '会客室里，窗帘垂到地面。',
+    timeline: { branchId: 'main' },
+    messages: [
+      { role: 'user', text: '我把她按在沙发上。' },
+      { role: 'assistant', swipeId: 0, swipes: ['她衣衫凌乱，肉棒抵在小穴上抽插，高潮后瘫软失神。'], variables: [{ stat_data: { 沦陷度: 66 } }] }
+    ]
+  }
+  const result = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 2, userText: '我停下来问她要不要休息。' })
+  assert.equal(sent.length, 1)
+  assert.match(sent[0].input, /【本轮受控角色输入企图/)
+  assert.equal(DAMPER_DIGEST_MARKER.test(sent[0].input), false)
+  // 骨架层丢弃前文摘录，露骨原文不随本轮送审
+  assert.equal(sent[0].input.includes('肉棒'), false)
+  assert.equal(sent[0].input.includes('【近期剧情片段】'), false)
+  assert.equal(result.outcome.judgeTier, 'skeleton')
+  assert.equal(result.outcome.status, 'applied')
+})
+
+test('送审副本保留附加裁判准则以便降级后判定标准不变', () => {
+  const config = { judgeMode: 'roleplay', preamble: '只在角色严重失真时才剥离。' }
+  const skeleton = skeletonizeForSafetyFallback({ stateSnapshot: { 沦陷度: 12 }, posture: '', userText: '我看着她。', config })
+  const digest = digestForSafetyFallback({ stateSnapshot: { 沦陷度: 12 }, posture: '', userText: '我看着她。', config })
+  assert.match(skeleton, /【附加裁判准则】只在角色严重失真时才剥离。/)
+  assert.match(digest, /【附加裁判准则】只在角色严重失真时才剥离。/)
+})
+
+test('远端过滤记忆：本回合被拦后，短时间内高风险内容直接降一层送审，干净回合仍走全量层', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-sticky' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sent = []
+  let blockNonDigest = true
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body)
+      sent.push(body)
+      if (blockNonDigest && !DAMPER_DIGEST_MARKER.test(body.input)) {
+        return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'blocked' } } } }
+      }
+      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
+    }
+  })
+  const chat = { id: 'chat-sticky', mode: 'story', posture: '卧室床边，台灯亮着。', timeline: { branchId: 'main' }, messages: [{ role: 'assistant', swipeId: 0, swipes: ['她把窗帘拉上。'], variables: [{ stat_data: { 沦陷度: 52 } }] }] }
+  const explicitA = '我压住她，肉棒抵着小穴抽插，她高潮失神。'
+  const explicitB = '我扯开她的内裤，肉棒顶进去内射，她淫水直流。'
+
+  const first = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 1, userText: explicitA })
+  assert.equal(first.outcome.judgeTier, 'digest')
+  assert.deepEqual(first.outcome.safetyBlockedTiers, ['skeleton'])
+  const afterFirst = sent.length
+  assert.equal(afterFirst, 2)
+
+  blockNonDigest = true
+  const second = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 2, userText: explicitB })
+  assert.equal(sent.length, afterFirst + 1, '被拦记忆生效时只送一次')
+  assert.match(sent[afterFirst].input, DAMPER_DIGEST_MARKER)
+  assert.equal(second.outcome.judgeTier, 'digest')
+
+  blockNonDigest = false
+  const third = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 3, userText: '我给她倒了一杯温水，问她要不要休息。' })
+  assert.equal(sent.length, afterFirst + 2, '干净回合直接成功，不应重复送审')
+  assert.equal(DAMPER_DIGEST_MARKER.test(sent[afterFirst + 1].input), false)
+  assert.equal(third.outcome.judgeTier, 'full')
+})

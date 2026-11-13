@@ -117,7 +117,7 @@ const TAVERN_DAMPER_BYPASS_COPY = Object.freeze({
 	DAMPER_SAFETY_BLOCKED: Object.freeze({
 		short: '拦截放行',
 		title: '未生效 · 送审内容被远端拦截',
-		hint: '脱敏与骨架重试后仍触发远端决策接口输入拦截，本轮已自动静默放行，主写作模型提示词不受影响。'
+		hint: '三级送审降级（全量脱敏 → 骨架 → 结构摘要）均被远端决策接口输入过滤拒绝，本轮已自动静默放行，主写作模型提示词不受影响。若长期出现可改用兼容端点或在「设置 › 叙事阻尼器」关闭 R18 送审脱敏后自查。'
 	}),
 	DAMPER_INACTIVE: Object.freeze({
 		short: '地址未配',
@@ -189,6 +189,18 @@ function tavernDamperOutcomeForMessage(message) {
 		}
 	}
 	return null
+}
+
+const TAVERN_DAMPER_PROJECTION_LABELS = Object.freeze({
+	skeleton: '送审降级 · 骨架',
+	digest: '送审降级 · 结构摘要'
+})
+
+function tavernDamperProjectionTag(outcome) {
+	if (!outcome || outcome.status === 'bypassed') return ''
+	const tier = String(outcome.judgeTier || '')
+	if (TAVERN_DAMPER_PROJECTION_LABELS[tier]) return TAVERN_DAMPER_PROJECTION_LABELS[tier]
+	return outcome.retriedSafetyFallback ? '骨架脱敏重试' : ''
 }
 
 function tavernDamperTierTable(outcome) {
@@ -375,7 +387,8 @@ function StoryFloorDamperPanel(props) {
 				outcome.rulingTier !== 'legacy_plain' ? h('span', { className: 'dsh-tavern-damper-tag' }, modeLabel) : null,
 				outcome.deltaBudget ? h('span', { className: 'dsh-tavern-damper-tag', 'data-budget': outcome.deltaBudget },
 					'配额：' + tavernDamperBudgetLabel(outcome.deltaBudget, outcome.mode)) : null,
-				outcome.retriedSafetyFallback ? h('span', { className: 'dsh-tavern-damper-tag' }, '骨架脱敏重试') : null,
+				tavernDamperProjectionTag(outcome) ? h('span', { className: 'dsh-tavern-damper-tag' }, tavernDamperProjectionTag(outcome)) : null,
+				outcome.safetyEscalated ? h('span', { className: 'dsh-tavern-damper-tag', 'data-safety': 'escalated' }, '输入过滤降级') : null,
 				latencyText ? h('span', { className: 'dsh-tavern-damper-tag' }, latencyText) : null)),
 		h('p', { className: 'dsh-tavern-damper-desc' }, meta.desc),
 		meta.showMetrics ? h('div', { className: 'dsh-tavern-damper-metrics' },

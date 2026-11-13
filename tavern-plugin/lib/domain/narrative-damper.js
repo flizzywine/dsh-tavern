@@ -169,14 +169,26 @@ export function damperEndpointUrl(config) {
 // Transient semantic scale projection applied ONLY to the decision model's input copy.
 // The foreground story LLM still receives 100% of the player's original uncensored prose.
 const R18_SCALE_PROJECTIONS = Object.freeze([
-  [/肉便器|母狗|性奴|RBQ|专属玩物|精盆|泄欲工具/gi, '[Lv4极端人格依附身份]'],
-  [/轮奸|强奸|迷奸|奸污|凌辱|调教|恶堕|淫堕|催眠洗脑/gi, '[Lv4高压越界控制行为]'],
-  [/内射|中出|颜射|口爆|深喉|口交|乳交|足交|肛交|插入|抽插|挺入|贯穿|吞吐|含住|舔舐|骑乘|后入|交合|做爱|性交|操弄|肏/gi, '[Lv3重度亲密接触动作]'],
-  [/勃起|肉棒|阴茎|巨根|龟头|睾丸|阴蒂|蜜穴|小穴|花穴|嫩穴|阴道|子宫|菊穴|肛门|精液|浓精|淫水|爱液|蜜汁|潮吹/gi, '[Lv3核心私密部位]'],
-  [/高潮|绝顶|痉挛|失神|淫荡|发情|春药|媚药|催情|呻吟|娇喘|浪叫|求饶/gi, '[Lv3情绪与生理峰值状态]'],
-  [/裸体|全裸|脱光|内裤|底裤|胖次|胸罩|文胸|内衣|黑丝|丝袜|乳头|乳晕|乳房|酥胸|巨乳|臀部|大腿内侧/gi, '[Lv2贴身敏感部位]'],
-  [/把柄|威胁|胁迫|要挟|勒索|裸照|视频威胁/gi, '[外部筹码牵制]'],
+  // 顺序敏感：多字短语必须排在它的组成字之前，避免被拆碎后漏网。
+  [/肉便器|母狗|性奴|RBQ|专属玩物|精盆|泄欲工具|公用便器|肉壶|私奴/gi, '[Lv4极端人格依附身份]'],
+  [/轮奸|轮暴|强奸|强暴|迷奸|奸污|凌辱|调教|恶堕|淫堕|催眠洗脑|洗脑|精神控制|强制高潮|强制服从/gi, '[Lv4高压越界控制行为]'],
+  [/迷药|迷香|春药|媚药|催情|发情药|乖乖水|听话水|失忆药|安眠药|麻醉剂|毒品|致幻剂|兴奋剂/gi, '[Lv4外部化学影响手段]'],
+  [/失禁|排泄|灌肠|恋尸|肢解|挖眼|断肢|割喉|分尸|虐杀/gi, '[Lv4极端猎奇要素]'],
+  [/幼女|幼童|萝莉|正太|未成年|萝莉控/gi, '[设定要素已省略]'],
+  [/内射|中出|颜射|口爆|深喉|乳交|足交|肛交|口交|舔舐|吸吮|吮吸|吞精|插入|抽插|挺入|贯穿|吞吐|含住|骑乘|后入|交合|做爱|性交|操弄|肏|抽送|顶弄|磨蹭/gi, '[Lv3重度亲密接触动作]'],
+  [/勃起|肉棒|阴痉|阴茎|巨根|龟头|睾丸|阴蒂|蜜穴|小穴|花穴|嫩穴|阴道|子宫|菊穴|肛门|精液|浓精|淫水|爱液|蜜汁|潮吹|前列腺/gi, '[Lv3核心私密部位]'],
+  [/高潮|绝顶|痉挛|失神|淫荡|发情|媚药|呻吟|娇喘|浪叫|求饶|浪荡|骚货|荡妇/gi, '[Lv3情绪与生理峰值状态]'],
+  [/裸体|全裸|脱光|内裤|底裤|胖次|胸罩|文胸|内衣|黑丝|丝袜|乳头|乳晕|乳房|酥胸|巨乳|臀部|大腿内侧|玉足|肌肤|锁骨|腰肢/gi, '[Lv2贴身敏感部位]'],
+  [/皮鞭|鞭打|捆绑|绑缚|束缚|手铐|项圈|牵绳|绳缚|口塞|滴蜡|电击|调教用具|束具/gi, '[Lv3强制约束道具]'],
+  [/睡(?:了|过)(?:她|他)|上(?:了|过)(?:她|他)|弄(?:了|过)(?:她|他)|办了(?:她|他)|摸进去|伸进去|插进去|捅进去|推倒|按倒|压在身下|跨坐|骑在|褪下|剥开|撩起|扯开|解开衣扣/gi, '[Lv2身体接触筹备动作]'],
+  [/掐住|掐着|扇耳光|耳光|殴打|踢打|锁喉|扼住|勒住|拔刀|捅刀|开枪|射击|中枪/gi, '[Lv3肢体压制行为]'],
+  [/把柄|威胁|胁迫|要挟|勒索|裸照|视频威胁|要曝光|不雅视频/gi, '[外部筹码牵制]'],
   [/出轨|偷情|戴绿帽|绿帽|背叛丈夫|背叛男友|寝取/gi, '[伴侣关系背离]']
+])
+
+// English/romaji residue: providers sometimes flag Latin explicit terms even inside Chinese prose.
+const R18_LATIN_PROJECTIONS = Object.freeze([
+  [/\b(?:sex|sexual|intercourse|fuck(?:ing|ed)?|blowjob|handjob|creampie|penis|vagina|cock|pussy|cum(?:shot)?|orgasm|nipple|penetrat\w*|masturbat\w*|anal|nsfw|lewd|hentai|ahegao|bdsm)\b/gi, '[Lv3亲密行为英文标记]']
 ])
 
 export function desensitizeForDecisionJudge(text) {
@@ -184,20 +196,144 @@ export function desensitizeForDecisionJudge(text) {
   for (const [pattern, replacement] of R18_SCALE_PROJECTIONS) {
     output = output.replace(pattern, replacement)
   }
+  for (const [pattern, replacement] of R18_LATIN_PROJECTIONS) {
+    output = output.replace(pattern, replacement)
+  }
   return output
 }
 
-// Second-chance structural abstraction if the provider's input safety filter still rejects the text.
-export function skeletonizeForSafetyFallback({ stateSnapshot, posture, userText }) {
-  const safeState = desensitizeForDecisionJudge(JSON.stringify(stateSnapshot || {})).slice(0, 1600)
-  const safePosture = desensitizeForDecisionJudge(str(posture)).slice(0, 240)
+// Escalation ladder for the decision model's input copy. Tier 1 keeps desensitized prose,
+// tier 2 keeps structural labels only, so an explicit turn never has to be dropped entirely.
+export const DAMPER_INPUT_TIERS = Object.freeze(['full', 'skeleton', 'digest'])
+
+// Local risk scan: decides which projection tier a turn starts at, so explicit scenes do not
+// burn a round trip on a submission the provider's input filter is going to reject.
+export function damperInputRiskScore(text) {
+  const source = str(text)
+  if (!source) return 0
+  let hits = 0
+  for (const [pattern] of R18_SCALE_PROJECTIONS) {
+    const matched = source.match(new RegExp(pattern.source, 'gi'))
+    if (matched) hits += matched.length
+  }
+  for (const [pattern] of R18_LATIN_PROJECTIONS) {
+    const matched = source.match(new RegExp(pattern.source, 'gi'))
+    if (matched) hits += matched.length
+  }
+  return hits
+}
+
+export function damperProjectionTier(riskScore, { desensitizeR18 = true } = {}) {
+  if (desensitizeR18 === false) return 'full'
+  const score = Math.max(0, Number(riskScore) || 0)
+  if (score >= 8) return 'digest'
+  if (score >= 2) return 'skeleton'
+  return 'full'
+}
+
+const POSTURE_CLASSES = Object.freeze([
+  [/床|卧室|沙发|被褥|枕|浴缸|淋浴|浴室|更衣/, '室内私密'],
+  [/办公|会议|办公桌|会长室|社长室|教室|走廊|电梯|茶水间/, '室内半公开'],
+  [/街|路|站|车厢|公园|广场|车|车后座|楼顶|岸边/, '户外或移动中']
+])
+
+const BEAT_CLASSES = Object.freeze([
+  [/交合|结合|深入|贯穿|顶弄|抽送|律动|贴合|摩擦|交缠|缠绕|插入|进入身体/, '身体交合'],
+  [/拥抱|抱住|搂住|亲吻|接吻|深吻|舌吻|抚摸|摩挲|揉|捏|舔|吮|啃|贴身|贴|靠|依偎|偎|抵住|抵在|触碰|身体接触/, '亲密接触'],
+  [/命令|吩咐|强迫|逼迫|威胁|要挟|羞辱|训斥|威压|施压/, '言语施压'],
+  [/催眠|精神控制|洗脑|暗示|注入|服用|催化|迷|催|药/, '意识影响'],
+  [/打|击|踢|斩|砍|射|枪|拳|掐|刀|血|伤/, '冲突伤害'],
+  [/走进|离开|回到|推门|下楼|上楼|上车|抵达|转场|镜头|来到|进屋/, '场景移动'],
+  [/钱|合约|证据|把柄|录音|照片|文件|谈判|筹码|账目/, '筹码交涉'],
+  [/说|问|答|告诉|解释|承认|否认|商量|提议|请求|拒绝/, '对话交流'],
+  [/脱|褪|解|绑|束缚|手铐|绳|项圈|跪|按倒|压住|推倒|骑/, '身体约束']
+])
+
+function compactNumericState(data) {
+  const source = object(data)
+  const out = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'number' && Number.isFinite(value)) out[key] = value
+    else if (typeof value === 'boolean') out[key] = value
+    // 只保留短枚举值：长叙事文本变量是远端输入过滤的主要命中源，不能进送审副本。
+    else if (typeof value === 'string' && value.length > 0 && value.length <= 12) out[key] = value
+  }
+  return out
+}
+
+function classifyPostureClass(posture) {
+  const text = str(posture)
+  if (!text) return ''
+  const hit = POSTURE_CLASSES.find(([pattern]) => pattern.test(text))
+  return hit ? hit[1] : ''
+}
+
+// Structural beat digest: no raw prose survives, only clause-level classifications and flags.
+export function summarizeBeatsForDecisionJudge(userText) {
+  const clauses = str(userText).split(/[。！？!?；;\n…]+/)
+    .map(part => part.trim())
+    .filter(part => /[\u4e00-\u9fa5A-Za-z0-9]/.test(part))
+    .slice(0, 18)
+  const totals = { otherActor: 0, quote: 0, timeShift: 0, placeShift: 0, assertion: 0 }
+  const lines = clauses.map((clause, index) => {
+    // 分类只在原文上做词类命中，输出仅有标签与有/无标记，任何原文片段都不会进入送审副本。
+    const subject = clause
+    const classes = BEAT_CLASSES.filter(([pattern]) => pattern.test(subject)).map(([, label]) => label)
+    const risk = damperInputRiskScore(clause)
+    const hasOtherActor = /(?:他|她|他们|她们|对方|那个男人|那个女人)/.test(subject)
+    const hasQuote = /[「『“"][^」』”"]{2,}/.test(subject)
+    const hasTimeShift = /(?:次日|翌日|第二天|三天后|几天后|一周后|多年后|当晚|稍后|与此同时)/.test(subject)
+    const hasPlaceShift = /(?:来到|走进|离开|回到|推门|上楼|下楼|上车|抵达|转场|镜头)/.test(subject)
+    const hasAssertion = /(?:其实|本来|早就|原来|从来|一直|自幼|从小|曾经|本就)/.test(subject)
+    if (hasOtherActor) totals.otherActor += 1
+    if (hasQuote) totals.quote += 1
+    if (hasTimeShift) totals.timeShift += 1
+    if (hasPlaceShift) totals.placeShift += 1
+    if (hasAssertion) totals.assertion += 1
+    return `S${index + 1}｜类别=${classes.length ? classes.join('+') : '未分类'}｜强度=${risk >= 3 ? '高' : risk >= 1 ? '中' : '低'}｜指向他角色=${hasOtherActor ? '有' : '无'}｜含台词=${hasQuote ? '有' : '无'}`
+  })
+  const summary = [
+    `子句数=${clauses.length}`,
+    `指向他角色子句=${totals.otherActor}`,
+    `含台词的子句=${totals.quote}`,
+    `时间推进=${totals.timeShift ? '有' : '无'}`,
+    `地点切换=${totals.placeShift ? '有' : '无'}`,
+    `设定断言=${totals.assertion ? '有' : '无'}`
+  ].join('；')
+  return { lines, summary, clauseCount: clauses.length }
+}
+
+export function digestForSafetyFallback({ stateSnapshot, posture, userText, config }) {
+  const compact = compactNumericState(stateSnapshot)
+  const state = Object.keys(compact).length
+    ? desensitizeForDecisionJudge(JSON.stringify(compact)).slice(0, 900)
+    : '（无显式数值状态）'
+  const postureClass = classifyPostureClass(posture)
+  const beats = summarizeBeatsForDecisionJudge(userText)
+  return [
+    '【裁判素材 · 结构化摘要（自然语言原文已剥离，仅保留判定所需结构特征）】',
+    config?.judgeMode === 'author' ? '【视角】作者全知视角' : '【视角】受控角色单视角',
+    `【当前状态锚点】${state}`,
+    postureClass ? `【上一轮现场类别】${postureClass}` : '',
+    config?.preamble ? `【附加裁判准则】${desensitizeForDecisionJudge(str(config.preamble)).slice(0, 300)}` : '',
+    beats.lines.length ? `【本轮输入结构】\n${beats.lines.join('\n')}\n【输入结构汇总】${beats.summary}` : '【本轮输入结构】（空）'
+  ].filter(Boolean).join('\n')
+}
+
+export function skeletonizeForSafetyFallback({ stateSnapshot, posture, userText, config }) {
+  const safeState = desensitizeForDecisionJudge(JSON.stringify(stateSnapshot || {})).slice(0, 1200)
+  const safePosture = desensitizeForDecisionJudge(str(posture)).slice(0, 160)
   const projectedInput = desensitizeForDecisionJudge(str(userText))
     // Mask remaining concrete nouns between verbs/pronouns only when needed, keeping modal/outcome markers intact.
-    .replace(/[\u4e00-\u9fa5A-Za-z]{0,2}(?:逼迫|强行|按住|锁门|撕开|解开|跪下)[\u4e00-\u9fa5A-Za-z]{0,2}/g, '[强势肢体越界尝试]')
+    .replace(/[\u4e00-\u9fa5A-Za-z]{0,2}(?:逼迫|强行|按住|锁门|撕开|解开|跪下|按倒|压住|掐住|扯住|推倒)[\u4e00-\u9fa5A-Za-z]{0,2}/g, '[强势肢体越界尝试]')
+    .slice(0, 900)
+  const beats = summarizeBeatsForDecisionJudge(userText)
   return [
     '【当前状态快照】' + safeState,
     safePosture ? '【现场位置状态】' + safePosture : '',
-    '【本轮受控角色输入企图（已做尺度标签化）】' + projectedInput.slice(0, 1200)
+    '【本轮受控角色输入企图（已做尺度标签化）】' + projectedInput,
+    config?.preamble ? '【附加裁判准则】' + desensitizeForDecisionJudge(str(config.preamble)).slice(0, 300) : '',
+    beats.lines.length ? '【输入结构汇总】' + beats.summary : ''
   ].filter(Boolean).join('\n')
 }
 
@@ -719,6 +855,10 @@ export function summarizeDamperRulingOutcome(ruling, meta = {}) {
     fallbackStateForPlainCards: ruling.fallbackStateForPlainCards !== false,
     ...(str(meta.stateKind || ruling.stateKind) ? { stateKind: str(meta.stateKind || ruling.stateKind) } : {}),
     ...(Number.isFinite(Number(rawLatency)) ? { latencyMs: Math.max(0, Math.round(Number(rawLatency))) } : {}),
+    ...(str(meta.judgeTier || ruling.judgeTier) ? { judgeTier: str(meta.judgeTier || ruling.judgeTier) } : {}),
+    ...(Array.isArray(meta.safetyBlockedTiers) && meta.safetyBlockedTiers.length
+      ? { safetyBlockedTiers: meta.safetyBlockedTiers.filter(tier => DAMPER_INPUT_TIERS.includes(tier)), safetyEscalated: true }
+      : {}),
     ...((meta.retriedSafetyFallback ?? ruling.retriedSafetyFallback) === true ? { retriedSafetyFallback: true } : {})
   }
 }
@@ -910,11 +1050,34 @@ function parseTurnDecisionResponse(protocol, data, config = null) {
   return { godmode, retcon, epistemic, leverageScore, rulingTier, deltaBudget, overreachProb: overreaches }
 }
 
-const SAFETY_ERROR_CODES = new Set(['safety', 'prohibited_content', 'blocklist', 'image_safety', 'content_blocked'])
+const SAFETY_ERROR_CODES = new Set(['safety', 'prohibited_content', 'blocklist', 'image_safety', 'content_blocked', 'safety_blocked', 'harmful_content', 'sexual_content'])
+const SAFETY_HINT = /safety|prohibit|blocklist|blocked|harmful|policy|content.?filter|inappropriate|敏感|违规|不当|拦截/i
+
+// Providers disagree about how a rejected input surfaces: some use a semantic code,
+// some return INVALID_ARGUMENT plus prose, some only a 400/422 with a policy sentence.
+function isSafetyRejection(status, body) {
+  const errorBody = object(body && body.error ? body.error : {})
+  const code = str(errorBody.code).toLowerCase()
+  if (SAFETY_ERROR_CODES.has(code)) return true
+  const statusText = str(errorBody.status).toLowerCase()
+  if (SAFETY_ERROR_CODES.has(statusText)) return true
+  const details = Array.isArray(errorBody.details) ? errorBody.details : []
+  if (details.some(detail => {
+    const item = object(detail)
+    return [item.reason, item.errorReason, item.code].some(value => SAFETY_ERROR_CODES.has(str(value).toLowerCase()))
+  })) return true
+  const message = str(errorBody.message)
+  if (!message) return false
+  if (!SAFETY_HINT.test(message)) return false
+  return status === 400 || status === 422 || /prohibit|policy|safety/.test(statusText)
+}
 
 export function createNarrativeDamper({ getConfig, credentials, fetch: send = globalThis.fetch, log = () => {} }) {
   const decisionCache = new Map()
   const activeTurnRulings = new Map()
+  // 远端过滤在短时间内的拦截记忆：同一提供方刚被拦过，下一轮风险内容直接降一层送审，
+  // 避免每回合都先吃一次被拒的往返（每回合 ~1.4s）。
+  const safetySticky = new Map()
 
   function rememberCache(map, key, value, limit = 80) {
     if (map.has(key)) map.delete(key)
@@ -945,8 +1108,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
     let body = null
     try { body = await response.json() } catch { body = null }
     if (!response.ok) {
-      const remoteCode = str(body?.error?.code).toLowerCase()
-      if (response.status === 400 && SAFETY_ERROR_CODES.has(remoteCode)) {
+      if (isSafetyRejection(response.status, body)) {
         throw error('DAMPER_SAFETY_BLOCKED', '决策请求触发输入敏感词拦截')
       }
       if (response.status === 401 || response.status === 403) {
@@ -961,35 +1123,52 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
     return body
   }
 
-  async function runTurnQuery({ material, fallbackMaterial, config }) {
-    const request = buildProviderRequest(config, material)
+  async function sendAttempt(request, apiKey, budgetMs, controller) {
+    let timer
+    try {
+      return await Promise.race([
+        new Promise((_, reject) => {
+          timer = setTimeout(() => { controller.abort(); reject(error('DAMPER_TIMEOUT', '决策模型响应超时')) }, budgetMs)
+        }),
+        sendOnce(request, apiKey, controller.signal)
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  async function runTurnQuery({ materials, config }) {
+    const ladder = Array.isArray(materials) && materials.length ? materials : []
+    if (!ladder.length) return { ok: false, code: 'DAMPER_INACTIVE', latencyMs: 0, decision: null }
+    const request = buildProviderRequest(config, ladder[0].material)
     if (!request) return { ok: false, code: 'DAMPER_INACTIVE', latencyMs: 0, decision: null }
     const start = performance.now()
     const controller = new AbortController()
-    let timer
-    let retriedSafetyFallback = false
+    const blockedTiers = []
+    let judgeTier = ladder[0].tier
     try {
       const apiKey = await resolveCredential(config)
       if (!apiKey) throw error('DAMPER_NO_KEY', '尚未配置决策模型 API Key')
-      const body = await Promise.race([
-        new Promise((_, reject) => {
-          timer = setTimeout(() => { controller.abort(); reject(error('DAMPER_TIMEOUT', '决策模型响应超时')) }, config.timeoutMs)
-        }),
-        (async () => {
-          try {
-            return await sendOnce(request, apiKey, controller.signal)
-          } catch (firstErr) {
-            if (firstErr?.code === 'DAMPER_SAFETY_BLOCKED' && fallbackMaterial && !controller.signal.aborted) {
-              const retryReq = buildProviderRequest(config, fallbackMaterial)
-              if (retryReq) {
-                retriedSafetyFallback = true
-                return await sendOnce(retryReq, apiKey, controller.signal)
-              }
-            }
-            throw firstErr
-          }
-        })()
-      ])
+      let body = null
+      for (let index = 0; index < ladder.length; index++) {
+        const item = ladder[index]
+        judgeTier = item.tier
+        const attempt = index === 0 ? request : buildProviderRequest(config, item.material)
+        if (!attempt) throw error('DAMPER_INACTIVE', '决策接口地址无效')
+        try {
+          // Each projection tier is cheaper to judge but needs its own round trip: give the
+          // ladder a slightly larger budget than a single call so escalation is not cut short.
+          body = await sendAttempt(attempt, apiKey, config.timeoutMs + index * 1200, controller)
+          break
+        } catch (cause) {
+          const canEscalate = cause?.code === 'DAMPER_SAFETY_BLOCKED'
+            && index < ladder.length - 1
+            && !controller.signal.aborted
+          if (!canEscalate) throw cause
+          blockedTiers.push(item.tier)
+        }
+      }
+      if (!body) throw error('DAMPER_SAFETY_BLOCKED', '决策请求触发输入敏感词拦截')
       const rawDecision = parseTurnDecisionResponse(request.protocol, body, config)
       const ruling = normalizeDecisionRuling(rawDecision, config)
       const latencyMs = Math.round(performance.now() - start)
@@ -997,18 +1176,17 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         inputTokens: Number(body.usage.total_input_tokens ?? body.usage.input_tokens ?? 0),
         outputTokens: Number(body.usage.total_output_tokens ?? body.usage.output_tokens ?? 0)
       } : undefined
-      const stat = { kind: 'narrative-damper', provider: config.provider, model: config.model, code: 'OK', latencyMs, rulingTier: ruling.rulingTier, deltaBudget: ruling.deltaBudget, ...(usage ? { usage } : {}) }
+      const stat = { kind: 'narrative-damper', provider: config.provider, model: config.model, code: 'OK', latencyMs, judgeTier, rulingTier: ruling.rulingTier, deltaBudget: ruling.deltaBudget, ...(blockedTiers.length ? { safetyBlockedTiers: blockedTiers } : {}), ...(usage ? { usage } : {}) }
       log(stat)
-      return { ok: true, code: 'OK', latencyMs, ruling, usage, retriedSafetyFallback }
+      return { ok: true, code: 'OK', latencyMs, ruling, usage, judgeTier, safetyBlockedTiers: blockedTiers, retriedSafetyFallback: blockedTiers.length > 0 }
     } catch (cause) {
       controller.abort()
       const known = ['DAMPER_TIMEOUT', 'DAMPER_NO_KEY', 'DAMPER_SAFETY_BLOCKED', 'DAMPER_AUTH_ERROR', 'DAMPER_RATE_LIMIT', 'DAMPER_HTTP_ERROR', 'DAMPER_INVALID_RESPONSE']
       const code = known.includes(cause?.code) ? cause.code : 'DAMPER_ERROR'
       const latencyMs = Math.round(performance.now() - start)
-      log({ kind: 'narrative-damper', provider: config.provider, model: config.model, code, latencyMs })
-      return { ok: false, code, message: str(cause?.message || code), latencyMs, ruling: null }
-    } finally {
-      clearTimeout(timer)
+      const safeBlockedTiers = cause?.code === 'DAMPER_SAFETY_BLOCKED' ? blockedTiers.concat(judgeTier) : blockedTiers
+      log({ kind: 'narrative-damper', provider: config.provider, model: config.model, code, latencyMs, judgeTier, ...(safeBlockedTiers.length ? { safetyBlockedTiers: safeBlockedTiers } : {}) })
+      return { ok: false, code, message: str(cause?.message || code), latencyMs, ruling: null, judgeTier, safetyBlockedTiers: safeBlockedTiers }
     }
   }
 
@@ -1162,8 +1340,33 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       }
 
       const material = buildJudgeMaterial({ chat, card, userText: trimmedInput, stateSnapshot, config, excludeAssistantIndex })
-      const fallbackMaterial = skeletonizeForSafetyFallback({ stateSnapshot: stateSnapshot.data, posture: chat.posture, userText: trimmedInput })
-      const queryResult = await runTurnQuery({ material, fallbackMaterial, config })
+      // Preflight: an explicit turn should start at a tier the provider's input filter can accept,
+      // instead of paying a rejected round trip (and a bypassed turn) before escalating.
+      const inputRisk = damperInputRiskScore(trimmedInput)
+      const contextRisk = damperInputRiskScore([str(chat.posture), recentStoryExcerpt(chat, excludeAssistantIndex)].join('\n'))
+      let startTier = damperProjectionTier(inputRisk, { desensitizeR18: config.desensitizeR18 })
+      if (config.desensitizeR18 !== false) {
+        // 本轮输入温和、但现场姿势或前文摘录露骨时至少降到骨架层（骨架层不带摘录）。
+        if (startTier === 'full' && inputRisk + contextRisk >= 3) startTier = 'skeleton'
+        const stickyKey = `${config.provider}:${config.model}:${config.baseUrl}`
+        const stickyActive = (Number(safetySticky.get(stickyKey)) || 0) > Date.now()
+        if (stickyActive && (inputRisk >= 1 || contextRisk >= 3)) {
+          startTier = startTier === 'full' ? 'skeleton' : 'digest'
+        }
+      }
+      const startIndex = Math.max(0, DAMPER_INPUT_TIERS.indexOf(startTier))
+      const materials = DAMPER_INPUT_TIERS.slice(startIndex).map(tier => ({
+        tier,
+        material: tier === 'digest'
+          ? digestForSafetyFallback({ stateSnapshot: stateSnapshot.data, posture: chat.posture, userText: trimmedInput, config })
+          : tier === 'skeleton'
+            ? skeletonizeForSafetyFallback({ stateSnapshot: stateSnapshot.data, posture: chat.posture, userText: trimmedInput, config })
+            : material
+      }))
+      const queryResult = await runTurnQuery({ materials, config })
+      if (Array.isArray(queryResult.safetyBlockedTiers) && queryResult.safetyBlockedTiers.length) {
+        safetySticky.set(`${config.provider}:${config.model}:${config.baseUrl}`, Date.now() + 90_000)
+      }
       if (!queryResult.ok || !queryResult.ruling) {
         const outcome = {
           status: 'bypassed',
@@ -1173,7 +1376,11 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           model: config.model,
           mode: config.mode,
           judgeMode: config.judgeMode === 'author' ? 'author' : 'roleplay',
-          latencyMs: Math.max(0, Math.round(Number(queryResult.latencyMs) || 0))
+          latencyMs: Math.max(0, Math.round(Number(queryResult.latencyMs) || 0)),
+          ...(str(queryResult.judgeTier) ? { judgeTier: str(queryResult.judgeTier) } : {}),
+          ...(Array.isArray(queryResult.safetyBlockedTiers) && queryResult.safetyBlockedTiers.length
+            ? { safetyBlockedTiers: queryResult.safetyBlockedTiers.slice() }
+            : {})
         }
         if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: null, outcome, stateSnapshot })
         return { ruling: null, rulingText: '', stateSnapshot, outcome }
@@ -1187,6 +1394,8 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         godmodeThreshold: effectiveThreshold,
         stateKind: stateSnapshot.kind,
         latencyMs: queryResult.latencyMs,
+        judgeTier: queryResult.judgeTier,
+        safetyBlockedTiers: queryResult.safetyBlockedTiers,
         retriedSafetyFallback: queryResult.retriedSafetyFallback
       })
       const entry = { ruling: queryResult.ruling, rulingText }
