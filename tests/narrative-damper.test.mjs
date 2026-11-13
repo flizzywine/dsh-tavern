@@ -307,7 +307,7 @@ test('无 MVU 普通人物卡：楼层四维惯性状态演进与回退恢复', 
   assert.deepEqual(readDamperStateSnapshot(chat).data, afterGodmode)
 })
 
-test('前端构建产物：设置面板独立注册「叙事阻尼器」section，不依赖舞台模块', async () => {
+test('前端构建产物：设置面板注册「叙事阻尼器」section', async () => {
   const mainSource = await readFile(new URL('../tavern-plugin/src/client/main.js', import.meta.url), 'utf8')
   const builtClient = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   assert.match(mainSource, /id:\s*"dsh-tavern-narrative-damper"/)
