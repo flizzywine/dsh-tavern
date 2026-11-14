@@ -114,10 +114,30 @@ export function generationStreamModeBootScript() {
     if (node.matches && node.matches('[role="menu"]')) install(node)
     if (node.querySelectorAll) for (const menu of node.querySelectorAll('[role="menu"]')) install(menu)
   }
+  // The observer sits on the whole document, so one conversation re-render can
+  // arrive as hundreds of records for the same container. Scanning per record
+  // re-queries that subtree just as many times; collapse a batch into one pass
+  // per microtask, and drop nodes an already queued ancestor will cover.
+  let scanQueue = new Set()
+  let scanScheduled = false
+  function queueScan(node) {
+    if (!node || (node.nodeType !== 1 && node.nodeType !== 9)) return
+    for (const queued of scanQueue) if (queued === node || queued.contains(node)) return
+    for (const queued of [...scanQueue]) if (node.contains(queued)) scanQueue.delete(queued)
+    scanQueue.add(node)
+    if (scanScheduled) return
+    scanScheduled = true
+    ;(typeof queueMicrotask === 'function' ? queueMicrotask : function (run) { Promise.resolve().then(run) })(function () {
+      scanScheduled = false
+      const queued = [...scanQueue]
+      scanQueue = new Set()
+      for (const item of queued) scan(item)
+    })
+  }
   const observer = new MutationObserver(function (records) {
     for (const record of records) {
-      scan(record.target)
-      for (const node of record.addedNodes) scan(node)
+      queueScan(record.target)
+      for (const node of record.addedNodes) queueScan(node)
     }
   })
   observer.observe(document.documentElement, { childList: true, subtree: true })
