@@ -340,6 +340,15 @@ test('off/error and send failures are readable degradation; complete empty entri
   assert.equal(h.state.accepted, accepted)
 })
 
+test('a text-less opening (a card opening page) still projects its opening scene, so its music plays', () => {
+  const h = createStageRuntimeHarness(), s = start(h)
+  h.dispatch({type: 'TEXT_APPEND', source: s, text: text(1, [])})
+  h.replyRead(h.state.observation.flight, direction(1, 0, {phase: 'done', complete: true}))
+  assert.equal(h.last('project').at, 0)
+  const token = h.last('project').token
+  assert.equal(h.state.projection.token, token)
+})
+
 test('stale resource diagnostics and closed-stage one-shot completions cannot affect the current request', () => {
   const h = createStageRuntimeHarness(), s = start(h)
   h.replyRead(h.state.observation.flight, direction(1, 6, {entries: [events(1, 'sfx')]}))
