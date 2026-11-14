@@ -3012,7 +3012,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   /* 触控命中区放大到 40px（#215）。宿主的 + 和附件按钮是 28px 的圆形底色：不改它的尺寸，
      用透明的 ::after 向外扩出命中区，外观在任何宿主版本下都不变。
      只用老 WebView 也认的选择器（不用 :is()、inset），否则整条规则失效、按钮又被撑成大灰块。 */
-  body.dsh-tavern-shell-active [data-composer-card] button:not([class*="_add"]) { min-width: 40px; min-height: 40px; flex-shrink: 0; }
+  body.dsh-tavern-shell-active [data-composer-card] [class*="_row"] button:not([class*="_add"]) { min-width: 40px; min-height: 40px; flex-shrink: 0; }
   body.dsh-tavern-shell-active [data-composer-card] button[class*="_add"] { position: relative; flex-shrink: 0; }
   body.dsh-tavern-shell-active [data-composer-card] button[class*="_add"]::after { content: ""; position: absolute; top: -6px; right: -6px; bottom: -6px; left: -6px; }
   body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-ejs-editor, [role="dialog"]:has(> nav[class*="_nav"]))
@@ -3141,18 +3141,23 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end;
     gap: 0 2px !important; padding: 6px 6px 6px 4px !important; border-radius: 14px !important;
   }
-  /* 附件与顶部提示仍占满第一行；跳转最新的锚点是绝对定位，不参与网格。 */
-  html.dsh-tavern-coarse-play [data-composer-card] > :is([class*="_accessory"], [data-slot="conversation.input.attachments"] > *) {
+  /* 顶部提示占第一行、附件栏占第二行，各自横跨整卡；跳转最新的锚点是绝对定位，不参与网格。
+     [data-slot="conversation.input.attachments"] 自身是 display:contents，其子元素不能放在 `[data-composer-card] > :is(...)` 里匹配。
+     宿主附件栏自带 margin-bottom:-6px 以抵消列布局 12px gap；改成行距 0 的网格后需改回正间距，避免向下盖住输入框。 */
+  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_accessory"] {
     grid-column: 1 / -1; grid-row: 1;
   }
+  html.dsh-tavern-coarse-play [data-composer-card] > [data-slot="conversation.input.attachments"] > * {
+    grid-column: 1 / -1; grid-row: 2; margin-bottom: 6px;
+  }
   html.dsh-tavern-coarse-play [data-composer-card] > :is([data-input-scroll], [class*="_scroll"]) {
-    grid-column: 2; grid-row: 2; box-sizing: border-box; min-height: 40px; margin: 0; align-self: center;
+    grid-column: 2; grid-row: 3; box-sizing: border-box; min-height: 40px; margin: 0; align-self: center;
     display: flex; flex-direction: column; justify-content: center;
   }
   /* 宿主的控制行只做分组：拆开（display: contents）后工具落左列、模型与发送落右列，输入框留在中间。 */
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] { display: contents; }
-  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 2; gap: 0; }
-  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 2; gap: 2px; }
+  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; }
+  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 3; gap: 2px; }
   /* 只让可收缩的入口（模型、上下文）让位；发送键保持 40px 热区。 */
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] > :not([class*="_primary"], [class*="_activity"]) { min-width: 0; }
   html.dsh-tavern-coarse-play [data-composer-card] :is([class*="_primary"], [class*="_add"]) { transform: none; }
@@ -3282,7 +3287,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-composer-card] [class*="_trailing"] { flex: 1; min-width: 0; gap: 2px; }
   body.dsh-tavern-shell-active [data-composer-card] [class*="_trailing"] > :has([class*="_triggerEffort"]),
   body.dsh-tavern-shell-active [data-composer-card] [class*="_root"]:has(> [class*="_trigger"] > [class*="_triggerEffort"]) { flex: 1; min-width: 0; }
-  body.dsh-tavern-shell-active [data-composer-card] button:not([class*="_add"]) { min-width: 40px; min-height: 40px; flex-shrink: 0; }
+  body.dsh-tavern-shell-active [data-composer-card] [class*="_row"] button:not([class*="_add"]) { min-width: 40px; min-height: 40px; flex-shrink: 0; }
   body.dsh-tavern-shell-active [data-composer-card] [class*="_trigger"]:has(> [class*="_triggerEffort"]) { width: 100%; min-width: 40px; overflow: hidden; }
   body.dsh-tavern-shell-active [data-composer-card] [class*="_triggerLabel"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   body.dsh-tavern-shell-active [data-composer-card] [class*="_triggerEffort"] { display: none; }

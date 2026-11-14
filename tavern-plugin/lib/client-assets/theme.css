@@ -6446,15 +6446,15 @@ html.dsh-fork-phone-play body [data-dsh-fork-session="play"] [data-conversation-
    stand above the line even with no attachments. */
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-seat] :has(> [data-composer-card]) { padding-inline: 10px; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card][data-composer-card] { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 0 2px !important; padding: 7px 6px 7px 4px !important; }
-html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [data-slot="conversation.input.attachments"] > * { margin-bottom: 6px; }
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_accessory"] { grid-column: 1 / -1; grid-row: 1; }
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [data-slot="conversation.input.attachments"] > * { grid-column: 1 / -1; grid-row: 2; margin-bottom: 6px; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > :is([class*="_tools"], [class*="_trailing"]) { height: auto; min-height: 36px; align-items: center; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] :is([class*="_trailing"] > [class*="_primary"], .fork-phone-plus-trigger) { width: 36px; min-width: 36px; height: 36px; min-height: 36px; }
-html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [data-slot="conversation.input.attachments"] > * { grid-column: 1 / -1; grid-row: 1; }
-html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [data-input-scroll] { grid-column: 2; grid-row: 2; margin: 0; align-self: center; }
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > :is([data-input-scroll], [class*="_scroll"]) { grid-column: 2; grid-row: 3; margin: 0; align-self: center; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] [data-composer-input] { padding: 6px 6px 6px 4px; }
 html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] { display: contents; }
-html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 2; gap: 0; }
-html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 2; gap: 0; }
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; }
+html.dsh-fork-phone-play [data-dsh-fork-session="play"] [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 3; gap: 0; }
 .fork-phone-plus { position: relative; display: inline-flex; }
 .fork-phone-plus-trigger { display: grid; place-items: center; width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--fork-ink-2); cursor: pointer; }
 .fork-phone-plus-trigger:hover, .fork-phone-plus-trigger[aria-expanded="true"] { background: var(--fork-hover); color: var(--fork-ink); }
