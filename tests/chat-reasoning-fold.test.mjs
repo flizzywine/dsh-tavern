@@ -79,6 +79,15 @@ test('压缩宿主（0.2.2-rc.2+）：无空白的 useDisclosure 声明切在语
   assert.equal(patchReasoningChatSource(result.text).status, 'patched')
 })
 
+test('非字符串输入与缺少 running prop 的宿主保持原样', () => {
+  assert.equal(patchReasoningChatSource(null).status, 'unmatched')
+  assert.equal(patchReasoningChatSource(undefined).status, 'unmatched')
+  // 重写引用 running prop：宿主改名时宁可跳过，不得在渲染时 ReferenceError
+  const noRunning = 'const ReasoningRow=(0,react.memo)(function ReasoningRow({useDisclosure}){const{expanded,toggle}=useDisclosure();return expanded});'
+  assert.equal(patchReasoningChatSource(noRunning).status, 'unmatched')
+  assert.equal(patchReasoningChatSource(noRunning).text, noRunning)
+})
+
 test('页面补丁脚本同时带上两条改写规则', () => {
   const script = chatAnswerBootScript()
   assert.ok(script.includes('dsh-tavern:answer-step'))

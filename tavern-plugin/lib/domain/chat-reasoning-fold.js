@@ -20,12 +20,15 @@ export function patchReasoningChatSource(text) {
   const MARKER = '/* dsh-tavern:reasoning-stream */'
   const PREF_KEY = 'dsh-tavern.reasoningStreamOnly'
   const EVENT = 'dsh-tavern-reasoning-stream'
+  if (typeof text !== 'string') return { status: 'unmatched', text: String(text ?? '') }
   if (text.includes(MARKER)) return { status: 'patched', text }
   // The shipped bundle memoizes the row: `const ReasoningRow = (0, react.memo)(function
   // ReasoningRow(props) { … })`. Match that statement first — helper declarations cannot
   // live inside the memo() argument — and fall back to a bare function declaration.
-  const memoized = /const\s+ReasoningRow\s*=\s*\(0,\s*react\.memo\)\(function\s+ReasoningRow\s*\(\s*\{[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
-  const plain = /(?:^|\n)([\t ]*)function\s+ReasoningRow\s*\(\s*\{[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
+  // The rewrite below reads the `running` prop; require it in the parameter list so a
+  // host that renames it degrades to unmatched instead of a render-time ReferenceError.
+  const memoized = /const\s+ReasoningRow\s*=\s*\(0,\s*react\.memo\)\(function\s+ReasoningRow\s*\(\s*\{(?=[^{}]*\brunning\b)[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
+  const plain = /(?:^|\n)([\t ]*)function\s+ReasoningRow\s*\(\s*\{(?=[^{}]*\brunning\b)[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
   const match = memoized.exec(text) ?? plain.exec(text)
   if (!match) return { status: 'unmatched', text }
   // 压缩宿主（0.2.2-rc.2+）里这句是 `const{expanded,toggle}=useDisclosure();`，
