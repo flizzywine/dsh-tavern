@@ -3495,7 +3495,10 @@ export async function apply(ctx) {
       ])
       if(!chat || !['story','script'].includes(chat.mode) || chat.requestMode==='sillytavern' || chat.regenInProgress || ['pending','running'].includes(chat.settleStatus)
         || !chat.cardDefinitionSnapshot || chat.openingWorldbookSnapshot?.version!==1)return null
-      return {revision:chat._storageRevision,resources:JSON.stringify([globals,settings,modelSelection(sessionId)?.model||''])}
+      // The prepared value is the bound book's request prefix plus its constant
+      // entries. Nothing in it reads the model, so the selected model stays out
+      // of the dependency key: switching models must not throw the work away.
+      return {revision:chat._storageRevision,resources:JSON.stringify([globals,settings])}
     },
     async prepare(sessionId){
       const chat=await candidateContextReader.forSession(sessionId)
