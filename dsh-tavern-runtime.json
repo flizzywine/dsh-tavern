@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fcce2080843e6a94b1778098cc26336ba7ad5e9c",
-  "releaseSequence": 1634,
+  "revision": "2fb7e3690af50ba2207e856fad8f453b64466244",
+  "releaseSequence": 1635,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "e8f545cec8387f1273941c6adeb5d239e52a819ba422d444c80ef078f0ecd30b",
-      "size": 435198
+      "sha256": "b0ced9ddff5125b5166b31e5e75dd461c3f9c31318b4babe2d50ce385b4f1b51",
+      "size": 435379
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "7a543e16bc92d7dce97a60a01866375f8af0819218cf24774654da3e72583772",
-      "size": 6365978
+      "sha256": "f24f52a9dacefc736f41decef656224ed7309eb84555ea0668963d0f977e17c7",
+      "size": 6370428
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -4041,8 +4041,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "6e7cf93918efcb8fe8edcbe812fc483d8c602ed5c7eaefa13cf04d13bad9795d",
-      "size": 14278
+      "sha256": "4ddd0cad40c382076baa117f3e7b13c93882508eabc166c5da4f1c32f7eed128",
+      "size": 15482
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -9251,9 +9251,9 @@
     }
   ],
   "archive": {
-    "commit": "74786b5909aa566a5f2d7c58875e9c29299f9032",
+    "commit": "0371ba46233d096c74a015cee3301957296bc6fd",
     "path": "runtime.zip",
-    "sha256": "39368697cc9a9bbce2071a0b5d682e046ca296db0128a61a920079985b1b7d61",
-    "size": 16521310
+    "sha256": "c1aeb19d4072570f4cb29e430199a98b3dfc9bd2b18ca74983f22985c1c1d79c",
+    "size": 16522694
   }
 }
