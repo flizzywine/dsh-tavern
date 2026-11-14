@@ -6505,7 +6505,7 @@ window.__ModuleLoader__.load({
 		    const modelDrop=modelDropFrame(work.busy,(entries,name)=>{const read=entries();read.catch(()=>{});stopSelect();dropModel(read,name);},'pack');
 		    const packDrop={...modelDrop,onDrop:e=>{
 		      const transfer=e.dataTransfer,files=[...(transfer?.files||[])],items=[...(transfer?.items||[])];
-		      if(!files.length||files.some(f=>extOf(f.name)==='zip')||items.some(item=>item.webkitGetAsEntry?.()?.isDirectory))return modelDrop.onDrop(e);
+		      if(!files.length||modelDragFromPage(transfer)||files.some(f=>extOf(f.name)==='zip')||items.some(item=>item.webkitGetAsEntry?.()?.isDirectory))return modelDrop.onDrop(e);
 		      if(!modelDragHasFiles(e))return;e.stopPropagation();if(e.defaultPrevented)return;e.preventDefault();if(!work.busy)dropFiles(files);}};
 		    // 复制到…: copyItems (one publication with the same-pack closure); 新建素材包 creates the target in the same write.
 		    // `only`: one item (the figure page's ⋯ → 复制到…) instead of the multi-selection.
@@ -9851,6 +9851,13 @@ window.__ModuleLoader__.load({
 		      h('input',{ref:zip,type:'file',accept:'.zip,application/zip',hidden:true,tabIndex:-1,'aria-hidden':true,'data-for':'模型 ZIP',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)load(()=>modelZipEntries(file),file.name.replace(/\.zip$/i,''));}}));
 		  }
 		  const modelDragHasFiles=e=>[...(e.dataTransfer?.types||[])].includes('Files');
+		  // A picture dragged within this page (a tile's thumbnail, a candidate) arrives as a file too: Chromium names it after its
+		  // URL, so a 立绘 thumbnail dropped back on the library became a new figure 「thumbnail」. Its uri-list is this page's own
+		  // address (or a blob: / data: URL it made); such a drop is not an upload. Readable only on drop.
+		  const modelDragFromPage=transfer=>{
+		    const uri=String(transfer?.getData?.('text/uri-list')||'').split(/\r?\n/).find(line=>line&&!line.startsWith('#'));
+		    return !!uri&&(uri.startsWith('data:')||uri.replace(/^blob:/,'').startsWith(location.origin+'/'));
+		  };
 		  // Drop props for a sheet / window: `load(entries, name)` gets the dropped folder or ZIP. The innermost target takes it (a
 		  // sheet opened inside the pack window: React events bubble through the portal). File drags stop here: the host composer
 		  // listens on document and would otherwise also store the dropped files as chat attachments (and show its drop overlay).
@@ -9858,7 +9865,7 @@ window.__ModuleLoader__.load({
 		    const own=e=>{if(!modelDragHasFiles(e))return false;e.stopPropagation();return true;};
 		    return {'data-drop':name,onDragEnter:own,onDragLeave:own,
 		      onDragOver:e=>{if(!own(e)||e.defaultPrevented)return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect=busy?'none':'copy';},
-		      onDrop:e=>{if(!own(e)||e.defaultPrevented)return;e.preventDefault();if(busy)return;const transfer=e.dataTransfer,first=[...(transfer?.files||[])][0];load(()=>modelDropEntries(transfer),first?.name?.replace(/\.zip$/i,'')||'');}};
+		      onDrop:e=>{if(!own(e)||e.defaultPrevented)return;e.preventDefault();if(busy||modelDragFromPage(e.dataTransfer))return;const transfer=e.dataTransfer,first=[...(transfer?.files||[])][0];load(()=>modelDropEntries(transfer),first?.name?.replace(/\.zip$/i,'')||'');}};
 		  }
 		  // The pack service's refusal of a bundle (its one check, validation.js), in Chinese; the host's reason rides along.
 		  const MODEL_IMPORT_ERRORS={INVALID_ASSET_PACK:'模型文件没有通过校验：贴图、动作、表情或骨骼文件可能损坏或格式不对',INVALID_JSON:'模型里有无效的 JSON 文件',
@@ -11760,7 +11767,7 @@ window.__ModuleLoader__.load({
 		      onDragEnter:e=>{if(!catDragFiles(e))return;e.preventDefault();depth.current++;setOver(true);},
 		      onDragOver:e=>{if(!catDragFiles(e))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect=zip.busy?'none':'copy';},
 		      onDragLeave:e=>{if(!catDragFiles(e))return;depth.current=Math.max(0,depth.current-1);if(!depth.current)setOver(false);},
-		      onDrop:e=>{if(!e.dataTransfer?.files?.length&&!catDragFiles(e))return;e.preventDefault();depth.current=0;setOver(false);if(!zip.busy)pick(e.dataTransfer?.files);}};
+		      onDrop:e=>{if(!e.dataTransfer?.files?.length&&!catDragFiles(e))return;e.preventDefault();depth.current=0;setOver(false);if(!zip.busy&&!modelDragFromPage(e.dataTransfer))pick(e.dataTransfer?.files);}};
 		    const choose=()=>picker.current?.click?.();
 		    const bar=h('div',{className:'ap-get-bar'},
 		      ready&&h('input',{id:'ap-cat-url',className:'ap-get-url',type:'url',inputMode:'url',autoComplete:'off',spellCheck:false,'aria-label':'素材包链接',placeholder:'粘贴素材包链接','data-autofocus':true,

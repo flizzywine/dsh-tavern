@@ -1207,7 +1207,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const modelDrop=modelDropFrame(work.busy,(entries,name)=>{const read=entries();read.catch(()=>{});stopSelect();dropModel(read,name);},'pack');
     const packDrop={...modelDrop,onDrop:e=>{
       const transfer=e.dataTransfer,files=[...(transfer?.files||[])],items=[...(transfer?.items||[])];
-      if(!files.length||files.some(f=>extOf(f.name)==='zip')||items.some(item=>item.webkitGetAsEntry?.()?.isDirectory))return modelDrop.onDrop(e);
+      if(!files.length||modelDragFromPage(transfer)||files.some(f=>extOf(f.name)==='zip')||items.some(item=>item.webkitGetAsEntry?.()?.isDirectory))return modelDrop.onDrop(e);
       if(!modelDragHasFiles(e))return;e.stopPropagation();if(e.defaultPrevented)return;e.preventDefault();if(!work.busy)dropFiles(files);}};
     // 复制到…: copyItems (one publication with the same-pack closure); 新建素材包 creates the target in the same write.
     // `only`: one item (the figure page's ⋯ → 复制到…) instead of the multi-selection.

@@ -207,6 +207,13 @@ function ModelPickers({busy,load}) {
     h('input',{ref:zip,type:'file',accept:'.zip,application/zip',hidden:true,tabIndex:-1,'aria-hidden':true,'data-for':'模型 ZIP',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)load(()=>modelZipEntries(file),file.name.replace(/\.zip$/i,''));}}));
 }
 const modelDragHasFiles=e=>[...(e.dataTransfer?.types||[])].includes('Files');
+// A picture dragged within this page (a tile's thumbnail, a candidate) arrives as a file too: Chromium names it after its
+// URL, so a 立绘 thumbnail dropped back on the library became a new figure 「thumbnail」. Its uri-list is this page's own
+// address (or a blob: / data: URL it made); such a drop is not an upload. Readable only on drop.
+const modelDragFromPage=transfer=>{
+  const uri=String(transfer?.getData?.('text/uri-list')||'').split(/\r?\n/).find(line=>line&&!line.startsWith('#'));
+  return !!uri&&(uri.startsWith('data:')||uri.replace(/^blob:/,'').startsWith(location.origin+'/'));
+};
 // Drop props for a sheet / window: `load(entries, name)` gets the dropped folder or ZIP. The innermost target takes it (a
 // sheet opened inside the pack window: React events bubble through the portal). File drags stop here: the host composer
 // listens on document and would otherwise also store the dropped files as chat attachments (and show its drop overlay).
@@ -214,7 +221,7 @@ function modelDropFrame(busy,load,name='model') {
   const own=e=>{if(!modelDragHasFiles(e))return false;e.stopPropagation();return true;};
   return {'data-drop':name,onDragEnter:own,onDragLeave:own,
     onDragOver:e=>{if(!own(e)||e.defaultPrevented)return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect=busy?'none':'copy';},
-    onDrop:e=>{if(!own(e)||e.defaultPrevented)return;e.preventDefault();if(busy)return;const transfer=e.dataTransfer,first=[...(transfer?.files||[])][0];load(()=>modelDropEntries(transfer),first?.name?.replace(/\.zip$/i,'')||'');}};
+    onDrop:e=>{if(!own(e)||e.defaultPrevented)return;e.preventDefault();if(busy||modelDragFromPage(e.dataTransfer))return;const transfer=e.dataTransfer,first=[...(transfer?.files||[])][0];load(()=>modelDropEntries(transfer),first?.name?.replace(/\.zip$/i,'')||'');}};
 }
 // The pack service's refusal of a bundle (its one check, validation.js), in Chinese; the host's reason rides along.
 const MODEL_IMPORT_ERRORS={INVALID_ASSET_PACK:'模型文件没有通过校验：贴图、动作、表情或骨骼文件可能损坏或格式不对',INVALID_JSON:'模型里有无效的 JSON 文件',
