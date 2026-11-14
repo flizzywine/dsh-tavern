@@ -194,6 +194,8 @@ export const CHECK_BACKFILL = {
 export const backfillOffered = card => rulesOf(card)?.format === RULES_FORMAT
 // The stat_data paths the rules own (state and derived): only their actions write them, the background's writes are dropped.
 export const rulesPaths = card => [...Object.values(rulesOf(card).state), ...Object.values(rulesOf(card).derived)].map(row => '/stat_data' + row.path)
+// The stat_data paths of the secret variables (state and derived): the player sees them nowhere, the model reads them as usual.
+export const secretPaths = card => [...Object.values(rulesOf(card).state), ...Object.values(rulesOf(card).derived)].filter(row => row.secret).map(row => row.path)
 
 /** One backfill call: `results` are this reply's records so far (its own and earlier backfills), as text. */
 export function backfillRulesCall(args, { card, results, variables, turn }) {

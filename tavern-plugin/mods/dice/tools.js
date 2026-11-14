@@ -1,5 +1,5 @@
 import { rollDice } from './dice.js'
-import { CHECK_BACKFILL, CHECK_TOOL, backfillOffered, backfillRulesCall, checkRulesCard, checkSettlement, createCheckTool, RULES_KEY, rulesPaths } from './check-tool.js'
+import { CHECK_BACKFILL, CHECK_TOOL, backfillOffered, backfillRulesCall, checkRulesCard, checkSettlement, createCheckTool, RULES_KEY, rulesPaths, secretPaths } from './check-tool.js'
 
 export const DICE_TOOL = {
   name: 'tavern_roll',
@@ -45,6 +45,6 @@ export function createDiceTool({ activeTurnOf, chatForSession, isBackground, aut
 
 // The mod's foreground tools (lib/mod-tools.js). The values a card's rules settled are written by the reply's variable
 // settlement, which may also backfill the actions the story shows but the reply did not submit; a card's rules are checked
-// with the card.
-export default [{ name: DICE_TOOL.name, create: createDiceTool }, { name: CHECK_TOOL.name, create: createCheckTool, settlement: checkSettlement, checkCard: checkRulesCard, cardExtension: RULES_KEY,
+// with the card; its secret variables are kept from the player everywhere (hidden).
+export default [{ name: DICE_TOOL.name, create: createDiceTool }, { name: CHECK_TOOL.name, create: createCheckTool, settlement: checkSettlement, checkCard: checkRulesCard, cardExtension: RULES_KEY, hidden: secretPaths,
   backfill: { definition: CHECK_BACKFILL, offered: backfillOffered, owns: rulesPaths, run: backfillRulesCall } }]

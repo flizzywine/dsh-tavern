@@ -47,7 +47,7 @@ import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { createNarrativeDamper } from './domain/narrative-damper.js'
 import { registerGameplayTools } from './tools/gameplay.js'
-import { cardGoverns, cardOffer, modTools } from './mod-tools.js'
+import { cardGoverns, cardOffer, modTools, withModHidden } from './mod-tools.js'
 import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
 import { registerUserProfileTools } from './tools/user-profile.js'
 import { registerSkillTools } from './tools/skills.js'
@@ -1080,7 +1080,9 @@ export async function apply(ctx) {
   async function readCardExtensionSources(cardPath, chat) {
     const workspace = chat?.cardDefinitionSnapshot || await readCardWorkspace(cardPath)
     if (workspace === undefined) return undefined
-    return cardPreparation.present({ card: workspace, as: 'card-extensions' })
+    const extensions = cardPreparation.present({ card: workspace, as: 'card-extensions' })
+    // A workspace holds the card under raw; a game's definition snapshot is the card itself.
+    return { ...extensions, mvuVisibility: withModHidden(extensions.mvuVisibility, workspace.raw?.data || workspace.raw || workspace) }
   }
   async function readCardExtensions(cardPath, chat, includeMuted = false, settings) {
     let extensions = await readCardExtensionSources(cardPath, chat)

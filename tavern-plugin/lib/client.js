@@ -3284,10 +3284,15 @@ window.__ModuleLoader__.load({
 		  return Boolean(rules && Object.keys(rules).length > 0)
 		}
 
-		// Reserved hook for conditional fog-of-war reveal (`revealWhen`).
-		// Kept inactive in phase 1 per design: always returns false while preserving schema compatibility.
-		function isMvuPathRevealed(_rule, _statData) {
-		  return false
+		// Conditional fog-of-war reveal: `revealWhen: { path, equals }` shows the value once the variable at path (under
+		// stat_data) equals `equals`. Read where the variables are at hand (the panel, the card's pages); a receipt without them
+		// stays masked. A condition string stays reserved.
+		function isMvuPathRevealed(rule, statData) {
+		  const when = rule && rule.revealWhen
+		  if (!mvuVisPlainObject(when) || typeof when.path !== 'string' || !mvuVisPlainObject(statData)) return false
+		  let node = statData
+		  for (const segment of mvuVisPointerSegments(when.path)) node = mvuVisPlainObject(node) || Array.isArray(node) ? node[segment] : undefined
+		  return unwrapMvuScalar(node) === when.equals
 		}
 
 		function mvuVisSegmentsMatch(patternSegs, targetSegs, pIdx = 0, tIdx = 0) {
@@ -3347,6 +3352,11 @@ window.__ModuleLoader__.load({
 		    const parentSegs = segments.slice(0, -1)
 		    const parentMatch = findDirect(parentSegs)
 		    if (parentMatch) return { pattern: parentMatch.pattern, rule: parentMatch.rule, matchedSegments: parentSegs, tupleIndex: Number(tail) }
+		  }
+		  // A hidden object hides what is inside it: a change or read of one of its fields matches the nearest hidden ancestor.
+		  for (let length = segments.length - 1; length > 0; length -= 1) {
+		    const ancestor = findDirect(segments.slice(0, length))
+		    if (ancestor) return { pattern: ancestor.pattern, rule: ancestor.rule, matchedSegments: segments.slice(0, length), tupleIndex: null }
 		  }
 		  return null
 		}
@@ -3545,7 +3555,7 @@ window.__ModuleLoader__.load({
 		function maskMvuChangeList(changes, wrappedRules) {
 		  if (!Array.isArray(changes) || !changes.length) return changes
 		  let anyChanged = false
-		  const seenTupleParents = new Set()
+		  const seenParents = new Set()
 		  const out = []
 		  for (let index = 0; index < changes.length; index += 1) {
 		    const change = changes[index]
@@ -3559,9 +3569,10 @@ window.__ModuleLoader__.load({
 		      anyChanged = true
 		      if (matched.tupleIndex === 1) continue
 		      const canonicalPath = mvuVisFormatPointer(matched.matchedSegments, rooted)
-		      if (matched.tupleIndex === 0) {
-		        if (seenTupleParents.has(canonicalPath)) continue
-		        seenTupleParents.add(canonicalPath)
+		      // A tuple's value or a field of a hidden object: one row for the hidden path.
+		      if (matched.matchedSegments.length < segments.length) {
+		        if (seenParents.has(canonicalPath)) continue
+		        seenParents.add(canonicalPath)
 		      }
 		      const hidden = describeMvuHiddenChange(change.before, change.after, change.operation, matched.rule)
 		      out.push(Object.assign({}, change, {
@@ -22824,7 +22835,7 @@ function tavernModelRefusalNotice(text) {
 
 		const checkSigned = value => (value > 0 ? "+" : "") + value;
 		// What the player's card may show of a record: what the rules keep from the player (a v1 record lists its secret resources
-		// in record.secret, a v2 change row carries secret) is left out everywhere on it.
+		// in record.secret, a v2 change or report row carries secret) is left out everywhere on it.
 		const checkShown = (record, rows) => rows.filter(row => !row.secret && !(record.secret && record.secret.includes(row.resource)));
 		// One previewed value of an int choice: 「2：代价成功（素质保证·主动-1）」.
 		function checkPreviewText(row, record) {
@@ -23027,7 +23038,7 @@ function tavernModelRefusalNotice(text) {
 		    // An outcome the rules stage (show) is named in the mark colour; one fixed as the dice land is named while it awaits.
 		    const tail = awaiting ? (record.show ? record.show.label + " · " : "") + "等你选择" : record.outcome ? record.outcome.label : record.status === "adjusted" ? "资源调整" : "";
 		    const mark = record.show ? checkDiceFaces(record).find(die => die.color)?.color : null;
-		    const report = record.report ? Object.values(record.report).map(row => row.label + " " + (row.value === true ? "是" : row.value)).join(" · ") : "";
+		    const report = record.report ? checkShown(record, Object.values(record.report)).map(row => row.label + " " + (row.value === true ? "是" : row.value)).join(" · ") : "";
 		    return h("div", { className: "fork-roll fork-check" + (awaiting ? " is-awaiting" : "") + (performing ? " is-throwing" : ""), "data-call": record.callId, "data-outcome": record.outcome ? record.outcome.id : undefined,
 		            "data-show": record.show ? record.show.effect : undefined, style: mark ? { "--fork-check-mark": mark } : undefined },
 		        h("button", { type: "button", className: "fork-roll-head", "aria-expanded": open, "aria-controls": open ? detailsId : undefined,
