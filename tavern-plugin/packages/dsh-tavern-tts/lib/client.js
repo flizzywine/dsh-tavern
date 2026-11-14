@@ -528,6 +528,19 @@ exports.apply = function(ctx) {
       return () => { if (panelSections.get(id) === entry) { panelSections.delete(id); publishSections() } }
     },
   }))
+  // 创作者工具 (Fish voice design, batch reading trials): one global switch, off by default; player voice does not depend on it.
+  function CreatorSection() {
+    const [value,setValue] = React.useState(null), [message,setMessage] = React.useState('')
+    const load = () => call('settings').then(settings => { setValue(settings.creator?.enabled === true); setMessage('') },error => setMessage(failText(error)))
+    React.useEffect(() => { void load() },[])
+    const toggle = async enabled => {
+      try { setValue((await call('setCreatorEnabled',{enabled})).enabled); setMessage('') }
+      catch (error) { setMessage(failText(error)) }
+    }
+    return h(Section,{title:'创作者工具',help:'开启后可以用 Fish 声音设计和批量试读；付费请求仍要逐次确认，不影响游玩时的配音。',
+      action:h('label',{className:'dtts-head-switch',title:'启用创作者工具'},h('input',{type:'checkbox',role:'switch',className:'dtts-switch','aria-label':'启用创作者工具',checked:value === true,disabled:value === null,onChange:e => toggle(e.target.checked)}))},
+      h(Status,{label:'创作者工具状态'},message && h(React.Fragment,null,h(Warn,null,message),value === null && h(Button,{link:true,onClick:load},'重试'))))
+  }
   function PluginSections() {
     const sections = React.useSyncExternalStore(notify => { panelListeners.add(notify); return () => panelListeners.delete(notify) }, () => panelSnapshot)
     return sections.map(({ id, component }) => h(component, { key: id, Section, Field, Line, Confirm, Help, Button, Menu, AddRow, StateWord, Status, Warn }))
@@ -564,7 +577,7 @@ exports.apply = function(ctx) {
         }}))),
       h(Status,{label:'配音状态'},message),
       // 语音服务 → 发音字典 → 合成缓存. Who speaks with which voice is chosen in 舞台设置 › 配音 (tts.reading through setReading).
-      h(ServicesSection,{data:services}),h(PluginSections),h(ReadingsSection),h(CacheSection))
+      h(ServicesSection,{data:services}),h(PluginSections),h(ReadingsSection),h(CacheSection),h(CreatorSection))
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))
