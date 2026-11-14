@@ -13,7 +13,7 @@ const worker = fileURLToPath(new URL('./server-script-worker.js', import.meta.ur
 // What an open play page uses to run card scripts. Card code inside the
 // sandbox can reach this channel, so nothing beyond it is exposed.
 const ALLOWED_METHODS = new Set([
-  'getSession', 'hydrateTavernHelperMessages', 'getTavernHelperContext',
+  'getSession', 'getTavernSettings', 'hydrateTavernHelperMessages', 'getTavernHelperContext',
   'claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState', 'heartbeatTavernScriptRuntime',
   'completeTavernHelperEvent', 'releaseTavernHelperRuntime',
   'updateTavernHelperPrompts', 'updateTavernHelperVariables', 'updateTavernHelperMessages', 'createTavernHelperMessages',
@@ -26,8 +26,15 @@ const ALLOWED_GET = /^\/api\/dsh-tavern\/(?:vendor\/|client-assets\/|remote-asse
 
 // Like a page, only the game being played runs: a runtime lives while a page
 // shows its game in the foreground or a settlement waits for it, and stops
-// shortly after both end. Switching back starts it again.
-export function createServerScriptExecutor({ handle, subscribeSignals, busy = () => false, lingerMs = 30 * 1000, maxSessions = 4, logger = console, now = Date.now }) {
+// after both end. Switching back starts it again.
+//
+// Starting one is expensive: the child boots jsdom and evaluates the whole
+// client bundle, which costs seconds. So the idle window is sized for reading,
+// not for request latency — a player who pauses to read a scene, or replies
+// after a minute, must find its runtime still warm. Thirty seconds reaped the
+// child in the middle of ordinary play, and every later card-script event then
+// paid a full cold boot before it could run.
+export function createServerScriptExecutor({ handle, subscribeSignals, busy = () => false, lingerMs = 5 * 60 * 1000, reapIntervalMs = Math.max(1000, Math.floor(lingerMs / 3)), maxSessions = 4, spawn = fork, logger = console, now = Date.now }) {
   const records = new Map(), retryAfter = new Map()
   let failures = 0, disabled = false
   function failed(id) {
@@ -56,7 +63,7 @@ export function createServerScriptExecutor({ handle, subscribeSignals, busy = ()
         if (records.get(record.sessionId) === record && now() - record.demandedAt > lingerMs) stop(record.sessionId)
       }
     } finally { reaping = false }
-  }, Math.max(1000, Math.floor(lingerMs / 3)))
+  }, reapIntervalMs)
   reaper.unref?.()
   async function answer(record, message) {
     const reply = data => { if (record.child.connected) record.child.send({ type: 'fetch-result', id: message.id, ...data }, () => {}) }
@@ -114,7 +121,7 @@ export function createServerScriptExecutor({ handle, subscribeSignals, busy = ()
     const modules = dirname(dirname(require.resolve('jsdom/package.json')))
     const plugin = fileURLToPath(new URL('../../', import.meta.url))
     const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission'
-    const child = fork(worker, [], {
+    const child = spawn(worker, [], {
       env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
       execArgv: ['--experimental-vm-modules', '--no-warnings', permissionFlag, '--allow-fs-read=' + plugin, '--allow-fs-read=' + modules, '--max-old-space-size=1024'],
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'], serialization: 'advanced', windowsHide: true
