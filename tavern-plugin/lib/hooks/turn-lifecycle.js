@@ -16,6 +16,61 @@ import { agentForSession } from '../domain/agent-lookup.js'
 import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
+// A provider can stop mid-stream (SAFETY, an idle timeout) and DSH then keeps only the
+// attempt's stream, never an assistant/message: the turn looks empty even though the
+// player watched the body arrive. The prose is still inside that stream — a finished
+// submit_story document, its cut argument text, or a text block — so the round is kept
+// as an incomplete body instead of rolling back to the previous one.
+const PARTIAL_CONTENT_RE = /"content"\s*:\s*"/
+const STORY_SUBMIT_TOOL = 'submit_story'
+
+function unescapeJsonFragment(fragment) {
+  try { return JSON.parse('"' + fragment + '"') } catch (_error) { /* cut mid-escape */ }
+  return fragment
+    .replace(/\\u[0-9a-fA-F]{0,3}$/, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+}
+
+function contentOfArguments(raw) {
+  if (typeof raw !== 'string' || raw === '') return ''
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed?.content === 'string') return parsed.content
+  } catch (_error) { /* cut mid-document */ }
+  const match = PARTIAL_CONTENT_RE.exec(raw)
+  if (!match) return ''
+  return unescapeJsonFragment(raw.slice(match.index + match[0].length).replace(/"(?:\s*})?\s*$/, ''))
+}
+
+export function recoveredSubmissionBody(session, turn) {
+  let best = ''
+  const consider = text => {
+    if (typeof text === 'string' && text.length > best.length) best = text
+  }
+  for (const event of sessionEvents(session)) {
+    if (Number(event?.data?.turn) !== Number(turn)) continue
+    if (event.type === 'assistant/message') {
+      for (const block of event.data.message?.content || []) {
+        if (block?.type === 'tool-call' && block.name === STORY_SUBMIT_TOOL) consider(contentOfArguments(block.arguments))
+        else if (block?.type === 'text') consider(block.text)
+      }
+    } else if (event.type === 'assistant/attempt') {
+      for (const entry of event.data.stream || []) {
+        if (entry?.type === 'tool-call-chunks' && entry.name === STORY_SUBMIT_TOOL) {
+          consider(contentOfArguments((Array.isArray(entry.args) ? entry.args : []).join('')))
+        } else if (entry?.type === 'chunk' && entry.chunk?.type === 'block-end' && entry.chunk.block?.type === 'text') {
+          consider(entry.chunk.block.text)
+        }
+      }
+    }
+  }
+  return best.trim()
+}
+
 function reachedOutputLimit(assistant) {
   const stream = Array.isArray(assistant?.event?.data?.stream) ? assistant.event.data.stream : []
   return stream.some(entry => {
@@ -79,6 +134,7 @@ export function registerTurnLifecycleHooks({
     if (userText === '' && !inputAttachments(userContent).length) return
     const requestId = requestIdForTurn(session, payload.turn)
     let assistant = assistantResultForTurn(session, payload.turn)
+    let interrupted = false
     try { await pluginBodyGeneration?.validateResult(session, payload.turn, assistant) }
     catch (error) {
       await turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message, failure: error.failure })
@@ -89,21 +145,28 @@ export function registerTurnLifecycleHooks({
       // wrote a body (or a submit_story argument) that never completed. Reporting it
       // as empty-response hid the real cause, and a cut submission looks exactly like
       // a model that returned nothing.
-      const truncated = assistant !== null && reachedOutputLimit(assistant)
-      const reasoningOnly = !truncated && assistant !== null && assistant.reasoningOnly === true
-      const message = truncated
-        ? '本轮输出达到上限被截断，正文没有完整提交；请重新生成本轮正文。'
-        : reasoningOnly
-          ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
-          : '模型本轮没有返回正文；请重新生成本轮正文。'
-      await turnOrchestrator.recordFailure({
-        sessionId,
-        turn: payload.turn,
-        requestId,
-        code: truncated ? 'output-limit' : (reasoningOnly ? 'reasoning-only' : 'empty-response'),
-        message
-      })
-      throw new Error(message)
+      const rescued = recoveredSubmissionBody(session, payload.turn)
+      if (rescued !== '') {
+        // Half a round beats no round: the player already read this text.
+        assistant = { ...(assistant || {}), text: rescued, reasoningText: '', reasoningOnly: false }
+        interrupted = true
+      } else {
+        const truncated = assistant !== null && reachedOutputLimit(assistant)
+        const reasoningOnly = !truncated && assistant !== null && assistant.reasoningOnly === true
+        const message = truncated
+          ? '本轮输出达到上限被截断，正文没有完整提交；请重新生成本轮正文。'
+          : reasoningOnly
+            ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
+            : '模型本轮没有返回正文；请重新生成本轮正文。'
+        await turnOrchestrator.recordFailure({
+          sessionId,
+          turn: payload.turn,
+          requestId,
+          code: truncated ? 'output-limit' : (reasoningOnly ? 'reasoning-only' : 'empty-response'),
+          message
+        })
+        throw new Error(message)
+      }
     }
     const projectedMessageId = assistant.storyToolSubmission ? 'tavern-tool-reply:' + randomUUID() : randomUUID()
     let replyMessageId = String(assistant.event?.data?.message?.id || '')
@@ -116,7 +179,7 @@ export function registerTurnLifecycleHooks({
       pluginBodyGeneration: assistant?.pluginBodyGeneration === true,
       assistantText: assistant === null ? '' : assistant.text,
       replyMessageId: projectedMessageId,
-      incomplete: reachedOutputLimit(assistant),
+      incomplete: interrupted || reachedOutputLimit(assistant),
       incompleteReason: '这次生成达到输出上限或被中断，保留了已生成的部分正文',
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
     })
