@@ -3394,10 +3394,14 @@ export async function apply(ctx) {
         if (checkedCompactionPressure.has(target)) return null
         checkedCompactionPressure.add(target)
       }
+      // The manual policy also governs the native capacity check: one story must
+      // not keep summarizing at a threshold the player never set. Only Tavern
+      // sessions read it; every other agent keeps the host policy untouched.
+      const manualPolicy = async () => (await readTavernSettings()).contextCompaction.mode === 'manual'
       const background = backgroundAgentRunner.requestContext(target.session.id)
       if (background) {
         return compactBackgroundIfNeeded({
-          trigger, forced, native: fallback,
+          trigger, forced, native: fallback, automatic: !(await manualPolicy()),
           pressure: () => measureBackgroundBudget({
             agent: target, background, signal, llm: ctx.llm, meter: ctx.get('tokenMeter'), logger: ctx.logger,
             pending: pendingCompactionMessages.get(target) || []
@@ -3408,7 +3412,8 @@ export async function apply(ctx) {
       if (!chat || !['story', 'script'].includes(chat.mode)) return fallback()
       const pendingMessages = pendingCompactionMessages.get(target) || []
       return compactForegroundIfNeeded({
-        trigger, native: () => compactNativePlayIfNeeded(engine, target, trigger, signal, fallback), forced,
+        trigger, automatic: !(await manualPolicy()),
+        native: () => compactNativePlayIfNeeded(engine, target, trigger, signal, fallback), forced,
         pressure: () => measureForegroundPressure({
           agent: target, signal, pendingMessages, projections: ctx.get('sessionProjections'),
           defaultModel: agentDefaultModel, llm: ctx.llm, meter: ctx.get('tokenMeter'), logger: ctx.logger

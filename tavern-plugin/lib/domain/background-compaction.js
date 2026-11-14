@@ -2,10 +2,13 @@ import { readCompactionPressure, requirePressureNumber } from './compaction-pres
 
 // Background maintenance runs inside the owning Agent turn, never through the
 // idle Tavern compaction queue (which would wait for this same task to finish).
-export async function compactBackgroundIfNeeded({ trigger, forced, native, pressure }) {
+export async function compactBackgroundIfNeeded({ trigger, forced, native, pressure, automatic = true }) {
   // Native policy owns its threshold, pruning, retained tail and retries. Extra
   // task budgeting must never veto that check, even when metadata is unavailable.
+  // Overflow recovery stays enabled under the manual policy: a background task
+  // that runs out of window has no other way back.
   if (trigger === 'context-overflow') return forced()
+  if (!automatic) return null
   const result = await native()
   if (result) return result
   const budget = await pressure()

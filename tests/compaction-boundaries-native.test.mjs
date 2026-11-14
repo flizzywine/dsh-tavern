@@ -159,3 +159,22 @@ for (const summaryMaxTokens of [128, 1024]) {
     t.diagnostic(JSON.stringify({ usage: f.before, threshold: 1600, summaryMaxTokens, summaryRequest, capacity: 2000 }))
   })
 }
+
+// The manual compaction policy must survive the host's own pre-step hook: the
+// player's "don't summarize until I ask" is not a suggestion.
+test('manual policy: the host pre-step hook never summarizes a story session', native, async t => {
+  const f = await fixture(t, { auto: true, rounds: 12, text: '很长的历史。'.repeat(300) })
+  const before = sessionEvents(f.session).filter(e => e.type === 'compaction/start').length
+  const nodes = [...f.session.surface.nodes]
+  t.after(installCompactionPolicy(f.engine, (_agent, trigger, _signal, fallback, forced) => compactForegroundIfNeeded({
+    trigger, automatic: false,
+    native: () => trigger === 'context-overflow' ? fallback() : null,
+    forced, pressure: async () => ({ percent: 150 }), scheduled: async () => null, record: async () => {}
+  })))
+  f.agent.followup({ id: 'manual-next', role: 'user', content: [{ type: 'text', text: '继续。' }], source: { kind: 'human' } })
+  await f.agent.whenIdle()
+  const events = sessionEvents(f.session)
+  assert.equal(events.filter(e => e.type === 'compaction/start').length, before, 'manual policy must not start a summary')
+  assert.ok(nodes.every(seq => f.session.surface.nodes.includes(seq)), 'history stays verbatim')
+  t.diagnostic(JSON.stringify({ before, pressurePercent: 150 }))
+})

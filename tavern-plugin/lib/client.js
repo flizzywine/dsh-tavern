@@ -46112,10 +46112,10 @@ function TavernCardUpdateDialog(props) {
             const rounds = policy && policy.mode === "rounds";
             return h("div", { className: "dsh-tavern-compaction-settings", role: "group", "aria-label": "上下文压缩" },
                 h("h3", { className: "dsh-tavern-gs-subhead" }, "上下文压缩",
-                    typeof HelpTip === "function" ? h(HelpTip, { label: "上下文压缩说明" }, "把较早的剧情压成摘要，前后台都适用；接近容量或请求超限时总会自动保护，原始剧情记录不删。") : null),
-                policy ? h(TavernSettingRow, { title: "压缩模式", help: "手动（默认）、每 N 轮或上下文达到一定比例时自动压缩。" },
+                    typeof HelpTip === "function" ? h(HelpTip, { label: "上下文压缩说明" }, "把较早的剧情压成摘要，前后台都适用；手动模式下只有你主动压缩才执行，按轮数或占用比例才自动触发，请求超限时仍会尝试恢复，原始剧情记录不删。") : null),
+                policy ? h(TavernSettingRow, { title: "压缩模式", help: "手动（默认，不按容量自动压缩）、每 N 轮或上下文达到一定比例时自动压缩。" },
                     h(InlineField, { kind: "menu", label: "压缩模式", hideLabel: true, value: policy.mode, disabled: busy, onCommit: value => field("mode", value),
-                        options: [{ value: "manual", label: "手动压缩（默认）" }, { value: "rounds", label: "每 N 轮自动压缩" }, { value: "percent", label: "上下文达到 X% 自动压缩" }] })) : null,
+                        options: [{ value: "manual", label: "手动压缩（默认，不自动触发）" }, { value: "rounds", label: "每 N 轮自动压缩" }, { value: "percent", label: "上下文达到 X% 自动压缩" }] })) : null,
                 policy && policy.mode !== "manual" ? h(TavernSettingRow, { title: rounds ? "剧情轮数" : "上下文占用",
                         help: rounds ? "1–1000 轮；重写同一轮、工具调用和生图不计轮数。" : "10–95%，按估算；模型窗口未知时会提示，可改用轮数模式。" },
                     h(InlineField, { kind: "number", label: rounds ? "剧情轮数" : "上下文占用百分比", hideLabel: true, integer: true, min: rounds ? 1 : 10, max: rounds ? 1000 : 95, unit: rounds ? "轮" : "%",
