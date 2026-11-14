@@ -3,7 +3,7 @@ import { identifyHelperModelMessages } from './helper-generation.js'
 
 // Which model a request uses, and one plain text call to it. The session's own choice wins
 // over the default; background work uses the game's background model when it set one.
-export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, sessionProjections: getSessionProjections, backgroundConfigForSession }) {
+export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, sessionProjections: getSessionProjections, backgroundConfigForSession, catalogTtlMs = 30 * 1000 }) {
   function modelSelection(sessionId) {
     // 会话级选择优先：与官方 api-proxy 相同的读取路径
     if (typeof sessionId === 'string' && sessionId !== '') {
@@ -36,7 +36,21 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
   function backgroundModelSelection(chat) {
     return resolveChatBackgroundModel(chat, modelSelection(chat && chat.sessionId))
   }
-  async function tavernModelCatalog() {
+  // Providers and their model lists change when the player edits a provider, not
+  // per request: every settings read used to re-walk every provider. Cache the
+  // built groups briefly and share one in-flight walk between concurrent readers.
+  let catalog = null, catalogAt = 0, catalogPending = null
+  async function tavernModelCatalog({ fresh = false } = {}) {
+    if (!fresh && catalog !== null && Date.now() - catalogAt < catalogTtlMs) return catalog
+    if (catalogPending !== null) return catalogPending
+    catalogPending = buildTavernModelCatalog().then(function (groups) {
+      catalog = groups
+      catalogAt = Date.now()
+      return groups
+    }).finally(function () { catalogPending = null })
+    return catalogPending
+  }
+  async function buildTavernModelCatalog() {
     const providers = llm.listProviders()
     const groups = await Promise.all(providers.map(async function (provider) {
       try {

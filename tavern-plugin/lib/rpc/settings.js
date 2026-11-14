@@ -12,6 +12,7 @@ export function createSettingsHandlers(deps) {
   const { agentRegistry, autoChoices, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
     llm, playCardSnapshots, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
     sessionActivity, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile } = deps
+  let tavernSettingsPending = null
   const handlers = {
     async getBodyGenerationSettings(args) {
       const chat = await chatForSession(str(args?.sessionId))
@@ -111,7 +112,25 @@ export function createSettingsHandlers(deps) {
 
     async getTavernSettings(args) {
       const { scoringCatalog, readTavernSettings, slotDeclarations, tavernModelCatalog } = deps
-return { bodyGenerationProviders: await deps.pluginApi?.bodyGenerators?.list(), settings: await readTavernSettings(), modModelSlots: await slotDeclarations(), scoringCatalog: scoringCatalog(), modelCatalog: await tavernModelCatalog() }
+      // Several surfaces read this at mount and the saved-settings event fans out to
+      // four listeners at once; one shared read answers all of them.
+      if (tavernSettingsPending === null) {
+        tavernSettingsPending = (async () => ({
+          bodyGenerationProviders: await deps.pluginApi?.bodyGenerators?.list(),
+          settings: await readTavernSettings(),
+          modModelSlots: await slotDeclarations(),
+          scoringCatalog: scoringCatalog(),
+          modelCatalog: await tavernModelCatalog()
+        }))()
+        tavernSettingsPending.then(() => { tavernSettingsPending = null }, () => { tavernSettingsPending = null })
+      }
+      // Each caller gets its own tree: a response must never alias a shared read.
+      return structuredClone(await tavernSettingsPending)
+    },
+    // Model pickers only need the catalog; asking for the whole settings document
+    // made each picker's mount read settings, slots and prompt files for nothing.
+    async getTavernModelCatalog() {
+      return { modelCatalog: await deps.tavernModelCatalog() }
     },
     async updateTavernSettings(args) {
       const { checkSlotSelection, autoChoices, modelSelectionChanged, updateTavernSettings } = deps

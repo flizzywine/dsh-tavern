@@ -38,6 +38,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
       else if (method === 'getUserPreferenceProfile') result = { userProfile: { profiles: [], defaultProfileId: '' } }
       else if (method === 'getCandidatePreferences') result = { candidateDismissMode: 'after-fill' }
       else if (method === 'confirmSessionPatch') result = {}
+      else if (method === 'getTavernModelCatalog') result = { modelCatalog: [] }
       else if (method === 'getDefaultWritingSkills') result = { skills: [] }
       else if (method === 'getBodyGenerationSettings') result = { inherited: true, mode: 'host', provider: '', providers: [] }
       else if (method === 'listUserPlugins') result = { plugins: [], dir: '/tmp/tavern/plugins' }
