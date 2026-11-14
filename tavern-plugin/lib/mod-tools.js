@@ -1,5 +1,6 @@
 import {access,readFile} from 'node:fs/promises'
 import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distributions.js'
+import {normalizeMvuVisibility} from './domain/mvu-visibility.js'
 // The foreground tools the installed first-party mods declare, each from its folder's optional tools.js
 // (docs/mod-authoring.md). Its default export lists {name, create(core), settlement?}; create returns the tool definition, given
 // the core's turn readers and two mod-scoped callbacks: authorize(chat) (the mod is on for this card) and
@@ -14,11 +15,12 @@ import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distribution
 // cardExtension, if given, names the card extension key that offers the tool by itself (the card declares what it needs, so
 // the tool comes with the card whatever the mod switch says; cardOffers). Such a card stands for the mod (cardGoverns): its
 // games get only the tools the card declares, and the mod switch adds none of the mod's other tools or prompts.
+// hidden(card), if given, lists the /stat_data paths a card offering the tool keeps from the player (withModHidden).
 export const modTools = Object.freeze((await Promise.all(firstPartyModIds.map(async folder => {
   const directory=firstPartyModDirectory(folder)
   if (!await access(new URL('tools.js',directory)).then(()=>true,()=>false)) return []
   const modId=JSON.parse(await readFile(new URL('mod.json',directory),'utf8')).id
-  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:tool.create,...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{})}))
+  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:tool.create,...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{}),...(tool.hidden?{hidden:tool.hidden}:{})}))
 }))).flat())
 
 /** Whether the card a game plays with offers the tool by itself (its cardExtension key is in the card's extensions). */
@@ -26,6 +28,16 @@ export const cardOffers = (tool, card) => Boolean(tool.cardExtension) && card?.e
 
 /** Whether the card declares one of the mod's tools (cardOffers): then the card, not the mod switch, decides the mod's tools and prompts. */
 export const cardGoverns = (modId, card) => modTools.some(tool => tool.modId === modId && cardOffers(tool, card))
+
+/**
+ * The card's hidden attributes (domain/mvu-visibility.js) plus the variables the tools it offers keep from the player
+ * (hidden(card)), masked in the variable panel, the receipts and the card's own pages. The card's own rule for one of
+ * those paths wins (a tiered display, a revealWhen).
+ */
+export function withModHidden(visibility, card) {
+  const paths = modTools.flatMap(tool => tool.hidden && cardOffers(tool, card) ? tool.hidden(card) : [])
+  return paths.length ? { ...normalizeMvuVisibility(Object.fromEntries(paths.map(path => [path, 'masked']))), ...visibility } : visibility
+}
 
 /** How a game of this card gets the tool: 'card' (offered by the card), 'withheld' (the card declares another tool of its mod) or null (the mod switch decides). */
 export const cardOffer = (tool, card) => cardOffers(tool, card) ? 'card' : cardGoverns(tool.modId, card) ? 'withheld' : null

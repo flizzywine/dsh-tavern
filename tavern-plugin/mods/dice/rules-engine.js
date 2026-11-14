@@ -122,7 +122,7 @@ export function compileRulesV2(source) {
     const at = 'derived.' + id
     claim(at, id)
     plain(at, row)
-    derived[id] = { id, path: ownPath(at + '.path', row.path), label: row.label === undefined ? id : text(at + '.label', row.label), value: formula(at + '.value', row.value) }
+    derived[id] = { id, path: ownPath(at + '.path', row.path), label: row.label === undefined ? id : text(at + '.label', row.label), value: formula(at + '.value', row.value), secret: row.secret === true }
   }
   const global = new Set([...Object.keys(state), ...Object.keys(read), ...Object.keys(derived), ...Object.keys(sets), ...Object.keys(tables)])
   const check = (at, tree, known) => { for (const name of formulaNames(tree)) if (!known.has(name) && !FORMULA_FUNCTIONS.includes(name)) fail(at, 'reads unknown name ' + name) }
@@ -279,7 +279,7 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     const at = path + '.report.' + index
     plain(at, entry)
     const value = formula(at + '.value', entry.value), when = optionalFormula(at + '.when', entry.when)
-    return { id: text(at + '.id', entry.id), label: text(at + '.label', entry.label), value, when, reads: [...[value, when].filter(Boolean).reduce((names, tree) => formulaNames(tree, names), new Set())] }
+    return { id: text(at + '.id', entry.id), label: text(at + '.label', entry.label), value, when, secret: entry.secret === true, reads: [...[value, when].filter(Boolean).reduce((names, tree) => formulaNames(tree, names), new Set())] }
   })
   if (row.by !== undefined && !['player', 'gm'].includes(row.by)) fail(path + '.by', 'must be player or gm')
   const action = { id, path, label: text(path + '.label', row.label), title: template(path + '.title', row.title), summary: text(path + '.summary', row.summary, true), by: row.by || 'gm',
@@ -587,7 +587,7 @@ function finish(rules, state, prepared, asked) {
       const min = boundOf(rules, next, spec, 'min', key), max = boundOf(rules, next, spec, 'max', key)
       if ((min !== null && to < min) || (max !== null && to > max)) {
         if (strict) throw new Error(name + ' is ' + old + ' and must stay within ' + (min ?? '−∞') + '..' + (max ?? '∞'))
-        to = Math.min(max ?? to, Math.max(min ?? to, to))
+        to = min !== null && to < min ? min : max
       }
     }
     if (to !== undefined && spec.values && !spec.values.includes(to)) throw new Error(name + ' must be one of ' + spec.values.map(value => JSON.stringify(value)).join(', ') + ', not ' + JSON.stringify(to))
@@ -616,7 +616,7 @@ function finish(rules, state, prepared, asked) {
   for (const id of rules.order) {
     const row = rules.derived[id], to = evaluate(row.value, scopeOf(rules, null, next, {}))
     if (!primitive(to)) throw new Error(row.label + ': a value is a number, text or true/false, got ' + JSON.stringify(to))
-    if (next[id] !== to) { changes.push({ path: row.path, label: row.label, ...(next[id] === undefined ? {} : { from: next[id] }), to }); next[id] = to }
+    if (next[id] !== to) { changes.push({ path: row.path, label: row.label, ...(next[id] === undefined ? {} : { from: next[id] }), to, ...(row.secret ? { secret: true } : {}) }); next[id] = to }
   }
   return { outcome: outcome ? { id: outcome.id, label: outcome.label } : null, show: showOf(outcome), ...shown, changes: mergeChanges(changes),
     chosen: Object.fromEntries(asked.map(row => [row.id, values[row.id]])) }
@@ -627,7 +627,7 @@ function reportOf(entries, scope, unknown = null) {
   const report = {}
   for (const row of entries) {
     if (unknown && row.reads.some(name => unknown.has(name))) continue
-    if (!row.when || evaluate(row.when, scope)) report[row.id] = { label: row.label, value: evaluate(row.value, scope) }
+    if (!row.when || evaluate(row.when, scope)) report[row.id] = { label: row.label, value: evaluate(row.value, scope), ...(row.secret ? { secret: true } : {}) }
   }
   return report
 }

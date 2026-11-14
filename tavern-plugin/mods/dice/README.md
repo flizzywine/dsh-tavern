@@ -49,8 +49,9 @@
 }
 ```
 
-- `state`：归规则管的变量（必须有 `path`，stat_data 下、不含 `$…`、`schema` 和原型名，彼此不重叠）。`keys` 是集合名（固定条目）或 `"*"`（条目不固定：关系、物品）；`fields` 让每个条目是一个带字段的对象（`/员工/老周/能力`），范围按字段写；`values`、`min`/`max`（公式，可读 `key`）、`initial`、`secret`。后台 AI 写这些路径不作数（丢弃并记进诊断）；它们的范围只写在这里，初值的 `$meta.limits` 再写同一路径时卡检查报错。
-- `read`：只读、由别人写的变量（缺了是 `null`）。`derived`：派生量 = 公式，每次动作后自动写，载入时查环。
+- `state`：归规则管的变量（必须有 `path`，stat_data 下、不含 `$…`、`schema` 和原型名，彼此不重叠）。`keys` 是集合名（固定条目）或 `"*"`（条目不固定：关系、物品）；`fields` 让每个条目是一个带字段的对象（`/员工/老周/能力`），范围按字段写；`values`、`min`/`max`（公式，可读 `key`）、`initial`、`secret`。后台 AI 写这些路径不作数（丢弃并记进诊断）；它们的范围只写在这里，初值的 `$meta.limits` 再写同一路径时卡检查报错。只写 `min` 或只写 `max` 也照样夹住。
+- `read`：只读、由别人写的变量（缺了是 `null`）。`derived`：派生量 = 公式，每次动作后自动写，载入时查环；也可以 `secret`。
+- 保密（`state` 或 `derived` 的 `secret: true`）：模型照常在记录和 status 里读到；玩家哪里都看不到——检定记录卡、变化小字、选项预览不写它，变量面板、变量回执和卡自己的页面（状态栏、状态页）里它是「？？？」（`tools.js` 的 `hidden` 把这些路径并进卡的隐藏属性，`lib/mod-tools.js` `withModHidden`）。要在某个时刻让卡的页面读到它，在卡的隐藏属性（`extensions.dsh_tavern.mvuVisibility`）里给同一路径写一条带 `revealWhen: {"path": "/幕后/看见", "equals": true}` 的规则：卡自己的规则优先，条件成立后面板和卡的页面显示真值（回执仍只说「已发生变化」）。
 - 动作：`label`、`summary`、`by`（`player`/`gm`，给模型的提示）、`when`（现在能不能用）、`params`、`dice`、`let`、`require`、`choices`、`then`、`ensure`、`outcomes`（可带 `text`、`stop`、`show`）、`effects`、`report`、`text`、`stop`。没有骰子也行。
 - 结算顺序：参数 → 掷骰 → `let` → `require`（不成立就拒绝，不留记录，卡写的话原样回给模型）→ 玩家的选择 → `then` → `ensure`（不成立就退回这次选择，记录继续等）→ 结果档位 → 效果 → 派生量。`text`、`stop`、`report` 读的是效果之前的值（「还剩 {money - item.cost}」）；每条效果读前面效果改过的状态。
 - 参数与选择的种类：v1 的五种，再加 `table`（选表里一行，公式里 `参数.列` 读）、`keyOf`（从某个变量现有的条目里选）、`text {max}`（限长的名字，用来新建条目；不能含 `/`、`~`）。参数可以带 `when`（只在某种情况下要给）。等待中的记录带上已经算定的 `report` 和已定的结果档位（它和排在它前面的档位都不读还没定的名字时）。
@@ -61,6 +62,7 @@
 - 步骤可以是逐条累加：`{"name": "revenue", "each": "goods", "sum": "goods[key]['销量'] * goods[key]['单价']", "when": "goods[key]['在售']"}`。
 - 公式比 v1 多三个函数：`get(表, 键, 缺省)`、`join(…)`（拼条目名）、`keys(表)`。公式最长 2000 字、嵌套最多 40 层，规则文件最大 256 KB。
 - 工具：`op=status`（现在可用的动作、参数和当前值）、`op=act`（`action`、`params`、一句 `reason`）、`op=choose`（`choice`，空对象取默认）。记录编号是「轮次-序号」（`7-2`），一条回复最多 16 次裁定。旧写法（`action: status|roll|settle`、`check`）继续接受，v1 的卡也能用新写法。
+- `report` 的一行可以带 `secret: true`：只给模型看（下一季的捷径、察觉的计数），玩家的记录卡上不显示。
 - 记录：了结的记录只带骰面、结果、文字、`stop`、`report` 和变化行（`{path, label, from?, to?, secret?}`：没有 `from` 是新增条目，没有 `to` 是删除），不带全部资源的快照。聊天里：掷骰和等玩家选的记录是一张卡；不掷骰的裁定只在有玩家能看的变化时出一行小字（「嘉奖 +1」），保密的变化不显示。
 - 补记：v2 的卡，回复的变量结算里后台模型也能用 `tavern_check`（`CHECK_BACKFILL`，只有 `op=act`/`status`）：正文里发生了、这条回复却没提交的动作由它补上，和这条回复的记录一起由宿主写入。掷骰的动作、要玩家选的动作不补；前提不满足被拒的，记进结算诊断「正文与规则不一致」。补记的记录带 `backfill: true`，只在这次结算里，下一轮从变量读到。
 - 卡检查：卡保存时的格式校验（`lib/domain/card-validation.js`）调用 `tools.js` 的 `checkCard`：规则编译一次，错误带路径。

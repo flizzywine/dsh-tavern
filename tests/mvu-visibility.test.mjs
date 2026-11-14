@@ -401,3 +401,11 @@ test('客户端变量回执弹窗与气泡回执渲染三种隐藏模式，无�
   assert.match(rendered, /已发生变化/)
 })
 
+
+test('revealWhen {path, equals} shows a hidden value once the variable it names holds that value', () => {
+  const visibility = validateMvuVisibility({ '/幕后/暗处': { mode: 'masked', revealWhen: { path: '/幕后/看见', equals: true } } }).normalized
+  const hidden = { 幕后: { 看见: false, 暗处: { q1: 2 } } }, seen = { 幕后: { 看见: true, 暗处: { q1: 2 } } }
+  assert.equal(maskMvuStatDataForDisplay(hidden, visibility).幕后.暗处, '？？？')
+  assert.deepEqual(maskMvuStatDataForDisplay(seen, visibility).幕后.暗处, { q1: 2 })
+  assert.equal(maskMvuReceipt({ changes: [{ path: '/stat_data/幕后/暗处/q1', before: '1', after: '2', operation: 'replace' }] }, visibility).changes[0].after, '？？？', 'a receipt has no variables to read the condition from: it stays masked')
+})

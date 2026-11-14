@@ -7,6 +7,7 @@ import { createCardScripts } from '../tavern-plugin/lib/card-scripts.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { projectTavernHelperScripts } from '../tavern-plugin/lib/domain/tavern-helper-scripts.js'
 import { inspectCardExtensions, withGlobalRegexScripts } from '../tavern-plugin/lib/domain/card-extension-reading.js'
+import { withModHidden } from '../tavern-plugin/lib/mod-tools.js'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
 import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
 
@@ -57,10 +58,10 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   const chat = { cardPath, cardName: 'Test card', cardDefinitionSnapshot: snapshot }
   const before = structuredClone(chat)
   let liveReads = 0
-  const readCardExtensions = new Function('readCardWorkspace', 'cardPreparation', 'withGlobalRegexScripts', 'tavernExtensionSettings', 'cardScripts', `${readerSource}; return readCardExtensions`)(
+  const readCardExtensions = new Function('readCardWorkspace', 'cardPreparation', 'withGlobalRegexScripts', 'withModHidden', 'tavernExtensionSettings', 'cardScripts', `${readerSource}; return readCardExtensions`)(
     async () => { liveReads++; return { spec: 'chara_card_v3', data: { extensions: { tavern_helper: { scripts: [bgm] } } } } },
     { present: ({ card, as }) => { assert.equal(as, 'card-extensions'); return inspectCardExtensions(card) } },
-    withGlobalRegexScripts, { read: async () => ({}) }, cardScripts)
+    withGlobalRegexScripts, withModHidden, { read: async () => ({}) }, cardScripts)
   assert.deepEqual(projectTavernHelperScripts((await readCardExtensions(cardPath, chat)).helperScripts).scripts.map(script => script.id), ['utility'])
   // The production RPC handler; index.js routes getCardScripts to the same method.
   const handlers = createCardHandlers({ chatForSession: async id => id === 'session' ? chat : undefined, readCardExtensions, cardScripts, resolveCardId: cardIdFor, str: value => typeof value === 'string' ? value : '' })

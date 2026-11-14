@@ -4,6 +4,7 @@ import test from 'node:test'
 import { compileRulesV2, readRulesState } from '../tavern-plugin/mods/dice/rules-engine.js'
 import { checkRulesCard, checkSettlement, runRulesCall, RULINGS_PER_REPLY } from '../tavern-plugin/mods/dice/check-tool.js'
 import { seededDraw } from '../tavern-plugin/mods/dice/check-engine.js'
+import { withModHidden } from '../tavern-plugin/lib/mod-tools.js'
 import { evaluate, parseFormula } from '../tavern-plugin/mods/dice/check-expr.js'
 
 // A small invented detective game: phases, money and a price table, clue entries that are not fixed, a roll with a
@@ -341,4 +342,31 @@ test('a condition the manager reports: listed to the player, required from the m
   assert.match(play.call(3, { op: 'choose', choice: {} }).refused, /进贡了吗 \(paid\) is yours to report \(by gm\)/)
   assert.deepEqual(play.call(3, { op: 'choose', choice: { paid: false } }).outcome.id, 'no')
   assert.throws(() => compileRulesV2({ ...SPONSORED, actions: { x: { label: 'x', choices: [{ id: 'a', by: 'dm', type: 'boolean' }] } } }), /actions\.x\.choices\.a\.by: must be player or gm/)
+})
+
+test('a range with only one bound still holds: a cooldown with a floor never goes below it, a cap with no floor never above it', () => {
+  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'bounds',
+    state: { cool: { path: '/冷却', label: '冷却', min: 0 }, cap: { path: '/上限', label: '上限', max: 3 } },
+    actions: { tick: { label: '过一季', effects: [{ var: 'cool', add: '-1' }, { var: 'cap', add: '2' }] } } })
+  const play = game(rules)
+  Object.assign(play.variables, { 冷却: 0, 上限: 2 })
+  assert.deepEqual(play.call(2, { op: 'act', action: 'tick', reason: 'r' }).changes, [{ path: '/上限', label: '上限', from: 2, to: 3 }])
+})
+test('secret for the player only: a report line, a derived value, and the panel, receipts and pages of the card', () => {
+  const source = { format: 'dsh-rules', version: 2, name: 'quiet',
+    state: { trust: { path: '/信任', label: '信任', min: 0 }, notice: { path: '/幕后/察觉', label: '察觉', min: 0, secret: true } },
+    derived: { stage: { path: '/幕后/阶段', label: '阶段', value: 'notice >= 2 ? 1 : 0', secret: true } },
+    actions: { push: { label: '推回捷径', effects: [{ var: 'trust', add: '1' }, { var: 'notice', add: '1' }],
+      report: [{ id: 'trust', label: '信任', value: 'trust + 1' }, { id: 'next', label: '下一季的捷径', value: "'流片'", secret: true }] } } }
+  const play = game(compileRulesV2(source))
+  Object.assign(play.variables, { 信任: 0, 幕后: { 察觉: 1, 阶段: 0 } })
+  const record = play.call(2, { op: 'act', action: 'push', reason: 'r' })
+  assert.deepEqual(record.report, { trust: { label: '信任', value: 1 }, next: { label: '下一季的捷径', value: '流片', secret: true } })
+  assert.deepEqual(record.changes.filter(row => row.secret).map(row => row.label), ['察觉', '阶段'])
+  // The variable panel, receipts and the card's pages mask them; the card's own rule for a path (here a reveal) wins.
+  const card = { extensions: { 'dsh.rules': source } }
+  assert.deepEqual(Object.keys(withModHidden(null, card)), ['/幕后/察觉', '/幕后/阶段'])
+  const own = { '/幕后/阶段': { mode: 'masked', trend: false, placeholder: '？？？', largeDelta: 10, revealWhen: { path: '/幕后/看见', equals: true } } }
+  assert.deepEqual(withModHidden(own, card)['/幕后/阶段'], own['/幕后/阶段'])
+  assert.equal(withModHidden(own, { extensions: {} }), own)
 })
