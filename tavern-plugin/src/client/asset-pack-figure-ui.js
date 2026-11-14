@@ -637,7 +637,7 @@ function FigureStateImages({binding,pack,figure,outfit,manifest,state,writeOutfi
     upload&&h(Button,{onClick:()=>input.current?.click()},'添加同义图片'),
     upload&&h('input',{ref:input,type:'file',accept:IMAGE_ACCEPT,hidden:true,onChange:event=>{const file=event.target.files?.[0];event.target.value='';if(file)upload(file);}}));
 }
-function FigureEmotions({binding,pack,figure,outfit,manifest,rows,faces,selected,onSelect,write,writeOutfit,upload,pick,layered=false,onGen,kind,setKind,kindMenu,genTools=null,notices=null,menuFor=null,statusFor=null,createCustom,addExisting,aimNew,onFallback=null}) {
+function FigureEmotions({binding,pack,figure,outfit,manifest,rows,faces,selected,onSelect,write,writeOutfit,upload,pick,layered=false,onGen,kind,setKind,kindMenu,genTools=null,notices=null,menuFor=null,statusFor=null,decideFor=null,createCustom,addExisting,aimNew,onFallback=null}) {
   const [open,setOpen]=React.useState(null),[name,setName]=React.useState(''),[error,setError]=React.useState(''),[customFile,setCustomFile]=React.useState(null),[menuPage,setMenuPage]=React.useState('');
   const single=figure.emotions?.length===1 && figure.emotions[0].label===undefined;
   const singleId=single?figure.emotions[0].id:null;
@@ -683,7 +683,7 @@ function FigureEmotions({binding,pack,figure,outfit,manifest,rows,faces,selected
       // a missing slot is the same in every view — the dashed tile with a ✦
       // (SlotMissing). in 立绘 / 头像 a tile is the trigger of its own menu (right click
       // or Shift+F10; a tap on touch — cellMenuTrigger: 生成… / 重画… / 改图… / 上传 / 设置回退 › / 删除…, by its state — menuFor), and a request runs in the tile
-      // itself: a ring and the time, 「排队」, the candidate with its dot and 「待采用」, ⚠ (GenFaceMarks). A 差分 the outfit
+      // itself, as in 生图: a ring and the time, 「排队」, ⚠ (GenFaceMarks), the candidate with the ✕｜✓ pill (decideFor). A 差分 the outfit
       // lets another stand in for (回退) shows that picture dimmed with ↩ and its name; a real picture always wins.
       rows.map(r=>{const face=faces[r.id]||{},isDefault=!!outfit&&r.id===outfit.defaultEmotion,marked=!!outfit&&!isDefault&&!!outfit.fallbackEmotions?.includes(r.id);
         const cell=face.cell,state=cell?.state||'idle',candidate=state==='candidate',gap=!!outfit&&!face.mapped&&!candidate;
@@ -707,7 +707,8 @@ function FigureEmotions({binding,pack,figure,outfit,manifest,rows,faces,selected
             // preview and detail, like a tile of any grid) and the menu is on right click / Shift+F10 (cellMenuTrigger).
             trigger:({toggle:flipMenu,open:menuOpen})=>button(cellMenuTrigger({open:menuOpen,toggle:flipMenu,onPrimary:()=>{onSelect(r.id);setOpen(r.id);},
               onMenu:()=>{onSelect(r.id);setOpen(r.id);setMenuPage('');}})),
-            content:close=>menuFor(r,close,menuPage,setMenuPage)}):button({}));}),
+            content:close=>menuFor(r,close,menuPage,setMenuPage)}):button({}),
+          candidate&&decideFor?.(r,cell));}),
       createCustom&&h('div',{role:'listitem',className:'ap-emotion-cell'},
         h('button',{type:'button',className:'ap-face-add','aria-label':'添加差分','aria-expanded':open===NEW_EMOTION,title:'添加差分',onClick:()=>{reset();setOpen(open===NEW_EMOTION?null:NEW_EMOTION);}},
           h('span',{className:'ap-face-art'},h(Glyph,{name:'plus'}))))),
@@ -1058,42 +1059,18 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // tile's 「删除这张头像…」 writes (outfit.avatars minus that 差分), only without a confirm and in a second place.
   const look=figure.appearance||'live2d';
   const kindExtras=[];
-  // the heading's one generate button, by view. It only
-  // fills what is missing — a 差分 with no picture of this view, no 回退 and nothing in flight or waiting — and never replaces
-  // a picture already there. 立绘: 「✦ 生成缺失立绘」 sends one request per missing still 差分 straight away (its default
-  // prompt, no dialog). 头像: 「✦ 生成缺失头像」 — when all eight base faces (GEN_SHEET_FACES) are missing, the eight-face
-  // sheet (one picture cut in eight: consistent and one request); otherwise one single-avatar request per missing 差分 whose
-  // own 立绘 is there, batched like 立绘. Never a crop of the 立绘. Nothing missing: no button. 模型: 「导入模型」 (modelTools below). Replacing
-  // avatars that exist stays the tile's explicit 重画… / 改图…. While a batch runs the heading says 「生成中 a/b · 停止」;
-  // candidates waiting add 「N 张待采用 · 全部采用」.
+  // the heading's one tool is 生图's (GenOutfitTool, one plan: genOutfitPlan) — in 立绘 and 头像 alike: ✦ⁿ 生成缺少的差分 (a
+  // missing 立绘 with its 头像 following its 采用, or the missing 头像 of a 差分 whose 立绘 is there; never replaces a picture),
+  // ✓ⁿ 全部采用, or the batch's n/m ■. 模型: 「导入模型」 (modelTools below). Replacing pictures stays the tile's 重画… / 改图….
   const viewNoun=kind==='avatar'?'头像':'立绘',genView=!!onGen&&(kind==='sprite'||kind==='avatar'),figureLook=useFigureLook(binding,pack.manifest.id,onGen?figure.id:null),basis=genView?genBasis(figure,outfit,figureLook):'';
   // The tiles show requests of this pack (a reopened modal finds its 待采用 again): the controller's list is read once a
   // 立绘 / 头像 view is on show — a local read, nothing is requested.
   React.useEffect(()=>{if(genView)gen.open();},[genView]);
   React.useEffect(()=>{setGenNotice('');},[kind,outfit?.key]);
   const cellGate=(k,id)=>k==='sprite'?(!takes(id)?LAYERED_TIP:!genBasis(figure,outfit,figureLook)?GEN_REASONS.basis:''):!genOwnSprite(outfit,manifest,id)&&!genBasis(figure,outfit,figureLook)?GEN_REASONS.basis:'';
-  const missing=genView?rows.filter(r=>{const c=faces[r.id]?.cell;return !faces[r.id]?.mapped&&(c?.state==='idle'||c?.state==='failed')&&!outfit.fallbackEmotions?.includes(r.id)&&(kind!=='sprite'||takes(r.id));}):[];
-  const fillable=kind==='sprite'?missing:missing.filter(r=>!cellGate(kind,r.id));
-  // The eight base faces, resolved by key first, then by name (a figure set up with its own ids keeps the shared names).
-  const baseFaces=kind==='avatar'&&missing.length>=8?GEN_SHEET_FACES.map(([id,label])=>matchBubbleMood(id,rows)||matchBubbleMood(label,rows)):[];
-  const sheetIds=baseFaces.length&&baseFaces.every(r=>r&&missing.includes(r))&&new Set(baseFaces.map(r=>r.id)).size===8?baseFaces.map(r=>r.id):null;
-  const sheetTarget=sheetIds&&(genOwnSprite(outfit,manifest,outfit.defaultEmotion)||outfit.settei)?{packId,figureId:figure.id,outfitKey:outfit.key,kind:'avatar-sheet',emotionIds:sheetIds}:null;
-  const fillGate=kind==='sprite'?(!basis?GEN_REASONS.basis:''):!sheetTarget&&!fillable.length?GEN_REASONS.avatars:'';
-  const fill=()=>{setError('');if(sheetTarget){gen.startSlot(sheetTarget);return;}
-    gen.batch(fillable.map(r=>({target:{packId,figureId:figure.id,outfitKey:outfit.key,kind,emotionId:r.id},input:{userPrompt:genPromptFor(outfit,kind,r)}}))).catch(e=>setError(errorText(e)));};
-  const rest=n=>n>0?'；另有 '+n+' 个':'';
-  const fillTip=fillGate||(sheetTarget?'八个基础表情都还没有头像：一次画出这八个，已有的头像不动'+(missing.length>8?rest(missing.length-8)+'之后再补':''):
-    '只给 '+fillable.length+' 个没有'+viewNoun+'的差分各画一张，已有的'+(kind==='avatar'?'头像':'图')+'不动'+(kind==='avatar'?rest(missing.length-fillable.length)+(missing.length>fillable.length?'还没有立绘，先生成立绘':''):''));
-  const waitingCells=genView?rows.map(r=>faces[r.id]?.cell).filter(c=>c?.state==='candidate'&&c.job&&!c.sheet):[];
-  const acceptAll=()=>{setAccepting(true);setError('');gen.acceptAll(waitingCells.map(c=>c.job)).finally(()=>setAccepting(false));};
-  const progress=gen?.progress,ours=!!progress&&!!outfit&&progress.keys.some(k=>{const p=k.split('/');return p[1]===figure.id&&p[2]===outfit.key;});
-  const genTools=genView&&!pickGrid&&(ours||missing.length>0||waitingCells.length>0)&&h('span',{className:'ap-gen-tools'},
-    ours?h('span',{className:'ap-gen-progress',role:'status'},h(Spinner,{key:'batch',delay:0}),h('span',null,'生成中 '+progress.done+'/'+progress.total),
-        h('button',{type:'button',className:'ap-inline-link',onClick:()=>gen.stop()},'停止')):
-      missing.length>0&&h(Button,{className:'ap-manage ap-gen-fill'+(kind==='avatar'?' ap-gen-avatars':''),'aria-disabled':!!fillGate||undefined,title:fillTip,
-        onClick:()=>{if(fillGate){setGenNotice(fillGate);return;}setGenNotice('');fill();}},h(Glyph,{name:'spark'}),'生成缺失'+viewNoun),
-    waitingCells.length>0&&h('span',{className:'ap-gen-waiting'},h('span',null,waitingCells.length+' 张待采用'),' · ',
-      h('button',{type:'button',className:'ap-inline-link',disabled:accepting,onClick:acceptAll},accepting?'正在采用…':'全部采用')));
+  const acceptJobs=jobs=>{setAccepting(true);setError('');return gen.acceptAll(jobs).finally(()=>setAccepting(false));};
+  const genTools=genView&&!pickGrid&&h(GenOutfitTool,{gen,plan:genOutfitPlan(gen,packId,figure,outfit,manifest,rows),basis,accepting,onAcceptAll:acceptJobs,onGate:setGenNotice,
+    onStart:batch=>{setError('');batch.catch(e=>setError(errorText(e)));}});
   const showProblem=genView&&!!gen.problem&&!gen.dialog&&!gen.sheet;
   const genNotices=(showProblem||genNotice)&&h('div',{className:'ap-gen-notices'},
     showProblem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
@@ -1182,6 +1159,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     const body=items.filter(Boolean);
     return h('div',{className:'ap-cell-menu',onKeyDown:genMenuKeys},head,body,tail.length>0&&body.length>0&&h('div',{key:'sep',className:'ap-menu-sep',role:'separator'}),tail);
   }:null;
+  // a waiting picture is decided on its tile by 生图's ✕｜✓ pill (GenTileDecide), the menu's 采用 / 不要 stay.
+  const decideFor=genView?(row,cell)=>h(GenTileDecide,{gen,cells:[cell],label:'「'+row.label+'」新'+viewNoun,id:row.id,run:runTile,acceptAll:acceptJobs}):null;
   const statusFor=genView?row=>{const c=faces[row.id]?.cell;return c&&c.state!=='idle'?h(GenCellStatus,{key:c.key,gen,cell:c,outfit,onDialog:mode=>openDialog(kind,row.id,mode)}):null;}:null;
   // 模型's heading button 「导入模型」 opens the shared import sheet for this outfit
   // (Live2D or Spine, whatever the files are; a model already there is replaced) and its ⋯ 「删除模型…」 removes it.
@@ -1297,7 +1276,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
             suggest:entryWordCandidates(pack,'figures',a=>(a.outfits||[]).flatMap(o=>o.recall?.keywords||[])),
             onCommit:shown=>writeOutfit(o=>{const base=o.recall||{mode:'keyword',keywords:[]},keywords=[...hidden,...shown.filter(w=>!hidden.includes(w))],synonyms=Object.fromEntries(Object.entries(base.synonyms||{}).filter(([k])=>keywords.includes(k)));const next={...base,keywords};if(Object.keys(synonyms).length)next.synonyms=synonyms;else delete next.synonyms;return {...o,recall:next};})}))),
       outfit?.sprite?.imagePools&&h(FigureStateImages,{binding,pack,figure,outfit,manifest,state:picked,writeOutfit,upload:importFigureImage?file=>pick('sprite',picked.id,file):null,uploadAvatar:importFigureImage?(file,imageId)=>pick('avatar',picked.id,file,outfit,{imageId}):null,confirm:setConfirm}),
-      h(FigureEmotions,{binding,pack,figure,outfit,manifest,rows,faces,selected:picked.id,onSelect:setFace,write,writeOutfit,upload,pick:importFigureImage&&outfit&&(kind!=='sprite'||canSprite)?pick:null,layered:!!importFigureImage&&!!outfit?.sprite&&!canSprite,onGen,kind,setKind:setKindChoice,kindMenu,genTools:genTools||modelTools,notices:genNotices,menuFor,statusFor,createCustom:importFigureImage&&outfit?(row,file)=>importFigureImage(figure.id,outfit.key,row.id,file,'sprite',{customEmotion:row}):null,
+      h(FigureEmotions,{binding,pack,figure,outfit,manifest,rows,faces,selected:picked.id,onSelect:setFace,write,writeOutfit,upload,pick:importFigureImage&&outfit&&(kind!=='sprite'||canSprite)?pick:null,layered:!!importFigureImage&&!!outfit?.sprite&&!canSprite,onGen,kind,setKind:setKindChoice,kindMenu,genTools:genTools||modelTools,notices:genNotices,menuFor,statusFor,decideFor,createCustom:importFigureImage&&outfit?(row,file)=>importFigureImage(figure.id,outfit.key,row.id,file,'sprite',{customEmotion:row}):null,
         addExisting:importFigureImage&&outfit&&canSprite?(id,file)=>importFigureImage(figure.id,outfit.key,id,file,'sprite',{newState:!!outfit.sprite}):null,
         onFallback:figureActions?.setFallback&&outfit?(id,on,use)=>{setError('');return figureActions.setFallback(outfit.key,id,on,use).catch(e=>setError(errorText(e)));}:null,
         aimNew:outfit?(id,label,generate=true)=>write(f=>({emotions:label?[...(f.emotions||[]),{id,label}]:f.emotions})).then(r=>{if(r&&generate&&onGen)openDialog('sprite',id,'gen');return r;}):null}),

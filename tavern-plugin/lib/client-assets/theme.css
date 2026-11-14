@@ -4004,7 +4004,6 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 /* A request in flight turns the shared Spinner (no ring of its own), a little above the time. */
 .fork-spinner.is-fill.ap-gen-spin { --fork-spinner-max: 22px; top: calc(50% - 5px); color: var(--fork-accent); }
 .ap-gen-stage-wait > .fork-spinner { --fork-spinner-size: 36px; color: var(--fork-accent); }
-.ap-gen-progress > .fork-spinner { --fork-spinner-size: 13px; }
 .ap-gen-face-time { position: absolute; left: 0; right: 0; bottom: 3px; z-index: 2; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; line-height: 1; text-align: center; }
 .ap-gen-queue { position: absolute; left: 50%; top: 50%; z-index: 2; padding: 1px 6px; border-radius: 8px; background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); line-height: 16px; transform: translate(-50%, -50%); white-space: nowrap; }
 .ap-gen-badge { position: absolute; left: 50%; bottom: 3px; z-index: 2; padding: 0 5px; border-radius: 6px; background: var(--fork-accent-fill, var(--fork-accent)); color: var(--fork-on-accent, Canvas);
@@ -4274,13 +4273,10 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui .ap-gen-foot button .ap-glyph { width: 14px; height: 14px; }
 .ap-gen-foot > .ap-busy { margin-right: auto; }
 /* ==== gen-ui r12: pictures are made where they go ==== */
-/* The 差分 heading's tools: 「✦ 生成缺失立绘」 / 「✦ 生成缺失头像」 (no count), 「正在画 a/b · 停止」, 「N 张待采用 · 全部采用」 — quiet, before the ⋯. */
+/* The 差分 heading's tools: 生图's one tool (✦ⁿ / ✓ⁿ / n/m ■, .ap-gw-badged) in 立绘 and 头像; 模型's 「导入模型」 — quiet, before the ⋯. */
 .ap-gen-tools { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 12px; min-width: 0; font-size: var(--fork-fs-meta); font-weight: 500; letter-spacing: 0; }
 .ap-ui button.ap-gen-fill { display: inline-flex; align-items: center; gap: 5px; min-height: 0; height: 28px; padding: 0 10px 0 8px; font-size: var(--fork-fs-meta); }
-.ap-ui button.ap-gen-fill[aria-disabled=true] { color: var(--fork-ink-3, var(--fork-ink-2)); cursor: not-allowed; }
 .ap-gen-fill > .ap-glyph { width: 13px; height: 13px; color: var(--fork-accent); }
-.ap-gen-progress, .ap-gen-waiting { display: inline-flex; align-items: center; gap: 6px; color: var(--fork-ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ap-gen-tools .ap-inline-link { font-size: inherit; font-weight: 600; }
 .ap-gen-notices { display: grid; gap: 6px; margin: 0 0 8px; }
 .ap-gen-notices > * { margin: 0; }
 /* The tile menu (mock E2): the app's popover with a head (差分 · view · state), menu items, a ⚠ row for a failure or a
@@ -4411,6 +4407,10 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui .ap-gw-decide button.ap-icon-button { width: 36px; height: 28px; min-height: 0; border-radius: 999px; color: var(--fork-ink-2); }
 .ap-ui .ap-gw-decide button.ap-icon-button:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
 .ap-ui .ap-gw-decide button.ap-icon-button.ap-gw-yes, .ap-ui .ap-gw-decide button.ap-icon-button.ap-gw-yes:hover:not(:disabled) { background: var(--fk-current-fill, var(--fork-accent)); color: var(--fk-current-onAccent, Canvas); }
+/* 编辑's 56px 差分 tiles: the same pill on the lower half of the face, its buttons ≥ 30px (375: 36px). */
+.ap-emotion-cell > .ap-gw-decide { top: 26px; bottom: auto; }
+.ap-ui .ap-emotion-cell > .ap-gw-decide button.ap-icon-button { width: 30px; height: 30px; }
+.ap-ui .ap-emotion-cell > button.ap-icon-button.ap-gw-sheet { top: 17px; bottom: auto; }
 /* The heading's tool with its count (R4 exception): ✦ⁿ 生成缺少的差分, ✓ⁿ 全部采用; or the batch's n/m ■. */
 .ap-gw-badged { position: relative; display: inline-flex; }
 .ap-ui button.ap-icon-button.ap-gw-accent { border-radius: 50%; background: var(--fork-accent-soft); color: var(--fork-accent); }
@@ -4522,6 +4522,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
   .ap-gw-slot-art { width: 84px; }
   .ap-ui button.ap-icon-button.ap-gw-round, .ap-ui .ap-gw-slot-tools button.ap-icon-button.ap-gw-round, .ap-ui button.ap-icon-button.ap-gw-round.ap-gw-fallback-btn { width: 36px; height: 36px; }
   .ap-ui .ap-gw-decide button.ap-icon-button { width: 44px; height: 36px; }
+  .ap-emotion-cell > .ap-gw-decide { top: 20px; }
+  .ap-ui .ap-emotion-cell > .ap-gw-decide button.ap-icon-button { width: 36px; height: 36px; }
   .ap-gw-wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 8px; }
   .ap-gw-outfits { gap: 4px; }
 }
