@@ -20,7 +20,6 @@ export function patchReasoningChatSource(text) {
   const MARKER = '/* dsh-tavern:reasoning-stream */'
   const PREF_KEY = 'dsh-tavern.reasoningStreamOnly'
   const EVENT = 'dsh-tavern-reasoning-stream'
-  const DISCLOSURE = 'const { expanded, toggle } = useDisclosure();'
   if (text.includes(MARKER)) return { status: 'patched', text }
   // The shipped bundle memoizes the row: `const ReasoningRow = (0, react.memo)(function
   // ReasoningRow(props) { … })`. Match that statement first — helper declarations cannot
@@ -29,7 +28,12 @@ export function patchReasoningChatSource(text) {
   const plain = /(?:^|\n)([\t ]*)function\s+ReasoningRow\s*\(\s*\{[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
   const match = memoized.exec(text) ?? plain.exec(text)
   if (!match) return { status: 'unmatched', text }
-  const cut = match[0].lastIndexOf(DISCLOSURE)
+  // 压缩宿主（0.2.2-rc.2+）里这句是 `const{expanded,toggle}=useDisclosure();`，
+  // 可读拼写的 lastIndexOf 会落空并把切点钉在 -1，截断语句造成语法错误。
+  // 按形状定位声明起点，两种宿主都切在语句边界上。
+  let cut = -1
+  for (const disclosure of match[0].matchAll(/const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/g)) cut = disclosure.index
+  if (cut < 0) return { status: 'unmatched', text }
   const before = match[0].slice(0, cut)
   // Leading newline + indentation stay in front of the inserted declarations.
   const lead = /^\n?[ \t]*/.exec(before)[0]

@@ -63,6 +63,22 @@ test('也认没有 memo 包裹的 ReasoningRow', () => {
   delete globalThis.localStorage
 })
 
+test('压缩宿主（0.2.2-rc.2+）：无空白的 useDisclosure 声明切在语句边界，补丁后语法合法', () => {
+  // rc.3 真实形状：整段无空白、反引号字符串，声明是 const{expanded,toggle}=useDisclosure();
+  // 前后都有其他语句，切点落错会当场造成 SyntaxError。
+  const minified = 'var css_default={"root":"x"};const ReasoningRow=(0,react.memo)(function ReasoningRow({text:rawText,running,textInteractionSource=false,usePresentation,useDisclosure,renderSlot,t}){const{expanded,toggle}=useDisclosure();const{text,hidden}=(0,react.useMemo)(()=>({text:rawText,hidden:false}),[rawText]);return{expanded,toggle}});const next=1;'
+  const result = patchReasoningChatSource(minified)
+  assert.equal(result.status, 'applied')
+  const react = { memo: fn => fn, useSyncExternalStore: (subscribe, snapshot) => snapshot(), useMemo: fn => fn() }
+  const ReasoningRow = new Function('react', result.text + '\nreturn ReasoningRow;')(react)
+  const useDisclosure = () => ({ expanded: false, toggle: () => {} })
+  globalThis.localStorage = { getItem: () => null }
+  assert.equal(ReasoningRow({ running: true, useDisclosure }).expanded, true)
+  assert.equal(ReasoningRow({ running: false, useDisclosure }).expanded, false)
+  delete globalThis.localStorage
+  assert.equal(patchReasoningChatSource(result.text).status, 'patched')
+})
+
 test('页面补丁脚本同时带上两条改写规则', () => {
   const script = chatAnswerBootScript()
   assert.ok(script.includes('dsh-tavern:answer-step'))
