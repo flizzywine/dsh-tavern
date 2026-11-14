@@ -120,6 +120,12 @@ function checkOtherFaces(face, sides, index) {
 }
 function CheckDie(props) {
     const h = React.createElement, face = props.face, marked = props.marked;
+    // A d8 is the outline of an octahedron seen from above with its top face up, the result on that face.
+    if (props.sides === 8) return h("svg", { className: "fork-check-d8" + (marked ? " is-marked" : ""), viewBox: "0 0 100 100", "aria-hidden": "true",
+            style: marked && props.color ? { "--fork-check-mark": props.color } : undefined },
+        h("polygon", { className: "fork-check-d8-body", points: "50,2 92,26 92,74 50,98 8,74 8,26" }),
+        h("polygon", { className: "fork-check-d8-face", points: "50,14 86,76 14,76" }),
+        h("text", { x: 50, y: 58, fontSize: 32, className: "fork-check-d8-top" }, String(face)));
     if (props.sides !== 4) return h("span", { className: "fork-check-die" + (marked ? " is-marked" : ""), style: marked && props.color ? { "--fork-check-mark": props.color } : undefined }, String(face));
     const [left, right] = checkOtherFaces(face, 4, props.index);
     // Sizes are viewBox units (the die scales as a whole), not CSS type.
@@ -138,7 +144,8 @@ function checkDiceFaces(record) {
     const dice = [];
     for (const [name, list] of Object.entries(record.dice || {})) {
         const meta = record.faces && record.faces[name] || {};
-        for (const face of list) dice.push({ face, sides: meta.sides, color: meta.markColor || null, marked: Array.isArray(meta.mark) && meta.mark.includes(face) });
+        // A dice expression with dice of different sides lists each die's sides.
+        list.forEach((face, i) => dice.push({ face, sides: Array.isArray(meta.sides) ? meta.sides[i] : meta.sides, color: meta.markColor || null, marked: Array.isArray(meta.mark) && meta.mark.includes(face) }));
     }
     return dice;
 }
@@ -147,6 +154,17 @@ function CheckDice(props) {
     const rows = checkDiceFaces(record).map((die, i) => h(CheckDie, Object.assign({ key: i, index: i }, die)));
     if (!rows.length) return null;
     return h("div", { className: "fork-check-dice", role: "img", "aria-label": "骰面 " + Object.values(record.dice).flat().join(" ") }, rows);
+}
+// A dice expression's line: 「1d6 + 4d100 + 3 = 215」.
+function checkRollText(record) {
+    return Object.values(record.faces || {}).filter(meta => meta.roll).map(meta => meta.roll + " = " + meta.total).join(" · ");
+}
+// A condition the manager judges from the player's answer (a choice by gm): told, not a button.
+const checkPlayerChoices = record => record.choices.filter(choice => choice.by !== "gm");
+function CheckConditions(props) {
+    const h = React.createElement;
+    return props.record.choices.filter(choice => choice.by === "gm").map(choice => h("div", { key: choice.id, className: "fork-check-choice" },
+        h("span", { className: "fork-check-choice-label" }, choice.label), choice.hint ? h("div", { className: "fork-check-hint" }, choice.hint + "（由经理判断）") : null));
 }
 
 // The buttons of an awaiting record: each choice's values as buttons. A record with one single-value choice settles on the
@@ -168,7 +186,7 @@ function checkButtonValues(choice, record) {
     return choice.options.map(option => ({ value: option, text: option }));
 }
 function checkAnswerText(record, picked) {
-    const parts = record.choices.map(choice => {
+    const parts = checkPlayerChoices(record).map(choice => {
         const value = picked[choice.id];
         const shown = choice.kind === "pick" ? value.join("、") : choice.kind === "boolean" ? (value ? "是" : "否")
             : choice.kind === "options" ? choice.options[value] + (choice.options[value] === value ? "" : "（" + value + "）") : String(value);
@@ -178,9 +196,11 @@ function checkAnswerText(record, picked) {
 }
 function CheckButtons(props) {
     const h = React.createElement, record = props.record;
-    const [picked, setPicked] = React.useState(() => Object.fromEntries(record.choices.map(choice => [choice.id, choice.kind === "pick" ? [] : choice.default])));
+    const choices = checkPlayerChoices(record);
+    const [picked, setPicked] = React.useState(() => Object.fromEntries(choices.map(choice => [choice.id, choice.kind === "pick" ? [] : choice.default])));
     const [state, setState] = React.useState({ sent: false, error: "" });
-    const direct = record.choices.length === 1 && record.choices[0].kind !== "pick";
+    // With a condition for the manager the player writes his answer to it, so the clicks only mark.
+    const direct = choices.length === 1 && choices[0].kind !== "pick" && choices.length === record.choices.length;
     const stop = event => event.stopPropagation();
     function send(values) {
         setState({ sent: true, error: "" });
@@ -192,9 +212,10 @@ function CheckButtons(props) {
         setPicked(next);
         if (direct) send(next);
     }
-    const ready = record.choices.every(choice => choice.kind !== "pick" || picked[choice.id].length >= choice.min && picked[choice.id].length <= choice.max);
+    const ready = choices.every(choice => choice.kind !== "pick" || picked[choice.id].length >= choice.min && picked[choice.id].length <= choice.max);
     return h("div", { className: "fork-check-choices", onClick: stop, onKeyDown: stop },
-        record.choices.map(choice => {
+        h(CheckConditions, { record }),
+        choices.map(choice => {
             const values = checkButtonValues(choice, record);
             return h("div", { key: choice.id, className: "fork-check-choice" },
                 h("span", { className: "fork-check-choice-label" }, choice.label),
@@ -206,7 +227,7 @@ function CheckButtons(props) {
                             onClick: () => choose(choice, row.value) }, row.text);
                     })) : checkChoiceText(choice, record));
         }),
-        direct ? null : h("button", { type: "button", className: "fork-check-confirm", disabled: state.sent || !ready, onClick: () => send(picked) }, "确认选择"),
+        direct || !choices.length ? null : h("button", { type: "button", className: "fork-check-confirm", disabled: state.sent || !ready, onClick: () => send(picked) }, "确认选择"),
         state.error ? h("div", { className: "fork-check-hint", role: "alert" }, "⚠ " + state.error) : null);
 }
 
@@ -253,11 +274,13 @@ function CheckCard(props) {
             h(Icon, { name: "die", size: 16 }),
             h("span", { className: "fork-roll-line" }, (record.id ? record.id + " " : "") + head + " · ", h("span", { className: "fork-roll-tier" }, tail))),
         h(CheckDice, { record }),
+        checkRollText(record) ? h("div", { className: "fork-check-line" }, checkRollText(record)) : null,
         report ? h("div", { className: "fork-check-line" }, report) : null,
         record.changes && checkShown(record, record.changes).length ? h("div", { className: "fork-check-line" }, checkShown(record, record.changes).map(checkChangeText).join("，")) : null,
         awaiting && props.answerable ? h(CheckButtons, { record, input: props.input }) : null,
         awaiting && !props.answerable ? h("div", { className: "fork-check-choices" },
-            record.choices.map(choice => h("div", { key: choice.id, className: "fork-check-choice" },
+            h(CheckConditions, { record }),
+            checkPlayerChoices(record).map(choice => h("div", { key: choice.id, className: "fork-check-choice" },
                 h("span", { className: "fork-check-choice-label" }, choice.label), " ", checkChoiceText(choice, record),
                 choice.hint ? h("div", { className: "fork-check-hint" }, choice.hint) : null)),
             h("div", { className: "fork-check-hint" }, "在下一句里说出你的选择，例如「花 1 点，变成 2 个 3」；不说就按默认。")) : null,
