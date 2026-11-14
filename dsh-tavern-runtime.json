@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "7676f6537d259c4fa056d462241a1b942423e2ea",
-  "releaseSequence": 1631,
+  "revision": "a8f3ba6fb0a9e85480d889886147257aafcb954d",
+  "releaseSequence": 1632,
   "version": "3.3.0",
   "files": [
     {
@@ -3196,8 +3196,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-turn-result.js",
-      "sha256": "67a3fafb3820b17255af2e2d2d0931bae3627547f3c76a8eb699692561f374bd",
-      "size": 2166
+      "sha256": "ebe5ee131750fc9afff249c415df3eb9ffdc41348233db58f16d29f90114b26c",
+      "size": 1955
     },
     {
       "path": "tavern-plugin/lib/domain/session-upgrade-references.js",
@@ -3451,8 +3451,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-tool-submission.js",
-      "sha256": "08461de8c19c7e21a71a5eacdd93eda07b8cf9df1d7bc7c99933cd375fce699a",
-      "size": 20020
+      "sha256": "c3e65c0299907dcad0f8d5007fc44c0d945ce8d942559a0f6e8eb1d687fe78fd",
+      "size": 16382
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript-reader.js",
@@ -4041,8 +4041,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "e8aa2d791519afe7839c13888311515d728ac854260a0552d83bc1d677f6a9c0",
-      "size": 12774
+      "sha256": "6e7cf93918efcb8fe8edcbe812fc483d8c602ed5c7eaefa13cf04d13bad9795d",
+      "size": 14278
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -9251,9 +9251,9 @@
     }
   ],
   "archive": {
-    "commit": "fad5547aee8016fcd2cb9092be2246430a8d84e2",
+    "commit": "7d3e258d1f00462ccbe580afeb20fa99ac90cdf1",
     "path": "runtime.zip",
-    "sha256": "0f688bc32561c2bf1261adfa5168dd19b99e016903965bebce76b08f67259699",
-    "size": 16519630
+    "sha256": "fdff603c4507957d0faa99ff5638f8934661c71803557befd9a792aa4c303ee3",
+    "size": 16518909
   }
 }
