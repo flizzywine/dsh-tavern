@@ -281,6 +281,35 @@ async function runServiceFixture() {
     assert.equal((await forkOf('session-d-turn2')).atSeq, turnTwoPlan.atSeq)
     assert.equal((await forkOf('session-d-turn2')).stateRevision, 1)
     evidence.legacyAtSeq = { atSeq: legacyPlan.atSeq, messageCount: legacyFork.fork.messageCount, earlierAtSeq: turnTwoPlan.atSeq }
+
+    // ---- 正文在后续上下文里被改写：旧原生边界不再带着这回合的正文，turn 入口退化为故事分叉 ----
+    // 编辑正文与精修写回都会单开一个只承载写回的 turn，正文事件的 seq 因此落在下一个
+    // turn/start 之后：旧 atSeq 边界复制不到它，而按消息前缀重建的故事分叉可以。
+    const editedRows = [row('assistant', '第一轮', 1), row('user', '继续一'), row('assistant', '第二轮', 2), row('user', '继续二'), row('assistant', '第三轮', 3)]
+    const edited = await importGame({
+      id: 'source-e', sessionId: 'session-e', messages: editedRows,
+      rounds: [{ user: '开场输入', assistant: '第一轮' }, { user: '继续一', assistant: '第二轮' }, { user: '继续二', assistant: '第三轮' }]
+    })
+    const editedEvents = sessions.get(edited.sessionId).events
+    const pushEdit = (type, data) => editedEvents.push({ seq: editedEvents.length, type, data })
+    pushEdit('turn/start', { turn: 4 })
+    pushEdit('step/start', { turn: 4, step: 1 })
+    pushEdit('assistant/message', { turn: 4, step: 1, message: { id: 'a3-edited', role: 'assistant', content: text('第三轮'),
+      source: { kind: 'model', provider: 'fixture', model: 'fixture', tavernStoryTurn: 3 } } })
+    pushEdit('step/end', { turn: 4, step: 1 })
+    pushEdit('turn/end', { turn: 4, reason: { kind: 'completed' } })
+    const editedPlan = await host.rpc('prepareConversationFork', { chatId: edited.chatId, turn: 3 })
+    assert.equal(editedPlan.storyDirect, true, '旧边界已不含改写后的正文，改用故事分叉')
+    assert.equal(editedPlan.atSeq, null)
+    assert.equal(editedPlan.messageIndex, 4, '回合号只用来定位正文行')
+    assert.ok(editedPlan.messageUid)
+    const editedFork = await host.rpc('forkChat', { chatId: edited.chatId, sessionId: edited.sessionId, targetSessionId: blankSession('session-e-fork'),
+      turn: 3, sourceRevision: editedPlan.sourceRevision, atSeq: null, messageIndex: editedPlan.messageIndex, messageUid: editedPlan.messageUid })
+    assert.equal(editedFork.fork.lastTurn, 3)
+    assert.equal(editedFork.fork.messageCount, 5)
+    assert.equal((await forkOf('session-e-fork')).messageIndex, 4)
+    assert.equal((await forkOf('session-e-fork')).atSeq, null)
+    evidence.editedTurnFallback = { messageIndex: editedPlan.messageIndex, messageCount: editedFork.fork.messageCount }
   } finally { await host.dispose() }
   return evidence
 }

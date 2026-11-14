@@ -122,7 +122,7 @@ import { createServerTemplateRuntime } from './domain/server-template-runtime.js
 import { createForegroundStyleReferenceTool, foregroundStyleReferencePrompt, rememberStyleReference } from './domain/style-reference.js'
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
-import { conversationStateAtMessage, conversationStateAtTurn, conversationForkBoundary } from './domain/conversation-fork-point.js'
+import { conversationStateAtMessage, conversationStateAtTurn, conversationForkBoundary, FORK_BOUNDARY_MISSING, FORK_BOUNDARY_UNSAFE } from './domain/conversation-fork-point.js'
 import { legacyMessageUid } from './domain/message-uid.js'
 import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
@@ -2561,7 +2561,7 @@ export async function apply(ctx) {
       // bound first; native repair then projects that prefix into model context.
       return { source, state, turn, messageIndex, atSeq: null, storyDirect: true, ...(messageUid ? { messageUid } : {}) }
     }
-    const { state, turn } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
+    const { state, turn, messageIndex } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
     return withHostSession({ sessions: sessionStore, agents: agentRegistry }, source.sessionId, session => {
       const references = upgradeReferences(sessionEvents(session))
       const mapped = structuredClone(state)
@@ -2569,7 +2569,21 @@ export async function apply(ctx) {
         if (message.nativeAnchor) message.nativeAnchor = upgradedAnchor(message.nativeAnchor, references)
         if (message.bodyEdit) message.bodyEdit = { ...message.bodyEdit, seq: references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion), formatVersion: 4 }
       }
-      return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn), storyDirect: false }
+      // A turn whose body was rewritten after its own turn/end (an edit, a polish
+      // write-back, a rescued stream) no longer has a native boundary that carries that
+      // text. A story fork rebuilds native context from the message prefix, so take that
+      // path instead of refusing a branch the save can still cut.
+      let atSeq = null
+      try {
+        atSeq = conversationForkBoundary(session, state, turn)
+      } catch (error) {
+        if (error?.code !== FORK_BOUNDARY_MISSING && error?.code !== FORK_BOUNDARY_UNSAFE) throw error
+      }
+      if (atSeq === null) {
+        const messageUid = legacyMessageUid(source.messages?.[messageIndex], messageIndex)
+        return { source, state: mapped, turn, messageIndex, atSeq: null, storyDirect: true, ...(messageUid ? { messageUid } : {}) }
+      }
+      return { source, state: mapped, turn, atSeq, storyDirect: false }
     })
   }
   // Plugin data and media are bound to text versions, whose keys hash the game id:

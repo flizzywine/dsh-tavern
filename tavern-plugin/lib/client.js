@@ -60864,7 +60864,7 @@ function createStoryFloorRail(root, options) {
             }
 
             async function forkWithRoute(horizon, route) {
-                if (!sessionId || busyAction) return;
+                if (!sessionId || isRunning || busyAction) return;
                 setBusyAction("fork:" + route.id);
                 setLocalError("");
                 setLocalNotice("");
@@ -61066,7 +61066,7 @@ function createStoryFloorRail(root, options) {
                         h("button", {
                             type: "button",
                             className: "dsh-tavern-btn",
-                            disabled: Boolean(busyAction),
+                            disabled: isRunning || Boolean(busyAction),
                             title: "从当前回合克隆出一个独立平行存档，并自动点亮此路线",
                             onClick: function () { forkWithRoute(horizon, route); }
                         }, "分叉试玩 ⑂")

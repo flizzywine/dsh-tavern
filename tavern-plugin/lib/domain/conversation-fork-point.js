@@ -218,10 +218,20 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
 export async function conversationStateAtTurn(source, requestedTurn, readRevision) {
   const turn = requestedTurn === undefined || requestedTurn === 0 ? turnOf(lastAssistant(source)) : Number(requestedTurn)
   if (!Number.isSafeInteger(turn) || turn < 1) throw new Error('找不到指定分叉回合')
-  const messageIndex = (source.messages || []).findIndex(message => message?.role === 'assistant' && turnOf(message) === turn)
-  if (messageIndex < 0) throw new Error('找不到指定分叉回合')
-  const { state } = await conversationStateAtMessage(source, messageIndex, readRevision)
-  return { turn, state }
+  const index = (source.messages || []).findIndex(message => message?.role === 'assistant' && turnOf(message) === turn)
+  if (index < 0) throw new Error('找不到指定分叉回合')
+  const { state } = await conversationStateAtMessage(source, index, readRevision)
+  return { turn, state, messageIndex: index }
+}
+
+// A boundary the log cannot offer any more: the caller falls back to a story fork,
+// which rebuilds native context from the message prefix instead of copying the log.
+// The codes let that fallback stay exact without reading error text.
+export const FORK_BOUNDARY_MISSING = 'DSH_TAVERN_FORK_BOUNDARY_MISSING'
+export const FORK_BOUNDARY_UNSAFE = 'DSH_TAVERN_FORK_BOUNDARY_UNSAFE'
+
+function boundaryError(code, message) {
+  return Object.assign(new Error(message), { code })
 }
 
 // Native fork boundary: the host copies its event log up to one `turn/end`, so the
@@ -230,9 +240,9 @@ export function conversationForkBoundary(session, state, turn) {
   const events = sessionEvents(session)
   const nativeTurn = Number(state.regeneratedDshTurns?.[turn]) || turn
   const end = events.findLast(event => event.type === 'turn/end' && Number(event.data?.turn) === nativeTurn)
-  if (!end || end.data?.reason?.kind !== 'completed') throw new Error('该回合缺少已完成的原生上下文边界')
+  if (!end || end.data?.reason?.kind !== 'completed') throw boundaryError(FORK_BOUNDARY_MISSING, '该回合缺少已完成的原生上下文边界')
   const result = assistantResultForTurn(session, turn)
   const following = events.find(event => event.type === 'turn/start' && event.seq > end.seq)
-  if (!result || (following && result.event.seq >= following.seq)) throw new Error('该回合正文曾在后续上下文中修改，无法按旧边界安全分叉')
+  if (!result || (following && result.event.seq >= following.seq)) throw boundaryError(FORK_BOUNDARY_UNSAFE, '该回合正文曾在后续上下文中修改，无法按旧边界安全分叉')
   return end.seq
 }
