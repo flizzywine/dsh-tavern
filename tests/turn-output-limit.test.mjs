@@ -9,6 +9,7 @@ import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-life
 function harness(events) {
   const handlers = new Map()
   const failures = []
+  const finalized = []
   const session = { id: 'session', events }
   registerTurnLifecycleHooks({
     ctx: { on: (name, fn) => handlers.set(name, fn) },
@@ -30,11 +31,12 @@ function harness(events) {
     runtimePrompt: () => '',
     sessionStore: { flush() {} },
     turnOrchestrator: { recordFailure: async value => failures.push(value), modeFor: async () => 'story' },
-    foregroundHandoff: { finalize: async () => ({}), end() {} },
+    foregroundHandoff: { finalize: async value => { finalized.push(value); return {} }, end() {} },
     replaceAssistantReply() {},
   })
   return {
     failures,
+    finalized,
     stop: () => handlers.get('agent/turn-stopping')({ agent: { session }, turn: 2 })
   }
 }
@@ -46,7 +48,19 @@ function truncatedTurn() {
       id: 'm',
       role: 'assistant',
       source: { kind: 'model' },
-      content: [{ type: 'tool-call', id: 'c', name: 'submit_story', arguments: '{"think":"构思","content":"半截正文' }]
+      content: [{ type: 'reasoning', text: '先想一下这场戏怎么推进' }]
+    }
+  }
+}
+
+function truncatedSubmission() {
+  return {
+    stream: [{ type: 'chunk', chunk: { type: 'finish', reason: { kind: 'max-tokens' } } }],
+    message: {
+      id: 'm',
+      role: 'assistant',
+      source: { kind: 'model' },
+      content: [{ type: 'tool-call', id: 'c', name: 'submit_story', arguments: '{"think":"构思","content":"青石板上的水光晃了一下，她' }]
     }
   }
 }
@@ -81,4 +95,16 @@ test('a turn with no assistant message at all stays empty-response', async () =>
   const h = harness([{ type: 'turn/start', data: { turn: 2 } }])
   await assert.rejects(h.stop(), /没有返回正文/)
   assert.equal(h.failures[0].code, 'empty-response')
+})
+
+test('a submission cut inside its content keeps the prose it already wrote', async () => {
+  const h = harness([
+    { type: 'turn/start', data: { turn: 2 } },
+    { type: 'assistant/message', data: { turn: 2, step: 1, ...truncatedSubmission() } }
+  ])
+  await h.stop()
+  assert.equal(h.failures.length, 0, '抢救到的正文不算空回合')
+  assert.equal(h.finalized.length, 1)
+  assert.equal(h.finalized[0].assistantText, '青石板上的水光晃了一下，她')
+  assert.equal(h.finalized[0].incomplete, true)
 })
