@@ -1,26 +1,15 @@
 import {createHash} from 'node:crypto'
-import {spawn} from 'node:child_process'
-import {fileURLToPath} from 'node:url'
 import {check, canonicalJson} from '../asset-packs/common.js'
 import {imageDimensions,imageKind,STAGE_IMAGE_MAX_BYTES} from './media.js'
 import {jsonBytes, readDocument} from './validation.js'
 import {assetContents, assetContentMedia} from '../shared/asset-variant-content.js'
 import policy from '../shared/media-resolution.cjs'
+import {runMediaEncoder} from './media-encoder.js'
 
 // The existing isolated media encoder owns native DLL loading, also for master writes.
-export function encodeResolution(bytes, width, height, compare = false) {
-  return new Promise((resolve, reject) => {
-    const child=spawn(process.execPath,[fileURLToPath(new URL('./thumbnail-encoder.js',import.meta.url)),'master',String(width),String(height),compare?'compare':'png'],{
-      windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},timeout:120000
-    }), output=[], errors=[]
-    child.stdout.on('data',chunk=>output.push(chunk));child.stderr.on('data',chunk=>errors.push(chunk))
-    child.on('error',reject);child.stdin.on('error',reject)
-    child.on('close',code=>{
-      if(code!==0)return reject(new Error(Buffer.concat(errors).toString()||'Media encoder exited: '+code))
-      try {const result=JSON.parse(Buffer.concat(output));resolve({...result,bytes:Buffer.from(result.bytes,'base64')})}catch(error){reject(error)}
-    })
-    child.stdin.end(bytes)
-  })
+export async function encodeResolution(bytes, width, height, compare = false) {
+  const result=JSON.parse(await runMediaEncoder(['master',width,height,compare?'compare':'png'],bytes,120000))
+  return {...result,bytes:Buffer.from(result.bytes,'base64')}
 }
 
 // Only independent raster bindings are closed here. Sprite/atlas/model/authoring

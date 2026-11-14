@@ -1,30 +1,15 @@
 import path from 'node:path'
-import {spawn} from 'node:child_process'
-import {fileURLToPath} from 'node:url'
 import {readFile, readdir, mkdir, writeFile, rename, unlink, stat, utimes} from 'node:fs/promises'
 import {randomUUID} from 'node:crypto'
 import {check, validateUuid, validateHash} from '../asset-packs/common.js'
 import {checkedPath} from './storage.js'
+import {runMediaEncoder} from './media-encoder.js'
 
 const image = descriptor => ['png','jpeg','webp'].includes(descriptor?.ext)
 // Longest-side tiers. The client asks for its measured box/crop times devicePixelRatio.
 export const THUMBNAIL_SIZES = [256,512,1024]
 const absent = error => { if (error.code !== 'ENOENT') throw error }
-async function encode(bytes, size = 256) {
-  // A worker thread still shares native DLLs: use a process to isolate host libvips.
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [fileURLToPath(new URL('./thumbnail-encoder.js', import.meta.url)),String(size)], {
-      windowsHide:true, stdio:['pipe','pipe','pipe'], env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}, timeout:30000
-    })
-    const output = [], errors = []
-    child.stdout.on('data', chunk => output.push(chunk))
-    child.stderr.on('data', chunk => errors.push(chunk))
-    child.on('error', reject)
-    child.stdin.on('error', reject)
-    child.on('close', code => code === 0 ? resolve(Buffer.concat(output)) : reject(new Error(Buffer.concat(errors).toString() || 'Thumbnail encoder exited: ' + code)))
-    child.stdin.end(bytes)
-  })
-}
+const encode = (bytes, size = 256) => runMediaEncoder([size], bytes, 30000)
 
 // Disposable derived data only. Identity comes from the catalogue, never a media rehash.
 export function createThumbnailCache({assetRoot, service, encodeImage = encode, maxBytes = 256 * 1024 ** 2,
