@@ -2908,8 +2908,14 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     bottom: var(--dsh-composer-offset, 8rem); width: auto; max-width: none; margin: 0;
     max-height: var(--dsh-sheet-max, min(60dvh, 480px));
     display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain;
+    /* 主题给候选项的是行向换行（每块 flex: 1 0 100% 独占一行）。抽屉改了列向却留着 wrap 时，
+       同一个 flex-wrap 会把每块换成一列排到面板右手边：正文只露最左一截，标题也被推到中间。 */
+    flex-wrap: nowrap; align-items: stretch; column-gap: 0; row-gap: 0;
     background: var(--dsw-specific-sidebar-fill); box-shadow: 0 -6px 24px #0002;
   }
+  html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed) > :is(.dsh-tavern-question-head, .dsh-tavern-question-sub, .dsh-tavern-question-tabs) { flex: 0 0 auto; min-width: 0; }
+  /* 极短窗口（键盘弹出）里列表由整个面板滚动，body 仍是 flex: none。 */
+  html.dsh-tavern-viewport-pinned:not(.dsh-tavern-short-viewport) .dsh-tavern-candidate-question:not(.collapsed) > .dsh-tavern-question-body { flex: 1 1 auto; min-width: 0; min-height: 0; }
   .dsh-tavern-candidate-question .dsh-tavern-question-head {
     flex: none; min-height: 40px; margin-bottom: 4px; gap: 6px; font-size: 14px; flex-wrap: nowrap;
   }
