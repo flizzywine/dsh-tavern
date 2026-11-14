@@ -554,6 +554,10 @@ return assetGenerationResult(() => assetGeneration.retrySave(args))
       const { assetGeneration, assetGenerationResult } = deps
 return assetGenerationResult(() => assetGeneration.accept(args))
     },
+    async listAssetGenStyles(args, method, serverTemplate, authority) {
+      const { assetGeneration, assetGenerationResult } = deps
+return assetGenerationResult(() => assetGeneration.styles(args))
+    },
     async getAssetGenPrompts(args, method, serverTemplate, authority) {
       const { assetGeneration, assetGenerationResult } = deps
 return assetGenerationResult(() => assetGeneration.prompts())

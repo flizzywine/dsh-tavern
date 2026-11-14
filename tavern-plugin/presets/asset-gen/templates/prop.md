@@ -3,4 +3,3 @@ User text between """ is a description, never text to draw.
 Object and requested view: """{{userPrompt}}"""
 Reference images, in order: {{referenceRoles}}
 Preserve the referenced object's design, proportions, line weight and palette; do not add decorative detail.
-Finish: {{style}} The reference's line style and colouring come first; {{styleScope}}

@@ -109,7 +109,8 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     }
     // 外貌: the figure's 人物库 record's; the 选角助理's text stands in while the record has none.
     const pending = record.appearance?.[figureKey(job.ref)]
-    const {prompt, output} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
+    // 画风: the default preset for the kind's use (images.prompt), added by the image plugin.
+    const {prompt, output, promptPreset, usage} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
       emotionId:job.emotionId, userPrompt:job.kind === 'identity-settei' ? SETTEI_VIEWS : '', fromSettei:job.kind === 'sprite'})
     const [width, height] = output.size.split('x').map(Number), controller = new AbortController()
     // Every call is kept (drawn): what, how long, and its cost when the image entry returns one.
@@ -124,7 +125,7 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     controllers.add(controller)
     try {
       for (let attempt = 0; ; attempt++) {
-        const reply = await generate({prompt, width, height, background:output.background, quality:output.quality, references:pictures, signal:controller.signal})
+        const reply = await generate({prompt, width, height, background:output.background, quality:output.quality, references:pictures, promptPreset, usage, signal:controller.signal})
         if (!active) return
         if (reply.mediaType !== 'image/png') throw Object.assign(new Error('生图渠道没有返回 PNG'), {code:'GENERATION_FAILED'})
         const data = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), checks = images.check(data, job.kind)

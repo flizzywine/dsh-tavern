@@ -8,8 +8,6 @@ User notes: """{{userPrompt}}"""
 
 Reference images, in order (none if empty): {{referenceRoles}}
 User artwork is the authority. Borrow its face shape, eye shape and highlights, hair, proportions, outfit design, line weight, shading and palette. Do not restyle it into a generic anime look. Where text and images disagree, follow the images; use the text for what they do not show.
-Style: the user artwork's style; otherwise the style named in the notes; otherwise clean anime line art with flat cel shading and one shadow tone.
-Finish: {{style}} The user artwork's line style and colouring come first; {{styleScope}}
 
 Layout on a plain light grey-white background, no scenery:
 1. Turnaround: the same character four times at identical scale on one baseline: front, three-quarter front, side, back. Full body from hair top and ornaments to soles, nothing cropped. Neutral standing pose, arms relaxed slightly away from the body, neutral face, eyes open.

@@ -53,12 +53,16 @@ async function fixture(t) {
     const snapshot = await library.getPackSnapshot({packId:pack.manifest.id})
     await library.patchPack(await publisher.figure({snapshot, image, media:await publication.closure(image), figureId:created.figureId, outfitKey:'daily', emotion:'calm', kind:'sprite'}))
   }
-  return {service, channel, revision, prepare, draw, addSprite}
+  return {service, channel, provider, revision, prepare, draw, addSprite}
 }
 
 test('a text-only channel draws the 设定图 from text, and a JPEG answer is stored as PNG', async t => {
   const f = await fixture(t)
+  // 画风 goes to the image plugin as its preset id and this kind's use; a preset the plugin no longer has is refused before sending.
+  f.provider.presets = () => [{id:'galgame-clean', name:'干净低细节'}, {id:'no-style', name:'不加画风'}]
+  await assert.rejects(f.prepare('identity-settei', {userPrompt:'silver hair', style:'galgame-anime'}), e => e.code === 'INVALID_ARGUMENT' && /galgame-anime/.test(e.message))
   const figure = await f.draw('identity-settei', {userPrompt:'silver hair'})
+  assert.equal(f.channel.sent[0].promptPreset, 'galgame-clean'); assert.equal(f.channel.sent[0].usage, 'sheet')
   assert.equal(figure.job.status, 'candidate'); assert.equal(figure.job.candidate.mediaType, 'image/png')
   assert.deepEqual([figure.job.candidate.width, figure.job.candidate.height], [6, 4])
   await f.service.accept({jobId:figure.job.jobId, expectedRevision:await f.revision()})

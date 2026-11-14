@@ -9,14 +9,14 @@ import {imageCost, addCost} from './asset-generation-cost.js'
 import spriteEmotions from '../../shared/sprite-emotions.cjs'
 import {validateUuid, validateHash, validateShortId, validateStateId} from '../../packages/dsh-asset-library/lib/asset-packs/common.js'
 import {validateIdentitySettei} from '../../packages/dsh-asset-library/lib/asset-packs/identity-settei.js'
-import {PACK_GEN_STYLES} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
+import {packGenStyle, validGenStyle} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
 import {coverImageType, coverImageAsPng} from './card-cover-image.js'
 
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json', CHANNELS = ROOT + 'channels.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const clone = value => structuredClone(value)
-import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, ASSET_STYLE_DEFAULT, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
+import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, assetStyleUse, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
 export {renderAssetTemplate} from './asset-production-contract.js'
 const fail = (code, message, extra = {}) => { throw Object.assign(new Error(message), {code, ...extra}) }
 const assert = (condition, code, message) => { if (!condition) fail(code, message) }
@@ -82,7 +82,7 @@ function followUpInput(value, target) {
     assert(item && ['sprite','avatar'].includes(item.kind) && (target.kind === 'settei' || item.kind === 'avatar' && item.emotionId === target.emotionId), 'INVALID_ARGUMENT', '后续生成的目标不对')
     validateStateId(item.emotionId)
     const prompt = text(item.userPrompt ?? '', 1000)
-    assert(item.style === undefined || PACK_GEN_STYLES.includes(item.style), 'INVALID_ARGUMENT', '未知的画风')
+    assert(item.style === undefined || validGenStyle(item.style), 'INVALID_ARGUMENT', '未知的画风')
     return {kind:item.kind, emotionId:item.emotionId, ...(prompt ? {userPrompt:prompt} : {}), ...(item.style ? {style:item.style} : {})}
   })
 }
@@ -193,9 +193,7 @@ function inspectImage(bytes, mediaType, max) {
 /** One profile owner. Network work never occupies the short mutation gate. */
 export function createAssetGeneration({store, imageProvider = () => null, getLibrary, now = Date.now,
   readTemplate = kind => readFile(new URL(`../../presets/asset-gen/templates/${kind}.md`, import.meta.url), 'utf8'),
-  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null,
-  // the 配图 preset every picture names (素材原样, image-asset-preset.js), or undefined: the prompt is sent as written
-  promptPreset = async () => undefined}) {
+  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null}) {
   const plans = new Map(), pendingBytes = new Map(), controllers = new Map(), tasks = new Set()
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
@@ -257,7 +255,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
   // own prompt), newest last, at most GEN_RECORDS; written with the adoption (settei) or right after its import.
   const recorded = (figure, job) => {
     const prompt = String(job.userPrompt || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').slice(0, 1000)
-    const row = {kind:job.target.kind, ...(['sprite','avatar'].includes(job.target.kind) ? {emotionId:job.target.emotionId} : {}), at:now(), ...(prompt ? {prompt} : {})}
+    const row = {kind:job.target.kind, ...(['sprite','avatar'].includes(job.target.kind) ? {emotionId:job.target.emotionId} : {}), at:now(), ...(prompt ? {prompt} : {}), ...(job.style ? {style:job.style.id} : {})}
     return {...figure, outfits:figure.outfits.map(o => o.key === job.target.outfitKey ? {...o, genRecords:[...(o.genRecords || []), row].slice(-GEN_RECORDS)} : o)}
   }
   const prior = target => Object.values(jobs).reverse().filter(j => targetKey(j.target) === targetKey(target)).sort((a,b) => b.createdAt - a.createdAt)[0]
@@ -278,8 +276,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     try {
       // Pictures come from the image plugin's current channel; Tavern keeps no image channels of its own.
       const [width, height] = plan.output.size.split('x').map(Number)
-      const preset = await promptPreset()
-      const reply = await plan.source.generate({prompt:plan.prompt, references:plan.images, width, height, ...(preset ? {promptPreset:preset} : {}),
+      const reply = await plan.source.generate({prompt:plan.prompt, references:plan.images, width, height, promptPreset:plan.style.id, usage:plan.style.use,
         background:plan.output.background, quality:plan.output.quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)])})
       if (reply?.data instanceof Uint8Array) {
         const {usd, estimated, model} = await charge(reply, plan.provider.model, {prompt:plan.prompt, width, height, quality:plan.output.quality, references:plan.images})
@@ -404,8 +401,12 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       if (['identity-settei','settei'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', textOnly || '请提供外貌文字或参考图')
       if (['sprite','avatar'].includes(target.kind) && !input.redrawOf) assert(userPrompt || ctx.figure.identityAppearance || ctx.outfit?.outfitAppearance || images.length, 'INVALID_ARGUMENT', textOnly || '请写一句描述，或加一张参考图')
       if (target.kind === 'background' && !input.redrawOf) assert(userPrompt, 'INVALID_ARGUMENT', '请描述需要的背景')
-      // 画风: this request's preset, else the pack's default (manifest.genStyle), else the built-in default.
-      const own = (await readPrompts()).overrides[target.kind], values = assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,style:input.style ?? pack.manifest.genStyle ?? ASSET_STYLE_DEFAULT,figure:ctx.figure,outfit:ctx.outfit,
+      // 画风: this request's style preset, else the pack's default (manifest.genStyle), else the default; the image plugin
+      // adds its text for this kind's use. A pack's own background style replaces the preset for its backgrounds.
+      assert(input.style === undefined || validGenStyle(input.style), 'INVALID_ARGUMENT', '未知的画风')
+      const style = target.kind === 'background' && pack.manifest.backgroundStyle ? 'no-style' : packGenStyle(input.style ?? pack.manifest.genStyle), use = assetStyleUse(target.kind)
+      if (!preview && source.presets) assert(source.presets().some(item => item.id === style), 'INVALID_ARGUMENT', '这个画风不在了：配图插件里找不到「' + style + '」，请另选一个画风')
+      const own = (await readPrompts()).overrides[target.kind], values = assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,figure:ctx.figure,outfit:ctx.outfit,
         emotions:ctx.emotions,emotion:ctx.emotion,userPrompt,references:refs})
       let prompt = composeAssetPrompt(own ?? await readTemplate(target.kind), values)
       const parts = preview && own !== undefined && !input.redrawOf ? assetPromptParts(own, await readTemplate(target.kind), values) : null
@@ -425,7 +426,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         basePrompt = original.basePrompt || original.prompt
         if (target.kind === 'background' && (pack.manifest.backgroundStyle || original.references?.some(ref => ref.purpose === 'background-style'))) {
           for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
-          basePrompt = composeAssetPrompt(own ?? await readTemplate(target.kind), assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,style:input.style ?? pack.manifest.genStyle ?? ASSET_STYLE_DEFAULT,userPrompt:original.userPrompt || userPrompt,references:refs}))
+          basePrompt = composeAssetPrompt(own ?? await readTemplate(target.kind), assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,userPrompt:original.userPrompt || userPrompt,references:refs}))
         }
         prompt = basePrompt + '\n' + (await readTemplate('redraw-note')).replace('<note>',note)
         if (input.useCandidateReference === true) {
@@ -442,11 +443,11 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         : `当前生图渠道不能带参考图，${target.kind === 'avatar-sheet' ? '八个头像要照立绘或设定图一起画' : '这张素材要照 ' + images.length + ' 张参考图画'}；请在 设置 → 配图 换一个支持参考图的渠道`)
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
-      if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),references:refs,output})
+      if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),style:{id:style,use},references:refs,output})
       const key = output.background === 'transparent' ? await keyFor(status, prompt) : null
       if (key) { prompt = keyedPrompt(prompt, key); output.background = 'opaque'; output.key = key }
       const planId = randomUUID(), provider = {label:source.label, model:status.model, ...(status.transparent === true ? {transparent:true} : {})}
-      const view = {defaults:ASSET_PRODUCTION_DEFAULTS,planId,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),references:refs,provider,output,consentToken:randomUUID(),expiresAt:now() + planTtlMs,imageCount:count}
+      const view = {defaults:ASSET_PRODUCTION_DEFAULTS,planId,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),style:{id:style,use},references:refs,provider,output,consentToken:randomUUID(),expiresAt:now() + planTtlMs,imageCount:count}
       const confirmations = uncertain(target).map(job => job.jobId)
       if (confirmations.length) { view.confirmNewRequestIds = confirmations; view.confirmNewRequestId = confirmations[0] }
       plans.set(planId,{...view,source,images,basePrompt,backgroundName,redrawOf:input.redrawOf,slot:ctx.slot,authority:authority(ctx,target.kind),anchor,userPrompt,followUp})
@@ -465,7 +466,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const pack = await snapshot(plan.target,plan.expectedRevision); context(pack,plan.target)
       const group = Array.from({length:plan.imageCount},(_,index) => {
         const id = index ? randomUUID() : plan.planId
-        return {jobId:id,requestId:id,groupId:plan.planId,target:plan.target,backgroundName:plan.backgroundName,redrawOf:plan.redrawOf,slot:plan.slot,authority:plan.authority,...(plan.anchor ? {anchor:plan.anchor} : {}),...(plan.userPrompt ? {userPrompt:plan.userPrompt} : {}),...(plan.followUp ? {followUp:plan.followUp} : {}),status:'running',outcome:'not_requested',createdAt:now(),expiresAt:now() + candidateTtlMs,prompt:plan.prompt,basePrompt:plan.basePrompt,provider:plan.provider,output:plan.output,references:plan.references.map((ref,index) => ({...ref,mediaType:plan.images[index].mediaType}))}
+        return {jobId:id,requestId:id,groupId:plan.planId,target:plan.target,backgroundName:plan.backgroundName,redrawOf:plan.redrawOf,slot:plan.slot,authority:plan.authority,...(plan.anchor ? {anchor:plan.anchor} : {}),...(plan.userPrompt ? {userPrompt:plan.userPrompt} : {}),...(plan.followUp ? {followUp:plan.followUp} : {}),status:'running',outcome:'not_requested',createdAt:now(),expiresAt:now() + candidateTtlMs,prompt:plan.prompt,basePrompt:plan.basePrompt,style:plan.style,provider:plan.provider,output:plan.output,references:plan.references.map((ref,index) => ({...ref,mediaType:plan.images[index].mediaType}))}
       })
       for (const job of group) jobs[job.jobId] = job
       try {
@@ -487,7 +488,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     // One picture for a plugin (tavern.generateImage) on the image plugin's current channel, under the same limit of four
     // in flight as the asset pictures. Nothing is kept or retried here. `mayHaveCharged` is false only for a refusal
     // before dispatch or a failure the image plugin marks requestMayHaveSucceeded === false.
-    async image({prompt, width, height, background = 'auto', quality = 'auto', references = [], signal} = {}, source = imageProvider()) {
+    // promptPreset / usage name an image plugin style for the picture; without one the prompt is sent as written (no-style).
+    async image({prompt, width, height, background = 'auto', quality = 'auto', references = [], signal, promptPreset = 'no-style', usage} = {}, source = imageProvider()) {
       const status = source ? await source.status() : null
       assert(source, 'NOT_CONFIGURED', '生图由「配图」插件出图；请先安装并启用配图插件')
       assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
@@ -504,8 +506,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const failed = (message, mayHaveCharged) => fail('GENERATION_FAILED', String(message || '生图失败').replace(/\s+/g, ' ').trim().slice(0, 300), {mayHaveCharged})
       try {
         let reply
-        const preset = await promptPreset(), key = background === 'transparent' ? await keyFor(status, prompt) : null
-        try { reply = await source.generate({prompt:key ? keyedPrompt(prompt, key) : prompt, references:images, width, height, ...(preset ? {promptPreset:preset} : {}), background:key ? 'opaque' : background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
+        const key = background === 'transparent' ? await keyFor(status, prompt) : null
+        try { reply = await source.generate({prompt:key ? keyedPrompt(prompt, key) : prompt, references:images, width, height, promptPreset, ...(usage ? {usage} : {}), background:key ? 'opaque' : background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
         catch (error) { failed(error?.message, error?.requestMayHaveSucceeded !== false) }
         if (!(reply?.data instanceof Uint8Array) || reply.data.length > 20 * 1024 ** 2) failed('生图渠道没有返回有效图片', true)
         // A transparent picture comes back as a PNG: keyed out when it was drawn on a key colour; a background on an
@@ -525,18 +527,20 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     // 自动选角 (auto cast): the prompt and output of one automatic picture, from the same editable templates as
     // the asset pictures (设置 → 生图). figure {ref, name, emotions}: its 外貌 is its 配图 人物库 record's (方案甲), else `appearance`
     // (the text the 选角助理 wrote, before the record has it). fromSettei: the one image sent is the figure's 人设图.
-    async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', style = ASSET_STYLE_DEFAULT}) {
+    async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', style}) {
       assert(['identity-settei','sprite'].includes(kind), 'INVALID_ARGUMENT', '未知素材类型')
       const own = (await readPrompts()).overrides[kind], linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
       const emotion = emotionId === undefined ? undefined : matchBubbleMood(emotionId, figure.emotions || []) || figure.emotions?.find(row => row.id === emotionId)
-      const values = assetPromptValues({kind, style, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
+      const values = assetPromptValues({kind, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
         emotion, userPrompt, references:fromSettei ? [{role:roles.identity}] : []})
-      return {prompt:composeAssetPrompt(own ?? await readTemplate(kind), values), output:assetOutput(kind)}
+      return {prompt:composeAssetPrompt(own ?? await readTemplate(kind), values), output:assetOutput(kind), promptPreset:packGenStyle(style), usage:assetStyleUse(kind)}
     },
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
     autoCheck: (data, kind) => pictureChecks(data, kind),
     // 设置 → 生图: every kind's effective text, whether it is edited, and the {{slots}} an edit must keep.
     prompts: () => serial(async () => promptView(await readPrompts())),
+    // The image plugin's style presets for the 画风 menu (id, name, stable/experimental, the uses with their own text).
+    styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:imageProvider()?.presets?.() ?? []}),
     // One kind, CAS on the file's revision. `text: null`, or the default's own text, removes the override.
     setPrompt: ({kind, text, expectedRevision}) => serial(async () => {
       assert(ASSET_PROMPT_KINDS.includes(kind), 'INVALID_ARGUMENT', '未知的生图类型')

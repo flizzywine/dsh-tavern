@@ -16,4 +16,3 @@ Declared differences, in exact cell order: {{emotion}}
 Expression and pose guidance:
 {{emotionGuidance}}
 The authored personality and expression notes determine mouth opening and eye shape in each cell. A feeling names the emotion, not its intensity: for a reserved character, joy can be a small, soft, slightly awkward smile; for an outgoing character it can be more expansive. Use restrained, readable acting when intensity is unspecified. Keep the reference's art style. Never infer additional expressions from internal IDs.
-Finish: {{style}} The reference's line style and colouring come first; {{styleScope}}

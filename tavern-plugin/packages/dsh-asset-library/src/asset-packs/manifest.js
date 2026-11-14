@@ -154,14 +154,21 @@ export function validateAssetContent(kind, content, path = '$') {
   }
   return content
 }
-// the pack's default style preset for generated pictures.
-// These ids are the one list; each preset's prompt text is asset-production-contract.js, its name the client's.
-export const PACK_GEN_STYLES = Object.freeze(['clean', 'anime', 'polished', 'none'])
+// the pack's default style for generated pictures: the id of a style preset of the image plugin (its text and name live
+// there). Packs written before that store one of the four former ids; they read as the plugin presets that replaced them.
+const LEGACY_GEN_STYLES = Object.freeze({clean:'galgame-clean', anime:'galgame-anime', polished:'galgame-polished', none:'no-style'})
+export const PACK_GEN_STYLE_DEFAULT = 'galgame-clean'
+export function packGenStyle(value) {
+  return value === undefined ? PACK_GEN_STYLE_DEFAULT : LEGACY_GEN_STYLES[value] ?? value
+}
+export function validGenStyle(value) {
+  return typeof value === 'string' && /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/.test(value) && value.length <= 80
+}
 export function validatePackManifest(value, path = '$') {
   assertJson(value)
   const required = ['format', 'schemaVersion', 'id', 'name', 'contentHash', 'assets', 'figures', 'sprites', 'bundles', 'blobs', 'files']
   shape(value, [...required, ...metadata, 'voiceLibrary', 'tagIcons', 'genStyle', 'backgroundStyle', 'stageSkin'], required, path)
-  if (value.genStyle !== undefined) oneOf(value.genStyle, PACK_GEN_STYLES, path + '.genStyle')
+  if (value.genStyle !== undefined) check(validGenStyle(value.genStyle), path + '.genStyle', 'Unknown style id')
   // `stageSkin` is the retired pack default skin: a card's skin is its own value, then the global default, then classic
   // (card-stage-settings.js cardStageSkin). An older pack keeps it as stored and it is still shape-checked, but nothing reads it.
   if (value.stageSkin !== undefined) validateShortId(value.stageSkin, path + '.stageSkin')

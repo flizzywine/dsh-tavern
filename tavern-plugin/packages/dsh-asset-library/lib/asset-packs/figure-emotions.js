@@ -2,6 +2,7 @@
 import identity from '../shared/emotion-identity.cjs'
 export const {matchBubbleMood} = identity
 import {assertJson, check, shape, text, array, unique, record, integer, oneOf} from './common.js'
+import {validGenStyle} from './manifest.js'
 // a 差分 display name is at most 4 characters (code points). Checked where
 // labels enter (pack install, the editor, lint); the badge never truncates.
 export const FIGURE_EMOTION_LABEL_MAX = 4
@@ -53,14 +54,16 @@ export function validateOutfitEmotions(figure, outfit, path = '$.outfit') {
   shape(outfit.genPrompts,['sprite','avatar'],[],path+'.genPrompts');
   for(const [kind,map] of Object.entries(outfit.genPrompts)) record(map,path+'.genPrompts.'+kind,(value,q,id)=>check(ids.includes(id) && promptText(value),q,'Invalid default prompt'));
  }
- // this outfit's adopted generations, newest last (written by the asset-generation accept).
+ // this outfit's adopted generations, newest last (written by the asset-generation accept); style: the image plugin
+ // style preset the picture was drawn in.
  if(outfit.genRecords !== undefined) {
   array(outfit.genRecords,path+'.genRecords',GEN_RECORDS);
   outfit.genRecords.forEach((row,index)=>{
    const q=path+'.genRecords['+index+']';
-   shape(row,['kind','emotionId','at','prompt'],['kind','at'],q);oneOf(row.kind,['settei','sprite','avatar','avatar-sheet'],q+'.kind');integer(row.at,q+'.at');
+   shape(row,['kind','emotionId','at','prompt','style'],['kind','at'],q);oneOf(row.kind,['settei','sprite','avatar','avatar-sheet'],q+'.kind');integer(row.at,q+'.at');
    check(['sprite','avatar'].includes(row.kind) ? ids.includes(row.emotionId) : row.emotionId === undefined,q+'.emotionId');
    if(row.prompt !== undefined) check(promptText(row.prompt),q+'.prompt');
+   if(row.style !== undefined) check(validGenStyle(row.style),q+'.style');
   });
  }
 }

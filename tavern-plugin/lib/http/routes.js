@@ -135,7 +135,7 @@ export function registerTavernHttpRoutes({
         // Voice grants and paid asset generation also refuse any cross-site browser marker.
         // The desktop app forwards authenticated requests without Origin or Sec-Fetch-Site.
         const figureVoiceRoute = /^\/api\/dsh-tavern\/(?:getFigureVoiceEditor|listFigureVoiceChoices|assignFigureVoice|previewFigureVoice|openFigureVoicePreview|closeFigureVoicePreview)$/.test(pathname)
-        const assetGenerationRoute = /^\/api\/dsh-tavern\/(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|getAssetGenPrompts|setAssetGenPrompt)$/.test(pathname)
+        const assetGenerationRoute = /^\/api\/dsh-tavern\/(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|getAssetGenPrompts|setAssetGenPrompt|listAssetGenStyles)$/.test(pathname)
         if ((figureVoiceRoute || assetGenerationRoute) && !isSameOriginRequest({ host: req.headers.host, origin, fetchSite: req.headers['sec-fetch-site'] })) {
           res.writeHead(403); res.end('forbidden'); return
         }
