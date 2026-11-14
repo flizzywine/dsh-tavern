@@ -70,7 +70,7 @@ export function validateProjectSchema(value) {
     }
     if(expected.size!==Object.keys(value.slots).length)fail('baseline slots')
     for(const [id,s]of Object.entries(value.slots))if(!expected.has(id)||Object.entries(expected.get(id)).some(([key,v])=>s[key]!==v))fail('baseline slot identity')
-    for(const source of b.sources)if(!expected.has(source.slot)&&!(b.scope==='images'&&value.characters.some(c=>source.slot===c.key+'/identity-settei')))fail('baseline source identity')
+    for(const source of b.sources)if(!expected.has(source.slot)&&!(b.scope==='images'&&value.characters.some(c=>source.slot===c.key+'/identity-settei'||c.outfits.some(o=>source.slot===c.key+'/'+o.key+'/settei'))))fail('baseline source identity')
   }
   const addedIds=new Set(),operations=new Set()
   for(const batch of value.addedFigures||[]) {
