@@ -29,7 +29,7 @@ export interface FileEntry { path: string; size: number; sha256: Sha256 }
 export interface BlobDescriptor { ext: 'png' | 'webp' | 'jpeg' | 'mp3' | 'ogg' | 'wav' | 'm4a' | 'flac'; mime: string; size: number }
 export interface PackManifest extends Metadata {
   format: 'dsh-asset-pack'; schemaVersion: 1; id: UUID; name: string; contentHash: Sha256;
-  assets: Asset[]; tagIcons?: {tag:string;media:Sha256}[]; genStyle?: 'clean' | 'anime' | 'polished' | 'none'; backgroundStyle?: {prompt:string;references?:Sha256[]}; stageSkin?: string; figures: UUID[]; voiceLibrary?: VoiceLibrary;
+  assets: Asset[]; tagIcons?: {tag:string;media:Sha256}[]; /** Image plugin style preset id (legacy clean|anime|polished|none read as the galgame presets / no-style). */ genStyle?: string; backgroundStyle?: {prompt:string;references?:Sha256[]}; stageSkin?: string; figures: UUID[]; voiceLibrary?: VoiceLibrary;
   sprites: Record<string, string>; bundles: Record<string, { kind: 'live2d' | 'spine' | 'widget' | 'skin' | 'performance' | 'entrance' | 'video'; entry: string; contentHash: Sha256 }>;
   blobs: Record<Sha256, BlobDescriptor>; files: FileEntry[];
 }

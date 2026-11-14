@@ -18,5 +18,3 @@ Background: fully transparent. The character is fully opaque, including white cl
 
 Emotion "{{emotion}}": {{emotionGuidance}}
 The authored personality and expression notes determine mouth opening, eye shape and gesture size. A feeling names the emotion, not its intensity: for a reserved character, joy can be a small, soft, slightly awkward smile; for an outgoing character it can be more expansive. Use restrained, readable acting when intensity is unspecified. An expression variant changes the face and at most a small personality-consistent gesture while keeping the base pose and silhouette; change the body pose only when the emotion guidance explicitly requests it. A mood or personality adjective alone is not a request for a new stance. Outfit and accessories stay fully visible; no added props.
-Style: exactly the settei's style; manga marks only if the settei uses them.
-Finish: {{style}} The settei's line style and colouring come first; {{styleScope}}

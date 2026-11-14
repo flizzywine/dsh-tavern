@@ -5,5 +5,6 @@ Outfit: """{{outfitAppearance}}"""
 Requested local edit: """{{userPrompt}}"""
 Reference images, in order: {{referenceRoles}}
 Preserve the source canvas, camera, composition, transparency, identity and all unrequested areas. No extra objects, text, watermark or border.
-Finish: {{style}} The source's line style and colouring come first; {{styleScope}}
+Pack background style: {{backgroundStyle}}
+The source's line style and colouring come first.
 Match the source's line weight, shadow shapes, highlights and colouring in the edited area; never add detail or restyle the source. Preserve every pixel outside the requested edit.
