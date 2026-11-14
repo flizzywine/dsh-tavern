@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "77fc915c8b9b80f08f9734d605ca771bf31748c4",
-  "releaseSequence": 1612,
+  "revision": "0fb5402b51cb5ef2721cbb51287fad8a0693bba5",
+  "releaseSequence": 1613,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "bacda6e74f4cc1c79c92aaf91307c5923df26dac1c24ee6463965bfc1eea6811",
-      "size": 6332758
+      "sha256": "e07df969af596a4660440076ad4faf17657d315e5b6112fbd27c613ae7da51e6",
+      "size": 6334988
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -5621,13 +5621,13 @@
     },
     {
       "path": "tavern-plugin/mods/dice/check-tool.js",
-      "sha256": "9cfbbeb12b199369b6a65968665b387a362ca53d66f6a1df83c49404dbe62cad",
-      "size": 17750
+      "sha256": "247fc2883ebcbf8caf848220091ba6bd1ac2b8b3c235e55fb59ab3ae0e929cca",
+      "size": 17856
     },
     {
       "path": "tavern-plugin/mods/dice/client/check.js",
-      "sha256": "5274a4482c02dd4d70880a8d4be7657797af86c89e5abdf89c56680b9592e3fa",
-      "size": 19295
+      "sha256": "81e1d13834245095652e20244d3a786f8d475b5e275f6b970de4741b32e547c8",
+      "size": 21261
     },
     {
       "path": "tavern-plugin/mods/dice/client/core.js",
@@ -5641,8 +5641,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/client/show-art.js",
-      "sha256": "14a20702e4d9c0b0837d1dd26fc2bd45042b5028e80ca9d9287e91f6956368c3",
-      "size": 24861
+      "sha256": "8e3fa25875d9bff649d5e2a2ecfd409a554b74df1a2a1816b6ca0ac5b2cb712d",
+      "size": 25075
     },
     {
       "path": "tavern-plugin/mods/dice/client/show-sound.js",
@@ -5681,13 +5681,13 @@
     },
     {
       "path": "tavern-plugin/mods/dice/README.md",
-      "sha256": "7bca3269ca73373ec64cd9404336243e4db149562e3aadc53d42b5e4cf7bf022",
-      "size": 16241
+      "sha256": "127ab7dc3349fe09e32e0730c92ea519a68f54c8437d8f5bc7c4aac22578b31b",
+      "size": 18136
     },
     {
       "path": "tavern-plugin/mods/dice/rules-engine.js",
-      "sha256": "e6d2c93832f6debce06c0d836981e2ca8f480c1f90b6a124d2113901300a42f6",
-      "size": 42929
+      "sha256": "9ea3581fe282586a53f7e9f0bec17f6541010fee53c2f35378a21d8335640848",
+      "size": 51879
     },
     {
       "path": "tavern-plugin/mods/dice/runtime.js",
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "708be2603f2435dc22ff1596185ee6ab8f8461f8",
+    "commit": "54e665c3c24b0fbaec2e1b6ea31d6be39810bb50",
     "path": "runtime.zip",
-    "sha256": "2d558b908272a4ba07690866a623f565bb6ba3d48bd7c13e3258896497cd59fd",
-    "size": 16484616
+    "sha256": "dd1658e1e6b531c146f3f2877cad61e4a795d6977bf0da8578b6cf67bfff57b1",
+    "size": 16489475
   }
 }
