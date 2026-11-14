@@ -3,7 +3,7 @@
 // migrates that body using its original story data, so retain the full fallback.
 export const taskStateFields = Object.freeze([
   'title', 'createdAt', 'lastOpenedAt', 'backgroundHistoryIds',
-  'id', 'sessionId', '_storageRevision', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion',
+  'id', 'sessionId', '_storageRevision', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion', 'backgroundTasks',
   'regenInProgress', 'contextCompaction', 'cardPath', 'cardName', 'requestMode', 'candidates', 'plotCompass', 'plotCompassTask', 'taskMailbox', 'candidateAgent', 'updatedAt',
   ...['schemaVersion','branchId','revision','operations','participants','updatedAt'].map(key=>'timeline.'+key),
 ])

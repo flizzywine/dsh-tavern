@@ -11,6 +11,7 @@ import {
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
   collectPendingCompassSteps,
+  isPlotCompassEnabled,
   mergePlotCompassUpdate,
   parsePlotCompassProgressResponse,
   parsePlotCompassSubmission,
@@ -101,6 +102,7 @@ export function createPlotCompassService({
       await ensureSession(sessionId)
       const freshChat = await store.readChat(chatId)
       if (!isPlayableChat(freshChat)) throw new Error('游玩会话不存在或已关闭')
+      if (!isPlotCompassEnabled(freshChat)) throw new Error('剧情罗盘已关闭')
       const cardPath = str(freshChat.cardPath || freshChat.cardId)
       const card = await store.readCard(cardPath, freshChat)
       if (!card) throw new Error('人物卡不存在：' + cardPath)
@@ -139,6 +141,7 @@ export function createPlotCompassService({
         guidance
       })
 
+      controller.signal.throwIfAborted()
       runResult = await runAgent({
         task: 'plot-compass',
         persistent: false,
@@ -185,7 +188,7 @@ export function createPlotCompassService({
 
       const traceSessionId = str(runResult?.traceSessionId)
       await store.updateChat(chatId, current => {
-        if (!isPlayableChat(current)) return undefined
+        if (!isPlayableChat(current) || !isPlotCompassEnabled(current)) return undefined
         if (expectedBranchId && str(current.timeline?.branchId) && str(current.timeline?.branchId) !== expectedBranchId) {
           throw new Error('会话分支已变更，本次推演结果未写入')
         }
@@ -222,6 +225,7 @@ export function createPlotCompassService({
   async function generate({ sessionId, scope = 'all', guidance = '', wait = false } = {}) {
     const normalizedScope = PLOT_COMPASS_SCOPES.includes(scope) ? scope : 'all'
     const chat = await requirePlayChat(sessionId)
+    if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启后再推演')
     if (jobs.has(chat.id)) throw new Error('剧情罗盘正在推演中，请稍候或先取消当前推演')
     const model = selection(chat)
     if (!model) throw new Error('请先配置可用的后台模型')
@@ -274,10 +278,47 @@ export function createPlotCompassService({
     return { status: 'idle' }
   }
 
-  async function pin({ sessionId, horizon, routeId, exact = false } = {}) {
+  async function setEnabled({ sessionId, enabled } = {}) {
+    if (typeof enabled !== 'boolean') throw new Error('剧情罗盘开关必须为布尔值')
     const chat = await requirePlayChat(sessionId)
+    if (!enabled) {
+      const active = jobs.get(chat.id)
+      if (active) {
+        active.controller.abort(new Error('玩家已关闭剧情罗盘'))
+        jobs.delete(chat.id)
+      }
+    }
     const saved = await store.updateChat(chat.id, current => {
       requirePlayChatSync(current)
+      current.backgroundTasks = {
+        ...(current.backgroundTasks && typeof current.backgroundTasks === 'object' ? current.backgroundTasks : {}),
+        plotCompass: enabled
+      }
+      if (!enabled && current.plotCompassTask?.status === 'running') {
+        current.plotCompassTask = {
+          status: 'idle',
+          scope: str(current.plotCompassTask.scope) || 'all',
+          error: '',
+          updatedAt: now()
+        }
+      }
+      current.updatedAt = now()
+      return current
+    }, { source: 'plot-compass.toggle-enabled' })
+    onStatus(str(sessionId))
+    return {
+      enabled: isPlotCompassEnabled(saved),
+      plotCompass: readPlotCompass(saved?.plotCompass),
+      plotCompassTask: projectTask(saved)
+    }
+  }
+
+  async function pin({ sessionId, horizon, routeId, exact = false } = {}) {
+    const chat = await requirePlayChat(sessionId)
+    if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启')
+    const saved = await store.updateChat(chat.id, current => {
+      requirePlayChatSync(current)
+      if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
       current.plotCompass = exact
         ? setPlotCompassPin(current.plotCompass, { horizon, routeId, now: now() })
         : applyPlotCompassPin(current.plotCompass, { horizon, routeId, now: now() })
@@ -290,8 +331,10 @@ export function createPlotCompassService({
 
   async function toggleStep({ sessionId, horizon, routeId, stepIndex } = {}) {
     const chat = await requirePlayChat(sessionId)
+    if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启')
     const saved = await store.updateChat(chat.id, current => {
       requirePlayChatSync(current)
+      if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
       current.plotCompass = applyPlotCompassStepToggle(current.plotCompass, { horizon, routeId, stepIndex, now: now() })
       current.updatedAt = now()
       return current
@@ -302,8 +345,10 @@ export function createPlotCompassService({
 
   async function setArchetypes({ sessionId, archetypes } = {}) {
     const chat = await requirePlayChat(sessionId)
+    if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启')
     const saved = await store.updateChat(chat.id, current => {
       requirePlayChatSync(current)
+      if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
       current.plotCompass = applyPlotCompassCustomArchetypes(current.plotCompass, archetypes, { now: now() })
       current.updatedAt = now()
       return current
@@ -320,7 +365,7 @@ export function createPlotCompassService({
   async function autoEvolveAfterCompaction(sessionId) {
     try {
       const chat = await store.chatForSession(str(sessionId))
-      if (!isPlayableChat(chat) || jobs.has(chat.id)) return null
+      if (!isPlayableChat(chat) || !isPlotCompassEnabled(chat) || jobs.has(chat.id)) return null
       const compass = readPlotCompass(chat.plotCompass)
       const hasPinned = Boolean(compass.pinned.shortTerm || compass.pinned.midTerm || compass.pinned.longTerm)
       if (!hasPinned) return null
@@ -339,10 +384,10 @@ export function createPlotCompassService({
   async function hasTrackableSteps(chatOrSlice, explicitTurn, sessionId) {
     if (typeof callModel !== 'function') return false
     let target = chatOrSlice
-    if ((!target || target.plotCompass === undefined) && sessionId) {
+    if ((!target || target.plotCompass === undefined || target.backgroundTasks === undefined) && sessionId) {
       target = await store.chatForSession(str(sessionId))
     }
-    if (!isPlayableChat(target)) return false
+    if (!isPlayableChat(target) || !isPlotCompassEnabled(target)) return false
     const compass = readPlotCompass(target.plotCompass)
     const pending = collectPendingCompassSteps(compass)
     if (pending.length === 0) return false
@@ -359,10 +404,10 @@ export function createPlotCompassService({
     const targetSessionId = str(sessionId || hintChat?.sessionId)
     if (!targetSessionId) return null
     const baseChat = hintChat?.id ? hintChat : await store.chatForSession(targetSessionId)
-    if (!isPlayableChat(baseChat) || progressJobs.has(baseChat.id) || jobs.has(baseChat.id)) return null
+    if (!isPlayableChat(baseChat) || !isPlotCompassEnabled(baseChat) || progressJobs.has(baseChat.id) || jobs.has(baseChat.id)) return null
 
     const freshChat = await store.readChat(baseChat.id)
-    if (!isPlayableChat(freshChat)) return null
+    if (!isPlayableChat(freshChat) || !isPlotCompassEnabled(freshChat)) return null
     const compass = readPlotCompass(freshChat.plotCompass)
     const pending = collectPendingCompassSteps(compass)
     const latestTurn = Math.max(Number(hintTurn) || 0, latestStoryTurnOf(freshChat))
@@ -385,14 +430,19 @@ export function createPlotCompassService({
       const completedKeys = parsePlotCompassProgressResponse(outputText, pending.map(item => item.key))
 
       let outcome = null
+      let stillEnabled = true
       await store.updateChat(freshChat.id, current => {
-        if (!isPlayableChat(current)) return undefined
+        if (!isPlayableChat(current) || !isPlotCompassEnabled(current)) {
+          stillEnabled = false
+          return undefined
+        }
         outcome = applyPlotCompassAutoProgress(current.plotCompass, completedKeys, { turn: latestTurn, now: now() })
         current.plotCompass = outcome.compass
         if (outcome.newlyCompletedCount > 0) current.updatedAt = now()
         return current
       }, { source: 'plot-compass.auto-progress' })
 
+      if (!stillEnabled) return null
       if (outcome?.newlyCompletedCount > 0) {
         onStatus(targetSessionId)
       }
@@ -416,6 +466,7 @@ export function createPlotCompassService({
     projectTask,
     generate,
     cancel,
+    setEnabled,
     pin,
     toggleStep,
     setArchetypes,

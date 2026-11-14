@@ -75,7 +75,7 @@ export function registerModelStreamHooks({
   installCompactionRequestProjection(ctx, ownsSession, async request => {
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
-    const head = await chatHeaderForSession(str(request.sessionId), ['plotCompass'])
+    const head = await chatHeaderForSession(str(request.sessionId), ['plotCompass', 'backgroundTasks'])
     if (!usesStoryCompaction(head)) return { request }
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.

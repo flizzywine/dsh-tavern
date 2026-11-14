@@ -187,6 +187,12 @@ export function createPlayHandlers(deps) {
       })
       return { plotCompass }
     },
+    async setPlotCompassEnabled(args) {
+      return await plotCompassService.setEnabled({
+        sessionId: args?.sessionId,
+        enabled: args?.enabled
+      })
+    },
     async deleteMessages(args) {
       autoChoices.cancel(args && args.sessionId)
       const storyDirect = Array.isArray(args?.items) && args.items.length > 0 && args.items.every(item => Number.isSafeInteger(item?.messageIndex))

@@ -12,7 +12,7 @@ import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
 import { projectCharacterDesignDocument } from './character-design-document.js'
 import { readLedger } from './story-ledger.js'
-import { readPlotCompass } from './plot-compass.js'
+import { isPlotCompassEnabled, readPlotCompass } from './plot-compass.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from './tavern-compatibility-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { forkTurnsByMessageId as forkTargetsFromSession } from './conversation-fork-targets.js'
@@ -233,6 +233,7 @@ export function createSessionViewProjection({
       ledger: readLedger(chat.ledger),
       ledgerTask: projectLedgerTask(chat),
       plotCompass: readPlotCompass(chat.plotCompass),
+      plotCompassEnabled: isPlotCompassEnabled(chat),
       plotCompassTask: projectPlotCompassTask(chat),
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
@@ -472,6 +473,7 @@ export function createSessionViewProjection({
     return { ...fields, ...streamingRegenerationFields(chat), statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
       plotCompass: readPlotCompass(chat.plotCompass),
+      plotCompassEnabled: isPlotCompassEnabled(chat),
       plotCompassTask: projectPlotCompassTask(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }
@@ -517,6 +519,7 @@ export function createSessionViewProjection({
       ledger: readLedger(chat.ledger),
       ledgerTask: projectLedgerTask(chat),
       plotCompass: readPlotCompass(chat.plotCompass),
+      plotCompassEnabled: isPlotCompassEnabled(chat),
       plotCompassTask: projectPlotCompassTask(chat),
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),

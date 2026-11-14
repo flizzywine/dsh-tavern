@@ -44,7 +44,7 @@ function PlotCompassDockButton(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
     const view = props.view;
-    if (!sessionId || !view || !isPlayMode(view.mode)) return null;
+    if (!sessionId || !view || !isPlayMode(view.mode) || view.plotCompassEnabled === false) return null;
     const compass = view.plotCompass;
     const task = view.plotCompassTask || {};
     const isRunning = task.status === "running";
@@ -112,6 +112,7 @@ function TavernPlotCompassTab(props) {
         shortTerm: [], midTerm: [], longTerm: [],
         pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], basedOnTurn: 0
     };
+    const compassEnabled = !(view && view.plotCompassEnabled === false);
     const task = (view && view.plotCompassTask) || { status: "idle", scope: "all", error: "" };
     const isRunning = task.status === "running";
     const active = activeCompassSummaryOf(compass);
@@ -122,6 +123,22 @@ function TavernPlotCompassTab(props) {
         setLocalNotice("");
         setEditingArchetypes(false);
     }, [sessionId]);
+
+    async function toggleEnabled(nextEnabled) {
+        if (!sessionId || busyAction) return;
+        setBusyAction("toggleEnabled");
+        setLocalError("");
+        setLocalNotice("");
+        try {
+            await rpc("setPlotCompassEnabled", { enabled: Boolean(nextEnabled) }, sessionId);
+            liveTavernView.invalidate(sessionId);
+            setLocalNotice(nextEnabled ? "已开启剧情罗盘。" : "已关闭剧情罗盘，本局将不再注入提示词或自动演进，已有路线已保留。");
+        } catch (err) {
+            setLocalError(String(err && err.message || err));
+        } finally {
+            setBusyAction("");
+        }
+    }
 
     async function runGenerate(scope, customGuidance) {
         if (!sessionId || isRunning || busyAction) return;
@@ -399,13 +416,38 @@ function TavernPlotCompassTab(props) {
         h("div", { className: "dsh-tavern-status-head" },
             h("div", { className: "dsh-tavern-status-title" }, "剧情罗盘"),
             h("div", { className: "dsh-tavern-compass-head-actions" },
-                compass.basedOnTurn > 0 ? h("span", { className: "dsh-tavern-compass-turn-badge" }, "第 " + compass.basedOnTurn + " 轮") : null,
-                isRunning
-                    ? h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busyAction === "cancel", onClick: cancelGenerate }, "取消推演")
-                    : h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: Boolean(busyAction), onClick: function () { runGenerate("all"); } }, hasAnyRoutes ? "全局演进刷新" : "✦ 推演多路线")
+                compassEnabled && compass.basedOnTurn > 0 ? h("span", { className: "dsh-tavern-compass-turn-badge" }, "第 " + compass.basedOnTurn + " 轮") : null,
+                h("div", { className: "dsh-tavern-compass-switch-wrap", title: compassEnabled ? "关闭本局剧情罗盘" : "开启本局剧情罗盘" },
+                    h("span", { className: "dsh-tavern-compass-switch-text" }, compassEnabled ? "已开启" : "已关闭"),
+                    h(Switch, { label: "剧情罗盘", checked: compassEnabled, disabled: Boolean(busyAction), onChange: toggleEnabled })
+                ),
+                compassEnabled ? (
+                    isRunning
+                        ? h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busyAction === "cancel", onClick: cancelGenerate }, "取消推演")
+                        : h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: Boolean(busyAction), onClick: function () { runGenerate("all"); } }, hasAnyRoutes ? "全局演进刷新" : "✦ 推演多路线")
+                ) : null
             )
         ),
-        h("div", { className: "dsh-tavern-status-body dsh-tavern-compass-body" },
+        !compassEnabled
+            ? h("div", { className: "dsh-tavern-status-body dsh-tavern-compass-body" },
+                localError ? h("div", { className: "dsh-tavern-compass-alert is-error" }, localError) : null,
+                localNotice ? h("div", { className: "dsh-tavern-compass-alert is-notice" }, localNotice) : null,
+                h("div", { className: "dsh-tavern-compass-disabled-card" },
+                    h("strong", null, "剧情罗盘已关闭"),
+                    h("p", { className: "dsh-tavern-settings-desc" },
+                        hasAnyRoutes
+                            ? "当前对局已关闭剧情罗盘，后台推演/自动演进与提示词软引导已暂停，已生成的路线数据会为您安全保留，重新开启后可立即恢复使用。"
+                            : "开启后，剧情罗盘会结合人设、剧情与世界书为您推演今期/中期/长期多路线分支方向，并支持点亮软引导与一键分叉试玩。"
+                    ),
+                    h("button", {
+                        type: "button",
+                        className: "dsh-tavern-btn primary",
+                        disabled: Boolean(busyAction),
+                        onClick: function () { toggleEnabled(true); }
+                    }, busyAction === "toggleEnabled" ? "正在开启..." : "开启剧情罗盘")
+                )
+            )
+            : h("div", { className: "dsh-tavern-status-body dsh-tavern-compass-body" },
             h("section", { className: "dsh-tavern-compass-top" },
                 h("div", { className: "dsh-tavern-compass-archetypes-row" },
                     h("span", { className: "dsh-tavern-compass-label" }, "游玩类型："),

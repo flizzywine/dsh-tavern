@@ -191,7 +191,7 @@ export function createSettlementRun(deps) {
     const { chatPersistence, storyEvents } = deps
     let latest, turn
     try {
-      const head = await chatPersistence.readSlice(chatId, [], ['_storageRevision', 'sessionId', 'cardName', 'mode', 'plotCompass'])
+      const head = await chatPersistence.readSlice(chatId, [], ['_storageRevision', 'sessionId', 'cardName', 'mode', 'plotCompass', 'backgroundTasks'])
       latest = head?.chat
       // The turn just settled, so what follows 本轮结算完 (needs, outputs) knows which turn it is.
       if (Number.isSafeInteger(head?.messageCount) && head.messageCount > 0) {

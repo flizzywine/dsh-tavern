@@ -12,8 +12,11 @@ import {
   applyPlotCompassStepToggle,
   buildPlotCompassMaterial,
   extractDormantWorldbookHooks,
+  isPlotCompassEnabled,
   mergePlotCompassUpdate,
   parsePlotCompassSubmission,
+  plotCompassBodySection,
+  plotCompassCandidateSection,
   plotCompassCompactionNote,
   readPlotCompass
 } from '../tavern-plugin/lib/domain/plot-compass.js'
@@ -383,6 +386,7 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
   const parsed = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat: { mode: 'story' } })
   let currentCompass = mergePlotCompassUpdate(null, parsed, { scope: 'all', turn: 2, now: 1000 })
   let currentTask = { status: 'done', scope: 'all', error: '' }
+  let compassEnabled = true
 
   await page.route('http://tavern.test/**', async route => {
     const url = route.request().url()
@@ -395,6 +399,13 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
     const method = new URL(url).pathname.split('/').at(-1)
     const args = route.request().postDataJSON() || {}
     calls.push({ method, args })
+    if (method === 'setPlotCompassEnabled') {
+      compassEnabled = args.enabled !== false
+      if (!compassEnabled && currentTask.status === 'running') {
+        currentTask = { status: 'idle', scope: 'all', error: '' }
+      }
+      return route.fulfill({ json: { ok: true, enabled: compassEnabled, backgroundTasks: { plotCompass: compassEnabled }, plotCompass: currentCompass, plotCompassTask: currentTask } })
+    }
     if (method === 'pinPlotCompassRoute') {
       currentCompass = applyPlotCompassPin(currentCompass, { horizon: args.horizon, routeId: args.routeId })
       return route.fulfill({ json: { ok: true, plotCompass: currentCompass } })
@@ -419,6 +430,7 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
           latestAssistantMessageId: 'reply-2',
           activity: { busy: false },
           plotCompass: currentCompass,
+          plotCompassEnabled: compassEnabled,
           plotCompassTask: currentTask,
           tavernHelper: { messages: [] }
         }
@@ -509,6 +521,17 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
   await page.getByText('诏狱内外的影子同盟').waitFor()
   await page.getByRole('tab', { name: /长期/ }).click()
   await page.getByText('携手掀翻棋盘共掌新局').waitFor()
+
+  // 5. 关闭剧情罗盘：触发 setPlotCompassEnabled(false)，隐藏底部 dock 按钮并保留路线提示，随后可一键重新开启
+  await page.locator('#compass-tab .dsh-tavern-settings-switch').click()
+  await page.locator('.dsh-tavern-compass-disabled-card').waitFor()
+  assert.ok(calls.some(c => c.method === 'setPlotCompassEnabled' && c.args.enabled === false))
+  assert.equal(await page.locator('.dsh-tavern-compass-dock-btn').count(), 0)
+
+  await page.getByRole('button', { name: '开启剧情罗盘' }).click()
+  await page.getByText('半真半假亮出密信残页').waitFor()
+  assert.ok(calls.some(c => c.method === 'setPlotCompassEnabled' && c.args.enabled === true))
+  await page.locator('.dsh-tavern-compass-dock-btn').waitFor()
   assert.deepEqual(errors, [])
 })
 
@@ -663,6 +686,111 @@ test('回合结算后自动勾选节拍，且点亮的今期路线节拍全部�
   const evolved = readPlotCompass(chat.plotCompass)
   assert.equal(evolved.shortTerm[0].title, '查验铜钟内壁密诏')
   assert.equal(evolved.midTerm.find(r => r.id === 'mt-alliance').milestones[0].done, true, '同步勾选的中期里程碑在今期单层续推后完好保留')
+})
+
+test('剧情罗盘关闭后停止一切注入与自动演进，并保留原有路线供重新开启恢复', async () => {
+  const initialParsed = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat: { mode: 'story' } })
+  const seededCompass = applyPlotCompassPin(
+    mergePlotCompassUpdate(null, initialParsed, { scope: 'all', turn: 2, now: 1000 }),
+    { horizon: 'shortTerm', routeId: 'st-bell', now: 1000 }
+  )
+  let chat = {
+    id: 'chat-toggle',
+    sessionId: 'sess-toggle',
+    mode: 'story',
+    cardPath: 'cards/shen.json',
+    cardName: '沈清弦',
+    plotCompass: seededCompass,
+    plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+    messages: [
+      { role: 'user', turn: 2, text: '测试' },
+      { role: 'assistant', turn: 2, text: '回应' }
+    ]
+  }
+
+  assert.equal(isPlotCompassEnabled(chat), true)
+  assert.ok(plotCompassBodySection(chat))
+  assert.ok(plotCompassCandidateSection(chat))
+  assert.ok(plotCompassCompactionNote(chat))
+
+  let aborted = false
+  let modelCalls = 0
+  let releaseGenerate
+  let markAgentStarted
+  const agentStarted = new Promise(resolve => { markAgentStarted = resolve })
+  const gate = new Promise(resolve => { releaseGenerate = resolve })
+  const statusEvents = []
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(chat),
+      readChat: async () => structuredClone(chat),
+      updateChat: async (_id, mutator) => {
+        const next = await mutator(structuredClone(chat))
+        if (next) chat = next
+        return structuredClone(chat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'mock', model: 'mock-bg' }),
+    callModel: async () => { modelCalls++; return '{}' },
+    runAgent: async input => {
+      markAgentStarted()
+      if (input.signal) {
+        if (input.signal.aborted) {
+          aborted = true
+          releaseGenerate()
+        } else {
+          input.signal.addEventListener('abort', () => {
+            aborted = true
+            releaseGenerate()
+          }, { once: true })
+        }
+      }
+      await gate
+      return { text: '', traceSessionId: 'trace-aborted' }
+    },
+    onStatus: (sid, patch) => statusEvents.push({ sid, patch })
+  })
+
+  // 启动一次推演后再立即关闭开关：进行中的后台任务应被中止且任务态归位 idle，原有路线数据保留
+  const started = await service.generate({ sessionId: 'sess-toggle', scope: 'all' })
+  assert.equal(started.status, 'running')
+  await agentStarted
+  const offRes = await service.setEnabled({ sessionId: 'sess-toggle', enabled: false })
+  assert.equal(offRes.enabled, false)
+  assert.equal(chat.backgroundTasks.plotCompass, false)
+  assert.equal(aborted, true, '关闭剧情罗盘时应中止进行中的推演任务')
+  assert.equal(chat.plotCompassTask.status, 'idle')
+  assert.equal(isPlotCompassEnabled(chat), false)
+  assert.equal(readPlotCompass(chat.plotCompass).pinned.shortTerm, 'st-bell', '关闭开关不应删除已保存路线与锚点')
+
+  // 关闭期间零提示词注入、零紧凑归档提示、零自动演进、拒绝手动操控
+  assert.equal(plotCompassBodySection(chat), null)
+  assert.equal(plotCompassCandidateSection(chat), null)
+  assert.equal(plotCompassCompactionNote(chat), '')
+  assert.equal(await service.hasTrackableSteps(chat, 2, 'sess-toggle'), false)
+  const syncOff = await service.syncTurnProgress({ sessionId: 'sess-toggle', chat, turn: 2 })
+  assert.equal(syncOff, null)
+  const compactOff = await service.autoEvolveAfterCompaction('sess-toggle')
+  assert.equal(compactOff, null)
+  assert.equal(modelCalls, 0)
+  await assert.rejects(() => service.generate({ sessionId: 'sess-toggle', scope: 'all' }), /已关闭/)
+  await assert.rejects(() => service.pin({ sessionId: 'sess-toggle', horizon: 'shortTerm', routeId: 'st-bell' }), /已关闭/)
+  await assert.rejects(() => service.toggleStep({ sessionId: 'sess-toggle', horizon: 'shortTerm', routeId: 'st-bell', stepIndex: 0 }), /已关闭/)
+  await assert.rejects(() => service.setArchetypes({ sessionId: 'sess-toggle', archetypes: ['悬疑'] }), /已关闭/)
+
+  // 重新开启后完整恢复原有路线与提示词注入能力
+  const onRes = await service.setEnabled({ sessionId: 'sess-toggle', enabled: true })
+  assert.equal(onRes.enabled, true)
+  assert.equal(isPlotCompassEnabled(chat), true)
+  assert.equal(readPlotCompass(chat.plotCompass).pinned.shortTerm, 'st-bell')
+  assert.ok(plotCompassBodySection(chat))
+  assert.ok(plotCompassCandidateSection(chat))
+  assert.ok(statusEvents.length >= 2)
 })
 
 

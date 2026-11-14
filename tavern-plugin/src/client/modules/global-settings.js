@@ -49,6 +49,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
             h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
+                toggle("plotCompass", "剧情罗盘", "推演短期、中期、长期多路线剧情发展灵感，并在点亮路线后软引导正文与候选项。", true),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
                 toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),

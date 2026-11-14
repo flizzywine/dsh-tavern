@@ -87,7 +87,11 @@ export function createSettingsHandlers(deps) {
       return conversationBackgroundSettings.read(args?.sessionId)
     },
     async setConversationBackgroundModel(args) {
-      return conversationBackgroundSettings.save(args)
+      const result = await conversationBackgroundSettings.save(args)
+      if (args?.backgroundTasks?.plotCompass === false && deps.plotCompassService) {
+        await deps.plotCompassService.cancel({ sessionId: args?.sessionId }).catch(() => {})
+      }
+      return result
     },
     async getBackgroundModelReasoning(args) {
       return { reasoning: await readBackgroundModelReasoning(llm, args) }
@@ -235,7 +239,7 @@ export function createSettingsHandlers(deps) {
       const patch = {
         defaultPlaySettings: {
           playerName,
-          backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true },
+          backgroundTasks: { posture: tasks.posture !== false, plotCompass: tasks.plotCompass !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true },
           webSearchEnabled: chat.webSearchEnabled === true
         },
         defaultDisabledForegroundTools: disabledForegroundTools,

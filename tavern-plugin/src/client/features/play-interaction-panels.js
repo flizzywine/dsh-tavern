@@ -26,7 +26,8 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const running = props.useSession(function (snapshot) { return snapshot.running; });
         const latestMessageId = props.useChat(latestTavernAssistantMessageId);
         const liveState = typeof useLiveTavernView === "function" ? useLiveTavernView(props.sessionId) : null;
-        const compass = liveState && liveState.view && liveState.view.plotCompass;
+        const compassEnabled = !(liveState && liveState.view && liveState.view.plotCompassEnabled === false);
+        const compass = compassEnabled && liveState && liveState.view ? liveState.view.plotCompass : null;
         const pinnedShortRoute = compass && compass.pinned && compass.pinned.shortTerm && Array.isArray(compass.shortTerm)
             ? compass.shortTerm.find(function (r) { return r && r.id === compass.pinned.shortTerm; }) || null
             : null;

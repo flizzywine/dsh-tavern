@@ -61,7 +61,7 @@ function StatusPanelView(p) {
             h("nav", { className: "dsh-tavern-status-resource-links", "aria-label": "本局资料" },
                 h("button", { type: "button", disabled: !view.card.path, onClick: () => p.props.openStyleTab("dsh-tavern:cards", { cardPath: view.card.path }) }, "打开人物卡 ↗"),
                 h("button", { type: "button", disabled: !view.card.path || p.resourceLinkBusy || !p.currentResourceBinding || p.noWorldBook || p.unavailableWorldBook, onClick: p.openWorldBookDetail }, "打开世界书 ↗"),
-                h("button", { type: "button", onClick: () => p.props.openStyleTab("dsh-tavern:plot-compass") }, "剧情罗盘 ↗")),
+                h("button", { type: "button", onClick: () => p.props.openStyleTab("dsh-tavern:plot-compass") }, view.plotCompassEnabled === false ? "剧情罗盘（已关闭） ↗" : "剧情罗盘 ↗")),
             p.resourceLinkError ? h("p", { role: "status" }, p.resourceLinkError) : null,
             update ? h("div", { className: "fork-status-alert", "data-kind": update.kind },
                 h("span", { title: "保留剧情和数值，替换本局人物卡与世界书" }, update.text),

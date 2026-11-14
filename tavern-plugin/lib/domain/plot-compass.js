@@ -529,12 +529,16 @@ export function extractDormantWorldbookHooks(entries = [], chat = {}, { limit = 
   return candidates.slice(0, Math.max(1, limit))
 }
 
+export function isPlotCompassEnabled(chat) {
+  return chat?.backgroundTasks?.plotCompass !== false
+}
+
 /**
  * Soft-guidance section for foreground story body (`purpose === 'body'`).
- * Zero injection when nothing is pinned. Strictly hides long-term ending spoilers!
+ * Zero injection when disabled or nothing is pinned. Strictly hides long-term ending spoilers!
  */
 export function plotCompassBodySection(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story')) return null
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
   const { shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
   if (!shortTerm && !midTerm && !longTerm) return null
 
@@ -566,7 +570,7 @@ export function plotCompassBodySection(chat) {
  * Feeds short-term route beats & diverse entry hooks so next-turn choices span real arcs and carry `routeTag` badges!
  */
 export function plotCompassCandidateSection(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story')) return null
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
   const { compass, shortTerm: pinnedShort, midTerm: pinnedMid } = activePlotCompassRoutes(chat.plotCompass)
   if (compass.shortTerm.length === 0 && !pinnedMid) return null
 
@@ -602,7 +606,7 @@ export function plotCompassCandidateSection(chat) {
  * Compaction preservation note so volume summaries never drop clues tied to active mid/long-term arcs.
  */
 export function plotCompassCompactionNote(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story')) return ''
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return ''
   const { shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
   if (!shortTerm && !midTerm && !longTerm) return ''
   const items = []

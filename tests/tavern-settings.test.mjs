@@ -116,7 +116,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
       cardContextSnapshot: '[偏好正文]\n\n[人物卡正文]',
       cardContextRevision: 1,
       backgroundModelSelection: { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' },
-      backgroundTasks: { variables: true, posture: false, styleReference: false, foregroundCandidates: true },
+      backgroundTasks: { variables: true, posture: false, plotCompass: false, styleReference: false, foregroundCandidates: true },
       webSearchEnabled: true,
       storyGenerationMode: 'plugin-direct',
       storyGenerationProvider: 'gen:one',
@@ -236,6 +236,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   const savedSettings = await readTavernSettings()
   assert.equal(savedSettings.defaultPlaySettings.playerName, '旅人')
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.posture, false)
+  assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.plotCompass, false)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.styleReference, false)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.foregroundCandidates, true)
   assert.equal(savedSettings.defaultPlaySettings.webSearchEnabled, true)
@@ -255,6 +256,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(restored.userProfileId, 'p1')
   assert.deepEqual(restored.backgroundModelSelection, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.equal(restored.backgroundTasks.posture, false)
+  assert.equal(restored.backgroundTasks.plotCompass, false)
   assert.equal(restored.backgroundTasks.styleReference, false)
   assert.equal(restored.backgroundTasks.foregroundCandidates, true)
   assert.equal(restored.webSearchEnabled, true)
@@ -296,6 +298,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(publishedChat.runtimePresetPath, 'presets/reborn.json')
   assert.deepEqual(publishedChat.backgroundModelSelection, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.equal(publishedChat.backgroundTasks.posture, false)
+  assert.equal(publishedChat.backgroundTasks.plotCompass, false)
   assert.equal(publishedChat.backgroundTasks.styleReference, false)
   assert.equal(publishedChat.backgroundTasks.foregroundCandidates, true)
   assert.equal(publishedChat.webSearchEnabled, true)
