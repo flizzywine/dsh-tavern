@@ -132,3 +132,40 @@ test('ui-chat 工具流式补丁：兼容 0.2.1 与 2.0.22 两种宿主源码形
     assert.ok(realRes.status === 'applied' || realRes.status === 'patched')
   } catch {}
 })
+
+test('ui-chat 工具流式补丁：0.2.2-rc.2+ 压缩形状（反引号、无空白、省分号）同样命中并实时投影', () => {
+  // 按 0.2.2-rc.3 真实 bundle 的形状复刻：反引号字符串、无空白、省略分号、
+  // 箭头参数不带括号、case 后直接 break}。
+  const fixtureRc3 = `
+    function emptyAssistantBlock(blockType){return{kind:blockType,text:\`\`}}
+    function toAssistantBlock(block){return block}
+    function isTokenDelta(chunk){switch(chunk.type){case\`text-delta\`:case\`reasoning-delta\`:return chunk.text!==\`\`;case\`tool-call-delta\`:return chunk.argumentsDelta!==\`\`||chunk.name!==void 0;default:return false}}
+    function initialState(turn,step){return{turn,step,blocks:[],visibleByIndex:[],visibleBlocks:0,firstVisibleSeq:void 0,firstVisibleTime:void 0,firstTokenTime:void 0,final:void 0,usage:void 0}}
+    function compactBlocks(blocks){return blocks.filter(block=>block!==void 0)}
+    function blockIsVisible(block){if(block===void 0||block.kind===\`tool-call\`)return false;if(block.kind===\`text\`||block.kind===\`reasoning\`)return block.text.trim()!==\`\`;return true}
+    function updateChunk(state,chunk,seq,time){if(chunk.type===\`tool-call-delta\`){const previous=state.blocks[chunk.index];if(previous?.kind===\`tool-call\`&&previous.callId!==\`\`&&(chunk.name===void 0||chunk.name===previous.name)&&(state.firstTokenTime!==void 0||!isTokenDelta(chunk)))return state}const blocks=[...state.blocks];let changedIndex=-1;let previousVisible=false;let nextVisible=false;switch(chunk.type){case\`block-start\`:changedIndex=chunk.index;previousVisible=state.visibleByIndex[chunk.index]===true;blocks[chunk.index]=emptyAssistantBlock(chunk.blockType);nextVisible=blockIsVisible(blocks[chunk.index]);break;case\`text-delta\`:{const previous=blocks[chunk.index];changedIndex=chunk.index;previousVisible=state.visibleByIndex[chunk.index]===true;blocks[chunk.index]={kind:\`text\`,text:(previous?.kind===\`text\`?previous.text:\`\`)+chunk.text};nextVisible=previous?.kind===\`text\`&&previousVisible||chunk.text.trim()!==\`\`;break}case\`tool-call-delta\`:{const previous=blocks[chunk.index];changedIndex=chunk.index;previousVisible=state.visibleByIndex[chunk.index]===true;blocks[chunk.index]={kind:\`tool-call\`,callId:(previous?.kind===\`tool-call\`?previous.callId:\`\`)||String(chunk.id),name:chunk.name??(previous?.kind===\`tool-call\`?previous.name:\`\`),argsRaw:previous?.kind===\`tool-call\`?previous.argsRaw:\`\`};break}case\`block-end\`:changedIndex=chunk.index;previousVisible=state.visibleByIndex[chunk.index]===true;blocks[chunk.index]=toAssistantBlock(chunk.block);nextVisible=blockIsVisible(blocks[chunk.index]);break;default:return state}const visibleBlocks=state.visibleBlocks-Number(previousVisible)+Number(nextVisible);let visibleByIndex=state.visibleByIndex;if(previousVisible!==nextVisible){const next=[...visibleByIndex];next[changedIndex]=nextVisible;visibleByIndex=next}return{...state,blocks,visibleByIndex,visibleBlocks,...(state.firstTokenTime===void 0?{firstTokenTime:time}:{})}}
+    return { initialState, updateChunk, compactBlocks };
+  `
+
+  const res = patchToolReplyStreamChatSource(fixtureRc3)
+  assert.equal(res.status, 'applied')
+  assert.equal(patchToolReplyStreamChatSource(res.text).status, 'patched')
+
+  const runtime = new Function(res.text)()
+  let state = runtime.initialState(1, 1)
+  state = runtime.updateChunk(state, { type: 'text-delta', index: 0, text: '好的，我来调用工具：' }, 1, 100)
+  state = runtime.updateChunk(state, { type: 'tool-call-delta', index: 1, id: 'call_1', name: 'submit_story', argumentsDelta: '{"think":"分析局势' }, 2, 110)
+  state = runtime.updateChunk(state, { type: 'tool-call-delta', index: 1, id: 'call_1', argumentsDelta: '完毕","content":"推开木门，风雪扑面而来。"}' }, 3, 120)
+
+  assert.ok(state.visibleBlocks >= 1)
+  assert.deepEqual(runtime.compactBlocks(state.blocks), [
+    { kind: 'reasoning', text: '分析局势完毕' },
+    { kind: 'text', text: '推开木门，风雪扑面而来。' }
+  ])
+
+  // 非 submit_story 工具在首个 token 之后仍被早退抑制，不产生流式预览
+  let other = runtime.initialState(1, 1)
+  other = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', name: 'worldbook_grep', argumentsDelta: '{"query":"x"}' }, 1, 100)
+  const suppressed = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', argumentsDelta: 'more' }, 2, 110)
+  assert.equal(suppressed, other)
+})
