@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { isAsarPath } from './desktop-host-paths.mjs'
-import { patchPiAiVertexStream } from './pi-ai-vertex-stream-patch.mjs'
+import { patchPiAiVertexStream, resolveVertexProject } from './pi-ai-vertex-stream-patch.mjs'
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
@@ -307,6 +307,20 @@ export async function stopService() {
 }
 
 /**
+ * The active profile's patch list, which is where a configured Vertex route spells out
+ * `.../projects/<project>/locations/<location>`. Kept as text: only the project is read
+ * from it, and a profile that cannot be read simply leaves the catalog on its template.
+ * @returns the profile text, or an empty string when it is unreadable.
+ */
+function readProfileText() {
+  try {
+    return readFileSync(path.join(PROFILE_DIR, 'cordis.patch.yml'), 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Re-apply the runtime patches this install expects but cannot prove are current.
  * A runtime tree installed before a patch existed keeps its old bytes: the install path
  * only writes them on the install that introduced them. Re-applying on every start makes
@@ -322,7 +336,19 @@ function ensureRuntimePatches(dsh, host) {
       const sdkDirectory = path.resolve(path.dirname(realpathSync(cliEntry)), '..', '..', '..', '@earendil-works', 'pi-ai')
       const adapterDirectory = path.resolve(path.dirname(sdkDirectory), '..', 'dsh-llm-pi-ai')
       if (existsSync(path.join(sdkDirectory, 'package.json'))) {
-        if (patchPiAiVertexStream({ sdkDirectory })) console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
+        // Vertex's global endpoint is a resource path, so the model catalog can only name
+        // `locations/global` once it knows the project. The profile's own Vertex route names
+        // it; without one the catalog keeps pi-ai's `{location}` template and Express mode
+        // resolves a region from the API key, which 404s every global-only Gemini.
+        const vertexProject = resolveVertexProject({ profileText: readProfileText() })
+        if (patchPiAiVertexStream({ sdkDirectory, project: vertexProject })) {
+          console.log(vertexProject === null
+            ? '已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。'
+            : `已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录（global 端点，project ${vertexProject}）。`)
+        }
+        if (vertexProject === null) {
+          console.log('pi-ai Vertex 目录未写入 global 端点：配置里没有可读的 project。Gemini 3/4 只在 locations/global 上线，请把 google-vertex 的 baseURL 设为 https://aiplatform.googleapis.com/v1/projects/<project>/locations/global，或设置 GOOGLE_CLOUD_PROJECT。')
+        }
         // The adapter must pass the caller's toolChoice through: without it a forge-style
         // request reaches Vertex as `auto`, and Vertex then returns one whole argument
         // object instead of a streamed argument list.

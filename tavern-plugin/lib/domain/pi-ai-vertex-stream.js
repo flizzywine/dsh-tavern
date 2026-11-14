@@ -47,13 +47,46 @@ const THINKING_LEVEL_IMAGE_LITE = {
   max: null,
 }
 
+// Vertex 只有两套端点形态，pi-ai 的 `{location}` 模板只覆盖其中一半：
+//   · 区域模型（gemini-2.5-*）在 https://<region>-aiplatform.googleapis.com 上；
+//   · Gemini 3/4 只在 global 上线，而 global 没有 `global-aiplatform` 这个 host，
+//     必须写成 https://aiplatform.googleapis.com/v1/projects/<project>/locations/global。
+// `{location}` 模板留给 pi-ai 自己解析（resolveCustomBaseUrl 见到模板就不再前置
+// project/location），落到 SDK 的 Express 形态 `v1/publishers/google/models/<id>`；
+// 这条路径由 API key 绑定的区域决定（这台机器上是 asia-southeast1），对 global 模型
+// 一律 404。因此只要知道 project，就把 global 段写成显式 collection URL。
+export const VERTEX_GLOBAL_LOCATION = 'global'
+export const VERTEX_TEMPLATE_BASE_URL = 'https://{location}-aiplatform.googleapis.com'
+const VERTEX_GLOBAL_ONLY_MODEL = /^gemini-(?:[3-9]|[1-9]\d)/
+
+/** A project id or project number as Vertex accepts it in a resource name. */
+export function normalizeVertexProject(value) {
+  const project = typeof value === 'string' ? value.trim() : ''
+  if (!project || !/^[A-Za-z0-9][A-Za-z0-9.:-]*$/.test(project)) return null
+  return project
+}
+
+/** The project named by a `.../projects/<project>/locations/<location>` URL, or null. */
+export function vertexProjectFromBaseUrl(baseUrl) {
+  if (typeof baseUrl !== 'string') return null
+  const match = baseUrl.match(/\/projects\/([A-Za-z0-9.:-]+)\/locations\/[A-Za-z0-9-]+/)
+  return match ? normalizeVertexProject(match[1]) : null
+}
+
+/** The global collection endpoint for one project; Vertex Gemini 3/4 live only here. */
+export function vertexGlobalBaseUrl(project) {
+  const id = normalizeVertexProject(project)
+  if (!id) return null
+  return `https://aiplatform.googleapis.com/v1/projects/${id}/locations/${VERTEX_GLOBAL_LOCATION}`
+}
+
 function vertexModel(id, name, cost, options = {}) {
   return {
     id,
     name,
     api: 'google-vertex',
     provider: 'google-vertex',
-    baseUrl: 'https://{location}-aiplatform.googleapis.com',
+    baseUrl: options.baseUrl ?? VERTEX_TEMPLATE_BASE_URL,
     reasoning: true,
     input: ['text', 'image'],
     cost: { input: cost.input, output: cost.output, cacheRead: cost.cacheRead, cacheWrite: 0 },
@@ -83,6 +116,23 @@ export const LATEST_GOOGLE_VERTEX_MODELS = Object.freeze({
   'chat:gemini-4-carbon': vertexModel('gemini-4-carbon', 'Gemini 4 Carbon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
   'chat:gemini-4-hydrogen': vertexModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen', { input: 1.5, output: 7.5, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
 })
+
+/**
+ * The same catalog with the global-only models pointed at the project's global
+ * collection endpoint. Without a project there is no way to address `locations/global`
+ * — Express mode resolves a region from the API key — so the template stays as is and
+ * the caller keeps whatever configuration it already has.
+ * @param project - project id or number carried by the profile's Vertex route.
+ */
+export function vertexModelsWithGlobalBaseUrl(project) {
+  const baseUrl = vertexGlobalBaseUrl(project)
+  if (baseUrl === null) return LATEST_GOOGLE_VERTEX_MODELS
+  const models = {}
+  for (const [key, model] of Object.entries(LATEST_GOOGLE_VERTEX_MODELS)) {
+    models[key] = VERTEX_GLOBAL_ONLY_MODEL.test(model.id) ? { ...model, baseUrl } : model
+  }
+  return Object.freeze(models)
+}
 
 // Self-contained so patchPiAiGoogleVertexSource can serialize it into pi-ai's dist/api/google-vertex.js.
 export function supportsVertexStreamFunctionCallArguments(modelId) {
@@ -528,7 +578,7 @@ export function patchPiAiGoogleSharedSource(source) {
   return { status: 'applied', text: patched }
 }
 
-export function patchPiAiGoogleVertexModelsJson(source) {
+export function patchPiAiGoogleVertexModelsJson(source, options = {}) {
   let parsed
   try {
     parsed = JSON.parse(String(source))
@@ -538,10 +588,11 @@ export function patchPiAiGoogleVertexModelsJson(source) {
   if (!parsed || typeof parsed !== 'object' || !parsed['google-vertex'] || typeof parsed['google-vertex'] !== 'object') {
     return { status: 'unmatched', text: String(source) }
   }
+  const models = vertexModelsWithGlobalBaseUrl(options.project)
   const existing = parsed['google-vertex']
   let changed = false
   const next = { ...existing }
-  for (const [key, model] of Object.entries(LATEST_GOOGLE_VERTEX_MODELS)) {
+  for (const [key, model] of Object.entries(models)) {
     if (!existing[key] || !isDeepStrictEqual(existing[key], model)) {
       next[key] = structuredClone(model)
       changed = true

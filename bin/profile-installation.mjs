@@ -21,7 +21,7 @@ import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
-import { patchPiAiVertexStream } from './pi-ai-vertex-stream-patch.mjs'
+import { patchPiAiVertexStream, resolveVertexProject } from './pi-ai-vertex-stream-patch.mjs'
 import { patchWebViewportMeta } from './web-viewport-patch.mjs'
 import { installPluginDependencies, resolveHostAnchor, resolveHostDependencies } from './plugin-dependencies.mjs'
 import { installBundledSceneImagePlugin } from './bundled-scene-image-plugin.mjs'
@@ -465,9 +465,21 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         else if (patched) console.log('已为 pi-ai 的 OpenAI 兼容模型启用上游非流式请求。')
       }
       if (piAi && !isAsarPath(piAi.sdkDirectory)) {
-        const vertexPatched = patchPiAiVertexStream({ sdkDirectory: piAi.sdkDirectory })
+        // Gemini 3/4 answer only at `locations/global`, a resource path: the catalog can
+        // carry it only with the project the profile's Vertex route already names.
+        let profileText = ''
+        try {
+          profileText = readFileSync(path.join(PROFILE_DIR, 'cordis.patch.yml'), 'utf8')
+        } catch {}
+        const vertexProject = resolveVertexProject({ profileText })
+        const vertexPatched = patchPiAiVertexStream({ sdkDirectory: piAi.sdkDirectory, project: vertexProject })
         if (vertexPatched === null) console.log('当前 DSH 的 pi-ai Vertex 适配器与流式工具调用补丁不符，已跳过。')
-        else if (vertexPatched) console.log('已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。')
+        else if (vertexPatched) console.log(vertexProject === null
+          ? '已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录。'
+          : `已为 pi-ai Vertex 渠道启用工具调用流式参数与最新 Gemini 模型目录（global 端点，project ${vertexProject}）。`)
+        if (vertexPatched !== null && vertexProject === null) {
+          console.log('pi-ai Vertex 目录未写入 global 端点：配置里没有可读的 project。Gemini 3/4 只在 locations/global 上线，请把 google-vertex 的 baseURL 设为 https://aiplatform.googleapis.com/v1/projects/<project>/locations/global，或设置 GOOGLE_CLOUD_PROJECT。')
+        }
       }
       if (bridge) {
         // The ordinary installer publishes the bridge reversibly before validation.

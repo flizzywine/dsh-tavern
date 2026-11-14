@@ -6,14 +6,18 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   LATEST_GOOGLE_VERTEX_MODELS,
+  VERTEX_TEMPLATE_BASE_URL,
   createVertexToolCallStreamer,
   patchPiAiGoogleSharedSource,
   patchPiAiGoogleVertexModelsJson,
   patchPiAiGoogleVertexSource,
   supportsVertexStreamFunctionCallArguments,
+  vertexGlobalBaseUrl,
+  vertexModelsWithGlobalBaseUrl,
+  vertexProjectFromBaseUrl,
 } from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
 import { createToolReplyStreamTracker } from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
-import { patchPiAiVertexStream } from '../bin/pi-ai-vertex-stream-patch.mjs'
+import { patchPiAiVertexStream, resolveVertexProject } from '../bin/pi-ai-vertex-stream-patch.mjs'
 
 function makeStreamFixture() {
   const events = []
@@ -446,4 +450,36 @@ function buildParams(model, context, options = {}) {
     reordered[k] = thinkingLevelMap ? { id: rest.id, thinkingLevelMap, ...rest } : v
   }
   assert.equal(patchPiAiGoogleVertexModelsJson(JSON.stringify({ 'google-vertex': reordered })).status, 'patched')
+})
+
+test('Vertex global 端点：有 project 的目录写 collection URL，没 project 保留 {location} 模板', () => {
+  const global = 'https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global'
+  assert.equal(vertexGlobalBaseUrl('379270002840'), global)
+  assert.equal(vertexGlobalBaseUrl(' 379270002840 '), global)
+  assert.equal(vertexGlobalBaseUrl(''), null)
+  assert.equal(vertexGlobalBaseUrl('bad project'), null)
+  assert.equal(vertexProjectFromBaseUrl(global), '379270002840')
+  assert.equal(vertexProjectFromBaseUrl('https://asia-southeast1-aiplatform.googleapis.com/v1/projects/p/locations/asia-southeast1'), 'p')
+  assert.equal(vertexProjectFromBaseUrl(VERTEX_TEMPLATE_BASE_URL), null)
+
+  // Gemini 3/4 只在 global 上线；gemini-2.5-* 反过来只在区域里有 —— 只改前者。
+  const models = vertexModelsWithGlobalBaseUrl('379270002840')
+  assert.equal(models['chat:gemini-4-hydrogen'].baseUrl, global)
+  assert.equal(models['chat:gemini-4-carbon'].baseUrl, global)
+  assert.equal(models['chat:gemini-3.8-flash'].baseUrl, global)
+  assert.equal(models['chat:gemini-2.5-flash'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
+  assert.equal(vertexModelsWithGlobalBaseUrl(null), LATEST_GOOGLE_VERTEX_MODELS)
+
+  const catalog = JSON.stringify({ 'google-vertex': {} })
+  const withProject = JSON.parse(patchPiAiGoogleVertexModelsJson(catalog, { project: '379270002840' }).text)['google-vertex']
+  assert.equal(withProject['chat:gemini-4-hydrogen'].baseUrl, global)
+  assert.equal(withProject['chat:gemini-2.5-pro'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
+  const withoutProject = JSON.parse(patchPiAiGoogleVertexModelsJson(catalog).text)['google-vertex']
+  assert.equal(withoutProject['chat:gemini-4-hydrogen'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
+
+  // 项目来源：环境变量优先，其次 profile 里 google-vertex 的 collection baseURL。
+  const profileText = '      google-vertex:\n        apiKeyEnv: GOOGLE_VERTEX_API_KEY\n        baseURL: https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global\n'
+  assert.equal(resolveVertexProject({ profileText, env: {} }), '379270002840')
+  assert.equal(resolveVertexProject({ profileText, env: { GOOGLE_CLOUD_PROJECT: 'env-project' } }), 'env-project')
+  assert.equal(resolveVertexProject({ profileText: '', env: {} }), null)
 })
