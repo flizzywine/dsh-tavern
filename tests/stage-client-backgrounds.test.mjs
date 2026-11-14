@@ -7,7 +7,7 @@ const {galMatrix:matrix,galEase:ease,galClamp01:clamp}=require('../tavern-plugin
 const tick=()=>new Promise(resolve=>setImmediate(resolve))
 function fixture(){
  const made=[],requests=[],warnings=[]
- const owner=createStageBackgrounds({matrix,ease,clamp,transition:kind=>({kind,duration:100}),correction:()=>matrix.identity(),timeGrade:()=>({grade:matrix.identity()}),layers:{create(args){
+ const owner=createStageBackgrounds({matrix,ease,clamp,transition:kind=>({kind,duration:100}),correction:()=>matrix.identity(),timeGrade:()=>({grade:matrix.identity()}),light:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-light.cjs').createStageFigureLight({}),layers:{create(args){
   const layer={...args,start:args.now,destroyed:0,setCorrection(){},paint(now){return this.plan?{cover:.4,color:1,lids:0,bars:0,done:now-this.start>=100}:null},finish(){this.plan=null},destroy(){assert.equal(++this.destroyed,1)}};made.push(layer);return layer
  }}})
  const scene=owner.create({generated:{empty:{}},loadTexture:url=>new Promise((resolve,reject)=>requests.push({url,resolve,reject})),warn:value=>warnings.push(value)})

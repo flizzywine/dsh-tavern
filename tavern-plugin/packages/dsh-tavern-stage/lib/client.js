@@ -6302,13 +6302,14 @@ function createStageLive2d({React, host, load = () => import('/api/dsh-tavern/cl
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { createStageLive2d };
 
-        function createStageBackgrounds({layers,matrix:galMatrix,ease:galEase,clamp:galClamp01,transition:galBackgroundTransition,correction:galLayerCorrection,timeGrade:galTimeGrade}) {
+        function createStageBackgrounds({layers,matrix:galMatrix,ease:galEase,clamp:galClamp01,transition:galBackgroundTransition,correction:galLayerCorrection,timeGrade:galTimeGrade,light}) {
 let disposed=false;const scenes=new Set();
 function create({PIXI,screen,container,generated,tune,loadTexture,warn:recordAssetWarning}) {
     if(disposed)throw new Error('Background owner disposed');
     let latest={},currentRegistry={},sequence=0;
     const describe=()=>latest,registryOf=()=>currentRegistry;
-    const state={layers:[],bg:{target:null,pending:''},grade:{name:null,start:0,duration:0,current:null,version:0},clock:0,destroyed:false};
+    const state={layers:[],bg:{target:null,pending:''},grade:{name:null,start:0,duration:0,current:null,version:0,light:null,ui:null},clock:0,destroyed:false};
+    const correctionOf=(grade,time)=>describe().packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,time);
     // ---- backdrop
     function startLayer(url, texture, kind, grade, now) {
         const desc = describe();
@@ -6317,17 +6318,17 @@ function create({PIXI,screen,container,generated,tune,loadTexture,warn:recordAss
         const time=url&&desc.background?desc.background.time||'':'';
         const layer=layers.create({PIXI,screen:screen,container:container,generated,tune,url,texture,plan,
             identity:desc.background?.identity,scene:desc.background?.scene,time,now,grade,version:registryOf().version,
-            correction:desc.packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,time)});
+            correction:correctionOf(grade,time)});
         state.layers.push(layer);
         // The figures' grade travels with the picture: it changes during the transition, not before it.
         const duration = desc.snap ? 0 : describe().timeFadeMs === 2500 ? 2500 : plan.kind === "black" || plan.kind === "white" ? 0 : Math.max(plan.duration, 360);
         const gradeStart = plan.split ? now + plan.duration * plan.split[0] : plan.kind === "black" ? now + plan.duration * 0.42 : plan.kind === "white" ? now + plan.duration * 0.36 : now;
-        setGrade(grade, gradeStart, state.layers.length === 1 ? 0 : duration);
+        setGrade(grade, gradeStart, state.layers.length === 1 ? 0 : duration, layer);
         layer.paint(now);
         return layer;
     }
     function setStandIn(layer,grade,now,duration) {
-        layer.setCorrection(describe().packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,layer.time),grade,registryOf().version,now,duration);
+        layer.setCorrection(correctionOf(grade,layer.time),grade,registryOf().version,now,duration);
     }
     function update(desc,registry,now) {
         if(state.destroyed)return;
@@ -6342,7 +6343,7 @@ function create({PIXI,screen,container,generated,tune,loadTexture,warn:recordAss
             state.bg.target = url;
             const kind = background && background.transition || "fade", grade = desc.grade || "";
             const top = state.layers[state.layers.length - 1];
-            if (top && top.url && top.identity === background?.identity) { state.bg.pending = ""; top.time = background && background.time || ""; setGrade(grade, now, gradeMs); setStandIn(top, grade, now, gradeMs); }
+            if (top && top.url && top.identity === background?.identity) { state.bg.pending = ""; top.time = background && background.time || ""; setGrade(grade, now, gradeMs, top); setStandIn(top, grade, now, gradeMs); }
             else if (!url) { state.bg.pending = ""; startLayer("", generated.empty, kind, grade, now); }
             else {
                 state.bg.pending = url;
@@ -6359,9 +6360,10 @@ function create({PIXI,screen,container,generated,tune,loadTexture,warn:recordAss
                 });
             }
         } else if (!state.bg.pending && ((desc.grade || "") !== state.grade.name || registryOf().version !== state.grade.version0)) {
-            setGrade(desc.grade || "", now, gradeMs);
             const top = state.layers[state.layers.length - 1];
-            if (top) { top.time = background && background.time || ""; setStandIn(top, desc.grade || "", now, gradeMs); }
+            if (top) top.time = background && background.time || "";
+            setGrade(desc.grade || "", now, gradeMs, top);
+            if (top) setStandIn(top, desc.grade || "", now, gradeMs);
         }
     }
     function paint(now) {
@@ -6386,19 +6388,28 @@ function create({PIXI,screen,container,generated,tune,loadTexture,warn:recordAss
         tickGrade(now);
         return {coverAlpha,coverColor,lidsShut,barsIn,barsOut,pruned};
     }
-    // The figures' time grade blends from whatever is on screen now (also mid-blend) to the new one.
+    // The figures' grade blends from whatever is on screen now (also mid-blend) to the new one.
     // The looks arriving (or reloading) re-grade to the same name with the new matrices.
-    function setGrade(name, start, duration) {
+    // A picture whose light can be measured (figure-light.cjs) lights the figures instead of the fixed time grade; the
+    // empty stage, videos and unreadable pictures keep the time grade.
+    function setGrade(name, start, duration, layer) {
         const grade = state.grade, version = registryOf().version;
-        if (grade.name === name && grade.version0 === version) return;
-        grade.from = grade.current || galMatrix.identity(); grade.to = describe().packLayers?.figureGrade || galTimeGrade(registryOf(), name).grade; grade.start = start; grade.duration = duration; grade.name = name; grade.version0 = version;
+        const field = layer && layer.url ? light.field(light.measure(layer.texture), correctionOf(name, layer.time)) : null;
+        if (grade.name === name && grade.version0 === version && grade.lightTo === field) return;
+        grade.from = grade.current || galMatrix.identity(); grade.lightFrom = grade.light; grade.lightTo = field;
+        grade.to = field ? galMatrix.identity() : describe().packLayers?.figureGrade || galTimeGrade(registryOf(), name).grade;
+        grade.start = start; grade.duration = duration; grade.name = name; grade.version0 = version; grade.t = -1;
     }
     function tickGrade(now) {
         const grade = state.grade;
         if (!grade.to) return;
-        const t = grade.duration > 0 ? galClamp01((now - grade.start) / grade.duration) : now >= grade.start ? 1 : 0;
-        const next = galMatrix.mix(grade.from, grade.to, galEase.inOutSine(t));
-        if (!grade.current || next.some((value, i) => Math.abs(value - grade.current[i]) > 1e-4)) { grade.current = next; grade.version++; }
+        const t = galEase.inOutSine(grade.duration > 0 ? galClamp01((now - grade.start) / grade.duration) : now >= grade.start ? 1 : 0);
+        const next = galMatrix.mix(grade.from, grade.to, t);
+        const moved = Math.abs(t - grade.t) > 1e-4 && (grade.lightFrom || grade.lightTo);
+        if (!grade.current || moved || next.some((value, i) => Math.abs(value - grade.current[i]) > 1e-4)) {
+            grade.current = next; grade.t = t; grade.light = light.mix(grade.lightFrom, grade.lightTo, t);
+            grade.ui = grade.light ? galMatrix.multiply(light.flat(grade.light), next) : next; grade.version++;
+        }
     }
 
 
@@ -7880,6 +7891,18 @@ function galCreateScene(host, options, own) {
         state.figureLoads = (state.figureLoads || 0) + 1;
         cast.commit(entry);
     }
+    // A lit figure whose feet stand on the stage casts a soft contact shadow on the floor, away from the light.
+    function tickContactShadow(entry,H) {
+        const rest=entry.figureResolved,lit=entry.light,sprite=entry.sprite;
+        const on=Boolean(lit&&lit[11]>0&&rest?.mode==="physical"&&sprite&&rest.feet<=sprite.texture.height&&rest.support.y<H&&entry.container.visible);
+        if(!on){if(entry.contact)entry.contact.visible=false;return;}
+        if(!entry.contact){
+            entry.contact=new PIXI.Sprite(generated.contact);entry.contact.anchor.set(.5);entry.contact.zIndex=-1;figuresBox.addChild(entry.contact);
+        }
+        const span=rest.poseSpan,c=entry.contact;
+        c.visible=true;c.width=span*.36;c.height=span*.06;c.position.set(rest.support.x-lit[9]*span*.05,rest.support.y-span*.004);
+        c.alpha=.55*lit[11]*entry.alpha.v;
+    }
     function destroyFigure(entry) {
         if(entry.dead)return;
         entry.dead=true;
@@ -7893,6 +7916,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.blink.dispose());
         release(()=>layeredSpriteClearScene(entry));
         release(()=>entry.appearance.dispose());
+        if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
@@ -8266,10 +8290,13 @@ function galCreateScene(host, options, own) {
             entry.container.visible = alpha > 0.003;
             entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.focus || figure.speaking && !figure.dim ? 2 : 1;
             const look = tickFigureLook(entry, desc, now, dt, dofTarget);
-            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + backgrounds.grade.version;
+            // the background's light at the figure's place (figure-light.cjs), or none: then the time grade colours it
+            const grade = backgrounds.grade;
+            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + grade.version + ":" + entry.cx.v.toFixed(2);
             if (entry.shadeKey !== key) {
                 entry.shadeKey = key;
-                entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current));
+                entry.light = stageViews.figureLight.at(grade.light, entry.cx.v);
+                entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, grade.current), entry.light);
             }
             if(renderer){
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
@@ -8287,6 +8314,7 @@ function galCreateScene(host, options, own) {
                 entry.fading=pose.remaining;
                 for(const item of pose.retired){item.asset.destroy();state.lastPrune=0;}
             }
+            tickContactShadow(entry,H);
         };
         state.figures.forEach(tickEntry);
         if (!desc.callView?.frozen) state.offstage.forEach(tickEntry);
@@ -8589,7 +8617,7 @@ function galCreateScene(host, options, own) {
         // accepted groups reveal independently, including historical entry.
         // The resource runner already gates each element; a slow model must not hide the backdrop.
         world.visible = overlay.visible = !state.callCovers;
-        if (options.onUi) options.onUi(effects.ui(backgrounds.grade.current));
+        if (options.onUi) options.onUi(effects.ui(backgrounds.grade.ui || backgrounds.grade.current));
         // the entry gate may reveal the backdrop and text box before slow figures are built.
         if (options.onBackdrop && !backgrounds.pending && backgrounds.layers.length <= 1) options.onBackdrop(desc.presentationRevision);
         if (options.onPresented && !backgrounds.pending && backgrounds.layers.length <= 1 &&
@@ -8712,6 +8740,7 @@ function galCreateScene(host, options, own) {
                 figures: Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, leaving: entry.leaving, parked: Boolean(entry.figure.parked), ready: Boolean(entry.model || entry.sprite),
                     x: entry.started ? round(entry.cx.v, 3) : null, alpha: entry.started ? round(entry.alpha.v, 3) : null, shade: entry.started ? round(entry.shade.v, 2) : null,
                     glow: round(entry.appearance.snapshot().glow, 2), shadow: round(entry.appearance.snapshot().shadow, 2), blur: round(entry.appearance.snapshot().blur, 2), filters: entry.filters.all().length,
+                    light: entry.light ? { strength: round(entry.light[11], 2), side: round(entry.light[9], 2), contact: Boolean(entry.contact?.visible) } : null,
                     ...(entry.spineFigure ? { spine: entry.spineFigure.debug() } : {}),
                     // figure-life: warp on, the last tap reaction, the reaction still (size, on screen) and the emotions a tap can borrow.
                     life: { armed: round(entry.appearance.snapshot().armed, 2), warp: Boolean(entry.warp), tap: entry.tapReaction ? entry.tapReaction.kind : null, still: entry.tapTexture ? { size: [entry.tapTexture.texture.width, entry.tapTexture.texture.height], shown: Boolean(entry.sprite && entry.sprite.texture === entry.tapTexture.texture) } : entry.tapStills ? entry.tapStills.size : null, stillError: entry.tapStillError || null, reactions: Object.keys(entry.figure.reactions || {}) } })),
@@ -17312,15 +17341,15 @@ function createStageCast() {
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageCast};
 
-        // Per-figure light interpolation and owned shade/rim/depth filters.
-function createStageFigureAppearance({graphics,spring,springValue}) {
+        // Per-figure light interpolation and owned shade/rim/depth filters. The shade filter (figure-light.cjs) takes the figure's\n// colour matrix and the background's light.
+function createStageFigureAppearance({graphics,spring,springValue,light}) {
     let disposed=false;const instances=new Set();
     function create({PIXI,container,tune}) {
         if(disposed)throw new Error('Figure appearance owner disposed');
         let closed=false,shade;
         const filters=graphics.filters(container,null,['shade','rim','dof'],true);
         const state={slots:{},glow:springValue(0),shadow:springValue(0),blur:springValue(0),armed:springValue(0)};
-        try{shade=new PIXI.filters.ColorMatrixFilter();tune(shade);filters.set('shade',shade);}
+        try{shade=light.figureFilter(PIXI);tune(shade);filters.set('shade',shade);}
         catch(error){filters.set('shade',null);shade?.destroy();throw error;}
         function snapshot(){return {glow:state.glow.v,shadow:state.shadow.v,blur:state.blur.v,armed:state.armed.v};}
         function tick({mode='',defocused=false,quality,armedOn=0,reduced=false,color,now,dt}) {
@@ -17359,7 +17388,7 @@ function createStageFigureAppearance({graphics,spring,springValue}) {
             return { glow, shadow };
 
         }
-        const view={filters,tick,snapshot,setShade(matrix){if(!closed)shade.matrix=matrix;},dispose(){
+        const view={filters,tick,snapshot,setShade(matrix,lit){if(closed)return;shade.setMatrix(matrix);shade.setLight(lit);},dispose(){
             if(closed)return;closed=true;instances.delete(view);const errors=[];
             for(const [name,filter] of [['shade',shade],...Object.entries(state.slots).map(([name,slot])=>[name,slot.filter])]){
                 try{filters.set(name,null);}catch(error){errors.push(error);}
@@ -17373,6 +17402,221 @@ function createStageFigureAppearance({graphics,spring,springValue}) {
     return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(const view of [...instances])try{view.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure appearances cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureAppearance};
+
+        // Figures lit by the background (route A of the art-style plan): each background picture is measured once (a small
+// linear-light grid, cached on its texture); the light at a stage x is derived from it (surrounding colour, the brighter
+// side, the key light's colour and strength) and one filter on the figure's container shades the composed figure with
+// it, so mouth and blink frames are lit with it. Light from above the brighter side: a smooth wash across the figure
+// plus a rim on its lit edge, no hard terminator (the outward normals are scaled by one constant and fade to zero inside).
+function createStageFigureLight({document}) {
+let disposed=false;const filters=new Set();
+const LUMA=[0.2126,0.7152,0.0722], GRID_W=64, SAMPLES=11, STRIDE=12, SPRITE_LUMA=0.45;
+const IDENTITY=[1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0];
+const lin=v=>v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);
+const enc=v=>v<=0.0031308?v*12.92:1.055*Math.pow(v,1/2.4)-0.055;
+const luma=(r,g,b)=>LUMA[0]*r+LUMA[1]*g+LUMA[2]*b;
+const clip=(v,lo,hi)=>Math.min(hi,Math.max(lo,v));
+const grids=new WeakMap(),fields=new WeakMap();
+
+// The picture's colours on a GRID_W-wide grid (sRGB 0..1). Videos and unreadable pictures measure as null: their figures
+// keep the time grade.
+function measure(texture) {
+    const base=texture?.baseTexture;
+    if(!base)return null;
+    if(grids.has(base))return grids.get(base);
+    const source=base.resource?.source,width=base.realWidth,height=base.realHeight;
+    let grid=null;
+    if(source&&source.tagName!=='VIDEO'&&width>0&&height>0){
+        const w=GRID_W,h=Math.max(4,Math.round(GRID_W*height/width)),canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        ctx.drawImage(source,0,0,w,h);
+        try{
+            const data=ctx.getImageData(0,0,w,h).data,rgb=new Float32Array(w*h*3);
+            for(let i=0;i<w*h;i++){rgb[i*3]=data[i*4]/255;rgb[i*3+1]=data[i*4+1]/255;rgb[i*3+2]=data[i*4+2]/255;}
+            grid={w,h,rgb};
+        }catch(error){console.warn('[fork-gal-light] background not readable',error);}
+    }
+    grids.set(base,grid);return grid;
+}
+// One sample per stage x: [ambient rgb, key rgb, rim rgb, direction x, direction y, strength], ready for the shader.
+function lightAt(cells,lum,w,h,x) {
+    const col=c=>clip(c,0,w);
+    const x0=col(Math.floor((x-0.2)*w)),x1=Math.max(x0+1,col(Math.ceil((x+0.2)*w)));
+    const ambient=[0,0,0];let n=0;
+    // colours are averaged as seen (sRGB), so a few bright lamps do not outweigh the scene around them (a moonlit
+    // shrine reads blue, not the colour of its lit windows); the result is linear light again
+    for(let y=0;y<h;y++)for(let c=x0;c<x1;c++){const i=(y*w+c)*3;for(let k=0;k<3;k++)ambient[k]+=enc(cells[i+k]);n++;}
+    for(let k=0;k<3;k++)ambient[k]=lin(ambient[k]/n);
+    const ambL=luma(...ambient),upper=Math.max(1,Math.floor(h*2/3)),mid=clip(Math.round(x*w),1,w-1);
+    const mean=(a,b)=>{let s=0;for(let y=0;y<upper;y++)for(let c=a;c<b;c++)s+=lum[y*w+c];return s/((b-a)*upper);};
+    const lb=mean(0,mid),rb=mean(mid,w),right=rb>=lb;
+    let dx=clip((rb-lb)/(rb+lb+1e-6)*3,-1,1),dy=-0.6;const len=Math.hypot(dx,dy)+1e-6;dx/=len;dy/=len;
+    // the key light: the bright end (85th-97th percentile) of the brighter side's upper part
+    const side=[];
+    for(let y=0;y<upper;y++)for(let c=right?mid:0;c<(right?w:mid);c++)side.push(y*w+c);
+    const sorted=side.map(i=>lum[i]).sort((a,b)=>a-b),q=p=>sorted[Math.min(sorted.length-1,Math.floor(p*(sorted.length-1)))];
+    const lo=q(0.85),hi=q(0.97),key=[0,0,0];let m=0;
+    for(const i of side)if(lum[i]>=lo&&lum[i]<=hi){for(let k=0;k<3;k++)key[k]+=enc(cells[i*3+k]);m++;}
+    for(let k=0;k<3;k++)key[k]=lin(key[k]/m);
+    const keyL=luma(...key),ratio=clip(keyL/(ambL+1e-6),1,12);
+    // a light's colour at unit brightness; a saturated scene (red lanterns) tints, it does not burn one channel out
+    // (a scene's colour reads stronger than its average: the colour is pushed out 1.3 times, up to a channel 1.7 times the light)
+    const hue=(c,l)=>{const h=c.map(v=>v/(l+1e-6)),top=Math.max(...h),k=Math.min(1.3,top>1?0.7/(top-1):1.3);return h.map(v=>Math.pow(1+(v-1)*k,0.9));};
+    // exposure: partly matched to the scene, the figure stays readable; a bright neutral scene leaves it as drawn
+    const exposure=clip(Math.pow(ambL/SPRITE_LUMA,0.7)*1.5,0.25,1.05),strength=clip((0.45-ambL)/0.25,0.15,1);
+    const ah=hue(ambient,ambL),kh=hue(key,keyL),kr=key.map(v=>v/(keyL+1e-6));
+    return [...ah.map(v=>exposure*0.55*v),...kh.map(v=>exposure*v*(0.5+0.06*Math.min(ratio,6))),
+        ...kr.map(v=>v*exposure*0.35*strength*Math.min(ratio,4)/4),dx,dy,strength];
+}
+// The light field of a measured picture as shown (its stand-in correction, a colour matrix, applied first).
+function field(grid,correction) {
+    if(!grid)return null;
+    const m=correction||IDENTITY,key=m.join(',');
+    let byCorrection=fields.get(grid);
+    if(!byCorrection)fields.set(grid,byCorrection=new Map());
+    if(byCorrection.has(key))return byCorrection.get(key);
+    const {w,h,rgb}=grid,cells=new Float32Array(rgb.length),lum=new Float32Array(w*h);
+    for(let i=0;i<w*h;i++){
+        const r=rgb[i*3],g=rgb[i*3+1],b=rgb[i*3+2];
+        for(let k=0;k<3;k++)cells[i*3+k]=lin(clip(m[k*5]*r+m[k*5+1]*g+m[k*5+2]*b+m[k*5+3]+m[k*5+4],0,1));
+        lum[i]=luma(cells[i*3],cells[i*3+1],cells[i*3+2]);
+    }
+    const out=new Float32Array(SAMPLES*STRIDE);
+    for(let s=0;s<SAMPLES;s++)out.set(lightAt(cells,lum,w,h,s/(SAMPLES-1)),s*STRIDE);
+    byCorrection.set(key,out);return out;
+}
+// Fields blend with the background's transition; a missing side is the other one at strength 0.
+function mix(a,b,t) {
+    if(!a&&!b)return null;
+    const from=a||unlit(b),to=b||unlit(a);
+    if(t>=1)return to;
+    const out=new Float32Array(from.length);
+    for(let i=0;i<out.length;i++)out[i]=from[i]+(to[i]-from[i])*t;
+    return out;
+}
+function unlit(f){const out=Float32Array.from(f);for(let s=0;s<SAMPLES;s++)out[s*STRIDE+11]=0;return out;}
+function at(f,x) {
+    if(!f)return null;
+    const p=clip(x,0,1)*(SAMPLES-1),i=Math.min(SAMPLES-2,Math.floor(p)),t=p-i,out=new Float32Array(STRIDE);
+    for(let k=0;k<STRIDE;k++)out[k]=f[i*STRIDE+k]+(f[(i+1)*STRIDE+k]-f[i*STRIDE+k])*t;
+    return out;
+}
+// A flat colour matrix close to the light at the stage centre, for what cannot take the per-pixel light (the DOM UI).
+function flat(f) {
+    const v=at(f,0.5);
+    if(!v)return IDENTITY.slice();
+    const g=[0,1,2].map(k=>Math.pow(clip(1+(v[k]+0.5*v[3+k]-1)*v[11],0,1.5),1/2.2));
+    return [g[0],0,0,0,0,0,g[1],0,0,0,0,0,g[2],0,0,0,0,0,1,0];
+}
+
+// The globals are shared with Pixi's highp filter vertex shader: their precision must match or the program fails to link.
+const GLOBALS=`precision highp float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform highp vec4 inputSize;
+uniform highp vec4 outputFrame;
+uniform vec4 inputClamp;
+float alphaAt(vec2 c) { vec2 q = clamp(c, inputClamp.xy, inputClamp.zw); return texture2D(uSampler, q).a * float(all(equal(q, c))); }
+`;
+// The silhouette's alpha box-averaged to an eighth of the resolution (4 x 4 taps over each output pixel's footprint): fine
+// hair strands and gaps no longer alias into speckles that the normals below turned into blotches on the face.
+const DOWN_FRAG=GLOBALS+`uniform float uFoot;
+void main(void) {
+    float a = 0.0;
+    for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++)
+        a += alphaAt(vTextureCoord + (vec2(float(x), float(y)) - 1.5) * 0.25 * uFoot * inputSize.zw);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, a / 16.0);
+}`;
+// Outward normals of the smoothed silhouette at an eighth of the resolution: the alpha on four rings of 16 taps (out to a tenth of the
+// figure's width) pushes away from where the figure is - a smooth blurred-silhouette gradient, 1 at the edge, fading to 0
+// inside (sparse rings drew faceted patches over a slim figure's face).
+const NORMAL_FRAG=GLOBALS+`void main(void) {
+    vec2 r = 0.1 * outputFrame.z * inputSize.zw;
+    vec2 n = vec2(0.0);
+    for (int i = 0; i < 16; i++) {
+        float a = float(i) * 0.392699 + 0.19635;
+        vec2 d = vec2(cos(a), sin(a));
+        n -= d * (alphaAt(vTextureCoord + d * r) + alphaAt(vTextureCoord + d * r * 0.75) + alphaAt(vTextureCoord + d * r * 0.5) + alphaAt(vTextureCoord + d * r * 0.25));
+    }
+    n /= 64.0 * 0.3183;
+    n /= max(1.0, length(n));
+    gl_FragColor = vec4(n * 0.5 + 0.5, 0.0, 1.0);
+}`;
+// The light (when uLight.z, its strength, is above 0), then the figure's colour matrix (time grade, figure light,
+// speaker shade and alpha) exactly as Pixi's ColorMatrixFilter applies it.
+const FIGURE_FRAG=GLOBALS+`uniform float m[20];
+uniform vec3 uAmb;
+uniform vec3 uKey;
+uniform vec3 uRim;
+uniform vec3 uLight;
+uniform sampler2D uNormals;
+uniform vec2 uNormalSize;
+const vec3 W = vec3(0.2126, 0.7152, 0.0722);
+void main(void) {
+    vec4 src = texture2D(uSampler, vTextureCoord);
+    vec4 c = src;
+    if (c.a > 0.0) c.rgb /= c.a;
+    if (uLight.z > 0.0) {
+        vec2 px = vTextureCoord * inputSize.xy;
+        vec2 n = texture2D(uNormals, px / uNormalSize).xy * 2.0 - 1.0;
+        vec2 L = uLight.xy;
+        float across = px.x / outputFrame.z * 2.0 - 1.0;
+        float lam = clamp((0.55 * n.x + 0.45 * across) * L.x + 0.33 * n.y * L.y + 0.35, 0.0, 1.0);
+        lam = lam * lam * (3.0 - 2.0 * lam);
+        vec3 albedo = pow(max(c.rgb, 0.0), vec3(2.2));
+        vec3 lit = mix(albedo, albedo * (uAmb + uKey * lam), uLight.z);
+        vec2 e = 3.0 * inputSize.zw;
+        float inner = min(min(alphaAt(vTextureCoord + vec2(e.x, 0.0)), alphaAt(vTextureCoord - vec2(e.x, 0.0))),
+            min(alphaAt(vTextureCoord + vec2(0.0, e.y)), alphaAt(vTextureCoord - vec2(0.0, e.y))));
+        lit += clamp(src.a - inner, 0.0, 1.0) * max(dot(n, L), 0.0) * uRim;
+        // a painted shadow is richer, not greyer: chroma grows as the light dims the colour (a plain darkening read as dirt)
+        float before = dot(albedo, W), after = dot(lit, W);
+        lit = max(vec3(after) + (lit - vec3(after)) * (1.0 + 0.4 * clamp(1.0 - after / max(before, 1e-4), 0.0, 1.0)), 0.0);
+        lit /= max(1.0, max(lit.r, max(lit.g, lit.b)));
+        c.rgb = pow(max(lit, 0.0), vec3(1.0 / 2.2));
+    }
+    vec4 o;
+    o.r = m[0] * c.r + m[1] * c.g + m[2] * c.b + m[3] * c.a + m[4];
+    o.g = m[5] * c.r + m[6] * c.g + m[7] * c.b + m[8] * c.a + m[9];
+    o.b = m[10] * c.r + m[11] * c.g + m[12] * c.b + m[13] * c.a + m[14];
+    o.a = m[15] * c.r + m[16] * c.g + m[17] * c.b + m[18] * c.a + m[19];
+    gl_FragColor = vec4(o.rgb * o.a, o.a);
+}`;
+// The figure's 'shade' filter: colour matrix plus light. Unlit it is one pass like a ColorMatrixFilter; lit it adds
+// the two eighth-resolution passes (smoothed silhouette, normals).
+function figureFilter(PIXI) {
+    if(disposed)throw new Error('Figure light is disposed');
+    const filter=new PIXI.Filter(undefined,FIGURE_FRAG,{m:new Float32Array(IDENTITY),uAmb:new Float32Array(3),uKey:new Float32Array(3),uRim:new Float32Array(3),
+        uLight:new Float32Array(3),uNormals:PIXI.Texture.WHITE,uNormalSize:new Float32Array([1,1])});
+    const down=new PIXI.Filter(undefined,DOWN_FRAG,{uFoot:8}),normals=new PIXI.Filter(undefined,NORMAL_FRAG,{}),apply=filter.apply,destroy=filter.destroy;let dead=false;
+    filter.setMatrix=function(matrix){this.uniforms.m.set(matrix);};
+    filter.setLight=function(v){
+        const u=this.uniforms;
+        if(!v){u.uLight[2]=0;return;}
+        u.uAmb.set(v.subarray(0,3));u.uKey.set(v.subarray(3,6));u.uRim.set(v.subarray(6,9));u.uLight.set(v.subarray(9,12));
+    };
+    filter.apply=function(manager,input,output,clear,state){
+        if(dead)return;
+        if(!(this.uniforms.uLight[2]>0))return apply.call(this,manager,input,output,clear,state);
+        const small=manager.getFilterTexture(input,input.resolution*0.125),tmp=manager.getFilterTexture(input,input.resolution*0.125);
+        down.uniforms.uFoot=1/(input.resolution*0.125);
+        manager.applyFilter(down,input,small,PIXI.CLEAR_MODES.CLEAR);
+        manager.applyFilter(normals,small,tmp,PIXI.CLEAR_MODES.CLEAR);
+        manager.returnFilterTexture(small);
+        this.uniforms.uNormals=tmp;// both textures' coordinates are in the filter's (CSS) units: tmp.width, not its pixel size at an eighth of the resolution
+        this.uniforms.uNormalSize[0]=tmp.width;this.uniforms.uNormalSize[1]=tmp.height;
+        apply.call(this,manager,input,output,clear,state);
+        this.uniforms.uNormals=PIXI.Texture.WHITE;
+        manager.returnFilterTexture(tmp);
+    };
+    filter.destroy=function(...args){if(dead)return;dead=true;filters.delete(filter);down.destroy();normals.destroy();return destroy.apply(this,args);};
+    filters.add(filter);return filter;
+}
+function dispose(){if(disposed)return;disposed=true;const errors=[];for(const filter of [...filters])try{filter.destroy();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure light cleanup failed');}
+return {measure,field,mix,at,flat,figureFilter,dispose,STRIDE};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureLight};
 
         // Prepares displayable figure assets; texture cache and source metrics are separate services.
 function createStageFigureAssets({spineFigures,metrics}) {
@@ -18222,6 +18466,12 @@ function galMakeTextures(PIXI, host) {
             const edge = ctx.createLinearGradient(0, 0, w, 0);
             edge.addColorStop(0, "rgba(255,255,255,1)"); edge.addColorStop(1 / 1.25, "rgba(255,255,255,1)"); edge.addColorStop(1, "rgba(255,255,255,0)");
             ctx.fillStyle = edge; ctx.fillRect(0, 0, w, h);
+        }),
+        // a lit figure's contact shadow (scene.cjs tickContactShadow): a soft black ellipse
+        contact: create(PIXI, 256, 64, function (ctx, w, h) {
+            const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+            g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(0.55, "rgba(0,0,0,.6)"); g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.setTransform(1, 0, 0, h / w, 0, 0); ctx.fillStyle = g; ctx.fillRect(0, 0, w, w);
         }),
         iris: create(PIXI, 512, 512, function (ctx, w, h) {
             const disc = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
@@ -33244,14 +33494,15 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const entranceRendererScope=own(createStageEntranceRenderer({window,contractFactory:stageEntranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop}));
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
                     const backgroundLayers=own(createStageBackgroundLayers({...visualMath,cover:sceneMath.galCover,transitionFrame:sceneMath.galTransitionFrame,wipeRect:sceneMath.galWipeRect,irisSize:sceneMath.galIrisSize}));
-                    const backgrounds=own(createStageBackgrounds({...visualMath,...options.backgrounds,transition:sceneMath.galBackgroundTransition,layers:backgroundLayers}));
+                    const figureLight=own(createStageFigureLight({document}));
+                    const backgrounds=own(createStageBackgrounds({...visualMath,...options.backgrounds,transition:sceneMath.galBackgroundTransition,layers:backgroundLayers,light:figureLight}));
                     const runtimeKernel=createStageRuntimeKernel(options.runtimeProtocol || {});
                     const displays=own(createStageDisplays());
                     const sfx=own(createStageSfx({...options.sfx,matches:stageResources.stageResourceMatches}));
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

@@ -1,12 +1,12 @@
-// Per-figure light interpolation and owned shade/rim/depth filters.
-function createStageFigureAppearance({graphics,spring,springValue}) {
+// Per-figure light interpolation and owned shade/rim/depth filters. The shade filter (figure-light.cjs) takes the figure's\n// colour matrix and the background's light.
+function createStageFigureAppearance({graphics,spring,springValue,light}) {
     let disposed=false;const instances=new Set();
     function create({PIXI,container,tune}) {
         if(disposed)throw new Error('Figure appearance owner disposed');
         let closed=false,shade;
         const filters=graphics.filters(container,null,['shade','rim','dof'],true);
         const state={slots:{},glow:springValue(0),shadow:springValue(0),blur:springValue(0),armed:springValue(0)};
-        try{shade=new PIXI.filters.ColorMatrixFilter();tune(shade);filters.set('shade',shade);}
+        try{shade=light.figureFilter(PIXI);tune(shade);filters.set('shade',shade);}
         catch(error){filters.set('shade',null);shade?.destroy();throw error;}
         function snapshot(){return {glow:state.glow.v,shadow:state.shadow.v,blur:state.blur.v,armed:state.armed.v};}
         function tick({mode='',defocused=false,quality,armedOn=0,reduced=false,color,now,dt}) {
@@ -45,7 +45,7 @@ function createStageFigureAppearance({graphics,spring,springValue}) {
             return { glow, shadow };
 
         }
-        const view={filters,tick,snapshot,setShade(matrix){if(!closed)shade.matrix=matrix;},dispose(){
+        const view={filters,tick,snapshot,setShade(matrix,lit){if(closed)return;shade.setMatrix(matrix);shade.setLight(lit);},dispose(){
             if(closed)return;closed=true;instances.delete(view);const errors=[];
             for(const [name,filter] of [['shade',shade],...Object.entries(state.slots).map(([name,slot])=>[name,slot.filter])]){
                 try{filters.set(name,null);}catch(error){errors.push(error);}
