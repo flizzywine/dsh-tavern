@@ -179,3 +179,13 @@ function hReact() {
     useEffect() {}
   }
 }
+
+// The inline preview buttons carry .dsh-tavern-image-preview; no rule for that class may lift them out of the page
+// (the retired full-screen viewer once used the same class with position: fixed and a 100vw x 100dvh cover).
+test('the inline image preview button stays in the page flow', async () => {
+  const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+  const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selector]) => /\.dsh-tavern-image-preview(?![\w-])/.test(selector))
+  assert.ok(rules.length > 0, 'tavern.css styles the preview button')
+  for (const [, selector, body] of rules) assert.doesNotMatch(body, /position:\s*(fixed|absolute)/, selector.trim())
+})
