@@ -47,7 +47,7 @@ export { PACK_LEASE_PATH } from './leases.js'
 export {StoredFile} from './validation.js'
 export {projectPackFigures} from './export-figures.js'
 import { exportPrivacyView } from './export-privacy.js'
-import { figureImageExtras, figureLookChanges, withFigureImageExtras, FIGURE_IMAGE_EXTENSION } from './figure-image-extras.js'
+import { carryFigureImageMedia, figureImageExtras, figureLookChanges, withFigureImageExtras, FIGURE_IMAGE_EXTENSION } from './figure-image-extras.js'
 export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
 import { openZip, writeZip } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
@@ -550,7 +550,8 @@ export function createAssetPackService(options) {
     ...createVoiceAuthoring({assetRoot:options.assetRoot,storage,run,load,edit,cas,limits}),
     ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure}),
     ...createAutomaticWriteMethods({run,readRun,all,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
-      figureImageExtras:(packId, figureIds) => figureImageExtras(options, packId, figureIds)}),
+      figureImageExtras:(packId, figureIds) => figureImageExtras(options, packId, figureIds),
+      carryFigureImageMedia:(packId, extras, manifest, files, hashed) => carryFigureImageMedia(options, packId, extras, manifest, files, hashed)}),
     ...createModPrivateMethods({validators:modValidators,run,metadata,storage,cas,edit,readDocument,jsonBytes,load,verify,sealPack,nextLocal,emit,cards:options.cardTransactions,randomUUID,blankManifest,remapPack}),
     apiVersion:2,
     ...bundleMethods,
@@ -916,6 +917,7 @@ export function createAssetPackService(options) {
         // the copy takes the source figure's 配图 外貌 along; the host gives it a record of its own
         const extension = (await figureImageExtras(options, input.source.packId, [input.source.figureId]))[input.source.figureId]
         const result = copyFigureAssets(source, input.source.figureId, manifest, files, {extensions:extension ? {[FIGURE_IMAGE_EXTENSION]:extension} : {}})
+        if (extension) await carryFigureImageMedia(options, input.source.packId, {[input.source.figureId]:extension}, manifest, files, hashed)
         const debt = await readCopyMouthDebt(options.assetRoot,source.manifest.id,source.local,options.mouthDebtRoot)
         carried = copiedMouthDebt(source,{figures:{[result.figureId]:source.figures[input.source.figureId]},sprites:source.sprites},[{kind:'figures',fromId:input.source.figureId,toId:result.figureId}],debt)
         for (const [name,digest] of storedCopyHashes(files,[source])) hashed.set(name,digest)
@@ -954,7 +956,9 @@ export function createAssetPackService(options) {
         // copied figures take their 配图 外貌 along; the host gives each a record of its own
         const extras = await figureImageExtras(options, source.manifest.id, input.itemRefs.filter(ref => ref.kind === 'figures').map(ref => ref.id))
         const copied = copyPackItems(source, input.itemRefs, manifest, files, new Set(before?.local.retired || []), Object.fromEntries(Object.entries(extras).map(([id, extension]) => [id, {[FIGURE_IMAGE_EXTENSION]:extension}])))
-        await sealPack(manifest, files, before, storedCopyHashes(files,[source]))
+        const hashed = storedCopyHashes(files,[source])
+        await carryFigureImageMedia(options, source.manifest.id, extras, manifest, files, hashed)
+        await sealPack(manifest, files, before, hashed)
         const verified = await verify(manifest, files, before, true)
         const debt = await readCopyMouthDebt(options.assetRoot,source.manifest.id,source.local,options.mouthDebtRoot)
         const carried = copiedMouthDebt(source,verified,copied,debt)

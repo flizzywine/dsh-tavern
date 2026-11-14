@@ -14,7 +14,7 @@ import {decodeSkinSvg} from './skin-svg.js'
 const {validateStageSkin, stageSkinFiles} = skinContract
 import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, STAGE_IMAGE_MAX_BYTES } from './media.js'
 import { modelReferences } from './model.js'
-import { BLOB_MIME_TYPES, validatePackIdentities, validateFigureClosure, verifyPackHashes, verifyPackFiles, computeContentHash, computeBundleHash, canonicalJson, parseJson, sha256 } from '../asset-packs/index.js'
+import { BLOB_MIME_TYPES, FIGURE_IMAGE_EXTENSION, figureImageReferenceMedia, validatePackIdentities, validateFigureClosure, verifyPackHashes, verifyPackFiles, computeContentHash, computeBundleHash, canonicalJson, parseJson, sha256 } from '../asset-packs/index.js'
 import { check, relativePath, compareCodePoints } from '../asset-packs/common.js'
 import { validateSpineBundle } from '../asset-packs/spine.js'
 
@@ -125,10 +125,11 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   validateFigureClosure(manifest, figures, sprites)
   if (!sealed) await verifyPackHashes(manifest)
   const unchanged = name => previous?.files.has(name) && previous.files.get(name) === files.get(name)
-  // Boards are authoring evidence, not stage textures. Shared stage media keeps its limit.
+  // Boards are authoring evidence, not stage textures, and so are the 配图 参考图 a carried extension names. Shared stage media keeps its limit.
   const boards = new Set(), stageMedia = new Set()
   for(const figure of Object.values(figures)) {
     if(figure.identitySettei?.board)boards.add(figure.identitySettei.board)
+    for(const hash of figureImageReferenceMedia(figure.extensions?.[FIGURE_IMAGE_EXTENSION]))boards.add(hash)
     for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
   }
   for(const icon of manifest.tagIcons || [])stageMedia.add(icon.media)

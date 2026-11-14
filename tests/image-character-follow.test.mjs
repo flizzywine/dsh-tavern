@@ -239,3 +239,23 @@ test('each outfit’s 服装设定图 becomes that outfit’s 参考图 once (a 
   assert.equal(f.writes.filter(row => row[0] === 'putReferenceImage').length, 1, 'once')
   follow.dispose()
 })
+test('the 参考图 an imported or copied figure carries become its new record’s, ahead of its 设定图; an update keeps the local ones unless adopted', async () => {
+  const f = fixture(), follow = followImageCharacters({ library: f.library, api: f.api })
+  await follow.settled()
+  const carried = { referenceImage: { media: 'up1', name: '自传设定图' }, outfits: [{ id: 'school', name: '校服', upper: '水手服', characterOutfitImage: { media: 'up2' } }] }
+  f.write('p3', figures => { figures['f-copy'] = { id: 'f-copy', name: '千石抚子', aliases: [], identitySettei: { board: 'h1' }, outfits: [{ key: 'school', label: '校服' }], extensions: { 'dsh.image-character': carried } } })
+  await follow.settled()
+  const copy = f.record('c-f-copy')
+  assert.deepEqual(copy.referenceImage, { id: 'ref-up1', mediaType: 'image/png', name: '自传设定图' }, 'the carried picture, not the 人设图')
+  assert.deepEqual(copy.outfits, [{ id: 'school', name: '校服', characterOutfitImage: { id: 'ref-up2', mediaType: 'image/png', name: '千石抚子／校服 参考图' }, upper: '水手服' }])
+  assert.equal(f.packs.get('p3').figures['f-copy'].extensions, undefined)
+  f.record('c-nade').referenceImage = { id: 'own' }
+  f.write('p2', figures => { figures['f-nade'] = { ...figures['f-nade'], extensions: { 'dsh.image-character': { referenceImage: { media: 'up3' } } } } })
+  await follow.settled()
+  assert.deepEqual(f.record('c-nade').referenceImage, { id: 'own' }, 'an update keeps the local 参考图')
+  follow.adopt({ packId: 'p2', figureIds: ['f-nade'] })
+  f.write('p2', figures => { figures['f-nade'] = { ...figures['f-nade'], extensions: { 'dsh.image-character': { referenceImage: { media: 'up3' } } } } })
+  await follow.settled()
+  assert.equal(f.record('c-nade').referenceImage.id, 'ref-up3', 'adopted: the imported one')
+  follow.dispose()
+})

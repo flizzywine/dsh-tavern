@@ -119,6 +119,30 @@ async function harness(t, overrides = {}) {
   return { root, api, media, published, errors, setLatest(value) { latest = value } }
 }
 
+test('a turn names the asset packs its card plays with', { skip: !cordis }, async t => {
+  const asked = []
+  const h = await harness(t, { cardAssetPacks: async path => { asked.push(path); return ['pack-a', 'pack-global'] } })
+  let tavern
+  await h.root.plugin({ name: 'reader', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await tick()
+  assert.deepEqual((await tavern.getTurn({ gameId: 'game-1', turn: 3 })).card, { id: '/cards/a.json', name: 'A', assetPacks: ['pack-a', 'pack-global'] })
+  assert.deepEqual(asked, ['/cards/a.json'])
+})
+
+test('an image library hands a linked record\'s name and alias edit to the asset-library figure', { skip: !cordis }, async t => {
+  const edits = []
+  const h = await harness(t, { editLinkedFigure: async input => { edits.push(input); return { changed: true } },
+    cardScope: async () => new Map([['card-plugin', { cards: ['/cards/a.json'] }]]) })
+  const services = {}
+  for (const name of ['library', 'card-plugin']) await h.root.plugin({ name, inject: ['tavern'], apply(ctx) { services[name] = ctx.tavern } })
+  await tick()
+  assert.deepEqual(await services.library.editLinkedFigure({ packId: 'p', figureId: 'f', name: ' 新名 ', addAliases: ['Yuno '], removeAliases: [] }), { changed: true })
+  assert.deepEqual(edits, [{ packId: 'p', figureId: 'f', name: '新名', addAliases: ['Yuno'], removeAliases: [] }])
+  await assert.rejects(services.library.editLinkedFigure({ packId: 'p', figureId: 'f', addAliases: [''] }), TypeError)
+  await assert.rejects(services['card-plugin'].editLinkedFigure({ packId: 'p', figureId: 'f', name: 'x' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  assert.equal(edits.length, 1)
+})
+
 test('共享预设 API 支持指定预设和跟随本局', { skip: !cordis }, async t => {
   const id = 'presets/test.json'
   let current = id

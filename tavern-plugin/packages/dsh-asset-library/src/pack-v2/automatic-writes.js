@@ -138,7 +138,7 @@ function retireVoices(manifest, files, voices) {
 const routedPack = (packs, card) => packs.find(pack => pack.local.autoWrite?.cardId === card.cardId)
 const automaticPackName = cardName => cardName + ' · 自动素材'
 
-export function createAutomaticWriteMethods({run, readRun, all, load, metadata, verify, storage, cards, nextLocal, emit, blankManifest, createFigure, cas, now, limits, evictMetadata, globalPackIds = () => [], figureImageExtras = async () => ({})}) {
+export function createAutomaticWriteMethods({run, readRun, all, load, metadata, verify, storage, cards, nextLocal, emit, blankManifest, createFigure, cas, now, limits, evictMetadata, globalPackIds = () => [], figureImageExtras = async () => ({}), carryFigureImageMedia = async () => {}}) {
   const authorities = new WeakMap()
   const clone = structuredClone
   const receipt = (pack, writeId) => {
@@ -257,6 +257,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         const had = new Set(Object.keys(manifest.voiceLibrary?.voices || {}))
         figureId = copyFigureAssets(source, change.source.figureId, manifest, files, {extensions:{...(look ? {[FIGURE_IMAGE_EXTENSION]:look} : {}), 'dsh.automatic-write':mark}}).figureId
         for (const [name, digest] of storedCopyHashes(files, [source])) hashed.set(name, digest)
+        if (look) await carryFigureImageMedia(source.manifest.id, {[change.source.figureId]:look}, manifest, files, hashed)
         for (const [id, spec] of Object.entries(manifest.voiceLibrary?.voices || {})) if (!had.has(id)) voices[id] = clone(spec)
       } else {
         shape(change.ref, ['packId','kind','figureId'], ['packId','kind','figureId'], '$.changes[].ref')

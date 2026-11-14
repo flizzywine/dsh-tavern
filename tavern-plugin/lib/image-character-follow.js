@@ -5,8 +5,8 @@ import { appearanceMove, findFigureImageCharacter, identityPatchFromFigure, imag
 // a figure the write created gets its record (the only one: installs and copies never reuse a record by name); a figure
 // the write removed (deleted, or its pack uninstalled) leaves its record as an ordinary one: the link ends, the 外貌 stays
 // (「一起删除」 deletes the record before the figure goes). 外貌 a written pack carries (an exported or copied
-// figure's dsh.image-character extension, older single texts) moves into the record and out of the pack (appearanceMove):
-// the record is its one home. An update never overwrites the local 外貌 unless its preview chose 「用导入的外貌」 for the
+// figure's dsh.image-character extension with its 参考图, older single texts) moves into the record and out of the pack
+// (appearanceMove): the record is its one home. An update never overwrites the local 外貌 unless its preview chose 「用导入的外貌」 for the
 // figure: the asset library says so (adopt) before writing, and that figure's carried 外貌 then replaces the record's.
 export function followImageCharacters({ library, api, log = () => {} }) {
   const seen = new Map() // packId → {ids} at the last follow
@@ -42,18 +42,25 @@ export function followImageCharacters({ library, api, log = () => {} }) {
         const patch = identityPatchFromFigure(state.character, item.figure)
         if (patch) state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch })
       }
+      const replace = !!item.figure.extensions?.[IMAGE_CHARACTER_EXTENSION] && !!adopting.get(packId)?.delete(item.figure.id)
+      const move = appearanceMove(state.character, item.figure, { replace })
+      const revision = packs.find(pack => pack.manifest?.id === packId).revision
+      // The 参考图 the pack carries for the record (an exported or copied record's, as pack media) go first.
+      for (const reference of move?.references || []) {
+        const outfit = reference.outfit ? item.figure.outfits.find(row => row.key === reference.outfit) : null
+        if (reference.outfit && !outfit) continue
+        const referenceImage = await putPackReference(api, library, { providerId: state.providerId, packId, revision, hash: reference.media, name: reference.name || packReferenceName(item.figure, outfit, ' 参考图') })
+        state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
+      }
       // Any figure with a 人设图 (自动素材's, the owner's, an installed pack's alike) has it as its record's 参考图, and each
       // outfit with a 服装设定图 has it as that outfit's (as 「设定图→参考图」 would), so 场景配图 draws the person of its 立绘
       // in the clothes of its 立绘. A record, or an outfit, that has one keeps it.
-      const revision = packs.find(pack => pack.manifest?.id === packId).revision
       const sheets = [...(item.figure.identitySettei?.board && !state.character.referenceImage ? [{ outfit: null, hash: item.figure.identitySettei.board }] : []),
         ...(item.figure.outfits || []).filter(outfit => outfit.settei && !state.character.outfits?.some(row => row.id === outfit.key && row.characterOutfitImage)).map(outfit => ({ outfit, hash: outfit.settei }))]
       for (const { outfit, hash } of sheets) {
         const referenceImage = await putPackReference(api, library, { providerId: state.providerId, packId, revision, hash, name: packReferenceName(item.figure, outfit) })
         state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
       }
-      const replace = !!item.figure.extensions?.[IMAGE_CHARACTER_EXTENSION] && !!adopting.get(packId)?.delete(item.figure.id)
-      const move = appearanceMove(state.character, item.figure, { replace })
       if (!move) continue
       if (move.record) await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: move.record })
       if (move.dropped.length) log('「' + item.figure.name + '」素材包里的外貌文字与配图人物库不同，以人物库为准：' + move.dropped.map(row => row.text).join(' / ').slice(0, 200))
