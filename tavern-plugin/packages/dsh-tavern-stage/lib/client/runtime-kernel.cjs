@@ -392,13 +392,16 @@ function reduceStageRuntime(previous, event) {
             if (state.carry?.envelope) projectCarry(state.carry, state.cursor.mode === 'history' || state.cursor.skipping ? 'snap' : 'normal');
             return;
         }
-        if (!state.cursor.anchor) return;
+        // A text-less opening (a blank greeting floor: a card's opening page) has no page to anchor, but its direction still
+        // holds the opening scene, so its background and music are projected at the start (nothing of it is played).
+        const textless = !state.cursor.anchor && state.director.through === 0 && state.text.pages.length === 0;
+        if (!state.cursor.anchor && !textless) return;
         const token = {id: nextId(), source: state.source, direction: directionToken(state), visitId: state.cursor.visitId, anchor: state.cursor.anchor};
         patch({projection: {token, outstanding: Object.keys(GROUPS).filter(key => key !== 'visual')}});
         pending({projection: true});
         effect('project', {
-            token, at: Math.min(state.cursor.anchor.para, state.director.through),
-            ...(state.cursor.anchor.para <= state.director.through ? {page:{index:state.text.pages.findIndex(page => sameAnchor(page.anchor,state.cursor.anchor)),para:state.cursor.anchor.para,offset:state.cursor.anchor.offset,version:1}} : {}),
+            token, at: textless ? 0 : Math.min(state.cursor.anchor.para, state.director.through),
+            ...(!textless && state.cursor.anchor.para <= state.director.through ? {page:{index:state.text.pages.findIndex(page => sameAnchor(page.anchor,state.cursor.anchor)),para:state.cursor.anchor.para,offset:state.cursor.anchor.offset,version:1}} : {}),
             baseline: state.director.baseline, entries: state.director.entries,
             complete: state.director.complete,
             transition: state.cursor.mode === 'history' || state.cursor.skipping ? 'snap' : 'normal'
