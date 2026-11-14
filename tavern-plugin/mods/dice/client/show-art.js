@@ -124,13 +124,15 @@ function showSetType(ctx, L, font) {
 }
 
 // One die of the row at x, y (size px): a d4 as the face it is read from (its number at the top, the face's other two
-// in the lower corners), other dice a tile. look: "ink" as set down, "mark" counted, "ghost" struck to an outline.
+// in the lower corners), a d8 as its hexagonal outline, other dice a tile. look: "ink" as set down, "mark" counted, "ghost" struck to an outline.
 function showDie(ctx, die, index, x, y, size, look, C, font) {
     const k = size / 100;
     ctx.save();
     ctx.translate(x, y); ctx.scale(k, k);
     ctx.beginPath();
-    if (die.sides === 4) { ctx.moveTo(0, -56); ctx.lineTo(48, 28); ctx.lineTo(-48, 28); ctx.closePath(); } else ctx.rect(-40, -40, 80, 80);
+    if (die.sides === 4) { ctx.moveTo(0, -56); ctx.lineTo(48, 28); ctx.lineTo(-48, 28); ctx.closePath(); }
+    else if (die.sides === 8) { [[0, -48], [42, -24], [42, 24], [0, 48], [-42, 24], [-42, -24]].forEach(([px, py], i) => ctx[i ? "lineTo" : "moveTo"](px, py)); ctx.closePath(); }
+    else ctx.rect(-40, -40, 80, 80);
     if (look === "ghost") { ctx.globalAlpha = 0.32; ctx.lineWidth = 3; ctx.strokeStyle = C.ink; ctx.stroke(); ctx.fillStyle = C.ink; }
     else { ctx.fillStyle = look === "mark" ? C.mark : C.ink; ctx.fill(); ctx.fillStyle = C.paper; }
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
