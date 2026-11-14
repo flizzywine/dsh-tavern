@@ -62,7 +62,7 @@ function useChecks(useChat, nativeTurn, nodeKey) {
 
 const checkSigned = value => (value > 0 ? "+" : "") + value;
 // What the player's card may show of a record: what the rules keep from the player (a v1 record lists its secret resources
-// in record.secret, a v2 change row carries secret) is left out everywhere on it.
+// in record.secret, a v2 change or report row carries secret) is left out everywhere on it.
 const checkShown = (record, rows) => rows.filter(row => !row.secret && !(record.secret && record.secret.includes(row.resource)));
 // One previewed value of an int choice: 「2：代价成功（素质保证·主动-1）」.
 function checkPreviewText(row, record) {
@@ -265,7 +265,7 @@ function CheckCard(props) {
     // An outcome the rules stage (show) is named in the mark colour; one fixed as the dice land is named while it awaits.
     const tail = awaiting ? (record.show ? record.show.label + " · " : "") + "等你选择" : record.outcome ? record.outcome.label : record.status === "adjusted" ? "资源调整" : "";
     const mark = record.show ? checkDiceFaces(record).find(die => die.color)?.color : null;
-    const report = record.report ? Object.values(record.report).map(row => row.label + " " + (row.value === true ? "是" : row.value)).join(" · ") : "";
+    const report = record.report ? checkShown(record, Object.values(record.report)).map(row => row.label + " " + (row.value === true ? "是" : row.value)).join(" · ") : "";
     return h("div", { className: "fork-roll fork-check" + (awaiting ? " is-awaiting" : "") + (performing ? " is-throwing" : ""), "data-call": record.callId, "data-outcome": record.outcome ? record.outcome.id : undefined,
             "data-show": record.show ? record.show.effect : undefined, style: mark ? { "--fork-check-mark": mark } : undefined },
         h("button", { type: "button", className: "fork-roll-head", "aria-expanded": open, "aria-controls": open ? detailsId : undefined,
