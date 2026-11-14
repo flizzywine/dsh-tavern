@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
+import { createBackgroundNativeRuntime } from './fixtures/background-native-runtime.mjs'
 import {
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
   applyPlotCompassCustomArchetypes,
@@ -510,4 +511,65 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
   await page.getByText('携手掀翻棋盘共掌新局').waitFor()
   assert.deepEqual(errors, [])
 })
+
+test('真实 DSH 原生后台运行时：plotCompassService.generate 正常序列化事件并调用 plot_compass_submit 收束回合', { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }, async t => {
+  const runtime = await createBackgroundNativeRuntime(process.env.DSH_BOOT_MODULE, {
+    residentOptions: {
+      backgroundTools: [{ name: 'other_bg_tool', description: 'Other tool', parameters: { type: 'object' } }]
+    },
+    modelResponse: (input, n) => {
+      assert.deepEqual(input.tools.map(tool => tool.name), [PLOT_COMPASS_SUBMIT_TOOL_NAME])
+      return [{
+        type: 'tool-call',
+        id: 'compass-call-' + n,
+        name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+        arguments: JSON.stringify(sampleSubmission())
+      }]
+    }
+  })
+  t.after(() => runtime.dispose())
+
+  let chat = {
+    id: 'chat-native',
+    sessionId: 'scene-parent',
+    mode: 'story',
+    cardPath: 'cards/shen.json',
+    cardName: '沈清弦',
+    messages: [
+      { role: 'user', turn: 1, text: '大人深夜传唤所为何事？' },
+      { role: 'assistant', turn: 1, text: '沈清弦将一封火漆密信推过桌面。' }
+    ]
+  }
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(chat),
+      readChat: async () => structuredClone(chat),
+      updateChat: async (_id, mutator) => {
+        const next = await mutator(structuredClone(chat))
+        if (next) chat = next
+        return structuredClone(chat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: {
+      bound: async () => ({ view: { entries: [] } }),
+      constantContext: async () => ''
+    },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'scene-fixture', model: 'fixture-text' }),
+    runAgent: input => runtime.runBackground(input)
+  })
+
+  const result = await service.generate({ sessionId: 'scene-parent', scope: 'all', guidance: '多一点悬疑反转', wait: true })
+  assert.equal(result.status, 'done')
+  assert.equal(result.plotCompassTask.error, '')
+  assert.equal(result.plotCompass.shortTerm.length, 2)
+  assert.equal(result.plotCompass.midTerm.length, 2)
+  assert.equal(result.plotCompass.longTerm.length, 2)
+  assert.equal(runtime.requests.length, 1, '提交成功后应立即 concludeTurn，不再额外追问一轮')
+  assert.match(JSON.stringify(runtime.requests[0].messages), /多一点悬疑反转/)
+})
+
 

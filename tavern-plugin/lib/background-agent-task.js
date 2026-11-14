@@ -76,7 +76,7 @@ export function maximumBackgroundTokens(selection) {
 }
 
 export function traceError(error, traceSessionId, task) {
-  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'plugin' ? '插件后台任务失败' : '后台候选生成失败'
+  const fallback = task === 'settlement' ? '后台状态结算失败' : task === 'plot-compass' ? '剧情罗盘推演失败' : task === 'plugin' ? '插件后台任务失败' : '后台候选生成失败'
   const wrapped = new Error(str(error && error.message || error) || fallback, { cause: error })
   wrapped.traceSessionId = traceSessionId
   return wrapped
@@ -538,7 +538,7 @@ export function createBackgroundAgentTask(options) {
         if (prefix && prefix.event !== existing?.event && typeof options.flushSession === 'function') await options.flushSession(agent.session)
       }
       else {
-        if (input.task === 'polish') ensureSessionSystemHead(agent.session)
+        if (input.task === 'polish' || input.ownPrefix === true) ensureSessionSystemHead(agent.session)
         releaseOpeningTurn(agent.session, agent)
       }
       const projectsWorldbook = sharedContext
@@ -587,7 +587,7 @@ export function createBackgroundAgentTask(options) {
       if (rawResult === null) {
         if (typeof runtimeInput.acceptWithoutText !== 'function' || runtimeInput.acceptWithoutText() !== true) {
           if (director) throw new Error('导演模型没有调用工具，请换一个支持工具调用的模型')
-          throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : input.task === 'plugin' ? '后台 Agent 没有返回任务结果' : '后台 Agent 没有返回候选文本')
+          throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : input.task === 'plot-compass' ? '后台 Agent 没有提交剧情罗盘结果' : input.task === 'plugin' ? '后台 Agent 没有返回任务结果' : '后台 Agent 没有返回候选文本')
         }
       }
       if (input.task === 'polish') await options.flushSession?.(agent.session)

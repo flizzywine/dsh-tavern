@@ -144,12 +144,8 @@ export function createPlotCompassService({
         signal: controller.signal,
         backgroundTasks: { variables: false, posture: false, characterDesign: false },
         system: prompt('plot-compass'),
-        messages: [{
-          id: 'plot-compass-' + now().toString(36),
-          role: 'user',
-          content: [{ type: 'text', text: material }],
-          source: { kind: 'plugin:dsh-tavern' }
-        }],
+        taskText: material,
+        messages: [],
         tools: [PLOT_COMPASS_SUBMIT_TOOL],
         maxToolCalls: 4,
         stopToolsWhen: () => submitted !== null,

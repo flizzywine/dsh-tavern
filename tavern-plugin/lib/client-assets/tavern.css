@@ -4726,6 +4726,17 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 }
 
 /* Plot Compass (剧情罗盘) */
+.dsh-tavern-status.dsh-tavern-compass-panel > .dsh-tavern-status-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.dsh-tavern-status.dsh-tavern-compass-panel > .dsh-tavern-status-head > .dsh-tavern-status-title {
+  margin: 0;
+  white-space: nowrap;
+}
 .dsh-tavern-compass-dock-btn {
   display: inline-flex;
   align-items: center;
@@ -4857,7 +4868,13 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
   flex-wrap: wrap;
   gap: 6px;
 }
+.dsh-tavern-compass-guidance-box {
+  display: flex;
+  width: 100%;
+}
 .dsh-tavern-compass-input {
+  box-sizing: border-box;
+  width: 100%;
   flex: 1 1 160px;
   min-width: 0;
   padding: 6px 9px;
