@@ -362,8 +362,9 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
 
       if (!jobId) { await tavern.update(attached.id, { status: 'failed', error: '没有拿到作业号' }).catch(() => {}); return 0 }
 
+      let job
       try {
-        const job = await waitJob(jobId, task, progress => tavern.update(attached.id, { progress }))
+        job = await waitJob(jobId, task, progress => tavern.update(attached.id, { progress }))
         if (!job) { await tavern.update(attached.id, { status: 'failed', error: '等待出图超时' }); return 0 }
         if (job.state !== 'done' || !job.file) {
           await tavern.update(attached.id, { status: 'failed', error: String(job.error || '出图失败').slice(0, 200), actions: [{ id: 'retry', label: '重试' }] })
@@ -401,7 +402,10 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
         return 1
       } catch (error) {
         if (!task.controller.signal.aborted && !disposed) {
-          await tavern.update(attached.id, { status: 'failed', error: String(error?.message ?? error).slice(0, 200) }).catch(() => {})
+          // 原始异常（可能带本机路径、库名）只进日志，玩家看到的是一句平常话。
+          warn('配图收尾失败：' + String(error?.message ?? error).slice(0, 500))
+          const error_ = job?.state === 'done' ? '图片已生成，但保存失败，请点重试' : '出图中断了，请点重试'
+          await tavern.update(attached.id, { status: 'failed', error: error_, actions: [{ id: 'retry', label: '重试' }] }).catch(() => {})
         }
         return 0
       }

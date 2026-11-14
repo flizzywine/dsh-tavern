@@ -71,3 +71,30 @@ test('the bridge writes progress only for the pending image and keeps the ready 
     ['media-1', undefined, 0.27], ['media-1', 'ready', 1],
   ])
 })
+
+test('a failed save after the picture was drawn tells the player in plain words and keeps the raw error in the log', { timeout: 5000 }, async t => {
+  const updates = [], warnings = []
+  const job = { state: 'done', percent: 100, file: 'image.png' }
+  const text = '她推开了木门，屋里的灯亮了起来。'
+  const raw = 'Could not load the "sharp" module\nERR_DLOPEN_FAILED: runtime/node_modules/sharp.node'
+  const tavern = {
+    apiVersion: 5, promptSection() {}, onTurnSettled() {}, list: async () => [],
+    getTurn: async () => ({ textVersion: 'v1', text }),
+    attach: async () => ({ id: 'media-1' }),
+    async update(id, patch) { updates.push(patch) },
+  }
+  const bridge = installTavernBridge({
+    tavern, attachments: { saveImage: async () => { throw new Error(raw) } },
+    getConfig: () => ({}), readFileAsBytes: async () => new Uint8Array([1]), logger: { warn: line => warnings.push(line) },
+    engine: {
+      getJob: () => job,
+      planMessage: async ({ onPlan }) => { onPlan({ jobId: 'job-1', regex: text, caption: '进门' }); return { plans: [] } },
+    },
+  })
+  t.after(() => bridge.dispose())
+  await bridge.attachTurn({ gameId: 'g', turn: 1, textVersion: 'v1', text, manual: true })
+  const failed = updates.find(patch => patch.status === 'failed')
+  assert.equal(failed.error, '图片已生成，但保存失败，请点重试')
+  assert.deepEqual(failed.actions, [{ id: 'retry', label: '重试' }])
+  assert.ok(warnings.some(line => line.includes('ERR_DLOPEN_FAILED')), 'raw error is logged')
+})
