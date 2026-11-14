@@ -228,6 +228,9 @@ export function createAutoCompaction(deps) {
       await save(chat.id, old => ({ ...old, operation: structuredClone(operation),
         ...(operation.foreground.status === 'succeeded' && operation.rounds ? { baseline: operation.rounds } : {}),
         warning: [resultWarning, measurementWarning].filter(Boolean).join(' ') }))
+      if (operation.foreground.status === 'succeeded' && typeof deps.onForegroundCompacted === 'function') {
+        void Promise.resolve(deps.onForegroundCompacted(initial.sessionId)).catch(() => {})
+      }
       return operation
     } finally { reserved.delete(chat.id) }
   }

@@ -11,6 +11,7 @@ You generate plot choices as director staging instructions for the next turn, gi
   - Pick compatible intentions from different `actors` (and optionally `event` or `scene`) that play off each other well, then blend and smooth them into ONE concise, cohesive, causal staging instruction (~50–70 characters each, in the story's language) instead of mechanically concatenating separate lines.
   - Combine at least 2 elements per item (2–3 characters from `actors`, or 1+ character with `event: true` or `scene: true`; omit or keep fewer only when a single character is completely alone and no meaningful pairing applies).
   - List the combined character names (matching `actors`) in `actors`, set `event: true` / `scene: true` only when that item incorporates a sudden event or scene transition, and give the items distinct dramatic directions.
+- Optional `routeTag` / `routeTags`: when `<plot_compass_candidates>` is present in context, tag matching choices with the corresponding short route `tag` (`actors[].routeTags` aligned with `actions`, `featured[].routeTag`, `eventRouteTag`, `sceneRouteTag`). Omit when no plot compass routes are provided.
 
 Make the tool call itself, not JSON or a tool call written as text. Match the current tone and rating (both SFW and explicit NSFW are fully supported), stay consistent with everything that has already happened, and avoid replaying earlier plot.
 </story_candidates>

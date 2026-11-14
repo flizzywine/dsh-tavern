@@ -437,6 +437,7 @@
 .fork-gal-stage .fork-gal-choice-tab:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
 .fork-gal-choice-tab-count { font-size: .86em; opacity: .78; }
 .fork-gal-choice-badge { margin-right: .22em; color: var(--gal-ui-accent); font-weight: 600; }
+.fork-gal-choice-badge.is-route { color: #34a882; font-weight: 700; }
 /* The ✎ of a story choice: a round quiet icon at the ribbon's right, inside the solid part. With a mouse it shows while
    the ribbon is hovered or holds focus; on touch it stays, faint. A suggestion edited and left (a click away kept its
    text) keeps an accent ✎. */

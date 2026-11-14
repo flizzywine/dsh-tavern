@@ -44,7 +44,7 @@ export function createGameSaveImportContent(save, { chatId, sessionId, cardPath,
     const next = renameJson(state)
     next.id = chatId; next.sessionId = sessionId; next.cardPath = cardPath
     // Background agents, candidates and undo points name the source install's sessions.
-    for (const key of ['forkedFrom', 'regenRecovery', 'regenInProgress', 'rollbackUndo', 'backgroundHistoryIds', 'candidateAgent']) delete next[key]
+    for (const key of ['forkedFrom', 'regenRecovery', 'regenInProgress', 'rollbackUndo', 'backgroundHistoryIds', 'candidateAgent', 'plotCompassTask']) delete next[key]
     const scrub = value => {
       if (Array.isArray(value)) { value.forEach(scrub); return }
       if (!value || typeof value !== 'object') return

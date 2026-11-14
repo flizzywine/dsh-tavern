@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto'
 export function createPlayHandlers(deps) {
   const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationGuides, ctx,
-    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
+    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat, plotCompassService,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
@@ -150,6 +150,42 @@ export function createPlayHandlers(deps) {
     },
     async deleteGuide(args) {
       return { guides: await conversationGuides.remove(args?.sessionId, args) }
+    },
+    async generatePlotCompass(args) {
+      return await plotCompassService.generate({
+        sessionId: args?.sessionId,
+        scope: args?.scope,
+        guidance: args?.guidance,
+        wait: args?.wait === true
+      })
+    },
+    async cancelPlotCompass(args) {
+      return await plotCompassService.cancel({ sessionId: args?.sessionId })
+    },
+    async pinPlotCompassRoute(args) {
+      const plotCompass = await plotCompassService.pin({
+        sessionId: args?.sessionId,
+        horizon: args?.horizon,
+        routeId: args?.routeId,
+        exact: args?.exact === true
+      })
+      return { plotCompass }
+    },
+    async togglePlotCompassStep(args) {
+      const plotCompass = await plotCompassService.toggleStep({
+        sessionId: args?.sessionId,
+        horizon: args?.horizon,
+        routeId: args?.routeId,
+        stepIndex: args?.stepIndex
+      })
+      return { plotCompass }
+    },
+    async setPlotCompassArchetypes(args) {
+      const plotCompass = await plotCompassService.setArchetypes({
+        sessionId: args?.sessionId,
+        archetypes: args?.archetypes
+      })
+      return { plotCompass }
     },
     async deleteMessages(args) {
       autoChoices.cancel(args && args.sessionId)

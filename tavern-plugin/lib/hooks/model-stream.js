@@ -3,6 +3,7 @@ import { createModelStreamProgress } from '../domain/model-stream-progress.js'
 import { assertFrozenStageRequest } from '../domain/stage-shared-context.js'
 import { createImportContextPreparation, needsImportContextPreparation } from '../domain/import-context-preparation.js'
 import { createStoryCompactionRequest, nativelyRetainedRounds, retainRecentStoryRounds, storyVolumeMerge, storyVolumePlan, usesStoryCompaction } from '../domain/story-compaction.js'
+import { plotCompassCompactionNote } from '../domain/plot-compass.js'
 import { installCompactionRequestProjection } from '../domain/compaction-request.js'
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
@@ -74,12 +75,14 @@ export function registerModelStreamHooks({
   installCompactionRequestProjection(ctx, ownsSession, async request => {
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
-    const head = await chatHeaderForSession(str(request.sessionId), [])
+    const head = await chatHeaderForSession(str(request.sessionId), ['plotCompass'])
     if (!usesStoryCompaction(head)) return { request }
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.
     const notes = pluginCompactionNotes ? await pluginCompactionNotes({ gameId: str(request.sessionId) }).catch(() => []) : []
+    const compassNote = plotCompassCompactionNote(head)
+    const allNotes = compassNote ? [...notes, { text: compassNote }] : notes
     const session = sessionStore.get(request.sessionId) || agentRegistry.get(request.sessionId)?.session
     const retention = await storyRetention(request)
     const natively = nativelyRetainedRounds(session, request)
@@ -93,7 +96,7 @@ export function registerModelStreamHooks({
     const turns = recent && (recent.messagesFrom === 0 || recentTurns.length > back) ? recentTurns
       : ((await chatForSession(str(request.sessionId)))?.messages || []).filter(message => message?.role === 'assistant' && Number(message.turn) > 0).map(message => Number(message.turn))
     const volumes = storyVolumePlan(request, { through: turns[turns.length - 1 - kept - natively], budget: retention.volumeBudget, estimate: retention.estimate })
-    const instruction = [runtimePrompt('story-compaction'), volumes.instruction, ...(notes.length ? [promptSection('plugin_compaction', [PROMPT_PROSE.p001, ...notes.map(note => note.text)].join('\n\n'))] : [])].join('\n\n')
+    const instruction = [runtimePrompt('story-compaction'), volumes.instruction, ...(allNotes.length ? [promptSection('plugin_compaction', [PROMPT_PROSE.p001, ...allNotes.map(note => note.text)].join('\n\n'))] : [])].join('\n\n')
     const story = createStoryCompactionRequest(request, instruction)
     let prefix = volumes.prefix
     if (volumes.merge) {

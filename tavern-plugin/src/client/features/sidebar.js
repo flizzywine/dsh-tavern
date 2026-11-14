@@ -1298,7 +1298,12 @@
 						messageIndex: plan.messageIndex, messageUid: plan.messageUid
 					});
 					forkCreated = true;
-					const forkTitle = (currentTitle || item.cardName + "的新对话") + " · 分支";
+					if (target && target.plotCompassPin) {
+						try { await call("pinPlotCompassRoute", Object.assign({ sessionId: targetSessionId }, target.plotCompassPin)); }
+						catch (pinError) { console.warn("dsh-tavern: 分叉已创建，但锚定剧情路线失败", pinError); }
+					}
+					const titleSuffix = target && typeof target.titleSuffix === "string" && target.titleSuffix ? target.titleSuffix : " · 分支";
+					const forkTitle = (currentTitle || item.cardName + "的新对话") + titleSuffix;
 					try { await (isPlayMode(item.mode || "story") ? props.renameChat : props.renameSession)(targetSessionId, forkTitle); }
 					catch (renameError) { console.warn("dsh-tavern: 分叉已创建，但自动命名失败", renameError); }
 					const pending = { sessionId: targetSessionId, targetMode: item.mode };

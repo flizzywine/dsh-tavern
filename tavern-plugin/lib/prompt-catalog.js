@@ -10,6 +10,7 @@ export const SYSTEM_PROMPT_DEFINITIONS = Object.freeze([
   ['polish-guidance', '精修按意见修改', '重写面板填了意见再点「精修」时使用：先按「正文精修原则」改完，再按这份要求只照玩家的意见改一次。精修 Agent 通过工具逐处提交修改。修改后下一次精修生效。'],
   ['candidate-story', '普通剧情候选项', '控制普通剧情候选项的数量、类型和输出格式。'],
   ['candidate-script', '剧本候选项', '控制剧本模式候选项及剧本推进规则。'],
+  ['plot-compass', '剧情罗盘规划', '控制今期、中期、长期多路线剧情规划的题材分叉维度、暗线挖掘与输出规则。'],
   ['posture-settlement', '姿势状态结算', '控制后台姿势结算的工具提交。'],
   ['story-compaction', '前台上下文压缩', '用于前台手动和自动压缩：把更早的剧情写成摘要，最近 10 轮原文原样附在摘要后。修改后下次压缩生效；后台仍使用 DSH 内置压缩提示词。'],
   ['card-workspace', '卡片 Agent 工作区说明', '仅注入卡片 Agent 的 system。可编辑完整说明；{{resourceRoot}} 自动替换为当前资源根目录，{{projectionPaths}} 自动替换为当前会话的投影文件路径。保存后下一次请求生效。'],

@@ -222,6 +222,7 @@ import {
 import { createLedgerEditor } from './domain/ledger-editor.js'
 import { LEDGER_SUBMIT_TOOL } from './domain/story-ledger.js'
 import { createManualLedger } from './domain/manual-ledger.js'
+import { createPlotCompassService } from './domain/plot-compass-service.js'
 import { POSTURE_SUBMIT_TOOL } from './domain/posture-submission.js'
 import { bubbleCastLines } from './domain/cast-annotation.js'
 import { createPolishRecords } from './domain/polish-records.js'
@@ -2244,6 +2245,7 @@ export async function apply(ctx) {
     cardViewOf,
     projectLedgerTask: chat => manualLedger.project(chat),
     projectCharacterDesignTask: chat => manualCharacterDesign.project(chat),
+    projectPlotCompassTask: chat => plotCompassService.projectTask(chat),
 
     readPromptTemplateGlobalVariables,
     sessionStore,
@@ -2819,7 +2821,27 @@ export async function apply(ctx) {
     },
     onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
   })
-  // 舞台、导演与 mod（stage-module.js）。
+  const plotCompassService = createPlotCompassService({
+    store: {
+      chatForSession,
+      readChat,
+      updateChat,
+      readCard: (cardPath, chat) => chat ? readChatCard(chat) : readCard(cardPath),
+      readScript
+    },
+    worldBooks: {
+      bound: (cardPath, card, chat) => worldBooks.bound(cardPath, card, chat),
+      constantContext: async chat => (await candidateWorldbookPreparation?.get(chat.sessionId))?.context || ''
+    },
+    scripts: scriptContinuity,
+    prompt: runtimePrompt,
+    selection: backgroundModelSelection,
+    runAgent: input => backgroundAgentRunner.run(input),
+    ensureSession: async sessionId => {
+      if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
+    },
+    onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'plot-compass:' + Date.now() }) }
+  })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   await stageRuntime.start({hostLibrary, contextHost, dataRoot, activeStageSkin,
@@ -3333,6 +3355,7 @@ export async function apply(ctx) {
   autoCompaction = createAutoCompaction({
     readChat: chatForSession, readState: sessionStateForSession, readMetadata: taskStateReader.forSession, updateChat,
     onState: (id, chat) => { const sessionId = String(chat?.sessionId || ''); if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'compaction:' + Date.now() }) },
+    onForegroundCompacted: sessionId => plotCompassService.autoEvolveAfterCompaction(sessionId),
     policy: async () => (await readTavernSettings()).contextCompaction,
     activity: chat => backgroundTasks.activity(chat),
     exclusive: backgroundTasks.exclusive,
@@ -4214,7 +4237,7 @@ export async function apply(ctx) {
     replaceCard, importCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,
-    modelRequestLog, mvuDiagnostics, narrativeDamper, notifyPluginTimeline, openingPreparation, pagesInFront,
+    modelRequestLog, mvuDiagnostics, narrativeDamper, notifyPluginTimeline, openingPreparation, pagesInFront, plotCompassService,
     playCardSnapshots, pluginApi, pluginBodyGeneration, pluginDataStore, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns,
     pluginSettlementProgress, prepareConversationFork, preparedSaveSessions, presentSystemPrompts, promptDocuments, transferExports,
     presentUserPreferenceProfile, presetLibrary, previewPreset, profileData, projectOpeningWindow,

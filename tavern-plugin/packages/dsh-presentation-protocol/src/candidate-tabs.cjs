@@ -77,7 +77,10 @@ const candidateTabs = (() => {
     }
 
     function candidateChoiceBadges(item, { tabKind = "featured", hasTabs = true } = {}) {
-        if (!hasTabs || !item || typeof item !== "object") return [];
+        if (!item || typeof item !== "object") return [];
+        const routeTag = typeof item.routeTag === "string" ? item.routeTag.trim() : "";
+        const routeBadge = routeTag ? [{ kind: "route", label: routeTag }] : [];
+        if (!hasTabs) return routeBadge;
         if (item.type === "featured") {
             const badges = (Array.isArray(item.actors) ? item.actors : [])
                 .map(name => String(name || "").trim())
@@ -85,12 +88,12 @@ const candidateTabs = (() => {
                 .map(label => ({ kind: "actor", label }));
             if (item.hasEvent === true) badges.push({ kind: "event", label: "突发事件" });
             if (item.hasScene === true) badges.push({ kind: "scene", label: "场景变化" });
-            return badges;
+            return routeBadge.concat(badges);
         }
-        if (item.type === "scene") return [{ kind: "scene", label: "场景变化" }];
-        if (item.type === "event") return [{ kind: "event", label: "突发事件" }];
-        if (tabKind === "featured" && item.actor) return [{ kind: "actor", label: item.actor }];
-        return [];
+        if (item.type === "scene") return routeBadge.concat([{ kind: "scene", label: "场景变化" }]);
+        if (item.type === "event") return routeBadge.concat([{ kind: "event", label: "突发事件" }]);
+        if (tabKind === "featured" && item.actor) return routeBadge.concat([{ kind: "actor", label: item.actor }]);
+        return routeBadge;
     }
 
     function formatCandidateChoiceText(item) {

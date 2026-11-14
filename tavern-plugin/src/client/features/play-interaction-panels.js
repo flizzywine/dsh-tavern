@@ -25,6 +25,11 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const sessionMode = useTavernSessionMode(props.sessionId);
         const running = props.useSession(function (snapshot) { return snapshot.running; });
         const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+        const liveState = typeof useLiveTavernView === "function" ? useLiveTavernView(props.sessionId) : null;
+        const compass = liveState && liveState.view && liveState.view.plotCompass;
+        const pinnedShortRoute = compass && compass.pinned && compass.pinned.shortTerm && Array.isArray(compass.shortTerm)
+            ? compass.shortTerm.find(function (r) { return r && r.id === compass.pinned.shortTerm; }) || null
+            : null;
         const [added, setAdded] = React.useState([]);
         const [activeTab, setActiveTab] = React.useState("featured");
         const expanded = Boolean(panel && panel.expanded);
@@ -101,7 +106,16 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             if (buttons[nextIndex]) buttons[nextIndex].focus();
         }
         return h("div", { className: "dsh-tavern-question dsh-tavern-candidate-question" + (expanded ? "" : " collapsed") },
-            h("div", { className: "dsh-tavern-question-head", role: "button", tabIndex: 0, "aria-expanded": expanded ? "true" : "false", onClick: function () { setExpanded(!expanded); }, onKeyDown: function (event) { if (event.target === event.currentTarget && !event.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setExpanded(!expanded); } } }, h("span", null, heading), h("span", { className: "dsh-tavern-question-sub" }, summary), h("button", { type: "button", className: "dsh-tavern-question-close", title: expanded ? "收起行动列表" : "展开行动列表", "aria-label": expanded ? "收起行动列表" : "展开行动列表", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
+            h("div", { className: "dsh-tavern-question-head", role: "button", tabIndex: 0, "aria-expanded": expanded ? "true" : "false", onClick: function () { setExpanded(!expanded); }, onKeyDown: function (event) { if (event.target === event.currentTarget && !event.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setExpanded(!expanded); } } },
+                h("span", null, heading),
+                pinnedShortRoute ? h("button", {
+                    type: "button",
+                    className: "dsh-tavern-question-compass-pill",
+                    title: "当前近期锚定目标：" + pinnedShortRoute.title + "（点击打开剧情罗盘）",
+                    onClick: function (event) { event.stopPropagation(); if (typeof props.openPlotCompass === "function") props.openPlotCompass(); }
+                }, "🧭 " + (pinnedShortRoute.tag || pinnedShortRoute.title)) : null,
+                h("span", { className: "dsh-tavern-question-sub" }, summary),
+                h("button", { type: "button", className: "dsh-tavern-question-close", title: expanded ? "收起行动列表" : "展开行动列表", "aria-label": expanded ? "收起行动列表" : "展开行动列表", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
             expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
             expanded && tabState.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabState.tabs.map(function (tab) {
                 const isSelectedTab = tab.key === currentTab.key;

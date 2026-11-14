@@ -949,6 +949,7 @@
 		}
 
         // @include modules/background-wait.js
+        // @include modules/plot-compass.js
 
 		function TavernStopBackgroundAction(props) {
 			const [busy, setBusy] = React.useState(false);
@@ -1154,6 +1155,7 @@
 				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
 				h("div", { className: "dsh-tavern-dock-actions-primary" },
 					isPlayMode(sessionMode) ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
+					isPlayMode(sessionMode) && live.view ? React.createElement(PlotCompassDockButton, { sessionId: ownerSessionId, view: live.view }) : null,
 					isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
 				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
 				React.createElement(MobileComposerStatsToggle),
@@ -1450,6 +1452,8 @@
 					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: uiConversation, sessionId: props.scope.sessionId, executeSlash: executeSlash, openStyleTab: function (type, meta) { openTavernSidebarTab(ctx, { type: type, meta: meta }, { sessionId: props.scope.sessionId }); } });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
+			ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:plot-compass", title: "剧情罗盘", order: 7, single: true,
+				component: props => React.createElement(TavernPlotCompassTab, { sessionId: props.scope && props.scope.sessionId }) }), "dsh-tavern: plot compass tab");
 			ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:background-tasks", title: "后台任务", order: 7, single: true,
 				component: props => React.createElement(TavernBackgroundTasksTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: background tasks tab");
 			ctx.effect(() => slots.inject("conversation.chat.assistant-actions", () => slots.register(
@@ -1470,7 +1474,10 @@
 				function (props) { return React.createElement(React.Fragment, null,
 					React.createElement(SupersededTurnErrors, Object.assign({}, props, { key: props.sessionId })),
 					React.createElement(TurnHistoryProjection, Object.assign({}, props, { key: "history:" + props.sessionId })),
-					React.createElement(CandidateQuestion, Object.assign({}, props, { sessions: ctx.sessions }))
+					React.createElement(CandidateQuestion, Object.assign({}, props, {
+						sessions: ctx.sessions,
+						openPlotCompass: function () { openTavernSidebarTab(ctx, { type: "dsh-tavern:plot-compass" }, { sessionId: props.sessionId }); }
+					}))
 				); }
 			)), "dsh-tavern: candidate question panel");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(

@@ -107,6 +107,10 @@ function cleanCandidateText(value, card, chat) {
   return decodeLiteralUnicodeEscapes(projectCandidateIdentityMacros(value, card, chat)).trim()
 }
 
+function cleanRouteTag(value, card, chat) {
+  return cleanCandidateText(value, card, chat).replace(/^[【〔\[]+|[】〕\]]+$/g, '').slice(0, 12).trim()
+}
+
 function validatedChoices(source, scriptMode, logger) {
   const choices = []
   for (const item of Array.isArray(source) ? source : []) {
@@ -116,14 +120,22 @@ function validatedChoices(source, scriptMode, logger) {
     const text = decodeLiteralUnicodeEscapes(item.text).trim()
     if (type === null || text === '' || choices.some(function (choice) { return choice.text === text })) continue
     const actor = type === 'action' ? decodeLiteralUnicodeEscapes(item.actor).trim() : ''
-    choices.push(actor !== '' ? { type, actor, text } : { type, text })
+    const routeTag = decodeLiteralUnicodeEscapes(item.routeTag).replace(/^[【〔\[]+|[】〕\]]+$/g, '').slice(0, 12).trim()
+    choices.push({
+      type,
+      ...(actor !== '' ? { actor } : {}),
+      ...(routeTag !== '' ? { routeTag } : {}),
+      text
+    })
   }
   if (scriptMode) {
     if (choices.length === 0) throw new Error('模型没有返回至少 1 个有效候选项')
     if (choices.length > 1 && logger && typeof logger.warn === 'function') {
       logger.warn(`dsh-tavern: 模型候选项返回 ${choices.length} 个剧本候选，已裁剪为 1 个。`)
     }
-    return choices.slice(0, 1).map(function (item) { return { type: item.type, text: item.text } })
+    return choices.slice(0, 1).map(function (item) {
+      return { type: item.type, ...(item.routeTag ? { routeTag: item.routeTag } : {}), text: item.text }
+    })
   }
   const actions = choices.filter(function (choice) { return choice.type === 'action' })
   const scenes = choices.filter(function (choice) { return choice.type === 'scene' })
@@ -154,41 +166,46 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
       }
       const list = actorMap.get(name)
       const rawActions = Array.isArray(entry.actions) ? entry.actions : []
-      for (const rawAction of rawActions) {
+      const rawRouteTags = Array.isArray(entry.routeTags) ? entry.routeTags : []
+      for (let actionIdx = 0; actionIdx < rawActions.length; actionIdx++) {
+        const rawAction = rawActions[actionIdx]
         if (list.length >= MAX_ACTIONS_PER_ACTOR) break
         const text = cleanCandidateText(typeof rawAction === 'string' ? rawAction : rawAction?.text, card, chat)
         if (text === '' || seenTexts.has(text)) continue
+        const routeTag = cleanRouteTag(typeof rawAction === 'object' ? rawAction?.routeTag : rawRouteTags[actionIdx], card, chat)
         seenTexts.add(text)
-        list.push(text)
+        list.push(routeTag ? { text, routeTag } : { text })
       }
     }
     const events = []
     const scenes = []
-    function pushGlobal(kind, rawValue) {
+    function pushGlobal(kind, rawValue, rawTag) {
       const text = cleanCandidateText(rawValue, card, chat)
       if (text === '' || seenTexts.has(text)) return
+      const routeTag = cleanRouteTag(rawTag, card, chat)
       seenTexts.add(text)
-      if (kind === 'scene') scenes.push(text)
-      else events.push(text)
+      const entry = routeTag ? { text, routeTag } : { text }
+      if (kind === 'scene') scenes.push(entry)
+      else events.push(entry)
     }
-    if (payload.event !== undefined) pushGlobal('event', typeof payload.event === 'string' ? payload.event : payload.event?.text)
-    if (payload.scene !== undefined) pushGlobal('scene', typeof payload.scene === 'string' ? payload.scene : payload.scene?.text)
+    if (payload.event !== undefined) pushGlobal('event', typeof payload.event === 'string' ? payload.event : payload.event?.text, payload.eventRouteTag ?? payload.event?.routeTag)
+    if (payload.scene !== undefined) pushGlobal('scene', typeof payload.scene === 'string' ? payload.scene : payload.scene?.text, payload.sceneRouteTag ?? payload.scene?.routeTag)
     if (Array.isArray(payload.global)) {
       for (const item of payload.global) {
         if (typeof item === 'string') pushGlobal(events.length === 0 ? 'event' : 'scene', item)
         else if (item && typeof item === 'object') {
           const kind = choiceType(item.type) === 'scene' ? 'scene' : 'event'
-          pushGlobal(kind, item.text)
+          pushGlobal(kind, item.text, item.routeTag)
         }
       }
     }
     if (scriptMode) {
       const flat = []
       for (const actions of actorMap.values()) {
-        for (const text of actions) flat.push({ type: 'action', text })
+        for (const item of actions) flat.push({ type: 'action', ...item })
       }
-      for (const text of events) flat.push({ type: 'action', text })
-      for (const text of scenes) flat.push({ type: 'scene', text })
+      for (const item of events) flat.push({ type: 'action', ...item })
+      for (const item of scenes) flat.push({ type: 'scene', ...item })
       return validatedChoices(flat, true, logger)
     }
     const groups = []
@@ -218,12 +235,14 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
       }
       const elementCount = featuredActors.length + (hasEvent ? 1 : 0) + (hasScene ? 1 : 0)
       if (featuredActors.length === 0 || elementCount < 2) continue
+      const featuredRouteTag = cleanRouteTag(entry.routeTag, card, chat)
       seenTexts.add(text)
       featuredChoices.push({
         type: 'featured',
         actors: featuredActors,
         ...(hasEvent ? { hasEvent: true } : {}),
         ...(hasScene ? { hasScene: true } : {}),
+        ...(featuredRouteTag ? { routeTag: featuredRouteTag } : {}),
         text
       })
     }
@@ -245,10 +264,10 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
     }
     const choices = []
     for (const group of groups) {
-      for (const text of group.actions) choices.push({ type: 'action', actor: group.name, text })
+      for (const item of group.actions) choices.push({ type: 'action', actor: group.name, ...item })
     }
-    if (events.length > 0) choices.push({ type: 'event', text: events[0] })
-    if (scenes.length > 0) choices.push({ type: 'scene', text: scenes[0] })
+    if (events.length > 0) choices.push({ type: 'event', ...events[0] })
+    if (scenes.length > 0) choices.push({ type: 'scene', ...scenes[0] })
     choices.push(...featuredChoices)
     return choices
   }
@@ -306,6 +325,7 @@ export const FOREGROUND_CANDIDATES_PROMPT = [
   '- `event` holds 1 sudden interaction, external interruption, or multi-party situation shift within the current scene.',
   '- `scene` holds 1 scene-change direction transitioning to a new time, location, or incoming situation.',
   '- `featured` holds 2–4 curated ensemble combinations for the default Featured tab: pick compatible intentions across different `actors` (and optionally `event` or `scene`), then blend and smooth them into ONE concise, cohesive, causal staging line instead of mechanically concatenating separate lines; combine at least 2 elements per item (2–3 characters from `actors`, or 1+ character with `event: true` or `scene: true`; omit or keep fewer only when a single character is completely alone).',
+  '- When `<plot_compass>` is active in context, you may optionally include `routeTags` (array aligned with `actions` on an actor group) and `routeTag` (on `featured` items) with the short 2–6 char route label.',
   '- Write as concrete director staging instructions matching the current tone and rating (both SFW and explicit NSFW are fully supported). Do not write anything after `</story_choices>`.',
   '</foreground_story_candidates>'
 ].join('\n')
@@ -369,14 +389,17 @@ export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
           additionalProperties: false,
           properties: {
             name: { type: 'string', minLength: 1 },
-            actions: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1 } }
+            actions: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1 } },
+            routeTags: { type: 'array', minItems: 0, maxItems: 4, items: { type: 'string' }, description: '与 actions 下标一一对应的可选剧情路线短签（当上下文提供 plot_compass_candidates 时填写）' }
           },
           required: ['name', 'actions']
         }
       },
       event: { type: 'string' },
+      eventRouteTag: { type: 'string' },
       actions: { type: 'array', minItems: 0, maxItems: 4, items: { type: 'string', minLength: 1 } },
       scene: { type: 'string' },
+      sceneRouteTag: { type: 'string' },
       featured: {
         type: 'array',
         minItems: 0,
@@ -388,6 +411,7 @@ export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
             actors: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1 } },
             event: { type: 'boolean' },
             scene: { type: 'boolean' },
+            routeTag: { type: 'string', description: '可选剧情路线短签（对应剧情罗盘路线 tag）' },
             text: { type: 'string', minLength: 1 }
           },
           required: ['actors', 'text']
@@ -750,6 +774,7 @@ export function createCandidateGenerator(options) {
       const normalizedType = choiceType(item.type)
       const type = isScript && normalizedType === 'event' ? 'action' : (normalizedType || 'action')
       const text = str(item.text).trim()
+      const routeTag = str(item.routeTag).replace(/^[【〔\[]+|[】〕\]]+$/g, '').trim().slice(0, 12)
       if (type === 'featured') {
         if (isScript) return null
         const actors = Array.isArray(item.actors) ? item.actors.map(function (name) { return str(name).trim() }).filter(Boolean) : []
@@ -758,11 +783,17 @@ export function createCandidateGenerator(options) {
           ...(actors.length > 0 ? { actors } : {}),
           ...(item.hasEvent === true ? { hasEvent: true } : {}),
           ...(item.hasScene === true ? { hasScene: true } : {}),
+          ...(routeTag !== '' ? { routeTag } : {}),
           text
         }
       }
       const actor = !isScript && type === 'action' ? str(item.actor).trim() : ''
-      return actor !== '' ? { type, actor, text } : { type, text }
+      return {
+        type,
+        ...(actor !== '' ? { actor } : {}),
+        ...(routeTag !== '' ? { routeTag } : {}),
+        text
+      }
     }).filter(function (item) { return item !== null && item.text !== '' }).slice(0, limit) : []
     if (choices.length === 0) return null
     const traceSessionIds = Array.isArray(chat.candidates.traceSessionIds) ? chat.candidates.traceSessionIds.map(str).filter(function (id) { return id !== '' }) : []

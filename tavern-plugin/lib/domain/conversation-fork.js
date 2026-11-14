@@ -70,6 +70,7 @@ export function forkConversationChat(source, options = {}) {
   }
   chat.candidates = null
   chat.candidateAgent = null
+  delete chat.plotCompassTask
   chat.foregroundError = null
   chat.settleError = null
   chat.forkedFrom = {

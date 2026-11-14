@@ -248,6 +248,7 @@ const FRAME_INSTRUCTION_KIND = Object.freeze({
   'world-book': 'foreground.active-worldbook',
   posture: 'foreground.current-state',
   'variable-update': 'foreground.current-state',
+  'plot-compass': 'foreground.current-state',
   guide: 'foreground.guide',
   card: 'foreground.card-context',
   'card-instruction': 'foreground.writing-rules',

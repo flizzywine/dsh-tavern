@@ -586,6 +586,22 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-question-tag-actor { color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 13%, transparent); }
 .dsh-tavern-question-tag-event { color: #b56a2c; background: rgba(181,106,44,.15); }
 .dsh-tavern-question-tag-scene { color: #6b7fa3; background: rgba(107,127,163,.16); }
+.dsh-tavern-question-tag-route { color: #268265; background: rgba(38,130,101,.14); border: 1px solid rgba(38,130,101,.28); }
+.dsh-tavern-question-compass-pill {
+  appearance: none;
+  border: 1px solid rgba(38,130,101,.32);
+  background: rgba(38,130,101,.12);
+  color: #268265;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.dsh-tavern-question-compass-pill:hover {
+  background: rgba(38,130,101,.2);
+}
 .dsh-tavern-question-free { width: 100%; margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 9px; background: transparent; color: var(--dsw-alias-label-secondary); text-align: left; cursor: pointer; }
 .dsh-tavern-question-free:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-question-foot { display: flex; justify-content: flex-end; gap: 7px; margin-top: 10px; }
@@ -4707,4 +4723,413 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
   background: color-mix(in srgb, #c89128 16%, transparent);
   color: #c89128;
   font-weight: 600;
+}
+
+/* Plot Compass (剧情罗盘) */
+.dsh-tavern-compass-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dsh-tavern-compass-dock-btn.is-pinned {
+  border-color: rgba(38, 130, 101, 0.42);
+  background: color-mix(in srgb, #268265 13%, var(--dsw-alias-bg-base, transparent));
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-tavern-compass-dock-glyph {
+  font-size: 12px;
+  line-height: 1;
+}
+.dsh-tavern-compass-dock-spinner {
+  width: 12px;
+  height: 12px;
+}
+.dsh-tavern-compass-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dsh-tavern-compass-turn-badge {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.08));
+}
+.dsh-tavern-compass-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsh-tavern-compass-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+}
+.dsh-tavern-compass-archetypes-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.dsh-tavern-compass-label {
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-tavern-compass-muted {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+.dsh-tavern-compass-archetype-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsh-tavern-accent);
+  background: var(--dsh-tavern-accent-soft);
+}
+.dsh-tavern-compass-archetype-chip.is-removable button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dsh-tavern-compass-link-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--dsh-tavern-accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: auto;
+}
+.dsh-tavern-compass-link-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.dsh-tavern-compass-link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.dsh-tavern-compass-archetype-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--dsw-alias-border-l2);
+}
+.dsh-tavern-compass-preset-tags,
+.dsh-tavern-compass-selected-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.dsh-tavern-compass-preset-tag {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base, transparent);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.dsh-tavern-compass-preset-tag.is-selected {
+  border-color: var(--dsh-tavern-accent-border);
+  background: var(--dsh-tavern-accent-soft);
+  color: var(--dsh-tavern-accent);
+  font-weight: 600;
+}
+.dsh-tavern-compass-custom-row,
+.dsh-tavern-compass-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dsh-tavern-compass-input {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-input-major, var(--dsw-alias-bg-base));
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+.dsh-tavern-compass-input:focus {
+  outline: none;
+  border-color: var(--dsh-tavern-accent);
+}
+.dsh-tavern-compass-digest {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-tavern-compass-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(38, 130, 101, 0.35);
+  background: color-mix(in srgb, #268265 9%, transparent);
+}
+.dsh-tavern-compass-funnel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.dsh-tavern-compass-funnel-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dsh-tavern-compass-funnel-chip {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid rgba(38, 130, 101, 0.28);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+.dsh-tavern-compass-notice {
+  margin: 0;
+  font-size: 12px;
+  color: #268265;
+}
+.dsh-tavern-compass-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.dsh-tavern-compass-tab {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 6px;
+  border-radius: 9px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+.dsh-tavern-compass-tab.is-active {
+  border-color: var(--dsh-tavern-accent-border);
+  background: var(--dsh-tavern-accent-soft);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-tavern-compass-tab.has-pin .dsh-tavern-compass-tab-title {
+  color: #268265;
+}
+.dsh-tavern-compass-tab-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.dsh-tavern-compass-tab small {
+  font-size: 10.5px;
+  opacity: 0.8;
+}
+.dsh-tavern-compass-section-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dsh-tavern-compass-section-bar p {
+  margin: 0;
+}
+.dsh-tavern-compass-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dsh-tavern-compass-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 11px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.dsh-tavern-compass-card.is-pinned {
+  border-color: rgba(38, 130, 101, 0.55);
+  box-shadow: 0 2px 10px rgba(38, 130, 101, 0.09);
+}
+.dsh-tavern-compass-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dsh-tavern-compass-card-titles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.dsh-tavern-compass-route-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: #268265;
+}
+.dsh-tavern-compass-card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-tavern-compass-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.dsh-tavern-compass-pill {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.1));
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-tavern-compass-pill.is-hook {
+  color: #b56a2c;
+  background: rgba(181, 106, 44, 0.14);
+}
+.dsh-tavern-compass-pill.is-active {
+  color: #268265;
+  background: rgba(38, 130, 101, 0.15);
+  font-weight: 600;
+}
+.dsh-tavern-compass-card-summary {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-tavern-compass-callout {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.07));
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-tavern-compass-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dsh-tavern-compass-steps-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-tavern-compass-step-list,
+.dsh-tavern-compass-prereq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dsh-tavern-compass-prereq-list li {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--dsw-alias-label-secondary);
+  padding-left: 12px;
+  position: relative;
+}
+.dsh-tavern-compass-prereq-list li::before {
+  content: "•";
+  position: absolute;
+  left: 2px;
+  color: var(--dsh-tavern-accent);
+}
+.dsh-tavern-compass-step-btn {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.dsh-tavern-compass-step-btn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08));
+}
+.dsh-tavern-compass-step-list li.is-done .dsh-tavern-compass-step-text {
+  text-decoration: line-through;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-tavern-compass-check {
+  flex: none;
+  color: #268265;
+  font-weight: 700;
+  width: 14px;
+}
+.dsh-tavern-compass-meta-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-tavern-compass-meta-line.is-subtle {
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-tavern-compass-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+.dsh-tavern-compass-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 14px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 10px;
+}
+.dsh-tavern-compass-empty p {
+  margin: 0;
+}
+.dsh-tavern-compass-archived {
+  font-size: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+.dsh-tavern-compass-archived summary {
+  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary);
 }

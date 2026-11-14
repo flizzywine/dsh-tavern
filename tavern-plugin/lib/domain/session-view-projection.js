@@ -12,6 +12,7 @@ import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
 import { projectCharacterDesignDocument } from './character-design-document.js'
 import { readLedger } from './story-ledger.js'
+import { readPlotCompass } from './plot-compass.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from './tavern-compatibility-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { forkTurnsByMessageId as forkTargetsFromSession } from './conversation-fork-targets.js'
@@ -42,7 +43,7 @@ export function createSessionViewProjection({
   readChanges, scheduleTemplateSync, warmCandidates, requestPerformance, readTavernSettings, readScript,
   scriptContinuity, groupOfMode, tavernExtensionSettings, readCardExtensions, tavernRemoteAssets,
   liveCardUpdate, activityOf, cardUpdateStatus, agentRegistry, str, sessionResources, worldBooks,
-  sessionDebugEvidence, cardViewOf, projectLedgerTask, projectCharacterDesignTask, projectPhoneChat,
+  sessionDebugEvidence, cardViewOf, projectLedgerTask, projectCharacterDesignTask, projectPlotCompassTask = () => null, projectPhoneChat,
   readPromptTemplateGlobalVariables, sessionStore, readChatCard, workspaceViewOf, helperHistoryAccess,
   readLiveCardStage = async () => null, stageReadScope = () => false, readStageChat,
   readCardStageMode = async () => NO_STAGE
@@ -231,6 +232,8 @@ export function createSessionViewProjection({
       styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
       ledger: readLedger(chat.ledger),
       ledgerTask: projectLedgerTask(chat),
+      plotCompass: readPlotCompass(chat.plotCompass),
+      plotCompassTask: projectPlotCompassTask(chat),
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -468,6 +471,8 @@ export function createSessionViewProjection({
     const fields = sessionStateView.volatile(chat, activity, changes)
     return { ...fields, ...streamingRegenerationFields(chat), statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
+      plotCompass: readPlotCompass(chat.plotCompass),
+      plotCompassTask: projectPlotCompassTask(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }
 
@@ -511,6 +516,8 @@ export function createSessionViewProjection({
       // Header state a background task rewrites without touching any message.
       ledger: readLedger(chat.ledger),
       ledgerTask: projectLedgerTask(chat),
+      plotCompass: readPlotCompass(chat.plotCompass),
+      plotCompassTask: projectPlotCompassTask(chat),
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
       ...latestTurnFields(chat)

@@ -4,6 +4,7 @@ import { projectAgentContent } from './runtime-content-projection.js'
 import { cardSystemPromptText } from './card-system-prompt.js'
 import { styleReferenceSource } from './style-reference.js'
 import { variableUpdateText } from './variable-update.js'
+import { plotCompassBodySection, plotCompassCandidateSection } from './plot-compass.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -153,6 +154,8 @@ export function createContextPlanner(options = {}) {
         sections.push({ kind: 'script', required: true, text: prompt('script-story') })
       }
       if (input.variableUpdate) sections.push({ kind: 'variable-update', required: true, text: variableUpdateText(input.variableUpdate) })
+      const compassBodySection = plotCompassBodySection(input.chat)
+      if (compassBodySection !== null) sections.push(compassBodySection)
       const style = input.styleReference
       if (style && str(style.quote) !== '') {
         sections.push({ kind: 'style-reference', required: false, text: '【文风联想' + (styleReferenceSource(style) ? ' · ' + styleReferenceSource(style) : '') + '】\n' + str(style.quote) })
@@ -183,6 +186,10 @@ export function createContextPlanner(options = {}) {
       for (const section of plannedCardSections) {
         if (section.kind === 'guide' || section.kind === 'posture') dynamicSections.push(section)
         else stableSections.push(section)
+      }
+      if (!director) {
+        const compassCandidateSection = plotCompassCandidateSection(input.chat)
+        if (compassCandidateSection !== null) dynamicSections.push(compassCandidateSection)
       }
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {
         const window = input.scriptWindow

@@ -6,7 +6,7 @@ const TAVERN_HEADER_DEFAULT = Object.freeze({ display: "icon-text", items: Objec
 const TAVERN_HEADER_NOT_FOLDED = Object.freeze(["dsh-tavern:status", "header:export"]);
 
 const TAVERN_START_GROUPS = Object.freeze([
-	["本局", Object.freeze(["dsh-tavern:status", "dsh-tavern:background-tasks", "dsh-tavern:conversation-settings", "dsh-tavern:virtual-skills"])],
+	["本局", Object.freeze(["dsh-tavern:status", "dsh-tavern:plot-compass", "dsh-tavern:background-tasks", "dsh-tavern:conversation-settings", "dsh-tavern:virtual-skills"])],
 	["资料库", Object.freeze(["dsh-tavern:cards", "dsh-tavern:worldbooks", "dsh-tavern:regex-library", "dsh-tavern:resources", "dsh-tavern:skills"])],
 	["偏好", Object.freeze(["dsh-tavern:presets", "dsh-tavern:guide-library", "dsh-tavern:card-memory"])],
 	["迁移", Object.freeze(["dsh-tavern:transfer"])]
@@ -14,6 +14,7 @@ const TAVERN_START_GROUPS = Object.freeze([
 
 const TAVERN_START_ICON_PATHS = Object.freeze({
 	status: 'M4 18a9 9 0 1 1 16 0M12 13l5-5M11 13a1 1 0 1 0 2 0a1 1 0 1 0-2 0',
+	'plot-compass': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm3.8 5.2-2.2 5.4-5.4 2.2 2.2-5.4 5.4-2.2z',
 	'background-tasks': 'M3 6h12M3 11h7M3 16h7M12 16a5 5 0 1 0 10 0a5 5 0 1 0-10 0M17 13.5V16l1.5 1.5',
 	'conversation-settings': 'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1zM9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
 	cards: 'M8 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0',

@@ -16,7 +16,8 @@ const TAB_ICONS = {
 // because the host only offers a database cylinder and the tab would read differently
 // from the card, the top bar and the settings list that all open it.
 const TAB_ICON_PATHS = {
-    "dsh-tavern:worldbooks": 'M12 6.3C9.6 4.2 6 3.9 3.5 4.6v13c2.5-.7 6.1-.4 8.5 1.7 2.4-2.1 6-2.4 8.5-1.7v-13c-2.5-.7-6.1-.4-8.5 1.7zM12 6.3v13'
+    "dsh-tavern:worldbooks": 'M12 6.3C9.6 4.2 6 3.9 3.5 4.6v13c2.5-.7 6.1-.4 8.5 1.7 2.4-2.1 6-2.4 8.5-1.7v-13c-2.5-.7-6.1-.4-8.5 1.7zM12 6.3v13',
+    "dsh-tavern:plot-compass": 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm3.8 5.2-2.2 5.4-5.4 2.2 2.2-5.4 5.4-2.2z'
 };
 function tabPathIcon(path, size) {
     const px = size || 16;
