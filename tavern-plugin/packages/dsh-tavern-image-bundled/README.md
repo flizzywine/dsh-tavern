@@ -567,7 +567,7 @@ export function apply(ctx) {
 // 之后：images.generate({ prompt, promptPreset: 'example.flat-sheet' })
 ~~~
 
-预设标识采用 `插件名.预设名`，不会与内置或用户保存的预设重名；可选 `tagPositive/naturalPositive/mixedPositive/structuredPositive/structuredNegative` 按渠道类型细化。登记的预设出现在模板列表里，标注来源，用户可以选择、不能编辑，也不写入用户设置。注册函数返回卸载函数，插件卸载时应调用。
+预设标识采用 `插件名.预设名`，不会与内置或用户保存的预设重名；可选 `tagPositive/naturalPositive/mixedPositive/structuredPositive/structuredNegative` 按渠道类型细化。也可以传 `structure`，写法与模板相同：给画风模块加 `usage`，这段文字只用于这种用途的请求（例如空背景和透明底立绘各写一段），不带 `usage` 的文字用于所有请求；`independent: true` 不叠加用户画风库和手动补充；`status: 'experimental'` 在列表里标「实验」。登记的预设出现在模板列表里，标注来源，用户可以选择、不能编辑，也不写入用户设置。注册函数返回卸载函数，插件卸载时应调用。提示词已经写全、不要任何画风时，按次指定内置的 `no-style`（「不加画风」）。生成器的 `presets()` 返回所有可以按次指定的预设（只读）：`{ id, name, origin: 'builtin' | 'registered' | 'saved', source?, status: 'stable' | 'experimental', usages }`，`usages` 是有自己画风文字的用途。
 
 `promptPreset` 只影响这一次生成，可填内置、用户保存或登记的预设标识，优先于当前选中的预设和工作台默认模板（显式的 `templateId`/`modelId` 模板仍按模板生成）；标识不存在、已卸载或已停用时直接报错，不退回当前预设。指定的预设按原样使用：用户画风库里选中的画风、默认画师串和手动补充的正负面词不再叠加上去；世界书提示词系统下也照样使用指定的模板。不传时行为与以前相同。
 ### 前后端维护边界

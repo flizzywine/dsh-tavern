@@ -18,7 +18,7 @@ test('structured normalization preserves Chinese, newlines, repeated traits, ind
 })
 
 test('built-in structured profiles and their guidance are Chinese and allow worldbook-defined sections', () => {
-  for (const preset of BUILTIN_PROMPT_PRESETS.filter(item => !item.structure)) {
+  for (const preset of BUILTIN_PROMPT_PRESETS.filter(item => !item.structure && !item.independent)) {
     const config = { promptMode: 'structured', activePromptPreset: preset.id }
     assert.ok(preset.structuredPositive && preset.structuredNegative)
     const guidance = getPromptGuidance(config, 'atlascloud')

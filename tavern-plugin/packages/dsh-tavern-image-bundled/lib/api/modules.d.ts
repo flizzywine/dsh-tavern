@@ -28,6 +28,11 @@ export interface PromptPresetDefinition {
   /** Namespaced as plugin.name, so it never collides with built-in or saved presets. */
   id: string; name: string; source?: string; positive?: string; negative?: string;
   tagPositive?: string; naturalPositive?: string; mixedPositive?: string; structuredPositive?: string; structuredNegative?: string;
+  /** Template blocks, e.g. `{ kind: 'style', title, text, usage }` for style text only one usage needs. */
+  structure?: { format: 'auto' | 'tags' | 'natural' | 'mixed' | 'structured'; blocks: object[] };
+  /** Leave out the user's style library and manual additions. */
+  independent?: boolean;
+  status?: 'stable' | 'experimental';
 }
 /** Register a read-only style preset from a server-side plugin; dispose on plugin unload. Users can select it but not edit it. */
 export function registerPromptPreset(definition: PromptPresetDefinition): () => void;

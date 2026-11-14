@@ -41,10 +41,18 @@ export interface ComposedImagePrompt {
   positive: string; negative?: string; promptMode?: string;
   parameters?: ModuleParameters; workflowValues?: WorkflowValue[]; moduleTrace?: MaterializedModules['trace'];
 }
+export interface PromptPresetSummary {
+  id: string; name: string; origin: 'builtin' | 'registered' | 'saved'; source?: string;
+  status: 'stable' | 'experimental';
+  /** Usages with their own style text; text without a usage applies to every request. */
+  usages: string[];
+}
 export interface ImageGenerator {
   id: string; label: string;
   models(): Array<ImageStatus & { id: string; label: string }>;
   status(input?: { modelId?: string }): ImageStatus;
+  /** Read-only list of the style presets `generate({ promptPreset })` accepts. */
+  presets(): PromptPresetSummary[];
   generate(input: GenerateRequest): Promise<ImageResult>;
 }
 export type ImageAdapter = (channel: ImageChannel, request: {
