@@ -244,7 +244,11 @@
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
-				setError(missingCard ? "" : (liveState.error || ""));
+				// no-session / no-chat / empty-view 是「这个对话还没有游戏」，不是读取失败：
+				// live view 重试耗尽后把原因留在 error 上，面板应显示空态提示，
+				// 不能把「出错了，请稍后再试」推进错误中心。
+				const emptyView = ["no-session", "no-chat", "empty-view"].includes(liveState.error);
+				setError(missingCard || emptyView ? "" : (liveState.error || ""));
 			}, [liveState.error, missingCard]);
             const [resourceLinkBusy, setResourceLinkBusy] = React.useState(false);
             const [resourceLinkError, setResourceLinkError] = React.useState("");

@@ -109,6 +109,9 @@
   "tavern-plugin/lib/domain/message-source.js": [
     "@deepseek-ai/dsh-system-prompt"
   ],
+  "tavern-plugin/lib/domain/native-surface-repair.js": [
+    "@deepseek-ai/dsh-system-prompt"
+  ],
   "tavern-plugin/lib/domain/model-calls.js": [
     "@deepseek-ai/dsh-llm"
   ],
