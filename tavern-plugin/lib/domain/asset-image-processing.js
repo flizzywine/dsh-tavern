@@ -72,41 +72,52 @@ export function sliceAssetAvatarSheet(bytes, emotionIds, {checks = {}} = {}) {
   // offline detector at avatar ingress, not an alpha-bounds silhouette proxy.
   return Object.fromEntries(cells.map(({id,raw,source})=>{checks[id]=source;return [id,raw]}))
 }
-// Check the original candidate before alignment can add transparent padding.
+// Whether a 立绘 has a transparent background, judged on the picture as it arrived (before alignment adds transparent
+// padding). A background covers the canvas border; a figure covers a part of it where it reaches an edge (hair, feet, an
+// elbow, or a half-length 立绘 cut off along the bottom), so the border must be at least half clear and the picture at
+// least 5% clear. A haze (the translucent fog some channels leave above the head) is half see-through all along one side,
+// where a figure is solid: no side may be mostly translucent. Contact with an edge is not a background: checkAssetImage
+// reports it as EDGE_CONTACT.
 export function checkSpriteCutout(bytes) {
   const {width,height,data} = decodeAssetRgba(bytes)
-  const corners = [0,width-1,(height-1)*width,width*height-1].map(p => data[p*4+3])
-  const ring = Math.min(4,Math.ceil(Math.min(width,height)/2))
-  let transparent = 0, border = 0, clearBorder = 0, visible = 0
+  const ring = Math.min(4,Math.ceil(Math.min(width,height)/2)), sides = [[0,0],[0,0],[0,0],[0,0]]
+  let transparent = 0, border = 0, clearBorder = 0
   for (let y=0;y<height;y++) for (let x=0;x<width;x++) {
-    const alpha=data[(y*width+x)*4+3]
-    if (alpha<=8) transparent++
-    if (alpha>8) visible++
-    if (x<ring||y<ring||x>=width-ring||y>=height-ring) { border++; if (alpha<=8) clearBorder++ }
+    const alpha = data[(y*width+x)*4+3], clear = alpha <= VISIBLE_ALPHA_THRESHOLD
+    if (clear) transparent++
+    if (x<ring||y<ring||x>=width-ring||y>=height-ring) { border++; if (clear) clearBorder++ }
+    ;[y<ring,y>=height-ring,x<ring,x>=width-ring].forEach((on,side) => { if (on) { sides[side][0]++; if (!clear && alpha < 200) sides[side][1]++ } })
   }
   const transparentFraction=transparent/(width*height), borderTransparentFraction=clearBorder/border
-  return {corners,transparentFraction,borderTransparentFraction,
-    valid:visible>0&&corners.every(a=>a===0)&&borderTransparentFraction>=0.99&&transparentFraction>=0.05}
+  const haze=sides.some(([all,translucent]) => translucent/all >= 0.5)
+  return {transparentFraction,borderTransparentFraction,haze,valid:!haze&&borderTransparentFraction>=0.5&&transparentFraction>=0.05}
 }
-export function assertSpriteCutout(bytes) {
-  if (!checkSpriteCutout(bytes).valid) throw Object.assign(new Error('这张立绘带了背景，请重新生成'),{code:'SPRITE_BACKGROUND'})
-}
+// Places an adopted 立绘 on its canvas. The ruler (the default 差分's adopted 立绘) gives the canvas, the head-to-feet
+// height and the feet line (a PNG: the caller converts another format); without one the picture keeps its own canvas, centred, feet at 0.99H. It never crops and
+// never refuses: a figure that would leave the canvas is moved back in, and one too large for it is shrunk until it fits.
+// Alpha bounds stand in for head and feet (no anatomy); the 编辑 tab's 「重新裁切…」 re-frames an adopted picture by hand.
 export function alignAssetSprite(bytes, anchorBytes) {
-  if (anchorBytes) return registerSprite(bytes,anchorBytes).bytes
-  const image = decode(bytes), source = checkAssetImage(bytes,'sprite'), anchor = anchorBytes ? checkAssetImage(anchorBytes,'sprite') : null
-  if (!source.bbox || !source.hasTransparency) throw Object.assign(new Error('立绘没有可用的透明人物轮廓'),{code:'ALIGNMENT_REQUIRED'})
-  if (anchor && (anchor.width !== image.width || anchor.height !== image.height || !anchor.bbox)) throw Object.assign(new Error('画布与 calm 标尺不同，请在对齐器中手动调整'),{code:'ALIGNMENT_REQUIRED'})
-  const box = source.bbox, ruler = anchor?.bbox
-  const dx = Math.round((ruler ? ruler.x+ruler.w/2 : image.width/2) - (box.x+box.w/2))
-  const dy = Math.round((ruler ? ruler.y+ruler.h : image.height*0.99) - (box.y+box.h))
-  if (box.x+dx < 0 || box.y+dy < 0 || box.x+box.w+dx > image.width || box.y+box.h+dy > image.height) throw Object.assign(new Error('自动对齐会截断人物，请手动调整或拒收'),{code:'ALIGNMENT_REQUIRED'})
-  // Translation only. Never independently stretch an emotion bbox to fill the canvas.
-  const pixels = Buffer.alloc(image.pixels.length)
-  for (let y = Math.max(0,-dy); y < Math.min(image.height,image.height-dy); y++) {
-    const x = Math.max(0,-dx), end = Math.min(image.width,image.width-dx)
-    image.pixels.copy(pixels,(y+dy)*image.stride+(x+dx)*image.bpp,y*image.stride+x*image.bpp,y*image.stride+end*image.bpp)
+  const box = checkAssetImage(bytes,'sprite').bbox
+  if (!box) throw Object.assign(new Error('这张立绘是全透明的，里面没有人物，不能采用；请重画'),{code:'EMPTY_IMAGE'})
+  const ruler = anchorBytes ? checkAssetImage(anchorBytes,'sprite') : null, image = decodeAssetRgba(bytes)
+  const width = ruler?.width ?? image.width, height = ruler?.height ?? image.height, r = ruler?.bbox
+  const scale = Math.min(r ? r.h/box.h : 1, width/box.w, height/box.h), within = (v,lo,hi) => Math.min(Math.max(v,lo),hi)
+  const feet = within(r ? r.y+r.h : height*0.99, box.h*scale, height), centre = within(r ? r.x+r.w/2 : width/2, box.w*scale/2, width-box.w*scale/2)
+  const dx = Math.round(centre-(box.x+box.w/2)*scale), dy = Math.round(feet-(box.y+box.h)*scale)
+  if (scale === 1 && !dx && !dy && width === image.width && height === image.height) return bytes
+  return encodeAssetRgba({width,height,data:placeSprite(image,scale,dx,dy,width,height).data})
+}
+// The picture scaled and moved onto a width × height canvas; `clipped` counts the visible pixels that fell outside it.
+function placeSprite(image, scale, dx, dy, width, height) {
+  const scaled = resizeImage(image,Math.max(1,Math.round(image.width*scale)),Math.max(1,Math.round(image.height*scale)))
+  const data = new Uint8ClampedArray(width*height*4)
+  let clipped = 0
+  for (let y=0;y<scaled.height;y++) for (let x=0;x<scaled.width;x++) {
+    const s=(y*scaled.width+x)*4,xx=x+dx,yy=y+dy
+    if (xx<0||yy<0||xx>=width||yy>=height) { if (scaled.data[s+3]>VISIBLE_ALPHA_THRESHOLD) clipped++; continue }
+    data.set(scaled.data.subarray(s,s+4),(yy*width+xx)*4)
   }
-  return encodeRect({...image,pixels},0,0,image.width,image.height)
+  return {data,clipped}
 }
 export function checkAssetImage(bytes,kind,{sheet = false, slice = false, cellWidth, cellHeight} = {}) {
   const warnings = [], warn = (code,message) => warnings.push({code,message,severity:'warning'})
@@ -168,14 +179,7 @@ export function registerSprite(bytes, anchorBytes, landmarks, anchorLandmarks) {
   const scale=(to.feet-to.headTop)/(from.feet-from.headTop), dx=Math.round(to.supportX-from.supportX*scale),dy=Math.round(to.feet-from.feet*scale)
   if (scale<0.25 || scale>4) alignmentFail('Registration scale outside 0.25..4')
   if (image.width*image.height*scale*scale>32*1024**2) alignmentFail('Scaled image exceeds 32 Mpixel processing limit')
-  const scaled=resizeImage(image,Math.max(1,Math.round(image.width*scale)),Math.max(1,Math.round(image.height*scale)))
-  const data=new Uint8ClampedArray(anchor.width*anchor.height*4)
-  let clipped=0
-  for(let y=0;y<scaled.height;y++) for(let x=0;x<scaled.width;x++) {
-    const s=(y*scaled.width+x)*4,xx=x+dx,yy=y+dy
-    if(xx<0||yy<0||xx>=anchor.width||yy>=anchor.height) {if(scaled.data[s+3]>VISIBLE_ALPHA_THRESHOLD)clipped++;continue}
-    data.set(scaled.data.subarray(s,s+4),(yy*anchor.width+xx)*4)
-  }
+  const {data,clipped}=placeSprite(image,scale,dx,dy,anchor.width,anchor.height)
   if(clipped) alignmentFail(`Registration would crop ${clipped} nontransparent pixels; supply measured landmarks or record a legitimate pose exception`)
   return {bytes:scale===1&&dx===0&&dy===0&&image.width===anchor.width&&image.height===anchor.height?bytes:encodeAssetRgba({width:anchor.width,height:anchor.height,data}),transform:{scale,dx,dy,clippedPixels:0},warnings:landmarks&&anchorLandmarks?[]:[{code:'ESTIMATED_LANDMARKS',severity:'warning',message:'Alpha bounds are a proxy, not head/feet recognition; use measured landmarks for raised hands, ornaments or bent poses.'}]}
 }

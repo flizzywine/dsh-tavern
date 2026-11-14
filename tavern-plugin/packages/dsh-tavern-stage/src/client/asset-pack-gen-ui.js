@@ -54,8 +54,8 @@
   // ---------- The controller (one per pack modal) ----------
   // Every pack write still goes through the modal's serialized writer (`enqueue`); sprite / avatar candidates are adopted
   // through the original importFigureImage (receipts kept per job, so a retry never imports a slot twice).
-  function useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged}) {
-    const [jobs,setJobs]=React.useState(null),[pending,setPending]=React.useState({}),[errors,setErrors]=React.useState({}),[problem,setProblem]=React.useState('');
+  function useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged,savePictureFile}) {
+    const [jobs,setJobs]=React.useState(null),[pending,setPending]=React.useState({}),[errors,setErrors]=React.useState({}),[adoptErrors,setAdoptErrors]=React.useState({}),[problem,setProblem]=React.useState('');
     const [sheet,setSheet]=React.useState(null),[dialog,setDialog]=React.useState(null),[gate,setGate]=React.useState(null),[models,setModels]=React.useState({}),[run,setRun]=React.useState(null);
     const alive=React.useRef(true),active=React.useRef(false),known=React.useRef(null),queue=React.useRef([]),pumping=React.useRef(false),receipts=React.useRef(new Map()),urls=React.useRef(new Map()),sheets=React.useRef(0),epoch=React.useRef(0);
     const dropping=React.useRef(new Set()),progressRef=React.useRef(null);
@@ -66,6 +66,9 @@
     const merge=list=>{epoch.current++;const map=new Map((known.current||[]).map(j=>[j.jobId,j]));for(const j of list||[])if(j)map.set(j.jobId,j);show([...map.values()]);};
     const mark=(key,value)=>setPending(p=>{const next={...p};if(value)next[key]=value;else delete next[key];return next;});
     const fail=(key,message)=>setErrors(e=>{const next={...e};if(message)next[key]=message;else delete next[key];return next;});
+    // Why the waiting picture of a slot was not adopted (the tile's ⚠). Kept apart from a failed start, so the 重画 dialog
+    // never shows an adoption's reason as if its own request had failed; a new request or an adoption clears it.
+    const adoptFail=(key,message)=>setAdoptErrors(e=>{const next={...e};if(message)next[key]=message;else delete next[key];return next;});
     // A list that left before a newer write came back is stale: it is read again instead of overwriting the write.
     async function refresh(){
       for(let attempt=0;attempt<3;attempt++){
@@ -100,7 +103,7 @@
     const ask=count=>new Promise(resolve=>setGate({count,resolve}));
     // prepare → (gate) → generate. The backend retires the original only after a new candidate is saved.
     async function start(target,input={},{approved=false,plan:kept}={}){
-      const key=genKey(target);open();mark(key,'starting');fail(key,'');
+      const key=genKey(target);open();mark(key,'starting');fail(key,'');adoptFail(key,'');
       try{
         let plan=kept;
         if(!plan){
@@ -173,6 +176,8 @@
       return entry;
     }
     const candidateData=(job,emotionId)=>call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{})});
+    // 下载: a waiting picture as it arrived, whether or not it can be adopted.
+    async function download(job,name){const d=await candidateData(job);savePictureFile(new Blob([genBytes(d.base64)],{type:d.mediaType}),name+'.png');}
     async function candidateFile(job,emotionId,forImport=false){
       const d=await call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{}),...(forImport?{forImport:true}:{})});
       return new File([genBytes(d.base64)],(emotionId||job.target.kind)+'.png',{type:d.mediaType});
@@ -181,7 +186,7 @@
     // 采用. settei / background: the backend writes the original pack (CAS on its slot). sprite / avatar: the candidate goes
     // through importFigureImage (aligned sprite read), then accept with the receipt. A sheet imports slot by slot and
     // resumes after a failure from the first slot without a receipt. Older candidates of the same slot are dropped.
-    async function accept(job,{replace=false,file,keywords}={}){
+    async function accept(job,{replace=false,keywords}={}){
       const t=job.target;
       if(['settei','identity-settei','background'].includes(t.kind)){
         await enqueue(async c=>{merge([await call('acceptAssetCandidate',{jobId:job.jobId,expectedRevision:c.revision,keywords,...(replace?{replace:true}:{})})]);return {snapshot:await binding.service.getPackSnapshot({packId})};});
@@ -194,14 +199,14 @@
         for(const id of slots){const want=t.kind==='avatar-sheet'?job.candidate?.slices?.[id]?.hash:t.kind==='avatar'?job.candidate?.hash:null;if(!receipt.hashes[id]&&want&&(now?.sprite?.imagePools?.[id]?.imageIds.some(imageId=>now.avatars?.[imageId]===want)||now?.avatars?.[id]===want))receipt.hashes[id]=want;}
         for(const id of slots){
           if(receipt.hashes[id])continue;
-          const image=file||await candidateFile(job,t.kind==='avatar-sheet'?id:null,t.kind==='sprite');
+          const image=await candidateFile(job,t.kind==='avatar-sheet'?id:null,t.kind==='sprite');
           await importFigureImage(t.figureId,t.outfitKey,id,image,t.kind==='sprite'?'sprite':'avatar',{expectedPackId:packId,expectedRevision:(await settle()).revision,imageId:t.imageId,onImported:r=>{receipt.hashes[id]=r.hash;}});
         }
         await finalize(job,t.kind==='avatar-sheet'?{importedHashes:receipt.hashes}:{importedHash:receipt.hashes[t.emotionId]});
       }
       // Adopting settles the slot: other candidates of it are dropped, and a failed request's ⚠ (a redraw that brought
       // nothing) is cleared with it.
-      forget(job.jobId);fail(genKey(t),'');
+      forget(job.jobId);fail(genKey(t),'');adoptFail(genKey(t),'');
       for(const j of known.current||[])if(j.jobId!==job.jobId&&['candidate','failed'].includes(j.status)&&genKey(j.target)===genKey(t)&&!dropping.current.has(j.jobId)){dropping.current.add(j.jobId);reject(j).catch(()=>{});}
       onPacksChanged?.();
       follow((known.current||[]).find(j=>j.jobId===job.jobId)||job);
@@ -218,7 +223,7 @@
     // 「全部采用」: one after another (each its own CAS write); a slot that fails keeps its candidate and says why.
     async function acceptAll(list){
       let done=0;
-      for(const job of list){try{await accept(job);done++;}catch(e){fail(genKey(job.target),errorText(e));}}
+      for(const job of list){try{await accept(job);done++;}catch(e){adoptFail(genKey(job.target),errorText(e));}}
       return done;
     }
     const dialogs=gate&&h(ConfirmDialog,{title:'上一次还没有结果',body:gate.count>1?'其中 '+gate.count+' 项上一次请求没有返回结果，不会自动重试。仍要再生成吗？':GEN_UNCERTAIN,confirmLabel:'仍要生成',
@@ -232,8 +237,8 @@
     const progress=run?(()=>{const left=run.keys.filter(key=>{if(pending[key])return true;return (jobs||[]).some(j=>j.status==='running'&&genKey(j.target)===key);}).length;
       return left?{total:run.keys.length,done:run.keys.length-left,keys:run.keys}:null;})():null;
     progressRef.current=progress;
-    return {jobs,pending,errors,problem,models,sheet,dialog,progress,after,open,refresh,jobFor,start,startSlot,previewPrompt,batch,stop,dequeue,cancel,reject,retrySave,redraw,accept,acceptAll,
-      candidateUrl,candidateData,candidateFile,dialogs,openSheet,clearError:key=>fail(key,''),
+    return {jobs,pending,errors,adoptErrors,problem,models,sheet,dialog,progress,after,open,refresh,jobFor,start,startSlot,previewPrompt,batch,stop,dequeue,cancel,reject,retrySave,redraw,accept,acceptAll,
+      candidateUrl,candidateData,candidateFile,download,dialogs,openSheet,clearError:key=>{fail(key,'');adoptFail(key,'');},
       openDialog:(target,extra={})=>{open();setDialog({id:++sheets.current,target,mode:'gen',...extra});},closeDialog:()=>setDialog(null),
       retarget:(target,extra)=>setSheet(s=>s&&{...s,...extra,target}),closeSheet:()=>setSheet(null),
       waiting:(figureId,kinds)=>(jobs||[]).some(j=>j.target.figureId===figureId&&(!kinds||kinds.includes(j.target.kind))&&['candidate','save_failed'].includes(j.status))};
@@ -280,7 +285,7 @@
     const warnings=covering?covering.candidate?.slices?.[target.emotionId]?.checks?.warnings||[]:job?.candidate?.checks?.warnings||[];
     // A waiting candidate's `error` is why its last 采用 failed (「全部采用」 goes on past it; the tile keeps its ⚠).
     return {state,key,target,after,job:state==='idle'||state==='queued'?null:job,sheet:covering?covering.target:null,since:!pend&&job?.status==='running'?job.createdAt:null,
-      error:state==='failed'?job?.error?.message||gen.errors[key]||'':state==='candidate'?gen.errors[key]||'':'',detail:state==='failed'?job?.error?.detail||'':'',warnings};
+      error:state==='failed'?job?.error?.message||gen.errors[key]||'':state==='candidate'?gen.adoptErrors[key]||'':'',detail:state==='failed'?job?.error?.detail||'':'',warnings};
   }
   // The candidate in a 差分 tile: a 立绘 is cut to the head and shoulders (a generated 立绘 fills its 2:3 canvas centred,
   // the head in its top fifth), a 头像 shows whole.
@@ -553,7 +558,7 @@
     const {target,input}=gen.sheet,packId=pack.manifest.id,key=genKey(target),kind=target.kind;
     const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[redrawing,setRedrawing]=React.useState(false),[note,setNote]=React.useState('');
     const [words,setWords]=React.useState([]);
-    const [changed,setChanged]=React.useState(false),[framing,setFraming]=React.useState(null),[view,setView]=React.useState('slices'),[prompt,setPrompt]=React.useState('');
+    const [changed,setChanged]=React.useState(false),[view,setView]=React.useState('slices'),[prompt,setPrompt]=React.useState('');
     const job=gen.jobFor(target),pend=gen.pending[key],startError=!pend&&(gen.errors[key]||gen.sheet.error);
     const state=pend||job?.status==='running'?'running':job?.status==='candidate'?'candidate':job?.status==='save_failed'?'save_failed':job?.status==='failed'?'failed':'idle';
     const elapsed=useElapsed(job?.createdAt,state==='running');
@@ -573,12 +578,7 @@
     const dialog=mode=>{gen.closeSheet();gen.openDialog(target,{mode});};
     const accept=opts=>run(async()=>{
       try{await gen.accept(job,{...opts,keywords:words});gen.closeSheet();}
-      catch(e){
-        if(e.code==='TARGET_CHANGED'){setChanged(true);return;}
-        // The calm ruler could not align this sprite: the original picture goes to the framer instead (manual alignment).
-        if(e.code==='ALIGNMENT_REQUIRED'){setFraming(await gen.candidateFile(job,null,false));return;}
-        throw e;
-      }
+      catch(e){if(e.code==='TARGET_CHANGED'){setChanged(true);return;}throw e;}
     });
     // A failed start is shown from gen.errors (one place), not repeated here.
     const generate=()=>run(async()=>{
@@ -626,6 +626,7 @@
     const actions=state==='running'?[h(Button,{key:'cancel',disabled:busy||pend==='starting',onClick:()=>run(()=>pend==='queued'?gen.dequeue(target):gen.cancel(job))},pend==='queued'?'取消排队':'取消生成')]:
       state==='candidate'&&redrawing?[h(Button,{key:'back',disabled:busy,onClick:()=>{setRedrawing(false);setNote('');}},'取消'),h(Button,{key:'go',primary:true,disabled:busy||!note.trim(),onClick:()=>run(async()=>{await gen.redraw(job,note.trim());setRedrawing(false);setNote('');})},'重画')]:
       state==='candidate'?[h(Button,{key:'no',className:'ap-gen-no',disabled:busy,onClick:drop},'不要'),
+        kind!=='avatar-sheet'&&h(Button,{key:'down',disabled:busy,onClick:()=>run(()=>gen.download(job,(figure?figure.name+'-'+meta+'-':'')+title))},'下载'),
         figureKind?h(Button,{key:'redraw',disabled:busy,onClick:()=>dialog('redraw')},'重画…'):h(Button,{key:'redraw',disabled:busy,onClick:()=>setRedrawing(true)},'按意见重画'),
         changed?h(Button,{key:'replace',primary:true,disabled:busy,onClick:()=>accept({replace:true})},'仍用这张替换'):h(Button,{key:'yes',primary:true,disabled:busy||!sliced,title:sliced?undefined:'这张图不能自动切开',onClick:()=>accept()},kind==='avatar-sheet'?'采用全部':'采用')]:
       state==='save_failed'?[h(Button,{key:'no',className:'ap-gen-no',disabled:busy,onClick:drop},'不要'),h(Button,{key:'save',primary:true,disabled:busy,onClick:()=>run(()=>gen.retrySave(job))},'重试保存')]:
@@ -638,9 +639,7 @@
       h(Modal,{title:title+(meta?' · '+meta:''),className:'ap-gen-sheet'+(side.length?'':' is-wide'),onClose:close,busy,head,initialFocus:'dialog',
           foot:h('footer',{className:'ap-gen-foot'},busy&&h('span',{className:'ap-busy'},h(Spinner),'正在处理…'),actions)},
         h('div',{className:'ap-gen-stage','data-kind':kind,'data-checker':transparent&&(state==='candidate'||state==='idle'&&hash)?true:undefined},stage),
-        side.length>0&&h('div',{className:'ap-gen-side'},...side)),
-      framing&&h(Modal,{title:'调整立绘',className:'ap-framer-modal',closable:false,onClose:()=>setFraming(null)},
-        h(ImageFramer,{file:framing,square:false,onCancel:()=>setFraming(null),onDone:file=>{setFraming(null);accept({file});}})));
+        side.length>0&&h('div',{className:'ap-gen-side'},...side)));
   }
   // ---------- The 生图 page ----------
   // Outfits on top, the 差分 wall below, icon-led and compact. 人物: a 设定块 (the 人物设定图 slot + 外貌 as one inline line).
@@ -767,8 +766,8 @@
     const packId=pack.manifest.id,[confirm,setConfirm]=React.useState(null),[error,setError]=React.useState(''),[accepting,setAccepting]=React.useState(false),[coach,setCoach]=React.useState(()=>!genCoachSeen());
     React.useEffect(()=>{gen.open();},[]);
     const run=fn=>{setError('');return Promise.resolve().then(fn).catch(e=>setError(errorText(e)));};
-    // 采用: a 立绘 the 平和 ruler could not align (or a slot changed meanwhile) goes to the large view, which handles both.
-    const accept=job=>run(()=>gen.accept(job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code)){gen.openSheet(job.target);return;}throw e;}));
+    // 采用: a slot that changed meanwhile goes to the large view, which asks before replacing it.
+    const accept=job=>run(()=>gen.accept(job).catch(e=>{if(e?.code==='TARGET_CHANGED'){gen.openSheet(job.target);return;}throw e;}));
     const endCoach=()=>{if(coach){genCoachDone();setCoach(false);}};
     const open=(target,extra={})=>{endCoach();gen.openDialog(target,{...extra,onOutfit});};
     const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[],look=useFigureLook(binding,packId,figure.id);

@@ -934,7 +934,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   function figureImageImporter({binding,packId,enqueue}) {
     return async(figureId,outfitKey,emotion,file,kind,{expectedPackId,expectedRevision,onImported,customEmotion,imageId}={})=>{
       const image=await prepareImage(file,kind,false),media=await assetImagePublication.closure(image),svc=binding.service;
-      if(expectedRevision!==undefined&&image.hasAlpha===false)throw new Error('生成素材没有有效透明背景，请先处理后再导入');
+      if(expectedRevision!==undefined&&image.hasAlpha===false)throw new Error('这张图没有透明底，不能采用。请重画：这个模型以后会先画在纯色底上，再自动抠成透明');
       const committed=await enqueue(async c=>{
         if(expectedRevision!==undefined&&(expectedPackId!==packId||c.revision!==expectedRevision))throw Object.assign(new Error('原素材包或目标已变化，请刷新复核后再采用'),{code:'REVISION_CONFLICT'});
         return svc.patchPack(await imagePublisher.figure({snapshot:c,figureId,outfitKey,emotion,kind,image,media,customEmotion,imageId,
@@ -1093,7 +1093,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           tagIcons:icons.some(icon=>icon.tag===tag)?icons.map(icon=>icon.tag===tag?row:icon):[...icons,row]}});});
     };
     const uploadBackground=(assetId,file)=>putThen(file,'background',(s,hash)=>({assets:s.manifest.assets.map(a=>{if(a.kind!=='backgrounds'||a.id!==assetId)return a;const next={...a,media:hash};delete next.pendingMedia;return next;})}));
-    const gen=useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged});
+    const gen=useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged,savePictureFile});
     // the generation dialog's 「设为本包默认」 — the pack's default style preset.
     const saveStyle=style=>enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{genStyle:style}}));
     // a model folder / ZIP dropped on the pack window: a new figure (named after the folder) whose 默认 outfit the import

@@ -2,7 +2,8 @@ import {figureDefaultEmotion,matchBubbleMood,GEN_RECORDS} from '../../packages/d
 import {createHash, randomUUID} from 'node:crypto'
 import {readFile} from 'node:fs/promises'
 import {checkPurchaseConfirmation} from './image-billing-confirmation.js'
-import {cropAssetBackground, checkAssetImage, sliceAssetAvatarSheet, alignAssetSprite, assertSpriteCutout} from './asset-image-processing.js'
+import {cropAssetBackground, checkAssetImage, sliceAssetAvatarSheet, alignAssetSprite, checkSpriteCutout, decodeAssetRgba, encodeAssetRgba} from './asset-image-processing.js'
+import {matteKey} from '../../packages/dsh-asset-library/lib/pack-v2/key-matte.js'
 import {assetSheetEmotionIds} from './asset-generation-emotions.js'
 import {imageCost, addCost} from './asset-generation-cost.js'
 import spriteEmotions from '../../shared/sprite-emotions.cjs'
@@ -12,7 +13,7 @@ import {PACK_GEN_STYLES} from '../../packages/dsh-asset-library/lib/asset-packs/
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
 import {coverImageType, coverImageAsPng} from './card-cover-image.js'
 
-const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json'
+const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json', CHANNELS = ROOT + 'channels.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const clone = value => structuredClone(value)
 import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, ASSET_STYLE_DEFAULT, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
@@ -36,6 +37,36 @@ export function generationFailure(error, {size, references = 0} = {}) {
     : status >= 500 ? '生图服务那边出错了，过一会儿再试'
     : '生图渠道不接受这次请求：' + asked + '，这个渠道可能不支持。可在 设置 → 配图 换一个渠道再试'
   return plain ? {message:plain, detail:raw} : {message:raw || '生图失败'}
+}
+// Transparent pictures (立绘, 头像, the eight-face sheet) on a channel that cannot draw transparency: the picture is drawn
+// on one flat key colour and keyed out here, with the keying Dot deliveries and the local image model use (key-matte.js).
+// Green, or magenta when the picture itself is green.
+export const keyColour = prompt => /绿|green/i.test(prompt) ? '#FF00FF' : '#00FF00'
+const BACKGROUND_LINE = /^Background\b.*$/m
+export function keyedPrompt(prompt, key) {
+  const line = 'Background: one flat solid ' + key + ' colour filling the whole canvas, with no shadow, gradient, floor or texture. The character is fully opaque, drawn in its own colours, clearly distinct from that key colour.'
+  return BACKGROUND_LINE.test(prompt) ? prompt.replace(BACKGROUND_LINE, line) : prompt + '\n' + line
+}
+// A keyed picture made transparent; one whose border is not the flat key (or that is transparent already) stays as it came.
+function matteCandidate(png, key) {
+  const {width, height, data} = decodeAssetRgba(png)
+  try { return encodeAssetRgba({width, height, data:matteKey(data, width, height, 4, {key}).data}) }
+  catch (error) { if (error.code === 'PRECONDITION') return png; throw error }
+}
+// The deterministic checks of a received picture. A picture that should be transparent and has a background (its border
+// mostly opaque, checkSpriteCutout) reads hasTransparency:false with one NO_TRANSPARENCY warning that says why and what to do.
+// `keyed`: this picture was drawn on a key colour and keyed out; `trusted`: the channel says it draws transparency itself,
+// so it is never keyed (a redraw is the only way out).
+export function pictureChecks(png, kind, {sheet = false, keyed = false, trusted = false} = {}) {
+  const checks = checkAssetImage(png, kind, {sheet})
+  if (!['sprite','avatar'].includes(kind) || checks.hasTransparency === undefined) return checks
+  const cutout = checks.hasTransparency && checkSpriteCutout(png)
+  if (cutout?.valid) return checks
+  const what = cutout?.haze ? '画布边上有一层半透明的雾（生图渠道没把透明底画干净），放上舞台会看得到' : '生图渠道没有画出透明底，这张图带着背景'
+  return {...checks, hasTransparency:false, warnings:[...checks.warnings.filter(w => w.code !== 'NO_TRANSPARENCY'), {code:'NO_TRANSPARENCY', severity:'warning', message:keyed
+    ? '自动抠图没成功：生图渠道没有把人物画在纯色底上，这张图还带着背景。可以重画；经常这样的话，在 设置 → 配图 换一个能画透明底的模型（如 OpenAI 的 gpt-image）'
+    : trusted ? what + '。重画一张即可'
+    : what + '。重画即可：这个模型以后会先把人物画在纯色底上，再自动抠成透明'}]}
 }
 function text(value = '', max = 4000) {
   assert(typeof value === 'string' && value.length <= max, 'INVALID_ARGUMENT', '文本过长或格式错误')
@@ -169,6 +200,11 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
   const readPrompts = async () => await store.readJson(PROMPTS) || {revision:0,overrides:{}}
+  // The models that answered a transparent request with a background ({opaque:{[model]:at}}). Theirs, and those whose
+  // status says `transparent: false`, are keyed from then on; `transparent: true` (OpenAI's own gpt-image) never is.
+  const keyFor = async (status, prompt) => status.transparent === true ? null
+    : status.transparent === false || (await store.readJson(CHANNELS))?.opaque?.[status.model] ? keyColour(prompt) : null
+  const noteOpaque = model => store.updateJson(CHANNELS, current => ({opaque:{...current?.opaque, [model]:now()}}))
   // cost: what every picture drawn so far cost (asset-generation-cost.js), shown beside the prompts in 设置 → 舞台 → 素材生图.
   const promptView = async ({revision, overrides}) => ({revision, cost:await store.readJson(COSTS) || null, kinds:await Promise.all(ASSET_PROMPT_KINDS.map(async kind => {
     const base = await readTemplate(kind)
@@ -255,9 +291,12 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       let data = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength)
       assert(coverImageType(data), 'INVALID_ARGUMENT', '生图渠道返回的不是 PNG、JPEG 或 WebP 图片')
       data = await coverImageAsPng(data)
+      const key = plan.output.key
+      if (key) data = matteCandidate(data, key)
       const result = {data, mediaType:'image/png'}
       const candidate = inspectImage(result.data, result.mediaType, 20 * 1024 ** 2)
-      candidate.checks = checkAssetImage(result.data,job.target.kind === 'avatar-sheet' ? 'avatar' : job.target.kind,{sheet:job.target.kind === 'avatar-sheet'})
+      candidate.checks = pictureChecks(result.data,job.target.kind === 'avatar-sheet' ? 'avatar' : job.target.kind,{sheet:job.target.kind === 'avatar-sheet', keyed:!!key, trusted:!!plan.provider.transparent})
+      if (!key && plan.output.background === 'transparent' && candidate.checks.hasTransparency === false) await noteOpaque(plan.provider.model)
       if (job.target.kind === 'avatar-sheet') {
         try {
           const checks = {}, slices = sliceAssetAvatarSheet(result.data,job.target.emotionIds,{checks})
@@ -404,7 +443,9 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
       if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),references:refs,output})
-      const planId = randomUUID(), provider = {label:source.label, model:status.model}
+      const key = output.background === 'transparent' ? await keyFor(status, prompt) : null
+      if (key) { prompt = keyedPrompt(prompt, key); output.background = 'opaque'; output.key = key }
+      const planId = randomUUID(), provider = {label:source.label, model:status.model, ...(status.transparent === true ? {transparent:true} : {})}
       const view = {defaults:ASSET_PRODUCTION_DEFAULTS,planId,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),references:refs,provider,output,consentToken:randomUUID(),expiresAt:now() + planTtlMs,imageCount:count}
       const confirmations = uncertain(target).map(job => job.jobId)
       if (confirmations.length) { view.confirmNewRequestIds = confirmations; view.confirmNewRequestId = confirmations[0] }
@@ -463,11 +504,21 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const failed = (message, mayHaveCharged) => fail('GENERATION_FAILED', String(message || '生图失败').replace(/\s+/g, ' ').trim().slice(0, 300), {mayHaveCharged})
       try {
         let reply
-        const preset = await promptPreset()
-        try { reply = await source.generate({prompt, references:images, width, height, ...(preset ? {promptPreset:preset} : {}), background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
+        const preset = await promptPreset(), key = background === 'transparent' ? await keyFor(status, prompt) : null
+        try { reply = await source.generate({prompt:key ? keyedPrompt(prompt, key) : prompt, references:images, width, height, ...(preset ? {promptPreset:preset} : {}), background:key ? 'opaque' : background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
         catch (error) { failed(error?.message, error?.requestMayHaveSucceeded !== false) }
         if (!(reply?.data instanceof Uint8Array) || reply.data.length > 20 * 1024 ** 2) failed('生图渠道没有返回有效图片', true)
-        return {data:reply.data, mediaType:String(reply.mediaType || ''), ...(reply.provider!==undefined?{provider:reply.provider}:{}), ...(reply.model!==undefined?{model:reply.model}:{}),
+        // A transparent picture comes back as a PNG: keyed out when it was drawn on a key colour; a background on an
+        // unkeyed request marks the model, so its next transparent picture is keyed.
+        let data = reply.data, mediaType = String(reply.mediaType || '')
+        if (background === 'transparent') {
+          const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+          if (!coverImageType(bytes)) failed('生图渠道返回的不是 PNG、JPEG 或 WebP 图片', true)
+          data = await coverImageAsPng(bytes); mediaType = 'image/png'
+          if (key) data = matteCandidate(data, key)
+          else if (pictureChecks(data, 'sprite').hasTransparency === false) await noteOpaque(status.model)
+        }
+        return {data, mediaType, ...(reply.provider!==undefined?{provider:reply.provider}:{}), ...(reply.model!==undefined?{model:reply.model}:{}),
           cost:await charge(reply, status.model, {prompt, width, height, quality, references:images})}
       } finally { controllers.delete(key) }
     },
@@ -483,7 +534,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       return {prompt:composeAssetPrompt(own ?? await readTemplate(kind), values), output:assetOutput(kind)}
     },
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
-    autoCheck: (data, kind) => checkAssetImage(data, kind),
+    autoCheck: (data, kind) => pictureChecks(data, kind),
     // 设置 → 生图: every kind's effective text, whether it is edited, and the {{slots}} an edit must keep.
     prompts: () => serial(async () => promptView(await readPrompts())),
     // One kind, CAS on the file's revision. `text: null`, or the default's own text, removes the override.
@@ -517,11 +568,18 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         bytes = sliceAssetAvatarSheet(bytes,job.target.emotionIds)[emotionId]
       }
       if (forImport && job.target.kind === 'sprite') {
-        assertSpriteCutout(bytes)
+        // a 立绘 with a background cannot go on the stage; its candidate's check says why and what to do (pictureChecks).
+        const background = job.candidate.checks?.warnings?.find(w => w.code === 'NO_TRANSPARENCY')
+        if (background) fail('SPRITE_BACKGROUND', '不能采用为立绘：' + background.message)
         // The default 差分's adopted sprite is the ruler (not a reference the model saw); gone → centred on the canvas.
+        // An ordinary picture uploaded there (no cut-out figure) measures its own canvas, not a figure: the new picture is
+        // placed on its own instead of being stretched to it.
         let anchor
         const pack = job.anchor && await library().getPackSnapshot({packId:job.target.packId})
-        if (pack?.manifest.blobs[job.anchor]) anchor = Buffer.from((await library().readMedia({packId:pack.manifest.id,expectedRevision:pack.revision,hash:job.anchor})).bytes)
+        if (pack?.manifest.blobs[job.anchor]) {
+          const ruler = await coverImageAsPng(Buffer.from((await library().readMedia({packId:pack.manifest.id,expectedRevision:pack.revision,hash:job.anchor})).bytes))
+          if (checkSpriteCutout(ruler).valid) anchor = ruler
+        }
         bytes = alignAssetSprite(bytes,anchor)
       }
       return {base64:bytes.toString('base64'),mediaType:job.candidate.mediaType,target:clone(job.target)}
@@ -550,7 +608,9 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(job.status === 'candidate', 'ASSET_UNAVAILABLE', '请先保存候选图片')
       let pack = await snapshot(job.target,input.expectedRevision)
       const ctx = context(pack,job.target), service = library()
-      assert(job.authority === authority(ctx,job.target.kind), 'TARGET_CHANGED', '生成所依据的设定已变化，请重新准备；不能用 replace 绕过母版复核')
+      // A 服装设定图 written here records the 人物设定图 it descends from: one drawn from an older board is not adopted. A
+      // 立绘 or 头像 is the user's choice of a picture they have seen (and is already imported when this runs).
+      if (job.target.kind === 'settei') assert(job.authority === authority(ctx,job.target.kind), 'SETTEI_CHANGED', '人物设定图在画这张之后换过了，这张服装设定图是照旧的画的，不能采用；请重画')
       if (['sprite','avatar','avatar-sheet'].includes(job.target.kind)) {
         if (job.target.kind === 'avatar-sheet') {
           assert(input.importedHashes && job.target.emotionIds.filter(Boolean).every(id => typeof input.importedHashes[id] === 'string' && ctx.slot[id] === input.importedHashes[id]), 'IMPORT_REQUIRED', '请先完成指定头像槽的裁切和写入')
