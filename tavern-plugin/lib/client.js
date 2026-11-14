@@ -16897,10 +16897,6 @@ function refreshTavernReasoningStream() {
 }
 
 function installTavernReasoningStream() {
-    // The headless card-script runtime evaluates this bundle only to run scripts:
-    // it renders no reasoning, so reading settings here would cost every boot one
-    // request that can only be refused or discarded.
-    if (typeof window !== "undefined" && window.__dshTavernHeadless === true) return;
     if (tavernReasoningStreamWatching || typeof window === "undefined") return;
     tavernReasoningStreamWatching = true;
     window.addEventListener("dsh-tavern-settings-changed", refreshTavernReasoningStream);

@@ -541,6 +541,8 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-choice-trigger { border: 1px solid color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, transparent); color: var(--dsh-tavern-accent); cursor: pointer; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 650; }
 .dsh-tavern-choice-trigger:hover { background: color-mix(in srgb, var(--dsh-tavern-accent) 20%, transparent); color: var(--dsw-alias-brand-primary); }
 .dsh-tavern-dock-actions { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box; margin: 0 auto; padding: 8px 12px 0; flex-wrap: wrap; }
+/* 「接下来的行动」的下移入口：桌面上由收起卡片承担，手机才在操作行里出现。 */
+.dsh-tavern-candidate-entry { display: none; }
 .dsh-tavern-dock-actions-primary { display: contents; }
 .dsh-tavern-mobile-stats-toggle { display: none; }
 .dsh-tavern-notice-dismiss { margin-left: 6px; padding: 0 4px; border: 0; background: none; color: inherit; font: inherit; line-height: 1; cursor: pointer; opacity: .7; }
@@ -2903,11 +2905,10 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-choice-trigger { min-height: 36px; padding: 5px 10px; font-size: 13px; }
   /* 候选卡与桌面同一个组件、同一套外观：宽度、圆角、内边距都不再单独覆盖；手机上只在展开时改为底部抽屉。 */
   .dsh-tavern-question.dsh-tavern-candidate-question { box-sizing: border-box; margin: 0 auto; }
-  /* 收起态只是「还有一列行动」的入口，不该像一张卡压在输入框上方：去掉上下留白和投影，
-     压成一行 34px 的细条，展开后才占底部抽屉的位置（点开仍是整行/整块热区）。 */
-  .dsh-tavern-question.dsh-tavern-candidate-question.collapsed { padding: 0 10px; border-radius: 11px; background: transparent; box-shadow: none; }
-  .dsh-tavern-candidate-question.collapsed .dsh-tavern-question-head { min-height: 34px; margin-bottom: 0; font-size: 13px; }
-  .dsh-tavern-candidate-question.collapsed .dsh-tavern-question-close { min-width: 34px; min-height: 34px; font-size: 12px; }
+  /* 收起态在手机上不再单占一行：入口并进下面的操作行（「行动 N」按钮），
+     候选卡只在展开时以底部抽屉出现，输入框上方因此少一整行。 */
+  .dsh-tavern-question.dsh-tavern-candidate-question.collapsed { display: none; }
+  .dsh-tavern-dock-actions .dsh-tavern-candidate-entry { display: inline-flex; align-items: center; gap: 3px; }
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed) {
     position: fixed; z-index: var(--dsh-play-z-sheet, 7);
     left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));
@@ -3183,7 +3184,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     border: 0; box-shadow: none; border-radius: 8px; background: transparent;
     padding: 5px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; white-space: nowrap;
   }
-  .dsh-tavern-dock-actions .dsh-tavern-choice-trigger:is([data-fork-action="choices"], [data-fork-action="choices-again"]) {
+  .dsh-tavern-dock-actions .dsh-tavern-choice-trigger:is([data-fork-action="choices"], [data-fork-action="choices-again"], [data-fork-action="open-choices"]) {
     background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, transparent); color: var(--dsh-tavern-accent);
   }
   .dsh-tavern-mobile-stats-toggle {

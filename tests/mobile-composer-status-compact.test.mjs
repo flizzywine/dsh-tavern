@@ -1,6 +1,6 @@
-// 手机输入框上方的两条状态栏（插件停靠区 + 收起的「接下来的行动」）原来各占一张卡的高度：
-// 收起态仍带 9px/6px 的上下内边距、40px 标题行和投影，和停靠区叠起来吃掉近 120px。
-// 收起态在手机上压成一行细条（≈36px、无投影），桌面的卡片外观保持不变。
+// 手机输入框上方的两条状态栏（插件停靠区 + 收起的「接下来的行动」）原来各占一行。
+// 「接下来的行动」（含候选数）现在并进下面的操作行，点开仍是原来的底部抽屉：
+// 收起卡片在手机上整块隐藏，桌面上照旧是那张卡片。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -14,11 +14,16 @@ const markup = '<!doctype html><html class="__HTML_CLASS__"><head><meta name="vi
   + '<div class="dsh-tavern-question-head" role="button" tabindex="0" aria-expanded="false">'
   + '<span>接下来的行动</span><span class="dsh-tavern-question-sub">11 个</span>'
   + '<button type="button" class="dsh-tavern-question-close" title="展开行动列表">⌄</button></div>'
-  + '</div></div></body></html>'
+  + '</div>'
+  + '<div class="dsh-tavern-dock-actions"><div class="dsh-tavern-dock-actions-primary">'
+  + '<button type="button" class="dsh-tavern-choice-trigger dsh-tavern-candidate-entry" data-fork-action="open-choices">行动 11 ⌃</button>'
+  + '<button type="button" class="dsh-tavern-choice-trigger" data-fork-action="choices-again">重新生成候选项</button>'
+  + '</div></div>'
+  + '</div></body></html>'
 
 const tokens = ':root{--dsw-alias-border-l2:#ddd;--dsw-alias-bg-base:#fff;--dsw-alias-label-primary:#222;'
   + '--dsw-alias-label-secondary:#666;--dsw-specific-sidebar-fill:#fbfaf7;--dsw-specific-input-major:#fff;'
-  + '--dsh-tavern-accent:#d9a15b;--dsw-shadow-lv1:0 1px 2px #0001}'
+  + '--dsw-alias-brand-primary:#d9a15b;--dsw-shadow-lv1:0 1px 2px #0001}'
   + 'body{margin:0;font:16px/1.6 system-ui}'
 
 async function measure(viewport, htmlClass) {
@@ -30,32 +35,32 @@ async function measure(viewport, htmlClass) {
   await page.addStyleTag({ content: await css('theme.css') })
   const view = await page.evaluate(() => {
     const panel = document.querySelector('.dsh-tavern-candidate-question')
-    const head = document.querySelector('.dsh-tavern-question-head')
-    const style = getComputedStyle(panel)
+    const entry = document.querySelector('.dsh-tavern-candidate-entry')
+    const sibling = document.querySelector('.dsh-tavern-dock-actions [data-fork-action="choices-again"]')
+    const style = node => getComputedStyle(node)
     return {
-      panelHeight: panel.getBoundingClientRect().height,
-      headHeight: head.getBoundingClientRect().height,
-      paddingTop: parseFloat(style.paddingTop),
-      paddingBottom: parseFloat(style.paddingBottom),
-      radius: style.borderRadius,
+      panelDisplay: style(panel).display,
+      entryDisplay: style(entry).display,
+      entryHeight: entry.getBoundingClientRect().height,
+      siblingHeight: sibling.getBoundingClientRect().height,
+      accentApplied: style(entry).backgroundColor,
     }
   })
   await browser.close()
   return view
 }
 
-test('手机上收起的「接下来的行动」是一行细条，不再按卡片高度压在输入框上方', async () => {
+test('手机上的「接下来的行动」不再单占一行，入口并进操作行', async () => {
   const view = await measure({ width: 390, height: 844 }, 'dsh-tavern-viewport-pinned dsh-tavern-coarse-play')
-  assert.ok(view.panelHeight <= 38, '收起态整块不超过 38px：' + view.panelHeight.toFixed(1))
-  assert.equal(view.paddingTop, 0, '收起态没有多余的上下留白')
-  assert.equal(view.paddingBottom, 0)
-  assert.equal(view.radius, '11px', '收起态收成细条圆角')
-  assert.ok(view.headHeight >= 32, '整行仍是可点的热区：' + view.headHeight.toFixed(1))
+  assert.equal(view.panelDisplay, 'none', '收起卡片整块隐藏，省掉一整行')
+  // 操作行是 flex 容器，行内元素会被 blockify，computed display 是 flex。
+  assert.notEqual(view.entryDisplay, 'none', '入口出现在操作行里')
+  assert.ok(Math.abs(view.entryHeight - view.siblingHeight) <= 1, '入口和同一行的操作一样高：' + view.entryHeight.toFixed(1) + ' / ' + view.siblingHeight.toFixed(1))
+  assert.notEqual(view.accentApplied, 'rgba(0, 0, 0, 0)', '入口带强调色，和别的操作区分开')
 })
 
-test('宽屏保留原来的卡片外观', async () => {
+test('宽屏仍用收起卡片，操作行不出现入口', async () => {
   const view = await measure({ width: 1280, height: 900 }, '')
-  assert.ok(view.paddingTop > 0, '桌面保留卡片内边距')
-  assert.equal(view.radius, '14px', '桌面保留卡片圆角')
-  assert.ok(view.headHeight < 32, '桌面的标题行不带触屏热区：' + view.headHeight.toFixed(1))
+  assert.notEqual(view.panelDisplay, 'none', '桌面收起态照旧显示')
+  assert.equal(view.entryDisplay, 'none', '桌面不重复一个入口')
 })

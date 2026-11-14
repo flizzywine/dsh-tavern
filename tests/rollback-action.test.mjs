@@ -11,7 +11,8 @@ const withdrawHelper = source.slice(source.indexOf('async function withdrawFaile
 
 function harness() {
   let running = true, activity = { phase: 'idle', busy: false, role: '' }, regen = null, fail = false, warning = '', canRollback = true, undoTurn = null, noView = false, bareView = false
-  const states = [], calls = [], extraView = {}, refs = [], effects = [], timers = []
+  let candidatePanel = null
+  const states = [], calls = [], extraView = {}, refs = [], effects = [], timers = [], candidateWrites = []
   let cursor = 0
   const context = {
     React: {
@@ -29,7 +30,7 @@ function harness() {
         return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value }]
       }
     },
-    useCandidatePanel: () => null, loadSavedCandidates: async () => null, useRegenPanel: () => regen,
+    useCandidatePanel: () => candidatePanel, loadSavedCandidates: async () => null, useRegenPanel: () => regen,
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
     // bareView：视图在、但没带上 canRegenerate/canRollback 这一栏（投影视图、落盘前那一秒）。
     useLiveTavernView: () => (noView ? { view: null } : { view: bareView ? { undoRollbackTurn: undoTurn, ...extraView } : { canRollback, undoRollbackTurn: undoTurn, ...extraView } }),
@@ -42,7 +43,7 @@ function harness() {
     },
     rpc: async () => { calls.push('rpc'); if (fail) throw new Error('本次回复未完成'); return { view: { rollbackWarning: warning } } },
     historyProjection: { rolledBack: () => calls.push('project'), restored: () => calls.push('restore') },
-    setCandidatePanel() { calls.push('set-candidate-panel') }, setRegenPanel() { calls.push('set-regen-panel') }, setCandidateGuidePanel() { calls.push('set-guide-panel') },
+    setCandidatePanel(next) { calls.push('set-candidate-panel'); candidateWrites.push(next) }, setRegenPanel() { calls.push('set-regen-panel') }, setCandidateGuidePanel() { calls.push('set-guide-panel') },
     liveTavernView: { setView() {}, invalidate: () => calls.push('refresh-view') },
     tavernCoordination: { invalidate: () => calls.push('refresh-activity') },
     notifyTavernDataChanged: () => calls.push('notify'),
@@ -65,6 +66,8 @@ function harness() {
     regen(value) { regen = value ? { sessionId: 'session', phase: 'loading' } : null },
     fail(value) { fail = value }, warning(value) { warning = value },
     noView(value) { noView = value },
+    candidate(value) { candidatePanel = value },
+    candidateWrites() { return candidateWrites.slice() },
     bareView(value) { bareView = value },
     effects() { return effects.slice() },
     renderEffects() {
@@ -245,4 +248,20 @@ test('撤回持久输入后立即刷新故事列表，原输入只回填到输�
   const withdraw = vm.runInNewContext(withdrawHelper + '; withdrawFailedTavernTurn', context)
   await withdraw('session', { setDraft: value => calls.push(['draft', value]) }, '')
   assert.deepEqual(calls, ['native-hidden', ['story-refresh', 'session'], ['draft', '6']])
+})
+
+test('手机操作行里的「行动 N」入口把候选抽屉就地展开，不另占一行', () => {
+  const h = harness()
+  h.running(false)
+  assert.equal(h.buttons().some(button => button.props['data-fork-action'] === 'open-choices'), false, '没有候选项时没有入口')
+  h.candidate({ sessionId: 'session', messageId: 'reply', phase: 'ready', choices: [{ text: '甲' }, { text: '乙' }, { text: '丙' }] })
+  const entry = h.buttons().find(button => button.props['data-fork-action'] === 'open-choices')
+  assert.ok(entry, '有候选项时操作行里出现入口')
+  assert.equal(entry.children[0], '行动 3 ⌃')
+  entry.props.onClick()
+  const written = h.candidateWrites().at(-1)
+  assert.equal(written.expanded, true, '点一下就是展开抽屉')
+  assert.equal(written.choices.length, 3, '交回的是同一份候选项')
+  h.candidate({ sessionId: 'session', messageId: 'reply', phase: 'ready', choices: [{ text: '甲' }], expanded: true })
+  assert.equal(h.buttons().some(button => button.props['data-fork-action'] === 'open-choices'), false, '抽屉已经打开时不再多一个入口')
 })

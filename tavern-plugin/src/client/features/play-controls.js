@@ -684,8 +684,14 @@
 			// 这一局最近一轮的候选项：页面拿不到宿主消息 id 时也照样算数（服务端只留最近一轮）。
 			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.phase === "ready";
 			if (!isPlayMode(sessionMode)) return null;
+			// 收起的「接下来的行动」在手机上不再单占一行：它的入口并进这一行操作，
+			// 点开还是同一个候选抽屉（候选卡自己在手机上隐藏收起态，见 tavern.css）。
+			const openablePanel = !props.only && candidatePanelState && candidatePanelState.sessionId === props.sessionId
+				&& candidatePanelState.expanded !== true && Array.isArray(candidatePanelState.choices) && candidatePanelState.choices.length > 0
+				? candidatePanelState : null;
 			// only="choices" in the composer, only="regen" under the latest reply.
 			return h(React.Fragment, null,
+				openablePanel ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-candidate-entry", "data-fork-action": "open-choices", title: "展开接下来可以做的 " + openablePanel.choices.length + " 个行动", "aria-label": "展开接下来的行动（" + openablePanel.choices.length + " 个）", onClick: function () { setCandidatePanel(Object.assign({}, openablePanel, { expanded: true })); } }, "行动 " + openablePanel.choices.length + " ⌃") : null,
 				props.only === "regen" ? null : h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": hasReadyPanel ? "choices-again" : "choices", "data-busy": (busy || taskBusy || activity.busy || settlementActive) || undefined, "aria-busy": (busy || taskBusy || activity.busy || settlementActive) || undefined, disabled: busy || taskBusy || activity.busy || settlementActive || regenBusy || compacting, title: compacting ? "正在压缩上下文，完成后可生成候选项" : (busy || taskBusy) ? "正在生成候选项…" : settlementActive ? "当前正文正在后台结算，请等待完成" : (activity.busy ? activity.blockReason : (hasReadyPanel ? "重新生成候选项（可先填写意见）" : (isScript ? "手动生成候选项；由于跟随剧本，只有一个推荐候选项" : "手动生成候选项"))), onClick: function () {
 					setRegenPanel(null);
 					if (hasReadyPanel) {
