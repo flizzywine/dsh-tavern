@@ -320,7 +320,7 @@ function PackGetSheet({binding,packs,catalogueReady:ready,onClose,onSources,onIn
     onDragEnter:e=>{if(!catDragFiles(e))return;e.preventDefault();depth.current++;setOver(true);},
     onDragOver:e=>{if(!catDragFiles(e))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect=zip.busy?'none':'copy';},
     onDragLeave:e=>{if(!catDragFiles(e))return;depth.current=Math.max(0,depth.current-1);if(!depth.current)setOver(false);},
-    onDrop:e=>{if(!e.dataTransfer?.files?.length&&!catDragFiles(e))return;e.preventDefault();depth.current=0;setOver(false);if(!zip.busy)pick(e.dataTransfer?.files);}};
+    onDrop:e=>{if(!e.dataTransfer?.files?.length&&!catDragFiles(e))return;e.preventDefault();depth.current=0;setOver(false);if(!zip.busy&&!modelDragFromPage(e.dataTransfer))pick(e.dataTransfer?.files);}};
   const choose=()=>picker.current?.click?.();
   const bar=h('div',{className:'ap-get-bar'},
     ready&&h('input',{id:'ap-cat-url',className:'ap-get-url',type:'url',inputMode:'url',autoComplete:'off',spellCheck:false,'aria-label':'素材包链接',placeholder:'粘贴素材包链接','data-autofocus':true,
