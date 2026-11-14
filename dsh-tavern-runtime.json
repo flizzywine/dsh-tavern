@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "19aacfacf2ade61b7e5c3b4c67a534c8c55f157f",
-  "releaseSequence": 1624,
+  "revision": "439f25ede2eab5b1483cfd1947fe4a127aa1748d",
+  "releaseSequence": 1625,
   "version": "3.3.0",
   "files": [
     {
@@ -316,8 +316,8 @@
     },
     {
       "path": "bin/pi-ai-vertex-stream-patch.mjs",
-      "sha256": "5f5051b62f907bb3e20872e9f1496c8903d8a81988afdc8cf275384f7202bb58",
-      "size": 2713
+      "sha256": "253ef61ced54d67027e11775e17cb6a9d786109b1580ccd47c20d309149a8b95",
+      "size": 7388
     },
     {
       "path": "bin/plugin-dependencies.mjs",
@@ -391,8 +391,8 @@
     },
     {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "183ccf77d881c43a9cbf90c7cc169c21c2efec0abdf2e733faa0b6219ca2bfc6",
-      "size": 25546
+      "sha256": "0ecd3b4c9909741c78906c3984f860d3fe6502c606630729a7ada261228e5225",
+      "size": 27548
     },
     {
       "path": "bin/service-process-identity.mjs",
@@ -9251,9 +9251,9 @@
     }
   ],
   "archive": {
-    "commit": "2873f3fed557dd1ac32eacc718a67020f16ffcfb",
+    "commit": "ee5828f0aa40a031dddf7fec9c9b69a3ebc381fe",
     "path": "runtime.zip",
-    "sha256": "6d8564bb7e5117c6920a5731195b9764471822619e0e567c97c26ee90023f93c",
-    "size": 16502757
+    "sha256": "47f41953e540774ef6876187673fda4b011dd0ebb74bfd2796015a2ee6111b82",
+    "size": 16505150
   }
 }
