@@ -110,7 +110,7 @@ export function createCardResponseTest({ api, store, chatForSession, timeoutMs =
         if (!step || typeof step !== 'object') throw new Error('每轮须为输入配置')
         if (step.inputFrom !== undefined) {
           const from = step.inputFrom
-          if (!hasCandidates || step.input !== undefined || !from || !Number.isSafeInteger(from.candidate) || from.candidate < 1 || !['action', 'scene'].includes(from.type || 'action')) throw new Error('候选输入需要上一轮生成候选，指定类型和从 1 开始的序号，不能同时提供 input')
+          if (!hasCandidates || step.input !== undefined || !from || !Number.isSafeInteger(from.candidate) || from.candidate < 1 || !['action', 'scene', 'event', 'featured'].includes(from.type || 'action')) throw new Error('候选输入需要上一轮生成候选，指定类型和从 1 开始的序号，不能同时提供 input')
         } else if (typeof step.input !== 'string' || !step.input.trim() || step.input.length > 4000) throw new Error('每轮输入须为 1 至 4000 字')
         if (step.candidates !== undefined && typeof step.candidates !== 'boolean') throw new Error('candidates 必须为布尔值')
         hasCandidates = step.candidates === true

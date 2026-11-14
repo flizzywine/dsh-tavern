@@ -63,3 +63,41 @@ test('multi-actor choices default to featured tab and switch across actor and gl
   ;[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=previous
  }
 })
+test('AI featured combos replace round-robin in stage featured tab with multi-badges and scene prefix',async()=>{
+ const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'})
+ const previous=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
+ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
+ const h=React.createElement,document=dom.window.document,sends=[]
+ const getComputedStyle=()=>({getPropertyValue:()=>'0'})
+ const view=createStageChoices({React,window:dom.window,document,layout:createStageChoiceLayout({React,getComputedStyle}),sounds:{play(){}},useSounds(){},episode:()=>({first:0,start:0}),waitLines:['wait'],TextArea:()=>h('textarea'),Icon:()=>null,StageWaitStop:()=>null,StageWaitLines:()=>null,getComputedStyle,setTimeout,clearTimeout,requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
+ const root=createRoot(document.getElementById('root'))
+ const choices=[
+  {type:'action',actor:'凛',text:'凛拉开拉门看向外侧'},
+  {type:'action',actor:'凛',text:'凛故意压低声音试探'},
+  {type:'action',actor:'我',text:'我退回走廊拐角'},
+  {type:'action',actor:'我',text:'我推门走进去'},
+  {type:'event',text:'走廊尽头传来脚步声'},
+  {type:'scene',text:'时间来到深夜'},
+  {type:'featured',actors:['凛','我'],text:'凛压低声音开口试探时，我趁势推门走入房间回应'},
+  {type:'featured',actors:['凛'],hasEvent:true,hasScene:true,text:'走廊尽头脚步声迫近时，凛拉我避入侧屋直至深夜才重新会合'}
+ ]
+ const props={sessionId:'s',messageId:'m3',panel:{phase:'ready',choices},running:false,decode:String,commands:{clear(){},generate(){},stop(){}},executeSlash:async(...args)=>sends.push(args)}
+ try{
+  await act(async()=>root.render(h(view.Choices,props)))
+  const tabs=[...document.querySelectorAll('.fork-gal-choice-tab')]
+  assert.deepEqual(tabs.map(el=>el.querySelector('.fork-gal-choice-tab-label').textContent),['精选','凛','我','全局'])
+  assert.equal(tabs[0].getAttribute('aria-selected'),'true')
+  const items=[...document.querySelectorAll('.fork-gal-choice[data-index]')]
+  assert.equal(items.length,2)
+  assert.equal(items[0].getAttribute('data-actor'),'凛,我')
+  assert.deepEqual([...items[0].querySelectorAll('.fork-gal-choice-badge')].map(el=>el.textContent),['〔凛〕','〔我〕'])
+  assert.equal(items[1].getAttribute('data-actor'),'凛')
+  assert.deepEqual([...items[1].querySelectorAll('.fork-gal-choice-badge')].map(el=>el.textContent),['〔凛〕','〔突发事件〕','〔场景变化〕'])
+  await act(async()=>items[1].querySelector('.fork-gal-choice-main').click())
+  assert.deepEqual(sends,[['/send 【场景变化】走廊尽头脚步声迫近时，凛拉我避入侧屋直至深夜才重新会合|/trigger','s']])
+ }finally{
+  await act(async()=>root.unmount());view.dispose();dom.window.close()
+  ;[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=previous
+ }
+})
+

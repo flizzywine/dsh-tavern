@@ -1,54 +1,18 @@
+// @include-protocol candidate-tabs.cjs
 // Presentation and composer draft lifetime; async transitions belong to interactions.
 function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError }) {
     const setCandidatePanel = interactions.candidates.set;
     const setRegenPanel = interactions.regeneration.set;
 		function buildCandidateTabs(items, isScript) {
-            if (isScript || !items.some(function (item) { return Boolean(item.actor) || item.type === "event"; })) {
-                return { hasTabs: false, tabs: [], current: { key: "all", kind: "all", items: items } };
-            }
-            const actorMap = new Map();
-            const globalItems = [];
-            items.forEach(function (item) {
-                if (item.type === "scene" || item.type === "event") {
-                    globalItems.push(item);
-                    return;
-                }
-                const actor = String(item.actor || "").trim() || "行动";
-                if (!actorMap.has(actor)) actorMap.set(actor, []);
-                actorMap.get(actor).push(item);
-            });
-            const actorGroups = Array.from(actorMap.values());
-            const featuredActors = [];
-            for (let round = 0; featuredActors.length < 4; round++) {
-                let progressed = false;
-                for (let g = 0; g < actorGroups.length && featuredActors.length < 4; g++) {
-                    if (round < actorGroups[g].length) {
-                        featuredActors.push(actorGroups[g][round]);
-                        progressed = true;
-                    }
-                }
-                if (!progressed) break;
-            }
-            const tabs = [{ key: "featured", label: "精选", kind: "featured", items: featuredActors.concat(globalItems) }];
-            actorMap.forEach(function (list, actor) {
-                tabs.push({ key: "actor:" + actor, label: actor, kind: "actor", actor: actor, items: list });
-            });
-            if (globalItems.length > 0) {
-                tabs.push({ key: "global", label: "全局", kind: "global", items: globalItems });
-            }
-            return { hasTabs: tabs.length > 1, tabs: tabs, current: tabs[0] };
+            return candidateTabs.buildCandidateChoiceTabs(items, { isScript });
         }
         function formatCandidateDraftText(item) {
-            if (item.type === "scene") return "【场景变化】" + item.text;
-            if (item.type === "event") return "【突发事件】" + item.text;
-            if (item.actor && item.actor !== "我" && !item.text.includes(item.actor)) return item.actor + "：" + item.text;
-            return item.text;
+            return candidateTabs.formatCandidateChoiceText(item);
         }
-        function candidateItemBadge(item, tabKind) {
-            if (item.type === "scene") return { className: "dsh-tavern-question-tag dsh-tavern-question-tag-scene", label: "场景变化" };
-            if (item.type === "event") return { className: "dsh-tavern-question-tag dsh-tavern-question-tag-event", label: "突发事件" };
-            if (tabKind === "featured" && item.actor) return { className: "dsh-tavern-question-tag dsh-tavern-question-tag-actor", label: item.actor };
-            return null;
+        function candidateItemBadges(item, tabKind) {
+            return candidateTabs.candidateChoiceBadges(item, { tabKind }).map(function (badge) {
+                return { className: "dsh-tavern-question-tag dsh-tavern-question-tag-" + badge.kind, label: badge.label };
+            });
         }
 		function CandidateQuestion(props) {
         // 宿主输入器可由 textarea 升级为 contenteditable，两种入口共享聚焦与收起逻辑。
@@ -101,11 +65,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         // decode double-escaped model output for choices stored before the host fix.
         const decode = typeof decodeUnicodeEscapes === "function" ? decodeUnicodeEscapes : String;
         const items = (panel.choices || []).map(function (choice, index) {
-            if (choice !== null && typeof choice === "object") {
-                const actor = choice.actor ? decode(String(choice.actor)).trim() : "";
-                return { ...choice, ...(actor ? { actor } : {}), text: decode(choice.text), index };
-            }
-            return { type: "action", text: decode(String(choice)), index };
+            return candidateTabs.normalizeCandidateChoice(choice, index, decode);
         });
         const tabState = buildCandidateTabs(items, isScript);
         const currentTab = tabState.hasTabs ? (tabState.tabs.find(function (tab) { return tab.key === activeTab; }) || tabState.tabs[0]) : tabState.current;
@@ -145,18 +105,21 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
             expanded && tabState.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabState.tabs.map(function (tab) {
                 const isSelectedTab = tab.key === currentTab.key;
-                const pickedCount = tab.kind === "featured" ? 0 : tab.items.filter(function (item) { return added.includes(item.index); }).length;
+                const pickedCount = (tab.kind === "featured" && !tab.custom) ? 0 : tab.items.filter(function (item) { return added.includes(item.index); }).length;
                 return h("button", { key: tab.key, type: "button", role: "tab", "data-tab": tab.key, "data-kind": tab.kind, className: "dsh-tavern-question-tab" + (isSelectedTab ? " active" : "") + (pickedCount > 0 ? " has-picked" : ""), "aria-selected": isSelectedTab ? "true" : "false", tabIndex: isSelectedTab ? 0 : -1, onClick: function () { setActiveTab(tab.key); } },
                     h("span", { className: "dsh-tavern-question-tab-label" }, tab.label),
                     h("span", { className: "dsh-tavern-question-tab-count" }, pickedCount > 0 ? "✓" + pickedCount : String(tab.items.length)));
             })) : null,
             expanded ? h("div", { className: "dsh-tavern-question-body" }, visibleItems.map(function (item, visibleIndex) {
                         const isAdded = added.includes(item.index);
-                        const badge = candidateItemBadge(item, currentTab.kind);
-                        return h("button", { key: item.index, className: "dsh-tavern-question-option" + (isAdded ? " selected" : ""), "data-type": item.type, "data-actor": item.actor || undefined, "aria-pressed": isAdded, title: isAdded ? "从输入框移除" : "追加到输入框", onClick: function () { pick(item.index); } },
+                        const badges = candidateItemBadges(item, currentTab.kind);
+                        const actorAttr = item.actor || (Array.isArray(item.actors) && item.actors.length > 0 ? item.actors.join(",") : undefined);
+                        return h("button", { key: item.index, className: "dsh-tavern-question-option" + (isAdded ? " selected" : ""), "data-type": item.type, "data-actor": actorAttr, "aria-pressed": isAdded, title: isAdded ? "从输入框移除" : "追加到输入框", onClick: function () { pick(item.index); } },
                             h("span", { className: "dsh-tavern-question-index", "aria-hidden": true }, isAdded ? "✓" : String(visibleIndex + 1)),
                             h("span", { className: "dsh-tavern-question-text" },
-                                badge ? h("span", { className: badge.className }, badge.label) : null,
+                                badges.length > 0 ? h("span", { className: "dsh-tavern-question-tags" }, badges.map(function (badge, badgeIndex) {
+                                    return h("span", { key: badgeIndex, className: badge.className }, badge.label);
+                                })) : null,
                                 h("span", null, item.text)
                             )
                         );

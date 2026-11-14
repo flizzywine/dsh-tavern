@@ -9,7 +9,7 @@ const TASK_PROMPT_PROSE = Object.freeze({
   p001: "\n\nExtra user requirements:\n",
   p002: "\n\nThe extra requirements don't change the ",
   p003: "script direction, 1-choice count or type rules.",
-  p004: "actor grouping, per-tab count or global event/scene rules.",
+  p004: "actor grouping, per-tab count, featured combination or global event/scene rules.",
   p005: "\n\nChoice point: story revision ",
   p006: "; latest story turn ",
   p007: ". Continue from the end of the latest story text with its current identities, names, place and time; don't roll renamed or finished plot back to the card's opening.",
@@ -74,6 +74,7 @@ function choiceType(value) {
   if (type === 'action' || type === '人物行为' || type === '行动') return 'action'
   if (type === 'event' || type === '突发事件' || type === '突发互动' || type === '全局事件' || type === '插曲') return 'event'
   if (type === 'scene' || type === 'scene2' || type === 'newscene' || type === '场景' || type === '新场景' || type === '场景变化' || type === '场景切换') return 'scene'
+  if (type === 'featured' || type === 'combo' || type === '精选' || type === '组合') return 'featured'
   return null
 }
 
@@ -99,7 +100,8 @@ export function decodeLiteralUnicodeEscapes(value) {
 
 const MAX_ACTOR_GROUPS = 4
 const MAX_ACTIONS_PER_ACTOR = 3
-const MAX_SAVED_STORY_CHOICES = 16
+const MAX_FEATURED_CHOICES = 4
+const MAX_SAVED_STORY_CHOICES = 20
 
 function cleanCandidateText(value, card, chat) {
   return decodeLiteralUnicodeEscapes(projectCandidateIdentityMacros(value, card, chat)).trim()
@@ -193,6 +195,38 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
     for (const [name, actions] of actorMap.entries()) {
       if (actions.length > 0) groups.push({ name, actions })
     }
+    const featuredChoices = []
+    const rawFeatured = Array.isArray(payload.featured) ? payload.featured : []
+    for (const entry of rawFeatured) {
+      if (featuredChoices.length >= MAX_FEATURED_CHOICES) break
+      if (entry === null || typeof entry !== 'object') continue
+      const text = cleanCandidateText(entry.text, card, chat)
+      if (text === '' || seenTexts.has(text)) continue
+      const rawActors = Array.isArray(entry.actors)
+        ? entry.actors
+        : (Array.isArray(entry.names) ? entry.names : (entry.actor ? [entry.actor] : []))
+      const featuredActors = []
+      let hasEvent = entry.event === true || entry.hasEvent === true
+      let hasScene = entry.scene === true || entry.hasScene === true
+      for (const rawName of rawActors) {
+        const tag = cleanCandidateText(rawName, card, chat)
+        if (tag === '') continue
+        const tagType = choiceType(tag)
+        if (tagType === 'event') { hasEvent = true; continue }
+        if (tagType === 'scene') { hasScene = true; continue }
+        if (!featuredActors.includes(tag) && featuredActors.length < MAX_ACTOR_GROUPS) featuredActors.push(tag)
+      }
+      const elementCount = featuredActors.length + (hasEvent ? 1 : 0) + (hasScene ? 1 : 0)
+      if (featuredActors.length === 0 || elementCount < 2) continue
+      seenTexts.add(text)
+      featuredChoices.push({
+        type: 'featured',
+        actors: featuredActors,
+        ...(hasEvent ? { hasEvent: true } : {}),
+        ...(hasScene ? { hasScene: true } : {}),
+        text
+      })
+    }
     const totalActorActions = groups.reduce(function (sum, group) { return sum + group.actions.length }, 0)
     if (groups.length === 0 || totalActorActions < 3) {
       throw new Error('模型没有返回至少 3 条有效角色行动候选（actors）')
@@ -203,6 +237,9 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
     if (!lenientGlobal && (events.length < 1 || scenes.length < 1)) {
       throw new Error('自由故事需要同时提供 1 条突发互动/事件（event）和 1 条场景切换（scene）')
     }
+    if (!lenientGlobal && groups.length >= 2 && featuredChoices.length < 2) {
+      throw new Error('多角色场景下 featured 至少需要提供 2 条结合多个角色或事件/场景的精选组合')
+    }
     if (lenientGlobal && events.length < 1 && scenes.length < 1) {
       throw new Error('模型没有返回有效的全局候选项（event 或 scene）')
     }
@@ -212,6 +249,7 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
     }
     if (events.length > 0) choices.push({ type: 'event', text: events[0] })
     if (scenes.length > 0) choices.push({ type: 'scene', text: scenes[0] })
+    choices.push(...featuredChoices)
     return choices
   }
 
@@ -258,15 +296,16 @@ export const FOREGROUND_CANDIDATES_PROMPT = [
   '<foreground_story_candidates>',
   'After finishing the story prose for this turn, append a `<story_choices>` block at the very end on a new line (inside `submit_story` `content` if using tool submission, or at the end of your text reply):',
   '<story_choices>',
-  '{"actors":[{"name":"...","actions":["...","...","..."]},{"name":"...","actions":["...","...","..."]}],"event":"...","scene":"..."}',
+  '{"actors":[{"name":"...","actions":["...","...","..."]},{"name":"...","actions":["...","...","..."]}],"event":"...","scene":"...","featured":[{"actors":["...","..."],"event":false,"scene":false,"text":"..."}]}',
   '</story_choices>',
-  'Requirements for the choices (~40 characters each, in the story\'s language):',
+  'Requirements for the choices (~40 characters each for individual items, ~50–70 characters for featured combinations, in the story\'s language):',
   '- `actors` lists the active characters in the scene, placing the current focal counterpart / spotlight partner FIRST:',
   '  - Follow the story\'s narrative perspective: if a first-person player avatar (`我`) is in the scene, include `"我"` with 3 actions; if the story is third-person or has no `"我"`, use actual character names and do not invent `"我"`.',
   '  - Include up to 3 active non-player characters currently in the scene or poised to intervene: 3 actions when 1 other character is present, or 2 actions each when 2–3 other characters are present (in pure third-person ensemble prose without a single player avatar, list 1–3 main present characters: 3 actions each for 1–2 characters, or 3 for the focal character and 2 each for the others when 3 characters are present).',
   '  - State the acting character clearly in every action and span distinct angles (escalate momentum, shift initiative or posture, verbal/emotional tension, physical or environmental detail) with no overlap.',
   '- `event` holds 1 sudden interaction, external interruption, or multi-party situation shift within the current scene.',
   '- `scene` holds 1 scene-change direction transitioning to a new time, location, or incoming situation.',
+  '- `featured` holds 2–4 curated ensemble combinations for the default Featured tab: pick compatible intentions across different `actors` (and optionally `event` or `scene`), then blend and smooth them into ONE concise, cohesive, causal staging line instead of mechanically concatenating separate lines; combine at least 2 elements per item (2–3 characters from `actors`, or 1+ character with `event: true` or `scene: true`; omit or keep fewer only when a single character is completely alone).',
   '- Write as concrete director staging instructions matching the current tone and rating (both SFW and explicit NSFW are fully supported). Do not write anything after `</story_choices>`.',
   '</foreground_story_candidates>'
 ].join('\n')
@@ -317,7 +356,7 @@ export const CANDIDATE_SUBMIT_TOOL_NAME = 'candidate_submit_choices'
 
 export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
   name: CANDIDATE_SUBMIT_TOOL_NAME,
-  description: '提交本轮候选项。自由故事提交 actors（按焦点对手戏角色优先排列的在场角色行动分组，含第一人称「我」或第三人称角色名）、event（1 条当前场景突发互动/事件）和 scene（1 条场景切换）；剧本模式只提交 1 项变化，填入 actions 或 scene，另一项留空。',
+  description: '提交本轮候选项。自由故事提交 actors（按焦点对手戏角色优先排列的在场角色行动分组，含第一人称「我」或第三人称角色名）、event（1 条当前场景突发互动/事件）、scene（1 条场景切换），以及 featured（2–4 条由不同角色及可选事件/场景融合顺写而成的精简连贯精选调度）；剧本模式只提交 1 项变化，填入 actions 或 scene，另一项留空。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -337,7 +376,23 @@ export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
       },
       event: { type: 'string' },
       actions: { type: 'array', minItems: 0, maxItems: 4, items: { type: 'string', minLength: 1 } },
-      scene: { type: 'string' }
+      scene: { type: 'string' },
+      featured: {
+        type: 'array',
+        minItems: 0,
+        maxItems: 4,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            actors: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1 } },
+            event: { type: 'boolean' },
+            scene: { type: 'boolean' },
+            text: { type: 'string', minLength: 1 }
+          },
+          required: ['actors', 'text']
+        }
+      }
     }
   })
 })
@@ -695,6 +750,17 @@ export function createCandidateGenerator(options) {
       const normalizedType = choiceType(item.type)
       const type = isScript && normalizedType === 'event' ? 'action' : (normalizedType || 'action')
       const text = str(item.text).trim()
+      if (type === 'featured') {
+        if (isScript) return null
+        const actors = Array.isArray(item.actors) ? item.actors.map(function (name) { return str(name).trim() }).filter(Boolean) : []
+        return {
+          type,
+          ...(actors.length > 0 ? { actors } : {}),
+          ...(item.hasEvent === true ? { hasEvent: true } : {}),
+          ...(item.hasScene === true ? { hasScene: true } : {}),
+          text
+        }
+      }
       const actor = !isScript && type === 'action' ? str(item.actor).trim() : ''
       return actor !== '' ? { type, actor, text } : { type, text }
     }).filter(function (item) { return item !== null && item.text !== '' }).slice(0, limit) : []

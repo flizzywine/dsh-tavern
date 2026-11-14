@@ -579,6 +579,7 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-question-option:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-question-option.selected { border-color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, transparent); }
 .dsh-tavern-question-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dsh-tavern-question-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dsh-tavern-question-tag { align-self: flex-start; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 12%, transparent); }
 .dsh-tavern-question-tag-actor { color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 13%, transparent); }
 .dsh-tavern-question-tag-event { color: #b56a2c; background: rgba(181,106,44,.15); }

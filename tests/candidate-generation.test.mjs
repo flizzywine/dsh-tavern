@@ -323,9 +323,61 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
   assert.deepEqual(structured.choices[2], { type: 'action', actor: '陆沉', text: '陆沉不动声色挡在苏晚身前' })
   assert.deepEqual(structured.choices[7], { type: 'event', text: '钟楼方向突然传来急促的警钟声打破对峙' })
   assert.deepEqual(structured.choices[8], { type: 'scene', text: '深夜众人散去后转入地下密室议事' })
+
+  // 前台 <story_choices> 附带 AI 融合精选（featured）且总条数超过 16 时完整保留不截断（4 角色各 3 条 + event + scene + 4 featured = 18 条）
+  const foregroundFeaturedRaw = [
+    '窗外风雪渐急。',
+    '<story_choices>',
+    JSON.stringify({
+      actors: [
+        { name: '{{char}}', actions: ['{{char}}起身拨亮桌上的油灯', '{{char}}把茶盏推向{{user}}', '{{char}}走到窗边推开一条缝隙'] },
+        { name: '{{user}}', actions: ['{{user}}接过茶盏试探温度', '{{user}}起身检查门闩是否扣紧', '{{user}}压低声音追问昨晚之事'] },
+        { name: '掌柜', actions: ['掌柜敲响木门送来炭盆', '掌柜在楼梯口低声催促结账', '掌柜借收拾托盘打量两人'] },
+        { name: '伙计', actions: ['伙计拎着热茶壶敲响房门', '伙计低头替炭盆添上新炭', '伙计转身带上门退出走廊'] }
+      ],
+      event: '楼下大堂忽然传来茶碗摔碎的清脆声响',
+      scene: '夜半风雪停歇后众人移步后院马厩',
+      featured: [
+        { actors: ['{{char}}', '{{user}}'], text: '{{char}}熄灭油灯拉住{{user}}贴墙屏息，两人借门缝窥探楼下动静' },
+        { actors: ['{{char}}', '掌柜'], event: true, scene: true, text: '楼下摔杯声乍起时，{{char}}顺势随掌柜借送炭之名转移至后院马厩避开眼线' },
+        { actors: ['{{user}}', '突发事件'], text: '{{user}}趁楼下混乱踢翻脚凳制造回响，引开楼梯口的盯梢视线' },
+        { actors: ['{{char}}', '伙计'], scene: true, text: '{{char}}借口让伙计添炭带路，一行人趁夜色静静转往后院马厩' }
+      ]
+    }),
+    '</story_choices>'
+  ].join('\n')
+  const foregroundFeatured = extractForegroundStoryChoices(foregroundFeaturedRaw, {
+    card: { name: '阿芙拉' },
+    chat: { macroState: { userName: '陆沉' } }
+  })
+  assert.equal(foregroundFeatured.choices.length, 18)
+  assert.deepEqual(foregroundFeatured.choices[14], {
+    type: 'featured',
+    actors: ['阿芙拉', '陆沉'],
+    text: '阿芙拉熄灭油灯拉住陆沉贴墙屏息，两人借门缝窥探楼下动静'
+  })
+  assert.deepEqual(foregroundFeatured.choices[15], {
+    type: 'featured',
+    actors: ['阿芙拉', '掌柜'],
+    hasEvent: true,
+    hasScene: true,
+    text: '楼下摔杯声乍起时，阿芙拉顺势随掌柜借送炭之名转移至后院马厩避开眼线'
+  })
+  assert.deepEqual(foregroundFeatured.choices[16], {
+    type: 'featured',
+    actors: ['陆沉'],
+    hasEvent: true,
+    text: '陆沉趁楼下混乱踢翻脚凳制造回响，引开楼梯口的盯梢视线'
+  })
+  assert.deepEqual(foregroundFeatured.choices[17], {
+    type: 'featured',
+    actors: ['阿芙拉', '伙计'],
+    hasScene: true,
+    text: '阿芙拉借口让伙计添炭带路，一行人趁夜色静静转往后院马厩'
+  })
 })
 
-test('自由故事支持按焦点角色优先的多主体分组 + 全局突发事件与场景切换，并完整持久化', async () => {
+test('自由故事支持按焦点角色优先的多主体分组 + 全局突发事件与场景切换 + AI 融合精选，并完整持久化', async () => {
   const errors = []
   const run = harness({
     outputs: [async function (options) {
@@ -337,6 +389,18 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
         }
       }))
       errors.push(bad)
+      const missingFeatured = JSON.parse(await options.onToolCall({
+        name: 'candidate_submit_choices',
+        arguments: {
+          actors: [
+            { name: '{{char}}', actions: ['{{char}}察觉门外气息主动拉开拉门', '{{char}}故意压低嗓音引门外人现身'] },
+            { name: '我', actions: ['我推开拉门坦然迈进房间', '我屏住呼吸悄悄退回走廊拐角'] }
+          ],
+          event: '走廊尽头突然传来巡夜人的脚步声与灯笼光亮',
+          scene: '时间来到次日清晨的旅店大堂'
+        }
+      }))
+      errors.push(missingFeatured)
       await options.onToolCall({
         name: 'candidate_submit_choices',
         arguments: {
@@ -345,7 +409,11 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
             { name: '我', actions: ['我推开拉门坦然迈进房间', '我屏住呼吸悄悄退回走廊拐角', '我轻叩门框出声试探{{char}}'] }
           ],
           event: '走廊尽头突然传来巡夜人的脚步声与灯笼光亮',
-          scene: '时间来到次日清晨的旅店大堂'
+          scene: '时间来到次日清晨的旅店大堂',
+          featured: [
+            { actors: ['{{char}}', '我'], text: '{{char}}吹灭烛火压低嗓音时，我趁机轻叩门框与她交换暗号' },
+            { actors: ['{{char}}', '突发事件'], scene: true, text: '巡夜人的灯笼光亮扫过走廊瞬间，{{char}}顺势拉我绕道避开视线，转入次日清晨的旅店大堂再议' }
+          ]
         }
       })
       return ''
@@ -354,11 +422,26 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
   const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-actors', guidance: '加强角色互动' })
   assert.equal(errors[0].ok, false)
   assert.equal(errors[0].retryable, true)
-  assert.equal(result.choices.length, 8)
+  assert.equal(errors[1].ok, false)
+  assert.equal(errors[1].retryable, true)
+  assert.match(errors[1].error, /featured/)
+  assert.equal(result.choices.length, 10)
   assert.deepEqual(result.choices.slice(0, 3).map(c => c.actor), ['阿芙拉', '阿芙拉', '阿芙拉'])
   assert.deepEqual(result.choices.slice(3, 6).map(c => c.actor), ['我', '我', '我'])
   assert.equal(result.choices[6].type, 'event')
   assert.equal(result.choices[7].type, 'scene')
+  assert.deepEqual(result.choices[8], {
+    type: 'featured',
+    actors: ['阿芙拉', '我'],
+    text: '阿芙拉吹灭烛火压低嗓音时，我趁机轻叩门框与她交换暗号'
+  })
+  assert.deepEqual(result.choices[9], {
+    type: 'featured',
+    actors: ['阿芙拉'],
+    hasEvent: true,
+    hasScene: true,
+    text: '巡夜人的灯笼光亮扫过走廊瞬间，阿芙拉顺势拉我绕道避开视线，转入次日清晨的旅店大堂再议'
+  })
 
   const saved = await run.candidates.find({ sessionId: 'session-1', messageId: 'message-actors' })
   assert.deepEqual(saved, result)

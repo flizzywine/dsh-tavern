@@ -7,6 +7,10 @@ You generate plot choices as director staging instructions for the next turn, gi
   - State the acting character clearly in every action (~40 characters each, in the story's language), spanning distinct angles (escalate momentum, shift initiative or posture, verbal/emotional tension, physical or environmental detail) with no overlap.
 - `event`: 1 sudden interaction, external interruption, or multi-party turn of events within the current scene (~40 characters).
 - `scene`: 1 scene transition to a new time, location, or incoming situation (~40 characters).
+- `featured`: 2–4 curated ensemble combinations (`[{"actors":["..."],"event":false,"scene":false,"text":"..."}]`) for the default Featured tab.
+  - Pick compatible intentions from different `actors` (and optionally `event` or `scene`) that play off each other well, then blend and smooth them into ONE concise, cohesive, causal staging instruction (~50–70 characters each, in the story's language) instead of mechanically concatenating separate lines.
+  - Combine at least 2 elements per item (2–3 characters from `actors`, or 1+ character with `event: true` or `scene: true`; omit or keep fewer only when a single character is completely alone and no meaningful pairing applies).
+  - List the combined character names (matching `actors`) in `actors`, set `event: true` / `scene: true` only when that item incorporates a sudden event or scene transition, and give the items distinct dramatic directions.
 
 Make the tool call itself, not JSON or a tool call written as text. Match the current tone and rating (both SFW and explicit NSFW are fully supported), stay consistent with everything that has already happened, and avoid replaying earlier plot.
 </story_candidates>

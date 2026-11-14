@@ -374,6 +374,14 @@ body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assi
 .dsh-tavern-question-radio { display: none; }
 .dsh-tavern-question-text { display: block; flex: 1; min-width: 0; }
 .dsh-tavern-question-option[data-type="scene"] .dsh-tavern-question-text { color: var(--fork-ink-2); font-style: italic; }
+.dsh-tavern-question-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  vertical-align: 1px;
+}
 .dsh-tavern-question-tag {
   display: inline-block;
   margin-right: 8px;
@@ -386,6 +394,7 @@ body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assi
   line-height: 18px;
   vertical-align: 1px;
 }
+.dsh-tavern-question-tags .dsh-tavern-question-tag { margin-right: 0; vertical-align: 0; }
 .dsh-tavern-question-tag-actor { background: color-mix(in srgb, var(--fork-accent) 13%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-ink-2); font-style: normal; }
 .dsh-tavern-question-tag-event { background: color-mix(in srgb, #d97706 15%, var(--fk-current-bgSolid, Canvas)); color: color-mix(in srgb, #b45309 78%, var(--fork-ink)); font-style: normal; }
 .dsh-tavern-question-tag-scene { background: color-mix(in srgb, var(--fork-accent) 14%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-accent); font-style: normal; }

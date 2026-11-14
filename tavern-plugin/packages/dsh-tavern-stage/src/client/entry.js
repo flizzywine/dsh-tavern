@@ -20,6 +20,8 @@ const stageClientPlugin = (() => {
         __STAGE_PORTRAITS__
         // dsh-presentation-protocol tts-messages.cjs: the 语音服务 failure sentences the name plate shows.
         __STAGE_TTS_MESSAGES__
+        // dsh-presentation-protocol candidate-tabs.cjs: candidate tab grouping, badges and draft text.
+        __STAGE_CANDIDATE_TABS__
         __STAGE_LABELS__
         __STAGE_LOADER__
         __STAGE_ADMISSION__

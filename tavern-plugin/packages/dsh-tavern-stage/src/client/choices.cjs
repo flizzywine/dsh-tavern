@@ -1,3 +1,4 @@
+const stageCandidateTabs = typeof candidateTabs !== "undefined" ? candidateTabs : typeof require === "function" ? require("../../../dsh-presentation-protocol/src/candidate-tabs.cjs") : null;
 function createStageChoices({React:react,ReactDOM,window,document,layout,playEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
@@ -53,35 +54,10 @@ function galFill(sessionId, text) {
     for (const fn of [...galFillListeners]) fn();
 }
 function galBuildChoiceTabs(choices) {
-    if (!choices.some(choice => Boolean(choice.actor) || choice.type === "event")) {
-        return { hasTabs: false, tabs: [], current: { key: "all", kind: "all", items: choices } };
-    }
-    const actorMap = new Map(), globalItems = [];
-    for (const item of choices) {
-        if (item.type === "scene" || item.type === "event") { globalItems.push(item); continue; }
-        const actor = String(item.actor || "").trim() || "行动";
-        if (!actorMap.has(actor)) actorMap.set(actor, []);
-        actorMap.get(actor).push(item);
-    }
-    const actorGroups = [...actorMap.values()], featuredActors = [];
-    for (let round = 0; featuredActors.length < 4; round++) {
-        let progressed = false;
-        for (let g = 0; g < actorGroups.length && featuredActors.length < 4; g++) {
-            if (round < actorGroups[g].length) { featuredActors.push(actorGroups[g][round]); progressed = true; }
-        }
-        if (!progressed) break;
-    }
-    const tabs = [{ key: "featured", label: "精选", kind: "featured", items: featuredActors.concat(globalItems) }];
-    for (const [actor, list] of actorMap.entries()) tabs.push({ key: "actor:" + actor, label: actor, kind: "actor", actor, items: list });
-    if (globalItems.length > 0) tabs.push({ key: "global", label: "全局", kind: "global", items: globalItems });
-    return { hasTabs: tabs.length > 1, tabs, current: tabs[0] };
+    return stageCandidateTabs.buildCandidateChoiceTabs(choices);
 }
-function galChoiceBadge(choice, tabKind, hasTabs) {
-    if (!hasTabs) return null;
-    if (choice.type === "event") return { kind: "event", label: "突发事件" };
-    if (choice.type === "scene") return { kind: "scene", label: "场景变化" };
-    if (tabKind === "featured" && choice.actor) return { kind: "actor", label: choice.actor };
-    return null;
+function galChoiceBadges(choice, tabKind, hasTabs) {
+    return stageCandidateTabs.candidateChoiceBadges(choice, { tabKind, hasTabs });
 }
 function GalChoices(props) {
     const h = React.createElement;
@@ -127,13 +103,7 @@ function GalChoices(props) {
     // galgame UI cues (ui-sfx.js): a chime when this reply's options appear, confirm on sending.
     const rootRef = React.useRef(null);
     useForkUiSfxControls(rootRef, state !== "hidden");
-    const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => {
-        if (choice !== null && typeof choice === "object") {
-            const actor = choice.actor ? props.decode(String(choice.actor)).trim() : "";
-            return { ...choice, ...(actor ? { actor } : {}), text: props.decode(choice.text) };
-        }
-        return { type: "action", text: props.decode(String(choice)) };
-    }) : [];
+    const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => stageCandidateTabs.normalizeCandidateChoice(choice, undefined, props.decode)) : [];
     const tabGroup = galBuildChoiceTabs(rawChoices);
     const currentTab = tabGroup.hasTabs ? (tabGroup.tabs.find(tab => tab.key === activeTab) || tabGroup.tabs[0]) : tabGroup.current;
     // A short stage: when the list overflows its bottom rows stay in view and the choices above scroll.
@@ -322,12 +292,7 @@ function GalChoices(props) {
     }
     const choices = rawChoices;
     const visibleChoices = currentTab.items;
-    const textOf = choice => {
-        if (choice.type === "scene") return "【场景变化】" + choice.text;
-        if (choice.type === "event") return "【突发事件】" + choice.text;
-        if (choice.actor && choice.actor !== "我" && !choice.text.includes(choice.actor)) return choice.actor + "：" + choice.text;
-        return choice.text;
-    };
+    const textOf = choice => stageCandidateTabs.formatCandidateChoiceText(choice);
     // The reply deadline's fallback goes through this panel's one send lock, synchronously checked: nothing typed or picked,
     // nothing sending. It returns whether it was sent (the caller marks the offer consumed before, so it is never retried).
     if (props.fallbackRef) props.fallbackRef.current = function (text) {
@@ -413,14 +378,15 @@ function GalChoices(props) {
             })) : null,
         visibleChoices.map(function (choice, index) {
             const key = textOf(choice), draft = drafts[key];
-            const badge = draft == null ? galChoiceBadge(choice, currentTab.kind, tabGroup.hasTabs) : null;
+            const badges = draft == null ? galChoiceBadges(choice, currentTab.kind, tabGroup.hasTabs) : [];
+            const actorAttr = choice.actor || (Array.isArray(choice.actors) && choice.actors.length > 0 ? choice.actors.join(",") : undefined);
             // data-index stays on the open field: a numbered skin keeps its number in the cell (theme.css) and the rows below it theirs.
             if (editingAt === key) return h("div", { key: key, ref: editorRef, className: "fork-gal-choice is-editing", "data-type": choice.type, "data-index": index }, editor(key, '[data-index="' + index + '"] > .fork-gal-choice-main'));
             // A suggestion edited and left (click away) reads as its draft and sends what it shows; Esc in its field reverts it.
-            return h("div", { key: key, className: "fork-gal-choice" + (picked === key ? " is-picked" : ""), "data-type": choice.type, "data-actor": choice.actor || undefined, "data-index": index, "data-edited": draft != null ? "" : undefined },
+            return h("div", { key: key, className: "fork-gal-choice" + (picked === key ? " is-picked" : ""), "data-type": choice.type, "data-actor": actorAttr, "data-index": index, "data-edited": draft != null ? "" : undefined },
                 h("button", { type: "button", role: "menuitem", className: "fork-gal-choice-main", disabled: sending, onClick: () => pick(key, draft != null ? draft : key), onPointerEnter: () => forkUiSfx.play("move") },
                     h("span", { className: "fork-gal-choice-text" },
-                        badge ? h("span", { className: "fork-gal-choice-badge is-" + badge.kind }, "〔" + badge.label + "〕") : null,
+                        badges.map((badge, badgeIndex) => h("span", { key: badgeIndex, className: "fork-gal-choice-badge is-" + badge.kind }, "〔" + badge.label + "〕")),
                         draft != null ? draft : choice.text)),
                 h("button", { type: "button", className: "fork-gal-choice-edit", "data-ui-sfx": "toggle", "aria-label": "改一改再发送", title: "改一改再发送", disabled: sending, onClick: () => open(key) }, h(Icon, { name: "pencil", size: 15 })), layout.galChoiceArt());
         }),

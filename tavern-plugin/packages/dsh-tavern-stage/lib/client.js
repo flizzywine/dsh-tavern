@@ -2927,6 +2927,126 @@ function describeTtsError(code) {
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { describeTtsError, ttsErrorMessage }
 
+        // dsh-presentation-protocol candidate-tabs.cjs: candidate tab grouping, badges and draft text.
+        // 候选项 Tab 分组、徽章投影与发送文本格式化（聊天视图、舞台视图与服务端共用同一规范）。
+const candidateTabs = (() => {
+    function normalizeCandidateChoice(choice, index, decode = String) {
+        const decodeText = typeof decode === "function" ? decode : String;
+        if (choice !== null && typeof choice === "object") {
+            const actor = choice.actor ? decodeText(String(choice.actor)).trim() : "";
+            const actors = Array.isArray(choice.actors)
+                ? choice.actors.map(name => decodeText(String(name)).trim()).filter(Boolean)
+                : [];
+            const item = {
+                ...choice,
+                ...(actor ? { actor } : {}),
+                ...(actors.length > 0 ? { actors } : {}),
+                text: decodeText(choice.text)
+            };
+            if (index !== undefined) item.index = index;
+            return item;
+        }
+        const item = { type: "action", text: decodeText(String(choice)) };
+        if (index !== undefined) item.index = index;
+        return item;
+    }
+
+    function buildCandidateChoiceTabs(items, { isScript = false } = {}) {
+        const list = Array.isArray(items) ? items : [];
+        if (isScript || !list.some(item => Boolean(item.actor) || item.type === "event" || item.type === "featured")) {
+            return { hasTabs: false, tabs: [], current: { key: "all", kind: "all", items: list } };
+        }
+        const featuredItems = [];
+        const actorMap = new Map();
+        const globalItems = [];
+        for (const item of list) {
+            if (item.type === "featured") {
+                featuredItems.push(item);
+                continue;
+            }
+            if (item.type === "scene" || item.type === "event") {
+                globalItems.push(item);
+                continue;
+            }
+            const actor = String(item.actor || "").trim() || "行动";
+            if (!actorMap.has(actor)) actorMap.set(actor, []);
+            actorMap.get(actor).push(item);
+        }
+        let defaultFeatured = featuredItems;
+        const customFeatured = featuredItems.length > 0;
+        if (!customFeatured) {
+            // 兼容未提供融合精选的旧数据或降级响应：按角色轮询抽取代表项再拼接全局项。
+            const actorGroups = Array.from(actorMap.values());
+            const featuredActors = [];
+            for (let round = 0; featuredActors.length < 4; round++) {
+                let progressed = false;
+                for (let g = 0; g < actorGroups.length && featuredActors.length < 4; g++) {
+                    if (round < actorGroups[g].length) {
+                        featuredActors.push(actorGroups[g][round]);
+                        progressed = true;
+                    }
+                }
+                if (!progressed) break;
+            }
+            defaultFeatured = featuredActors.concat(globalItems);
+        }
+        const tabs = [];
+        if (defaultFeatured.length > 0) {
+            tabs.push({ key: "featured", label: "精选", kind: "featured", custom: customFeatured, items: defaultFeatured });
+        }
+        for (const [actor, group] of actorMap.entries()) {
+            tabs.push({ key: "actor:" + actor, label: actor, kind: "actor", actor, items: group });
+        }
+        if (globalItems.length > 0) {
+            tabs.push({ key: "global", label: "全局", kind: "global", items: globalItems });
+        }
+        if (tabs.length === 0) {
+            return { hasTabs: false, tabs: [], current: { key: "all", kind: "all", items: list } };
+        }
+        return { hasTabs: tabs.length > 1, tabs, current: tabs[0] };
+    }
+
+    function candidateChoiceBadges(item, { tabKind = "featured", hasTabs = true } = {}) {
+        if (!hasTabs || !item || typeof item !== "object") return [];
+        if (item.type === "featured") {
+            const badges = (Array.isArray(item.actors) ? item.actors : [])
+                .map(name => String(name || "").trim())
+                .filter(Boolean)
+                .map(label => ({ kind: "actor", label }));
+            if (item.hasEvent === true) badges.push({ kind: "event", label: "突发事件" });
+            if (item.hasScene === true) badges.push({ kind: "scene", label: "场景变化" });
+            return badges;
+        }
+        if (item.type === "scene") return [{ kind: "scene", label: "场景变化" }];
+        if (item.type === "event") return [{ kind: "event", label: "突发事件" }];
+        if (tabKind === "featured" && item.actor) return [{ kind: "actor", label: item.actor }];
+        return [];
+    }
+
+    function formatCandidateChoiceText(item) {
+        if (!item || typeof item !== "object") return "";
+        const text = typeof item.text === "string" ? item.text.trim() : String(item.text || "").trim();
+        if (!text) return "";
+        if (item.type === "scene") return text.startsWith("【场景变化】") ? text : "【场景变化】" + text;
+        if (item.type === "event") return text.startsWith("【突发事件】") ? text : "【突发事件】" + text;
+        if (item.type === "featured") {
+            if (item.hasScene === true && !text.startsWith("【场景变化】")) return "【场景变化】" + text;
+            return text;
+        }
+        const actor = typeof item.actor === "string" ? item.actor.trim() : "";
+        if (actor && actor !== "我" && !text.includes(actor)) return actor + "：" + text;
+        return text;
+    }
+
+    return {
+        normalizeCandidateChoice,
+        buildCandidateChoiceTabs,
+        candidateChoiceBadges,
+        formatCandidateChoiceText
+    };
+})();
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = candidateTabs;
+
         'use strict';
 // The 语音服务 messages (dsh-presentation-protocol tts-messages.cjs): inlined into the stage bundle, required under node.
 function stageTtsMessages() {
@@ -18692,7 +18812,8 @@ return {create:galCreateLookRenderer,dispose(){if(disposed)return;disposed=true;
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageLooks};
 
-        function createStageChoices({React:react,ReactDOM,window,document,layout,playEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
+        const stageCandidateTabs = typeof candidateTabs !== "undefined" ? candidateTabs : typeof require === "function" ? require("../../../dsh-presentation-protocol/src/candidate-tabs.cjs") : null;
+function createStageChoices({React:react,ReactDOM,window,document,layout,playEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -18747,35 +18868,10 @@ function galFill(sessionId, text) {
     for (const fn of [...galFillListeners]) fn();
 }
 function galBuildChoiceTabs(choices) {
-    if (!choices.some(choice => Boolean(choice.actor) || choice.type === "event")) {
-        return { hasTabs: false, tabs: [], current: { key: "all", kind: "all", items: choices } };
-    }
-    const actorMap = new Map(), globalItems = [];
-    for (const item of choices) {
-        if (item.type === "scene" || item.type === "event") { globalItems.push(item); continue; }
-        const actor = String(item.actor || "").trim() || "行动";
-        if (!actorMap.has(actor)) actorMap.set(actor, []);
-        actorMap.get(actor).push(item);
-    }
-    const actorGroups = [...actorMap.values()], featuredActors = [];
-    for (let round = 0; featuredActors.length < 4; round++) {
-        let progressed = false;
-        for (let g = 0; g < actorGroups.length && featuredActors.length < 4; g++) {
-            if (round < actorGroups[g].length) { featuredActors.push(actorGroups[g][round]); progressed = true; }
-        }
-        if (!progressed) break;
-    }
-    const tabs = [{ key: "featured", label: "精选", kind: "featured", items: featuredActors.concat(globalItems) }];
-    for (const [actor, list] of actorMap.entries()) tabs.push({ key: "actor:" + actor, label: actor, kind: "actor", actor, items: list });
-    if (globalItems.length > 0) tabs.push({ key: "global", label: "全局", kind: "global", items: globalItems });
-    return { hasTabs: tabs.length > 1, tabs, current: tabs[0] };
+    return stageCandidateTabs.buildCandidateChoiceTabs(choices);
 }
-function galChoiceBadge(choice, tabKind, hasTabs) {
-    if (!hasTabs) return null;
-    if (choice.type === "event") return { kind: "event", label: "突发事件" };
-    if (choice.type === "scene") return { kind: "scene", label: "场景变化" };
-    if (tabKind === "featured" && choice.actor) return { kind: "actor", label: choice.actor };
-    return null;
+function galChoiceBadges(choice, tabKind, hasTabs) {
+    return stageCandidateTabs.candidateChoiceBadges(choice, { tabKind, hasTabs });
 }
 function GalChoices(props) {
     const h = React.createElement;
@@ -18821,13 +18917,7 @@ function GalChoices(props) {
     // galgame UI cues (ui-sfx.js): a chime when this reply's options appear, confirm on sending.
     const rootRef = React.useRef(null);
     useForkUiSfxControls(rootRef, state !== "hidden");
-    const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => {
-        if (choice !== null && typeof choice === "object") {
-            const actor = choice.actor ? props.decode(String(choice.actor)).trim() : "";
-            return { ...choice, ...(actor ? { actor } : {}), text: props.decode(choice.text) };
-        }
-        return { type: "action", text: props.decode(String(choice)) };
-    }) : [];
+    const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => stageCandidateTabs.normalizeCandidateChoice(choice, undefined, props.decode)) : [];
     const tabGroup = galBuildChoiceTabs(rawChoices);
     const currentTab = tabGroup.hasTabs ? (tabGroup.tabs.find(tab => tab.key === activeTab) || tabGroup.tabs[0]) : tabGroup.current;
     // A short stage: when the list overflows its bottom rows stay in view and the choices above scroll.
@@ -19016,12 +19106,7 @@ function GalChoices(props) {
     }
     const choices = rawChoices;
     const visibleChoices = currentTab.items;
-    const textOf = choice => {
-        if (choice.type === "scene") return "【场景变化】" + choice.text;
-        if (choice.type === "event") return "【突发事件】" + choice.text;
-        if (choice.actor && choice.actor !== "我" && !choice.text.includes(choice.actor)) return choice.actor + "：" + choice.text;
-        return choice.text;
-    };
+    const textOf = choice => stageCandidateTabs.formatCandidateChoiceText(choice);
     // The reply deadline's fallback goes through this panel's one send lock, synchronously checked: nothing typed or picked,
     // nothing sending. It returns whether it was sent (the caller marks the offer consumed before, so it is never retried).
     if (props.fallbackRef) props.fallbackRef.current = function (text) {
@@ -19107,14 +19192,15 @@ function GalChoices(props) {
             })) : null,
         visibleChoices.map(function (choice, index) {
             const key = textOf(choice), draft = drafts[key];
-            const badge = draft == null ? galChoiceBadge(choice, currentTab.kind, tabGroup.hasTabs) : null;
+            const badges = draft == null ? galChoiceBadges(choice, currentTab.kind, tabGroup.hasTabs) : [];
+            const actorAttr = choice.actor || (Array.isArray(choice.actors) && choice.actors.length > 0 ? choice.actors.join(",") : undefined);
             // data-index stays on the open field: a numbered skin keeps its number in the cell (theme.css) and the rows below it theirs.
             if (editingAt === key) return h("div", { key: key, ref: editorRef, className: "fork-gal-choice is-editing", "data-type": choice.type, "data-index": index }, editor(key, '[data-index="' + index + '"] > .fork-gal-choice-main'));
             // A suggestion edited and left (click away) reads as its draft and sends what it shows; Esc in its field reverts it.
-            return h("div", { key: key, className: "fork-gal-choice" + (picked === key ? " is-picked" : ""), "data-type": choice.type, "data-actor": choice.actor || undefined, "data-index": index, "data-edited": draft != null ? "" : undefined },
+            return h("div", { key: key, className: "fork-gal-choice" + (picked === key ? " is-picked" : ""), "data-type": choice.type, "data-actor": actorAttr, "data-index": index, "data-edited": draft != null ? "" : undefined },
                 h("button", { type: "button", role: "menuitem", className: "fork-gal-choice-main", disabled: sending, onClick: () => pick(key, draft != null ? draft : key), onPointerEnter: () => forkUiSfx.play("move") },
                     h("span", { className: "fork-gal-choice-text" },
-                        badge ? h("span", { className: "fork-gal-choice-badge is-" + badge.kind }, "〔" + badge.label + "〕") : null,
+                        badges.map((badge, badgeIndex) => h("span", { key: badgeIndex, className: "fork-gal-choice-badge is-" + badge.kind }, "〔" + badge.label + "〕")),
                         draft != null ? draft : choice.text)),
                 h("button", { type: "button", className: "fork-gal-choice-edit", "data-ui-sfx": "toggle", "aria-label": "改一改再发送", title: "改一改再发送", disabled: sending, onClick: () => open(key) }, h(Icon, { name: "pencil", size: 15 })), layout.galChoiceArt());
         }),

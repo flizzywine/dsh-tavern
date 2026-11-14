@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import React, { act } from 'react'
@@ -9,6 +10,8 @@ import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/sessio
 import { clientControls } from './fixtures/native-controls.mjs'
 import { syncClock } from './fixtures/sync-clock.mjs'
 
+const require = createRequire(import.meta.url)
+const candidateTabs = require('../tavern-plugin/packages/dsh-presentation-protocol/src/candidate-tabs.cjs')
 const source = await readFile(new URL('../tavern-plugin/src/client/features/play-interaction-panels.js', import.meta.url), 'utf8')
 const refreshSource = await readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8')
 const polishSource = await readFile(new URL('../tavern-plugin/src/client/features/polish-compare.js', import.meta.url), 'utf8')
@@ -25,7 +28,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   dom.window.addEventListener('error', event => errors.push(event.error))
   const interactions = createPlayInteractionFlow({ rpc: async (...args) => { calls.push(args); return { task: {}, view: {} } },
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError: (...args) => errors.push(args) })
-  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval,
+  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
     tavernSessionSignals: signals, liveTavernView: { invalidate: id => invalidated.push(id) },
     rpc: async (method, args) => {
       if (method === 'polishBody') {
@@ -156,7 +159,7 @@ test('宿主没有消息 id 时，候选面板仍然显示这一局的候选项'
   const signals = createSessionSignalTransport()
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
-  const context = vm.createContext({ React, ...clientControls(React),
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
@@ -189,7 +192,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React),
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
@@ -248,3 +251,68 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
 
   await act(async () => root.unmount())
 })
+
+test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景徽章并在选中时显示 ✓ 计数与场景前缀', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
+  const { createRoot } = await import('react-dom/client')
+  const signals = createSessionSignalTransport()
+  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
+    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
+  let draft = ''
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
+    window: dom.window, document: dom.window.document,
+    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    latestTavernAssistantMessageId: () => 'm-featured', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
+  vm.runInContext(source, context)
+  const panels = context.createPlayInteractionPanels({ interactions,
+    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
+    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
+    useRegenPanel: () => null, usePhonePlay: () => false })
+  const makeProps = () => ({ sessionId: 'a', useSession: select => select({ running: false }),
+    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft }),
+    inputActions: { setDraft(next) { draft = next } } })
+  const root = createRoot(dom.window.document.querySelector('main'))
+
+  const choices = [
+    { type: 'action', actor: '苏晚', text: '苏晚突然拉开门审视门外' },
+    { type: 'action', actor: '苏晚', text: '苏晚故意放轻脚步走向窗边' },
+    { type: 'action', actor: '陆沉', text: '陆沉推门而入坦然应对' },
+    { type: 'action', actor: '陆沉', text: '陆沉退回走廊暗处观察' },
+    { type: 'event', text: '走廊尽头突然传来急促脚步声' },
+    { type: 'scene', text: '转入次日清晨的议事厅' },
+    { type: 'featured', actors: ['苏晚', '陆沉'], text: '苏晚借审视门外顺势拉开门闩，陆沉趁隙推门而入交换眼色' },
+    { type: 'featured', actors: ['苏晚'], hasEvent: true, hasScene: true, text: '走廊脚步声逼近之际，苏晚吹熄灯火退往暗门，众人直至次日清晨才在议事厅重新碰头' }
+  ]
+  interactions.candidates.set({ sessionId: 'a', messageId: 'm-featured', phase: 'ready', expanded: true, choices })
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+
+  const tabs = [...dom.window.document.querySelectorAll('.dsh-tavern-question-tab')]
+  assert.deepEqual(tabs.map(el => el.querySelector('.dsh-tavern-question-tab-label').textContent), ['精选', '苏晚', '陆沉', '全局'])
+  assert.equal(tabs[0].getAttribute('aria-selected'), 'true')
+
+  const featuredOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
+  assert.equal(featuredOptions.length, 2, '提供 AI 融合精选时 [精选] 只展示组合条目，不再机械轮询抽取')
+  assert.deepEqual(
+    [...featuredOptions[0].querySelectorAll('.dsh-tavern-question-tags .dsh-tavern-question-tag')].map(el => el.textContent),
+    ['苏晚', '陆沉']
+  )
+  assert.deepEqual(
+    [...featuredOptions[1].querySelectorAll('.dsh-tavern-question-tags .dsh-tavern-question-tag')].map(el => el.textContent),
+    ['苏晚', '突发事件', '场景变化']
+  )
+  assert.equal(featuredOptions[1].querySelector('.dsh-tavern-question-tag-event').textContent, '突发事件')
+  assert.equal(featuredOptions[1].querySelector('.dsh-tavern-question-tag-scene').textContent, '场景变化')
+
+  await act(async () => featuredOptions[1].click())
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+  assert.equal(draft, '【场景变化】走廊脚步声逼近之际，苏晚吹熄灯火退往暗门，众人直至次日清晨才在议事厅重新碰头')
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab')[0].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+
+  await act(async () => root.unmount())
+})
+
