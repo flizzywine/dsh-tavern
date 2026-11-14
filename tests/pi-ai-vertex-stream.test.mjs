@@ -17,7 +17,7 @@ import {
   vertexProjectFromBaseUrl,
 } from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
 import { createToolReplyStreamTracker } from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
-import { patchPiAiVertexStream, resolveVertexProject } from '../bin/pi-ai-vertex-stream-patch.mjs'
+import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, resolveVertexProject, vertexApiKeyFrom } from '../bin/pi-ai-vertex-stream-patch.mjs'
 
 function makeStreamFixture() {
   const events = []
@@ -482,4 +482,44 @@ test('Vertex global 端点：有 project 的目录写 collection URL，没 proje
   assert.equal(resolveVertexProject({ profileText, env: {} }), '379270002840')
   assert.equal(resolveVertexProject({ profileText, env: { GOOGLE_CLOUD_PROJECT: 'env-project' } }), 'env-project')
   assert.equal(resolveVertexProject({ profileText: '', env: {} }), null)
+})
+
+test('Vertex 无 project 的安装：从 API key 的 404 里解析 project，并把 profile 路由指向 global', async () => {
+  const blockStyle = 'refs:\n  GOOGLE_VERTEX_API_KEY: AQ.Ab8RN6J7lX3KYbfr9lkIuo31\n'
+  const flowStyle = 'refs:\n  {\n    REAPI_API_KEY: k1,\n    GOOGLE_VERTEX_API_KEY: AQ.Ab8RN6J7lX3KYbfr9lkIuo31,\n  }\n'
+  assert.equal(vertexApiKeyFrom({ credentialsText: blockStyle, env: {} }), 'AQ.Ab8RN6J7lX3KYbfr9lkIuo31')
+  assert.equal(vertexApiKeyFrom({ credentialsText: flowStyle, env: {} }), 'AQ.Ab8RN6J7lX3KYbfr9lkIuo31')
+  assert.equal(vertexApiKeyFrom({ env: { GOOGLE_CLOUD_API_KEY: 'env-key' } }), 'env-key')
+  assert.equal(vertexApiKeyFrom({ credentialsText: 'nothing here', env: {} }), null)
+
+  const notFound = '{"error":{"code":404,"message":"Publisher model `projects/379270002840/locations/asia-southeast1/publishers/google/models/gemini-4-carbon` was not found"}}'
+  const seen = []
+  const fake = body => async (url, init) => {
+    seen.push({ url, init })
+    return { status: body === '' ? 200 : 404, text: async () => body }
+  }
+  assert.equal(await discoverVertexProject({ apiKey: 'k'.repeat(20), request: fake(notFound) }), '379270002840')
+  assert.match(seen[0].url, /\/v1\/publishers\/google\/models\/gemini-4-carbon:generateContent$/)
+  assert.equal(seen[0].init.headers['x-goog-api-key'], 'k'.repeat(20))
+  assert.equal(await discoverVertexProject({ apiKey: 'k'.repeat(20), request: fake('{"candidates":[]}') }), null)
+  assert.equal(await discoverVertexProject({ apiKey: 'k'.repeat(20), request: async () => { throw new Error('offline') } }), null)
+  assert.equal(await discoverVertexProject({ apiKey: '   ', request: fake(notFound) }), null)
+
+  const global = 'https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global'
+  const regional = 'x:\n      google-vertex:\n        displayName: Google Vertex AI\n        baseURL: https://asia-southeast1-aiplatform.googleapis.com/v1/projects/379270002840/locations/asia-southeast1\n'
+  const regionRepair = repairVertexRouteBaseUrl({ profileText: regional, project: '379270002840' })
+  assert.equal(regionRepair.status, 'repaired')
+  assert.ok(regionRepair.text.includes(`baseURL: ${global}`))
+  assert.equal(repairVertexRouteBaseUrl({ profileText: regionRepair.text, project: '379270002840' }).status, 'current')
+
+  const missing = 'x:\n      google-vertex:\n        displayName: Google Vertex AI\n        apiKeyEnv: GOOGLE_VERTEX_API_KEY\n'
+  const missingRepair = repairVertexRouteBaseUrl({ profileText: missing, project: '379270002840' })
+  assert.equal(missingRepair.status, 'repaired')
+  assert.ok(missingRepair.text.includes(`        baseURL: ${global}`))
+
+  // 折叠/多行标量不改写，避免写坏 YAML
+  const folded = 'x:\n      google-vertex:\n        baseURL: "https://aiplatform.googleapis.com/v1/projects/379270002840/locations/\\\n          global"\n'
+  assert.equal(repairVertexRouteBaseUrl({ profileText: folded, project: '379270002840' }).status, 'unsafe')
+  assert.equal(repairVertexRouteBaseUrl({ profileText: 'a: 1', project: '379270002840' }).status, 'absent')
+  assert.equal(repairVertexRouteBaseUrl({ profileText: regional, project: '' }).status, 'project-less')
 })
