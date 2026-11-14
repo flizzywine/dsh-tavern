@@ -5,7 +5,8 @@ import { beginOrQueue } from './background-task-coordinator.js'
 import { applyCharacterDesignWorldbook, characterDesignWorldbookSnapshot, characterWorldbookEntries, removeCharacterDesignWorldbook } from './character-design-worldbook.js'
 
 /** One explicit request, with drafts committed only after the agent succeeds. */
-export function createManualCharacterDesign({ store, runAgent, selection, beginTask, ensureSession = async () => {}, publishWorldbook, onError = error => console.error('人物设计保存状态失败', error) }) {
+export function createManualCharacterDesign({ store, runAgent, selection, beginTask, ensureSession = async () => {}, publishWorldbook,
+  onStatus = () => {}, onError = error => console.error('人物设计保存状态失败', error) }) {
   const jobs = new Map()
   function project(chat) {
     const state = chat.characterDesignTask || { status: 'idle' }
@@ -21,9 +22,15 @@ export function createManualCharacterDesign({ store, runAgent, selection, beginT
     const model = selection(chat)
     if (!model) throw new Error('请先选择后台模型')
     jobs.set(chat.id, true)
+    // A running task's status only reaches the page through reads of the session,
+    // so the writes announce themselves: the open panel refreshes from the signal
+    // instead of re-projecting the whole view every two seconds.
     const setTask = (status, error) => store.updateChat(chat.id, draft => {
       draft.characterDesignTask = { status, guidance: request, error: error ? String(error.message || error) : '' }
       return draft
+    }).then(function (result) {
+      onStatus(String(sessionId || ''))
+      return result
     })
     let started
     try { started = await beginOrQueue(onQueued => beginTask(chat, sessionId, onQueued)) }
@@ -103,12 +110,14 @@ export function createManualCharacterDesign({ store, runAgent, selection, beginT
         return current
       } })
       if (completed.status !== 'committed') throw new Error('剧情已变化，本次设计未保存，请重试。')
+      onStatus(String(sessionId || ''))
     } catch (error) {
       await taskRun.fail(result)
       await store.updateChat(chat.id, current => {
         current.characterDesignTask = { status: 'failed', guidance, error: String(error.message || error) }
         return current
       })
+      onStatus(String(sessionId || ''))
     }
   }
   // The player removes one archived character by name. Only this game changes: its

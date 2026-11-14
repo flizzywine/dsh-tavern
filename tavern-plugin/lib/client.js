@@ -13916,6 +13916,45 @@ window.__ModuleLoader__.load({
 		    }
 		    catch (error) { await call('discardCardUpload', { uploadId: reply.uploadId }).catch(() => {}); throw error; }
 		}
+		// A running background task reports its progress through session reads. The host
+		// announces status changes as tavern-state signals, so the poll below is only a
+		// fallback for a missed one — and a hidden page projects nothing at all.
+
+		// One coalesced refresh per burst of signals.
+		function watchTavernState(sessionId, refresh) {
+		    if (typeof tavernSessionSignals === "undefined" || !tavernSessionSignals || typeof tavernSessionSignals.subscribe !== "function") return function () {};
+		    const id = String(sessionId || "");
+		    if (!id) return function () {};
+		    let timer = 0;
+		    const stop = tavernSessionSignals.subscribe(id, "tavern-state", function () {
+		        if (timer) return;
+		        timer = window.setTimeout(function () { timer = 0; refresh(); }, 120);
+		    }, function () {}, function () {});
+		    return function () {
+		        if (timer) window.clearTimeout(timer);
+		        timer = 0;
+		        if (typeof stop === "function") stop();
+		    };
+		}
+
+		// Fallback polling for one active task: slow while shown, almost nothing hidden.
+		function pollTaskWhile(run, options) {
+		    const visibleMs = Number(options && options.visibleMs) || 5000;
+		    const hiddenMs = Number(options && options.hiddenMs) || 30000;
+		    let timer = 0, stopped = false;
+		    const hidden = function () { return typeof document !== "undefined" && document.visibilityState === "hidden"; };
+		    const schedule = function (delay) {
+		        window.clearTimeout(timer);
+		        if (!stopped) timer = window.setTimeout(tick, delay);
+		    };
+		    async function tick() {
+		        if (stopped) return;
+		        if (!hidden()) { try { await run(); } catch (_) { /* The next tick retries. */ } }
+		        schedule(hidden() ? hiddenMs : visibleMs);
+		    }
+		    schedule(visibleMs);
+		    return function () { stopped = true; window.clearTimeout(timer); };
+		}
 		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
 		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
 		async function importTavernCardFile(file, call, onProgress = () => {}, replacePath) {
@@ -58377,8 +58416,10 @@ function createStoryFloorRail(root, options) {
 			  const blocked = busy || props.busy || consolidating;
 			  React.useEffect(function () {
 			    if (!consolidating) return;
-			    const timer = setInterval(() => liveTavernView.invalidate(props.sessionId), 2000);
-			    return () => clearInterval(timer);
+			    const refresh = () => liveTavernView.invalidate(props.sessionId);
+			    const stopWatch = watchTavernState(props.sessionId, refresh);
+			    const stopPoll = pollTaskWhile(refresh);
+			    return () => { stopWatch(); stopPoll(); };
 			  }, [props.sessionId, consolidating]);
 			  async function consolidate() {
 			    if (blocked) return;
@@ -59097,8 +59138,10 @@ function createStoryFloorRail(root, options) {
             }
             React.useEffect(function () {
                 if (!["running", "queued"].includes(view?.characterDesignTask?.status)) return;
-                const timer = setInterval(() => liveTavernView.invalidate(props.sessionId), 2000);
-                return () => clearInterval(timer);
+                const refresh = () => liveTavernView.invalidate(props.sessionId);
+                const stopWatch = watchTavernState(props.sessionId, refresh);
+                const stopPoll = pollTaskWhile(refresh);
+                return () => { stopWatch(); stopPoll(); };
             }, [props.sessionId, view?.characterDesignTask?.status]);
 			function characterDesignTime(ts) {
 				if (!ts) return "";
@@ -59827,9 +59870,11 @@ function createStoryFloorRail(root, options) {
 			const compacting = Boolean(rollbackViewState.view && rollbackViewState.view.contextCompaction && rollbackViewState.view.contextCompaction.operation && rollbackViewState.view.contextCompaction.operation.status === "running");
 			React.useEffect(function () {
 				if (!compacting) return;
-				const timer = window.setInterval(function () { liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }, 2000);
+				const refresh = function () { liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); };
+				const stopWatch = watchTavernState(props.sessionId, refresh);
+				const stopPoll = pollTaskWhile(refresh);
 				return function () {
-					window.clearInterval(timer);
+					stopWatch(); stopPoll();
 					const panel = interactions.candidates.getSnapshot();
 					if (panel && panel.sessionId === props.sessionId && panel.phase === "error" && /压缩/.test(String(panel.error || ""))) setCandidatePanel(null);
 				};
@@ -60528,8 +60573,10 @@ function createStoryFloorRail(root, options) {
             React.useEffect(function () { void load(); }, [load, running]);
             React.useEffect(function () {
                 if (!running) return;
-                const timer = setInterval(() => { liveTavernView.invalidate(props.sessionId); void load(); }, 2000);
-                return () => clearInterval(timer);
+                const refresh = () => { liveTavernView.invalidate(props.sessionId); void load(); };
+                const stopWatch = watchTavernState(props.sessionId, refresh);
+                const stopPoll = pollTaskWhile(refresh);
+                return () => { stopWatch(); stopPoll(); };
             }, [props.sessionId, running, load]);
             if (!tasks || !tasks.manual.length) return null;
             async function start(task, input) {

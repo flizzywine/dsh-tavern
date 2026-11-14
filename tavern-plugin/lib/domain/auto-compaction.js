@@ -25,7 +25,13 @@ export function storyRoundKeys(chat) {
 export function createAutoCompaction(deps) {
   const jobs = new Map(), reserved = new Set()
   const blocked = chat => reserved.has(chat.id) || chat.contextCompaction?.operation?.status === 'running'
-  async function save(id, mutate) { return deps.updateChat(id, chat => { chat.contextCompaction = mutate(chat.contextCompaction || {}); return chat }, { source: 'compaction.server' }) }
+  // Compaction progress reaches the page through session reads; announce each
+  // write so an open panel refreshes from the signal instead of polling.
+  async function save(id, mutate) {
+    const result = await deps.updateChat(id, chat => { chat.contextCompaction = mutate(chat.contextCompaction || {}); return chat }, { source: 'compaction.server' })
+    try { deps.onState?.(id, result) } catch { /* A missed announcement only costs one fallback poll. */ }
+    return result
+  }
   async function run(sessionId, options = {}) {
     // Idle manual-policy checks do not need round history. Active operations
     // and enabled policies retain the complete eligibility/recovery path below.

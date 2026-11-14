@@ -2801,7 +2801,10 @@ export async function apply(ctx) {
     ensureSession: async sessionId => {
       if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
     },
-    replaceLedger: input => pluginApi.replaceLedger(input)
+    replaceLedger: input => pluginApi.replaceLedger(input),
+    // Reads of the session are what show a running task's status; announce the
+    // transitions so an open panel does not need a two-second full-view poll.
+    onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
   })
   const manualCharacterDesign = createManualCharacterDesign({
     publishWorldbook: publishCharacterDesign,
@@ -2814,7 +2817,8 @@ export async function apply(ctx) {
     },
     ensureSession: async sessionId => {
       if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
-    }
+    },
+    onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
   })
   // 舞台、导演与 mod（stage-module.js）。
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
@@ -3330,6 +3334,7 @@ export async function apply(ctx) {
   }
   autoCompaction = createAutoCompaction({
     readChat: chatForSession, readState: sessionStateForSession, readMetadata: taskStateReader.forSession, updateChat,
+    onState: (id, chat) => { const sessionId = String(chat?.sessionId || ''); if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'compaction:' + Date.now() }) },
     policy: async () => (await readTavernSettings()).contextCompaction,
     activity: chat => backgroundTasks.activity(chat),
     exclusive: backgroundTasks.exclusive,

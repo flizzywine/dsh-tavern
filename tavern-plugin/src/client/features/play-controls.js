@@ -362,8 +362,10 @@
             }
             React.useEffect(function () {
                 if (!["running", "queued"].includes(view?.characterDesignTask?.status)) return;
-                const timer = setInterval(() => liveTavernView.invalidate(props.sessionId), 2000);
-                return () => clearInterval(timer);
+                const refresh = () => liveTavernView.invalidate(props.sessionId);
+                const stopWatch = watchTavernState(props.sessionId, refresh);
+                const stopPoll = pollTaskWhile(refresh);
+                return () => { stopWatch(); stopPoll(); };
             }, [props.sessionId, view?.characterDesignTask?.status]);
 			function characterDesignTime(ts) {
 				if (!ts) return "";
@@ -579,9 +581,11 @@
 			const compacting = Boolean(rollbackViewState.view && rollbackViewState.view.contextCompaction && rollbackViewState.view.contextCompaction.operation && rollbackViewState.view.contextCompaction.operation.status === "running");
 			React.useEffect(function () {
 				if (!compacting) return;
-				const timer = window.setInterval(function () { liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }, 2000);
+				const refresh = function () { liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); };
+				const stopWatch = watchTavernState(props.sessionId, refresh);
+				const stopPoll = pollTaskWhile(refresh);
 				return function () {
-					window.clearInterval(timer);
+					stopWatch(); stopPoll();
 					const panel = interactions.candidates.getSnapshot();
 					if (panel && panel.sessionId === props.sessionId && panel.phase === "error" && /压缩/.test(String(panel.error || ""))) setCandidatePanel(null);
 				};
@@ -980,8 +984,10 @@
             React.useEffect(function () { void load(); }, [load, running]);
             React.useEffect(function () {
                 if (!running) return;
-                const timer = setInterval(() => { liveTavernView.invalidate(props.sessionId); void load(); }, 2000);
-                return () => clearInterval(timer);
+                const refresh = () => { liveTavernView.invalidate(props.sessionId); void load(); };
+                const stopWatch = watchTavernState(props.sessionId, refresh);
+                const stopPoll = pollTaskWhile(refresh);
+                return () => { stopWatch(); stopPoll(); };
             }, [props.sessionId, running, load]);
             if (!tasks || !tasks.manual.length) return null;
             async function start(task, input) {
