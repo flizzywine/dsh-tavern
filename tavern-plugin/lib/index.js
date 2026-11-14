@@ -38,6 +38,7 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
+import { assetPromptPreset } from './image-asset-preset.js'
 import { runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
@@ -2673,6 +2674,7 @@ export async function apply(ctx) {
   })
   void branchOrigin.sweep().catch(error => console.warn('dsh-tavern: 检查旧分支会话头部失败', error?.message || error))
   const runtimePresetSnapshots = new Map()
+  const backgroundPresetSeeds = new Map()
   // The stage director runs beside the game's background work: a game-wide stop or progress read leaves it alone.
   const parallelBackgroundTasks = ['stage-director']
   // The background catalogue is fixed (a stable prefix); a task is allowed only its own. The mod tools that backfill in the
@@ -2771,9 +2773,31 @@ export async function apply(ctx) {
       await sessions.flush(session)
     },
     resolveRuntimePresetSnapshot: async function (input) {
-      // 外部 Tavern 预设只投影到前台正文请求。后台 Agent 有自己的结构化任务协议，
-      // 继承整份预设可能破坏候选生成和状态结算的输出契约。
-      return null
+      const parentSessionId = str(input && input.sessionId)
+      const agentSessionId = str(input && input.agentSessionId) || parentSessionId
+      if (!parentSessionId) return null
+      const config = await backgroundConfigForSession(parentSessionId)
+      if (config?.backgroundTasks?.preset !== true) {
+        backgroundPresetSeeds.delete(agentSessionId)
+        return null
+      }
+      const chat = await chatForSession(parentSessionId)
+      const rawSnapshot = chat ? await resolveChatRuntimePreset(chat) : null
+      if (!rawSnapshot) return null
+      const turn = Math.max(0, Number(input && input.turn) || 0)
+      const step = Math.max(1, Number(input && input.step) || 1)
+      const currentSeed = backgroundPresetSeeds.get(agentSessionId)
+      const randomSeed = step > 1 && currentSeed && currentSeed.turn === turn
+        ? currentSeed.seed
+        : randomUUID()
+      if (step === 1 || !currentSeed || currentSeed.turn !== turn) {
+        backgroundPresetSeeds.set(agentSessionId, { turn, seed: randomSeed })
+      }
+      return resolveRuntimePresetMacros(rawSnapshot, {
+        charName: chat.cardName,
+        macroState: chat.macroState,
+        randomSeed
+      }).snapshot
     },
     stageRuntimePresetSnapshot: function (input) {
       runtimePresetSnapshots.set(str(input.sessionId), {
@@ -2874,6 +2898,7 @@ export async function apply(ctx) {
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   // Asset pictures come from an image plugin (tavern.imageProvider); Tavern keeps no image channels.
   const assetGeneration = createAssetGeneration({store:profileData, imageProvider:() => pluginApi.imageProviders()[0], getLibrary:() => ctx.get('assetLibrary'),
+    promptPreset:assetPromptPreset({pluginsDir:userPluginPaths(dataRoot).plugins, running:runningUserPlugins}),
     // a figure linked to the 配图 人物库 takes its 外貌 from there (the one store); unlinked figures keep the pack text.
     linkedAppearance: async ({packId, figureId, outfitKey}) => {
       const linked = await findFigureImageCharacter(pluginApi, {packId, figureId})

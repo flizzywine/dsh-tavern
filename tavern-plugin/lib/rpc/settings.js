@@ -239,7 +239,7 @@ export function createSettingsHandlers(deps) {
       const patch = {
         defaultPlaySettings: {
           playerName,
-          backgroundTasks: { posture: tasks.posture !== false, plotCompass: tasks.plotCompass !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true },
+          backgroundTasks: { posture: tasks.posture !== false, plotCompass: tasks.plotCompass !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true },
           webSearchEnabled: chat.webSearchEnabled === true
         },
         defaultDisabledForegroundTools: disabledForegroundTools,

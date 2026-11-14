@@ -172,3 +172,41 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
   await page.getByRole('button', { name: /^本局后台模型：.*跟随前台/ }).waitFor()
   await page.waitForFunction(() => document.querySelector('input[aria-label="读取网页"]')?.checked === true)
 })
+
+test('本局设置功能区包含“后台任务附加预设”开关，默认关闭且可保存并从默认模板恢复', async t => {
+  let backgroundTasks = { variables: true, posture: true }
+  const { page, calls } = await openTavernSettings(t, {
+    sessionId: 'game',
+    respond(method, args) {
+      if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
+      if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story', playerName: '你', runtimePreset: null, statusBarPlacement: 'sidebar' } }
+      if (method === 'listPresets') return { presets: [] }
+      if (method === 'getUserPreferenceProfile') return { userProfile: { profiles: [] }, currentConversation: { enabled: false } }
+      if (method === 'listGamePlugins') return { plugins: { plugins: [], errors: [], settings: [], tasks: { settlement: [], manual: [] } } }
+      if (method === 'getConversationWritingSkills') return { skills: [] }
+      if (method === 'getBackgroundModelReasoning') return { reasoning: { efforts: [] } }
+      if (method === 'setConversationBackgroundConfig') {
+        backgroundTasks = { ...backgroundTasks, ...args.backgroundTasks }
+      }
+      if (method === 'getConversationBackgroundConfig' || method === 'setConversationBackgroundConfig') {
+        return {
+          backgroundModel: null,
+          worldbookStrategy: 'native-skills',
+          worldbookStrategies: [{ id: 'native-skills', label: '主动检索' }],
+          backgroundTasks,
+          disabledForegroundTools: [],
+          foregroundTools: [],
+          modelCatalog: []
+        }
+      }
+    }
+  })
+  const presetSwitch = page.getByRole('switch', { name: '后台任务附加预设', exact: true })
+  await presetSwitch.waitFor()
+  assert.equal(await presetSwitch.isChecked(), false)
+  await presetSwitch.press('Space')
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="后台任务附加预设"]')?.checked === true)
+  const lastSave = calls.filter(c => c.method === 'setConversationBackgroundConfig').at(-1)
+  assert.deepEqual(lastSave.args.backgroundTasks, { preset: true })
+})
+

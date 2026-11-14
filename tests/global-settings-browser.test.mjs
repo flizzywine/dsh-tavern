@@ -188,3 +188,18 @@ test('插件列表隐藏内置配图与模组，保留用户安装的插件', as
   assert.equal(await page.getByText('dsh-tavern-stage',{exact:true}).count(),0)
   await page.getByRole('button',{name:'删除',exact:true}).waitFor()
 })
+
+test('开局默认功能区包含“后台任务附加预设”开关，默认关闭且保存进 defaultPlaySettings', async t => {
+  const backend = fixture()
+  const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
+  const toggle = page.getByRole('switch', { name: '后台任务附加预设', exact: true })
+  await toggle.waitFor()
+  assert.equal(await toggle.isChecked(), false)
+  await toggle.press('Space')
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="后台任务附加预设"]')?.checked === true)
+  assert.deepEqual(
+    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
+    { defaultPlaySettings: { backgroundTasks: { preset: true } } }
+  )
+})
+

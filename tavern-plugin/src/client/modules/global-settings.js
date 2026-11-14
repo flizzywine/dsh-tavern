@@ -52,6 +52,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 toggle("plotCompass", "剧情罗盘", "推演短期、中期、长期多路线剧情发展灵感，并在点亮路线后软引导正文与候选项。", true),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
+                toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
                 toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),
             message ? h("p", { role: "status", className: "dsh-tavern-gs-notice" }, message) : null);
     }

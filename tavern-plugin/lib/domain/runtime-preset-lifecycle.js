@@ -148,8 +148,29 @@ export function projectRuntimePresetRequest(request, snapshot, options = {}) {
   }] : []
   return Object.assign({}, request, {
     ...(moveSystem ? { system: '' } : {}),
-    messages: normalizeRuntimeRequestRoles(instructions.concat(front, systemMessages, nativeSystems, withBack(history, back)))
+    messages: normalizeRuntimeRequestRoles(instructions.concat(front, systemMessages, nativeSystems, withBack(history, back, options)))
   })
+}
+
+function isRuntimePresetMessage(message) {
+  const source = message && message.source
+  if (!isProducerSource(source, 'dsh-tavern')) return false
+  return (Array.isArray(source.sections) ? source.sections : []).some(function (section) {
+    return section && typeof section.name === 'string' && section.name.startsWith('tavern:runtime-preset-')
+  })
+}
+
+function isToolResultMessage(message) {
+  return Array.isArray(message && message.content) && message.content.some(function (block) {
+    return block && (block.type === 'tool-result' || block.type === 'tool_result')
+  })
+}
+
+export function isPresetTurnBoundaryInput(message, options = {}) {
+  if (isTurnInput(message)) return true
+  if (str(options.scope) !== 'background') return false
+  // 后台任务由插件以 user 角色提交当前任务说明；排除工具结果与预设自身分段后，即可锁定本轮输入位置。
+  return Boolean(message && message.role === 'user' && !hasToolSemantics(message) && !isToolResultMessage(message) && !isRuntimePresetMessage(message))
 }
 
 // The back phase follows this turn's input, before the turn's first reply. On
@@ -157,11 +178,11 @@ export function projectRuntimePresetRequest(request, snapshot, options = {}) {
 // there instead of moving after the tool results. Moving it would change the
 // text before the step-1 reply, which breaks Anthropic thinking signatures and
 // the provider prefix cache for every later step of the turn.
-function withBack(history, back) {
+function withBack(history, back, options = {}) {
   if (back.length === 0) return history
   let input = -1
   for (let index = history.length - 1; index >= 0; index--) {
-    if (isTurnInput(history[index])) { input = index; break }
+    if (isPresetTurnBoundaryInput(history[index], options)) { input = index; break }
   }
   const reply = input < 0 ? -1 : history.findIndex((message, index) => index > input && message.role === 'assistant')
   if (reply < 0) return history.concat(back)

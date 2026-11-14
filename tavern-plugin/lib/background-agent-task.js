@@ -18,7 +18,7 @@ import {
   CHARACTER_DESIGN_FINISH_TOOL,
   createCharacterDesignStage
 } from './domain/character-design-stage.js'
-import { runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
+import { isPresetTurnBoundaryInput, runtimePresetPhaseMessages } from './domain/runtime-preset-lifecycle.js'
 import { ensureSessionStablePrefix, readSessionStablePrefix, sessionStablePrefixSections, withCurrentWorldbook } from './domain/session-stable-prefix.js'
 import { promptSection } from './domain/prompt-section.js'
 
@@ -37,6 +37,20 @@ function str(value) {
 // defines one (tavern.member with `system`), and a director without the shared background context.
 function ownsPrefix(input) {
   return input.task === 'polish' || input.ownPrefix === true || !usesSharedBackgroundContext(input)
+}
+
+// 将中段预设固定插入在当前轮任务输入之前，使多步工具循环的每一步保持相同前缀而不退回到历史最顶部。
+function withBackgroundMiddle(messages, middle) {
+  if (!Array.isArray(middle) || middle.length === 0) return messages
+  const list = Array.isArray(messages) ? messages : []
+  for (let index = list.length - 1; index >= 0; index--) {
+    if (isPresetTurnBoundaryInput(list[index], { scope: 'background' })) {
+      return list.slice(0, index).concat(middle, list.slice(index))
+    }
+  }
+  const afterSystem = list.findIndex(message => message?.role !== 'system')
+  if (afterSystem <= 0) return middle.concat(list)
+  return list.slice(0, afterSystem).concat(middle, list.slice(afterSystem))
 }
 
 function finalMessage(events, startAt) {
@@ -226,19 +240,23 @@ export function createBackgroundAgentTask(options) {
           appendSessionEvent(agent.session, 'subagent/descriptor', descriptor)
         }
         if (decision.kind !== 'enter') return decision
-        if (director && !usesSharedBackgroundContext(state.input)) return decision
         const input = state.input || {}
-        // A prefix of its own carries no card preset either.
-        const snapshot = input.task !== 'polish' && input.ownPrefix !== true && typeof options.resolveRuntimePresetSnapshot === 'function'
-          ? await options.resolveRuntimePresetSnapshot({ sessionId: input.sessionId, operation: input.task || 'background' })
+        const snapshot = typeof options.resolveRuntimePresetSnapshot === 'function'
+          ? await options.resolveRuntimePresetSnapshot({
+            sessionId: input.sessionId,
+            agentSessionId: agent.session.id,
+            turn,
+            step,
+            operation: input.task || 'background'
+          })
           : null
         const messageOptions = { scope: 'background', turn, step }
         if (typeof options.stageRuntimePresetSnapshot === 'function') {
           options.stageRuntimePresetSnapshot({ sessionId: agent.session.id, turn, step, snapshot, scope: 'background' })
         }
-        const middleMessages = Number(step) === 1 ? runtimePresetPhaseMessages(snapshot, 'middle', messageOptions) : []
+        const middleMessages = runtimePresetPhaseMessages(snapshot, 'middle', messageOptions)
         return middleMessages.length === 0 ? decision : Object.assign({}, decision, {
-          messages: middleMessages.concat(decision.messages)
+          messages: withBackgroundMiddle(decision.messages, middleMessages)
         })
       })
       childCtx.systemPrompt.section({

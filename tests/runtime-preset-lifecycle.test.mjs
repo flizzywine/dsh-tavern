@@ -62,3 +62,52 @@ test('同一轮工具循环里，预设后置段固定在本轮输入之后，�
   assert.deepEqual(before.map(text), step1.map(text), '工具调用之前的内容与第 1 步完全一致')
   assert.doesNotMatch(text(step2.at(-1)), /重要！！！状态栏/)
 })
+
+test('后台任务工具循环：预设后置段固定在当前任务输入与 step-1 回复之间，front 保留在系统区', () => {
+  const snapshot = {
+    front: { entries: [{ role: 'system', content: '后台前段设定' }] },
+    back: { entries: [{ role: 'user', content: '后台后段约束' }] }
+  }
+  const middle = {
+    role: 'system',
+    content: [{ type: 'text', text: '后台中段要求' }],
+    source: { kind: 'plugin:dsh-tavern', form: 'snapshot', sections: [{ name: 'tavern:runtime-preset-middle', text: '后台中段要求' }] }
+  }
+  const taskInput = {
+    role: 'user',
+    content: [{ type: 'text', text: '<recent_task>结算本轮状态</recent_task>' }],
+    source: { kind: 'plugin:dsh-tavern' }
+  }
+  const history = [
+    { role: 'user', content: [{ type: 'text', text: '上一轮任务' }], source: { kind: 'plugin:dsh-tavern' } },
+    { role: 'assistant', content: [{ type: 'text', text: '上一轮结果' }], source: { kind: 'model' } }
+  ]
+  const step1 = projectRuntimePresetRequest(
+    { system: '后台任务系统指令', messages: [...history, middle, taskInput] },
+    snapshot,
+    { scope: 'background', turn: 3, step: 1 }
+  ).messages
+  const call = {
+    role: 'assistant',
+    content: [{ type: 'tool-call', id: 'c1', name: 'tavern_read_source', arguments: '{"sourceId":"story","turn":2}' }],
+    source: { kind: 'model' }
+  }
+  const result = {
+    role: 'tool',
+    content: [{ type: 'tool-result', id: 'c1', text: '原文' }],
+    source: { kind: 'tool' }
+  }
+  const step2 = projectRuntimePresetRequest(
+    { system: '后台任务系统指令', messages: [...history, middle, taskInput, call, result] },
+    snapshot,
+    { scope: 'background', turn: 3, step: 2 }
+  ).messages
+  const text = m => JSON.stringify(m.content)
+  assert.equal(step1[0].role, 'system')
+  assert.match(text(step1[0]), /后台前段设定[\s\S]*后台任务系统指令/)
+  assert.match(text(step1.at(-1)), /后台后段约束/)
+  const beforeCall = step2.slice(0, step2.findIndex(m => m.role === 'assistant' && m.content.some(b => b.type === 'tool-call')))
+  assert.deepEqual(beforeCall.map(text), step1.map(text), '工具调用前的前缀（含 front / middle / task / back）在 step 2 保持完全一致')
+  assert.doesNotMatch(text(step2.at(-1)), /后台后段约束/)
+})
+

@@ -302,3 +302,45 @@ test('提交提示词按最终工具列表选择，插件工具关闭后仍留�
   assert.deepEqual(none.tools, [])
   assert.ok(none.sections.some(section => section.name === 'tavern:no-foreground-tools'))
 })
+
+test('后台请求投影保留前段与后段预设，不因前台优化而丢弃 front', async () => {
+  const { createForegroundOrchestrationStrategies } = await import('../tavern-plugin/lib/domain/foreground-orchestration-strategies.js')
+  const stagedRequests = new Map([[
+    'bg-session',
+    {
+      turn: 1,
+      step: 1,
+      scope: 'background',
+      snapshot: {
+        front: { entries: [{ role: 'system', content: '预设前段内容' }] },
+        middle: { entries: [{ role: 'system', content: '预设中段内容' }] },
+        back: { entries: [{ role: 'user', content: '预设后段内容' }] }
+      }
+    }
+  ]])
+  const s = createForegroundOrchestrationStrategies({
+    modeFor: async () => 'story',
+    nativePlay: {
+      stagedRequests,
+      async modeFor() { return 'story' },
+      filterMessages: m => m,
+      async resolvePreset() { return null },
+      async prepareTurn() { return { text: '' } },
+      appendFrame: i => ({ messages: i.messages, receipt: {} }),
+      recordFrame() {},
+      async visibleTools() { return [] },
+      modePrompt: () => ''
+    }
+  })
+  const projected = s.projectRequest({
+    sessionId: 'bg-session',
+    system: '后台系统提示',
+    messages: [{ role: 'user', content: [{ type: 'text', text: '后台任务正文' }], source: { kind: 'plugin:dsh-tavern' } }]
+  })
+  assert.ok(projected)
+  assert.equal(projected.system, undefined)
+  assert.equal(projected.messages[0].role, 'system')
+  assert.match(projected.messages[0].content[0].text, /预设前段内容[\s\S]*后台系统提示/)
+  assert.match(projected.messages.at(-1).content[0].text, /后台任务正文[\s\S]*预设后段内容/)
+})
+

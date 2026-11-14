@@ -419,9 +419,11 @@ export function createNativePlayOrchestrationStrategy(options) {
     const nativeMessages = regeneratedMessages.some(isNativeStablePrefix) ? regeneratedMessages.filter(message => !isNativeStablePrefix(message)) : regeneratedMessages
     const baseRequest = nativeMessages === optionsValue.messages
       ? optionsValue : Object.assign({}, optionsValue, { messages: nativeMessages })
-    // The front phase is already in the native system prompt (see presetFrontSections).
-    const backOnly = staged.snapshot ? { ...staged.snapshot, front: null } : null
-    let request = projectRuntimePresetRequest(baseRequest, backOnly, {
+    // 前台正文的 front 已由 assembleSystemPrompt 写入原生 system prompt；后台任务不走该钩子，须保留完整前／后段。
+    const projectionSnapshot = staged.scope === 'background'
+      ? staged.snapshot
+      : (staged.snapshot ? { ...staged.snapshot, front: null } : null)
+    let request = projectRuntimePresetRequest(baseRequest, projectionSnapshot, {
       systemAppend: options.systemAppend?.(),
       scope: staged.scope,
       turn: staged.turn,
