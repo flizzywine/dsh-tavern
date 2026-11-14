@@ -28772,7 +28772,7 @@ function StageFirstRun({writer,cardName}) {
   // The optimistic write swaps this page for the full one while it saves; a refused save brings this page back as a new
   // instance, so the reason is the writer's own (status.error), not local state.
   const [busy,setBusy]=React.useState(false),error=typeof writer.status==='object'?writer.status.error:'';
-  async function start(){setBusy(true);try{await writer.write(()=>({assetBindings:{boundPackIds:[]},stage:{enabled:true}}));}catch(_){}finally{setBusy(false);}}
+  async function start(){setBusy(true);try{await writer.write(current=>({assetBindings:current.assetBindings,stage:{enabled:true}}));}catch(_){}finally{setBusy(false);}}
   return h('div',{className:'ap-first-run'},
     h('p',{className:'ap-first-title'},'这张卡还没有舞台设置'),
     h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'启用舞台（对话气泡）'),

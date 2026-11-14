@@ -618,7 +618,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // the rows no longer show 「N 张卡」 (cross-card counts) — a row only shows this
   // card's view of the pack — so the client no longer reads getPackBindingCounts.
   // One controller per surface: state of each pack and its transitions (existing writes only).
-  // card scope: ctx = the 舞台设置 page context (ext, writer); library scope: ctx = null.
+  // card scope: ctx = the card context (ext, writer; the 舞台设置 page's, or the library's for a card without stage settings); library scope: ctx = null.
   function usePackScope({binding,ctx,packs}) {
     useGlobalPacks(binding);
     const [pending,setPending]=React.useState({}),[error,setError]=React.useState(''),alive=React.useRef(true);
@@ -634,7 +634,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       setPending(p=>({...p,[id]:true}));setError('');
       try{
         const writes=[];
-        if(plan.bind===true)writes.push(ctx.writer.write(current=>({assetBindings:{...current.assetBindings,boundPackIds:[...current.assetBindings.boundPackIds.filter(x=>x!==id),id]}})));
+        // a card with no stage settings yet gets only its bindings, declared 本卡关闭 so a global 对话气泡 switch does not turn the stage on through it.
+        if(plan.bind===true)writes.push(ctx.writer.write(current=>({assetBindings:{...current.assetBindings,boundPackIds:[...current.assetBindings.boundPackIds.filter(x=>x!==id),id]},...(ctx.fresh?{stage:{enabled:false}}:{})})));
         if(plan.bind===false)writes.push(ctx.writer.write(current=>unbindPatch(current,id)));
         if(plan.global!==undefined)writes.push(binding.setGlobalEnabled(id,plan.global));
         await Promise.all(writes);
@@ -795,7 +796,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const list=state.value||[],packs=list.filter(p=>!p.error),broken=list.filter(p=>p.error);
     const cardState=useLoad(binding,async()=>cardPath&&binding.rpc?{card:await binding.rpc('getCardAssetBindings',{path:cardPath,metadataOnly:true}),packs:[]}:null,[cardPath,cardStamp]);
     const writer=useStageWriter(binding,cardPath,cardState,sessionId),ext=cardPath&&cardState.value?writer.extension:null;
-    const cardCtx=ext?.assetBindings?{binding,ext,writer,packs,path:cardPath,sessionId}:null;
+    // bindings are the card's own data, whether or not its stage is on: a card without stage settings reads as no bindings.
+    const cardCtx=cardPath&&cardState.value?{binding,ext:ext||{schemaVersion:1,assetBindings:{boundPackIds:[]}},fresh:!ext,writer,packs,path:cardPath,sessionId}:null;
     const scope=usePackScope({binding,ctx:cardCtx,packs}),actions=usePackActions(binding,{onChanged:()=>state.reload()});
     // download tray · 可更新 chips · the sheets above 获取素材包 (null without the capability).
     const catalogue=useCatalogue(binding,{packs,reload:()=>state.reload(),openPack:packId=>onOpen({packId})});
