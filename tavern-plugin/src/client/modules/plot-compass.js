@@ -338,7 +338,7 @@ function TavernPlotCompassTab(props) {
             ) : null,
             steps.length > 0 ? h("div", { className: "dsh-tavern-compass-steps" },
                 h("div", { className: "dsh-tavern-compass-steps-head" },
-                    h("span", null, horizon === "shortTerm" ? "推进节拍" : "篇章里程碑"),
+                    h("span", null, (horizon === "shortTerm" ? "推进节拍" : "篇章里程碑") + " · 随新回合自动打勾（也可手动点选）"),
                     h("span", null, doneCount + "/" + steps.length)
                 ),
                 h("ul", { className: "dsh-tavern-compass-step-list" }, steps.map(function (step, idx) {

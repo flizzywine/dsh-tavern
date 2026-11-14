@@ -150,6 +150,7 @@ export function emptyPlotCompass() {
     version: 1,
     updatedAt: 0,
     basedOnTurn: 0,
+    lastCheckedTurn: 0,
     playArchetypes: [],
     customArchetypes: [],
     situationDigest: '',
@@ -188,10 +189,12 @@ export function readPlotCompass(value) {
     })
     .filter(Boolean)
     .slice(-MAX_ARCHIVED)
+  const basedOnTurn = Math.max(0, Number(src.basedOnTurn) || 0)
   return {
     version: 1,
     updatedAt: Math.max(0, Number(src.updatedAt) || 0),
-    basedOnTurn: Math.max(0, Number(src.basedOnTurn) || 0),
+    basedOnTurn,
+    lastCheckedTurn: Math.max(basedOnTurn, Number(src.lastCheckedTurn) || 0),
     playArchetypes: normalizeArchetypeList(src.playArchetypes),
     customArchetypes: normalizeArchetypeList(src.customArchetypes),
     situationDigest: cleanText(src.situationDigest, { maxLength: 240 }),
@@ -374,6 +377,7 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
   const next = copy(prev)
   next.updatedAt = now
   next.basedOnTurn = Math.max(0, Number(turn) || 0)
+  next.lastCheckedTurn = Math.max(next.basedOnTurn, Number(prev.lastCheckedTurn) || 0)
   if (submitted.situationDigest) next.situationDigest = submitted.situationDigest
   if (submitted.playArchetypes?.length) {
     const merged = [...prev.customArchetypes]
@@ -707,4 +711,111 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
   blocks.push(promptSection('plot_compass_request', requestLines.join('\n\n')))
 
   return blocks.join('\n\n')
+}
+
+export const PLOT_COMPASS_PROGRESS_SYSTEM = [
+  'You are a strict story-beat progress verifier for an interactive story.',
+  'Given the recent story text and a list of pending plot beats / milestones, identify ONLY the items that have ALREADY concretely happened or been achieved in the story prose.',
+  'Rules:',
+  '- Player intentions or unfulfilled plans that have NOT actually played out in the assistant story prose do NOT count.',
+  '- Partial similarity is fine if the dramatic core of that beat has clearly already taken place on screen, so the story does not repeat it.',
+  '- Output ONLY a single valid JSON object with no extra commentary: {"completed":["<key>", ...]} (use an empty array [] if none were fulfilled).'
+].join('\n')
+
+export function collectPendingCompassSteps(compassRaw) {
+  const compass = readPlotCompass(compassRaw)
+  const pending = []
+  for (const [horizon, stepField] of [['shortTerm', 'beats'], ['midTerm', 'milestones']]) {
+    const pinnedId = compass.pinned[horizon]
+    const ordered = [...compass[horizon]].sort((a, b) => Number(b.id === pinnedId) - Number(a.id === pinnedId))
+    for (const route of ordered) {
+      const steps = Array.isArray(route[stepField]) ? route[stepField] : []
+      for (let idx = 0; idx < steps.length; idx++) {
+        if (steps[idx]?.done) continue
+        pending.push({
+          key: `${horizon}:${route.id}:${idx}`,
+          horizon,
+          routeId: route.id,
+          routeTitle: route.title,
+          pinned: route.id === pinnedId,
+          stepIndex: idx,
+          text: steps[idx].text
+        })
+      }
+    }
+  }
+  return pending
+}
+
+export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 0 } = {}) {
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const turnBlocks = []
+  for (let i = messages.length - 1; i >= 0 && turnBlocks.length < 6; i--) {
+    const msg = messages[i]
+    if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) continue
+    const turn = Number(msg.turn) || 0
+    if (fromTurn > 0 && turn > 0 && turn < fromTurn && turnBlocks.length >= 2) break
+    const raw = str(msg.sourceText ?? msg.text).trim()
+    if (!raw) continue
+    const clipped = raw.length > 2400 ? raw.slice(0, 1200) + '\n…\n' + raw.slice(-1200) : raw
+    turnBlocks.unshift(`[${msg.role === 'user' ? '玩家' : '正文'} · 第${turn || '?'}轮]\n${clipped}`)
+  }
+  const stepLines = pendingSteps.map(item =>
+    `- key="${item.key}" (${item.horizon === 'shortTerm' ? '今期节拍' : '中期里程碑'} · 路线「${item.routeTitle}」${item.pinned ? ' [玩家当前点亮]' : ''}): ${item.text}`
+  ).join('\n')
+
+  return [
+    promptSection('recent_story_turns', turnBlocks.join('\n\n')),
+    promptSection('pending_steps', stepLines),
+    'Return strictly JSON: {"completed":["..."]}'
+  ].join('\n\n')
+}
+
+export function parsePlotCompassProgressResponse(rawText, validKeys) {
+  const parsed = parseJsonLenient(rawText)
+  const list = Array.isArray(parsed.completed) ? parsed.completed : []
+  const allowed = new Set(validKeys)
+  return [...new Set(list.map(item => str(item).trim()).filter(key => allowed.has(key)))]
+}
+
+export function applyPlotCompassAutoProgress(previousRaw, completedKeys, { turn = 0, now = Date.now() } = {}) {
+  const next = readPlotCompass(previousRaw)
+  const keySet = new Set(Array.isArray(completedKeys) ? completedKeys : [])
+  let newlyCompletedCount = 0
+  let pinnedShortTouched = false
+
+  for (const [horizon, stepField] of [['shortTerm', 'beats'], ['midTerm', 'milestones']]) {
+    for (const route of next[horizon]) {
+      const steps = Array.isArray(route[stepField]) ? route[stepField] : []
+      for (let idx = 0; idx < steps.length; idx++) {
+        const key = `${horizon}:${route.id}:${idx}`
+        if (keySet.has(key) && !steps[idx].done) {
+          steps[idx] = { ...steps[idx], done: true }
+          newlyCompletedCount++
+          if (horizon === 'shortTerm' && next.pinned.shortTerm === route.id) pinnedShortTouched = true
+        }
+      }
+    }
+  }
+
+  next.lastCheckedTurn = Math.max(next.lastCheckedTurn || 0, Number(turn) || 0)
+  if (newlyCompletedCount > 0) next.updatedAt = now
+
+  const pinnedShortRoute = next.pinned.shortTerm
+    ? next.shortTerm.find(r => r.id === next.pinned.shortTerm) || null
+    : null
+  const pinnedShortCompleted = Boolean(
+    pinnedShortTouched &&
+    pinnedShortRoute &&
+    Array.isArray(pinnedShortRoute.beats) &&
+    pinnedShortRoute.beats.length > 0 &&
+    pinnedShortRoute.beats.every(step => step.done === true)
+  )
+
+  return {
+    compass: next,
+    newlyCompletedCount,
+    pinnedShortCompleted,
+    completedPinnedShortTitle: pinnedShortCompleted ? pinnedShortRoute.title : ''
+  }
 }

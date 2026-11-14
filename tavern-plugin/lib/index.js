@@ -2837,6 +2837,7 @@ export async function apply(ctx) {
     prompt: runtimePrompt,
     selection: backgroundModelSelection,
     runAgent: input => backgroundAgentRunner.run(input),
+    callModel,
     ensureSession: async sessionId => {
       if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
     },
@@ -3896,7 +3897,7 @@ export async function apply(ctx) {
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
   registerBackgroundTasks(workflow, { readTavernSettings, polishPrereview, announceCast,
-    gameTitles, saveMaintenance, pluginApi, candidateWorldbookPreparation, backgroundTasks, queueSettlement, settlementJobs, settlementRun })
+    gameTitles, saveMaintenance, pluginApi, candidateWorldbookPreparation, plotCompassService, backgroundTasks, queueSettlement, settlementJobs, settlementRun })
   const foregroundHandoff = createForegroundHandoff({
     turns: turnOrchestrator,
     scriptDispatch: tavernScriptDispatch,

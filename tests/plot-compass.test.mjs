@@ -572,4 +572,98 @@ test('真实 DSH 原生后台运行时：plotCompassService.generate 正常序�
   assert.match(JSON.stringify(runtime.requests[0].messages), /多一点悬疑反转/)
 })
 
+test('回合结算后自动勾选节拍，且点亮的今期路线节拍全部走完时自动续推下一幕今期路线', async () => {
+  let chat = {
+    id: 'chat-auto-step',
+    sessionId: 'sess-auto-step',
+    mode: 'story',
+    cardPath: 'cards/shen.json',
+    cardName: '沈清弦',
+    messages: [
+      { role: 'user', turn: 1, text: '大人深夜传唤所为何事？' },
+      { role: 'assistant', turn: 1, text: '沈清弦将一封火漆密信推过桌面。' }
+    ]
+  }
+  const initialParsed = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat })
+  chat.plotCompass = applyPlotCompassPin(
+    mergePlotCompassUpdate(null, initialParsed, { scope: 'all', turn: 1, now: 1000 }),
+    { horizon: 'shortTerm', routeId: 'st-bell', now: 1000 }
+  )
+
+  let modelStepCalls = 0
+  let nextWaveGenerated = 0
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(chat),
+      readChat: async () => structuredClone(chat),
+      updateChat: async (_id, mutator) => {
+        const next = await mutator(structuredClone(chat))
+        if (next) chat = next
+        return structuredClone(chat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'mock', model: 'mock-bg' }),
+    callModel: async opts => {
+      modelStepCalls++
+      assert.equal(opts.background, true)
+      if (modelStepCalls === 1) {
+        return JSON.stringify({ completed: ['shortTerm:st-bell:0'] })
+      }
+      return JSON.stringify({ completed: ['shortTerm:st-bell:1', 'midTerm:mt-alliance:0'] })
+    },
+    runAgent: async input => {
+      nextWaveGenerated++
+      assert.equal(input.task, 'plot-compass')
+      assert.match(input.taskText, /Refresh scope: "shortTerm"|Target refresh scope: "shortTerm"/)
+      await input.onToolCall({
+        name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+        arguments: {
+          ...sampleSubmission(),
+          shortTerm: [
+            { id: 'st-next-1', tag: '钟楼对账', title: '查验铜钟内壁密诏', summary: '顺着暗格取出先帝遗诏', beats: [{ text: '拓印密诏名单' }] },
+            { id: 'st-next-2', tag: '伏击反制', title: '设伏反抓尾随暗哨', summary: '解决跟来的内阁眼线', beats: [{ text: '引暗哨入钟楼死角' }] }
+          ]
+        }
+      })
+      return { text: '', traceSessionId: 'trace-next-short' }
+    }
+  })
+
+  // 第 2 轮结算完成（模拟 settlement-run 只传表头切片 latest + turn）
+  chat.messages.push(
+    { role: 'user', turn: 2, text: '我假意应下条件换取离狱手令' },
+    { role: 'assistant', turn: 2, text: '沈清弦冷眼看了你片刻，终究将黑铁离狱手令掷在桌上。' }
+  )
+  const headerSliceTurn2 = { id: chat.id, sessionId: chat.sessionId, mode: 'story', plotCompass: chat.plotCompass }
+  assert.equal(await service.hasTrackableSteps(headerSliceTurn2, 2, chat.sessionId), true)
+  const out2 = await service.syncTurnProgress({ sessionId: chat.sessionId, chat: headerSliceTurn2, turn: 2 })
+  assert.equal(out2.newlyCompletedCount, 1)
+  assert.equal(out2.pinnedShortCompleted, false)
+  const bellAfterTurn2 = readPlotCompass(chat.plotCompass).shortTerm.find(r => r.id === 'st-bell')
+  assert.deepEqual(bellAfterTurn2.beats.map(b => b.done), [true, false])
+  assert.equal(nextWaveGenerated, 0, '尚未走完全部节拍时不提前刷新今期路线')
+
+  // 第 3 轮结算完成：第 2 个节拍也达成（2/2 全满），自动触发下一幕 shortTerm 推演！
+  chat.messages.push(
+    { role: 'user', turn: 3, text: '子时潜入废钟楼打开暗格' },
+    { role: 'assistant', turn: 3, text: '你在子时攀上旧城废钟楼，撬开铜钟暗格摸到了那册泛黄密账。' }
+  )
+  const headerSliceTurn3 = { id: chat.id, sessionId: chat.sessionId, mode: 'story', plotCompass: chat.plotCompass }
+  const out3 = await service.syncTurnProgress({ sessionId: chat.sessionId, chat: headerSliceTurn3, turn: 3 })
+  assert.equal(out3.pinnedShortCompleted, true)
+  const pendingNextJob = service.wait(chat.id)
+  if (pendingNextJob) await pendingNextJob
+
+  assert.equal(nextWaveGenerated, 1, '点亮今期路线全部节拍完成后应自动推演下一幕今期路线')
+  const evolved = readPlotCompass(chat.plotCompass)
+  assert.equal(evolved.shortTerm[0].title, '查验铜钟内壁密诏')
+  assert.equal(evolved.midTerm.find(r => r.id === 'mt-alliance').milestones[0].done, true, '同步勾选的中期里程碑在今期单层续推后完好保留')
+})
+
+
 

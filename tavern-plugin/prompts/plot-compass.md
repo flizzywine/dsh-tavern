@@ -23,7 +23,7 @@ Design genuinely different dramatic directions within each horizon:
 - **`shortTerm` (今期规划 · Next 2–5 turns, 3–4 routes)**: Immediate scene arcs & mini-climaxes.
   - Span distinct rhythms: e.g., escalate current momentum to a breakthrough, sudden twist / probing a sore spot / external interruption, hidden-clue side investigation, or clean scene transition to a new time/place.
   - `tag` (2–6 chars, e.g. `"顺势破防"`, `"暗查异响"`, `"掀桌试探"`, `"切场夜访"`): crisp badge used directly on next-turn action choices.
-  - `beats`: 2–3 concrete sequential beats (`{text, done}`), ~18–38 chars each.
+  - `beats`: 2–3 concrete sequential beats (`{text, done}`), ~18–38 chars each. **Important**: for any newly created route, every beat must be a **future** step starting AFTER the latest story turn (`done: false`); never list events that have already occurred in `<recent_story>` as an unchecked beat. Only mark `done: true` when incrementally evolving an `<existing_plot_compass>` route whose earlier beat has now happened in `<recent_story>`.
 - **`midTerm` (中期规划 · Next 5–20 turns, 3–4 routes)**: Chapter-scale arcs & relationship/faction turning points.
   - Include mainstream progression, bold sideways turns, and at least 1 hidden subplot or worldbook-hook route when material allows.
   - `entryHook` (~25–55 chars): concrete action the player can take soon to enter this arc.

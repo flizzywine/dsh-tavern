@@ -75,7 +75,10 @@ function definitions(deps) {
       run: ({ chatId, latest }) => { deps.saveMaintenance.noteWrite(chatId, Number(latest._storageRevision)) } },
     { key: 'plugin-turn', name: '插件轮次通知', agent: false, on: 'turn-settled', run: ({ gameId }) => deps.pluginApi.turnSettled(gameId) },
     { key: 'candidate-worldbook', name: '选项世界书预热', agent: false, on: 'turn-settled',
-      run: ({ gameId }) => deps.candidateWorldbookPreparation.warm(gameId) }
+      run: ({ gameId }) => deps.candidateWorldbookPreparation.warm(gameId) },
+    { key: 'plot-compass-progress', name: '罗盘节拍核对', agent: false, on: 'turn-settled', condition: '本局有待推进的罗盘节拍时',
+      enabled: ({ gameId, latest, turn }) => deps.plotCompassService ? deps.plotCompassService.hasTrackableSteps(latest, turn, gameId) : false,
+      run: ({ gameId, latest, turn }) => deps.plotCompassService.syncTurnProgress({ sessionId: gameId, chat: latest, turn }) }
   ]
 }
 

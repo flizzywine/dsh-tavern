@@ -1,13 +1,18 @@
 import { scriptForState } from './script-layout.js'
 import {
+  PLOT_COMPASS_PROGRESS_SYSTEM,
   PLOT_COMPASS_SCOPES,
   PLOT_COMPASS_SUBMIT_TOOL,
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
+  applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
   applyPlotCompassPin,
   applyPlotCompassStepToggle,
   buildPlotCompassMaterial,
+  buildPlotCompassProgressPrompt,
+  collectPendingCompassSteps,
   mergePlotCompassUpdate,
+  parsePlotCompassProgressResponse,
   parsePlotCompassSubmission,
   readPlotCompass,
   setPlotCompassPin
@@ -36,12 +41,14 @@ export function createPlotCompassService({
   prompt,
   selection,
   runAgent,
+  callModel = null,
   ensureSession = async () => {},
   onStatus = () => {},
   onError = error => console.error('dsh-tavern: 剧情罗盘后台任务异常', error),
   now = Date.now
 }) {
   const jobs = new Map()
+  const progressJobs = new Set()
 
   function projectTask(chat) {
     const raw = chat?.plotCompassTask && typeof chat.plotCompassTask === 'object'
@@ -329,6 +336,82 @@ export function createPlotCompassService({
     }
   }
 
+  async function hasTrackableSteps(chatOrSlice, explicitTurn, sessionId) {
+    if (typeof callModel !== 'function') return false
+    let target = chatOrSlice
+    if ((!target || target.plotCompass === undefined) && sessionId) {
+      target = await store.chatForSession(str(sessionId))
+    }
+    if (!isPlayableChat(target)) return false
+    const compass = readPlotCompass(target.plotCompass)
+    const pending = collectPendingCompassSteps(compass)
+    if (pending.length === 0) return false
+    const latestTurn = Math.max(Number(explicitTurn) || 0, latestStoryTurnOf(target))
+    return latestTurn > Math.max(compass.basedOnTurn, compass.lastCheckedTurn || 0)
+  }
+
+  /**
+   * Automatically verify and check off fulfilled beats & milestones after each settled turn.
+   * When a pinned short-term route finishes all its beats (e.g. 3/3), seamlessly roll out the next short-term routes!
+   */
+  async function syncTurnProgress({ sessionId, chat: hintChat, turn: hintTurn } = {}) {
+    if (typeof callModel !== 'function') return null
+    const targetSessionId = str(sessionId || hintChat?.sessionId)
+    if (!targetSessionId) return null
+    const baseChat = hintChat?.id ? hintChat : await store.chatForSession(targetSessionId)
+    if (!isPlayableChat(baseChat) || progressJobs.has(baseChat.id) || jobs.has(baseChat.id)) return null
+
+    const freshChat = await store.readChat(baseChat.id)
+    if (!isPlayableChat(freshChat)) return null
+    const compass = readPlotCompass(freshChat.plotCompass)
+    const pending = collectPendingCompassSteps(compass)
+    const latestTurn = Math.max(Number(hintTurn) || 0, latestStoryTurnOf(freshChat))
+    const checkedFloor = Math.max(compass.basedOnTurn, compass.lastCheckedTurn || 0)
+    if (pending.length === 0 || latestTurn <= checkedFloor) return null
+    if (!selection(freshChat)) return null
+
+    progressJobs.add(freshChat.id)
+    try {
+      const promptText = buildPlotCompassProgressPrompt(freshChat, pending, { fromTurn: checkedFloor + 1 })
+      const rawReply = await callModel({
+        sessionId: targetSessionId,
+        background: true,
+        temperature: 0.1,
+        maxTokens: 512,
+        system: PLOT_COMPASS_PROGRESS_SYSTEM,
+        messages: [{ role: 'user', content: promptText }]
+      })
+      const outputText = typeof rawReply === 'string' ? rawReply : str(rawReply?.output ?? rawReply?.text)
+      const completedKeys = parsePlotCompassProgressResponse(outputText, pending.map(item => item.key))
+
+      let outcome = null
+      await store.updateChat(freshChat.id, current => {
+        if (!isPlayableChat(current)) return undefined
+        outcome = applyPlotCompassAutoProgress(current.plotCompass, completedKeys, { turn: latestTurn, now: now() })
+        current.plotCompass = outcome.compass
+        if (outcome.newlyCompletedCount > 0) current.updatedAt = now()
+        return current
+      }, { source: 'plot-compass.auto-progress' })
+
+      if (outcome?.newlyCompletedCount > 0) {
+        onStatus(targetSessionId)
+      }
+      if (outcome?.pinnedShortCompleted && !jobs.has(freshChat.id)) {
+        await generate({
+          sessionId: targetSessionId,
+          scope: 'shortTerm',
+          guidance: `上一幕点亮的近期路线「${outcome.completedPinnedShortTitle}」全部节拍已在剧情中达成，请紧承最新回合结尾与已点亮的中长期方向，推演下一幕新的今期（2-5轮）多路线节拍。`
+        }).catch(() => {})
+      }
+      return outcome
+    } catch (err) {
+      onError(err)
+      return null
+    } finally {
+      progressJobs.delete(freshChat.id)
+    }
+  }
+
   return Object.freeze({
     projectTask,
     generate,
@@ -336,6 +419,8 @@ export function createPlotCompassService({
     pin,
     toggleStep,
     setArchetypes,
+    hasTrackableSteps,
+    syncTurnProgress,
     autoEvolveAfterCompaction,
     wait: chatId => jobs.get(str(chatId))?.promise || null
   })
