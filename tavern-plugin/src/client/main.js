@@ -92,6 +92,7 @@ window.__ModuleLoader__.load({
 		// @include download.js
 
 		// @include modules/card-password.js
+		// @include modules/task-poll.js
 		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
 		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
 		async function importTavernCardFile(file, call, onProgress = () => {}, replacePath) {

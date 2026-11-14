@@ -46,6 +46,12 @@
 			return hook(function (statuses) { return statuses; });
 		}
 
+		// 历史列表一次只挂一屏多的行。抽屉展开那一帧的排版量随行数线性增长：4x CPU
+		// 节流下 40 条约 15ms、120 条约 60ms、300 条约 150ms，正好压在 .24s 滑入动画上。
+		// 窗口随滚动变大，行是按屏追加的，展开永远只排第一屏。
+		const SIDE_HISTORY_WINDOW = 24;
+		const SIDE_HISTORY_WINDOW_STEP = 12;
+
 		function TavernSidebar(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const collapsed = props.collapsed;
@@ -217,6 +223,13 @@
 			const [managing, setManaging] = React.useState(false);
 			const [selectedChats, setSelectedChats] = React.useState([]);
 			const [deleteNotice, setDeleteNotice] = React.useState("");
+			// 侧栏历史已渲染的行数（窗口），以及列表容器本身（滚动到底部时追加）。
+			const [historyWindow, setHistoryWindow] = React.useState(SIDE_HISTORY_WINDOW);
+			const sideListRef = React.useRef(null);
+			React.useEffect(function () {
+				// 收起来就收回一屏窗口：下次展开仍然只排第一屏。
+				if (collapsed) setHistoryWindow(SIDE_HISTORY_WINDOW);
+			}, [collapsed]);
 			React.useEffect(function () {
 				setSelectedChats([]);
 				setManaging(false);
@@ -1436,10 +1449,34 @@
 						// A collapsed group hides its rows, so its head carries the same mark when one of them generates.
 						group.items.some(function (item) { return sessionGenerating(item.sessionId); }) ? h("span", { className: "dsh-tavern-history-group-spinner", role: "status", "aria-label": "有对话正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
-					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(function (item) { return renderHistoryRow(item, group.name); })) : null);
+					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.slice(0, historyWindow).map(function (item) { return renderHistoryRow(item, group.name); })) : null);
 			}
+			// 窗口上限：当前模式下最多要渲染多少行，决定还要不要继续追加。
+			// 分组模式按「最大一组」算，因为每组共用同一个窗口。
+			const historyCeiling = collapsed ? 0 : Math.max(
+				uiMode !== "play" ? orderedActiveHistory.length : groupedActiveHistory.reduce(function (max, group) { return Math.max(max, group.items.length); }, 0),
+				archiveExpanded ? orderedArchivedHistory.length : 0);
+			// 滚到窗口底部就把窗口拉大一屏；行按屏追加，不会再有整表排版压在展开动画上。
+			function growHistoryWindow() {
+				if (historyWindow >= historyCeiling) return;
+				setHistoryWindow(function (previous) { return Math.min(historyCeiling, previous + SIDE_HISTORY_WINDOW_STEP); });
+			}
+			function onSideListScroll(event) {
+				const el = event && event.currentTarget;
+				if (!el) return;
+				if (el.scrollHeight - el.scrollTop - el.clientHeight > 240) return;
+				growHistoryWindow();
+			}
+			// 窗口还没填满容器时列表不滚动，滚动事件永远不来：补一次成屏。
+			React.useEffect(function () {
+				if (collapsed) return;
+				const el = sideListRef.current;
+				if (!el || historyWindow >= historyCeiling) return;
+				if (el.scrollHeight > el.clientHeight + 4) return;
+				growHistoryWindow();
+			}, [collapsed, historyWindow, historyCeiling, uiMode, archiveExpanded, historyGroupState, history.length]);
 			// 侧栏收起时不构建整张历史 VDOM 树，避免流式输出期间每次状态变化都白算全部会话行。
-			const rows = collapsed ? [] : (uiMode !== "play" ? orderedActiveHistory.map(function (item) { return renderHistoryRow(item, ""); }) : groupedActiveHistory.map(function (group) {
+			const rows = collapsed ? [] : (uiMode !== "play" ? orderedActiveHistory.slice(0, historyWindow).map(function (item) { return renderHistoryRow(item, ""); }) : groupedActiveHistory.map(function (group) {
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			}));
@@ -1768,7 +1805,7 @@
 					h("span", null, "已选 " + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length),
 					h("span", { className: "dsh-tavern-spacer" }),
 					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: openHistoryManager }, "宽屏管理")) : null,
-				h("div", { className: "dsh-tavern-side-list" }, rows.length || archiveGroup ? rows : h(EmptyState, { noun: uiMode === "play" ? "游玩对话" : "卡片工作台对话" }), archiveGroup),
+				h("div", { ref: sideListRef, className: "dsh-tavern-side-list", onScroll: onSideListScroll }, rows.length || archiveGroup ? rows : h(EmptyState, { noun: uiMode === "play" ? "游玩对话" : "卡片工作台对话" }), archiveGroup),
 				managing ? h("button", { className: "dsh-tavern-btn", style: { flexShrink: 0, margin: "8px 12px", color: "#e57373" }, disabled: busy || !visibleHistory.some(function (item) { return selectedChats.includes(item.chatId); }), onClick: deleteSelectedConversations }, busy ? "正在删除…" : "彻底删除所选（" + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length + "）") : null,
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,

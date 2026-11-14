@@ -15,8 +15,10 @@ function TavernLedger(props) {
   const blocked = busy || props.busy || consolidating;
   React.useEffect(function () {
     if (!consolidating) return;
-    const timer = setInterval(() => liveTavernView.invalidate(props.sessionId), 2000);
-    return () => clearInterval(timer);
+    const refresh = () => liveTavernView.invalidate(props.sessionId);
+    const stopWatch = watchTavernState(props.sessionId, refresh);
+    const stopPoll = pollTaskWhile(refresh);
+    return () => { stopWatch(); stopPoll(); };
   }, [props.sessionId, consolidating]);
   async function consolidate() {
     if (blocked) return;

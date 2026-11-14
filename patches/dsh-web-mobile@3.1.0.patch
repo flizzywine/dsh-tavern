@@ -163,7 +163,7 @@ new mode 100644
      const cs = getComputedStyle(panel);
      if (cs.visibility === 'hidden' || cs.display === 'none')
          return false;
-@@ -8538,6 +8572,30 @@ function closeDrawerAnimated(ctx) {
+@@ -8538,6 +8572,47 @@ function closeDrawerAnimated(ctx) {
      commitWithAnimation(ctx, drawer, target);
      return true;
  }
@@ -180,13 +180,30 @@ new mode 100644
 +        armRevealRaf = 0;
 +    }
 +    followDrawer = drawer;
++    // 两拍展开（DSH Tavern 2026-11-14：手机点开左侧栏掉帧）。单拍展开时，React 挂载
++    // 抽屉子树、子树的一次性排版/首帧绘制、以及 .24s 位移全挤在点击那一帧；会话或
++    // 卡片组越多这一帧越长（实测 40 条 33ms、120 条约 50ms、300 条约 150ms），滑入
++    // 动画开头直接丢帧，看起来像「卡一下再滑进去」。这里把位移先钉在收起槽里且不参与
++    // 过渡：第一拍只挂载，第二拍在屏外把整棵抽屉排好版并绘制，第三拍才交还 transition。
++    const pinned = getComputedStyle(drawer).transform;
++    if (pinned !== '' && pinned !== 'none')
++        drawer.style.setProperty('transform', pinned, 'important');
++    drawer.style.setProperty('transition', 'none', 'important');
 +    drawer.style.setProperty('content-visibility', 'hidden', 'important');
 +    cvDeferred = true;
 +    ctx.layout.toggleSidebar();
 +    armRevealRaf = requestAnimationFrame(() => {
++        // 屏外成帧：摘掉 content-visibility 后读一次几何，把子树排版压在这一拍。
++        // 位移还没动，这段耗时落在「按下」与「开始滑动」之间，动画本身不再被它打断。
++        revealDrawerContent();
++        void drawer.offsetWidth;
 +        armRevealRaf = requestAnimationFrame(() => {
 +            armRevealRaf = 0;
-+            revealDrawerContent();
++            // 交还样式表里的 transition，从收起槽滑到展开位；关闭已经接手时不要碰。
++            if (drawerOpen()) {
++                drawer.style.removeProperty('transition');
++                drawer.style.removeProperty('transform');
++            }
 +        });
 +    });
 +    return true;
