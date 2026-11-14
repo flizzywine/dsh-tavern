@@ -63,7 +63,7 @@ test('workspaceYaml：两条补丁按文件名对齐版本，proot 里那几条 
   const yaml = workspaceYaml(['dsh-better-sidebar@0.28.0.patch', 'dsh-web-mobile@3.1.0.patch'])
   assert.match(yaml, /patchedDependencies:\n {2}dsh-better-sidebar@0\.28\.0: patches\/dsh-better-sidebar@0\.28\.0\.patch/)
   assert.match(yaml, / {2}dsh-web-mobile@3\.1\.0: patches\/dsh-web-mobile@3\.1\.0\.patch/)
-  for (const line of ['nodeLinker: hoisted', 'confirmModulesPurge: false', 'ignorePnpmfile: true', '  sharp: true']) {
+  for (const line of ['nodeLinker: hoisted', 'confirmModulesPurge: false', 'ignorePnpmfile: true', '  sharp: false']) {
     assert.ok(yaml.includes(line), line)
   }
   // 按包名放行，不锁版本：sharp/undici 升级后会再拉新版本，锁版本等于下次再撞。

@@ -70,7 +70,7 @@ export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = declaredHos
     'ignorePnpmfile: true',
     'allowBuilds:',
     '  esbuild: true',
-    '  sharp: true',
+    '  sharp: false',
     '  node-pty: false',
     'minimumReleaseAgeExclude:',
     '  - dsh-web-mobile@3.1.0',

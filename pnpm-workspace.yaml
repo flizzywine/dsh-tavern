@@ -10,7 +10,8 @@ ignorePnpmfile: true
 allowBuilds:
   node-pty: false
   esbuild: true
-  sharp: true
+  # sharp 自带预编译包，避免系统 libvips 触发本地编译。
+  sharp: false
 minimumReleaseAgeExclude:
   - dsh-mnemon-source-runtime@0.5.14
   - dsh-mnemon-strategy-default-three-tier@0.5.9
