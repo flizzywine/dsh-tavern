@@ -204,7 +204,7 @@ test('control failures log bounded identifiers only, never the request text or k
   for (const line of logs) { for (const leak of [secret,'sk-test-SECRET123456',keyed]) assert.equal(line.includes(leak),false) }
 })
 test('control log methods are exactly the methods the control dispatch switches on',async () => {
-  const cases=[...(await readFile(new URL('../src/index.js',import.meta.url),'utf8')).matchAll(/case '([\w.]+)':/g)].map(m => m[1])
+  const cases=[...(await readFile(new URL('../src/index.js',import.meta.url),'utf8')).matchAll(/case '(\w+)':/g)].map(m => m[1])
   assert.deepEqual([...CONTROL_METHODS].sort(),[...new Set(cases)].sort())
 })
 test('routes attach only to authenticated Connection and dispose all registrations',() => {

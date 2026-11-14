@@ -21,7 +21,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   if (focus) session.set('dsh-tts:focus-service',JSON.stringify({at:Date.now(),...focus}))
   // an EventTarget: the page also takes a focus request sent while it is mounted (the key's window event).
   const window = Object.assign(new EventTarget(),{sessionStorage:{getItem:key => {if (blockedStorage) throw Error('storage unavailable');return session.get(key) ?? null},setItem:(key,value) => session.set(key,value),removeItem:key => session.delete(key)}})
-  let events, enabled = true, creator = false, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {narrator:{enabled:false},readAloud:{voice:null,auto:false}}
+  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {narrator:{enabled:false},readAloud:{voice:null,auto:false}}
   const keys = new Set(['azure-main','qwen-main','volc-main','fish-local','fish'])
   let configured = initial ?? [{id:'azure-main',kind:'azure',label:'Test Azure',config:{region:'eastasia'}},{id:'qwen-main',kind:'qwen',label:'Test Qwen',config:{region:'cn'}},{id:'volc-main',kind:'volcengine',label:'Test Volcengine',config:{appId:'test',resourceId:'seed-tts-2.0'}}]
   const checks = new Map()
@@ -71,8 +71,6 @@ export function fixture({sidebar = true, configured: initial, external = true, r
     else if (method === 'saveCacheSettings') {cacheSettings = args; result = {saved:true}}
     else if (method === 'clearCache') {bytes = 0; result = {cleared:true}}
     else if (method === 'setEnabled') {enabled = args.enabled; events.onmessage({data:JSON.stringify({enabled})}); result = {enabled}}
-    else if (method === 'settings') result = {enabled,creator:{enabled:creator}}
-    else if (method === 'setCreatorEnabled') {creator = args.enabled; result = {enabled:creator}}
     else result = {}
     return {ok:true,json:async () => result}
   }
@@ -423,7 +421,7 @@ test('语音后端 page: section order, 浏览器朗读 first and fixed, no 朗�
       assert.equal(document.querySelector('.dtts-head h2').textContent,'语音后端')
       assert.ok(byLabel('语音后端 说明'))
       const headings = [...document.querySelectorAll('section h3')].map(h => h.querySelector('span')?.textContent || h.textContent)
-      assert.deepEqual(headings,['语音合成','发音字典','合成缓存','创作者工具'])
+      assert.deepEqual(headings,['语音合成','发音字典','合成缓存'])
       const first = document.querySelector('.dtts-list > li')
       assert.equal(first.querySelector('.dtts-line-title').textContent,'浏览器朗读')
       assert.equal(first.querySelector('.dtts-state').textContent,'可用')
@@ -432,23 +430,6 @@ test('语音后端 page: section order, 浏览器朗读 first and fixed, no 朗�
       for (const label of ['对白默认声音','旁白配音','旁白声音','默认语音引擎']) assert.equal(byLabel(label),null,label)
       assert.doesNotMatch(document.body.textContent,/对白默认声音|旁白声音|默认语音引擎|同类服务/)
       assert.equal(f.calls.some(c => ['reading','setReading','setDefaultService'].includes(c.method)),false)
-    })
-  } finally { f.dispose() }
-})
-// 创作者工具: one switch, off by default, writes only creator.enabled (the 启用配音 switch stays as it was).
-test('创作者工具 switch: off by default, toggles only the creator setting', async () => {
-  const f = fixture()
-  try {
-    await withDom(async root => {
-      await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
-      const toggle = byLabel('启用创作者工具')
-      assert.equal(toggle.checked,false); assert.equal(toggle.getAttribute('role'),'switch')
-      assert.ok(byLabel('创作者工具 说明'))
-      await act(async () => toggle.click()); await settle()
-      assert.equal(byLabel('启用创作者工具').checked,true)
-      assert.deepEqual(f.calls.filter(c => c.method === 'setCreatorEnabled').map(c => c.args),[{enabled:true}])
-      assert.equal(f.calls.some(c => c.method === 'setEnabled'),false)
-      assert.equal(byLabel('启用配音').checked,true)
     })
   } finally { f.dispose() }
 })

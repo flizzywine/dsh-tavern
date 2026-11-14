@@ -22,8 +22,8 @@ export async function preparePilotAudio({source, target, bytes, signal, recordPr
   }
   return {probe,transcoded:!compatible,sampleRate:compatible ? probe.sampleRate : 44100,durationMs:durationMs(bytes)}
 }
-import { isFishCloud } from '../providers/fish-models.js'
-import { createFishAudioAdapter } from '../providers/fish-audio.js'
+import { isFishCloud } from './fish-models.js'
+import { createFishAudioAdapter } from './fish-audio.js'
 
 export const maxAudioBytes = 8 * 1024 * 1024
 export function decodePilotAudio(value) {
