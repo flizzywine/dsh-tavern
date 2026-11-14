@@ -265,28 +265,29 @@ test('read_character gives the macro instead of traits and full traits only on r
   }
   const f = await studio(t, { definitions })
   const read = f.tools.get('read_character')
-  // 默认：人物块换成宏，服装照旧给正文，由模型自己挑、自己整块照写。
+  // 默认：人物块换成宏，衣服跟着人走。outfits 先给身份再给正文，常规出图只用名字。
   const brief = await read.execute({ name: '春雪' })
   assert.equal(brief.name, '春雪')
   assert.equal(brief.traits, undefined)
   assert.equal(brief.outfitMacro, undefined)
+  assert.equal(brief.outfits[0].name, '白裙')
+  assert.equal(brief.outfits[0].default, true)
   assert.equal(brief.outfits[0].upper, '白色吊带')
   assert.equal(brief.outfits[0].lower, '白色长裙摆')
   // 宏体只能是 ${ 与 }$ 之间的一层键值对：多一层花括号会让引擎 JSON.parse 失败，整段宏被静默删掉。
   // name 用人物库里的英文别名，跟游玩模式一致：中文名在 allowChinesePrompt 关闭时会被清掉。
-  // outfit 固定 unknown：告诉引擎这张图的衣服不归它管，别补常穿、也别展开任何一套。
+  // outfit 默认填常穿那套的名字：引擎展开时整块取出，模型不换装就不用管它。
   assert.equal(brief.macroName, 'Chun Xue')
-  assert.match(brief.macro, /^\$\{"name":"Chun Xue","angle":"from front","upperBody":"sfw","lowerBody":"sfw","outfit":"unknown"\}\$$/)
+  assert.match(brief.macro, /^\$\{"name":"Chun Xue","angle":"from front","upperBody":"sfw","lowerBody":"sfw","outfit":"白裙"\}\$$/)
   assert.equal(brief.macro.includes('{{'), false)
   const expanded = expandRosterCalls(brief.macro, { characters: definitions.characters }, 'replace', { style: 'tag' })
   assert.equal(expanded.includes('${'), false)
   assert.ok(expanded.trim().length > 0)
   assert.match(expanded, /银白长发/)
-  // 衣服是模型照 outfits 正文写进串里的，跟宏拼起来照样能出对的衣服。
-  const withOutfit = expandRosterCalls(brief.macro + ', ' + brief.outfits[0].upper, { characters: definitions.characters }, 'replace', { style: 'tag' })
-  assert.equal(withOutfit.includes('${'), false)
-  assert.match(withOutfit, /白色吊带/)
-  // full 只服务于改外貌：给 traits 原文，不给宏。
+  // 常穿那套由引擎从库里展开，模型不碰正文。
+  assert.match(expanded, /白色吊带/)
+  assert.match(expanded, /白色长裙摆/)
+  // full 只服务于改外貌：给 traits 原文，不给宏；只有这条路径给服装正文。
   const full = await read.execute({ name: '春雪', full: true })
   assert.equal(full.traits.face, '银白长发，蓝绿色眼睛')
   assert.equal(full.macro, undefined)
@@ -305,17 +306,30 @@ test('a chosen outfit never drags the default outfit in alongside it', async t =
     outfits: [],
   }
   const f = await studio(t, { definitions })
-  const brief = await f.tools.get('read_character').execute({ name: '春雪' })
-  // 换掉常穿那套：宏 + 选中那套的正文，就是这一张的全部衣服信息。
-  const chosen = brief.outfits.find(item => item.name === '蓝上衣')
-  const prompt = brief.macro + ', ' + chosen.upper + ', ' + chosen.lower
-  const expanded = expandRosterCalls(prompt, { characters: definitions.characters }, 'replace', { style: 'tag' })
-  assert.equal(expanded.includes('${'), false)
-  assert.match(expanded, /navy sailor shirt/)
-  assert.match(expanded, /white skirt/)
-  // 宏里的 outfit 若缺失，引擎会补常穿那套，两套衣服一起进提示词。
-  assert.equal(expanded.includes('red leather jacket'), false)
-  assert.equal(expanded.includes('blue jeans'), false)
+  const read = f.tools.get('read_character')
+  const brief = await read.execute({ name: '春雪' })
+  const expand = prompt => expandRosterCalls(prompt, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  // 不换装：宏里就是常穿那套，引擎展开它。
+  const asIs = expand(brief.macro)
+  assert.match(asIs, /red leather jacket/)
+  assert.match(asIs, /blue jeans/)
+  // 换装：只改 outfit 一个值，展开后只能剩选中那套。
+  const swapped = expand(brief.macro.replace('"outfit":"红夹克"', '"outfit":"蓝上衣"'))
+  assert.equal(swapped.includes('${'), false)
+  assert.match(swapped, /navy sailor shirt/)
+  assert.match(swapped, /white skirt/)
+  assert.equal(swapped.includes('red leather jacket'), false)
+  assert.equal(swapped.includes('blue jeans'), false)
+  // 库外衣服：直接写英文描述进 outfit，同样不能夹带常穿那套。
+  const custom = expand(brief.macro.replace('"outfit":"红夹克"', '"outfit":"thin white camisole, white panties"'))
+  assert.match(custom, /thin white camisole/)
+  assert.match(custom, /white panties/)
+  assert.equal(custom.includes('red leather jacket'), false)
+  assert.equal(custom.includes('blue jeans'), false)
+  // 没有常穿可补时宏里写 unknown，引擎不补任何衣服，衣服全靠串里写。
+  const bare = await studio(t, { definitions: { characters: [{ id: 'c7', name: '无名', match: 'Nameless', traits: { face: 'grey eyes' }, outfits: [] }], outfits: [] } })
+  const none = await bare.tools.get('read_character').execute({ name: '无名' })
+  assert.match(none.macro, /"outfit":"unknown"/)
 })
 
 test('a shared alias makes the macro fall back to the entry id so it still resolves', async t => {

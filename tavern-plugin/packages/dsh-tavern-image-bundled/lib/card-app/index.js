@@ -251,7 +251,6 @@ export function apply(ctx, { ready }) {
         outfits: outfitRows,
         outfitRefs: refs.map(item => ({ id: item.id, name: item.name })),
         ...(hit.defaultOutfit ? { defaultOutfit: shared.filter(item => item.id === hit.defaultOutfit).map(item => ({ id: item.id, name: item.name, ...sharedParts(item) })) } : {}) }
-      // 默认只有人物块换成宏，服装照旧给正文：衣服由模型自己挑、自己整块照写。
       // 宏体是 ${ 与 }$ 之间的纯键值对，不带外层大括号：引擎按 JSON.parse('{' + 宏体 + '}') 解析。
       // name 用英文别名，跟游玩模式的写法对齐：allowChinesePrompt 关着时中文名会被清掉，英文名才是匹配键。
       // 别名被别人共用时退回 id：宏展开按名字找不到唯一的人，外貌会整段丢掉。
@@ -260,15 +259,20 @@ export function apply(ctx, { ready }) {
       const claim = asciiAlias || hit.name
       const aliasShared = list.some(item => item !== hit && [item.name, ...aliases(item)].some(name => norm(name) && norm(name) === norm(claim)))
       const macroName = aliasShared ? String(hit.id ?? claim) : claim
-      // outfit 固定 unknown：引擎据此判定「这张图的衣服不归你管」，既不补常穿也不展开任何一套，
-      // 衣服完全由模型照 outfits 正文写进串里。少了这个键，常穿那套会和模型选的那套一起进提示词。
-      const macro = '${' + JSON.stringify({ name: macroName, angle: 'from front', upperBody: 'sfw', lowerBody: 'sfw', outfit: 'unknown' }).slice(1, -1) + '}$'
+      // 衣服跟着人走：outfit 填常穿那套的名字，引擎展开时整块取出上下身、权重和配件，
+      // 不经过模型抄写，也就不会丢权重。换装只改这一个值：库里的换名字，库外的直接写英文描述，
+      // 没有常穿可补时写 unknown（引擎据此不自动补衣服）。不写这个键引擎会补常穿，和模型选的那套一起进提示词。
+      const defaultName = own.find(item => item.default === true)?.name
+        || refs.find(item => item.id === hit.defaultOutfit)?.name
+        || ''
+      const macro = '${' + JSON.stringify({ name: macroName, angle: 'from front', upperBody: 'sfw', lowerBody: 'sfw', outfit: defaultName || 'unknown' }).slice(1, -1) + '}$'
       return omitUndefined({
         id: hit.id, name: hit.name, macroName, aliases: aliases(hit), note: hit.note || '', hasReference: Boolean(hit.referenceImage),
         macro,
+        // 先 id / 名字 / 常穿标记，再正文：常规出图只用到名字（衣服写进宏的 outfit，引擎自己展开），
+        // 正文是给「这套长什么样、合不合这个场景」和用户要改衣服时看的，不是拿来抄的。
         outfits: outfitRows,
-        ...(refs.length ? { outfitRefs: refs.map(item => ({ id: item.id, name: item.name })) } : {}),
-        ...(hit.defaultOutfit ? { defaultOutfit: shared.filter(item => item.id === hit.defaultOutfit).map(item => ({ id: item.id, name: item.name, ...sharedParts(item) })) } : {}) })
+        ...(refs.length ? { outfitRefs: refs.map(item => ({ id: item.id, name: item.name })) } : {}) })
     },
   }
   const outfit = {
