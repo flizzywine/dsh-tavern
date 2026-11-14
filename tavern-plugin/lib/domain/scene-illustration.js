@@ -39,8 +39,11 @@ export function computeSceneTarget(chat, turn) {
   return { key, turn: Number(turn), swipeId, sourceDigest, source }
 }
 
-export function projectedSceneText(source, macroState) {
-  return projectAgentContent(source, { macroState }).agentText
+export function projectedSceneText(source, macroState, options = {}) {
+  const regexScripts = Array.isArray(options?.regexScripts) ? options.regexScripts : undefined
+  const projected = projectAgentContent(source, { macroState, ...(regexScripts ? { regexScripts } : {}) })
+  const text = regexScripts ? projected.displayText : projected.agentText
+  return String(text ?? '')
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, '').trim()

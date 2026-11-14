@@ -13,7 +13,7 @@ import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal
 import { createMvuDiagnosticExport } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { readZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
-function harness({ checkpoint = false, mode = 'story', journal = false } = {}) {
+function harness({ checkpoint = false, mode = 'story', journal = false, replyText } = {}) {
   const calls = [], revisions = new Map()
   let counter = 0
   const timeline = createStoryTimeline({ id: prefix => prefix + '-' + (++counter) })
@@ -50,7 +50,7 @@ function harness({ checkpoint = false, mode = 'story', journal = false } = {}) {
     if (generation === 'throw') throw new Error('fixture generation failed')
     const turn = ++agent.phase.lastTurn
     if (generation === 'missing') return
-    const text = generation === 'empty' ? '' : '新正文' + turn
+    const text = generation === 'empty' ? '' : (replyText ?? ('新正文' + turn))
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText: agent.input.content[0].text } })
     const requestId = String(agent.input.source?.rpcId || '')
     const savedUserIndex = requestId ? chat.messages.findLastIndex(message => message?.role === 'user' && message.source?.rpcId === requestId) : -1
@@ -1018,5 +1018,37 @@ test('原生重新生成正文不标记为插件已处理，后续视图和编�
   const projected = projectReplyHistory(h.chat.messages, { regexScripts, placement: 2, isEdit: false, depth: 0 }).projections.find(p => p.turn === 2)
   assert.equal(projected.text.trim(), '正文段落。')
   assert.doesNotMatch(projected.text, /preset fallback/)
+})
+
+test('原生重新生成向 prepareRegenerationReply 传入 hostRegex: true 与 regexChat，落盘时同步应用宿主正则', async () => {
+  const { projectPluginBody } = await import('../tavern-plugin/lib/domain/st-contract-service.js')
+  const regexScripts = [{
+    id: 'dsh-runninghub-marker-strip',
+    scriptName: 'RunningHub · 移除正文标记块',
+    findRegex: '/[\\[［]{2}\\s*RH\\s*[:：]\\s*SHOT\\s*[\\]］]{2}[\\s\\S]*?[\\[［]{2}\\s*[\\/／]\\s*RH\\s*(?:[:：]\\s*SHOT\\s*)?[\\]］]{2}/gi',
+    replaceString: '',
+    trimStrings: [],
+    placement: [2],
+    disabled: false,
+    markdownOnly: false,
+    promptOnly: false,
+    runOnEdit: false
+  }]
+  const seenCalls = []
+  const rawReply = '[[RH:SHOT]]\n@after\n她推开门。\n@prompt\ncinematic shot\n[[/RH:SHOT]]\n\n她推开门。\n<story_choices>\n{"actors":[{"name":"我","actions":["走进去看看屋里的情况","先在门口听一听动静","打开随身携带的手电筒"]}],"event":"楼上突然传来木地板咯吱作响"}\n</story_choices>'
+  const h = harness({ checkpoint: true, replyText: rawReply })
+  h.options.prepareRegenerationReply = async input => {
+    seenCalls.push(input)
+    return projectPluginBody(input.text, { hostRegex: input.hostRegex, regexScripts: input.hostRegex ? regexScripts : undefined })
+  }
+  await h.create().regenerate('chat', '', 'session')
+  assert.equal(seenCalls.length, 1)
+  assert.equal(seenCalls[0].hostRegex, true)
+  assert.equal(seenCalls[0].regexChat?.id, 'chat')
+  const regenerated = h.chat.messages[2]
+  assert.match(regenerated.sourceText, /\[\[RH:SHOT\]\]/, 'sourceText 保留原始标记给插件解析')
+  assert.doesNotMatch(regenerated.text, /\[\[RH:SHOT\]\]/, 'text 经宿主正则移除标记')
+  assert.doesNotMatch(regenerated.displayText, /\[\[RH:SHOT\]\]/, 'displayText 经宿主正则移除标记')
+  assert.equal(h.chat.candidates?.choices?.length, 4, '重新生成 extracted candidates 正常保留')
 })
 

@@ -1102,6 +1102,16 @@ export async function apply(ctx) {
     if (!['story', 'script'].includes(chat?.mode || 'story')) return []
     return composeTavernRegexScripts(await readCardExtensions(chat.cardPath || chat.cardId, chat), presetRegexScripts(chat), chat && chat.regexOverrides && chat.regexOverrides.preset)
   }
+  async function pluginTurnRegexScripts(sessionId, header) {
+    if (!['story', 'script'].includes(header?.mode || 'story')) return []
+    let extensions = await readCardExtensions(header.cardPath || header.cardId, header)
+    if (extensions === undefined && !header?.cardDefinitionSnapshot) {
+      const snapshot = (await chatHeaderForSession(sessionId, ['cardDefinitionSnapshot']).catch(() => null))?.cardDefinitionSnapshot
+      if (snapshot) extensions = await readCardExtensions(header.cardPath || header.cardId, { ...header, cardDefinitionSnapshot: snapshot })
+    }
+    if (extensions === undefined) extensions = withGlobalRegexScripts({}, await tavernExtensionSettings.read(), header?.regexOverrides)
+    return composeTavernRegexScripts(extensions, presetRegexScripts(header), header?.regexOverrides?.preset)
+  }
   const readScript = createScriptReader({ resources: fileResources, version: path => profileData.version('resources/' + path) })
   function prepareTextImport(payload, emptyMessage) {
     const source = payload !== null && typeof payload === 'object' ? payload : {}
@@ -2841,7 +2851,8 @@ export async function apply(ctx) {
     header: chatHeaderForSession,
     slice: (sessionId, indices) => chatSliceForSession(sessionId, indices, []),
     fullChat: chatForSession,
-    readChatCard
+    readChatCard,
+    regexScripts: pluginTurnRegexScripts
   })
   const pluginSettlementProgress = createPluginSettlementProgress()
   // What each 精修 changed, shown on the 精修对比 page.
@@ -3019,14 +3030,17 @@ export async function apply(ctx) {
     })
     if (!picks.length) return []
     const indices = [...new Set(picks.flatMap(pick => pick.input >= 0 ? [pick.input, pick.index] : [pick.index]))]
-    const selected = await chatSliceForSession(sessionId, indices, ['macroState'])
+    const selected = await chatSliceForSession(sessionId, indices, ['macroState', 'mode', 'cardPath', 'cardId', 'runtimePresetSnapshot', 'regexOverrides'])
+    const fallbackChat = selected?.chat?.messages ? null : await chatForSession(sessionId)
+    const header = selected?.chat || fallbackChat
     const byIndex = selected?.chat?.messages ? new Map(indices.map((index, at) => [index, selected.chat.messages[at]]))
-      : new Map(((await chatForSession(sessionId))?.messages || []).map((row, index) => [index, row]))
-    const macroState = selected?.chat?.macroState
+      : new Map((fallbackChat?.messages || []).map((row, index) => [index, row]))
+    const macroState = header?.macroState
+    const regexScripts = header ? await pluginTurnRegexScripts(sessionId, header) : []
     return picks.map(pick => {
       const row = byIndex.get(pick.index), source = pluginSource(row)
       return { turn: pick.turn, input: pick.input >= 0 ? str(byIndex.get(pick.input)?.sourceText ?? byIndex.get(pick.input)?.text) : '',
-        text: projectedSceneText(source, macroState), rawText: source }
+        text: projectedSceneText(source, macroState, { regexScripts }), rawText: source }
     })
   }
   const writePluginVariables = createPluginVariableWriter({

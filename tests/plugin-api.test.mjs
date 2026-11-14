@@ -1891,3 +1891,65 @@ test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases 
   await tavern.beforeImagePlan({ gameId: 'g', turn: 4 })
   assert.equal(asked.length, 3)
 })
+
+test('插件轮次读取：传入 regexScripts 时 text 经过显示正则投影，source 原文仍保留给插件解析', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { createChatJournalStore } = await import('../tavern-plugin/lib/domain/chat-journal-store.js')
+  const { createChatPersistence } = await import('../tavern-plugin/lib/domain/chat-persistence.js')
+  const { createPluginTurnReader } = await import('../tavern-plugin/lib/domain/plugin-turns.js')
+  const root = await mkdtemp(join(tmpdir(), 'plugin-turns-regex-'))
+  t.after(() => rm(root, { force: true, recursive: true }))
+  const db = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const source = '[[RH:SHOT]]\n@after\n她推开门。\n@prompt\ncinematic\n[[/RH:SHOT]]\n\n她<b>推开</b>门。<ta_hub>隐藏</ta_hub>'
+  const chat = await db.write({
+    id: 'chat-1',
+    sessionId: 'game-1',
+    mode: 'story',
+    cardPath: '/cards/a.json',
+    cardName: 'A',
+    settleStatus: 'done',
+    messages: [
+      { role: 'assistant', greeting: true, turn: 1, text: '开场。', swipes: ['开场。'], swipeId: 0 },
+      { role: 'user', turn: 2, text: '进门' },
+      { role: 'assistant', turn: 2, sourceText: source, text: source, swipes: [source], swipeId: 0 }
+    ]
+  })
+  const scripts = [
+    {
+      id: 'dsh-runninghub-marker-strip',
+      findRegex: '/[\\[［]{2}\\s*RH\\s*[:：]\\s*SHOT\\s*[\\]］]{2}[\\s\\S]*?[\\[［]{2}\\s*[\\/／]\\s*RH\\s*(?:[:：]\\s*SHOT\\s*)?[\\]］]{2}/gi',
+      replaceString: '',
+      trimStrings: [],
+      placement: [2],
+      disabled: false,
+      markdownOnly: false,
+      promptOnly: false,
+      runOnEdit: false
+    },
+    {
+      id: 'hide-ta-hub',
+      findRegex: '/<ta_hub>[\\s\\S]*?<\\/ta_hub>/gi',
+      replaceString: '',
+      trimStrings: [],
+      placement: [2],
+      disabled: false,
+      markdownOnly: true,
+      promptOnly: false,
+      runOnEdit: false
+    }
+  ]
+  const reader = createPluginTurnReader({
+    sessionState: async () => db.readSessionState(chat.id),
+    sceneState: (_sessionId, turns) => db.readSceneImageState(chat.id, { turns }),
+    header: async (_sessionId, fields) => (await db.readSlice(chat.id, [], fields))?.chat,
+    slice: (_sessionId, indices) => db.readSlice(chat.id, indices),
+    fullChat: () => db.read(chat.id),
+    readChatCard: async () => ({ name: 'A' }),
+    regexScripts: async () => scripts
+  })
+  const latest = await reader.readLatestSettledTurn('game-1')
+  assert.equal(latest.source, source, 'rawText 保留完整标记供插件解析')
+  assert.equal(latest.text, '她推开门。', '给插件的 text 经过宿主显示正则与去 HTML 投影')
+})

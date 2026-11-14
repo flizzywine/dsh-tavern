@@ -63,14 +63,17 @@ export function createPluginTurnReader(deps) {
     const local = messages.findIndex(message => message?.role === 'assistant' && storyTurnOf(message) === turn)
     if (local < 0 || (requireLatest && local !== latest)) return null
     const index = game.from + local
-    const header = await deps.header(game.sessionId, ['settleStatus', 'macroState', 'cardPath', 'cardName'])
+    const headerFields = ['settleStatus', 'macroState', 'cardPath', 'cardName']
+    if (typeof deps.regexScripts === 'function') headerFields.push('mode', 'cardId', 'runtimePresetSnapshot', 'regexOverrides')
+    const header = await deps.header(game.sessionId, headerFields)
     if (!header) return null
     if (!allowPending && local === latest && !messages[local].greeting && (!['done', 'failed', 'idle'].includes(header.settleStatus) || messages[local].mvu?.pending === true)) return null
     const target = await currentTarget(game.sessionId, turn)
     if (!target) return null
+    const regexScripts = typeof deps.regexScripts === 'function' ? await deps.regexScripts(game.sessionId, header) : undefined
     return {
       chatId: game.chatId, sessionId: game.sessionId, turn, index, greeting: messages[local].greeting === true, key: target.key, sourceDigest: target.sourceDigest,
-      source: target.source, text: projectedSceneText(target.source, header.macroState),
+      source: target.source, text: projectedSceneText(target.source, header.macroState, regexScripts ? { regexScripts } : undefined),
       card: { path: String(header.cardPath || ''), name: String(header.cardName || '') }
     }
   }

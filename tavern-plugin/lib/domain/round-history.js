@@ -678,7 +678,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         : { proseText: body, choices: null, hadTag: false }
       body = str(extractedForegroundChoices.proseText).trim()
       const projectedReply = typeof prepareRegenerationReply === 'function'
-        ? await prepareRegenerationReply({ chat: draft, card, turn: storyTurn, text: body }) : null
+        ? await prepareRegenerationReply({ chat: draft, card, turn: storyTurn, text: body, hostRegex: true, regexChat: originalChat }) : null
       const prose = projectedReply ? replyProse(projectedReply.sourceText ?? body, projectedReply) : plainReplyProse(body)
       if (!str(prose.text).trim()) throw new Error('重新生成失败：模型返回空文本')
       const originalUser = inputRow ? structuredClone(originalChat.messages[inputIndex]) : null
