@@ -4,17 +4,18 @@ import { normalizePromptUsage } from './prompt-structure.js'
 import { activeChannel } from './image-channels.js'
 import { imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { composePluginImagePrompt, composePluginImagePromptAsync } from './prompt-assembly.js'
-import { effectivePromptPreset, promptConfigForTarget, withPromptPreset } from './prompt-presets.js'
+import { effectivePromptPreset, listPromptPresets, promptConfigForTarget, withPromptPreset } from './prompt-presets.js'
 export { composePluginImagePrompt, composePluginImagePromptAsync } from './prompt-assembly.js'
 
 /** The same adapter serves Tavern assets and public model discovery. Model IDs are template:<id>, saved channel IDs or comfyui:<workflowId>. */
 export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin', library = {}) {
   const current = (modelId, promptPreset) => {
     const config = withPromptPreset(getConfig(), promptPreset)
+    const preset = effectivePromptPreset(config)
     // An explicit style preset replaces the default workbench template; named templates still win.
-    if (library.generateTemplate && (typeof modelId === 'string' && modelId.startsWith('template:') || modelId === undefined && promptPreset === undefined && config.promptSystem === 'workbench' && !effectivePromptPreset(config)?.registered)) {
+    if (library.generateTemplate && (typeof modelId === 'string' && modelId.startsWith('template:') || modelId === undefined && promptPreset === undefined && config.promptSystem === 'workbench' && (!preset?.registered || preset?.structure))) {
       const models = library.templates?.() || []
-      const template = modelId ? models.find(item => item.id === modelId) : models.find(item => item.templateId === config.activePromptPreset) || models[0]
+      const template = modelId ? models.find(item => item.id === modelId) : models.find(item => item.templateId === config.activePromptPreset) || models.find(item => item.templateId === '__default__' || config.promptPresets?.some(saved => saved.id === item.templateId))
       if (template) return { config, template }
     }
     const wanted = typeof modelId === 'string' && modelId.startsWith('comfyui:') ? modelId : undefined
@@ -50,6 +51,8 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
         ...(library.workflows?.() || []).map(({ workflowId, ...item }) => item)]
     },
     status({ modelId } = {}) { return status(current(modelId)) },
+    /** Read-only list of the style presets `generate({ promptPreset })` accepts. */
+    presets() { return listPromptPresets(getConfig()) },
     async generate({ prompt, negative, references = [], width, height, background, quality, signal, modelId, templateId, promptPreset, usage, inputs, subjects, definitions, chooseScenario } = {}) {
       const { config, channel: selected, workflow, template: templateModel, reason } = current(templateId ? 'template:' + templateId : modelId, promptPreset)
       if (templateModel) {

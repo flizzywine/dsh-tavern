@@ -29,7 +29,7 @@ export interface PromptLibrary {
 export interface GenerateRequest {
   inputs?: Record<string, string>; subjects?: PromptSubject[]; definitions?: PromptDefinitions;
   prompt: string; negative?: string; usage?: string; modelId?: string; templateId?: string;
-  /** Style preset for this request only (built-in, saved or registered id). Omit to use the selected preset; an unknown id throws. */
+  /** Style preset for this request only (built-in, saved or registered id), applied without the user's style library or manual additions. Omit to use the selected preset; an unknown id throws. */
   promptPreset?: string; references?: ImageReference[]; width?: number; height?: number;
   background?: string; quality?: string; signal?: AbortSignal; chooseScenario?: ScenarioChooser;
 }
@@ -41,10 +41,18 @@ export interface ComposedImagePrompt {
   positive: string; negative?: string; promptMode?: string;
   parameters?: ModuleParameters; workflowValues?: WorkflowValue[]; moduleTrace?: MaterializedModules['trace'];
 }
+export interface PromptPresetSummary {
+  id: string; name: string; origin: 'builtin' | 'registered' | 'saved'; source?: string;
+  status: 'stable' | 'experimental';
+  /** Usages with their own style text; text without a usage applies to every request. */
+  usages: string[];
+}
 export interface ImageGenerator {
   id: string; label: string;
   models(): Array<ImageStatus & { id: string; label: string }>;
   status(input?: { modelId?: string }): ImageStatus;
+  /** Read-only list of the style presets `generate({ promptPreset })` accepts. */
+  presets(): PromptPresetSummary[];
   generate(input: GenerateRequest): Promise<ImageResult>;
 }
 export type ImageAdapter = (channel: ImageChannel, request: {

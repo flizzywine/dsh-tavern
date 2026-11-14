@@ -1,6 +1,12 @@
 # DSH Tavern Image
 
 
+## 3.17.0 画风目录与人物宏
+
+支持按次指定画风、`no-style` 原样风格预设、插件注册的分用途模板，以及三套内置 Galgame 画风。Galgame 和插件模板可直接选择使用，内置模板可复制后编辑；新增模板不会自动加入已有随机范围。独立插件预设保留自己的正负面词，模板声明的提示词格式和异步模块结果在世界书、工作台与 SDK 调用间保持一致。
+
+卡片工具默认返回人物宏和画风清单，完整外貌与单套画风词按需读取。人物宏带出默认服装，换装只需调整该角色的 `outfit`。
+
 ## 3.16.0 卡片工作台异步生图
 
 支持异步提交与查询，并保留原有同步生图工具。任务按会话隔离，保留重启后取图信息。
@@ -326,6 +332,7 @@ OpenAI Images 协议的渠道（含选择该协议的自定义 API）可以设�
 
 - **画风预设**保存画师串、固定风格词和负面词，可以调整放在提示词前面还是后面。
 - **提示词预设**给规划和出图提供构图、光线、材质、色彩与画面重点的指导。内置杂志人像、电影叙事、动漫角色、东方幻想和氛围场景，也可以自己新增。
+- **Galgame 画风**（干净低细节、动画截图、精美插画）是内置模板，出现在生图工作台的模板库里。画风文字按用途分段：一段用于所有请求，空背景（`background`）、透明底人物（`figure`，立绘和头像）、人物设定图（`sheet`）各有一段只用于该用途的补充。内置模板只读，点「复制并编辑」得到自己的副本；插件升级只更新内置版本，不动副本。其他插件可以用 `promptPreset: 'galgame-clean'` 等标识加 `usage` 按次指定。
 
 提示词表达可选择自动、标签、自然语言、混合或**结构化自然语言**。自动模式会按生图渠道选择实际表达方式：例如 NovelAI 更适合标签，OpenAI Images、Gemini 等渠道使用自然语言描述；「自动」不是第五套独立规则。
 
@@ -567,9 +574,9 @@ export function apply(ctx) {
 // 之后：images.generate({ prompt, promptPreset: 'example.flat-sheet' })
 ~~~
 
-预设标识采用 `插件名.预设名`，不会与内置或用户保存的预设重名；可选 `tagPositive/naturalPositive/mixedPositive/structuredPositive/structuredNegative` 按渠道类型细化。登记的预设出现在模板列表里，标注来源，用户可以选择、不能编辑，也不写入用户设置。注册函数返回卸载函数，插件卸载时应调用。
+预设标识采用 `插件名.预设名`，不会与内置或用户保存的预设重名；可选 `tagPositive/naturalPositive/mixedPositive/structuredPositive/structuredNegative` 按渠道类型细化。也可以传 `structure`，写法与模板相同：给画风模块加 `usage`，这段文字只用于这种用途的请求（例如空背景和透明底立绘各写一段），不带 `usage` 的文字用于所有请求；`independent: true` 不叠加用户画风库和手动补充；`status: 'experimental'` 在列表里标「实验」。登记的预设出现在模板列表里，标注来源，用户可以选择、不能编辑，也不写入用户设置。注册函数返回卸载函数，插件卸载时应调用。提示词已经写全、不要任何画风时，按次指定内置的 `no-style`（「不加画风」）。生成器的 `presets()` 返回所有可以按次指定的预设（只读）：`{ id, name, origin: 'builtin' | 'registered' | 'saved', source?, status: 'stable' | 'experimental', usages }`，`usages` 是有自己画风文字的用途。
 
-`promptPreset` 只影响这一次生成，可填内置、用户保存或登记的预设标识，优先于当前选中的预设和工作台默认模板（显式的 `templateId`/`modelId` 模板仍按模板生成）；标识不存在、已卸载或已停用时直接报错，不退回当前预设。不传时行为与以前相同。
+`promptPreset` 只影响这一次生成，可填内置、用户保存或登记的预设标识，优先于当前选中的预设和工作台默认模板（显式的 `templateId`/`modelId` 模板仍按模板生成）；标识不存在、已卸载或已停用时直接报错，不退回当前预设。指定的预设按原样使用：用户画风库里选中的画风、默认画师串和手动补充的正负面词不再叠加上去；世界书提示词系统下也照样使用指定的模板。不传时行为与以前相同。
 ### 前后端维护边界
 
 浏览器源码在 `src/client/`：`main.js` 负责宿主注册，`media.js` 负责图片与提示词编辑，`settings-fields.js/settings.js` 负责设置，`card-worldbook.js/card-gallery.js` 负责工作台。`lib/client/transport.js` 只处理请求与取消；协议和参考图能力与后端共用 `lib/image-provider-capabilities.js`。前端通过 HTTP 交换数据，不直接引用服务端配置、凭据、文件存储或任务实现。

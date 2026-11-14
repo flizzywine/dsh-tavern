@@ -288,7 +288,7 @@
               h('button', { type: 'button', style: S.tab(selected === item.id), 'aria-pressed': selected === item.id,
                 onClick: () => { select(item.id); setMessage('') } },
                 h('strong', null, item.name || '未命名'),
-                h('small', null, !item.id ? '默认' : item.scope === 'builtin' ? item.source || '内置' : item.project || '未分组'))))
+                h('small', null, !item.id ? '默认' : item.scope === 'builtin' ? (item.source || '内置') + (item.status === 'experimental' ? ' · 实验' : '') : item.project || '未分组'))))
               : h('li', { style: STRUCTURE_MUTED }, '没有匹配的模板')),
             h('div', { style: S.row, className: 'dti-template-filters' },
               h('button', { type: 'button', style: buttonStyle, disabled: draft.length >= limit, onClick: () => append(null, true) }, '新建空白模板')),
@@ -562,14 +562,14 @@
 
     function GenerationTemplateSettings({ config, save, onEdit }) {
       const templates = (config.promptPresets || []).filter(item => item.enabled !== false && item.structure?.blocks?.length && item.structure.purpose !== 'edit')
-        .concat((config.promptPresetLibrary || []).filter(item => item.registered))
+        .concat((config.promptPresetLibrary || []).filter(item => item.registered || item.id?.startsWith('galgame-')))
       const selected = templates.some(item => item.id === config.activePromptPreset) ? config.activePromptPreset : ''
       return h('section', { style: S.card, 'aria-label': '生图模板绑定' },
         h('div', { style: S.row }, promptField('生图使用的模板', h('select', { 'aria-label': '生图使用的模板', style: S.input,
           value: config.randomPromptTemplates ? '__random__' : selected,
           onChange: event => event.target.value === '__random__' ? save({ randomPromptTemplates: true }) : save({ activePromptPreset: event.target.value, randomPromptTemplates: false }) },
           h('option', { value: '' }, config.promptDefault?.name || '模块化模板'),
-          templates.map(item => h('option', { key: item.id, value: item.id }, (item.name || '未命名模板') + (item.registered ? ' · ' + item.source : ''))),
+          templates.map(item => h('option', { key: item.id, value: item.id }, (item.name || '未命名模板') + (item.registered ? ' · ' + item.source : '') + (item.status === 'experimental' ? ' · 实验' : ''))),
           h('option', { value: '__random__' }, '随机模板'))),
           h('button', { type: 'button', style: buttonStyle, onClick: () => onEdit(selected) }, '编辑模板')))
     }

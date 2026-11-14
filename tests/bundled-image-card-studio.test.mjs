@@ -9,6 +9,7 @@ import { cardSelection } from '../tavern-plugin/packages/dsh-tavern-image-bundle
 import { createCardGallery } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js'
 import { createCardWorldbook } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/worldbook.js'
 import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-output.js'
+import { expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
@@ -255,6 +256,132 @@ test('workbench saves share the live definitions store and reject stale versions
   assert.equal(f.tools.size, 0)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: true })).body.enabled, true)
   assert.equal(f.tools.size, 7)
+})
+
+test('read_character gives the macro instead of traits and full traits only on request', async t => {
+  const definitions = {
+    characters: [{ id: 'c1', name: '春雪', match: 'Chun Xue', traits: { face: '银白长发，蓝绿色眼睛' }, outfits: [{ id: 'o1', name: '白裙', default: true, upper: '白色吊带', lower: '白色长裙摆' }] }],
+    outfits: [],
+  }
+  const f = await studio(t, { definitions })
+  const read = f.tools.get('read_character')
+  // 默认：人物块换成宏，衣服跟着人走。outfits 先给身份再给正文，常规出图只用名字。
+  const brief = await read.execute({ name: '春雪' })
+  assert.equal(brief.name, '春雪')
+  assert.equal(brief.traits, undefined)
+  assert.equal(brief.outfitMacro, undefined)
+  assert.equal(brief.outfits[0].name, '白裙')
+  assert.equal(brief.outfits[0].default, true)
+  assert.equal(brief.outfits[0].upper, '白色吊带')
+  assert.equal(brief.outfits[0].lower, '白色长裙摆')
+  // 宏体只能是 ${ 与 }$ 之间的一层键值对：多一层花括号会让引擎 JSON.parse 失败，整段宏被静默删掉。
+  // name 用人物库里的英文别名，跟游玩模式一致：中文名在 allowChinesePrompt 关闭时会被清掉。
+  // outfit 默认填常穿那套的名字：引擎展开时整块取出，模型不换装就不用管它。
+  assert.equal(brief.macroName, 'Chun Xue')
+  assert.match(brief.macro, /^\$\{"name":"Chun Xue","angle":"from front","upperBody":"sfw","lowerBody":"sfw","outfit":"白裙"\}\$$/)
+  assert.equal(brief.macro.includes('{{'), false)
+  const expanded = expandRosterCalls(brief.macro, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  assert.equal(expanded.includes('${'), false)
+  assert.ok(expanded.trim().length > 0)
+  assert.match(expanded, /银白长发/)
+  // 常穿那套由引擎从库里展开，模型不碰正文。
+  assert.match(expanded, /白色吊带/)
+  assert.match(expanded, /白色长裙摆/)
+  // full 只服务于改外貌：给 traits 原文，不给宏；只有这条路径给服装正文。
+  const full = await read.execute({ name: '春雪', full: true })
+  assert.equal(full.traits.face, '银白长发，蓝绿色眼睛')
+  assert.equal(full.macro, undefined)
+  assert.equal(full.outfits[0].upper, '白色吊带')
+})
+
+test('a chosen outfit never drags the default outfit in alongside it', async t => {
+  const definitions = {
+    characters: [{
+      id: 'c1', name: '春雪', match: 'Chun Xue', traits: { face: '银白长发' },
+      outfits: [
+        { id: 'o1', name: '红夹克', default: true, upper: 'red leather jacket', lower: 'blue jeans' },
+        { id: 'o2', name: '蓝上衣', default: false, upper: 'navy sailor shirt', lower: 'white skirt' },
+      ],
+    }],
+    outfits: [],
+  }
+  const f = await studio(t, { definitions })
+  const read = f.tools.get('read_character')
+  const brief = await read.execute({ name: '春雪' })
+  const expand = prompt => expandRosterCalls(prompt, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  // 不换装：宏里就是常穿那套，引擎展开它。
+  const asIs = expand(brief.macro)
+  assert.match(asIs, /red leather jacket/)
+  assert.match(asIs, /blue jeans/)
+  // 换装：只改 outfit 一个值，展开后只能剩选中那套。
+  const swapped = expand(brief.macro.replace('"outfit":"红夹克"', '"outfit":"蓝上衣"'))
+  assert.equal(swapped.includes('${'), false)
+  assert.match(swapped, /navy sailor shirt/)
+  assert.match(swapped, /white skirt/)
+  assert.equal(swapped.includes('red leather jacket'), false)
+  assert.equal(swapped.includes('blue jeans'), false)
+  // 库外衣服：直接写英文描述进 outfit，同样不能夹带常穿那套。
+  const custom = expand(brief.macro.replace('"outfit":"红夹克"', '"outfit":"thin white camisole, white panties"'))
+  assert.match(custom, /thin white camisole/)
+  assert.match(custom, /white panties/)
+  assert.equal(custom.includes('red leather jacket'), false)
+  assert.equal(custom.includes('blue jeans'), false)
+  // 没有常穿可补时宏里写 unknown，引擎不补任何衣服，衣服全靠串里写。
+  const bare = await studio(t, { definitions: { characters: [{ id: 'c7', name: '无名', match: 'Nameless', traits: { face: 'grey eyes' }, outfits: [] }], outfits: [] } })
+  const none = await bare.tools.get('read_character').execute({ name: '无名' })
+  assert.match(none.macro, /"outfit":"unknown"/)
+})
+
+test('a shared alias makes the macro fall back to the entry id so it still resolves', async t => {
+  const definitions = {
+    characters: [
+      { id: 'c1', name: '雪莉甲', match: 'Shirley', traits: { face: 'silver white hair' }, outfits: [] },
+      { id: 'c2', name: '雪莉乙', match: 'Shirley', traits: { face: 'black hair' }, outfits: [] },
+    ],
+    outfits: [],
+  }
+  const f = await studio(t, { definitions })
+  const read = f.tools.get('read_character')
+  // 两条目共用别名 Shirley，宏必须用能唯一解析的 id。
+  const one = await read.execute({ name: '雪莉甲' })
+  assert.equal(one.macroName, 'c1')
+  assert.match(one.macro, /^\$\{"name":"c1",/)
+  const expanded = expandRosterCalls(one.macro, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  assert.match(expanded, /silver white hair/)
+  assert.equal(expanded.includes('black hair'), false)
+  const other = await read.execute({ name: '雪莉乙' })
+  assert.equal(other.macroName, 'c2')
+  assert.match(expandRosterCalls(other.macro, { characters: definitions.characters }, 'replace', { style: 'tag' }), /black hair/)
+  // 没有冲突时仍然用可读的英文别名。
+  const solo = await studio(t, { definitions: { characters: [{ id: 'c9', name: '独行', match: 'Loner', traits: { face: 'grey eyes' }, outfits: [] }], outfits: [] } })
+  assert.equal((await solo.tools.get('read_character').execute({ name: '独行' })).macroName, 'Loner')
+})
+
+test('read_image_config lists presets by name only and expands one on request', async t => {
+  const f = await studio(t, {
+    config: {
+      imageChannels: [channel('openai')],
+      stylePresets: [
+        { id: 'p1', name: 'flat', artist: '1.3::artist:foo::, dot nose', negative: 'lowres, blurry', enabled: true },
+        { id: 'p2', name: 'real', artist: 'photorealistic, skin texture', negative: 'cartoon', enabled: true },
+        { id: 'p3', name: 'hidden', artist: 'should never appear', enabled: false },
+      ],
+      activePreset: 'p1',
+    },
+  })
+  const config = await f.tools.get('read_image_config').execute({})
+  // 清单只给名字和 ID：三十多套正面词合起来过万字，挑画风时用不上。
+  assert.deepEqual(config.presets, [{ id: 'p1', name: 'flat', active: true }, { id: 'p2', name: 'real', active: false }])
+  assert.equal(JSON.stringify(config).includes('dot nose'), false)
+  assert.equal(JSON.stringify(config).includes('should never appear'), false)
+  // 点名才展开，且只给正面词，负面词由引擎自动带上，不返回。
+  const one = await f.tools.get('read_image_config').execute({ preset: 'flat' })
+  assert.deepEqual(one, { id: 'p1', name: 'flat', artist: '1.3::artist:foo::, dot nose', active: true })
+  assert.equal(JSON.stringify(one).includes('lowres'), false)
+  // 按 ID 也能取。
+  assert.equal((await f.tools.get('read_image_config').execute({ preset: 'p2' })).name, 'real')
+  // 找不到就报错，不静默给空。
+  await assert.rejects(f.tools.get('read_image_config').execute({ preset: '不存在的画风' }), /未找到|清单/)
 })
 
 test('independent batch tasks keep the pictures that succeeded when one fails', async t => {
@@ -505,7 +632,7 @@ test('workbench preset overrides match the submitted prompt and keep the saved p
   // 但那属于 payload 层，第 370 行已经验过正面提示词没被污染。
   assert.doesNotMatch(rendered, /watermark|saved artist|fallback artist/)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items[0].preset, '工作台画风')
-  assert.equal((await f.tools.get('read_image_config').execute({}, own)).presets[0].artist, 'saved artist')
+  assert.equal((await f.tools.get('read_image_config').execute({ preset: 'p1' }, own)).artist, 'saved artist')
 })
 
 test('gallery writes do not lose concurrent additions and remove compares stable IDs', async t => {

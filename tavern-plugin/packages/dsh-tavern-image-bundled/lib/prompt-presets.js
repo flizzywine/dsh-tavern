@@ -58,9 +58,37 @@ export const DEFAULT_MODULAR_TEMPLATE = {
   ] },
 }
 
+// Galgame styles describe only how to paint; the request names the subject. Style text without a usage applies to every
+// request, a block with a usage adds what only that use needs: an empty background, a character on a transparent
+// background (sprites, avatars) or a character sheet.
+const GALGAME_FIGURE_STYLE = 'Draw the character exactly in the style of the character reference sheet: the sheet\'s line style and colouring come first, and manga marks appear only if the sheet uses them'
+const GALGAME_SHEET_STYLE = 'The reference artwork\'s line style and colouring come first'
+function galgameStyle(id, name, look, background) {
+  return { id, name, independent: true, structure: { format: 'auto', targets: [], blocks: [
+    ...DEFAULT_MODULAR_TEMPLATE.structure.blocks.filter(block => ['output', 'scene', 'library'].includes(block.kind)),
+    { kind: 'style', title: '画风', text: look },
+    { kind: 'style', title: '画风 · 空背景', usage: 'background', text: background },
+    { kind: 'style', title: '画风 · 透明底人物', usage: 'figure', text: GALGAME_FIGURE_STYLE },
+    { kind: 'style', title: '画风 · 人物设定图', usage: 'sheet', text: GALGAME_SHEET_STYLE },
+  ] } }
+}
+export const GALGAME_STYLE_PRESETS = [
+  galgameStyle('galgame-clean', 'Galgame · 干净低细节',
+    'Clean cel-shaded anime rendering with large simple colour masses, low visual frequency, restrained edge density, clear edge hierarchy, minimal internal contour lines, broad shadow shapes, suppressed micro-texture and micro-contrast, and no unnecessary specular highlights. This finish only reduces noise and texture and never redesigns anything',
+    'Keep the composition and colour very clean'),
+  galgameStyle('galgame-anime', 'Galgame · 动画截图',
+    'Looks like a frame of the original TV anime: reproduce the series\' own drawing style faithfully, including its simplifications, with broadcast line weight, flat cel shading in one or two shadow tones, the show\'s own palette and the plain look of an actual episode screenshot, and no extra rendering, painterly texture, gradients, glow or detail the series itself does not draw. This finish only matches the broadcast look and never redesigns the characters',
+    'An empty background plate from an episode, painted in the series\' own background art style'),
+  galgameStyle('galgame-polished', 'Galgame · 精美插画',
+    'Polished, high-quality commercial anime illustration at key-visual or gacha-card quality: refined lighting with soft rim light and controlled highlights, rich but disciplined colour, crisp clean line art, carefully rendered eyes, hair, fabric folds and materials, and clear form and depth. This finish only raises the rendering quality; designs, proportions and palette stay exactly as designed',
+    'Carefully rendered materials and atmospheric depth, lit by the light sources in the scene'),
+]
+
 export const BUILTIN_PROMPT_PRESETS = [
   STRUCTURED_PROMPT_TEMPLATE,
   EXAMPLE_PROMPT_PRESET,
+  // Adds nothing: callers that write the whole prompt name it to send the prompt as written.
+  { id: 'no-style', name: '不加画风', independent: true },
   {
     id: 'portrait-editorial', name: '杂志人像',
     structuredPositive: '采用杂志人像的视觉风格：构图有意图，姿态自然且富有表现力，面部清楚可读。以柔和、有方向的主光配合轻微补光，保留皮肤与织物的真实质感，控制色彩，让主体与背景清晰分离。',
@@ -111,20 +139,29 @@ export const BUILTIN_PROMPT_PRESETS = [
     mixedPositive: 'A strong landscape silhouette with clear foreground, middle ground and distance; atmospheric perspective, natural light direction, varied terrain and material texture, balanced negative space, coherent weather and color.',
     negative: 'flat depth, featureless terrain, competing focal points, incoherent weather, oversaturated color, text, watermark',
   },
+  ...GALGAME_STYLE_PRESETS,
 ]
 
 /** Read-only presets supplied by server-side plugins at runtime; never persisted with user settings. */
 const registeredPresets = new Map()
 
-/** Register a plain style preset. Ids are namespaced (`plugin.name`), so they never collide with built-in or saved ids. */
+/**
+ * Register a style preset. Ids are namespaced (`plugin.name`), so they never collide with built-in or saved ids.
+ * A `structure` makes it a template, e.g. style blocks with a `usage` for text that only one use needs; `independent`
+ * leaves out the user's style library and manual additions; `status: 'experimental'` marks a style still being tuned.
+ */
 export function registerPromptPreset(definition) {
   const presetId = String(definition?.id ?? '')
   if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/.test(presetId) || presetId.length > 80) throw new Error('预设标识需采用「插件名.预设名」格式：' + presetId)
   if (registeredPresets.has(presetId)) throw new Error('预设标识已注册：' + presetId)
+  const structure = definition.structure === undefined ? null : normalizePromptStructure(definition.structure)
+  if (definition.structure !== undefined && !structure) throw new Error('预设结构无效：' + presetId)
   const preset = { id: presetId, name: clean(definition.name, 80) || presetId, source: clean(definition.source, 80) || presetId.split('.')[0], registered: true,
+    ...(definition.independent === true ? { independent: true } : {}), ...(definition.status === 'experimental' ? { status: 'experimental' } : {}),
     positive: clean(definition.positive), negative: clean(definition.negative, 2000), tagPositive: clean(definition.tagPositive),
     naturalPositive: clean(definition.naturalPositive), mixedPositive: clean(definition.mixedPositive),
-    structuredPositive: clean(definition.structuredPositive), structuredNegative: clean(definition.structuredNegative, 2000) }
+    structuredPositive: clean(definition.structuredPositive), structuredNegative: clean(definition.structuredNegative, 2000),
+    ...(structure ? { structure } : {}) }
   registeredPresets.set(presetId, preset)
   return () => { if (registeredPresets.get(presetId) === preset) registeredPresets.delete(presetId) }
 }
@@ -133,10 +170,14 @@ export function listRegisteredPromptPresets() {
   return [...registeredPresets.values()].map(preset => ({ ...preset }))
 }
 
-/** Select a preset for one request without touching saved settings. Unknown or disabled ids are an error, never a silent fallback. */
+/**
+ * Select a preset for one request without touching saved settings. Unknown or disabled ids are an error, never a silent fallback.
+ * The caller chose the style for this request, so it is applied as named: the user's style library, default artist text and
+ * manual additions are not stacked on it, and the worldbook prompt system does not drop a named template.
+ */
 export function withPromptPreset(config, presetId) {
   if (presetId === undefined) return config
-  const selected = { ...config, activePromptPreset: String(presetId), promptSelectionResolved: true, resolvedPromptTemplate: undefined }
+  const selected = { ...config, activePromptPreset: String(presetId), promptSelectionResolved: true, requestedPromptPreset: true, resolvedPromptTemplate: undefined }
   if (!effectivePromptPreset(selected)) throw new Error('找不到画风预设：' + presetId + '（未注册、已卸载或已停用）')
   return selected
 }
@@ -174,17 +215,26 @@ export function normalizePromptPresets(input) {
   })
 }
 
+/** Whether the user's style library, default artist text and manual additions go with this preset. */
+export function inheritsUserStyle(config = {}, preset) {
+  return preset?.independent !== true && config.requestedPromptPreset !== true
+}
+
 export function promptConfigForTarget(config, workflow = null, channel = null) {
-  if (config.promptSystem === 'worldbook') {
+  // A preset named for one request resolves the same way under both prompt systems.
+  if (config.promptSystem === 'worldbook' && !config.requestedPromptPreset) {
     // Older installs used plain visual presets alongside worldbook rules.
     // Only modular templates belong exclusively to the workbench.
     const presets = (Array.isArray(config.promptPresets) ? config.promptPresets : []).filter(preset => !preset?.structure)
     const selected = [...BUILTIN_PROMPT_PRESETS.filter(preset => !preset.structure), ...registeredPresets.values(), ...presets]
       .find(preset => preset?.id === config.activePromptPreset && preset.enabled !== false)
-    return { ...config, activePromptPreset: selected?.id || '', promptPresets: presets, promptDefault: null, resolvedPromptTemplate: undefined }
+    return { ...config, activePromptPreset: selected?.id || '', promptPresets: presets, promptDefault: null,
+      resolvedPromptTemplate: config.resolvedPromptTemplate?.id === selected?.id ? config.resolvedPromptTemplate : undefined,
+      ...(selected?.structure ? { promptMode: selected.structure.format } : {}) }
   }
-  if (registeredPresets.has(config.activePromptPreset)) return config
-  const presets = Array.isArray(config.promptPresets) ? config.promptPresets : []
+  const registered = registeredPresets.get(config.activePromptPreset)
+  if (registered) return registered.structure ? { ...config, promptMode: registered.structure.format } : config
+  const presets = [...BUILTIN_PROMPT_PRESETS, ...(Array.isArray(config.promptPresets) ? config.promptPresets : [])]
   const kind = workflow ? 'workflow' : 'channel'
   const targetId = workflow ? workflow.id : channel?.id || (config.imageBackend !== 'comfyui' ? config.activeImageChannel : '')
   const bound = targetId && presets.find(preset => preset?.enabled !== false && Array.isArray(preset?.structure?.targets) &&
@@ -228,6 +278,19 @@ export function validPromptPresetId(config = {}, value = config.activePromptPres
   if (!selected) return ''
   if (registeredPresets.has(selected)) return selected
   return [...BUILTIN_PROMPT_PRESETS, ...normalizePromptPresets(config.promptPresets)].some(item => item.id === selected && item.enabled !== false) ? selected : ''
+}
+
+/**
+ * Every preset a request can name with `promptPreset`, read-only. `usages` lists the usages that have their own style
+ * text (style, positive or negative blocks with a `usage`); text without a usage applies to every request.
+ */
+export function listPromptPresets(config = {}) {
+  const saved = normalizePromptPresets(config.promptPresets).filter(preset => preset.enabled !== false)
+  return [...BUILTIN_PROMPT_PRESETS.map(preset => [preset, 'builtin']), ...[...registeredPresets.values()].map(preset => [preset, 'registered']), ...saved.map(preset => [preset, 'saved'])]
+    .map(([preset, origin]) => ({ id: preset.id, name: preset.name, origin, ...(origin === 'registered' ? { source: preset.source } : {}),
+      status: preset.status === 'experimental' ? 'experimental' : 'stable',
+      usages: [...new Set((preset.structure?.blocks || []).filter(block => block.enabled !== false && ['style', 'positive', 'negative'].includes(block.kind))
+        .map(block => block.usage).filter(Boolean))] }))
 }
 
 /** Prompt-mode context follows the image execution path, never stale Comfy settings on another provider. */
@@ -284,8 +347,11 @@ export function formatPromptForBackend(text, backend = '', mode = 'tags') {
   return out.trim()
 }
 
+// Saved independent templates may retain legacy text fields; plugin presets own their declared text.
+const usesPresetText = preset => preset && (!preset.independent || preset.registered || !preset.structure)
+
 function textForMode(preset, mode) {
-  if (!preset || preset.independent) return ''
+  if (!usesPresetText(preset)) return ''
   if (mode === 'tags') return preset.tagPositive || preset.positive
   if (mode === 'natural') return preset.naturalPositive || preset.positive
   if (mode === 'structured') return preset.structuredPositive || preset.naturalPositive || preset.positive
@@ -302,7 +368,7 @@ export function getPromptGuidance(config = {}, backend = '', { compact = false, 
     else if (!preset?.structure && config.promptDefault !== null) {
       clauses.push('用中文自然语言，按需要使用以下分节：' + STRUCTURED_PROMPT_SECTIONS.join('、') + '。标题使用【分节名】，空白分节省略。')
     } else if (!activePromptBlocks(preset?.structure, usage).some(block => block.kind === 'section')) clauses.push('用中文自然语言描述画面。')
-    if (preset && !preset.independent) {
+    if (usesPresetText(preset)) {
       const visual = textForMode(preset, mode)
       if (visual) clauses.push(`视觉预设「${preset.name}」：${visual}\n将此作为构图、光线、材质与风格指导，保留正文的主体、动作和事实；按世界书的相应分节表达。`)
       const negative = preset.structuredNegative || preset.negative
@@ -311,7 +377,7 @@ export function getPromptGuidance(config = {}, backend = '', { compact = false, 
     clauses.push(structureGuidance(preset?.structure, mode, usage))
     return clauses.filter(Boolean).join('\n')
   }
-  if (preset && !preset.independent) {
+  if (usesPresetText(preset)) {
     const visual = textForMode(preset, mode)
     clauses.push(`Apply the selected visual profile “${preset.name}”: ${visual}. Keep the scene-specific subject and action from the request; use these as composition, lighting, material, and style guidance.`)
     if (preset.negative) clauses.push(`Avoid these visual problems where applicable: ${preset.negative}.`)
@@ -364,7 +430,7 @@ export function promptPresetNegative(config = {}, backend = '', usage) {
   const mode = resolvePromptMode(config, backend)
   const structured = mode === 'structured'
   const structure = structureWithStyles(preset?.structure, config, usage, mode)
-  return [preset?.independent ? '' : structured ? preset?.structuredNegative || preset?.negative : preset?.negative, ...structureNegative(structure, usage)]
+  return [usesPresetText(preset) ? structured ? preset.structuredNegative || preset.negative : preset.negative : '', ...structureNegative(structure, usage)]
     .filter(Boolean).join(structured ? '\n\n' : ', ')
 }
 
@@ -404,10 +470,10 @@ export function composeStructuredPrompt({ text = '', config = {}, artist = '', a
   composed = appendStructuredSection(composed, '风格补充', artist, { position: artistPosition })
   composed = appendStructuredSection(composed, '视觉预设补充', textForMode(preset, 'structured'))
   composed = appendStructuredSection(composed, '画面补充', positive)
-  composed = appendStructuredSection(composed, '手动补充', preset?.independent ? '' : config.promptManualPositive)
+  composed = appendStructuredSection(composed, '手动补充', inheritsUserStyle(config, preset) ? config.promptManualPositive : '')
   const references = appendStructuredSection('', '参考图对应与一致性', referenceText)
   if (references) composed = [references, composed.replace(references, '').trim()].filter(Boolean).join('\n\n')
-  const constraints = [preset?.independent ? '' : preset?.structuredNegative || preset?.negative, ...structureNegative(structure, usage), preset?.independent ? '' : config.promptManualNegative, negative]
+  const constraints = [usesPresetText(preset) ? preset.structuredNegative || preset.negative : '', ...structureNegative(structure, usage), inheritsUserStyle(config, preset) ? config.promptManualNegative : '', negative]
     .map(value => String(value ?? '').trim()).filter(Boolean).join('\n\n')
   return { positive: composed, negative: constraints, combined: combineStructuredPrompt(composed, constraints) }
 }
