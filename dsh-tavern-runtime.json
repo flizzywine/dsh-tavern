@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9dce7f4c7f8cda8840affb5accff970501e1e672",
-  "releaseSequence": 1627,
+  "revision": "0494e020e075b5e3f16acb4b79e837fe7c80b239",
+  "releaseSequence": 1628,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "eac7e39a5f79aca946a5514fd282f87978a103be955a6ce248a19097f957adf6",
-      "size": 6360083
+      "sha256": "b53211c1136ee0fea08cafd7a0c8fe9e0b15c377187167b7f1f56f7050a4314d",
+      "size": 6360553
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8046,8 +8046,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "660c29a71731f3f6287ed505ff1ab83cc11614b21b645aa9ea7dc9286a0bde72",
-      "size": 3652218
+      "sha256": "55adfc642433c5b0bdc6361012d468b77c83367f01a02285b899897f970335e7",
+      "size": 3652227
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9251,9 +9251,9 @@
     }
   ],
   "archive": {
-    "commit": "41f8011419e6b16f1a8367865af80c418e300292",
+    "commit": "6b0bd714c68e47bb625cefe985691bb597891d29",
     "path": "runtime.zip",
-    "sha256": "b34442f925169ebe6bea6189f8a1525f9b206dececc0f6bcc2e0922bc93312b1",
-    "size": 16509554
+    "sha256": "07ee26a8319c14010f594b60e8d1bf8fcf8f6a076f5ec2220be10f817dfee216",
+    "size": 16509736
   }
 }
