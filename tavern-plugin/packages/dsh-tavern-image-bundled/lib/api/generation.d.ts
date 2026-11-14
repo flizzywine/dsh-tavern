@@ -29,7 +29,7 @@ export interface PromptLibrary {
 export interface GenerateRequest {
   inputs?: Record<string, string>; subjects?: PromptSubject[]; definitions?: PromptDefinitions;
   prompt: string; negative?: string; usage?: string; modelId?: string; templateId?: string;
-  /** Style preset for this request only (built-in, saved or registered id). Omit to use the selected preset; an unknown id throws. */
+  /** Style preset for this request only (built-in, saved or registered id), applied without the user's style library or manual additions. Omit to use the selected preset; an unknown id throws. */
   promptPreset?: string; references?: ImageReference[]; width?: number; height?: number;
   background?: string; quality?: string; signal?: AbortSignal; chooseScenario?: ScenarioChooser;
 }

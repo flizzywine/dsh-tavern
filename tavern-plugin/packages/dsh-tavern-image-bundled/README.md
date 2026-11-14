@@ -569,7 +569,7 @@ export function apply(ctx) {
 
 预设标识采用 `插件名.预设名`，不会与内置或用户保存的预设重名；可选 `tagPositive/naturalPositive/mixedPositive/structuredPositive/structuredNegative` 按渠道类型细化。登记的预设出现在模板列表里，标注来源，用户可以选择、不能编辑，也不写入用户设置。注册函数返回卸载函数，插件卸载时应调用。
 
-`promptPreset` 只影响这一次生成，可填内置、用户保存或登记的预设标识，优先于当前选中的预设和工作台默认模板（显式的 `templateId`/`modelId` 模板仍按模板生成）；标识不存在、已卸载或已停用时直接报错，不退回当前预设。不传时行为与以前相同。
+`promptPreset` 只影响这一次生成，可填内置、用户保存或登记的预设标识，优先于当前选中的预设和工作台默认模板（显式的 `templateId`/`modelId` 模板仍按模板生成）；标识不存在、已卸载或已停用时直接报错，不退回当前预设。指定的预设按原样使用：用户画风库里选中的画风、默认画师串和手动补充的正负面词不再叠加上去；世界书提示词系统下也照样使用指定的模板。不传时行为与以前相同。
 ### 前后端维护边界
 
 浏览器源码在 `src/client/`：`main.js` 负责宿主注册，`media.js` 负责图片与提示词编辑，`settings-fields.js/settings.js` 负责设置，`card-worldbook.js/card-gallery.js` 负责工作台。`lib/client/transport.js` 只处理请求与取消；协议和参考图能力与后端共用 `lib/image-provider-capabilities.js`。前端通过 HTTP 交换数据，不直接引用服务端配置、凭据、文件存储或任务实现。

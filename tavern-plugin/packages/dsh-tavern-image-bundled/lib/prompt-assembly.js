@@ -5,7 +5,7 @@ import { fillPromptInputs, bindPromptConfig, selectPromptMaterials } from './pro
 import { activePromptBlocks, normalizePromptUsage } from './prompt-structure.js'
 import { effectiveImageProvider } from './image-provider-capabilities.js'
 import { dedupeTags } from './planner.js'
-import { composePresetText, composeStructuredPrompt, effectivePromptPreset, formatPromptForBackend, promptBackendContext, promptConfigForTarget, promptPresetNegative, resolvePromptMode } from './prompt-presets.js'
+import { composePresetText, composeStructuredPrompt, effectivePromptPreset, formatPromptForBackend, inheritsUserStyle, promptBackendContext, promptConfigForTarget, promptPresetNegative, resolvePromptMode } from './prompt-presets.js'
 
 export function activeArtistText(config) {
   const fallback = { text: String(config?.styleArtists ?? ''), position: 'prefix', name: '默认', negative: String(config?.styleNegative ?? '') }
@@ -99,7 +99,7 @@ export function prepareImagePrompt({ workflow, params, config, definitions, onSt
     characters: (definitions?.characters || []).filter(item => !boundCharacters.has(item.id)),
     outfits: (definitions?.outfits || []).filter(item => !boundOutfits.has(item.id)),
   } : definitions
-  const independent = preset?.independent === true
+  const independent = !inheritsUserStyle(config, preset)
   const activeStyleId = String(config.activePreset ?? '')
   const linkedActiveStyle = activeStyleId && activePromptBlocks(preset?.structure, usage)
     .some(block => block.kind === 'style' && block.styleId === activeStyleId)
