@@ -276,9 +276,9 @@ export function foregroundCandidatePrompt(chat) {
   return FOREGROUND_CANDIDATES_PROMPT
 }
 
-// What may follow the real choices block: whitespace and the card protocol's own
-// closing tags (`</story_after_format></story_plot>`), never prose.
-const CHOICES_TAIL_RE = /^(?:\s*<\/?[a-zA-Z][\w:.-]*(?:\s[^>]*)?>)*\s*$/
+// What may follow the real choices block: whitespace, comments, and the card
+// protocol's own closing/self-closing tags (`<story_done/></story_after_format></story_plot>`), never prose.
+const CHOICES_TAIL_RE = /^(?:\s*(?:<!--[\s\S]*?-->|<\/?[a-zA-Z][\w:.-]*(?:\s[^>]*)?\/?>))*\s*$/
 
 /**
  * Extract the trailing `<story_choices>...</story_choices>` block of a foreground reply.

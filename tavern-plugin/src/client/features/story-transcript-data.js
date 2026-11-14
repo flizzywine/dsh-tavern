@@ -40,6 +40,7 @@ const TAVERN_HIDDEN_PROTOCOL_TAGS = new Set([
 	'variable-update', 'variables-update', 'variable_update', 'variables_update', 'variables', 'variable',
 	'jsonpatch', 'json_patch', 'json-patch',
 	'mvu', 'mvu_update', 'mvu-update',
+	'story_choices',
 	'ta_hub', 'tw_hub'
 ])
 
@@ -60,7 +61,7 @@ function tavernStripHiddenProtocolBlocks(value, allowUnclosed) {
 			tokens.lastIndex = found ? end.lastIndex : source.length
 			continue
 		}
-		if (!TAVERN_HIDDEN_PROTOCOL_TAGS.has(tag) && !(allowUnclosed && tag === 'story_choices')) continue
+		if (!TAVERN_HIDDEN_PROTOCOL_TAGS.has(tag)) continue
 		out += source.slice(cursor, match.index)
 		if (!/^<\//.test(match[0]) && !/\/\s*>$/.test(match[0])) {
 			const boundary = new RegExp('<\\/?' + tag + '\\b[^>]*>', 'gi')

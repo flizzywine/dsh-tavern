@@ -45,6 +45,7 @@ for (const block of [
   '<update_variable>{"op":"replace"}</update_variable>',
   '<jsonpatch>[{"op":"replace"}]</jsonpatch>',
   '<mvu_update>{"hp":1}</mvu_update>',
+  '<story_choices>{"actors":[{"name":"我","actions":["a"]}],"event":"e","scene":"s"}</story_choices>',
   '<ta_hub>{"version":1,"source":"preset fallback"}</ta_hub>'
 ]) test('变量控制块不作为正文展示：' + block.split('>')[0], () => {
   const source = '之前\r\n' + block + '\r\n之后'

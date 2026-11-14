@@ -76,9 +76,9 @@ test('同一请求号的玩家输入在视图里只画一条', () => {
 test('流式与直落正文行自动隐藏变量与控制协议标签块，保留代码块示例', () => {
 	const committed = data.rows(story([
 		{ role: 'user', turn: 1, text: '行动' },
-		{ role: 'assistant', turn: 1, displayText: '正文第一段。\n<UpdateVariable>{"hp":1}</UpdateVariable>\n<Variables>{"gold":2}</Variables>\n<ta_hub>{"version":1}</ta_hub>\n```xml\n<UpdateVariable>example</UpdateVariable>\n```' }
+		{ role: 'assistant', turn: 1, displayText: '正文第一段。\n<UpdateVariable>{"hp":1}</UpdateVariable>\n<Variables>{"gold":2}</Variables>\n<story_choices>{"actors":[{"name":"我","actions":["a"]}]}</story_choices>\n<ta_hub>{"version":1}</ta_hub>\n```xml\n<UpdateVariable>example</UpdateVariable>\n```' }
 	]))
-	assert.equal(committed[1].text, '正文第一段。\n\n\n\n```xml\n<UpdateVariable>example</UpdateVariable>\n```')
+	assert.equal(committed[1].text, '正文第一段。\n\n\n\n\n```xml\n<UpdateVariable>example</UpdateVariable>\n```')
 
 	const placeholderTranscript = story([
 		{ role: 'user', turn: 1, text: '继续' },

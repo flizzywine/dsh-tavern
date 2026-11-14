@@ -35,6 +35,7 @@ const HIDDEN_PROTOCOL_TAGS = new Set([
   'variable-update', 'variables-update', 'variable_update', 'variables_update', 'variables', 'variable',
   'jsonpatch', 'json_patch', 'json-patch',
   'mvu', 'mvu_update', 'mvu-update',
+  'story_choices',
   'ta_hub', 'tw_hub'
 ])
 

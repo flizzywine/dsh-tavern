@@ -275,6 +275,23 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
   assert.match(quotedOut.proseText, /第一段正文/)
   assert.equal(quotedOut.choices.length, 5)
 
+  // 闭合后若只跟卡协议闭合标签或自闭合标签（如 <story_done/>），仍正常提取并剥离
+  const selfClosingTail = [
+    '<story_body>雨停后的走廊。</story_body>',
+    '<story_choices>',
+    JSON.stringify({ actions: ['甲甲甲甲行动', '乙乙乙乙行动', '丙丙丙丙行动', '丁丁丁丁行动'], scene: '换场到阳台' }),
+    '</story_choices>',
+    '</story_body>',
+    '<story_after_format>',
+    '<story_done/>',
+    '</story_after_format>',
+    '</story_plot>'
+  ].join('\n')
+  const selfClosingOut = extractForegroundStoryChoices(selfClosingTail, {})
+  assert.equal(selfClosingOut.hadTag, true)
+  assert.equal(selfClosingOut.proseText, '<story_body>雨停后的走廊。</story_body>')
+  assert.equal(selfClosingOut.choices.length, 5)
+
   // 只有引用、没有真块：正文原样保留，不按引用处切割
   const onlyQuote = '正文提到 `<story_choices>{"actions":[]}</story_choices>` 这个标签，然后继续写正文。'
   const quoteOut = extractForegroundStoryChoices(onlyQuote, {})
