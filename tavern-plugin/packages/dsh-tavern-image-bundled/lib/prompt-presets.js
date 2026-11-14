@@ -133,10 +133,14 @@ export function listRegisteredPromptPresets() {
   return [...registeredPresets.values()].map(preset => ({ ...preset }))
 }
 
-/** Select a preset for one request without touching saved settings. Unknown or disabled ids are an error, never a silent fallback. */
+/**
+ * Select a preset for one request without touching saved settings. Unknown or disabled ids are an error, never a silent fallback.
+ * The caller chose the style for this request, so it is applied as named: the user's style library, default artist text and
+ * manual additions are not stacked on it, and the worldbook prompt system does not drop a named template.
+ */
 export function withPromptPreset(config, presetId) {
   if (presetId === undefined) return config
-  const selected = { ...config, activePromptPreset: String(presetId), promptSelectionResolved: true, resolvedPromptTemplate: undefined }
+  const selected = { ...config, activePromptPreset: String(presetId), promptSelectionResolved: true, requestedPromptPreset: true, resolvedPromptTemplate: undefined }
   if (!effectivePromptPreset(selected)) throw new Error('找不到画风预设：' + presetId + '（未注册、已卸载或已停用）')
   return selected
 }
@@ -174,8 +178,14 @@ export function normalizePromptPresets(input) {
   })
 }
 
+/** Whether the user's style library, default artist text and manual additions go with this preset. */
+export function inheritsUserStyle(config = {}, preset) {
+  return preset?.independent !== true && config.requestedPromptPreset !== true
+}
+
 export function promptConfigForTarget(config, workflow = null, channel = null) {
-  if (config.promptSystem === 'worldbook') {
+  // A preset named for one request resolves the same way under both prompt systems.
+  if (config.promptSystem === 'worldbook' && !config.requestedPromptPreset) {
     // Older installs used plain visual presets alongside worldbook rules.
     // Only modular templates belong exclusively to the workbench.
     const presets = (Array.isArray(config.promptPresets) ? config.promptPresets : []).filter(preset => !preset?.structure)
@@ -404,10 +414,10 @@ export function composeStructuredPrompt({ text = '', config = {}, artist = '', a
   composed = appendStructuredSection(composed, '风格补充', artist, { position: artistPosition })
   composed = appendStructuredSection(composed, '视觉预设补充', textForMode(preset, 'structured'))
   composed = appendStructuredSection(composed, '画面补充', positive)
-  composed = appendStructuredSection(composed, '手动补充', preset?.independent ? '' : config.promptManualPositive)
+  composed = appendStructuredSection(composed, '手动补充', inheritsUserStyle(config, preset) ? config.promptManualPositive : '')
   const references = appendStructuredSection('', '参考图对应与一致性', referenceText)
   if (references) composed = [references, composed.replace(references, '').trim()].filter(Boolean).join('\n\n')
-  const constraints = [preset?.independent ? '' : preset?.structuredNegative || preset?.negative, ...structureNegative(structure, usage), preset?.independent ? '' : config.promptManualNegative, negative]
+  const constraints = [preset?.independent ? '' : preset?.structuredNegative || preset?.negative, ...structureNegative(structure, usage), inheritsUserStyle(config, preset) ? config.promptManualNegative : '', negative]
     .map(value => String(value ?? '').trim()).filter(Boolean).join('\n\n')
   return { positive: composed, negative: constraints, combined: combineStructuredPrompt(composed, constraints) }
 }

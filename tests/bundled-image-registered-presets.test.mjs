@@ -30,7 +30,7 @@ test('registered presets are listed, selectable per request and removed on dispo
     assert.doesNotMatch(seen[0].negative, /watermark|linework/)
 
     await generator.generate({ prompt: 'a knight' })
-    assert.match(seen[1].positive, /anime/)
+    assert.match(seen[1].positive, /anime|动画/)
     assert.match(seen[1].negative, /watermark/)
 
     const workbench = capture(() => config({ promptSystem: 'workbench' }))
@@ -59,4 +59,28 @@ test('a registered preset selected in settings stays selected in workbench gener
     await generator.generate({ prompt: 'a knight' })
     assert.match(seen[0].positive, /flat sheet selected/)
   } finally { dispose() }
+})
+
+test('a preset named for one request is applied as named, without the user style library or manual additions', async () => {
+  const user = { stylePresets: [{ id: 'library-style', name: 'Library', artist: 'library artist', negative: 'library negative', enabled: true }],
+    activePreset: 'library-style', promptManualPositive: 'manual addition', promptManualNegative: 'manual negative',
+    promptPresets: [{ id: 'saved-template', name: 'Saved', enabled: true, independent: true,
+      structure: { format: 'auto', blocks: [{ kind: 'scene', title: 'Scene' }, { kind: 'style', title: 'Style', text: 'saved template style' }] } }] }
+  for (const promptMode of ['auto', 'structured']) {
+    const { generator, seen } = capture(() => config({ ...user, promptMode }))
+    await generator.generate({ prompt: 'a knight' })
+    assert.match(seen[0].positive, /library artist/)
+    assert.match(seen[0].positive, /manual addition/)
+    assert.match(seen[0].negative, /library negative/)
+
+    await generator.generate({ prompt: 'a knight', promptPreset: 'anime-character' })
+    assert.match(seen[1].positive, /anime|动画/)
+    assert.doesNotMatch(seen[1].positive, /library artist|manual addition/)
+    assert.doesNotMatch(seen[1].negative ?? '', /library negative|manual negative/)
+
+    // The worldbook prompt system keeps its own selection rules, but does not drop a template named for this request.
+    await generator.generate({ prompt: 'a knight', promptPreset: 'saved-template' })
+    assert.match(seen[2].positive, /saved template style/)
+    assert.doesNotMatch(seen[2].positive, /library artist|manual addition/)
+  }
 })
