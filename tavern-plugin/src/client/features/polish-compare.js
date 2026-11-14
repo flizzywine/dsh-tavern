@@ -36,7 +36,7 @@
 			const refresh = React.useRef(null);
 			React.useEffect(function () {
 				let active = true;
-				rpc("getTavernSettings").then(function (result) { if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []); }, function () {});
+				rpc("getTavernModelCatalog").then(function (result) { if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []); }, function () {});
 				return function () { active = false; };
 			}, []);
 			const hover = {

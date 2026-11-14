@@ -75,7 +75,7 @@
 			React.useEffect(function () {
 				let active = true;
 				if (!isTavernBackground) return function () { active = false; };
-				rpc("getTavernSettings").then(function (result) {
+				rpc("getTavernModelCatalog").then(function (result) {
 					if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []);
 				}, function () {});
 				return function () { active = false; };

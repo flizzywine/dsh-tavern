@@ -62,9 +62,13 @@ function useTavernBackgroundRuns(sessionId) {
     const [catalog, setCatalog] = React.useState([]);
     const [locks, setLocks] = React.useState([]);
     const [members, setMembers] = React.useState([]);
+    // The poll schedule reads the newest payload without re-creating the effect.
+    const runsRef = React.useRef(null), locksRef = React.useRef([]);
     React.useEffect(function () {
         let disposed = false, loading = false;
         setRuns(null);
+        runsRef.current = null;
+        locksRef.current = [];
         async function refresh() {
             setNow(Date.now());
             if (loading) return;
@@ -72,6 +76,8 @@ function useTavernBackgroundRuns(sessionId) {
             try {
                 const result = await rpc("getBackgroundRuns", {}, sessionId);
                 if (disposed) return;
+                runsRef.current = Array.isArray(result.runs) ? result.runs : [];
+                locksRef.current = Array.isArray(result.locks) ? result.locks : [];
                 setRuns(Array.isArray(result.runs) ? result.runs : []);
                 setTurns(Array.isArray(result.turns) ? result.turns : []);
                 setMoments(Array.isArray(result.moments) ? result.moments : []);
@@ -81,9 +87,27 @@ function useTavernBackgroundRuns(sessionId) {
             } catch (_) { /* Diagnostic only; the next poll retries. */ }
             finally { loading = false; }
         }
-        void refresh();
-        const timer = window.setInterval(refresh, 2000);
-        return function () { disposed = true; window.clearInterval(timer); };
+        // Poll fast only while something is actually moving and the page is
+        // visible; an idle panel showing a finished game does not need a
+        // rebuild of runs, turns, moments, catalog and members every 2s.
+        let timer = 0;
+        const schedule = function (delay) {
+            window.clearTimeout(timer);
+            if (disposed || delay === null) return;
+            timer = window.setTimeout(tick, delay);
+        };
+        const active = function () {
+            return (Array.isArray(runsRef.current) && runsRef.current.some(function (run) { return run && (run.status === "running" || run.status === "queued"); }))
+                || (Array.isArray(locksRef.current) && locksRef.current.length > 0);
+        };
+        async function tick() {
+            if (disposed) return;
+            const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+            if (!hidden) await refresh();
+            schedule(hidden ? 30000 : active() ? 2000 : 10000);
+        }
+        void tick();
+        return function () { disposed = true; window.clearTimeout(timer); };
     }, [sessionId]);
     return { runs, now, turns, moments, catalog, locks, members };
 }
