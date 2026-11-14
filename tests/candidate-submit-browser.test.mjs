@@ -47,6 +47,7 @@ async function mount(t, outcome) {
         getTavernSettings: { settings: {} }, // composer and sidebar preferences
         getChoices: { candidates: null }, // the dock reads the round's saved candidates
         loadSessionPreviews: { previews: {} },
+        cardPluginScopes: { scopes: {} }, // plugin composer actions wait for which plugins belong to which cards
       }
       if (!(method in responses)) unexpected.push(method)
       result = { ok: true, ...responses[method] }

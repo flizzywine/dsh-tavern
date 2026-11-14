@@ -1045,6 +1045,8 @@
 				}));
 		}
 		function useTavernUiExtensions() {
+			// Which plugins a game shows waits on the card plugin scopes (tavernPluginAllowed).
+			useTavernCardPluginScopes();
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
 		}
 
