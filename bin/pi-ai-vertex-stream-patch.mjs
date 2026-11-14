@@ -44,11 +44,10 @@ export function patchPiAiVertexStream({ sdkDirectory, project }) {
   const vertexResult = patchPiAiGoogleVertexSource(vertexSource)
   const sharedResult = patchPiAiGoogleSharedSource(sharedSource)
   const modelsResult = patchPiAiGoogleVertexModelsJson(modelsSource, { project })
-  if (
-    vertexResult.status === 'unmatched' ||
-    sharedResult.status === 'unmatched' ||
-    modelsResult.status === 'unmatched'
-  ) {
+  // The vertex adapter now carries its own thinking-level dispatch, so a shared-helper
+  // shape this build does not recognise is no longer a reason to skip the whole patch —
+  // that used to leave an older pi-ai sending `thinkingBudget` to Gemini 4.
+  if (vertexResult.status === 'unmatched' || modelsResult.status === 'unmatched') {
     return null
   }
   let wrote = false
@@ -59,6 +58,8 @@ export function patchPiAiVertexStream({ sdkDirectory, project }) {
   if (sharedResult.status === 'applied') {
     writeFileSync(sharedFile, sharedResult.text)
     wrote = true
+  } else if (sharedResult.status === 'unmatched') {
+    console.log('pi-ai 的 google-shared.js 与已知版本不同，跳过该处补丁；Vertex 适配器已自带 thinkingLevel 判定。')
   }
   if (modelsResult.status === 'applied') {
     writeFileSync(modelsFile, modelsResult.text)

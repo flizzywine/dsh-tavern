@@ -6,7 +6,11 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   LATEST_GOOGLE_VERTEX_MODELS,
+  PI_AI_VERTEX_STREAM_MARKER,
   VERTEX_TEMPLATE_BASE_URL,
+  vertexDisabledThinkingConfig,
+  vertexResolveThinkingLevel,
+  vertexUsesThinkingLevel,
   createVertexToolCallStreamer,
   patchPiAiGoogleSharedSource,
   patchPiAiGoogleVertexModelsJson,
@@ -399,6 +403,13 @@ function buildParams(model, context, options = {}) {
   assert.equal(usesGoogleThinkingLevel({ id: 'gemini-4-carbon' }), true)
   assert.match(sharedAfter, /gemini-\(\?:/)
 
+  // thinking 判定不再依赖 google-shared.js 的正则：适配器自带（旧版 pi-ai 会把
+  // gemini-4 判成 budget 型，Vertex 回 400 "Thinking budget is not supported"）。
+  const vertexAfterPatch = await readFile(vertexFile, 'utf8')
+  assert.ok(vertexAfterPatch.includes('function vertexUsesThinkingLevel'))
+  assert.ok(vertexAfterPatch.includes('function vertexDisabledThinkingConfig'))
+  assert.ok(vertexAfterPatch.includes('function vertexResolveThinkingLevel'))
+
   const modelsAfter = JSON.parse(await readFile(modelsFile, 'utf8'))['google-vertex']
   for (const key of ['chat:gemini-4-argon', 'chat:gemini-4-carbon', 'chat:gemini-4-hydrogen', 'chat:gemini-3.5-flash-lite', 'chat:gemini-3.1-flash-lite-image']) {
     assert.ok(modelsAfter[key], `模型目录应包含 ${key}`)
@@ -522,4 +533,26 @@ test('Vertex 无 project 的安装：从 API key 的 404 里解析 project，并
   assert.equal(repairVertexRouteBaseUrl({ profileText: folded, project: '379270002840' }).status, 'unsafe')
   assert.equal(repairVertexRouteBaseUrl({ profileText: 'a: 1', project: '379270002840' }).status, 'absent')
   assert.equal(repairVertexRouteBaseUrl({ profileText: regional, project: '' }).status, 'project-less')
+})
+
+test('Vertex thinking：Gemini 4 只发 thinkingLevel，旧补丁的运行时也能被升级', () => {
+  // 上游 1.3.x 的 usesGoogleThinkingLevel 只认 gemini-3，gemini-4 落进 budget 分支 → 400。
+  const levelMap = { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null }
+  assert.equal(vertexUsesThinkingLevel({ id: 'gemini-4-carbon' }), true)
+  assert.equal(vertexUsesThinkingLevel({ id: 'gemini-4-hydrogen' }), true)
+  assert.equal(vertexUsesThinkingLevel({ id: 'gemini-3.8-flash' }), true)
+  assert.equal(vertexUsesThinkingLevel({ id: 'gemini-2.5-pro' }), false)
+  assert.deepEqual(vertexDisabledThinkingConfig({ id: 'gemini-4-carbon', thinkingLevelMap: levelMap }), { thinkingLevel: 'LOW' })
+  assert.deepEqual(vertexDisabledThinkingConfig({ id: 'gemini-2.5-pro' }), { thinkingBudget: 0 })
+  assert.equal(vertexResolveThinkingLevel({ id: 'gemini-4-carbon', thinkingLevelMap: levelMap }, 'low'), 'low')
+  assert.equal(vertexResolveThinkingLevel({ id: 'gemini-4-carbon', thinkingLevelMap: levelMap }, 'xhigh'), 'high')
+  // 目录里没有该档位也不能抛错中断整轮
+  assert.equal(vertexResolveThinkingLevel({ id: 'gemini-4-carbon' }, 'medium'), 'medium')
+
+  // 旧版补丁留下的运行时（有 marker、没有 thinking 助手）必须能原地升级。
+  const legacy = `${PI_AI_VERTEX_STREAM_MARKER}\nfunction supportsVertexStreamFunctionCallArguments(modelId) { return true }\nfunction createVertexToolCallStreamer() { return {} }\nexport const stream = (model, context, options) => {\n`
+  const upgraded = patchPiAiGoogleVertexSource(legacy)
+  assert.equal(upgraded.status, 'applied')
+  assert.equal((upgraded.text.match(/function vertexUsesThinkingLevel/g) ?? []).length, 1)
+  assert.equal(patchPiAiGoogleVertexSource(upgraded.text).status, 'patched')
 })

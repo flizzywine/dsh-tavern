@@ -134,6 +134,44 @@ export function vertexModelsWithGlobalBaseUrl(project) {
   return Object.freeze(models)
 }
 
+// Self-contained so patchPiAiGoogleVertexSource can serialize them into pi-ai's
+// dist/api/google-vertex.js. They exist because the shared helper that decides between
+// `thinkingLevel` and `thinkingBudget` ships inside google-shared.js, and an installed
+// pi-ai that predates Gemini 4 answers `thinkingBudget` for these ids — Vertex rejects
+// that with INVALID_ARGUMENT ("Thinking budget is not supported for this model").
+export function vertexUsesThinkingLevel(model) {
+  const id = String(model?.id ?? '').toLowerCase()
+  return (
+    /gemini-3(?:\.\d+)?-(?:pro|flash)/.test(id) ||
+    /gemini-(?:[4-9]|[1-9]\d)/.test(id) ||
+    id === 'gemini-flash-latest' ||
+    id === 'gemini-flash-lite-latest' ||
+    /gemma-?4/.test(id)
+  )
+}
+
+// A level the model's own map does not name still has to become one Vertex accepts:
+// escalate to the nearest supported step instead of failing the whole turn.
+export function vertexResolveThinkingLevel(model, level) {
+  const mapped = model?.thinkingLevelMap?.[level]
+  const resolved = typeof mapped === 'string' ? mapped.toLowerCase() : level
+  if (resolved === 'minimal' || resolved === 'low' || resolved === 'medium' || resolved === 'high') return resolved
+  if (level === 'xhigh' || level === 'max') return 'high'
+  return 'low'
+}
+
+// Thinking switched off. Gemini 4 cannot switch it off at all, so the lowest level it
+// does support goes out instead — `thinkingBudget: 0` is the exact request Vertex
+// rejects with "Thinking budget is not supported for this model".
+export function vertexDisabledThinkingConfig(model) {
+  if (!vertexUsesThinkingLevel(model)) return { thinkingBudget: 0 }
+  const map = model?.thinkingLevelMap ?? {}
+  const off = typeof map.off === 'string' ? map.off.toLowerCase() : 'off'
+  if (off !== 'off') return { thinkingLevel: off.toUpperCase() }
+  const lowest = ['minimal', 'low', 'medium', 'high'].find(level => typeof map[level] === 'string' && map[level])
+  return { thinkingLevel: (lowest ?? 'low').toUpperCase() }
+}
+
 // Self-contained so patchPiAiGoogleVertexSource can serialize it into pi-ai's dist/api/google-vertex.js.
 export function supportsVertexStreamFunctionCallArguments(modelId) {
   if (typeof modelId !== 'string') return false
@@ -492,7 +530,11 @@ function replaceOnce(text, from, to) {
 
 export function patchPiAiGoogleVertexSource(source) {
   const text = String(source)
-  if (text.includes(PI_AI_VERTEX_STREAM_MARKER)) return { status: 'patched', text }
+  const alreadyPatched = text.includes(PI_AI_VERTEX_STREAM_MARKER)
+  // A runtime patched by an older dsh-tavern carries the marker but not the thinking
+  // helpers, so "marker present" alone cannot mean "done": that is exactly how an
+  // installed pi-ai kept sending `thinkingBudget` to Gemini 4 after an upgrade.
+  if (alreadyPatched && text.includes('vertexUsesThinkingLevel')) return { status: 'patched', text }
   let patched = text
 
   const replacements = [
@@ -554,13 +596,37 @@ export function patchPiAiGoogleVertexSource(source) {
     ],
   ]
 
-  for (const [from, to] of replacements) {
-    patched = replaceOnce(patched, from, to)
-    if (patched === null) return { status: 'unmatched', text }
+  // A runtime patched by an earlier dsh-tavern already carries every one of these
+  // rewrites, so they are only demanded of pristine upstream text.
+  if (!alreadyPatched) {
+    for (const [from, to] of replacements) {
+      const next = replaceOnce(patched, from, to)
+      if (next === null) return { status: 'unmatched', text }
+      patched = next
+    }
   }
 
+  // Optional: an installed pi-ai that predates these helpers keeps its own call shape,
+  // and the shared-helper patch below still covers it. Missing here is not a failure.
+  for (const [from, to] of [
+    ['if (usesGoogleThinkingLevel(model)) {', 'if (vertexUsesThinkingLevel(model)) {'],
+    ['getDisabledGoogleThinkingConfig(model)', 'vertexDisabledThinkingConfig(model)'],
+    ['resolveGoogleThinkingLevel(model, clampedReasoning)', 'vertexResolveThinkingLevel(model, clampedReasoning)'],
+  ]) {
+    const next = replaceOnce(patched, from, to)
+    if (next !== null) patched = next
+  }
+
+  const thinkingHelpers = `${vertexUsesThinkingLevel.toString()}\n${vertexResolveThinkingLevel.toString()}\n${vertexDisabledThinkingConfig.toString()}\n`
+  if (alreadyPatched) {
+    // Upgrade path: the tool-call helpers are already in place, only the thinking
+    // helpers are missing, so they go right after the marker.
+    patched = replaceOnce(patched, PI_AI_VERTEX_STREAM_MARKER + '\n', PI_AI_VERTEX_STREAM_MARKER + '\n' + thinkingHelpers)
+    if (patched === null) return { status: 'unmatched', text }
+    return { status: 'applied', text: patched }
+  }
   const anchor = 'export const stream = (model, context, options) => {'
-  const helperBlock = `${PI_AI_VERTEX_STREAM_MARKER}\n${supportsVertexStreamFunctionCallArguments.toString()}\n${createVertexToolCallStreamer.toString()}\n\n${anchor}`
+  const helperBlock = `${PI_AI_VERTEX_STREAM_MARKER}\n${supportsVertexStreamFunctionCallArguments.toString()}\n${thinkingHelpers}${createVertexToolCallStreamer.toString()}\n\n${anchor}`
   patched = replaceOnce(patched, anchor, helperBlock)
   if (patched === null) return { status: 'unmatched', text }
   return { status: 'applied', text: patched }
