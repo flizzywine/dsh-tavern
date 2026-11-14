@@ -3,10 +3,8 @@ import assert from 'node:assert/strict'
 import {mkdtemp, mkdir, writeFile, readFile, readdir, realpath, symlink, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {createVoicePilot, validatePilot, outputPath, preparePilotAudio, decodePilotAudio, maxAudioBytes} from '../src/creator/fish-voice-design.js'
-import {createCreator} from '../src/creator/index.js'
-import {createCreatorControl} from '../src/creator/control.js'
-import {createServiceSettings, Settings, validateSettings} from '../src/settings.js'
+import {createVoicePilot, validatePilot, outputPath, preparePilotAudio, decodePilotAudio, maxAudioBytes} from '../src/providers/fish-voice-design.js'
+import {createServiceSettings} from '../src/settings.js'
 import {pcmWav} from '../src/providers/audio.js'
 import {credentialRef} from '../src/providers/params.js'
 import {handleControl} from '../src/routes.js'
@@ -63,20 +61,18 @@ test('only Fish cloud, zh and approved fields; saved service shares secrets(p): 
   const previous = process.env.FISH_AUDIO_API_KEY; process.env.FISH_AUDIO_API_KEY = key
   t.after(() => { if (previous === undefined) delete process.env.FISH_AUDIO_API_KEY; else process.env.FISH_AUDIO_API_KEY = previous })
   let stored
-  const services = createServiceSettings({tts:{},get:() => ({providers:[provider]}),credentials:() => ({resolve:async ref => {resolves++; assert.deepEqual(ref,credentialRef(provider.id,'key')); return stored}})})
-  const creator = createCreator({getProvider:services.getCreatorProvider,resolveKey:services.getCreatorKey,fetch,budgetRoot:root})
+  const services = createServiceSettings({tts:{},get:() => ({providers:[provider]}),credentials:() => ({resolve:async ref => {resolves++; assert.deepEqual(ref,credentialRef(provider.id,'key')); return stored}}),fetch,pilotBudgetRoot:root})
   // No stored credential: the saved service falls back to FISH_AUDIO_API_KEY, as every other Fish path does.
-  assert.equal((await creator.run(args('env'))).receipt.requests[0].outcome,'success')
+  assert.equal((await services.voicePilot(args('env'))).receipt.requests[0].outcome,'success')
   assert.equal(resolves,1); assert.equal(calls,1); assert.equal(authorization.at(-1),'Bearer ' + key)
   // A stored credential wins over the environment key.
   stored = {value:storedKey}
-  assert.equal((await creator.run(args('stored'))).receipt.requests[0].outcome,'success')
+  assert.equal((await services.voicePilot(args('stored'))).receipt.requests[0].outcome,'success')
   assert.equal(resolves,2); assert.equal(calls,2); assert.equal(authorization.at(-1),'Bearer ' + storedKey)
   // Neither source: refused before any request.
   stored = undefined; delete process.env.FISH_AUDIO_API_KEY
-  await assert.rejects(creator.run(args('denied')),{code:'CREDENTIALS_REQUIRED'})
+  await assert.rejects(services.voicePilot(args('denied')),{code:'CREDENTIALS_REQUIRED'})
   assert.equal(resolves,3); assert.equal(calls,2)
-  await assert.rejects(creator.run({...args('missing'),serviceId:'fish-missing'}),{code:'SERVICE_OFFLINE'})
 })
 
 test('cumulative budget refuses exceeding request before fetch; final UTF-8 bytes determine TTS price', async t => {
@@ -202,43 +198,19 @@ test('base64 size boundary and oversized provider response preserve unknown rese
 })
 
 
-test('voice design control rejects cross-origin requests and dry-run never resolves credentials or fetches', async t => {
+test('voice pilot control rejects cross-origin requests and dry-run never resolves credentials or fetches', async t => {
   const {root} = await fixture(t)
   const services = createServiceSettings({tts:{},get:() => ({providers:[provider]}),
-    credentials:() => assert.fail('dry-run must not access credentials')})
-  const creator = createCreator({getProvider:services.getCreatorProvider,resolveKey:services.getCreatorKey,
-    fetch:async () => assert.fail('dry-run must not fetch'),budgetRoot:root})
+    credentials:() => assert.fail('dry-run must not access credentials'),
+    fetch:async () => assert.fail('dry-run must not fetch'),pilotBudgetRoot:root})
   const input = args('preview',{confirm:false,dryRun:true})
   const request = origin => new Request('http://localhost/api/dsh-tts/v1/control', {
     method:'POST',headers:{'Content-Type':'application/json',Origin:origin},
-    body:JSON.stringify({method:'creator.voiceDesign',args:input})})
-  const dispatch = (method, input) => { assert.equal(method,'creator.voiceDesign'); return creator.run(input) }
+    body:JSON.stringify({method:'voicePilot',args:input})})
+  const dispatch = (method, input) => { assert.equal(method,'voicePilot'); return services.voicePilot(input) }
   assert.equal((await handleControl(request('https://example.org'),dispatch)).status,403)
   const response = await handleControl(request('http://localhost'),dispatch)
   assert.equal(response.status,200)
   assert.deepEqual(await response.json(),{dryRun:true,model:'voice-design-1',requests:1,estimatedCostUsd:0.01,cumulativeReservedUsd:0})
   assert.deepEqual(await readdir(root),[])
-})
-
-test('creator control: unknown and old names refused, switch checked before loading, action must match the method', async () => {
-  let enabled = false, loads = 0
-  const runs = []
-  const control = createCreatorControl({getEnabled:() => enabled,load:async () => { loads++; return {run:input => { runs.push(input.action); return {ok:true} }} }})
-  for (const method of ['voicePilot','creator.unknown']) await assert.rejects(control(method,{action:'design'}),{code:'UNKNOWN_METHOD'})
-  for (const [method,action] of [['creator.voiceDesign','design'],['creator.voicePilot','pilot']]) await assert.rejects(control(method,{action}),{code:'CREATOR_DISABLED'})
-  assert.equal(loads,0)
-  enabled = true
-  await assert.rejects(control('creator.voicePilot',{action:'design'}),{code:'INVALID_INPUT'})
-  await assert.rejects(control('creator.voiceDesign',{action:'pilot'}),{code:'INVALID_INPUT'})
-  await control('creator.voiceDesign',{action:'design'}); await control('creator.voicePilot',{action:'pilot'})
-  assert.equal(loads,1); assert.deepEqual(runs,['design','pilot'])
-  enabled = false
-  await assert.rejects(control('creator.voiceDesign',{action:'design'}),{code:'CREATOR_DISABLED'})
-})
-
-test('creator switch defaults off and is separate from the player 配音 switch', () => {
-  const settings = Settings({})
-  assert.deepEqual(settings.creator,{enabled:false}); assert.equal(settings.enabled,true)
-  assert.equal(Settings({creator:{enabled:true}}).creator.enabled,true)
-  assert.throws(() => validateSettings({...settings,creator:{enabled:'yes'}}),{code:'INVALID_INPUT'})
 })

@@ -7,7 +7,6 @@ import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import { registerRoutes } from '../src/routes.js'
 import { createCache } from '../src/cache.js'
 import { pcmWav } from '../src/providers/audio.js'
-import { providerConfig } from '../src/providers/params.js'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -225,31 +224,4 @@ test('settings reads stay responsive while one shared catalogue probe is pending
   resolve({state:'ready'}); await tick()
   assert.equal((await control.call('services')).running[0].status.state,'ready')
   assert.equal(calls,1)
-})
-
-test('creator switch gates the shared control and leaves player voice untouched', async t => {
-  let resolves = 0, paid = 0
-  const previous = process.env.FISH_AUDIO_API_KEY
-  delete process.env.FISH_AUDIO_API_KEY
-  t.after(() => { if (previous === undefined) delete process.env.FISH_AUDIO_API_KEY; else process.env.FISH_AUDIO_API_KEY = previous })
-  t.mock.method(globalThis,'fetch',async () => { paid++; assert.fail('must not call the provider') })
-  const dataDir = await mkdtemp(fileURLToPath(new URL('.cache-creator-',import.meta.url)))
-  t.after(() => rm(dataDir,{recursive:true,force:true}))
-  const f = await profile(t,{dataDir,setup(ctx) { ctx.provide('credentials',{resolve:async () => { resolves++; return undefined },describe:async () => ({configured:false,writable:true})}) }})
-  const control = f.ctx.get('ttsControl')
-  assert.equal((await control.call('settings')).creator.enabled,false)
-  assert.equal(f.value('tts').enabled,true)
-  const input = {action:'design',serviceId:'fish-test',dryRun:true,plan:{language:'zh',maxCostUsd:0.5,characters:[{id:'sample',instruction:'温柔清晰的女声',reference_text:'这是一段中文试读。',n:1}]}}
-  await assert.rejects(control.call('creator.voiceDesign',input),{code:'CREATOR_DISABLED'})
-  await assert.rejects(control.call('voicePilot',input),{code:'UNKNOWN_METHOD'})
-  assert.deepEqual(await control.call('setCreatorEnabled',{enabled:true}),{enabled:true})
-  await f.update('tts',{providers:[{id:'fish-test',kind:'fish-audio',label:'Fish',config:providerConfig('fish-audio',{url:'https://api.fish.audio'})}]})
-  assert.equal((await control.call('creator.voiceDesign',input)).dryRun,true)
-  assert.equal(resolves,0)
-  await assert.rejects(control.call('creator.voicePilot',input),{code:'INVALID_INPUT'})
-  await assert.rejects(control.call('creator.voiceDesign',{...input,dryRun:false,confirm:true}),{code:'CREDENTIALS_REQUIRED'})
-  assert.equal(resolves,1); assert.equal(paid,0)
-  await control.call('setCreatorEnabled',{enabled:false})
-  await assert.rejects(control.call('creator.voiceDesign',input),{code:'CREATOR_DISABLED'})
-  assert.ok(f.ctx.get('tts')); assert.equal(f.value('tts').enabled,true)
 })

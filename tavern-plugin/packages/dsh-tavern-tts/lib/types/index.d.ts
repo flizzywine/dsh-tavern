@@ -17,22 +17,3 @@ export function apply(ctx: Context, config?: {profileId?: string; dataDir?: stri
 export interface ReadingPresetSummary { id: string; name: string; count: number; revision: number }
 export interface ReadingPresets { active: string; presets: ReadingPresetSummary[] }
 export interface ReadingPresetDocument { version: 1; kind: 'dsh-tts-readings'; name: string; entries: { forms: string[]; reading: string; languageOverride?: string }[] }
-
-// Creator tools: authenticated control RPC methods behind the global creator.enabled switch (default false).
-export interface CreatorSettings { enabled: boolean }
-export interface VoiceDesignPlan {
-  language: 'zh'; maxCostUsd: number
-  characters: { id: string; instruction: string; reference_text: string; n: number }[]
-}
-export interface VoicePilotPlan {
-  language: 'zh'; maxCostUsd?: number; model?: string
-  rows: { id: string; text: string; reference?: { file: string; text: string; audioBase64: string }; references?: { file: string; text: string; audioBase64: string }[] }[]
-}
-export type CreatorConfirmation = { dryRun: true; confirm?: false } | { confirm: true; dryRun?: false }
-export type CreatorRequest =
-  | { method: 'creator.voiceDesign'; args: { action: 'design'; serviceId: string; plan: VoiceDesignPlan } & CreatorConfirmation }
-  | { method: 'creator.voicePilot'; args: { action: 'pilot'; serviceId: string; plan: VoicePilotPlan } & CreatorConfirmation }
-  | { method: 'setCreatorEnabled'; args: CreatorSettings }
-export interface CreatorDryRun {
-  dryRun: true; model: string; requests: number; estimatedCostUsd: number; cumulativeReservedUsd: number
-}
