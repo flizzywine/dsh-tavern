@@ -232,8 +232,10 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     }
     const command = program.command
     const args = program.args.map((argument) => argument === installer ? temporary : argument)
-    const capture = options.statusFile !== ''
-    outputFile = capture ? `${temporary}.log` : ''
+    const reportToUi = options.statusFile !== ''
+    const captureOutput = reportToUi || options.host === 'cli'
+    const outputLogRoot = reportToUi ? path.dirname(options.statusFile)
+      : process.env.DSH_TAVERN_UPDATE_LOG_ROOT || path.join(dshHome, 'profile-data', 'tavern', 'data')
     let outputDescriptor = null
     let stageReporter = null
     let result
@@ -243,8 +245,14 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     const reportStage = patch => { try { lease.update({ ...patch, progressAt: Date.now() }) } catch {} }
     const writeOutput = chunk => { try { if (outputDescriptor !== null) writeSync(outputDescriptor, chunk) } catch {} }
     try {
-      if (capture) {
-        outputDescriptor = openSync(outputFile, 'w')
+      if (captureOutput) {
+        // Diagnostic logging is best-effort, including when the temporary log cannot be opened.
+        try {
+          outputDescriptor = openSync(`${temporary}.log`, 'wx', 0o600)
+          outputFile = `${temporary}.log`
+        } catch {}
+      }
+      if (reportToUi) {
         stageReporter = createInstallStageReporter({ onStage: stage => reportStage({ stage }), onProgress: () => reportStage({}) })
       }
       result = await runInstallationProcess(command, args, {
@@ -265,33 +273,45 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
           ...(options.host === 'cli' ? { DSH_TAVERN_CLI_HOME: dshHome } : {}),
           DSH_TAVERN_INSTALL_ATTEMPT: attemptId,
           DSH_TAVERN_INSTALL_LOCK: lease.lockDir,
-          ...(capture ? { DSH_TAVERN_UPDATE_LOG_ROOT: path.dirname(options.statusFile) } : {}),
+          ...(captureOutput ? { DSH_TAVERN_UPDATE_LOG_ROOT: outputLogRoot } : {}),
           ...(options.targetCommit ? { DSH_TAVERN_TARGET_COMMIT: options.targetCommit } : {}),
-          ...(capture ? { DSH_TAVERN_NO_OPEN: '1' } : {}),
+          ...(reportToUi ? { DSH_TAVERN_NO_OPEN: '1' } : {}),
         },
-        stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-        onStdout(chunk) { writeOutput(chunk); stageReporter?.push(chunk) },
-        onStderr(chunk) { writeOutput(chunk); stageReporter?.push(chunk) },
+        stdio: captureOutput ? [reportToUi ? 'ignore' : 'inherit', 'pipe', 'pipe'] : 'inherit',
+        onStdout(chunk) {
+          writeOutput(chunk)
+          stageReporter?.push(chunk)
+          if (!reportToUi) process.stdout.write(chunk)
+        },
+        onStderr(chunk) {
+          writeOutput(chunk)
+          stageReporter?.push(chunk)
+          if (!reportToUi) process.stderr.write(chunk)
+        },
         windowsHide: true,
       })
     } catch (error) { commandError = error; result = error } finally {
       stageReporter?.end()
       if (outputDescriptor !== null) closeSync(outputDescriptor)
     }
-    if (capture && existsSync(outputFile)) {
-      const output = redactUpdateDiagnostic(decodeUpdateOutput(readFileSync(outputFile)), Infinity)
-      recordUpdateDiagnostic(path.dirname(options.statusFile), { event: 'installer.output', attemptId, exitCode: result.status, signal: result.signal,
+    let installerOutput
+    if (outputFile !== '' && (reportToUi || commandError || result.status !== 0)) {
+      try { installerOutput = decodeUpdateOutput(readFileSync(outputFile)) } catch {}
+    }
+    if (installerOutput !== undefined) {
+      const output = redactUpdateDiagnostic(installerOutput, Infinity)
+      recordUpdateDiagnostic(outputLogRoot, { event: 'installer.output', attemptId, exitCode: result.status, signal: result.signal,
         durationMs: Date.now() - startedAt, output: output.slice(-6000), outputHead: output.slice(0, 6000),
         omittedCharacters: Math.max(0, output.length - 12000) })
     }
     if (commandError) {
       if (desktopGateError) commandError.message += '\n' + desktopGateError.message
-      if (capture && existsSync(outputFile)) commandError.message += '\n' + installerFailureTail(decodeUpdateOutput(readFileSync(outputFile)))
+      if (reportToUi && installerOutput) commandError.message += '\n' + installerFailureTail(installerOutput)
       throw commandError
     }
     if (result.error) throw new Error(`无法运行更新程序：${result.error.message}`)
     if (result.status !== 0) {
-      const details = capture && existsSync(outputFile) ? installerFailureTail(decodeUpdateOutput(readFileSync(outputFile))) : ''
+      const details = reportToUi ? installerFailureTail(installerOutput) : ''
       throw new Error(`更新失败${details ? `：${details}` : '，请查看上方错误信息。'}`)
     }
     if (temporary !== '' && existsSync(temporary)) unlinkSync(temporary)
