@@ -6,14 +6,14 @@ import {join} from 'node:path'
 import {parse} from 'acorn'
 import {chromium} from 'playwright'
 import {browserReactScript} from '../fixtures/browser-react.mjs'
-import {DEFAULT_MODULAR_TEMPLATE} from '../../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-presets.js'
+import {DEFAULT_MODULAR_TEMPLATE,GALGAME_STYLE_PRESETS} from '../../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-presets.js'
 import {normalizePromptEntries} from '../../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-entries.js'
 import {normalizePromptStructure} from '../../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-structure.js'
 import {listTemplateModules} from '../../tavern-plugin/packages/dsh-tavern-image-bundled/lib/template-modules.js'
 const source=await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/client.js',import.meta.url),'utf8')
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==','base64')
 const clone=value=>JSON.parse(JSON.stringify(value))
-const state={config:{promptSystem:'worldbook',imageEnabled:true,imageBackend:'openai',activeImageChannel:'test',imageDisplayPosition:'inline',imageDisplayWidth:0,promptDefaultEditable:true,promptWorkbench:true,promptWorkbenchDraw:true,promptDefault:clone(DEFAULT_MODULAR_TEMPLATE),promptPresets:[],promptPresetLibrary:[{id:'sheet.flat',name:'平涂设定',positive:'flat sheet',source:'sheet',registered:true}],promptEntries:[],promptEntryLimit:1000,promptPresetLimit:200,promptRevision:'1',promptModuleTypes:listTemplateModules(),imageChannels:[{id:'test',provider:'openai',name:'本地验证',model:'test',options:{}}]},definitions:{revision:'1',characters:[],outfits:[]},outfits:[],workflows:[],tasks:[],imageProviders:[{id:'openai',label:'OpenAI 兼容'}],worldbookFormat:'natural',worldbookBooks:[]}
+const state={config:{promptSystem:'worldbook',imageEnabled:true,imageBackend:'openai',activeImageChannel:'test',imageDisplayPosition:'inline',imageDisplayWidth:0,promptDefaultEditable:true,promptWorkbench:true,promptWorkbenchDraw:true,promptDefault:clone(DEFAULT_MODULAR_TEMPLATE),promptPresets:[],promptPresetLibrary:[...clone(GALGAME_STYLE_PRESETS),{id:'sheet.flat',name:'平涂设定',positive:'flat sheet',source:'sheet',registered:true}],promptEntries:[],promptEntryLimit:1000,promptPresetLimit:200,promptRevision:'1',promptModuleTypes:listTemplateModules(),imageChannels:[{id:'test',provider:'openai',name:'本地验证',model:'test',options:{}}]},definitions:{revision:'1',characters:[],outfits:[]},outfits:[],workflows:[],tasks:[],imageProviders:[{id:'openai',label:'OpenAI 兼容'}],worldbookFormat:'natural',worldbookBooks:[]}
 const patches=[],errors=[]
 const executablePath=[process.env.DSH_BROWSER_EXECUTABLE,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(path=>path&&existsSync(path))||chromium.executablePath()
 const browser=await chromium.launch({headless:true,executablePath})
@@ -102,6 +102,14 @@ try{
  await page.waitForFunction(()=>document.querySelector('[aria-label="生图使用的模板"]').value==='sheet.flat')
  assert.equal(state.config.activePromptPreset,'sheet.flat')
  assert.match(await presetPicker.locator('option:checked').textContent(),/平涂设定.*sheet/)
+ await presetPicker.selectOption('galgame-clean')
+ await page.waitForFunction(()=>document.querySelector('[aria-label="生图使用的模板"]').value==='galgame-clean')
+ assert.equal(state.config.activePromptPreset,'galgame-clean')
+ await page.getByRole('button',{name:'生图工作台',exact:true}).click()
+ assert.equal(await page.getByLabel('正在编辑的模板',{exact:true}).inputValue(),'galgame-clean')
+ assert.equal(await page.getByRole('button',{name:'复制并编辑',exact:true}).count(),1)
+ await page.getByRole('button',{name:'设置',exact:true}).click()
+ assert.equal(await page.getByLabel('生图使用的模板',{exact:true}).inputValue(),'galgame-clean')
  await presetPicker.selectOption('')
  await page.getByRole('button',{name:'生图工作台',exact:true}).click()
  await page.getByLabel('场景模式设置',{exact:true}).locator('summary').first().click()

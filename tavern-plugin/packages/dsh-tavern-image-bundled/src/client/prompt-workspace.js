@@ -562,7 +562,7 @@
 
     function GenerationTemplateSettings({ config, save, onEdit }) {
       const templates = (config.promptPresets || []).filter(item => item.enabled !== false && item.structure?.blocks?.length && item.structure.purpose !== 'edit')
-        .concat((config.promptPresetLibrary || []).filter(item => item.registered))
+        .concat((config.promptPresetLibrary || []).filter(item => item.registered || item.id?.startsWith('galgame-')))
       const selected = templates.some(item => item.id === config.activePromptPreset) ? config.activePromptPreset : ''
       return h('section', { style: S.card, 'aria-label': '生图模板绑定' },
         h('div', { style: S.row }, promptField('生图使用的模板', h('select', { 'aria-label': '生图使用的模板', style: S.input,

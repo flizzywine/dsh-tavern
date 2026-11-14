@@ -11,10 +11,11 @@ export { composePluginImagePrompt, composePluginImagePromptAsync } from './promp
 export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin', library = {}) {
   const current = (modelId, promptPreset) => {
     const config = withPromptPreset(getConfig(), promptPreset)
+    const preset = effectivePromptPreset(config)
     // An explicit style preset replaces the default workbench template; named templates still win.
-    if (library.generateTemplate && (typeof modelId === 'string' && modelId.startsWith('template:') || modelId === undefined && promptPreset === undefined && config.promptSystem === 'workbench' && !effectivePromptPreset(config)?.registered)) {
+    if (library.generateTemplate && (typeof modelId === 'string' && modelId.startsWith('template:') || modelId === undefined && promptPreset === undefined && config.promptSystem === 'workbench' && (!preset?.registered || preset?.structure))) {
       const models = library.templates?.() || []
-      const template = modelId ? models.find(item => item.id === modelId) : models.find(item => item.templateId === config.activePromptPreset) || models[0]
+      const template = modelId ? models.find(item => item.id === modelId) : models.find(item => item.templateId === config.activePromptPreset) || models.find(item => item.templateId === '__default__' || config.promptPresets?.some(saved => saved.id === item.templateId))
       if (template) return { config, template }
     }
     const wanted = typeof modelId === 'string' && modelId.startsWith('comfyui:') ? modelId : undefined

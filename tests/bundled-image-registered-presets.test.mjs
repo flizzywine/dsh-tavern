@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createImageGenerator } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/model-provider.js'
-import { registerPromptPreset, listRegisteredPromptPresets } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/template-modules.js'
+import { registerPromptPreset, listRegisteredPromptPresets, registerTemplateModule } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/template-modules.js'
 import { selectGenerationConfig } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/generation-selection.js'
 import { validPromptPresetId } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-presets.js'
 
@@ -113,4 +113,59 @@ test('a preset named for one request is applied as named, without the user style
     assert.match(seen[2].positive, /saved template style/)
     assert.doesNotMatch(seen[2].positive, /library artist|manual addition/)
   }
+})
+
+test('registered structured templates control the format for selected and explicit requests', async () => {
+  const dispose = registerPromptPreset({ id: 'sheet.structured', name: 'Structured sheet', independent: true,
+    structure: { format: 'structured', blocks: [{ kind: 'scene', title: 'Scene' }, { kind: 'style', title: 'Look', text: '整齐的线条，柔和的颜色。' }] } })
+  try {
+    for (const promptSystem of ['worldbook', 'workbench']) {
+      const { generator, seen } = capture(() => config({ promptSystem, promptMode: 'natural', activePromptPreset: 'sheet.structured' }))
+      for (const requested of [undefined, 'sheet.structured']) {
+        await generator.generate({ prompt: '窗边的旅人。', promptPreset: requested })
+        assert.equal(seen.at(-1).promptMode, 'structured')
+        assert.match(seen.at(-1).positive, /【Look】\n整齐的线条，柔和的颜色。/)
+      }
+    }
+  } finally { dispose() }
+})
+
+test('an independent plain plugin preset keeps its own text while omitting inherited style', async () => {
+  const dispose = registerPromptPreset({ id: 'sheet.independent', name: 'Own style', independent: true,
+    positive: 'crisp line art', structuredPositive: '清楚的线条', negative: 'blurred edges', structuredNegative: '模糊边缘' })
+  try {
+    for (const promptMode of ['natural', 'structured']) {
+      const { generator, seen } = capture(() => config({ promptMode, activePromptPreset: 'sheet.independent',
+        styleArtists: 'unwanted artist', styleNegative: 'unwanted negative', promptManualPositive: 'manual addition', promptManualNegative: 'manual negative' }))
+      await generator.generate({ prompt: 'a traveler', negative: 'extra limbs' })
+      assert.match(seen[0].positive, promptMode === 'structured' ? /清楚的线条/ : /crisp line art/)
+      assert.match(seen[0].negative, promptMode === 'structured' ? /模糊边缘/ : /blurred edges/)
+      assert.match(seen[0].negative, /extra limbs/)
+      assert.doesNotMatch(JSON.stringify(seen[0]), /unwanted|manual addition|manual negative/)
+    }
+  } finally { dispose() }
+})
+
+test('a selected plugin template keeps resolved asynchronous modules under both prompt systems', async () => {
+  const module = registerTemplateModule({ id: 'sheet.async', name: 'Async style', fields: [], async resolve() { return { positive: 'resolved amber light' } } })
+  const preset = registerPromptPreset({ id: 'sheet.async-style', name: 'Async template', independent: true,
+    structure: { format: 'structured', blocks: [{ kind: 'scene', title: 'Scene' }, { kind: 'extension', title: 'Light', moduleId: 'sheet.async' }] } })
+  try {
+    for (const promptSystem of ['worldbook', 'workbench']) {
+      const { generator, seen } = capture(() => config({ promptSystem, activePromptPreset: 'sheet.async-style' }))
+      await generator.generate({ prompt: 'a traveler' })
+      assert.match(seen[0].positive, /resolved amber light/)
+    }
+  } finally { preset(); module() }
+})
+
+test('read-only catalog entries do not become a default when the user has no template selected', async () => {
+  const seen = []
+  const catalog = createImageGenerator(() => config({ promptSystem: 'workbench', activePromptPreset: '', promptDefault: null }),
+    async (_channel, request) => { seen.push(request); return { bytes: new Uint8Array([1]), mediaType: 'image/png' } }, 'plugin', {
+      templates: () => [{ id: 'template:galgame-clean', templateId: 'galgame-clean', ready: true, maxReferences: 0 }],
+      generateTemplate: async () => { throw new Error('a read-only template replaced the empty selection') },
+    })
+  await catalog.generate({ prompt: 'a traveler' })
+  assert.equal(seen[0].positive, 'a traveler')
 })
