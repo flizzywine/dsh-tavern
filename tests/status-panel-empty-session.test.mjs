@@ -13,6 +13,7 @@ function render(liveState) {
   assert.ok(start >= 0, '找不到酒馆状态面板')
   const node = parseExpressionAt(source, start, { ecmaVersion: 'latest' })
   const persistentErrors = {}
+  const calls = []
   const context = {
     React: {
       useState: value => [value, () => {}],
@@ -23,7 +24,10 @@ function render(liveState) {
     useTavernConfirm: () => async () => true,
     usePersistentError: source => {
       if (!(source in persistentErrors)) persistentErrors[source] = ''
-      return [persistentErrors[source], value => { persistentErrors[source] = String(value && value.message || value || '') }]
+      return [persistentErrors[source], value => {
+        persistentErrors[source] = String(value && value.message || value || '')
+        calls.push([source, persistentErrors[source]])
+      }]
     },
     useLiveTavernView: () => liveState,
     isMissingTavernCardError: () => false,
@@ -45,13 +49,14 @@ function render(liveState) {
     if (Array.isArray(value)) { value.forEach(walk); return }
     for (const child of value.children || []) walk(child)
   })(tree)
-  return { persistentErrors, texts }
+  return { persistentErrors, texts, calls }
 }
 
 for (const reason of ['no-session', 'no-chat', 'empty-view']) {
   test(`重试耗尽后的 ${reason} 是空态，不是错误中心里的「出错了」`, () => {
-    const { persistentErrors, texts } = render({ view: null, phase: 'unavailable', error: reason })
+    const { persistentErrors, texts, calls } = render({ view: null, phase: 'unavailable', error: reason })
     assert.equal(persistentErrors['酒馆状态'], '', `${reason} 不得上报为持久错误`)
+    assert.ok(calls.some(([source, value]) => source === '酒馆状态' && value === ''), '空态必须主动调用 setError("") 清空错误中心')
     assert.ok(texts.includes('选择人物卡后，这里会显示持续状态。'), '空态应提示选择人物卡')
     assert.ok(!texts.some(text => text.includes('出错了')), '空态不得显示通用错误文案')
   })
