@@ -9,6 +9,14 @@ import {validateCopiedFrom} from './copied-from.js'
 import {validateAutomaticWrite} from './automatic-write.js'
 import { validateSpineOutfit } from './spine.js'
 
+// A figure's 配图 外貌 in transit (export, copy, automatic write): the host's 人物库 record carried as this extension until
+// the host moves it back into a record (pack-v2/figure-image-extras.js). Its 参考图 travel as pack media named here.
+export const FIGURE_IMAGE_EXTENSION = 'dsh.image-character'
+/** The pack media a carried 配图 extension names: the person's 参考图 and each outfit's. */
+export function figureImageReferenceMedia(extension) {
+  return [extension?.referenceImage, ...(extension?.outfits || []).map(outfit => outfit?.characterOutfitImage)].map(image => image?.media).filter(Boolean)
+}
+
 // no 优先级 — the lamp mode is the whole figure recall.
 export function validateFigureRecall(value, path = '$') {
   shape(value, ['mode'], ['mode'], path)
@@ -211,6 +219,7 @@ export function validateFigureClosure(manifest, figures, sprites) {
       }
       for (const key of ['avatarCrop', 'avatarCropAuto', 'anatomy']) for (const image of Object.keys(outfit.sprite[key] || {})) check(Object.hasOwn(images, image), '$.outfits.sprite.' + key, 'Measurements belong to a direct image', 'MISSING_DEPENDENCY')
     }
+    for (const hash of figureImageReferenceMedia(figure.extensions?.[FIGURE_IMAGE_EXTENSION])) blob(hash, 'image/')
   }
   for (const key of Object.keys(sprites)) check(usedSprites.has(key), '$.sprites.' + key, 'Unbound sprite cannot be installed')
   for (const [hash, descriptor] of Object.entries(manifest.blobs)) if (descriptor.mime.startsWith('image/')) check(usedBlobs.has(hash), '$.blobs.' + hash, 'Unused image cannot be installed')

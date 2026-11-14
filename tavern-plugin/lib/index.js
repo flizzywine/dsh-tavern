@@ -350,7 +350,8 @@ import { createConversationHandlers } from './rpc/conversations.js'
 import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
-import { appearanceFromImageCharacter, findFigureImageCharacter } from './domain/image-character-appearance.js'
+import { followImageCharacters } from './image-character-follow.js'
+import { appearanceFromImageCharacter, findFigureImageCharacter, imageCharacterExtension } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -3063,6 +3064,25 @@ export async function apply(ctx) {
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     replyStreamRewriters,
     logger: console,
+    // tavern.beforeImageGenerate: a landed 人设图 is on its 人物库 record once the follower below has caught up.
+    imageCharactersSettled: () => follow?.settled(),
+    // The asset packs a card plays with: its own and the ones every card uses.
+    async cardAssetPacks(cardPath) {
+      const own = (await cardStageExtension(cardPath))?.assetBindings.boundPackIds || []
+      const global = ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []
+      return [...new Set([...own, ...global])]
+    },
+    // A linked image record's name or alias edit, written to its figure (tavern.editLinkedFigure).
+    async editLinkedFigure({ packId, figureId, name, addAliases, removeAliases }) {
+      const library = ctx.get('assetLibrary')
+      if (!library) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
+      const pack = await library.getPackSnapshot({ packId }), figure = pack?.figures[figureId]
+      if (!figure) throw Object.assign(new Error('素材库人物已删除'), { code: 'NOT_FOUND' })
+      const had = figure.aliases || [], aliases = [...had.filter(word => !removeAliases.includes(word)), ...addAliases.filter(word => !had.includes(word))]
+      const patch = { ...(name && name !== figure.name ? { name } : {}), ...(aliases.join('\n') !== had.join('\n') ? { aliases } : {}) }
+      if (Object.keys(patch).length) await library.patchFigure({ packId, expectedRevision: pack.revision, figureId, patch })
+      return { changed: Object.keys(patch).length > 0 }
+    },
     storyEvents,
     workflow,
     // A plugin's settings changed in a game: its page side re-reads them (tavernUi.watchGameSettings).
@@ -3206,6 +3226,32 @@ export async function apply(ctx) {
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
     regenerateWithProvider: input => regenerateWithProvider(input) })
   ctx.provide('tavern', pluginApi.service)
+  let follow = null
+  ctx.inject(['assetLibrary'], scope => {
+    const current = follow = followImageCharacters({ library: scope.get('assetLibrary'), api: pluginApi, log: text => console.warn('dsh-tavern: ' + text) })
+    scope.effect(() => () => { current.dispose(); if (follow === current) follow = null })
+  })
+  // A pack leaving this library (export, copy) takes its figures' 配图 外貌 and 参考图 along as dsh.image-character; the
+  // asset library asks here, the follower above moves it back into a record where the pack lands.
+  ctx.provide('tavernFigureImageExtras', { async forFigures({ packId, figureIds }) {
+    const extras = {}
+    for (const figureId of figureIds) {
+      const state = await findFigureImageCharacter(pluginApi, { packId, figureId })
+      if (state.status === 'unavailable') return {}
+      const extension = state.status === 'linked' && imageCharacterExtension(state.character)
+      if (extension) extras[figureId] = extension
+    }
+    return extras
+  },
+  // the bytes of a 参考图 an extension above names that the pack does not hold (one uploaded in the 配图 人物库)
+  async media({ packId, figureId, media }) {
+    const { providerId, character } = await findFigureImageCharacter(pluginApi, { packId, figureId })
+    const referenceImage = [character.referenceImage, ...character.outfits.map(outfit => outfit.characterOutfitImage)].find(image => image?.id === media)
+    const { data } = await pluginApi.imageCharacters('readReferenceImage', { providerId, referenceImage })
+    return { bytes: data }
+  },
+  // an update confirmed with 「用导入的外貌」 for these figures (asset library applyImport adoptLooks), before it is written
+  adopt(input) { follow?.adopt(input) } })
   ctx.provide('tavernStContract', tavernStContract)
   cardRevisionListeners.add((cardPath, revision) => pluginApi.cardChanged(cardPath, revision))
   // Tell plugins the story line changed (informational: their turn data follows text versions

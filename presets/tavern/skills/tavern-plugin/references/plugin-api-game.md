@@ -273,6 +273,8 @@ async function settle({ currentVariables, signal }) {
 
 `variables` 与 SillyTavern 的消息变量同一结构：使用 MVU 变量的卡，变量在 `variables.stat_data` 下。它跟着正文版本走：回退、重新生成、切换版本后读到的是当前显示版本的变量。这是副本，直接改它不影响游戏，要改请用 `setVariables`；Tavern 不解释其中的内容（例如游戏日期），由插件按卡自己的变量名读取。
 
+`card` 另有 `assetPacks`：这张卡用到的素材包 ID（本卡绑定的与所有卡共用的），插件可以只用这些素材包里的人物。
+
 处理函数里抛错不会影响游戏，错误会写进日志。处理函数不必等生图完成才返回。
 
 ## `beforeImagePlan({ gameId, turn, manual, signal })`、`beforeImageGenerate({ gameId, turn, subjects, manual, signal })`

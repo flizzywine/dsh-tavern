@@ -8,14 +8,20 @@ export const IMAGE_CHARACTER_EXTENSION = 'dsh.image-character'
 const OUTFIT_TEXT = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'negative']
 const said = value => typeof value === 'string' && value.trim() ? value.trim() : ''
 
-/** The figure extension of a record's 外貌: its non-empty views and outfit texts (reference images stay behind: the
- *  人物库 offers no way to read them). null when the record has no text. */
+// A 参考图 in the extension: the pack media holding its bytes (the 人物库 and a pack both name a picture by its sha256).
+const carriedImage = image => image?.id ? { media: image.id, ...(image.name ? { name: image.name } : {}) } : null
+
+/** The figure extension of a record's 外貌: its non-empty views and outfit texts, and its 参考图 ({media, name}: the pack
+ *  carries the picture as media, figure-image-extras.js). null when the record has none of them. */
 export function imageCharacterExtension(character) {
   const traits = Object.fromEntries(IMAGE_CHARACTER_TRAITS.filter(key => said(character.traits?.[key])).map(key => [key, said(character.traits[key])]))
   const outfits = (character.outfits || []).map(outfit => ({ id: outfit.id, ...(outfit.name ? { name: outfit.name } : {}),
-    ...Object.fromEntries(OUTFIT_TEXT.filter(key => said(outfit[key])).map(key => [key, said(outfit[key])])) }))
-    .filter(outfit => OUTFIT_TEXT.some(key => outfit[key]))
-  return Object.keys(traits).length || outfits.length ? { ...(Object.keys(traits).length ? { traits } : {}), ...(outfits.length ? { outfits } : {}) } : null
+    ...Object.fromEntries(OUTFIT_TEXT.filter(key => said(outfit[key])).map(key => [key, said(outfit[key])])),
+    ...(carriedImage(outfit.characterOutfitImage) ? { characterOutfitImage: carriedImage(outfit.characterOutfitImage) } : {}) }))
+    .filter(outfit => outfit.characterOutfitImage || OUTFIT_TEXT.some(key => outfit[key]))
+  const reference = carriedImage(character.referenceImage)
+  return Object.keys(traits).length || outfits.length || reference
+    ? { ...(Object.keys(traits).length ? { traits } : {}), ...(reference ? { referenceImage: reference } : {}), ...(outfits.length ? { outfits } : {}) } : null
 }
 
 // An actor key a migration kept among a figure's 触发词 (lowercase slug such as homura_megane): an identity for old
@@ -65,15 +71,20 @@ export function imageCharacterFromFigure(figure, packId) {
  *  imports, copies) and older single texts (identityAppearance → face, outfitAppearance → upper; older packs, dsh-assets
  *  installs). It fills what the record lacks — the record's own text always wins; carried text that differs is listed
  *  under `dropped` — and leaves the pack (`figure`: the patch that clears it). null when the pack carries none.
- *  `replace` (an update whose preview chose 「用导入的外貌」): the carried 外貌 becomes the record's — what it lacks is
+ *  `references`: the carried 参考图 the record should take ({outfit: outfit id or null for the person, media, name}), in
+ *  the slots it has none (`replace`: every slot whose picture differs).
+ *  `replace` (an update whose preview chose 「用导入的外貌」): the carried 外貌 becomes the record's — text it lacks is
  *  cleared — instead of filling gaps. */
 export function appearanceMove(character, figure, { replace = false } = {}) {
   const carried = figure.extensions?.[IMAGE_CHARACTER_EXTENSION]
   const traits = { ...(said(figure.identityAppearance) ? { face: said(figure.identityAppearance) } : {}), ...carried?.traits }
   const wears = new Map(figure.outfits.filter(outfit => said(outfit.outfitAppearance)).map(outfit => [outfit.key, { upper: said(outfit.outfitAppearance) }]))
-  for (const { id, name: _, ...text } of carried?.outfits || []) wears.set(id, { ...wears.get(id), ...text })
+  for (const { id, name: _, characterOutfitImage: __, ...text } of carried?.outfits || []) wears.set(id, { ...wears.get(id), ...text })
   if (!carried && !Object.keys(traits).length && !wears.size) return null
-  const dropped = [], fill = {}, outfits = []
+  const dropped = [], fill = {}, outfits = [], references = []
+  const place = (outfit, image, own) => { if (image && (replace ? own?.id !== image.media : !own)) references.push({ outfit, media: image.media, ...(image.name ? { name: image.name } : {}) }) }
+  place(null, carried?.referenceImage, character.referenceImage)
+  for (const row of carried?.outfits || []) place(row.id, row.characterOutfitImage, character.outfits.find(item => item.id === row.id)?.characterOutfitImage)
   if (replace) {
     for (const key of IMAGE_CHARACTER_TRAITS) if (said(character.traits?.[key]) !== said(traits[key])) fill[key] = said(traits[key])
     for (const id of new Set([...character.outfits.map(item => item.id), ...wears.keys()])) {
@@ -98,7 +109,7 @@ export function appearanceMove(character, figure, { replace = false } = {}) {
   }
   const record = { ...(Object.keys(fill).length ? { traits: fill } : {}), ...(outfits.length ? { outfits } : {}) }
   const { [IMAGE_CHARACTER_EXTENSION]: _, ...extensions } = figure.extensions || {}
-  return { record: Object.keys(record).length ? record : null, dropped,
+  return { record: Object.keys(record).length ? record : null, dropped, references,
     figure: { identityAppearance: null, outfits: figure.outfits.map(({ outfitAppearance, ...outfit }) => outfit),
       ...(carried ? { extensions: Object.keys(extensions).length ? extensions : null } : {}) } }
 }
