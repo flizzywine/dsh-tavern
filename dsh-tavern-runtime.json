@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "406da1c852256567ec98a24d289b75d3a1ff9123",
-  "releaseSequence": 1621,
+  "revision": "286d1d32bfff2a566462830a5833f42aba4550a7",
+  "releaseSequence": 1622,
   "version": "3.3.0",
   "files": [
     {
@@ -101,8 +101,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "389c5ca6e72f2859a8ce6634a753a7035e1c70adf5b6bd3579ad4aaa64f61192",
-      "size": 26003
+      "sha256": "b724ea5968e70b588b220894ed9dfb21750599c2b4c3278eceeec78a841e3693",
+      "size": 26669
     },
     {
       "path": "bin/build-image-client.mjs",
@@ -566,13 +566,13 @@
     },
     {
       "path": "pnpm-lock.yaml",
-      "sha256": "e70a5649919afb863ea113227ba3fd7060ca8c3c9cc2c7d181c683862be01628",
+      "sha256": "58af6d6ee34641eeff242b1846216451c8eebe8ff1f06d986799dd004c2dbd72",
       "size": 106746
     },
     {
       "path": "pnpm-workspace.yaml",
-      "sha256": "86e68ffc1ca2ab7173d76c4c5ee86ac709059abdad3dc76c543c57d5b60517bb",
-      "size": 924
+      "sha256": "aebaba0b79e83fd43691d02bce20019c94acbb18fddf04ee4458e74915abb83d",
+      "size": 999
     },
     {
       "path": "presets/tavern-background/skills/character-design/SKILL.md",
@@ -7266,8 +7266,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs",
-      "sha256": "9d143ca13664e5e11212e724f8754133a66c3804cce05e541bb226db6d3adb34",
-      "size": 11966
+      "sha256": "f21110d5c967ea4ede345e01b77bb7aef907710d5bffbfb10598ea3ec08265e2",
+      "size": 11967
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/verify-on-dshgo.mjs",
@@ -9251,9 +9251,9 @@
     }
   ],
   "archive": {
-    "commit": "b13584a6a4a0a56c78423d8a15f90b7f77d32480",
+    "commit": "bec452cc966eb245b3ef89797b2e6b5784e0ce9f",
     "path": "runtime.zip",
-    "sha256": "6f5532762ee709fe8e4968c6a05d2ee10d7ac5a682489cbd2e1a9166a4b8c3b0",
-    "size": 16501712
+    "sha256": "a2a1c40807f8095c4d8bcd26892a65767c3715c6c760ded540eba08d245eca5a",
+    "size": 16501957
   }
 }
