@@ -13,7 +13,7 @@ const worker = fileURLToPath(new URL('./server-script-worker.js', import.meta.ur
 // What an open play page uses to run card scripts. Card code inside the
 // sandbox can reach this channel, so nothing beyond it is exposed.
 const ALLOWED_METHODS = new Set([
-  'getSession', 'getTavernSettings', 'hydrateTavernHelperMessages', 'getTavernHelperContext',
+  'getSession', 'hydrateTavernHelperMessages', 'getTavernHelperContext',
   'claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState', 'heartbeatTavernScriptRuntime',
   'completeTavernHelperEvent', 'releaseTavernHelperRuntime',
   'updateTavernHelperPrompts', 'updateTavernHelperVariables', 'updateTavernHelperMessages', 'createTavernHelperMessages',

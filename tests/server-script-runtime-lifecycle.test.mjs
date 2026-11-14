@@ -66,21 +66,20 @@ test('a busy session is never reaped under a running settlement', async () => {
   h.executor.dispose()
 })
 
-// The headless page loads the ordinary client bundle, and that bundle reads the
-// game's settings. Refusing it made every boot log a 403 and left the page's
-// own bootstrap to fail; the route is read-only and already session-pinned.
-test('the sandbox may read settings but nothing outside its allow-list', async () => {
+// The sandbox exposes only what a card page needs. Reads and writes outside that
+// set are refused before they reach the host handler.
+test('the sandbox may reach its own allow-list and nothing else', async () => {
   const calls = []
   const h = harness({handle: async (req, res) => { calls.push(req.url); res.end('{"ok":true}') }})
   h.executor.demand('s1')
   const child = h.children[0]
 
-  child.emit('message', {type: 'fetch', id: 1, path: '/api/dsh-tavern/getTavernSettings', method: 'POST', body: '{}'})
+  child.emit('message', {type: 'fetch', id: 1, path: '/api/dsh-tavern/getSession', method: 'POST', body: '{}'})
   await delay(5)
   const allowed = child.sent.find(message => message.type === 'fetch-result' && message.id === 1)
   assert.equal(allowed.status, 200)
   assert.equal('error' in allowed, false)
-  assert.deepEqual(calls, ['/api/dsh-tavern/getTavernSettings'])
+  assert.deepEqual(calls, ['/api/dsh-tavern/getSession'])
 
   child.emit('message', {type: 'fetch', id: 2, path: '/api/dsh-tavern/updateTavernSettings', method: 'POST', body: '{}'})
   await delay(5)
