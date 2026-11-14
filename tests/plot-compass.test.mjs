@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { chromium } from 'playwright'
+import { browserReactScript } from './fixtures/browser-react.mjs'
 import {
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
   applyPlotCompassCustomArchetypes,
@@ -364,3 +367,147 @@ test('后台剧情罗盘服务、步骤勾选、时间线跨轮保留与回滚�
   assert.equal(forked.plotCompassTask, undefined)
   assert.equal(readPlotCompass(forked.plotCompass).pinned.shortTerm, 'st-bell')
 })
+
+test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏按钮无作用域报错并完成交互闭环', async t => {
+  const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage()
+  page.setDefaultTimeout(5000)
+
+  const errors = []
+  const calls = []
+  page.on('pageerror', error => errors.push(error.message))
+
+  const parsed = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat: { mode: 'story' } })
+  let currentCompass = mergePlotCompassUpdate(null, parsed, { scope: 'all', turn: 2, now: 1000 })
+  let currentTask = { status: 'done', scope: 'all', error: '' }
+
+  await page.route('http://tavern.test/**', async route => {
+    const url = route.request().url()
+    if (!url.includes('/api/dsh-tavern/')) {
+      return route.fulfill({
+        contentType: 'text/html',
+        body: '<main id="sidebar"></main><div id="dock"></div><div id="compass-tab"></div>'
+      })
+    }
+    const method = new URL(url).pathname.split('/').at(-1)
+    const args = route.request().postDataJSON() || {}
+    calls.push({ method, args })
+    if (method === 'pinPlotCompassRoute') {
+      currentCompass = applyPlotCompassPin(currentCompass, { horizon: args.horizon, routeId: args.routeId })
+      return route.fulfill({ json: { ok: true, plotCompass: currentCompass } })
+    }
+    if (method === 'generatePlotCompass') {
+      currentTask = { status: 'running', scope: args.scope || 'all', error: '' }
+      return route.fulfill({ json: { ok: true, status: 'running', scope: args.scope || 'all' } })
+    }
+    const responses = {
+      listCards: { cards: [] },
+      getCardOrganization: { organization: { groups: [], assignments: {} } },
+      listSessions: { sessions: [{ sessionId: 'game', chatId: 'chat', mode: 'story', cardName: '沈清弦' }] },
+      getUpdateStatus: { status: { phase: 'idle', host: 'cli' } },
+      getHostCompatibility: {},
+      confirmSessionPatch: {},
+      gameMode: args.op === 'list' ? { modes: [] } : { mode: null },
+      syncSession: { sync: { activity: { busy: false, phase: 'idle' }, task: null, tasks: { candidate: null, background: null } } },
+      getSession: {
+        view: {
+          mode: 'story',
+          latestAssistantTurn: 2,
+          latestAssistantMessageId: 'reply-2',
+          activity: { busy: false },
+          plotCompass: currentCompass,
+          plotCompassTask: currentTask,
+          tavernHelper: { messages: [] }
+        }
+      },
+      getActiveInterfaceSkin: { css: '' },
+      getTavernSettings: { settings: {} },
+      getChoices: { candidates: null },
+      loadSessionPreviews: { previews: {} }
+    }
+    await route.fulfill({ json: { ok: true, ...(responses[method] || {}) } })
+  })
+
+  await page.goto('http://tavern.test/')
+  await page.addScriptTag({ content: await browserReactScript() })
+  await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?modules.react:{});}};` })
+  await page.addScriptTag({ content: clientSource })
+
+  await page.evaluate(() => {
+    const slots = {}, tabs = {}, openedTabs = [], noop = () => () => {}
+    window.__openedTabs = openedTabs
+    const sessionState = { current: 'game', byId: { game: { id: 'game' } } }
+    const ctx = {
+      inject() { return { dispose() {} } },
+      get() {},
+      provide() {},
+      effect(run, label) {
+        if ([
+          'dsh-tavern: Tavern workspace browser',
+          'dsh-tavern: candidate dock actions',
+          'dsh-tavern: plot compass tab'
+        ].includes(label)) return run()
+        return () => {}
+      },
+      slots: {
+        inject(_name, run) { return run() },
+        register(spec, component) { slots[spec.id || spec.name] = component; return () => {} }
+      },
+      sessions: {
+        subagentAddress: () => null,
+        refresh: async () => {},
+        list: { subscribe: noop, getSnapshot: () => sessionState },
+        binding: () => null
+      },
+      workspaces: {},
+      betterSidebar: {
+        registerTab(descriptor) { tabs[descriptor.id] = descriptor; return () => {} },
+        openTab(seed, scope) { openedTabs.push({ seed, scope }) }
+      },
+      tavernSessionSignals: { subscribe: noop }
+    }
+    window.client.apply(ctx)
+    const React = modules.react
+    const createRoot = modules['react-dom/client'].createRoot
+    createRoot(document.querySelector('#sidebar')).render(React.createElement(slots['sidebar.workspaces'], {
+      wide: true,
+      useSessions: select => select(sessionState),
+      useWorkspaces: select => select({ items: [] }),
+      renderSlot: () => null
+    }))
+    createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-tavern-candidate-actions'], {
+      sessionId: 'game',
+      useSession: select => select({ running: false }),
+      useInput: select => select({ draft: '' }),
+      useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId: 'reply-2' }] } })
+    }))
+    // Mount the actual registered Plot Compass sidebar tab (including empty scope fallback!)
+    const CompassComponent = tabs['dsh-tavern:plot-compass'].component
+    createRoot(document.querySelector('#compass-tab')).render(React.createElement(CompassComponent, { scope: {} }))
+  })
+
+  // 1. 验证侧栏面板正常渲染路线卡片，无 ctx is not defined 等任何 pageerror
+  await page.getByText('半真半假亮出密信残页').waitFor()
+  assert.deepEqual(errors, [])
+
+  // 2. 点击底部操作栏的剧情罗盘按钮，能正常打开侧栏标签页
+  await page.locator('.dsh-tavern-compass-dock-btn').click()
+  const opened = await page.evaluate(() => window.__openedTabs)
+  assert.equal(opened.length, 1)
+  assert.equal(opened[0].seed.type, 'dsh-tavern:plot-compass')
+
+  // 3. 点亮一条今期路线，底部按钮同步变为锚定态
+  await page.getByRole('button', { name: '点亮此路线' }).first().click()
+  await page.getByText('★ 已锚定').waitFor()
+  assert.ok(calls.some(c => c.method === 'pinPlotCompassRoute' && c.args.horizon === 'shortTerm'))
+
+  // 4. 切换到中期/长期 Tab 均正常渲染
+  await page.getByRole('tab', { name: /中期/ }).click()
+  await page.getByText('诏狱内外的影子同盟').waitFor()
+  await page.getByRole('tab', { name: /长期/ }).click()
+  await page.getByText('携手掀翻棋盘共掌新局').waitFor()
+  assert.deepEqual(errors, [])
+})
+

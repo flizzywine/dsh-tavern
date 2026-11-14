@@ -77,7 +77,7 @@ function PlotCompassDockButton(props) {
         title: title,
         "aria-label": title,
         onClick: function () {
-            openTavernSidebarTab(ctx, { type: "dsh-tavern:plot-compass" }, { sessionId: sessionId });
+            if (typeof props.onOpen === "function") props.onOpen(sessionId);
         }
     },
         isRunning ? h(Spinner, { className: "dsh-tavern-compass-dock-spinner" }) : h("span", { "aria-hidden": true, className: "dsh-tavern-compass-dock-glyph" }, "🧭"),
@@ -87,10 +87,11 @@ function PlotCompassDockButton(props) {
 
 function TavernPlotCompassTab(props) {
     const h = React.createElement;
+    const sessions = props.sessions;
     const fallbackSessionId = React.useSyncExternalStore(
-        function (fn) { return ctx.sessions && ctx.sessions.list ? ctx.sessions.list.subscribe(fn) : function () {}; },
-        function () { return String(tavernMainSessionId(ctx.sessions) || ""); },
-        function () { return String(tavernMainSessionId(ctx.sessions) || ""); }
+        function (fn) { return sessions && sessions.list ? sessions.list.subscribe(fn) : function () {}; },
+        function () { return String(tavernMainSessionId(sessions) || ""); },
+        function () { return String(tavernMainSessionId(sessions) || ""); }
     );
     const sessionId = String(props.sessionId || fallbackSessionId || "");
     const live = useLiveTavernView(sessionId);

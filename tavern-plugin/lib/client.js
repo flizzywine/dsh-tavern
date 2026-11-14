@@ -60756,7 +60756,7 @@ function createStoryFloorRail(root, options) {
                 title: title,
                 "aria-label": title,
                 onClick: function () {
-                    openTavernSidebarTab(ctx, { type: "dsh-tavern:plot-compass" }, { sessionId: sessionId });
+                    if (typeof props.onOpen === "function") props.onOpen(sessionId);
                 }
             },
                 isRunning ? h(Spinner, { className: "dsh-tavern-compass-dock-spinner" }) : h("span", { "aria-hidden": true, className: "dsh-tavern-compass-dock-glyph" }, "🧭"),
@@ -60766,10 +60766,11 @@ function createStoryFloorRail(root, options) {
 
         function TavernPlotCompassTab(props) {
             const h = React.createElement;
+            const sessions = props.sessions;
             const fallbackSessionId = React.useSyncExternalStore(
-                function (fn) { return ctx.sessions && ctx.sessions.list ? ctx.sessions.list.subscribe(fn) : function () {}; },
-                function () { return String(tavernMainSessionId(ctx.sessions) || ""); },
-                function () { return String(tavernMainSessionId(ctx.sessions) || ""); }
+                function (fn) { return sessions && sessions.list ? sessions.list.subscribe(fn) : function () {}; },
+                function () { return String(tavernMainSessionId(sessions) || ""); },
+                function () { return String(tavernMainSessionId(sessions) || ""); }
             );
             const sessionId = String(props.sessionId || fallbackSessionId || "");
             const live = useLiveTavernView(sessionId);
@@ -62053,7 +62054,7 @@ function createStoryFloorRail(root, options) {
 				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
 				h("div", { className: "dsh-tavern-dock-actions-primary" },
 					isPlayMode(sessionMode) ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
-					isPlayMode(sessionMode) && live.view ? React.createElement(PlotCompassDockButton, { sessionId: ownerSessionId, view: live.view }) : null,
+					isPlayMode(sessionMode) && live.view ? React.createElement(PlotCompassDockButton, { sessionId: ownerSessionId, view: live.view, onOpen: props.openPlotCompass }) : null,
 					isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
 				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
 				React.createElement(MobileComposerStatsToggle),
@@ -62371,7 +62372,7 @@ function createStoryFloorRail(root, options) {
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
 			ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:plot-compass", title: "剧情罗盘", order: 7, single: true,
-				component: props => React.createElement(TavernPlotCompassTab, { sessionId: props.scope && props.scope.sessionId }) }), "dsh-tavern: plot compass tab");
+				component: props => React.createElement(TavernPlotCompassTab, { sessions: ctx.sessions, sessionId: props.scope && props.scope.sessionId }) }), "dsh-tavern: plot compass tab");
 			ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:background-tasks", title: "后台任务", order: 7, single: true,
 				component: props => React.createElement(TavernBackgroundTasksTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: background tasks tab");
 			ctx.effect(() => slots.inject("conversation.chat.assistant-actions", () => slots.register(
@@ -62384,6 +62385,7 @@ function createStoryFloorRail(root, options) {
                     !ctx.sessions.subagentAddress(props.sessionId) && React.createElement(tavernReplyObserverFeature.GamePage, { sessionId: props.sessionId }),
                     React.createElement(CandidateDockActions, Object.assign({}, props, {
 					sessions: ctx.sessions,
+					openPlotCompass: function (targetSessionId) { openTavernSidebarTab(ctx, { type: "dsh-tavern:plot-compass" }, { sessionId: targetSessionId || props.sessionId }); },
 					executeCompact: function (sessionId) { return ctx.remote.commands.execute(sessionId, "/compact", []); }
 				}))); }
 			)), "dsh-tavern: candidate dock actions");
