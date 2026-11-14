@@ -6273,7 +6273,13 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-check-d4-window { fill: var(--fork-on-accent); }
 .fork-check-d4 text { fill: var(--fork-surface); font-weight: 800; text-anchor: middle; font-family: var(--fork-font-ui, sans-serif); }
 .fork-check-d4.is-marked .fork-check-d4-top { fill: var(--fork-check-mark, var(--fork-accent-fill)); }
-@media (max-width: 480px) { .fork-check-dice { padding-left: 12px; } .fork-check-d4 { width: 46px; height: 40px; } }
+.fork-check-d8 { width: 44px; height: 44px; flex: none; overflow: visible; }
+.fork-check-d8-body { fill: var(--fork-hover); stroke: var(--fork-ink-3); stroke-width: 3; stroke-linejoin: round; }
+.fork-check-d8-face { fill: var(--fork-ink-3); }
+.fork-check-d8.is-marked .fork-check-d8-face { fill: var(--fork-check-mark, var(--fork-accent-fill)); }
+.fork-check-d8 text { fill: var(--fork-surface); font-weight: 800; text-anchor: middle; font-family: var(--fork-font-ui, sans-serif); }
+.fork-check-d8.is-marked text { fill: var(--fork-on-accent); }
+@media (max-width: 480px) { .fork-check-dice { padding-left: 12px; } .fork-check-d4 { width: 46px; height: 40px; } .fork-check-d8 { width: 38px; height: 38px; } }
 .fork-check-line, .fork-check-choices { padding: 0 12px 0 34px; overflow-wrap: anywhere; }
 .fork-check-choice-label { font-weight: 600; }
 .fork-check-hint { font-size: var(--fork-fs-meta); }
