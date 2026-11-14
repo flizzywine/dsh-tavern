@@ -20,14 +20,38 @@ function createStoryFloorRail(root, options) {
 	// 里有刻度、下一次会话却一直没有。所以每次都重新解析一次，旧节点失效就回到当前会话的那个
 	// 滚动容器。
 	const resolveScope = (options && options.resolveScope) || null;
+	function isVisibleBox(node) {
+		if (!node || typeof node.getBoundingClientRect !== "function") return false;
+		const rect = node.getBoundingClientRect();
+		return rect.width > 0 && rect.height > 0;
+	}
+	function pickScrollContainer() {
+		if (!doc || typeof doc.querySelectorAll !== "function") return null;
+		const list = Array.from(doc.querySelectorAll("[data-conversation-scroll]")).filter(node => node && node.isConnected !== false);
+		if (!list.length) return null;
+		const visible = list.filter(isVisibleBox);
+		const visibleWithRows = visible.find(node => node.querySelector("[data-story-row][data-floor]"));
+		if (visibleWithRows) return visibleWithRows;
+		if (visible.length) return visible[0];
+		return list.find(node => node.querySelector("[data-story-row][data-floor]")) || list[0];
+	}
 	function findScope() {
 		const resolved = resolveScope ? resolveScope() : null;
-		if (resolved) return resolved;
-		if (root && root.isConnected === false) {
-			const live = doc && doc.querySelector("[data-conversation-scroll]");
-			if (live) return live;
+		if (resolved && resolved.isConnected !== false) {
+			if (isVisibleBox(resolved)) return resolved;
+			return pickScrollContainer() || resolved;
 		}
-		return (root && root.closest && root.closest("[data-conversation-scroll]")) || root || (doc && doc.body);
+		const matched = root && root.isConnected !== false
+			? (root.closest ? root.closest("[data-conversation-scroll]") : null)
+			: null;
+		if (matched && matched.isConnected !== false) {
+			if (isVisibleBox(matched)) return matched;
+			return pickScrollContainer() || matched;
+		}
+		const live = pickScrollContainer();
+		if (live) return live;
+		if (root && root.isConnected !== false) return root;
+		return (doc && doc.body) || null;
 	}
 	let scope = findScope();
 	const hiddenAttribute = "data-dsh-tavern-rail-hidden";
@@ -63,6 +87,7 @@ function createStoryFloorRail(root, options) {
 		return Number.isInteger(value) && value > 0 ? value : null;
 	}
 	function rows() {
+		if (!scope || typeof scope.querySelectorAll !== "function") return [];
 		return Array.from(scope.querySelectorAll("[data-story-row][data-floor]")).filter(row => floorOf(row) !== null);
 	}
 	function rowOf(floor) {
@@ -247,7 +272,7 @@ function createStoryFloorRail(root, options) {
 		}
 	}
 	function place() {
-		if (!rail) return;
+		if (!rail || !scope) return;
 		const rect = scope.getBoundingClientRect();
 		// 窄屏不收起，换紧凑版（data-compact）：贴右边一行细线，热区按手指放大。
 		const roomy = rect.width > narrow;
@@ -284,22 +309,28 @@ function createStoryFloorRail(root, options) {
 		undoBox.style.top = Math.round(rect.bottom + 10) + "px";
 	}
 	function schedule() {
-		if (frame) return;
+		retries = 0;
+		if (!host || frame) return;
 		frame = host.setTimeout(function () { frame = 0; sync(); }, 120);
 	}
 	function sync() {
-		if (frame) { host.clearTimeout(frame); frame = 0; }
+		if (frame && host) { host.clearTimeout(frame); frame = 0; }
 		// 宿主换过滚动容器就跟着换：观察对象与刻度列一起落到新节点上。
 		const next = findScope();
 		if (next && next !== scope) { scope = next; floorsKey = ""; watch(scope); }
+		if (!scope) {
+			if (rail) { rail.remove(); rail = null; }
+			hideUndo(); disarm();
+			return;
+		}
 		const list = rows();
 		// 宿主那列刻度还在 DOM 里（它按 turn 画，跟故事楼层对不上），继续收起来。
-		const mark = scope.querySelector('[class*="_mark"][aria-label]');
+		const mark = typeof scope.querySelector === "function" ? scope.querySelector('[class*="_mark"][aria-label]') : null;
 		const hostNav = mark ? mark.closest("nav") : null;
 		if (hostNav && !hostNav.hasAttribute(hiddenAttribute)) { hostNav.setAttribute(hiddenAttribute, ""); hiddenHostNavs.add(hostNav); }
 		// 宽/窄决定刻度怎么取样，所以也进 key：跨过 900px 时整列重画。
 		const width = scope.getBoundingClientRect().width;
-		compact = width > 0 && width <= narrow;
+		if (width > 0) compact = width <= narrow;
 		const key = (compact ? "c|" : "r|") + list.map(floorOf).join(",");
 		if (key !== floorsKey) {
 			floorsKey = key;
@@ -307,12 +338,42 @@ function createStoryFloorRail(root, options) {
 			disarm();
 			if (rail) rail.remove();
 			rail = list.length ? build(list) : null;
-			if (rail) doc.body.appendChild(rail);
+			if (rail && doc && doc.body) doc.body.appendChild(rail);
 		}
 		if (rail) { mirror(list); place(); }
 		else { hideUndo(); disarm(); }
 	}
+	function isOwnNode(node) {
+		if (!node) return false;
+		if (node === rail || node === undoBox || node === hintBox) return true;
+		return !!(node.classList && (node.classList.contains("dsh-tavern-turn-rail") || node.classList.contains("dsh-tavern-turn-rail-undo") || node.classList.contains("dsh-tavern-turn-rail-hint")));
+	}
+	function hasScopeChange(mutations) {
+		if (!doc || !mutations || !mutations.length) return false;
+		const scopeAlive = !!(scope && scope !== doc.body && scope.isConnected !== false);
+		const scopeVisible = scopeAlive && isVisibleBox(scope);
+		for (let i = 0; i < mutations.length; i++) {
+			const m = mutations[i];
+			if (scopeAlive && typeof scope.contains === "function" && scope.contains(m.target)) continue;
+			if (isOwnNode(m.target)) continue;
+			const touched = Array.from(m.addedNodes || []).concat(Array.from(m.removedNodes || []));
+			for (let j = 0; j < touched.length; j++) {
+				const node = touched[j];
+				if (!node || isOwnNode(node)) continue;
+				if (!scopeVisible) return true;
+				if (node.nodeType === 1 && ((node.matches && node.matches("[data-conversation-scroll]")) || (node.querySelector && node.querySelector("[data-conversation-scroll]")))) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 	const observer = host && typeof host.MutationObserver === "function" ? new host.MutationObserver(schedule) : null;
+	const bodyObserver = host && typeof host.MutationObserver === "function"
+		? new host.MutationObserver(function (mutations) {
+			if (hasScopeChange(mutations)) schedule();
+		})
+		: null;
 	const resize = host && typeof host.ResizeObserver === "function" ? new host.ResizeObserver(schedule) : null;
 	function watch(target) {
 		if (!target) return;
@@ -320,20 +381,40 @@ function createStoryFloorRail(root, options) {
 		if (resize) { resize.disconnect(); resize.observe(target); }
 	}
 	watch(scope);
+	if (bodyObserver && doc && doc.body) {
+		bodyObserver.observe(doc.body, { subtree: true, childList: true });
+	}
 	const onScroll = function () { schedule(); };
+	const onWake = function () { if (!doc || !doc.hidden) schedule(); };
+	const viewport = host && host.visualViewport ? host.visualViewport : null;
 	if (host) {
 		host.addEventListener("scroll", onScroll, true);
 		host.addEventListener("resize", onScroll);
 	}
+	if (viewport && typeof viewport.addEventListener === "function") {
+		viewport.addEventListener("resize", onScroll);
+		viewport.addEventListener("scroll", onScroll);
+	}
+	if (doc && typeof doc.addEventListener === "function") {
+		doc.addEventListener("visibilitychange", onWake);
+	}
 	return {
-		apply: function () { floorsKey = ""; sync(); },
+		apply: function () { retries = 0; floorsKey = ""; sync(); },
 		sync: sync,
 		dispose: function () {
 			if (observer) observer.disconnect();
+			if (bodyObserver) bodyObserver.disconnect();
 			if (resize) resize.disconnect();
 			if (host) {
 				host.removeEventListener("scroll", onScroll, true);
 				host.removeEventListener("resize", onScroll);
+			}
+			if (viewport && typeof viewport.removeEventListener === "function") {
+				viewport.removeEventListener("resize", onScroll);
+				viewport.removeEventListener("scroll", onScroll);
+			}
+			if (doc && typeof doc.removeEventListener === "function") {
+				doc.removeEventListener("visibilitychange", onWake);
 			}
 			if (frame) { host.clearTimeout(frame); frame = 0; }
 			if (retryTimer) { host.clearTimeout(retryTimer); retryTimer = 0; }
@@ -343,7 +424,9 @@ function createStoryFloorRail(root, options) {
 			if (undoRow) { undoRow.removeAttribute("data-floor-flash"); undoRow = null; }
 			for (const nav of hiddenHostNavs) nav.removeAttribute(hiddenAttribute);
 			hiddenHostNavs.clear();
-			for (const nav of Array.from(scope.querySelectorAll("[" + hiddenAttribute + "]"))) nav.removeAttribute(hiddenAttribute);
+			if (scope && typeof scope.querySelectorAll === "function") {
+				for (const nav of Array.from(scope.querySelectorAll("[" + hiddenAttribute + "]"))) nav.removeAttribute(hiddenAttribute);
+			}
 			if (rail) rail.remove();
 			rail = null; ticks.clear(); floorsKey = "";
 		}

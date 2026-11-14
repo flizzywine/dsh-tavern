@@ -1240,19 +1240,11 @@
 			}
 			React.useEffect(function () {
 				// input.dock 在会话还没就绪时可能整棵卸载，marker 一时还没进滚动容器：
-				// 退回页面里当前的会话滚动容器，别把刻度列一起丢掉。
+				// 退回页面里当前的会话滚动容器。
 				const root = (marker.current && marker.current.closest("[data-conversation-scroll]"))
 					|| document.querySelector("[data-conversation-scroll]");
 				if (!root) return;
 				const projection = createSupersededErrorProjection(root);
-				// 宿主重挂会话视图时，marker 跟着换进新的滚动容器；刻度列每次同步都按 marker
-				// 重新找容器，不会跟着旧节点一起「消失」。
-				const rail = createStoryFloorRail(root, {
-					resolveScope: function () {
-						const live = marker.current && marker.current.closest("[data-conversation-scroll]");
-						return live || null;
-					}
-				});
 				const controls = createTurnErrorControls(root, {
                     sessionId: props.sessionId, storage: window.localStorage, hiddenTurns: hiddenTurns, failedTailTurn: failedTailTurn,
                     onVisible: function (turn) { tavernPlayEvents.emitOnce(props.sessionId + ":" + turn, "native_error", props.sessionId, { nativeTurn: turn }); },
@@ -1288,12 +1280,23 @@
 				// The live round keeps its
 				// progress, and the error row below owns the one control that brings them back.
 				const stepFold = createStepFoldControls(root, { running: running === true, play: hideProcess });
-				const apply = function () { projection.apply(turns); controls.apply(); stepFold.apply(); rail.apply(); };
+				const apply = function () { projection.apply(turns); controls.apply(); stepFold.apply(); };
 				apply();
 				const observer = observeTurnErrorProjection(root, apply);
-				return function () { observer.disconnect(); controls.dispose(); stepFold.dispose(); projection.dispose(); rail.dispose(); };
+				return function () { observer.disconnect(); controls.dispose(); stepFold.dispose(); projection.dispose(); };
 			}, [props.sessionId, revision, running, hideProcess]);
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
+		}
+		// 楼层刻度列挂载在常驻会话层：不受 input.dock 卸载或 running/revision 变化影响，
+		// 即使初始时刻滚动容器尚未挂载，也能在容器出现与重挂时自动接管并保持显示。
+		function StoryFloorRailHost(props) {
+			React.useEffect(function () {
+				const root = document.querySelector("[data-conversation-scroll]") || null;
+				const rail = createStoryFloorRail(root);
+				rail.apply();
+				return function () { rail.dispose(); };
+			}, [props.sessionId]);
+			return null;
 		}
 		// @include background-suppression.js
 		const pollBackgroundSuppression = createBackgroundSuppressionPoller(rpc);
@@ -1474,11 +1477,15 @@
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
 				function (props) { return React.createElement(CandidateGuidePanel, props); }
 			)), "dsh-tavern: candidate guide panel");
-			// 长按监听放在常驻会话层：input.dock 在 session/inputState 未就绪时会整棵卸载，不能承载全局手势。
+			// 长按监听与楼层刻度放在常驻会话层：input.dock 在 session/inputState 未就绪时会整棵卸载，不能承载全会话设施。
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-tavern-send-hold", order: -105, label: "长按发送键重新生成" },
 				function (props) { return React.createElement(TavernSendLongPress, { sessionId: props.sessionId }); }
 			)), "dsh-tavern: long press send key");
+			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
+				{ name: "conversation.session.header.utilities", id: "dsh-tavern-story-floor-rail", order: -104, label: "楼层跳转刻度列" },
+				function (props) { return React.createElement(StoryFloorRailHost, { sessionId: props.sessionId }); }
+			)), "dsh-tavern: story floor rail");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },
 				function (props) { return React.createElement(React.Fragment, null,

@@ -292,3 +292,119 @@ test('容器一度量不到尺寸时，刻度列迟一点自己回来', async t 
   assert.notEqual(nav.hasAttribute('hidden'), true, '不用滚动也应该自己回来')
   rail.dispose()
 })
+
+// 移动端软键盘弹起、切后台或面板遮挡超过 2.4 秒后，recheck() 的 6 次重试会耗尽；
+// 之后收起键盘（visualViewport.resize）或切回前台（visibilitychange）时要重置重试并把刻度恢复出来。
+test('重试耗尽后，visualViewport 变化或页面恢复可见时刻度列能重新出现', t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140]], { narrow: true })
+  t.after(() => dom.window.close())
+
+  const viewport = new dom.window.EventTarget()
+  Object.defineProperty(dom.window, 'visualViewport', { value: viewport, configurable: true })
+
+  let nextId = 1
+  const timers = new Map()
+  dom.window.setTimeout = (fn, delay) => {
+    const id = nextId++
+    timers.set(id, { fn, delay })
+    return id
+  }
+  dom.window.clearTimeout = id => { timers.delete(id) }
+  const flushTimers = () => {
+    const batch = Array.from(timers.entries())
+    timers.clear()
+    for (const [, entry] of batch) entry.fn()
+  }
+
+  let rect = { left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 }
+  scope.getBoundingClientRect = () => rect
+
+  const rail = create(scope)
+  rail.apply()
+  const nav = document.querySelector('.dsh-tavern-turn-rail')
+  assert.equal(nav.hasAttribute('hidden'), false, '初始窄屏应显示刻度列')
+
+  // 模拟软键盘长期遮挡（height <= 96）超过 6 轮 400ms 复查，使 retries 达到上限
+  rect = { left: 0, right: 390, top: 0, bottom: 64, width: 390, height: 64 }
+  rail.sync()
+  for (let i = 0; i < 8; i++) flushTimers()
+  assert.equal(nav.hasAttribute('hidden'), true, '高度不足时收起')
+  assert.equal(timers.size, 0, '超过 6 次后停止无止境轮询')
+
+  // 收起软键盘只触发 visualViewport.resize，即使不触发 window.resize 也要能唤醒并恢复
+  rect = { left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 }
+  viewport.dispatchEvent(new dom.window.Event('resize'))
+  flushTimers()
+  assert.equal(nav.hasAttribute('hidden'), false, 'visualViewport 恢复后刻度列重新显示')
+  assert.equal(nav.style.display, '', '清除 display:none')
+
+  // 再次耗尽重试后，通过 visibilitychange 回到前台也应恢复
+  rect = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }
+  rail.sync()
+  for (let i = 0; i < 8; i++) flushTimers()
+  assert.equal(nav.hasAttribute('hidden'), true)
+  rect = { left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 }
+  Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+  document.dispatchEvent(new dom.window.Event('visibilitychange'))
+  flushTimers()
+  assert.equal(nav.hasAttribute('hidden'), false, '页面重新可见后刻度列重新显示')
+  rail.dispose()
+})
+
+// StoryFloorRailHost 先于滚动容器挂载、或宿主稍后替换 [data-conversation-scroll] 时，
+// 不需要额外滚动或手动调用 sync()，刻度列自己接上新容器并显示。
+test('滚动容器晚到挂载以及无感知整棵替换时，刻度列自动恢复', async t => {
+  const dom = new JSDOM('<body><div id="host"></div></body>', { pretendToBeVisual: true })
+  t.after(() => dom.window.close())
+  const { document } = dom.window
+  const context = vm.createContext({ window: dom.window, document })
+  vm.runInContext(source, context)
+
+  const rail = context.createStoryFloorRail(null)
+  rail.apply()
+  assert.equal(document.querySelector('.dsh-tavern-turn-rail'), null, '尚未挂载容器时不画空刻度')
+
+  const makeScope = floors => {
+    const el = document.createElement('div')
+    el.setAttribute('data-conversation-scroll', '')
+    el.getBoundingClientRect = () => ({ left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 })
+    el.innerHTML = floors.map(f => `<article data-story-row data-floor="${f}" data-role="assistant">第 ${f} 楼</article>`).join('')
+    for (const row of el.querySelectorAll('[data-story-row]')) {
+      row.getBoundingClientRect = () => ({ height: 100, width: 360, top: 40, bottom: 140, left: 0, right: 360 })
+    }
+    return el
+  }
+
+  const hostEl = document.getElementById('host')
+  const first = makeScope([1, 2])
+  hostEl.appendChild(first)
+  await new Promise(resolve => dom.window.setTimeout(resolve, 180))
+  assert.deepEqual(tickFloors(document), [1, 2], '容器延迟挂载后自动画出刻度')
+  assert.equal(document.querySelector('.dsh-tavern-turn-rail').hasAttribute('hidden'), false)
+
+  const second = makeScope([10, 11, 12])
+  first.replaceWith(second)
+  await new Promise(resolve => dom.window.setTimeout(resolve, 180))
+  assert.deepEqual(tickFloors(document), [10, 11, 12], '容器被替换后不靠滚动也自动切换到新楼层')
+  assert.equal(document.querySelector('.dsh-tavern-turn-rail').hasAttribute('hidden'), false)
+  rail.dispose()
+})
+
+// 页面中同时存在隐藏的 0×0 滚动容器和真正可见的滚动容器时，优先选中可见容器而非藏死。
+test('存在隐藏的 0×0 滚动容器时，优先选中可见的滚动容器', t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140]], { narrow: true })
+  t.after(() => dom.window.close())
+
+  const ghost = document.createElement('div')
+  ghost.setAttribute('data-conversation-scroll', '')
+  ghost.getBoundingClientRect = () => ({ left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 })
+  document.body.insertBefore(ghost, scope)
+
+  const rail = create(ghost)
+  rail.apply()
+  assert.deepEqual(tickFloors(document), [1, 2], '绕开 0×0 隐藏容器，从可见容器读取楼层')
+  const nav = document.querySelector('.dsh-tavern-turn-rail')
+  assert.equal(nav.hasAttribute('hidden'), false, '刻度列可见')
+  rail.dispose()
+})
+
