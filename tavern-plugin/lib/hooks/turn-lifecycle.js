@@ -16,31 +16,6 @@ import { agentForSession } from '../domain/agent-lookup.js'
 import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
-// The host ends a turn only after this hook returns. Every wait here is local IO, so a
-// deadline never fires on real work — it fires on a stall, and without one that stall
-// leaves the Agent in `running` forever: the composer keeps its stop button, the turn
-// never gets its `turn/end`, and reopening the page reads the same in-memory status.
-// Exported so a test can shorten a deadline; the product always runs with these.
-export const turnStoppingWaits = { validate: 15_000, record: 15_000, commit: 60_000 }
-
-function withDeadline(promise, ms, label) {
-  let timer
-  const timeout = new Promise((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error('dsh-tavern: ' + label + '超过 ' + Math.round(ms / 1000) + ' 秒未返回')), ms)
-  })
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
-}
-
-// A record whose write stalls must not keep the turn alive; the failure is logged instead.
-async function settleWithin(promise, ms, label) {
-  try {
-    return await withDeadline(promise, ms, label)
-  } catch (error) {
-    console.warn('dsh-tavern: ' + (error?.message || error))
-    return undefined
-  }
-}
-
 // A submission cut by the output limit never runs: the arguments are half a JSON
 // document, the receipt never exists, and the turn looks empty. The prose the player
 // already watched arrive is still inside the argument text, so it is recovered as the
@@ -136,9 +111,9 @@ export function registerTurnLifecycleHooks({
     if (userText === '' && !inputAttachments(userContent).length) return
     const requestId = requestIdForTurn(session, payload.turn)
     let assistant = assistantResultForTurn(session, payload.turn)
-    try { await withDeadline(pluginBodyGeneration?.validateResult(session, payload.turn, assistant), turnStoppingWaits.validate, '正文校验') }
+    try { await pluginBodyGeneration?.validateResult(session, payload.turn, assistant) }
     catch (error) {
-      await settleWithin(turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message, failure: error.failure }), turnStoppingWaits.record, '失败记录')
+      await turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message, failure: error.failure })
       throw error
     }
     if (assistant === null || assistant.text === '') {
@@ -156,13 +131,13 @@ export function registerTurnLifecycleHooks({
           ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
           : '模型本轮没有返回正文；请重新生成本轮正文。'
       if (assistant === null || assistant.text === '') {
-        await settleWithin(turnOrchestrator.recordFailure({
+        await turnOrchestrator.recordFailure({
           sessionId,
           turn: payload.turn,
           requestId,
           code: truncated ? 'output-limit' : (reasoningOnly ? 'reasoning-only' : 'empty-response'),
           message
-        }), turnStoppingWaits.record, '失败记录')
+        })
         throw new Error(message)
       }
     }
@@ -181,16 +156,13 @@ export function registerTurnLifecycleHooks({
       incompleteReason: '这次生成达到输出上限或被中断，保留了已生成的部分正文',
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
     })
-    // A commit that stalls must not hold the turn open: the write keeps running on its
-    // own, and the reply is projected from what we already have.
-    const commit = requestPerformance ? requestPerformance.run('generateCommit', sessionId, finalize) : finalize()
-    const saved = await settleWithin(commit, turnStoppingWaits.commit, '正文提交')
+    const saved = requestPerformance ? await requestPerformance.run('generateCommit', sessionId, finalize) : await finalize()
     // A submit_story call and its receipt both carry the body; fold them into one
     // plain reply so context, regeneration and rollback see an ordinary round.
     if (assistant.storyToolSubmission) {
-      replaceAssistantReply(session, assistant, saved?.reply ? saved.reply.sessionText : assistant.content, projectedMessageId)
+      replaceAssistantReply(session, assistant, saved.reply ? saved.reply.sessionText : assistant.content, projectedMessageId)
       replyMessageId = projectedMessageId
-    } else if (saved?.reply) {
+    } else if (saved.reply) {
       if (assistant.text !== saved.reply.sessionText) replyMessageId = projectedMessageId
       replaceAssistantReply(session, assistant, saved.reply.sessionText, projectedMessageId)
     }
