@@ -16,38 +16,6 @@ import { agentForSession } from '../domain/agent-lookup.js'
 import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
-// A submission cut by the output limit never runs: the arguments are half a JSON
-// document, the receipt never exists, and the turn looks empty. The prose the player
-// already watched arrive is still inside the argument text, so it is recovered as the
-// incomplete body instead of being thrown away with the turn.
-const PARTIAL_CONTENT_RE = /"content"\s*:\s*"/
-
-function unescapeJsonFragment(fragment) {
-  try { return JSON.parse('"' + fragment + '"') } catch (_error) { /* cut mid-escape */ }
-  return fragment
-    .replace(/\\u[0-9a-fA-F]{0,3}$/, '')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t')
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, '\\')
-}
-
-function truncatedSubmissionBody(assistant) {
-  const blocks = assistant?.event?.data?.message?.content
-  if (!Array.isArray(blocks)) return ''
-  for (const block of blocks) {
-    if (block?.type !== 'tool-call' || block.name !== 'submit_story') continue
-    const raw = typeof block.arguments === 'string' ? block.arguments : ''
-    const match = PARTIAL_CONTENT_RE.exec(raw)
-    if (!match) continue
-    let fragment = raw.slice(match.index + match[0].length).replace(/"(?:\s*})?\s*$/, '')
-    fragment = unescapeJsonFragment(fragment).trim()
-    if (fragment !== '') return fragment
-  }
-  return ''
-}
-
 function reachedOutputLimit(assistant) {
   const stream = Array.isArray(assistant?.event?.data?.stream) ? assistant.event.data.stream : []
   return stream.some(entry => {
@@ -122,24 +90,20 @@ export function registerTurnLifecycleHooks({
       // as empty-response hid the real cause, and a cut submission looks exactly like
       // a model that returned nothing.
       const truncated = assistant !== null && reachedOutputLimit(assistant)
-      const rescued = truncated ? truncatedSubmissionBody(assistant) : ''
-      if (rescued !== '') assistant = { ...assistant, text: rescued, reasoningOnly: false }
       const reasoningOnly = !truncated && assistant !== null && assistant.reasoningOnly === true
       const message = truncated
         ? '本轮输出达到上限被截断，正文没有完整提交；请重新生成本轮正文。'
         : reasoningOnly
           ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
           : '模型本轮没有返回正文；请重新生成本轮正文。'
-      if (assistant === null || assistant.text === '') {
-        await turnOrchestrator.recordFailure({
-          sessionId,
-          turn: payload.turn,
-          requestId,
-          code: truncated ? 'output-limit' : (reasoningOnly ? 'reasoning-only' : 'empty-response'),
-          message
-        })
-        throw new Error(message)
-      }
+      await turnOrchestrator.recordFailure({
+        sessionId,
+        turn: payload.turn,
+        requestId,
+        code: truncated ? 'output-limit' : (reasoningOnly ? 'reasoning-only' : 'empty-response'),
+        message
+      })
+      throw new Error(message)
     }
     const projectedMessageId = assistant.storyToolSubmission ? 'tavern-tool-reply:' + randomUUID() : randomUUID()
     let replyMessageId = String(assistant.event?.data?.message?.id || '')
