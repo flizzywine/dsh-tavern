@@ -89,7 +89,7 @@ export function apply(ctx, { ready }) {
     negative: { type: 'string', description: '本张额外排除项，由渠道适配原生负面参数或合入描述。' },
     channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
     workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
-    preset: { type: 'string', description: '本次画风预设 ID 或唯一名字。' },
+    preset: { type: 'string', description: '本次画风名称或 ID，只影响这一次、不写回设置；不填沿用当前画风。名字从 read_image_config 的画风清单里挑。' },
     preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
     preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
     size: { type: 'string', description: '竖图、横图、方图或宽x高。自定义宽高建议取 64 的倍数，多数平台按这个对齐，非对齐的值可能被平台改掉。不填沿用渠道或 ComfyUI 工作流尺寸。' },
@@ -236,7 +236,7 @@ export function apply(ctx, { ready }) {
   }
 
   const character = {
-    name: 'read_character', description: '读取共用人物库及角色自带服装、参考图状态。先列清单再按精确 ID 查询；按本张镜头只取可见外貌，不把所有视角同时塞进提示词。', parameters: schema(named), output: output(),
+    name: 'read_character', description: '读取共用人物库。不传 name 列出全部人物；传 name 给出可直接粘进 prompt 的人物宏，以及这个角色的服装正文。full: true 只在用户明确要求改这个角色的外貌时传，那时给 traits 而不是宏。', parameters: schema({ ...named, full: { type: 'boolean', description: '仅当用户明确要求修改这个角色的外貌时才传：返回 traits 原文，不含宏。出图、核对宏写没写对、排查画面不对劲，都不要传——宏由工具生成，不需要你校对；读一次全量，省下的 token 就全还回去了。' } }), output: output(),
     async execute(args) {
       await assertOpen()
       const book = await source(), list = book.characters.filter(item => item.enabled !== false && item.name)
@@ -244,10 +244,35 @@ export function apply(ctx, { ready }) {
       const hit = pick(list, args.name, aliases)
       if (!hit) return { characters: list.map(item => ({ id: item.id, name: item.name, aliases: aliases(item), note: item.note || '' })) }
       const shared = await outfits(), own = (hit.outfits || []).filter(item => item.enabled !== false)
-      return { id: hit.id, name: hit.name, traits: { ...hit.traits }, note: hit.note || '', hasReference: Boolean(hit.referenceImage),
-        outfits: own.map(item => ({ id: item.id, name: item.name, default: item.default === true, ...parts(item), hasReference: Boolean(item.referenceImage), hasPairedReference: Boolean(item.characterOutfitImage) })),
-        outfitRefs: shared.filter(item => hit.outfitRefs?.includes(item.id)).map(item => ({ id: item.id, name: item.name })),
+      const refs = shared.filter(item => hit.outfitRefs?.includes(item.id))
+      const outfitRows = own.map(item => ({ id: item.id, name: item.name, default: item.default === true, ...parts(item), hasReference: Boolean(item.referenceImage), hasPairedReference: Boolean(item.characterOutfitImage) }))
+      // 全量只服务于「改外貌」：原样给库里的 traits。服装两条路径一样，都给正文。
+      if (args.full === true) return { id: hit.id, name: hit.name, traits: { ...hit.traits }, note: hit.note || '', hasReference: Boolean(hit.referenceImage),
+        outfits: outfitRows,
+        outfitRefs: refs.map(item => ({ id: item.id, name: item.name })),
         ...(hit.defaultOutfit ? { defaultOutfit: shared.filter(item => item.id === hit.defaultOutfit).map(item => ({ id: item.id, name: item.name, ...sharedParts(item) })) } : {}) }
+      // 宏体是 ${ 与 }$ 之间的纯键值对，不带外层大括号：引擎按 JSON.parse('{' + 宏体 + '}') 解析。
+      // name 用英文别名，跟游玩模式的写法对齐：allowChinesePrompt 关着时中文名会被清掉，英文名才是匹配键。
+      // 别名被别人共用时退回 id：宏展开按名字找不到唯一的人，外貌会整段丢掉。
+      const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
+      const asciiAlias = aliases(hit).find(value => /^[\x20-\x7e]+$/.test(value) && /[a-z]/i.test(value))
+      const claim = asciiAlias || hit.name
+      const aliasShared = list.some(item => item !== hit && [item.name, ...aliases(item)].some(name => norm(name) && norm(name) === norm(claim)))
+      const macroName = aliasShared ? String(hit.id ?? claim) : claim
+      // 衣服跟着人走：outfit 填常穿那套的名字，引擎展开时整块取出上下身、权重和配件，
+      // 不经过模型抄写，也就不会丢权重。换装只改这一个值：库里的换名字，库外的直接写英文描述，
+      // 没有常穿可补时写 unknown（引擎据此不自动补衣服）。不写这个键引擎会补常穿，和模型选的那套一起进提示词。
+      const defaultName = own.find(item => item.default === true)?.name
+        || refs.find(item => item.id === hit.defaultOutfit)?.name
+        || ''
+      const macro = '${' + JSON.stringify({ name: macroName, angle: 'from front', upperBody: 'sfw', lowerBody: 'sfw', outfit: defaultName || 'unknown' }).slice(1, -1) + '}$'
+      return omitUndefined({
+        id: hit.id, name: hit.name, macroName, aliases: aliases(hit), note: hit.note || '', hasReference: Boolean(hit.referenceImage),
+        macro,
+        // 先 id / 名字 / 常穿标记，再正文：常规出图只用到名字（衣服写进宏的 outfit，引擎自己展开），
+        // 正文是给「这套长什么样、合不合这个场景」和用户要改衣服时看的，不是拿来抄的。
+        outfits: outfitRows,
+        ...(refs.length ? { outfitRefs: refs.map(item => ({ id: item.id, name: item.name })) } : {}) })
     },
   }
   const outfit = {
@@ -259,10 +284,17 @@ export function apply(ctx, { ready }) {
     },
   }
   const configuration = {
-    name: 'read_image_config', description: '读取全部已保存渠道、当前默认渠道、提示词格式、参考图及种子能力、画风和 ComfyUI 工作流。只读本地配置，不联网探测或生成。指定渠道和预设时优先使用唯一名称，重名时使用 ID。', parameters: schema({}), output: output(),
-    async execute() {
+    name: 'read_image_config', description: '读取渠道、提示词格式、参考图及种子能力、画风清单和 ComfyUI 工作流。只读本地配置，不联网探测或生成。不传 preset 只给画风的名字和 ID；要看某一套的正面词就传 preset（名称或精确 ID）。指定渠道时优先使用唯一名称，重名时使用 ID。', parameters: schema({ preset: { type: 'string', description: '画风名称或精确 ID。填了就只返回这一套的正面词，不填只列名字。' } }), output: output(),
+    async execute(args) {
       await assertOpen()
       const engine = await ready(), cfg = engine.currentConfig(), workflows = engine.cardWorkflows()
+      const presets = (cfg.stylePresets || []).filter(item => item.enabled !== false)
+      const asked = text(args?.preset, 200).trim()
+      // 点名某一套时只给这一套的正面词。负面词由引擎按预设自动带上，模型不需要看。
+      if (asked) {
+        const hit = pick(presets, asked)
+        return { id: hit.id, name: hit.name, artist: hit.artist || '', active: hit.id === cfg.activePreset }
+      }
       const channels = (cfg.imageChannels || []).map(item => {
         const protocol = effectiveImageProvider(item)
         return { id: item.id, name: item.name, provider: protocol, model: item.model, promptMode: resolvePromptMode(cfg, protocol), maxReferences: imageReferenceLimit(item), supportsSeed: ['novelai', 'qwen', 'sdwebui'].includes(protocol) && item.options?.protocol !== 'chat', authMode: item.authMode }
@@ -271,8 +303,9 @@ export function apply(ctx, { ready }) {
         const picked = cardSelection(cfg, workflows, { channel: 'comfyui', workflow: item.id })
         channels.push({ id: 'comfyui', workflowId: item.id, name: item.label, provider: 'comfyui', promptMode: picked.promptMode, maxReferences: picked.maxReferences, supportsSeed: picked.supportsSeed })
       }
+      // 画风只列名字和 ID：三十多套的正面词合起来过万字，模型挑的时候用不上，要哪套再单独取。
       return { promptSystem: cfg.promptSystem || 'workbench', templates: engine.templateModels?.() || [], randomTemplates: cfg.randomPromptTemplates === true, activeTemplateId: cfg.activePromptPreset || '__default__', activeChannelId: cfg.imageBackend === 'comfyui' ? 'comfyui' : cfg.activeImageChannel, channels, defaultWorkflow: cfg.defaultWorkflow,
-        presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name, artist: item.artist || '' })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
+        presets: presets.map(item => ({ id: item.id, name: item.name, active: item.id === cfg.activePreset })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
     },
   }
   const lookup = {
