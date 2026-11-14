@@ -306,6 +306,18 @@ function galCreateScene(host, options, own) {
         state.figureLoads = (state.figureLoads || 0) + 1;
         cast.commit(entry);
     }
+    // A lit figure whose feet stand on the stage casts a soft contact shadow on the floor, away from the light.
+    function tickContactShadow(entry,H) {
+        const rest=entry.figureResolved,lit=entry.light,sprite=entry.sprite;
+        const on=Boolean(lit&&lit[11]>0&&rest?.mode==="physical"&&sprite&&rest.feet<=sprite.texture.height&&rest.support.y<H&&entry.container.visible);
+        if(!on){if(entry.contact)entry.contact.visible=false;return;}
+        if(!entry.contact){
+            entry.contact=new PIXI.Sprite(generated.contact);entry.contact.anchor.set(.5);entry.contact.zIndex=-1;figuresBox.addChild(entry.contact);
+        }
+        const span=rest.poseSpan,c=entry.contact;
+        c.visible=true;c.width=span*.36;c.height=span*.06;c.position.set(rest.support.x-lit[9]*span*.05,rest.support.y-span*.004);
+        c.alpha=.55*lit[11]*entry.alpha.v;
+    }
     function destroyFigure(entry) {
         if(entry.dead)return;
         entry.dead=true;
@@ -319,6 +331,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.blink.dispose());
         release(()=>layeredSpriteClearScene(entry));
         release(()=>entry.appearance.dispose());
+        if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
@@ -692,10 +705,13 @@ function galCreateScene(host, options, own) {
             entry.container.visible = alpha > 0.003;
             entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.focus || figure.speaking && !figure.dim ? 2 : 1;
             const look = tickFigureLook(entry, desc, now, dt, dofTarget);
-            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + backgrounds.grade.version;
+            // the background's light at the figure's place (figure-light.cjs), or none: then the time grade colours it
+            const grade = backgrounds.grade;
+            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + grade.version + ":" + entry.cx.v.toFixed(2);
             if (entry.shadeKey !== key) {
                 entry.shadeKey = key;
-                entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current));
+                entry.light = stageViews.figureLight.at(grade.light, entry.cx.v);
+                entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, grade.current), entry.light);
             }
             if(renderer){
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
@@ -713,6 +729,7 @@ function galCreateScene(host, options, own) {
                 entry.fading=pose.remaining;
                 for(const item of pose.retired){item.asset.destroy();state.lastPrune=0;}
             }
+            tickContactShadow(entry,H);
         };
         state.figures.forEach(tickEntry);
         if (!desc.callView?.frozen) state.offstage.forEach(tickEntry);
@@ -1015,7 +1032,7 @@ function galCreateScene(host, options, own) {
         // accepted groups reveal independently, including historical entry.
         // The resource runner already gates each element; a slow model must not hide the backdrop.
         world.visible = overlay.visible = !state.callCovers;
-        if (options.onUi) options.onUi(effects.ui(backgrounds.grade.current));
+        if (options.onUi) options.onUi(effects.ui(backgrounds.grade.ui || backgrounds.grade.current));
         // the entry gate may reveal the backdrop and text box before slow figures are built.
         if (options.onBackdrop && !backgrounds.pending && backgrounds.layers.length <= 1) options.onBackdrop(desc.presentationRevision);
         if (options.onPresented && !backgrounds.pending && backgrounds.layers.length <= 1 &&
@@ -1138,6 +1155,7 @@ function galCreateScene(host, options, own) {
                 figures: Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, leaving: entry.leaving, parked: Boolean(entry.figure.parked), ready: Boolean(entry.model || entry.sprite),
                     x: entry.started ? round(entry.cx.v, 3) : null, alpha: entry.started ? round(entry.alpha.v, 3) : null, shade: entry.started ? round(entry.shade.v, 2) : null,
                     glow: round(entry.appearance.snapshot().glow, 2), shadow: round(entry.appearance.snapshot().shadow, 2), blur: round(entry.appearance.snapshot().blur, 2), filters: entry.filters.all().length,
+                    light: entry.light ? { strength: round(entry.light[11], 2), side: round(entry.light[9], 2), contact: Boolean(entry.contact?.visible) } : null,
                     ...(entry.spineFigure ? { spine: entry.spineFigure.debug() } : {}),
                     // figure-life: warp on, the last tap reaction, the reaction still (size, on screen) and the emotions a tap can borrow.
                     life: { armed: round(entry.appearance.snapshot().armed, 2), warp: Boolean(entry.warp), tap: entry.tapReaction ? entry.tapReaction.kind : null, still: entry.tapTexture ? { size: [entry.tapTexture.texture.width, entry.tapTexture.texture.height], shown: Boolean(entry.sprite && entry.sprite.texture === entry.tapTexture.texture) } : entry.tapStills ? entry.tapStills.size : null, stillError: entry.tapStillError || null, reactions: Object.keys(entry.figure.reactions || {}) } })),

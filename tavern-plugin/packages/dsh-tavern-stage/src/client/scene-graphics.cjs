@@ -86,6 +86,12 @@ function galMakeTextures(PIXI, host) {
             edge.addColorStop(0, "rgba(255,255,255,1)"); edge.addColorStop(1 / 1.25, "rgba(255,255,255,1)"); edge.addColorStop(1, "rgba(255,255,255,0)");
             ctx.fillStyle = edge; ctx.fillRect(0, 0, w, h);
         }),
+        // a lit figure's contact shadow (scene.cjs tickContactShadow): a soft black ellipse
+        contact: create(PIXI, 256, 64, function (ctx, w, h) {
+            const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+            g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(0.55, "rgba(0,0,0,.6)"); g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.setTransform(1, 0, 0, h / w, 0, 0); ctx.fillStyle = g; ctx.fillRect(0, 0, w, w);
+        }),
         iris: create(PIXI, 512, 512, function (ctx, w, h) {
             const disc = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
             disc.addColorStop(0, "rgba(255,255,255,1)"); disc.addColorStop(0.78, "rgba(255,255,255,1)"); disc.addColorStop(1, "rgba(255,255,255,0)");
