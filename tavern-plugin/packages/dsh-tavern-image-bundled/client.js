@@ -4233,6 +4233,7 @@ function versionsOf(jobId) {
 
     const PROMPT_USAGES = [
       ['story', '剧情与卡片配图'], ['stage', '舞台与宿主素材'], ['plugin', '直接调用生图 SDK'],
+      ['background', '空背景'], ['figure', '透明底人物（立绘、头像）'], ['sheet', '人物设定图'],
     ]
 
     function PromptUsageField({ label, value = '', allowAll = true, editable = true, onChange }) {

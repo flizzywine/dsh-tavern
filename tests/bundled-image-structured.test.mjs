@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { BUILTIN_PROMPT_PRESETS, getPromptGuidance, formatPromptForBackend, composePresetText, promptPresetNegative } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-presets.js'
 import { normalizePrompts, parseImagePlan, parsePromptsBlock, preserveCharacterMetadata, buildPlannerSystem } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js'
+import { createImageGenerator } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/model-provider.js'
 
 const prose = '【人物】\n林月：黑发, 白衬衫。\n陈安：黑发, 白衬衫。\n\n【自定义构图】\n  - 参考图[1]：仅用于身份。\n  - 画幅 3:2，保留 (记号:1.2) 和 {字样}。\n\n【约束】\n不要删除上述两人共有的黑发, 白衬衫。'
 
@@ -78,4 +79,27 @@ test('structured planner permits custom sections and preserves outer XML and his
   const legacy = buildPlannerSystem({ count: 1 })
   assert.match(legacy, /NSFW tag/)
   assert.doesNotMatch(legacy, /结构化分节写在/)
+})
+
+test('built-in galgame styles add their shared look to every request and the text one usage needs only to that usage', async () => {
+  const seen = []
+  const generator = createImageGenerator(() => ({ imageBackend: 'openai', activeImageChannel: 'a', imageChannels: [{ id: 'a', provider: 'openai', model: 'm' }],
+    promptSystem: 'workbench', stylePresets: [{ id: 'library-style', name: 'Library', artist: 'library artist', enabled: true }], activePreset: 'library-style',
+    promptManualPositive: 'manual addition' }), async (_channel, request) => { seen.push(request); return { bytes: new Uint8Array([1]), mediaType: 'image/png' } })
+  for (const id of ['galgame-clean', 'galgame-anime', 'galgame-polished']) {
+    const preset = BUILTIN_PROMPT_PRESETS.find(item => item.id === id)
+    const text = usage => preset.structure.blocks.find(block => block.kind === 'style' && (block.usage ?? '') === usage).text
+    const drawn = {}
+    for (const usage of ['story', 'background', 'figure', 'sheet']) {
+      await generator.generate({ prompt: 'a quiet classroom', promptPreset: id, usage })
+      drawn[usage] = seen.at(-1).positive
+      assert.ok(drawn[usage].startsWith('a quiet classroom'))
+      assert.ok(drawn[usage].includes(text('')), id + ' ' + usage)
+      assert.doesNotMatch(drawn[usage], /library artist|manual addition/)
+    }
+    for (const usage of ['background', 'figure', 'sheet']) {
+      assert.ok(drawn[usage].includes(text(usage)))
+      for (const other of ['story', 'background', 'figure', 'sheet'].filter(item => item !== usage)) assert.ok(!drawn[other].includes(text(usage)), id + ': ' + usage + ' text in ' + other)
+    }
+  }
 })
