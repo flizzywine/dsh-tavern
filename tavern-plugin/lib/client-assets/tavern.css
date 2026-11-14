@@ -2903,6 +2903,11 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-choice-trigger { min-height: 36px; padding: 5px 10px; font-size: 13px; }
   /* 候选卡与桌面同一个组件、同一套外观：宽度、圆角、内边距都不再单独覆盖；手机上只在展开时改为底部抽屉。 */
   .dsh-tavern-question.dsh-tavern-candidate-question { box-sizing: border-box; margin: 0 auto; }
+  /* 收起态只是「还有一列行动」的入口，不该像一张卡压在输入框上方：去掉上下留白和投影，
+     压成一行 34px 的细条，展开后才占底部抽屉的位置（点开仍是整行/整块热区）。 */
+  .dsh-tavern-question.dsh-tavern-candidate-question.collapsed { padding: 0 10px; border-radius: 11px; background: transparent; box-shadow: none; }
+  .dsh-tavern-candidate-question.collapsed .dsh-tavern-question-head { min-height: 34px; margin-bottom: 0; font-size: 13px; }
+  .dsh-tavern-candidate-question.collapsed .dsh-tavern-question-close { min-width: 34px; min-height: 34px; font-size: 12px; }
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed) {
     position: fixed; z-index: var(--dsh-play-z-sheet, 7);
     left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));
