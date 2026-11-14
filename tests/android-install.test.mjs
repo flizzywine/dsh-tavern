@@ -293,6 +293,15 @@ esac
 }
 
 test('Android setup 通过同一命令完成首次安装和后续更新', async (t) => {
+  // setup.sh 恢复/切换安装目录时会重建 .git，仓库级 user.name/email 随之丢失；
+  // 这些 commit 只落在测试临时仓库里，显式给出身份，不依赖开发机的全局 git 配置。
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  }
   const directory = await mkdtemp(path.join(tmpdir(), 'dsh-android-setup-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const source = path.join(directory, 'source')
@@ -314,7 +323,7 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
     ['add', '.'],
     ['commit', '-m', 'initial'],
   ]) {
-    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
 
@@ -326,12 +335,12 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
   const installedSource = path.join(dshHome, 'apps', 'dsh-tavern')
   for (const file of documentImages) await assert.rejects(access(path.join(installedSource, file)))
   // Emulate an installation from before sparse updates, then exercise its migration.
-  const fullCheckout = spawnSync('git', ['-C', installedSource, 'sparse-checkout', 'disable'], { encoding: 'utf8' })
+  const fullCheckout = spawnSync('git', ['-C', installedSource, 'sparse-checkout', 'disable'], { encoding: 'utf8', env: gitEnv })
   assert.equal(fullCheckout.status, 0, fullCheckout.stderr)
   for (const file of documentImages) await access(path.join(installedSource, file))
   await writeFile(path.join(source, 'version.txt'), 'next\n', 'utf8')
   for (const args of [['add', '.'], ['commit', '-m', 'next']]) {
-    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
   const second = spawnSync('bash', [new URL('../android/setup.sh', import.meta.url).pathname], { env: environment, encoding: 'utf8' })
@@ -349,17 +358,17 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
   await writeFile(path.join(dshHome, 'apps', 'dsh-tavern', 'version.txt'), 'next\n', 'utf8')
   const installed = path.join(dshHome, 'apps', 'dsh-tavern')
   for (const args of [['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test']]) {
-    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
   await writeFile(path.join(installed, 'dsh-tavern-runtime.json'), '{"generated":true}\n', 'utf8')
   for (const args of [['add', 'dsh-tavern-runtime.json'], ['commit', '-m', 'chore: publish runtime manifest [skip ci]']]) {
-    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
   await writeFile(path.join(source, 'version.txt'), 'remote-after-manifest\n', 'utf8')
   for (const args of [['add', '.'], ['commit', '-m', 'remote update']]) {
-    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
   const recovered = spawnSync('bash', [new URL('../android/setup.sh', import.meta.url).pathname], { env: environment, encoding: 'utf8' })
@@ -369,12 +378,12 @@ test('Android setup 通过同一命令完成首次安装和后续更新', async 
 
   await writeFile(path.join(installed, 'local.txt'), 'user commit\n', 'utf8')
   for (const args of [['add', 'local.txt'], ['commit', '-m', 'user commit']]) {
-    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: installed, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
   await writeFile(path.join(source, 'version.txt'), 'another remote update\n', 'utf8')
   for (const args of [['add', '.'], ['commit', '-m', 'another remote update']]) {
-    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' })
+    const result = spawnSync('git', args, { cwd: source, encoding: 'utf8', env: gitEnv })
     assert.equal(result.status, 0, result.stderr)
   }
   const protectedCommit = spawnSync('bash', [new URL('../android/setup.sh', import.meta.url).pathname], { env: environment, encoding: 'utf8' })
