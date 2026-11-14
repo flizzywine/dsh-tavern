@@ -61,6 +61,8 @@ export const DEFAULT_MODULAR_TEMPLATE = {
 export const BUILTIN_PROMPT_PRESETS = [
   STRUCTURED_PROMPT_TEMPLATE,
   EXAMPLE_PROMPT_PRESET,
+  // Adds nothing: callers that write the whole prompt name it to send the prompt as written.
+  { id: 'no-style', name: '不加画风', independent: true },
   {
     id: 'portrait-editorial', name: '杂志人像',
     structuredPositive: '采用杂志人像的视觉风格：构图有意图，姿态自然且富有表现力，面部清楚可读。以柔和、有方向的主光配合轻微补光，保留皮肤与织物的真实质感，控制色彩，让主体与背景清晰分离。',
@@ -116,15 +118,23 @@ export const BUILTIN_PROMPT_PRESETS = [
 /** Read-only presets supplied by server-side plugins at runtime; never persisted with user settings. */
 const registeredPresets = new Map()
 
-/** Register a plain style preset. Ids are namespaced (`plugin.name`), so they never collide with built-in or saved ids. */
+/**
+ * Register a style preset. Ids are namespaced (`plugin.name`), so they never collide with built-in or saved ids.
+ * A `structure` makes it a template, e.g. style blocks with a `usage` for text that only one use needs; `independent`
+ * leaves out the user's style library and manual additions; `status: 'experimental'` marks a style still being tuned.
+ */
 export function registerPromptPreset(definition) {
   const presetId = String(definition?.id ?? '')
   if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/.test(presetId) || presetId.length > 80) throw new Error('预设标识需采用「插件名.预设名」格式：' + presetId)
   if (registeredPresets.has(presetId)) throw new Error('预设标识已注册：' + presetId)
+  const structure = definition.structure === undefined ? null : normalizePromptStructure(definition.structure)
+  if (definition.structure !== undefined && !structure) throw new Error('预设结构无效：' + presetId)
   const preset = { id: presetId, name: clean(definition.name, 80) || presetId, source: clean(definition.source, 80) || presetId.split('.')[0], registered: true,
+    ...(definition.independent === true ? { independent: true } : {}), ...(definition.status === 'experimental' ? { status: 'experimental' } : {}),
     positive: clean(definition.positive), negative: clean(definition.negative, 2000), tagPositive: clean(definition.tagPositive),
     naturalPositive: clean(definition.naturalPositive), mixedPositive: clean(definition.mixedPositive),
-    structuredPositive: clean(definition.structuredPositive), structuredNegative: clean(definition.structuredNegative, 2000) }
+    structuredPositive: clean(definition.structuredPositive), structuredNegative: clean(definition.structuredNegative, 2000),
+    ...(structure ? { structure } : {}) }
   registeredPresets.set(presetId, preset)
   return () => { if (registeredPresets.get(presetId) === preset) registeredPresets.delete(presetId) }
 }
@@ -228,6 +238,19 @@ export function validPromptPresetId(config = {}, value = config.activePromptPres
   if (!selected) return ''
   if (registeredPresets.has(selected)) return selected
   return [...BUILTIN_PROMPT_PRESETS, ...normalizePromptPresets(config.promptPresets)].some(item => item.id === selected && item.enabled !== false) ? selected : ''
+}
+
+/**
+ * Every preset a request can name with `promptPreset`, read-only. `usages` lists the usages that have their own style
+ * text (style, positive or negative blocks with a `usage`); text without a usage applies to every request.
+ */
+export function listPromptPresets(config = {}) {
+  const saved = normalizePromptPresets(config.promptPresets).filter(preset => preset.enabled !== false)
+  return [...BUILTIN_PROMPT_PRESETS.map(preset => [preset, 'builtin']), ...[...registeredPresets.values()].map(preset => [preset, 'registered']), ...saved.map(preset => [preset, 'saved'])]
+    .map(([preset, origin]) => ({ id: preset.id, name: preset.name, origin, ...(origin === 'registered' ? { source: preset.source } : {}),
+      status: preset.status === 'experimental' ? 'experimental' : 'stable',
+      usages: [...new Set((preset.structure?.blocks || []).filter(block => block.enabled !== false && ['style', 'positive', 'negative'].includes(block.kind))
+        .map(block => block.usage).filter(Boolean))] }))
 }
 
 /** Prompt-mode context follows the image execution path, never stale Comfy settings on another provider. */

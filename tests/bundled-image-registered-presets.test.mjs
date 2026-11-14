@@ -43,6 +43,36 @@ test('registered presets are listed, selectable per request and removed on dispo
   await assert.rejects(generator.generate({ prompt: 'a knight', promptPreset: 'sheet.flat' }), /找不到画风预设：sheet\.flat/)
 })
 
+test('the built-in no-style preset sends the prompt as written', async () => {
+  const { generator, seen } = capture(() => config({ stylePresets: [{ id: 'library-style', name: 'Library', artist: 'library artist', negative: 'library negative', enabled: true }],
+    activePreset: 'library-style', promptManualPositive: 'manual addition', promptManualNegative: 'manual negative' }))
+  await generator.generate({ prompt: 'a knight', promptPreset: 'no-style' })
+  assert.equal(seen[0].positive, 'a knight')
+  assert.equal(seen[0].negative ?? '', '')
+})
+
+test('a registered style template carries text per usage and a status, and generators list every nameable preset', async () => {
+  assert.throws(() => registerPromptPreset({ id: 'sheet.broken', name: 'Broken', structure: { blocks: 'nope' } }), /结构无效/)
+  const dispose = registerPromptPreset({ id: 'sheet.layered', name: 'Layered', independent: true, status: 'experimental',
+    structure: { format: 'auto', blocks: [{ kind: 'scene', title: 'Scene' }, { kind: 'style', title: 'Look', text: 'shared look' },
+      { kind: 'style', title: 'Figure', usage: 'figure', text: 'figure-only look' }, { kind: 'negative', title: 'Avoid', usage: 'background', text: 'people' }] } })
+  try {
+    const { generator, seen } = capture(() => config({ promptPresets: [{ id: 'mine', name: 'Mine', positive: 'my look' }] }))
+    await generator.generate({ prompt: 'a knight', promptPreset: 'sheet.layered', usage: 'figure' })
+    await generator.generate({ prompt: 'an empty hall', promptPreset: 'sheet.layered', usage: 'background' })
+    assert.match(seen[0].positive, /shared look/)
+    assert.match(seen[0].positive, /figure-only look/)
+    assert.match(seen[1].positive, /shared look/)
+    assert.doesNotMatch(seen[1].positive, /figure-only look/)
+    assert.match(seen[1].negative, /people/)
+
+    const listed = new Map(generator.presets().map(item => [item.id, item]))
+    assert.deepEqual(listed.get('no-style'), { id: 'no-style', name: '不加画风', origin: 'builtin', status: 'stable', usages: [] })
+    assert.deepEqual(listed.get('sheet.layered'), { id: 'sheet.layered', name: 'Layered', origin: 'registered', source: 'sheet', status: 'experimental', usages: ['figure', 'background'] })
+    assert.equal(listed.get('mine').origin, 'saved')
+  } finally { dispose() }
+})
+
 test('a registered preset selected in settings stays selected in workbench generation', async () => {
   const dispose = registerPromptPreset({ id: 'sheet.selected', name: 'Selected sheet', positive: 'flat sheet selected' })
   try {
