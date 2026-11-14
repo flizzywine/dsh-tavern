@@ -112,6 +112,9 @@
             const current = typeof r?.current === 'string' && list.some(item => item.path === r.current) ? r.current : ''
             setCurrentCardPath(current)
             setImportCard(existing => existing || current || (list[0]?.path ?? ''))
+            const games = Array.isArray(r?.games) ? r.games : []
+            setDesignGames(games)
+            setDesignGame(existing => games.some(game => game.id === existing) ? existing : (games[0]?.id || ''))
           } catch {}
         })()
         return () => { alive = false }
@@ -125,6 +128,12 @@
       // 设计角色：内联展开（不用浮层，设置面板层级更高会挡住）
       const [designMode, setDesignMode] = React.useState('')
       const [designBrief, setDesignBrief] = React.useState('')
+      const [designGames, setDesignGames] = React.useState([])
+      const [designGame, setDesignGame] = React.useState('')
+      const [designUseCard, setDesignUseCard] = React.useState(false)
+      const [designUseWorldbook, setDesignUseWorldbook] = React.useState(false)
+      const [designUseRecent, setDesignUseRecent] = React.useState(false)
+      const [designTurnCount, setDesignTurnCount] = React.useState(3)
       const [designMediaType, setDesignMediaType] = React.useState('')
       const [designPreview, setDesignPreview] = React.useState('')
       const [designName, setDesignName] = React.useState('')
@@ -1198,6 +1207,17 @@
           const target = activeCharacter
           const isNew = designMode === 'new'
           const isPhoto = designMode === 'photo'
+          const isImport = designMode === 'import'
+          const isOutfit = designMode === 'outfit'
+          async function refreshDesignGames() {
+            try {
+              const result = await post('/cards', {})
+              const games = Array.isArray(result?.games) ? result.games : []
+              setDesignGames(games)
+              setDesignGame(existing => games.some(game => game.id === existing) ? existing : (games[0]?.id || ''))
+              setDesignNote(games.length ? '已刷新游玩对话' : '没有找到游玩对话')
+            } catch (error) { setDesignNote('刷新失败：' + (error?.message ?? error)) }
+          }
           function pickDesignFile(event) {
             const file = event?.target?.files && event.target.files[0]
             if (!file) return
@@ -1217,12 +1237,21 @@
             if (designInFlight.current) return
             const brief = String(designBrief || '').trim()
             if (!isNew && !target) { setDesignNote('请先选择角色'); return }
-            if (isPhoto ? !designPreview : !brief) { setDesignNote(isPhoto ? '请先选择照片' : '请填写需求'); return }
+            if (isPhoto ? !designPreview : !brief && !designPreview && !designUseCard && !designUseWorldbook && !designUseRecent) {
+              setDesignNote(isPhoto ? '请先选择照片' : '请选择资料或填写需求'); return
+            }
+            if ((designUseCard || designUseRecent) && !designGame) { setDesignNote('请先选择游玩对话'); return }
+            if (designUseWorldbook && !importCard) { setDesignNote('请先选择世界书所属卡片'); return }
+            if (designUseRecent && (!Number.isInteger(Number(designTurnCount)) || Number(designTurnCount) < 1 || Number(designTurnCount) > 20)) {
+              setDesignNote('最近轮数请填写 1–20'); return
+            }
             designInFlight.current = true
             setDesignPanelBusy(true)
             setDesignNote(isPhoto ? '正在识别照片…' : '正在设计…')
             try {
-              const payload = { brief, sessionId: String(lastSessionId || '') }
+              const payload = { brief, sessionId: designGame || '', designType: isOutfit ? 'outfit' : 'character',
+                sources: { card: designUseCard, worldbook: designUseWorldbook, worldbookCard: designUseWorldbook ? importCard : '',
+                  recentTurns: designUseRecent ? Number(designTurnCount) : 0 } }
               if (!isNew) payload.current = target
               if (designPreview) Object.assign(payload, { data: designPreview, mediaType: designMediaType, name: designName })
               const r = await post(isPhoto ? '/vision' : '/design', payload)
@@ -1241,6 +1270,26 @@
               const people = r.people || []
               if (!people.length) { setDesignNote('没产出人物。模型原文：' + String(r.raw || '').slice(0, 160)); return }
               const next = (dataRef.current?.definitions?.characters || []).slice()
+              if (isOutfit) {
+                const index = next.findIndex(character => character.id === target.id)
+                if (index < 0) { setDesignNote('角色已删除，已忽略设计结果'); return }
+                const person = people.find(item => String(item.name || '').trim() === String(target.name || '').trim())
+                if (!person) { setDesignNote('模型返回的角色与当前角色不一致，请重试。'); return }
+                const existing = next[index].outfits || []
+                const names = new Set(existing.map(outfit => String(outfit.name || '').trim().toLocaleLowerCase()))
+                const generated = (person.outfits || []).filter(outfit => {
+                  const name = String(outfit.name || '').trim()
+                  if (!name || names.has(name.toLocaleLowerCase()) || !['upper', 'lower', 'shoes', 'accessory', 'full', 'back'].some(key => String(outfit[key] || '').trim())) return false
+                  names.add(name.toLocaleLowerCase())
+                  return true
+                }).map(outfit => Object.assign({}, outfit, { id: 'o' + Date.now() + Math.random().toString(36).slice(2, 8), enabled: true, default: false }))
+                if (!generated.length) { setDesignNote('没有发现新的服装，已有服装未修改。'); return }
+                next[index] = { ...next[index], outfits: existing.concat(generated) }
+                setCharacters(next)
+                const saved = await commit(true)
+                setDesignNote(saved ? '已加入 ' + generated.length + ' 套新服装' : '新服装已保留在草稿，请保存人物库')
+                return
+              }
               // 改进模式：原地替换那个角色；新建模式：追加
               if (!isNew) {
                 const index = next.findIndex(character => character.id === target.id)
@@ -1257,21 +1306,28 @@
                 setDesignName(current => current === designName ? '' : current)
                 return
               }
+              const knownNames = new Set(next.map(person => String(person.name || '').trim().toLocaleLowerCase()))
+              const added = []
               for (const person of people) {
+                const name = String(person.name || '').trim()
+                if (!name || knownNames.has(name.toLocaleLowerCase())) continue
+                knownNames.add(name.toLocaleLowerCase())
                 next.push({
                   id: 'c' + Date.now() + Math.random().toString(36).slice(2, 6),
                   name: person.name || '未命名', match: person.match || '', enabled: true,
-                  continuity: '', note: person.note || '', inject: {}, cards: [], outfitRefs: [],
+                  continuity: '', note: person.note || '', inject: {}, cards: designUseWorldbook && importCard ? [importCard] : [], outfitRefs: [],
                   traits: Object.assign({ feature: '', face: '', faceBack: '', bodySFW: '', bodySFWBack: '', lowerSFW: '', lowerSFWBack: '', bodyNSFW: '', bodyNSFWBack: '', lowerNSFW: '', lowerNSFWBack: '', negative: '' }, person.traits || {}),
                   outfits: (person.outfits || []).map(o => Object.assign({ id: 'o' + Date.now() + Math.random().toString(36).slice(2, 6), enabled: true, default: false }, o)),
                 })
+                added.push(name)
               }
+              if (!added.length) { setDesignNote('没有新增角色；同名角色已保留。'); return }
               setCharacters(next)
               setPeopleSearch('')
-              setPeopleActiveId(next[next.length - people.length]?.id || '')
+              setPeopleActiveId(next[next.length - added.length]?.id || '')
                 const saved = await commit(true)
-              if (saved && typeof showToast === 'function') showToast('已生成 ' + people.length + ' 个角色，并写入角色库')
-              setDesignNote(saved ? '已生成 ' + people.length + ' 位角色并保存' : '生成结果已保留，请点「保存人物库」重试保存')
+              if (saved && typeof showToast === 'function') showToast('已生成 ' + added.length + ' 个角色，并写入角色库')
+              setDesignNote(saved ? '已生成 ' + added.length + ' 位角色并保存' : '生成结果已保留，请点「保存人物库」重试保存')
               // 面板保持打开，让「保存人物库」提醒可见
               setDesignBrief(current => current === designBrief ? '' : current)
               setDesignMediaType(current => current === designMediaType ? '' : current)
@@ -1286,12 +1342,38 @@
           }
           return h('section', { 'aria-label': 'Agent 角色工具', style: { ...S.card, margin: '10px 0' } },
             h('div', { style: S.row }, [
-              ['photo', '从照片识别'], ['new', '设计新角色'], ['edit', '改这个角色'],
+              ['new', '设计新角色'], ['outfit', '生成新服装'], ['edit', '改这个角色'], ['photo', '从照片识别'], ['import', '世界书导入'],
             ].map(([mode, label]) => h('button', { key: mode, type: 'button', style: S.tab(designMode === mode),
-              'aria-pressed': designMode === mode, disabled: designPanelBusy || (mode !== 'new' && !target),
-              onClick: () => { setDesignMode(mode); setDesignBrief(''); setDesignNote('') } }, label))),
+              'aria-pressed': designMode === mode, disabled: designPanelBusy || (['photo', 'edit', 'outfit'].includes(mode) && !target),
+              onClick: () => { setDesignMode(mode); setDesignBrief(''); setDesignNote(''); setImportPreview(null) } }, label))),
+            isImport ? h(React.Fragment, null,
+              promptField('选择要导入的卡', h('select', { 'aria-label': '选择要导入的卡', value: importCard, style: S.input,
+                onChange: event => setImportCard(event.target.value) },
+                importCards.map(item => h('option', { key: item.path, value: item.path }, item.label)))),
+              h('button', { type: 'button', style: buttonStyle, disabled: !importCard || designPanelBusy, onClick: importFromCard }, '读取世界书并生成'),
+              importPreviewPanel()) : h(React.Fragment, null,
             !isNew && target ? h('p', { style: STRUCTURE_MUTED }, '当前角色：' + (target.name || '未命名角色')) : null,
-            !isPhoto ? promptField(isNew ? '设计需求' : '修改要求', h('textarea', { value: designBrief,
+            !isPhoto ? h('fieldset', { style: { ...S.card, margin: '10px 0' } },
+              h('legend', null, '参考资料'),
+              h('div', { style: S.row },
+                h('label', { style: S.row }, h('input', { type: 'checkbox', checked: designUseWorldbook, disabled: designPanelBusy,
+                  onChange: event => setDesignUseWorldbook(event.target.checked) }), '卡片世界书'),
+                h('label', { style: S.row }, h('input', { type: 'checkbox', checked: designUseCard, disabled: designPanelBusy,
+                  onChange: event => setDesignUseCard(event.target.checked) }), '游玩卡片设定'),
+                h('label', { style: S.row }, h('input', { type: 'checkbox', checked: designUseRecent, disabled: designPanelBusy,
+                  onChange: event => setDesignUseRecent(event.target.checked) }), '最近正文')),
+              designUseWorldbook ? promptField('世界书所属卡片', h('select', { value: importCard, style: S.input, disabled: designPanelBusy,
+                onChange: event => setImportCard(event.target.value) },
+                importCards.length ? importCards.map(item => h('option', { key: item.path, value: item.path }, item.label))
+                  : h('option', { value: '' }, '没有可用卡片'))) : null,
+              designUseCard || designUseRecent ? promptField('游玩对话', h('select', { value: designGame, style: S.input, disabled: designPanelBusy,
+                onChange: event => setDesignGame(event.target.value) },
+                designGames.length ? designGames.map(game => h('option', { key: game.id, value: game.id }, game.title + (game.cardName && game.cardName !== game.title ? ' · ' + game.cardName : '')))
+                  : h('option', { value: '' }, '没有可用的游玩对话'))) : null,
+              designUseCard || designUseRecent ? h('button', { type: 'button', style: buttonStyle, disabled: designPanelBusy, onClick: refreshDesignGames }, '刷新游玩对话') : null,
+              designUseRecent ? promptField('最近轮数（1–20）', h('input', { type: 'number', min: 1, max: 20, step: 1,
+                value: designTurnCount, style: S.input, disabled: designPanelBusy, onChange: event => setDesignTurnCount(event.target.value) })) : null) : null,
+            !isPhoto ? promptField(isNew ? '设计需求或补充资料（可选）' : isOutfit ? '服装需求或补充资料（可选）' : '修改要求或补充资料（可选）', h('textarea', { value: designBrief,
               disabled: designPanelBusy, style: promptArea(72), onChange: event => setDesignBrief(event.target.value) })) : null,
             h('div', { style: S.row },
               promptField(isPhoto ? '识别照片' : '参考照片（可选）', h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif',
@@ -1301,8 +1383,8 @@
             designPreview ? h('img', { src: designPreview, alt: '待处理照片', style: { display: 'block', maxWidth: '100%', maxHeight: 96, marginTop: 6 } }) : null,
             h('div', { style: S.row },
               h('button', { type: 'button', style: S.tab(true), disabled: designPanelBusy, onClick: runDesign },
-                designPanelBusy ? '处理中…' : isPhoto ? '识别并填入资料' : isNew ? '生成角色' : '应用修改')),
-            designNote ? h('div', { role: 'status', style: STRUCTURE_MUTED }, designNote) : null)
+                designPanelBusy ? '处理中…' : isPhoto ? '识别并填入资料' : isNew ? '生成角色' : isOutfit ? '生成并加入服装库' : '应用修改')),
+            designNote ? h('div', { role: 'status', style: STRUCTURE_MUTED }, designNote) : null))
         }
 
         function area(label, why, value, onChange, rows) {
@@ -1736,14 +1818,6 @@
                   onClick: reloadLibrary }, '重新载入最新人物库') : null,
                 h('button', { type: 'button', style: S.tab(true), disabled: saveState === 'saving',
                   onClick: () => commit(false) }, saveState === 'saving' ? '正在保存…' : '保存人物库'))),
-            h('details', null,
-              h('summary', { style: PROMPT_DISCLOSURE }, '从世界书生成角色'),
-              h('div', { style: S.row },
-                importCards.length ? h('select', { 'aria-label': '选择要导入的卡', value: importCard, style: S.input,
-                  onChange: event => setImportCard(event.target.value) },
-                  importCards.map(item => h('option', { key: item.path, value: item.path }, item.label))) : null,
-                h('button', { type: 'button', style: buttonStyle, disabled: !importCard, onClick: importFromCard }, '读取世界书并生成')),
-              importPreviewPanel()),
             libraryDraft.value ? h('div', { style: S.row },
               h('span', { style: STRUCTURE_MUTED }, '本地草稿已保留'),
               h('button', { type: 'button', style: buttonStyle, disabled: !libraryDraft.canUndo, onClick: undoLibraryEdit }, '撤销人物修改'),

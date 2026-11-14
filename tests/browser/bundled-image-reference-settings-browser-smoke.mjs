@@ -205,7 +205,7 @@ try {
     }
     else if (path === '/jobs') response = { ok: true, job: url.searchParams.get('id') === 'tryout-image' ? { id: 'tryout-image', state: 'done' } : url.searchParams.get('id') === 'play-only' ? { ...clone(playGalleryJob), positive: '完整测试正面提示词：茶室门口的成年旅人', negative: '' } : {} }
     else if (path === '/tasks') response = { tasks: [] }
-    else if (path === '/cards') response = { ok: true, cards: [
+    else if (path === '/cards') response = { ok: true, games: [{ id: 'game-a', title: '测试游玩', cardName: '林月故事' }], cards: [
       { path: 'cards/story.json', name: '林月故事' }, { path: 'cards/other.json', name: '另一张卡' },
     ] }
     else if (path === '/import-characters') {
@@ -213,6 +213,7 @@ try {
       response = body.dryRun ? { ok: true, cardName: '另一张卡', candidates: [{ action: 'add', person }] }
         : { ok: true, added: [person.name], state: publicState() }
     }
+    else if (path === '/design') response = { ok: true, people: [{ name: '林月', outfits: [{ name: '新雨衣', upper: '蓝色雨衣' }, { name: '新雨衣', upper: '蓝色雨衣' }] }] }
     else if (path === '/providers' || path === '/llm-models') response = { ok: true, providers: [], models: [] }
     else if (path === '/report') response = { ok: true }
     else { errors.push('unexpected HTTP ' + method + ' ' + path); response = { ok: false, error: 'unexpected request' } }
@@ -1034,13 +1035,33 @@ try {
   await page.getByLabel('生图系统模式', { exact: true }).selectOption('workbench')
   await page.getByRole('button', { name: '生图工作台', exact: true }).click()
   await page.getByRole('button', { name: '人物库', exact: true }).click()
-  await openDisclosure('从世界书生成角色')
+  if (await page.getByRole('button', { name: 'Agent 角色工具', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: 'Agent 角色工具', exact: true }).click()
+  await page.getByRole('button', { name: '世界书导入', exact: true }).click()
   await page.getByLabel('选择要导入的卡').selectOption('cards/other.json')
   await page.getByRole('button', { name: '读取世界书并生成', exact: true }).click()
   await page.getByRole('button', { name: '确认导入 1 位', exact: true }).click()
   await page.getByLabel('导入预览', { exact: true }).waitFor({ state: 'hidden' })
   assert.deepEqual(calls.filter(call => call.path === '/import-characters').map(call => [call.body.card, call.body.dryRun || call.body.apply[0].name]),
     [['cards/other.json', true], ['cards/other.json', '车站管理员']])
+  if (await page.getByRole('button', { name: '返回概览', exact: true }).count()) await page.getByRole('button', { name: '返回概览', exact: true }).click()
+  await page.getByLabel('按卡筛选人物').selectOption('all')
+  await page.getByRole('button', { name: '查看角色 林月', exact: true }).click()
+  await page.getByRole('button', { name: 'Agent 角色工具', exact: true }).click()
+  await page.getByRole('button', { name: '生成新服装', exact: true }).click()
+  await page.getByLabel('卡片世界书', { exact: true }).check()
+  await page.getByLabel('最近正文', { exact: true }).check()
+  await page.getByLabel('最近轮数（1–20）', { exact: true }).fill('2')
+  await page.getByRole('region', { name: 'Agent 角色工具', exact: true }).screenshot({ path: join(tmpdir(), 'dsh-image-agent-design.png') })
+  await page.getByRole('button', { name: '生成并加入服装库', exact: true }).click()
+  await page.getByText('已加入 1 套新服装', { exact: true }).waitFor()
+  const design = calls.filter(call => call.path === '/design').at(-1).body
+  assert.equal(design.sessionId, 'game-a')
+  assert.equal(design.designType, 'outfit')
+  assert.equal(design.sources.worldbookCard, 'cards/other.json')
+  assert.equal(design.sources.recentTurns, 2)
+  assert.ok(state.definitions.characters.find(person => person.id === 'person-a').outfits.some(outfit => outfit.name === '新雨衣'))
+  assert.equal(state.definitions.characters.find(person => person.id === 'person-a').outfits.filter(outfit => outfit.name === '新雨衣').length, 1)
+  assert.ok(state.definitions.characters.find(person => person.id === 'person-a').outfits.some(outfit => outfit.id === 'outfit-a'))
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await Promise.all([page.waitForResponse(response => response.url().endsWith('/dsh-tavern-gen/api/tools-enabled') && response.request().method() === 'POST'), page.getByLabel('启用卡片生图', { exact: true }).click()])
   await page.waitForFunction(() => !document.querySelector('[aria-label="启用卡片生图"]').disabled)
