@@ -8,7 +8,9 @@ export function patchToolReplyStreamChatSource(text) {
   if (typeof text !== 'string') return { status: 'unmatched', text: String(text ?? '') }
   if (text.includes(MARKER)) return { status: 'patched', text }
 
-  const compactRe = /function\s+compactBlocks\s*\(\s*blocks\s*\)\s*\{\s*return\s+blocks\.filter\(\(block\)\s*=>\s*block\s*!==\s*void\s*0\);\s*\}/
+  // 0.2.2-rc.2+ 的聊天包是压缩形状：无空白、反引号字符串、省略分号、箭头参数不带括号。
+  // 每个锚点同时匹配可读与压缩两种形状；替换文本在两种宿主里都是合法 JS。
+  const compactRe = /function\s+compactBlocks\s*\(\s*blocks\s*\)\s*\{\s*return\s+blocks\.filter\(\s*(?:\(\s*block\s*\)|block)\s*=>\s*block\s*!==\s*void\s*0\s*\)\s*;?\s*\}/
   const compactMatch = compactRe.exec(text)
   if (!compactMatch) return { status: 'unmatched', text }
 
@@ -102,28 +104,31 @@ export function patchToolReplyStreamChatSource(text) {
 
   let patched = text.slice(0, compactMatch.index) + helpers + text.slice(compactMatch.index + compactMatch[0].length)
 
-  const visibleNeedle = 'if (block === void 0 || block.kind === "tool-call") return false;'
+  const visibleRe = /if\s*\(\s*block\s*===\s*void\s*0\s*\|\|\s*block\.kind\s*===\s*(["'`])tool-call\1\s*\)\s*return\s+false\s*;?/
+  const visibleMatch = visibleRe.exec(patched)
+  if (!visibleMatch) return { status: 'unmatched', text }
   const visibleReplacement = 'if (block === void 0 || (block.kind === "tool-call" && !tavernSubmitStoryVisible(block))) return false;'
-  const visIdx = patched.indexOf(visibleNeedle)
-  if (visIdx < 0) return { status: 'unmatched', text }
-  patched = patched.slice(0, visIdx) + visibleReplacement + patched.slice(visIdx + visibleNeedle.length)
+  patched = patched.slice(0, visibleMatch.index) + visibleReplacement + patched.slice(visibleMatch.index + visibleMatch[0].length)
 
-  const earlyNeedle = 'if (previous?.kind === "tool-call" && previous.callId !== "" && (chunk.name === void 0 || chunk.name === previous.name) && (state.firstTokenTime !== void 0 || !isTokenDelta(chunk))) return state;'
+  const earlyRe = /if\s*\(\s*previous\?\.kind\s*===\s*(["'`])tool-call\1\s*&&\s*previous\.callId\s*!==\s*(["'`])\2\s*&&\s*\(\s*chunk\.name\s*===\s*void\s*0\s*\|\|\s*chunk\.name\s*===\s*previous\.name\s*\)\s*&&\s*\(\s*state\.firstTokenTime\s*!==\s*void\s*0\s*\|\|\s*!\s*isTokenDelta\(\s*chunk\s*\)\s*\)\s*\)\s*return\s+state\s*;?/
+  const earlyMatch = earlyRe.exec(patched)
+  if (!earlyMatch) return { status: 'unmatched', text }
   const earlyReplacement = 'if (previous?.kind === "tool-call" && previous.callId !== "" && (chunk.name ?? previous.name) !== "submit_story" && (chunk.name === void 0 || chunk.name === previous.name) && (state.firstTokenTime !== void 0 || !isTokenDelta(chunk))) return state;'
-  const earlyIdx = patched.indexOf(earlyNeedle)
-  if (earlyIdx < 0) return { status: 'unmatched', text }
-  patched = patched.slice(0, earlyIdx) + earlyReplacement + patched.slice(earlyIdx + earlyNeedle.length)
+  const earlyIdx = earlyMatch.index
+  patched = patched.slice(0, earlyIdx) + earlyReplacement + patched.slice(earlyIdx + earlyMatch[0].length)
 
-  const argsNeedle = 'argsRaw: previous?.kind === "tool-call" ? previous.argsRaw : ""'
-  const argsIdx = patched.indexOf(argsNeedle, earlyIdx)
-  if (argsIdx < 0) return { status: 'unmatched', text }
+  const argsRe = /argsRaw\s*:\s*previous\?\.kind\s*===\s*(["'`])tool-call\1\s*\?\s*previous\.argsRaw\s*:\s*(["'`])\2/
+  const argsMatch = argsRe.exec(patched.slice(earlyIdx))
+  if (!argsMatch) return { status: 'unmatched', text }
+  const argsIdx = earlyIdx + argsMatch.index
   const usesNextVisible = patched.slice(earlyIdx, argsIdx).includes('let nextVisible')
   const argsReplacement = 'argsRaw: (previous?.kind === "tool-call" ? previous.argsRaw : "") + ((chunk.name ?? (previous?.kind === "tool-call" ? previous.name : "")) === "submit_story" ? String(chunk.argumentsDelta ?? "") : "")'
-  patched = patched.slice(0, argsIdx) + argsReplacement + patched.slice(argsIdx + argsNeedle.length)
+  patched = patched.slice(0, argsIdx) + argsReplacement + patched.slice(argsIdx + argsMatch[0].length)
 
   if (usesNextVisible) {
-    const closeAfterArgs = patched.indexOf('break;', argsIdx)
-    if (closeAfterArgs < 0 || closeAfterArgs - argsIdx > 320) return { status: 'unmatched', text }
+    const closeMatch = /\bbreak\s*;?/.exec(patched.slice(argsIdx))
+    if (!closeMatch || closeMatch.index > 320) return { status: 'unmatched', text }
+    const closeAfterArgs = argsIdx + closeMatch.index
     patched = patched.slice(0, closeAfterArgs) + 'nextVisible = blockIsVisible(blocks[chunk.index]); ' + patched.slice(closeAfterArgs)
   }
 
