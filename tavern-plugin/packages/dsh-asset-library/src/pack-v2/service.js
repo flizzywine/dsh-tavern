@@ -512,7 +512,7 @@ export function createAssetPackService(options) {
     previews.set(id, {pack, keep, preview, expiresAt, size, distribution, ...(setId ? {set:setId} : {})}); previewBytes += size
     return preview
   }
-  const cardBundles = createCardBundleMethods({storage, run, readRun, privateExportFile:options.privateExportFile, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, figureImageExtras:options.figureImageExtras, packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
+  const cardBundles = createCardBundleMethods({storage, run, readRun, privateExportFile:options.privateExportFile, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, withFigureImageExtras:pack => withFigureImageExtras(pack, options), packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
   const {disposeCardBundles, cardBundleUsage, ...bundleMethods} = cardBundles
   // One revision fence for every lease read: whole bundle payloads, a size, or one byte range.
   const leaseAccess = (entry, names, action) => readRun([entry.packId], async () => {

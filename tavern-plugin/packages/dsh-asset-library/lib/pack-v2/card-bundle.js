@@ -5,13 +5,12 @@ import { writeZip } from '../zip.js'
 import { check, validateUuid, validateHash } from '../asset-packs/common.js'
 import { validatePackIdentities } from '../asset-packs/index.js'
 import { jsonBytes, readDocument, budget, sealPack, inspectPackScripts, packDiff } from './validation.js'
-import { withFigureImageExtras } from './figure-image-extras.js'
 
 const ROOT = 'dsh-tavern-card-bundle.json'
 const copy = value => structuredClone(value)
 // Runs only within the storage publication gate; adapter callbacks take the card lock last.
 export function createCardBundleMethods(host) {
-  const {storage, run, readRun, privateExportFile, load, metadata, all, verify, cas, keys, remapPack, remapValue, readZipFiles, readZipFile, exportArchive, archiveKey, limits, now, nextLocal, emit, cards, globalPackIds = () => [], figureImageExtras} = host
+  const {storage, run, readRun, privateExportFile, load, metadata, all, verify, cas, keys, remapPack, remapValue, readZipFiles, readZipFile, exportArchive, archiveKey, limits, now, nextLocal, emit, cards, globalPackIds = () => [], withFigureImageExtras} = host
   const previews = new Map()
   function adapter() { check(cards && ['snapshot','inspectRaw','remapRaw','bindRaw','withPrepared','recover'].every(k => typeof cards[k] === 'function'), '$.card', 'Card Preparation adapter unavailable', 'ASSET_UNAVAILABLE'); return cards }
   function sweep() { for (const [id, value] of previews) if (value.preview.expiresAt <= now()) previews.delete(id) }
@@ -113,7 +112,7 @@ export function createCardBundleMethods(host) {
           check(pack, '$.packIds', 'Pack to embed is missing', 'ASSET_UNAVAILABLE')
           if (!privateExportFile) await assertPublicPackChain(pack, metadata)
           // a card leaving this library takes its figures' 配图 外貌 along (the internal rollback copy has no figureImageExtras)
-          packs.push(await withFigureImageExtras(pack, {figureImageExtras}))
+          packs.push(await withFigureImageExtras(pack))
         }
         // The exported card stays bound to every pack it binds. A bound pack left out (input.packIds) travels as a
         // dependency the importing library may already have; keepPackIds are bound packs the host embeds from elsewhere.
@@ -153,7 +152,7 @@ export function createCardBundleMethods(host) {
         for (const packId of value.boundPackIds) {
           const embedded = packIds.includes(packId), stored = embedded ? await load(packId) : await metadata(packId)
           check(!embedded || stored, '$.packIds', 'Pack to embed is missing', 'ASSET_UNAVAILABLE')
-          const pack = embedded ? await withFigureImageExtras(stored, {figureImageExtras}) : stored
+          const pack = embedded ? await withFigureImageExtras(stored) : stored
           dependencies.push({packId, contentHash:pack?.manifest.contentHash ?? null, embedded})
           if (embedded) {
             await assertPublicPackChain(pack, metadata)
