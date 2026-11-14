@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "74af93973f8cbbca15e20e7ba1889d07bd7c4957",
-  "releaseSequence": 1616,
+  "revision": "e56e238647fc66e5525d3ad41dfaea44f28e85fd",
+  "releaseSequence": 1617,
   "version": "3.3.0",
   "files": [
     {
@@ -8101,8 +8101,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-browser.js",
-      "sha256": "42d1759d999f0345c3a2b62bceabb62d0317df4514b44d7b3daa2039feed7104",
-      "size": 25526
+      "sha256": "0f127f8cfec88b716de7255b75ce9ae88cc6be8514d6345ae8583688b7e935e8",
+      "size": 25783
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-clock.js",
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "48d9d8daf8103616c31f918ddb3650f9df12d72a",
+    "commit": "aaff0b84da44c32b1580fa304d5322a595426175",
     "path": "runtime.zip",
-    "sha256": "9a64b68348c33ba0484116987fb902c1cfa7dd59a80250aed8639e138d7c3344",
-    "size": 16494284
+    "sha256": "95ec775121bf67077bbe0a834c6fc489ffed15f221b79415c6109a3dba5acea4",
+    "size": 16494347
   }
 }
