@@ -7,7 +7,9 @@ try {
   const chunks = []
   for await (const chunk of process.stdin) chunks.push(chunk)
   const source=Buffer.concat(chunks)
-  if(process.argv[2]==='master') {
+  if(process.argv[2]==='decode') {
+    await sharp(source,{limitInputPixels:32*1024**2}).png().toBuffer()
+  } else if(process.argv[2]==='master') {
     const width=Number(process.argv[3]),height=Number(process.argv[4])
     const input=sharp(source,{limitInputPixels:32*1024**2,sequentialRead:true}),meta=await input.metadata()
     if(![width,height].every(n=>Number.isInteger(n)&&n>0&&n<=4096)||width>meta.width||height>meta.height||meta.pages>1||meta.orientation>1)throw new Error('Unsupported master geometry or orientation')
