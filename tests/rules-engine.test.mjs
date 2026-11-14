@@ -69,7 +69,7 @@ test('a roll reads a table row per die, by how many times the face came up, and 
     const play = game(rules)
     play.variables.目击者 = loose
     const record = play.call(2, { op: 'act', action: 'weather', reason: 'r' }, 7)
-    const { w, e } = record.dice
+    const { w = [], e = [] } = record.dice || {}
     assert.equal(w.length, count)
     const delta = w.reduce((total, face, index) => { const row = table[face], seen = w.slice(0, index + 1).filter(value => value === face).length
       return total + row[Math.min(seen, 3) - 1] - row[3] * e[index] }, 0)
@@ -251,4 +251,94 @@ test('older calls keep their meaning; the card check compiles the rules and keep
     '/data/extensions/dsh.rules /线索/* 归规则管（线索），范围只写在规则里：删掉初值 $meta.limits 里的这一条',
     '/data/extensions/dsh.rules /阶段 归规则管（阶段），范围只写在规则里：删掉初值 $meta.limits 里的这一条'])
   assert.match(checkRulesCard({ extensions: { 'dsh.rules': { ...RULES, actions: {} } } })[0].message, /declare at least one action/)
+})
+
+// Dice expressions: NdS terms joined by the formula language; the name reads as the value and the record keeps each die
+// with its sides, the expression and its total.
+test('a dice expression rolls dice of different sides with a modifier, and its name reads as the total', () => {
+  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'expr',
+    tables: { weapons: { 长剑: { n: 1, sides: 8 } } }, state: { bonus: { path: '/加值', initial: 3 } },
+    actions: {
+      mixed: { label: 'mixed', dice: { r: { roll: '1d6 + 4d100 + 3' } }, text: '{r}' },
+      plain: { label: 'plain', dice: { r: { roll: '2d6+bonus', mark: [6] } }, text: '{r}' },
+      weapon: { label: 'weapon', params: { w: { table: 'weapons' } }, dice: { hit: { roll: 'd20' }, dmg: { roll: '(w.n)d(w.sides) + bonus' } }, text: '{hit} {dmg}' } } })
+  const mixed = runRulesCall(rules, [], { op: 'act', action: 'mixed', reason: 'r' }, 7, { turn: 1 })
+  assert.equal(mixed.dice.r.length, 5)
+  assert.deepEqual(mixed.faces.r.sides, [6, 100, 100, 100, 100], 'dice of different sides keep each die\'s sides')
+  assert.equal(mixed.faces.r.roll, '1d6 + 4d100 + 3')
+  assert.equal(mixed.faces.r.total, mixed.dice.r.reduce((a, b) => a + b, 0) + 3)
+  assert.equal(mixed.text, String(mixed.faces.r.total))
+  const plain = runRulesCall(rules, [], { op: 'act', action: 'plain', reason: 'r' }, 7, { turn: 1 })
+  assert.deepEqual([plain.faces.r.sides, plain.faces.r.mark, plain.faces.r.total], [6, [6], plain.dice.r[0] + plain.dice.r[1] + 3])
+  const weapon = runRulesCall(rules, [], { op: 'act', action: 'weapon', params: { w: '长剑' }, reason: 'r' }, 7, { turn: 1 })
+  assert.deepEqual([weapon.faces.hit.sides, weapon.faces.dmg.sides, weapon.faces.dmg.roll, weapon.text], [20, 8, '1d8 + 3', weapon.dice.hit[0] + ' ' + (weapon.dice.dmg[0] + 3)], 'the expression is shown resolved')
+  const best = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'adv', actions: { x: { label: 'x', dice: { r: { roll: 'max(1d20, 1d20) - 1' } } } } })
+  assert.equal(runRulesCall(best, [], { op: 'act', action: 'x', reason: 'r' }, 7, { turn: 1 }).faces.r.roll, 'max(1d20, 1d20) - 1', 'anything but a sum stays as written')
+  const bad = (dice, pattern) => assert.throws(() => compileRulesV2({ format: 'dsh-rules', version: 2, name: 'x', actions: { x: { label: 'x', dice } } }), pattern)
+  bad({ r: { roll: '3 + 4' } }, /actions\.x\.dice\.r\.roll: has no dice/)
+  bad({ r: { roll: '1d6 + cash' } }, /reads unknown name cash/)
+  bad({ r: { roll: '1d6', count: 1, sides: 6 } }, /give either roll or count and sides/)
+})
+
+// Choices in a sequence: a step among them reads the choices before it; a choice that reads one still open is asked
+// next time; the manager reports a condition (by gm) himself, with the player's answer.
+const SPONSORED = { format: 'dsh-rules', version: 2, name: 'sponsor', state: { gift: { path: '/奖', label: '奖' } },
+  tables: { tribute: { 1: { text: '提到蓝色' }, 2: { text: '提到背叛' } } },
+  actions: { roll: { label: '掷骰', params: { extra: { type: 'boolean', default: true } },
+    dice: { d: { count: 3, sides: 2, mark: [2] }, s: { count: "extra ? 1 : 0", sides: 4, mark: [2] } },
+    let: [['raw', 'count(d, 2)'], ['s2', 'count(s, 2)'], ['due', 'len(s) == 1 and s[0] != 2']],
+    choices: [
+      { id: 'use', label: '额外骰的 2', when: 's2 > 0', options: { add: '计入', sub: '扣除', skip: '忽略' }, default: 'skip' },
+      ['n', "raw + (use == 'add' ? s2 : use == 'sub' ? -s2 : 0)"],
+      ['top', 'n == 2'],
+      { id: 'bonus', label: '奖励', when: 'top', int: { min: 0, max: 2, default: 0 } },
+      { id: 'paid', label: '进贡了吗', by: 'gm', when: 'due', hint: "{tribute[s[0] == 1 ? 1 : 2]['text']}", type: 'boolean', default: true }],
+    outcomes: [{ id: 'top', label: '顶', when: 'top and (not due or paid)' }, { id: 'ok', label: '成', when: 'n >= 1 and (not due or paid)' }, { id: 'no', label: '败' }],
+    effects: [{ var: 'gift', add: 'bonus' }],
+    report: [{ id: 'raw', label: '原始', value: 'raw' }, { id: 'n', label: '计数', value: 'n' }] } } }
+
+function seedFor(rules, accept) {
+  for (let seed = 1; seed < 5000; seed++) {
+    const draw = seededDraw(seed), d = [draw(2), draw(2), draw(2)], s = draw(4)
+    if (accept(d, s)) return seed
+  }
+  throw new Error('no seed')
+}
+
+test('choices in a sequence: what reads an open choice is asked next, and the steps between them see the answers', () => {
+  const rules = compileRulesV2(SPONSORED), play = game(rules)
+  // One 2 on the main dice and a 2 on the extra die: how it counts decides whether the top bonus opens.
+  const seed = seedFor(rules, (d, s) => d.filter(f => f === 2).length === 1 && s === 2)
+  const first = play.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  assert.deepEqual([first.status, first.choices.map(row => row.id), first.report], ['awaiting', ['use'], { raw: { label: '原始', value: 1 } }], 'the bonus waits for how the die counts')
+  assert.equal(first.show, undefined)
+  const second = play.call(3, { op: 'choose', choice: { use: 'add' } })
+  assert.deepEqual([second.status, second.of, second.choice, second.choices.map(row => row.id)], ['awaiting', first.id, { use: 'add' }, ['bonus']])
+  assert.deepEqual(second.report.n.value, 2, 'a step after the answered choice is known now')
+  const done = play.call(4, { op: 'choose', choice: { bonus: 2 } })
+  assert.deepEqual([done.status, done.of, done.choice, done.outcome.id, done.report.n.value, done.changes[0].to], ['settled', second.id, { use: 'add', bonus: 2 }, 'top', 2, 2])
+  // Answered at once, it settles in one go; ignoring the die leaves no bonus to ask.
+  play.call(5, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  assert.deepEqual(play.call(5, { op: 'choose', choice: { use: 'add', bonus: 1 } }).choice, { use: 'add', bonus: 1 })
+  play.call(6, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  const skipped = play.call(6, { op: 'choose', choice: {} })
+  assert.deepEqual([skipped.status, skipped.outcome.id], ['settled', 'ok'], 'the default answer opens nothing further')
+  assert.match(play.call(7, { op: 'act', action: 'roll', reason: 'r' }, seed).status, /awaiting/)
+  assert.match(play.call(7, { op: 'choose', choice: { bonus: 1 } }).refused, /nothing to choose for bonus/, 'with the die ignored by default the bonus never opens')
+  play.call(7, { op: 'choose', choice: {} })
+  // Without the extra die the step runs before any ask, so the outcome fixed by the dice is told while waiting.
+  const plain = seedFor(rules, d => d.filter(f => f === 2).length === 2)
+  const top = play.call(8, { op: 'act', action: 'roll', params: { extra: false }, reason: 'r' }, plain)
+  assert.deepEqual([top.choices.map(row => row.id), top.report.n.value, top.dice.s, top.faces.s], [['bonus'], 2, undefined, undefined], 'a group with no die this time is not in the record')
+})
+
+test('a condition the manager reports: listed to the player, required from the model when it answers', () => {
+  const rules = compileRulesV2(SPONSORED), play = game(rules)
+  const seed = seedFor(rules, (d, s) => d.filter(f => f === 2).length === 1 && s === 1)
+  const waiting = play.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  assert.deepEqual(waiting.choices, [{ id: 'paid', label: '进贡了吗', kind: 'boolean', by: 'gm', hint: '提到蓝色', default: true }])
+  assert.match(waiting.stop, /by gm 的条件由你/)
+  assert.match(play.call(3, { op: 'choose', choice: {} }).refused, /进贡了吗 \(paid\) is yours to report \(by gm\)/)
+  assert.deepEqual(play.call(3, { op: 'choose', choice: { paid: false } }).outcome.id, 'no')
+  assert.throws(() => compileRulesV2({ ...SPONSORED, actions: { x: { label: 'x', choices: [{ id: 'a', by: 'dm', type: 'boolean' }] } } }), /actions\.x\.choices\.a\.by: must be player or gm/)
 })
