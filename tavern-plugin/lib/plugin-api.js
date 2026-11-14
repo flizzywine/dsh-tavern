@@ -755,15 +755,17 @@ export function createTavernPluginApi(deps) {
     // status() → { ready, reason?, model?, maxReferences } describes the plugin's current channel;
     // generate({ prompt, references: [{ data, mediaType }], width, height, background, quality, signal })
     // → { data, mediaType }. A thrown error with requestMayHaveSucceeded === false says nothing was billed.
-    imageProvider({ id, label, status, generate, models } = {}) {
+    // presets(): optional read-only list of the style presets generate({ promptPreset }) accepts.
+    imageProvider({ id, label, status, generate, models, presets } = {}) {
       const owner = ownerOf(this)
       sectionName(id)
       if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new Error('label 必须是 1–30 字')
       if (typeof status !== 'function') throw new TypeError('imageProvider 需要 status 函数')
       if (typeof generate !== 'function') throw new TypeError('imageProvider 需要 generate 函数')
       if (models !== undefined && typeof models !== 'function') throw new TypeError('models 必须是函数')
+      if (presets !== undefined && typeof presets !== 'function') throw new TypeError('presets 必须是函数')
       const key = owner + '/' + id
-      const entry = { id: key, owner, label: label.trim(), models,
+      const entry = { id: key, owner, label: label.trim(), models, presets,
         status: async (input = {}) => {
           const value = await bounded(Promise.resolve().then(() => status({ ...input })), '生图渠道 ' + key, POOL_TIMEOUT_MS)
           const maxReferences = Number.isSafeInteger(value?.maxReferences) && value.maxReferences > 0 ? value.maxReferences : 0

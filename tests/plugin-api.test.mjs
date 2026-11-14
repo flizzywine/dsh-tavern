@@ -1051,7 +1051,7 @@ test('生图渠道：插件注册的出图能力带上归属，状态被规整�
       generate: async ({ prompt }) => {
         if (prompt === 'boom') throw Object.assign(new Error('渠道挂了'), { requestMayHaveSucceeded: false })
         return { data: new Uint8Array([1]), mediaType: 'image/png' }
-      } })
+      }, presets: () => [{ id: 'no-style', name: '不加画风', status: 'stable', usages: [] }] })
   } })
   await tick()
   const [entry] = h.api.imageProviders()
@@ -1059,9 +1059,11 @@ test('生图渠道：插件注册的出图能力带上归属，状态被规整�
   assert.equal(entry.label, '配图')
   assert.deepEqual(await entry.status(), { ready: true, reason: '', model: 'gpt-image', maxReferences: 0 })
   assert.deepEqual(await entry.generate({ prompt: 'a' }), { data: new Uint8Array([1]), mediaType: 'image/png' })
+  assert.deepEqual(entry.presets().map(preset => preset.id), ['no-style'])
   await assert.rejects(entry.generate({ prompt: 'boom' }), error => error.requestMayHaveSucceeded === false)
   assert.throws(() => tavern.imageProvider({ id: 'online', label: '重复', status() {}, generate() {} }), /已注册/)
   assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', generate() {} }), /status/)
+  assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', status() {}, generate() {}, presets: [] }), /presets/)
 
   assert.deepEqual(await tavern.generateImage({ prompt: '猫', width: 64, height: 64 }), { data: new Uint8Array([2]), mediaType: 'image/png' })
   assert.deepEqual(asked, [{ prompt: '猫', width: 64, height: 64 }])
