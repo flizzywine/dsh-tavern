@@ -511,8 +511,9 @@ window.__ModuleLoader__.load({
 				}
 			}
 			const runtimeControl = ["claimTavernScriptWork", "startTavernScriptWork", "getTavernScriptWorkState", "heartbeatTavernScriptRuntime", "completeTavernHelperEvent", "releaseTavernHelperRuntime"].includes(method);
-            // Keep stage reads on authenticated HTTP; the upstream mux only declares script controls.
-			const controlChannel = runtimeControl && typeof tavernSessionSignals !== "undefined" && typeof tavernSessionSignals.control === "function" ? tavernSessionSignals : null;
+            // Only reads ride the mux: getStageDirection without readOnly may run and save the director, so it stays on HTTP.
+            const multiplexedRead = ['getStageModHistory', 'getDialogueBubbles'].includes(method) || method === 'getStageDirection' && args?.readOnly === true;
+			const controlChannel = (runtimeControl || multiplexedRead) && typeof tavernSessionSignals !== "undefined" && typeof tavernSessionSignals.control === "function" ? tavernSessionSignals : null;
 			const started = Date.now();
             const clockStart = performance.now();
             const roundKey = method + ':' + (sessionId || args?.sessionId || '');
@@ -579,7 +580,8 @@ window.__ModuleLoader__.load({
                 return result;
                 });
             };
-            // Projections retain their HTTP authority and origin-bound media lease checks.
+            // The authenticated Remote mux carries slow reads without HTTP/1.1 slots.
+            // Projections mint origin-bound media leases, so retain their HTTP authority checks.
             const responsePromise = controlChannel
                 ? Promise.resolve().then(() => controlChannel.control(method, JSON.parse(requestBody), requestOptions && requestOptions.signal))
                 : ['getAssetPackPresentation', 'getStagePhonePresentation'].includes(method)
