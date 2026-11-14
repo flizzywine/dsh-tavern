@@ -97,15 +97,22 @@ export function registerTurnLifecycleHooks({
       throw new Error(message)
     }
     if (assistant === null || assistant.text === '') {
-      const reasoningOnly = assistant !== null && assistant.reasoningOnly === true
-      const message = reasoningOnly
-        ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
-        : '模型本轮没有返回正文；请重新生成本轮正文。'
+      // A stream that stopped at the output limit is not an empty answer: the model
+      // wrote a body (or a submit_story argument) that never completed. Reporting it
+      // as empty-response hid the real cause, and a cut submission looks exactly like
+      // a model that returned nothing.
+      const truncated = assistant !== null && reachedOutputLimit(assistant)
+      const reasoningOnly = !truncated && assistant !== null && assistant.reasoningOnly === true
+      const message = truncated
+        ? '本轮输出达到上限被截断，正文没有完整提交；请重新生成本轮正文。'
+        : reasoningOnly
+          ? '模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。'
+          : '模型本轮没有返回正文；请重新生成本轮正文。'
       await turnOrchestrator.recordFailure({
         sessionId,
         turn: payload.turn,
         requestId,
-        code: reasoningOnly ? 'reasoning-only' : 'empty-response',
+        code: truncated ? 'output-limit' : (reasoningOnly ? 'reasoning-only' : 'empty-response'),
         message
       })
       throw new Error(message)
