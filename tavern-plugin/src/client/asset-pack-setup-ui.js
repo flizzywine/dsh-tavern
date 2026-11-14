@@ -597,7 +597,7 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
 function NewFigureStudio({ctx,draft,pack,figure,sprite,avatar,request,notes,input,onRetry,onDrawing}) {
   const {binding}=ctx,packId=draft.packId;
   const enqueue=job=>ctx.writer.packOp(packId,job,{quiet:true}),importFigureImage=figureImageImporter({binding,packId,enqueue});
-  const gen=useAssetGen({binding,packId,enqueue,importFigureImage});
+  const gen=useAssetGen({binding,packId,enqueue,importFigureImage,savePictureFile});
   const at=kind=>({packId,figureId:draft.figureId,outfitKey:NEW_FIGURE_OUTFIT,kind,emotionId:NEW_FIGURE_FACE});
   const spriteCell=genCell(gen,at('sprite')),avatarCell=genCell(gen,at('avatar'));
   const [failed,setFailed]=React.useState(''),[adopting,setAdopting]=React.useState(''),asked=React.useRef(0),taken=React.useRef(new Set());

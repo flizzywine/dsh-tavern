@@ -1118,7 +1118,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     onChange:e=>{const file=e.target.files?.[0],aim=tileAim.current;e.target.value='';if(!file||!aim||!outfit)return;
       if(aim.k==='settei')upload.run('正在上传…',()=>importSettei(figure.id,outfit.key,file));else pick(aim.k,aim.id,file,outfit,{newState:aim.k==='sprite'&&!!outfit.sprite,replace:!!aim.replace});}});
   const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
-  const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))return;setError(errorText(e));});
+  const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(e?.code==='TARGET_CHANGED')return;setError(errorText(e));});
   const askRemoveImage=(r,k,dynamic=false)=>{const noun=k==='avatar'?'头像':'立绘',kept=k==='avatar'?'立绘、模型':'头像、模型';
     setConfirm({title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
     onConfirm:()=>removeFigureImage(figure.id,outfit.key,r.id,k)});};
@@ -1162,11 +1162,12 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     const standItem=stand&&item('fallback','设置回退',()=>setPage('stand'),{more:true,hint:standNow?standName:'无回退'});
     const items=!genView?[]:state==='candidate'?(cell.sheet?[item('eye','查看八个头像',go(()=>gen.openSheet(cell.sheet)))]:[
         cell.error&&h('p',{key:'why',className:'ap-cell-menu-warn'},h(Glyph,{name:'warning'}),h('span',null,'采用失败：'+cell.error)),
-        item('check','采用',go(()=>runTile(()=>gen.accept(cell.job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))gen.openSheet(target);throw e;})))),
-        item('close','不要',go(()=>runTile(()=>gen.reject(cell.job)))),item('reset','重画…',go(()=>openDialog(k,r.id,'redraw'))),
+        item('check','采用',go(()=>runTile(()=>gen.accept(cell.job).catch(e=>{if(e?.code==='TARGET_CHANGED')gen.openSheet(target);throw e;})))),
+        item('close','不要',go(()=>runTile(()=>gen.reject(cell.job)))),item('export','下载',go(()=>runTile(()=>gen.download(cell.job,figure.name+'-'+outfit.label+'-'+r.label+viewNoun)))),item('reset','重画…',go(()=>openDialog(k,r.id,'redraw'))),
         item('edit','改图…',go(()=>openDialog(k,r.id,'edit'))),item('eye','查看大图',go(()=>setBig({label:r.label,jobId:cell.job.jobId,actions:[
-          {icon:'check',label:'采用',onClick:()=>{setBig(null);runTile(()=>gen.accept(cell.job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))gen.openSheet(target);throw e;}));}},
+          {icon:'check',label:'采用',onClick:()=>{setBig(null);runTile(()=>gen.accept(cell.job).catch(e=>{if(e?.code==='TARGET_CHANGED')gen.openSheet(target);throw e;}));}},
           {icon:'remove',label:'不要',onClick:()=>{setBig(null);runTile(()=>gen.reject(cell.job));}},
+          {icon:'export',label:'下载',onClick:()=>runTile(()=>gen.download(cell.job,figure.name+'-'+outfit.label+'-'+r.label+viewNoun))},
           {icon:'reset',label:'重画…',onClick:()=>{setBig(null);openDialog(k,r.id,'redraw');}},
           {icon:'edit',label:'改图…',onClick:()=>{setBig(null);openDialog(k,r.id,'edit');}}]})))]):
       state==='running'||state==='queued'?[item('stop',state==='queued'?'取消排队':'取消',go(()=>runTile(()=>state==='queued'?gen.dequeue(target):cell.job&&gen.cancel(cell.job))),{off:cell.after?'采用前一张图后开始':state==='running'&&!cell.job?'正在发送…':''})]:

@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto'
 import resolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 import {matchBubbleMood} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {planAutoFigures} from './domain/auto-figure.js'
-import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteCasting, castDrawn, noteDrawn, noteWriteFailure, autoCastProblem, looksDelivered, wantSettei, setteiGivenUp} from './domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, noteCasting, castDrawn, noteDrawn, noteWriteFailure, autoCastProblem, looksDelivered, wantSettei, setteiGivenUp} from './domain/auto-cast-queue.js'
 
 const {resolveFigureName} = resolution
 const ROOT = 'auto-cast/', INDEX = ROOT + 'index.json', PER_CARD = 2
@@ -66,17 +66,13 @@ const sourceOf = (chat, body) => {
   return {chatId:chat.id, branchId:chat.timeline.branchId, revision:chat.timeline.revision, turn, messageId:message.id || 'turn:' + turn, paragraphIds:body.paragraphs.map(row => row.paragraphId)}
 }
 
-// The key colour for a channel without transparency (as Dot's deliveries): green, magenta for a figure that wears green.
-const keyColor = (figure, pending) => /绿|green/i.test([figure.name, figure.identityAppearance, pending && joinTraits(pending)].filter(Boolean).join(' ')) ? '#FF00FF' : '#00FF00'
-const keyBackground = key => 'Background: one flat solid ' + key + ' colour filling the whole canvas, no shadow, gradient or floor; keep that colour out of the character.'
-
 // 自动选角's runtime: each committed round, the 选角助理 decides about the new speakers and they are
 // written at once (copied, or created with their voice); then the round's requests are counted and the queue's best jobs are
 // drawn on the image plugin's channel (at most PER_CARD at a time per card). A picture stays on disk until it lands; the ready
 // pictures of a card land together. Never in the way of the story: errors stay in the record and log.
 // store: profile data; settings(cardPath) → {enabled, level} in effect; library: auto-cast-library.js; images: {prompt,
-// generate, status, check, matte?} (the plugin image entry's automatic prompt, picture and cheap checks; matte({data, key}) → a transparent PNG,
-// the local keying of a channel that cannot draw transparent pictures — not wired yet);
+// generate, status, check} (the plugin image entry's automatic prompt, picture and cheap checks; a channel that cannot draw a
+// transparent picture is keyed inside generate, the same as the asset library's own pictures);
 // cast({cardPath, chat, speakers, cast}) → the assistant's decisions.
 export function createAutoCast({store, settings, library, images, cast:castAssistant = null, now = Date.now, onError = () => {}}) {
   let active = true, chain = Promise.resolve()
@@ -104,8 +100,7 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
   const castFor = (cast, record) => cast.figures.filter(figure => castDrawn(record, figure)).map(figure => ({...figure,
     settei:figure.settei || record.jobs[jobKey({kind:'identity-settei', ref:figure.ref})]?.status === 'ready'}))
 
-  // keyed: the channel draws no transparent picture, so a 立绘 is drawn on a flat key colour and keyed out here (images.matte).
-  async function draw(cast, job, channel, keyed) {
+  async function draw(cast, job, channel) {
     const figure = cast.figures.find(row => row.ref.figureId === job.ref.figureId), record = await read(cast.cardId)
     const pictures = []
     if (job.kind === 'sprite') {
@@ -114,10 +109,8 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     }
     // 外貌: the figure's 人物库 record's; the 选角助理's text stands in while the record has none.
     const pending = record.appearance?.[figureKey(job.ref)]
-    const {prompt:base, output} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
+    const {prompt, output} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
       emotionId:job.emotionId, userPrompt:job.kind === 'identity-settei' ? SETTEI_VIEWS : '', fromSettei:job.kind === 'sprite'})
-    const key = keyed && job.kind === 'sprite' ? keyColor(figure, pending) : null
-    const prompt = key ? base + '\n\n' + keyBackground(key) : base
     const [width, height] = output.size.split('x').map(Number), controller = new AbortController()
     // Every call is kept (drawn): what, how long, and its cost when the image entry returns one.
     const generate = async input => {
@@ -131,17 +124,13 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     controllers.add(controller)
     try {
       for (let attempt = 0; ; attempt++) {
-        const reply = await generate({prompt, width, height, background:key ? 'opaque' : output.background, quality:output.quality, references:pictures, signal:controller.signal})
+        const reply = await generate({prompt, width, height, background:output.background, quality:output.quality, references:pictures, signal:controller.signal})
         if (!active) return
         if (reply.mediaType !== 'image/png') throw Object.assign(new Error('生图渠道没有返回 PNG'), {code:'GENERATION_FAILED'})
-        const drawn = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength)
-        const data = key ? Buffer.from(await images.matte({data:drawn, key})) : drawn, checks = images.check(data, job.kind)
-        if (key && !checks.hasTransparency) { await update(cast.cardId, current => jobFailed(current, job, now(), 'MATTE_FAILED', channel)); return }
-        if (job.kind === 'sprite' && !checks.hasTransparency) {
-          // This channel draws no transparent picture: no more 立绘 for it.
-          await update(cast.cardId, current => jobFailed(channelOpaque(current, channel), job, now(), 'OPAQUE_CHANNEL', channel))
-          return
-        }
+        const data = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), checks = images.check(data, job.kind)
+        // A 立绘 with a background is not used. The image entry keys this channel's next transparent picture (it noted the
+        // model), or keying did not work: the job fails and is tried again like any other failure.
+        if (job.kind === 'sprite' && !checks.hasTransparency) { await update(cast.cardId, current => jobFailed(current, job, now(), 'OPAQUE_PICTURE', channel)); return }
         if (attempt === 0 && checks.warnings.some(row => REDRAW.has(row.code))) continue
         const file = ROOT + sha(cast.cardId).slice(0, 32) + '/' + sha(jobKey(job)) + '.png'
         await store.writeBytes(file, data)
@@ -164,12 +153,11 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
         if (!cast?.packId || !status?.ready) return
         // The channel as status() names it (its id, its model): a pause after failures is this channel's alone.
         const channel = [status.channel, status.model].filter(Boolean).join('/') || 'default', record = await read(cast.cardId)
-        const transparent = channelDrawsSprites(record, channel, status), keyed = !transparent && !!images.matte
-        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), sprites:transparent || keyed, now:now(), channel})
+        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), now:now(), channel})
         if (!jobs.length && !running.size) return
         for (const job of jobs.slice(0, PER_CARD - running.size)) {
           const key = jobKey(job)
-          running.set(key, draw(cast, job, channel, keyed)
+          running.set(key, draw(cast, job, channel)
             .catch(error => { onError(error); return update(cast.cardId, current => jobFailed(current, job, now(), error.code ? error.code + ': ' + error.message : error, channel)) })
             .finally(() => { running.delete(key); void land(cardPath) }))
         }

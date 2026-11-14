@@ -2,7 +2,7 @@
 // the cast it reads (the figures of the card's 自动生成 pack) in, the next picture out. Nothing here draws or writes.
 //
 // Record: {version:1, misses:{[figure]:{[emotionId]:n}}, lines:{[figure]:n}, wanted:{[figure]:true} (a CG waits for its 人设图), jobs:{[jobKey]:{…}},
-// channels:{[channel]:{transparent:false}}, drawn:[…]}. `figure` is packId/figureId. A job is only kept while it is ready (drawn,
+// drawn:[…]}. `figure` is packId/figureId. A job is only kept while it is ready (drawn,
 // not yet landed) or has failed; what is done is read from the cast, never stored twice. `drawn` keeps every call to the channel
 // (redraws and failures too): what it drew, when, how long it took and, when the channel tells, what it cost.
 
@@ -10,7 +10,7 @@
 export const AUTO_CAST_EMOTIONS = Object.freeze(['calm', 'anxious', 'joy', 'sad', 'shy', 'crying', 'disgust', 'anger', 'love'])
 const COMMON = 3, MAX_FAILURES = 2, FAILURE_PAUSE_MS = 30 * 60_000
 
-export const emptyAutoCastRecord = () => ({version:1, misses:{}, lines:{}, wanted:{}, jobs:{}, channels:{}, cast:{}, same:{}, appearance:{}, drawn:[]})
+export const emptyAutoCastRecord = () => ({version:1, misses:{}, lines:{}, wanted:{}, jobs:{}, cast:{}, same:{}, appearance:{}, drawn:[]})
 export const figureKey = ref => ref.packId + '/' + ref.figureId
 // One picture: a figure's 人设图, or one emotion's 立绘 (in the outfit it lands in; null = the figure's first outfit).
 export const jobKey = job => JSON.stringify([job.kind, job.ref.packId, job.ref.figureId, job.kind === 'sprite' ? job.emotionId : null])
@@ -31,7 +31,7 @@ export function noteRound(record, requests, cast) {
 }
 
 // The jobs to draw, best first. cast: [{ref, settei:boolean, sprites:[emotionId]}] (the automatic pack's figures);
-// level: late | eager | all; sprites: false while the channel cannot draw a transparent picture. Skipped: a job ready or in
+// level: late | eager | all. Skipped: a job ready or in
 // flight (`busy`: Set of job keys), or one that failed MAX_FAILURES times in a row on this `channel`, for FAILURE_PAUSE_MS after the
 // last (another channel or model tries it at once).
 //   1. What the story asked for and has no picture, by misses; a figure with no 立绘 at all puts its 人设图 and its first
@@ -40,7 +40,7 @@ export function noteRound(record, requests, cast) {
 //      rest of the standard order. 积极 covers the figures who have spoken (the opening's speakers too); 全部 every figure.
 // A 立绘 is drawn from the figure's 人设图: a figure without one has only its 人设图 planned (the runtime counts a drawn,
 // not yet landed 人设图 as there).
-export function planAutoCast(record, cast, level, {busy = new Set(), sprites = true, now = 0, channel = null} = {}) {
+export function planAutoCast(record, cast, level, {busy = new Set(), now = 0, channel = null} = {}) {
   const jobs = [], seen = new Set()
   const usable = job => {
     const key = jobKey(job), stored = record.jobs[key]
@@ -50,7 +50,6 @@ export function planAutoCast(record, cast, level, {busy = new Set(), sprites = t
   const add = (figure, emotionId) => {
     const settei = {kind:'identity-settei', ref:figure.ref}
     if (!figure.settei) { if (usable(settei)) { jobs.push(settei); seen.add(jobKey(settei)) } return }
-    if (!sprites) return
     const sprite = {kind:'sprite', ref:figure.ref, emotionId}
     if (!figure.sprites.includes(emotionId) && usable(sprite)) { jobs.push(sprite); seen.add(jobKey(sprite)) }
   }
@@ -104,10 +103,6 @@ export function jobsLanded(record, jobs) {
   }
   return next
 }
-// A channel that returned an opaque 立绘 cannot draw transparent pictures: no more 立绘 go to it (its status() may say so
-// first: `transparent: false`).
-export const channelOpaque = (record, channel) => ({...record, channels:{...record.channels, [channel]:{transparent:false}}})
-export const channelDrawsSprites = (record, channel, status) => status?.transparent !== false && record.channels[channel]?.transparent !== false
 
 // The 外貌 of these figures reached their 人物库 record (with their pictures, or deliver after a restart): the record keeps no copy.
 export function looksDelivered(record, keys) {

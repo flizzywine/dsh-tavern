@@ -6232,7 +6232,7 @@ window.__ModuleLoader__.load({
 		  function figureImageImporter({binding,packId,enqueue}) {
 		    return async(figureId,outfitKey,emotion,file,kind,{expectedPackId,expectedRevision,onImported,customEmotion,imageId}={})=>{
 		      const image=await prepareImage(file,kind,false),media=await assetImagePublication.closure(image),svc=binding.service;
-		      if(expectedRevision!==undefined&&image.hasAlpha===false)throw new Error('生成素材没有有效透明背景，请先处理后再导入');
+		      if(expectedRevision!==undefined&&image.hasAlpha===false)throw new Error('这张图没有透明底，不能采用。请重画：这个模型以后会先画在纯色底上，再自动抠成透明');
 		      const committed=await enqueue(async c=>{
 		        if(expectedRevision!==undefined&&(expectedPackId!==packId||c.revision!==expectedRevision))throw Object.assign(new Error('原素材包或目标已变化，请刷新复核后再采用'),{code:'REVISION_CONFLICT'});
 		        return svc.patchPack(await imagePublisher.figure({snapshot:c,figureId,outfitKey,emotion,kind,image,media,customEmotion,imageId,
@@ -6391,7 +6391,7 @@ window.__ModuleLoader__.load({
 		          tagIcons:icons.some(icon=>icon.tag===tag)?icons.map(icon=>icon.tag===tag?row:icon):[...icons,row]}});});
 		    };
 		    const uploadBackground=(assetId,file)=>putThen(file,'background',(s,hash)=>({assets:s.manifest.assets.map(a=>{if(a.kind!=='backgrounds'||a.id!==assetId)return a;const next={...a,media:hash};delete next.pendingMedia;return next;})}));
-		    const gen=useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged});
+		    const gen=useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged,savePictureFile});
 		    // the generation dialog's 「设为本包默认」 — the pack's default style preset.
 		    const saveStyle=style=>enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{genStyle:style}}));
 		    // a model folder / ZIP dropped on the pack window: a new figure (named after the folder) whose 默认 outfit the import
@@ -9207,7 +9207,7 @@ window.__ModuleLoader__.load({
 		      onChange:e=>{const file=e.target.files?.[0],aim=tileAim.current;e.target.value='';if(!file||!aim||!outfit)return;
 		        if(aim.k==='settei')upload.run('正在上传…',()=>importSettei(figure.id,outfit.key,file));else pick(aim.k,aim.id,file,outfit,{newState:aim.k==='sprite'&&!!outfit.sprite,replace:!!aim.replace});}});
 		    const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
-		    const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))return;setError(errorText(e));});
+		    const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(e?.code==='TARGET_CHANGED')return;setError(errorText(e));});
 		    const askRemoveImage=(r,k,dynamic=false)=>{const noun=k==='avatar'?'头像':'立绘',kept=k==='avatar'?'立绘、模型':'头像、模型';
 		      setConfirm({title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
 		      onConfirm:()=>removeFigureImage(figure.id,outfit.key,r.id,k)});};
@@ -9251,11 +9251,12 @@ window.__ModuleLoader__.load({
 		      const standItem=stand&&item('fallback','设置回退',()=>setPage('stand'),{more:true,hint:standNow?standName:'无回退'});
 		      const items=!genView?[]:state==='candidate'?(cell.sheet?[item('eye','查看八个头像',go(()=>gen.openSheet(cell.sheet)))]:[
 		          cell.error&&h('p',{key:'why',className:'ap-cell-menu-warn'},h(Glyph,{name:'warning'}),h('span',null,'采用失败：'+cell.error)),
-		          item('check','采用',go(()=>runTile(()=>gen.accept(cell.job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))gen.openSheet(target);throw e;})))),
-		          item('close','不要',go(()=>runTile(()=>gen.reject(cell.job)))),item('reset','重画…',go(()=>openDialog(k,r.id,'redraw'))),
+		          item('check','采用',go(()=>runTile(()=>gen.accept(cell.job).catch(e=>{if(e?.code==='TARGET_CHANGED')gen.openSheet(target);throw e;})))),
+		          item('close','不要',go(()=>runTile(()=>gen.reject(cell.job)))),item('export','下载',go(()=>runTile(()=>gen.download(cell.job,figure.name+'-'+outfit.label+'-'+r.label+viewNoun)))),item('reset','重画…',go(()=>openDialog(k,r.id,'redraw'))),
 		          item('edit','改图…',go(()=>openDialog(k,r.id,'edit'))),item('eye','查看大图',go(()=>setBig({label:r.label,jobId:cell.job.jobId,actions:[
-		            {icon:'check',label:'采用',onClick:()=>{setBig(null);runTile(()=>gen.accept(cell.job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))gen.openSheet(target);throw e;}));}},
+		            {icon:'check',label:'采用',onClick:()=>{setBig(null);runTile(()=>gen.accept(cell.job).catch(e=>{if(e?.code==='TARGET_CHANGED')gen.openSheet(target);throw e;}));}},
 		            {icon:'remove',label:'不要',onClick:()=>{setBig(null);runTile(()=>gen.reject(cell.job));}},
+		            {icon:'export',label:'下载',onClick:()=>runTile(()=>gen.download(cell.job,figure.name+'-'+outfit.label+'-'+r.label+viewNoun))},
 		            {icon:'reset',label:'重画…',onClick:()=>{setBig(null);openDialog(k,r.id,'redraw');}},
 		            {icon:'edit',label:'改图…',onClick:()=>{setBig(null);openDialog(k,r.id,'edit');}}]})))]):
 		        state==='running'||state==='queued'?[item('stop',state==='queued'?'取消排队':'取消',go(()=>runTile(()=>state==='queued'?gen.dequeue(target):cell.job&&gen.cancel(cell.job))),{off:cell.after?'采用前一张图后开始':state==='running'&&!cell.job?'正在发送…':''})]:
@@ -12723,7 +12724,7 @@ window.__ModuleLoader__.load({
 		  function NewFigureStudio({ctx,draft,pack,figure,sprite,avatar,request,notes,input,onRetry,onDrawing}) {
 		    const {binding}=ctx,packId=draft.packId;
 		    const enqueue=job=>ctx.writer.packOp(packId,job,{quiet:true}),importFigureImage=figureImageImporter({binding,packId,enqueue});
-		    const gen=useAssetGen({binding,packId,enqueue,importFigureImage});
+		    const gen=useAssetGen({binding,packId,enqueue,importFigureImage,savePictureFile});
 		    const at=kind=>({packId,figureId:draft.figureId,outfitKey:NEW_FIGURE_OUTFIT,kind,emotionId:NEW_FIGURE_FACE});
 		    const spriteCell=genCell(gen,at('sprite')),avatarCell=genCell(gen,at('avatar'));
 		    const [failed,setFailed]=React.useState(''),[adopting,setAdopting]=React.useState(''),asked=React.useRef(0),taken=React.useRef(new Set());

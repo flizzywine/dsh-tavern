@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {deflateSync} from 'node:zlib'
 import {checkAssetImage} from '../tavern-plugin/lib/domain/asset-image-processing.js'
-import {emptyAutoCastRecord, noteRound, planAutoCast, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteDrawn, noteWriteFailure, autoCastProblem, AUTO_CAST_EMOTIONS, wantSettei, setteiGivenUp} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteRound, planAutoCast, jobReady, jobFailed, jobsLanded, noteDrawn, noteWriteFailure, autoCastProblem, AUTO_CAST_EMOTIONS, wantSettei, setteiGivenUp} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
 import {createAutoCast, roundRequests} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 
 const PACK = '11111111-1111-4111-8111-111111111111', OWN = '22222222-2222-4222-8222-222222222222'
@@ -37,7 +37,6 @@ test('晚一轮: a figure without any picture gets its 人设图 and first 立�
   assert.deepEqual(summary(planAutoCast(failed, withSettei, 'late', {now:30, channel:'new'})), ['B:anxious', 'A:joy', 'A:sad'], 'another channel or model tries at once')
   assert.equal(Object.values(jobFailed(failed, {kind:'sprite', ref:A, emotionId:'sad'}, 40, null, 'new').jobs).find(job => job.emotionId === 'sad').failures, 1, 'and counts its own failures')
   assert.deepEqual(summary(planAutoCast(failed, withSettei, 'late', {now:20 + 31 * 60_000, channel:'old'})), ['B:anxious', 'A:joy', 'A:sad'], 'tried again after a pause')
-  assert.deepEqual(summary(planAutoCast(record, withSettei, 'late', {sprites:false})), [], 'no 立绘 for a channel without transparency')
   const landed = jobsLanded(record, [{kind:'sprite', ref:A, emotionId:'joy'}])
   assert.equal(landed.misses[PACK + '/' + A.figureId].joy, undefined)
 })
@@ -67,13 +66,6 @@ test('积极: the common three for each figure in turn (more lines first), then 
   assert.deepEqual(AUTO_CAST_EMOTIONS.slice(0, 3), ['calm', 'anxious', 'joy'])
 })
 
-test('a channel that drew an opaque 立绘 gets no more 立绘; status() may say so first', () => {
-  assert.equal(channelDrawsSprites(emptyAutoCastRecord(), 'm', {transparent:true}), true)
-  assert.equal(channelDrawsSprites(emptyAutoCastRecord(), 'm', {transparent:false}), false)
-  assert.equal(channelDrawsSprites(channelOpaque(emptyAutoCastRecord(), 'm'), 'm', {}), false)
-  assert.equal(channelDrawsSprites(channelOpaque(emptyAutoCastRecord(), 'm'), 'other', {}), true)
-})
-
 // ---------- runtime ----------
 function crc32(bytes) {
   let crc = ~0
@@ -93,7 +85,7 @@ const sprite = ({edge = false, opaque = false} = {}) => png(512, 768, (x, y) => 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 async function settle(predicate) { for (let i = 0; i < 200 && !predicate(); i++) await tick() }
 
-function harness({replies, transparent, matte, cost, refuse, failDraw} = {}) {
+function harness({replies, transparent, cost, refuse, failDraw} = {}) {
   const files = new Map(), writes = [], prompts = [], generated = []
   const store = {readJson:async key => files.has(key) ? structuredClone(files.get(key)) : null, writeJson:async (key, value) => files.set(key, structuredClone(value)),
     updateJson:async (key, fn) => files.set(key, fn(files.get(key) ?? null)), readBytes:async key => files.get(key) ?? null, writeBytes:async (key, data) => files.set(key, Buffer.from(data)), remove:async key => files.delete(key)}
@@ -110,7 +102,7 @@ function harness({replies, transparent, matte, cost, refuse, failDraw} = {}) {
   const images = {prompt:async input => { prompts.push(input); return {prompt:'p:' + input.kind, output:input.kind === 'sprite' ? {size:'1024x1536', background:'transparent', quality:'high'} : {size:'1536x1024', background:'opaque', quality:'high'}} },
     check:(data, kind) => checkAssetImage(data, kind),
     generate:async input => { generated.push(input); if (failDraw) throw Object.assign(new Error('渠道拒绝'), {code:'GENERATION_FAILED'}); const next = queue.shift() || (input.background === 'transparent' ? sprite() : settei()); return {data:new Uint8Array(next), mediaType:'image/png', ...(cost ? {cost} : {})} },
-    status:async () => ({ready:true, model:'m', ...(transparent === undefined ? {} : {transparent})}), ...(matte ? {matte} : {})}
+    status:async () => ({ready:true, model:'m', ...(transparent === undefined ? {} : {transparent})})}
   const settings = {enabled:true, level:'late'}
   const cast = createAutoCast({store, settings:async () => settings, library, images, now:() => 1000})
   // holdWrites(): pack writes wait (never released) — the pictures stay drawn and not landed, as a restart finds them.
@@ -168,33 +160,21 @@ test('a failed cheap check redraws once, then the second picture is used; every 
     [['identity-settei', null, 'm', 0.04, 'number'], ['sprite', 'joy', 'm', 0.04, 'number'], ['sprite', 'joy', 'm', 0.04, 'number']], 'kept after landing, the redraw too')
 })
 
-test('an opaque 立绘 marks the channel; no more 立绘 go to it', async () => {
+test('an opaque 立绘 is not used: its job fails like any other and is tried again (the image entry keys that channel next)', async () => {
   const h = harness({replies:[settei(), sprite({opaque:true})]})
   await h.cast.round('cards/c.json', body([['甲', '喜悦']]), chat)
-  await settle(() => h.writes.length > 0)
-  await settle(() => h.generated.length >= 2)
-  for (let i = 0; i < 20; i++) await tick()
-  assert.equal(h.generated.length, 2)
-  assert.deepEqual(kinds(h.writes), ['identity-settei'])
+  await settle(() => kinds(h.writes).length >= 2)
+  assert.deepEqual(kinds(h.writes), ['identity-settei', 'sprite'], 'only the transparent one lands')
   const record = [...h.files].find(([key]) => key.endsWith('.json') && !key.endsWith('index.json'))[1]
-  assert.deepEqual(record.channels, {m:{transparent:false}})
+  assert.equal(record.channels, undefined, 'no channel is given up')
 })
 
-test('a channel without transparency: no 立绘 until a matte step is given; with one, the 立绘 is drawn on a key colour and keyed', async () => {
-  const plain = harness({transparent:false})
-  await plain.cast.round('cards/c.json', body([['甲', '喜悦']]), chat)
-  await settle(() => plain.writes.length > 0)
-  for (let i = 0; i < 20; i++) await tick()
-  assert.deepEqual(plain.prompts.map(p => p.kind), ['identity-settei'], 'without a matte step only the 人设图 is drawn')
-  const keyed = []
-  const h = harness({transparent:false, replies:[settei(), sprite({opaque:true})], matte:async input => { keyed.push(input); return sprite() }})
+test('a channel without transparency still draws 立绘: they are asked for transparent, the image entry keys them', async () => {
+  const h = harness({transparent:false})
   await h.cast.round('cards/c.json', body([['甲', '喜悦']]), chat)
   await settle(() => kinds(h.writes).length >= 2)
   assert.deepEqual(kinds(h.writes), ['identity-settei', 'sprite'])
-  assert.equal(h.generated[1].background, 'opaque')
-  assert.match(h.generated[1].prompt, /#00FF00/)
-  assert.equal(keyed.length, h.generated.length - 1, 'every 立绘 drawn (a redraw too) is keyed')
-  assert.ok(keyed.every(row => row.key === '#00FF00'))
+  assert.equal(h.generated[1].background, 'transparent')
 })
 test('switched off, nothing is counted or drawn; after a restart the record lands and continues', async () => {
   const h = harness()
