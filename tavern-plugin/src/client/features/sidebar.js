@@ -147,14 +147,27 @@
 			// （整屏侧栏铺开后被画在侧栏之下，看不见；空着时也占 34px），按 regionArea 下沿算
 			// 会连它一起让出来，版本行和「设置」之间就空出一块。只让到「设置」那一行的上沿。
 			React.useEffect(function () {
+				return function () {
+					if (typeof document !== "undefined" && document.documentElement) {
+						document.documentElement.style.removeProperty("--dsh-tavern-host-foot-inset");
+					}
+				};
+			}, []);
+			React.useEffect(function () {
 				if (collapsed || typeof document === "undefined" || typeof window === "undefined") return function () {};
 				const root = document.documentElement;
 				let frame = 0;
 				let watching = null;
 				const observer = typeof ResizeObserver === "function" ? new ResizeObserver(function () { schedule(); }) : null;
 				function settle(inset) {
-					if (inset > 0) root.style.setProperty("--dsh-tavern-host-foot-inset", inset + "px");
-					else root.style.removeProperty("--dsh-tavern-host-foot-inset");
+					if (inset > 0) {
+						const next = inset + "px";
+						if (root.style.getPropertyValue("--dsh-tavern-host-foot-inset") !== next) {
+							root.style.setProperty("--dsh-tavern-host-foot-inset", next);
+						}
+					} else if (root.style.getPropertyValue("--dsh-tavern-host-foot-inset") !== "") {
+						root.style.removeProperty("--dsh-tavern-host-foot-inset");
+					}
 				}
 				function measure() {
 					frame = 0;
@@ -182,7 +195,8 @@
 					}
 				}
 				function schedule() { if (!frame) frame = window.requestAnimationFrame(measure); }
-				measure();
+				// 延后到下一帧合并测量，并保留上次打开缓存的让位高度，避免点击展开第 0 帧强制同步布局与根样式重算。
+				schedule();
 				window.addEventListener("resize", schedule);
 				if (window.visualViewport) window.visualViewport.addEventListener("resize", schedule);
 				return function () {
@@ -190,7 +204,6 @@
 					if (window.visualViewport) window.visualViewport.removeEventListener("resize", schedule);
 					if (observer) observer.disconnect();
 					if (frame) window.cancelAnimationFrame(frame);
-					root.style.removeProperty("--dsh-tavern-host-foot-inset");
 				};
 			}, [collapsed]);
 
@@ -1313,13 +1326,25 @@
 					h("button", { className: "dsh-tavern-side-icon", title: "新建对话（跟随当前模式）", onClick: function () { props.toggleSidebar(); window.setTimeout(function () { openPicker("cards"); }, 180); } }, "＋")
 				)
 			) : null;
-			const isHistoryInMode = item => groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern");
-			const activeHistory = unarchivedHistory.filter(isHistoryInMode);
-			const archivedHistory = history.filter(item => archivedSessions.has(item.sessionId) && isHistoryInMode(item));
-			const visibleHistory = archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
+			const activeHistory = React.useMemo(function () {
+				return unarchivedHistory.filter(function (item) { return groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern"); });
+			}, [unarchivedHistory, uiMode]);
+			const archivedHistory = React.useMemo(function () {
+				return history.filter(function (item) { return archivedSessions.has(item.sessionId) && groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern"); });
+			}, [history, archivedSessions, uiMode]);
+			const visibleHistory = React.useMemo(function () {
+				return archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
+			}, [archiveExpanded, activeHistory, archivedHistory]);
 			// 最新回复序下整张列表按活动重排；创建序保持注册表的固定位置。
-			const orderedActiveHistory = orderTavernHistory(activeHistory, summaries, historyOrder);
-			const orderedArchivedHistory = orderTavernHistory(archivedHistory, summaries, historyOrder);
+			const orderedActiveHistory = React.useMemo(function () {
+				return orderTavernHistory(activeHistory, summaries, historyOrder);
+			}, [activeHistory, summaries, historyOrder]);
+			const orderedArchivedHistory = React.useMemo(function () {
+				return orderTavernHistory(archivedHistory, summaries, historyOrder);
+			}, [archivedHistory, summaries, historyOrder]);
+			const groupedActiveHistory = React.useMemo(function () {
+				return uiMode === "play" ? groupTavernHistory(orderedActiveHistory, summaries, historyOrder) : [];
+			}, [uiMode, orderedActiveHistory, summaries, historyOrder]);
 			// Deleting a card elsewhere may remove the chat open here; never leave it on screen.
 			removedChatsHandler.current = function (sessionIds) {
 				if (!sessionIds.includes(current)) return;
@@ -1413,19 +1438,27 @@
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
 					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(function (item) { return renderHistoryRow(item, group.name); })) : null);
 			}
-			const rows = uiMode !== "play" ? orderedActiveHistory.map(function (item) { return renderHistoryRow(item, ""); }) : groupTavernHistory(orderedActiveHistory, summaries, historyOrder).map(function (group) {
+			// 侧栏收起时不构建整张历史 VDOM 树，避免流式输出期间每次状态变化都白算全部会话行。
+			const rows = collapsed ? [] : (uiMode !== "play" ? orderedActiveHistory.map(function (item) { return renderHistoryRow(item, ""); }) : groupedActiveHistory.map(function (group) {
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
-			});
-			const archiveGroup = orderedArchivedHistory.length ? renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => {
+			}));
+			const archiveGroup = collapsed || !orderedArchivedHistory.length ? null : renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => {
 				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !orderedArchivedHistory.some(item => item.chatId === id)));
 				setArchiveExpanded(!archiveExpanded);
-			}) : null;
+			});
 			// ---------- 宽屏会话管理器 ----------
 			// 侧边栏一行放不下「玩家首条输入 + AI 首条回复 + 轮数」，批量整理 200+ 个
 			// 同前缀的导入存档要靠这一层：宽列表、搜标题和正文、按卡/轮数筛选、批量归档。
-			const managerPool = orderTavernHistory(history.filter(isHistoryInMode), summaries, historyOrder);
-			const managerCardOptions = Array.from(new Map(managerPool.filter(function (item) { return item.cardPath; }).map(function (item) { return [tavernHistoryCardKey(item), item.cardName || item.cardPath]; })).entries());
+			const hasHistoryInMode = activeHistory.length + archivedHistory.length > 0;
+			const managerPool = React.useMemo(function () {
+				if (!historyManagerOpen) return [];
+				return orderTavernHistory(activeHistory.concat(archivedHistory), summaries, historyOrder);
+			}, [historyManagerOpen, activeHistory, archivedHistory, summaries, historyOrder]);
+			const managerCardOptions = React.useMemo(function () {
+				if (!historyManagerOpen) return [];
+				return Array.from(new Map(managerPool.filter(function (item) { return item.cardPath; }).map(function (item) { return [tavernHistoryCardKey(item), item.cardName || item.cardPath]; })).entries());
+			}, [historyManagerOpen, managerPool]);
 			const managerQueryText = managerQuery.trim().toLowerCase();
 			// 面板收起时不跑筛选和预览格式化：侧边栏每敲一个字都会重渲染一次。
 			const managerVisible = !historyManagerOpen ? [] : managerPool.filter(function (item) {
@@ -1729,7 +1762,7 @@
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
 					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理"),
-					h("button", { className: "dsh-tavern-history-action dsh-tavern-history-panel", title: "宽屏管理会话", "aria-label": "宽屏管理会话", disabled: busy || !managerPool.length, onClick: openHistoryManager }, "⤢")),
+					h("button", { className: "dsh-tavern-history-action dsh-tavern-history-panel", title: "宽屏管理会话", "aria-label": "宽屏管理会话", disabled: busy || !hasHistoryInMode, onClick: openHistoryManager }, "⤢")),
 				managing ? h("div", { className: "dsh-tavern-history-selection" },
 					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: function () { setSelectedChats(visibleHistory.map(function (item) { return item.chatId; })); } }, "全选"),
 					h("span", null, "已选 " + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length),
@@ -1781,13 +1814,25 @@
 			// Keep the native account menu, but present its launcher as Settings.
 			ctx.effect(function () {
 				const originals = new Map();
+				const selector = '[data-slot="settings.launcher"] button[data-signed-out]';
 				function sync() {
-					for (const button of document.querySelectorAll('[data-slot="settings.launcher"] button[data-signed-out]')) {
+					for (const button of document.querySelectorAll(selector)) {
 						if (!originals.has(button)) originals.set(button, button.getAttribute("aria-label"));
 						if (button.getAttribute("aria-label") !== "设置") button.setAttribute("aria-label", "设置");
 					}
 				}
-				const observer = new MutationObserver(sync);
+				const observer = new MutationObserver(function (records) {
+					for (const record of records) {
+						if (record.type === "attributes") {
+							const target = record.target;
+							if (target && target.nodeType === 1 && target.matches && target.matches(selector)) { sync(); return; }
+							continue;
+						}
+						for (const node of record.addedNodes) {
+							if (node && node.nodeType === 1 && ((node.matches && node.matches(selector)) || (node.querySelector && node.querySelector(selector)))) { sync(); return; }
+						}
+					}
+				});
 				observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label"] });
 				sync();
 				return function () {

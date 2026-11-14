@@ -776,8 +776,8 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 .fork-gal-frame .tl { top: -10px; left: -10px; }
 .fork-gal-frame .br { right: -10px; bottom: -10px; transform: rotate(180deg); }
 .fork-gal-frame .sweep { top: 0; left: 8%; right: 8%; height: 1px; overflow: hidden; background: linear-gradient(90deg, transparent, var(--gal-box-rule), transparent); }
-.fork-gal-frame .sweep::after { content: ""; position: absolute; top: -1px; bottom: -1px; width: 22%; background: linear-gradient(90deg, transparent, var(--gal-box-spark), transparent); filter: blur(.5px); animation: fork-gal-sweep 5.5s ease-in-out infinite; }
-@keyframes fork-gal-sweep { 0% { left: -25%; transform: scaleX(0); } 15% { transform: scaleX(1); } 60%, 100% { left: 105%; transform: scaleX(0); } }
+.fork-gal-frame .sweep::after { content: ""; position: absolute; top: -1px; bottom: -1px; left: 0; width: 22%; background: linear-gradient(90deg, transparent, var(--gal-box-spark), transparent); animation: fork-gal-sweep 5.5s ease-in-out infinite; }
+@keyframes fork-gal-sweep { 0% { transform: translate3d(-114%, 0, 0) scaleX(0); } 15% { transform: translate3d(40%, 0, 0) scaleX(1); } 60%, 100% { transform: translate3d(477%, 0, 0) scaleX(0); } }
 .fork-gal-text { position: relative; color: var(--gal-ink); font-family: var(--gal-serif); font-size: calc(clamp(max(16px, var(--fk-min-text)), 1.45vw, 21px) * var(--fk-text-scale, 1)); line-height: 1.85; letter-spacing: .04em; text-shadow: 0 1px 2px rgb(0 0 0 / .7), 0 0 18px rgb(0 0 0 / .35); }
 /* the text box keeps its own layout at any size - insets and the text
    area stay the skin's, the line pitch scales with the text (its line-height ratio), and the block keeps the skin's
@@ -800,7 +800,7 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 /* Next-page cue: a turning soul gem */
 /* Next-page cue: shape, size, motion and fill come from the stage UI tokens (--gal-ui-next*); a fill of none shows the speaker-colour jewel below. */
 .fork-gal-next { display: inline-block; width: var(--gal-ui-next-width); height: var(--gal-ui-next-height); clip-path: var(--gal-ui-next); background: var(--gal-ui-next-fill), linear-gradient(160deg, #fff, color-mix(in srgb, var(--bubble-color) 60%, white) 40%, color-mix(in srgb, var(--bubble-color) 85%, black)); animation: var(--gal-ui-next-motion); }
-@keyframes fork-gal-gem { 0%, 100% { transform: translateY(0) scaleX(1); } 50% { transform: translateY(3px) scaleX(.35); filter: brightness(.8); } }
+@keyframes fork-gal-gem { 0%, 100% { transform: translateY(0) scaleX(1); opacity: 1; } 50% { transform: translateY(3px) scaleX(.35); opacity: .8; } }
 .fork-gal-meta { font-family: var(--gal-serif); letter-spacing: .1em; color: color-mix(in srgb, var(--gal-gold) 62%, var(--gal-box-plate)); }
 .fork-gal-controls { right: 22px; bottom: 10px; }
 @media (prefers-reduced-motion: reduce) and (update: none) { .fork-gal-frame .sweep::after, .fork-gal-next { animation: none; } }

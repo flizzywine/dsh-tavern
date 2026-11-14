@@ -1,6 +1,24 @@
 // Shared by the isolated frame and its host. Return only unconsumed distance.
-function scrollTavernTouchChain(start, distance, view) {
+function scrollTavernTouchChain(start, distance, view, cachedChain) {
     let rest = distance;
+    if (Array.isArray(cachedChain)) {
+        for (let i = 0; i < cachedChain.length; i++) {
+            const entry = cachedChain[i];
+            const node = entry.node;
+            if (!node || node.nodeType !== 1 || node.isConnected === false) continue;
+            if (entry.scrollable) {
+                const max = Math.max(0, node.scrollHeight - node.clientHeight);
+                if (max > 0) {
+                    const before = node.scrollTop;
+                    node.scrollTo({ top: Math.max(0, Math.min(max, before + rest)), behavior: 'instant' });
+                    rest -= node.scrollTop - before;
+                    if (Math.abs(rest) < 0.01) return 0;
+                }
+            }
+            if (entry.contain) return 0;
+        }
+        return rest;
+    }
     for (let node = start; node && node.nodeType === 1; node = node.parentElement) {
         const style = view.getComputedStyle(node);
         const root = node === view.document.scrollingElement;
@@ -16,6 +34,20 @@ function scrollTavernTouchChain(start, distance, view) {
         if (/^(contain|none)$/.test(style.overscrollBehaviorY)) return 0;
     }
     return rest;
+}
+
+function buildTavernTouchChain(start, view) {
+    const chain = [];
+    const scrollingRoot = view.document && view.document.scrollingElement;
+    for (let node = start; node && node.nodeType === 1; node = node.parentElement) {
+        const style = view.getComputedStyle(node);
+        const scrollable = node === scrollingRoot || /^(auto|scroll)$/.test(style.overflowY);
+        if (!scrollable) continue;
+        const contain = /^(contain|none)$/.test(style.overscrollBehaviorY);
+        chain.push({ node, scrollable: true, contain });
+        if (contain) break;
+    }
+    return chain;
 }
 
 // Serialized into the message document; keep dependencies explicit.
@@ -64,8 +96,21 @@ function installTavernFrameTouch(token, scrollChain) {
         }
         return true;
     }
-    function move(target, dy) {
-        const rest = scrollChain(target, dy, view);
+    function buildChain(start) {
+        const chain = [];
+        const scrollingRoot = document.scrollingElement;
+        for (let node = start; node && node.nodeType === 1; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            const scrollable = node === scrollingRoot || /^(auto|scroll)$/.test(style.overflowY);
+            if (!scrollable) continue;
+            const contain = /^(contain|none)$/.test(style.overscrollBehaviorY);
+            chain.push({ node, scrollable: true, contain });
+            if (contain) break;
+        }
+        return chain;
+    }
+    function move(target, dy, chain) {
+        const rest = scrollChain(target, dy, view, chain);
         if (rest) send('dsh-tavern-frame-scroll', { dy: rest });
     }
     addEventListener('touchstart', event => {
@@ -96,8 +141,9 @@ function installTavernFrameTouch(token, scrollChain) {
             if (Math.max(Math.abs(totalX), Math.abs(totalY)) < 8) return;
             if (Math.abs(totalX) >= Math.abs(totalY)) { stop(); return; }
             g.active = true;
+            g.chain = buildChain(g.target);
         }
-        move(g.target, g.lastY - touch.screenY);
+        move(g.target, g.lastY - touch.screenY, g.chain);
         g.lastY = touch.screenY; g.lastTime = now;
         g.samples.push([now, touch.screenY]);
         while (g.samples.length > 2 && now - g.samples[0][0] > 100) g.samples.shift();
@@ -116,7 +162,7 @@ function installTavernFrameTouch(token, scrollChain) {
             animation = 0;
             if (!g.target.isConnected || document.hidden || selected() || time - now > 1200) return;
             const dt = Math.min(32, time - previous); previous = time;
-            move(g.target, speed * dt);
+            move(g.target, speed * dt, g.chain);
             speed *= Math.pow(0.92, dt / 16);
             if (Math.abs(speed) > 0.02) animation = requestAnimationFrame(step);
         };
@@ -149,13 +195,14 @@ function createTavernTouchRelay(host) {
             if (data.type === 'dsh-tavern-frame-touch-start') {
                 const previous = tavernTouchOwners.get(host);
                 if (previous) previous();
-                active = { frame, token, sequence: data.sequence, contentWindow: frame.contentWindow };
+                active = { frame, token, sequence: data.sequence, contentWindow: frame.contentWindow, chain: null };
                 tavernTouchOwners.set(host, stop);
                 host.addEventListener('touchstart', stop, { passive: true, capture: true });
                 host.addEventListener('wheel', stop, { passive: true, capture: true });
             } else if (active && active.frame === frame && active.token === token && active.sequence === data.sequence && Number.isFinite(data.dy)) {
                 if (!frame.isConnected) { stop(); return; }
-                scrollTavernTouchChain(frame.parentElement, Math.max(-1000, Math.min(1000, data.dy)), host);
+                if (!active.chain) active.chain = buildTavernTouchChain(frame.parentElement, host);
+                scrollTavernTouchChain(frame.parentElement, Math.max(-1000, Math.min(1000, data.dy)), host, active.chain);
             }
         }
     };

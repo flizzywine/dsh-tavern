@@ -161,18 +161,17 @@ body ::-webkit-scrollbar-track { background: transparent; }
 }
 .dsh-tavern-header-action-label { font-size: 13px; font-weight: 500; }
 
-/* 酒馆状态：活着的呼吸绿点 */
+/* 酒馆状态：活着的呼吸绿点（仅动画化 transform/opacity 走 GPU 合成层，避免逐帧重绘 box-shadow） */
 .dsh-tavern-header-settings::after {
   content: ""; flex: none;
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--live-green);
-  box-shadow: 0 0 0 0 rgba(var(--live-green-rgb),.5);
-  animation: tv-live-pulse 2.4s ease-out infinite;
+  box-shadow: 0 0 0 2px rgba(var(--live-green-rgb),.22);
+  animation: tv-live-pulse 2.4s ease-in-out infinite;
 }
 @keyframes tv-live-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(var(--live-green-rgb),.55); }
-  70% { box-shadow: 0 0 0 4px rgba(var(--live-green-rgb),0); }
-  100% { box-shadow: 0 0 0 0 rgba(var(--live-green-rgb),0); }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .62; transform: scale(1.25); }
 }
 
 /* 3.2 tab 栏：陶土 2px 下划线 */
@@ -1208,11 +1207,15 @@ button[aria-label*="子智能体"]::before {
   padding: 11px 12px 11px 14px;
   border-radius: 12px;
   background: var(--glass);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  backdrop-filter: blur(12px) saturate(1.2);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-shadow);
   transition: border-color .15s ease-out, background .15s ease-out;
+}
+@media (min-width: 1024px) {
+  .dsh-tavern-side-list > .dsh-tavern-side-row {
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    backdrop-filter: blur(12px) saturate(1.2);
+  }
 }
 .dsh-tavern-side-list > .dsh-tavern-side-row:hover { border-color: rgba(var(--accent-rgb),.30); }
 .dsh-tavern-side-list > .dsh-tavern-side-row.active {

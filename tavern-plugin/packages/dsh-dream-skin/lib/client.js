@@ -1967,6 +1967,8 @@ window.__ModuleLoader__.load({
 		}
 		function nearestComposerCard(anchor) {
 			let card = null;
+			try { card = anchor.closest('[' + COMPOSER_CARD_ATTR + '="1"]'); } catch {}
+			if (card !== null) return card;
 			try { card = anchor.closest(COMPOSER_HASH_CARDS); } catch {}
 			if (card !== null) return card;
 			// Hashes gone (new host): climb to the nearest visibly rounded
@@ -2056,7 +2058,14 @@ window.__ModuleLoader__.load({
 						if (scheduled) return;
 						let relevant = false;
 						for (const r of records) {
-							if (r.type === "childList" && r.addedNodes.length > 0) { relevant = true; break; }
+							if (r.type !== "childList" || r.addedNodes.length === 0) continue;
+							for (const node of r.addedNodes) {
+								if (node && node.nodeType === 1 && ((typeof node.matches === "function" && node.matches(COMPOSER_ANCHOR_SELECTOR)) || (typeof node.querySelector === "function" && node.querySelector(COMPOSER_ANCHOR_SELECTOR) !== null))) {
+									relevant = true;
+									break;
+								}
+							}
+							if (relevant) break;
 						}
 						if (!relevant) return;
 						scheduled = true;
@@ -6334,18 +6343,26 @@ return FontPicker;
   style.textContent = css
   ;(document.head || document.body).append(style)
   if (document.body) {
+    var syncScheduled = false
     var sync = function () {
+      syncScheduled = false
       try {
+        if (!document.querySelector("[role=\"dialog\"]")) return
         for (var b of document.querySelectorAll("[role=\"dialog\"] nav button")) {
           var label = (b.textContent || "").trim()
           var mm = label === "皮肤" || label === "Theme" || label.indexOf("Theme") !== -1
-          if (mm) b.setAttribute(MARKER, "")
-          else b.removeAttribute(MARKER)
+          if (mm) { if (!b.hasAttribute(MARKER)) b.setAttribute(MARKER, "") }
+          else if (b.hasAttribute(MARKER)) b.removeAttribute(MARKER)
         }
       } catch {}
     }
     sync()
-    var mo = new MutationObserver(sync)
+    var mo = new MutationObserver(function () {
+      if (syncScheduled || !document.querySelector("[role=\"dialog\"]")) return
+      syncScheduled = true
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(sync)
+      else setTimeout(sync, 16)
+    })
     mo.observe(document.body, { subtree: true, childList: true, characterData: true })
   }
   } catch {}

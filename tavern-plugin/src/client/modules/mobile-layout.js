@@ -48,7 +48,8 @@ function installVisualViewportPin(doc) {
     const touch = view.matchMedia("(pointer: coarse)");
     const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-shell-height", "--dsh-keyboard-inset", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width"];
     const previous = properties.map(name => [name, html.style.getPropertyValue(name), html.style.getPropertyPriority(name)]);
-    let frame = 0, chaseFrame = 0, chaseUntil = 0, disposed = false, seat = null, header = null;
+    let frame = 0, chaseFrame = 0, chaseUntil = 0, disposed = false, seat = null, card = null, header = null, boxDirty = true;
+    let lastInnerH = -1, lastInnerW = -1, lastVvH = -1, lastVvTop = -1, lastKbTop = -1, lastKbH = -1;
     // Anything wider than the screen lets a phone browser zoom the page out to fit it: the layout viewport grows past
     // 100vw, so every overlay sized to the screen (stage CONFIG art, the phone, sheets) leaves a strip on the right.
     // A phone layout never wants that zoom-out; pinch zoom in stays.
@@ -62,7 +63,8 @@ function installVisualViewportPin(doc) {
     // classList.add/remove rewrite the class attribute even when nothing changes; that no-op mutation
     // re-ran document-wide observers (surface styles, quote colours) on every focus change.
     function removeClasses(...names) { const present = names.filter(name => html.classList.contains(name)); if (present.length) html.classList.remove(...present); }
-    const observer = typeof view.ResizeObserver === "function" ? new view.ResizeObserver(schedule) : null;
+    function toggleClass(name, on) { const next = Boolean(on); if (html.classList.contains(name) !== next) html.classList.toggle(name, next); }
+    const observer = typeof view.ResizeObserver === "function" ? new view.ResizeObserver(function () { boxDirty = true; schedule(); }) : null;
     function setPx(name, value) {
         const next = Math.max(0, Math.round(value)) + "px";
         // 上游移动插件也观察 style，避免每次流式更新触发无意义的全树协调。
@@ -79,22 +81,46 @@ function installVisualViewportPin(doc) {
     }
     function rebind() {
         const nextSeat = doc.querySelector("[data-composer-seat]");
+        const nextCard = doc.querySelector("[data-composer-card]");
         const nextHeader = doc.querySelector(TAVERN_HEADER_SELECTOR);
-        if (seat === nextSeat && header === nextHeader) return;
+        if (seat === nextSeat && card === nextCard && header === nextHeader) return;
+        boxDirty = true;
         observer?.disconnect();
-        seat = nextSeat; header = nextHeader;
+        seat = nextSeat; card = nextCard; header = nextHeader;
         for (const element of [seat, header]) if (element) observer?.observe(element);
         // A capped seat keeps its own box size while content grows, so watch its children too.
-        if (seat) for (const child of seat.children) observer?.observe(child);
+        if (seat && seat.children) for (const child of seat.children) observer?.observe(child);
+    }
+    function snapshotChanged() {
+        const innerH = Number(view.innerHeight) || 0;
+        const innerW = Number(view.innerWidth) || 0;
+        const vvH = vv ? Number(vv.height) || 0 : innerH;
+        const vvTop = vv ? Number(vv.offsetTop) || 0 : 0;
+        const rect = keyboard && keyboard.boundingRect;
+        const kbTop = rect && Number.isFinite(Number(rect.top)) ? Number(rect.top) : -1;
+        const kbH = rect && Number.isFinite(Number(rect.height)) ? Number(rect.height) : 0;
+        return boxDirty || innerH !== lastInnerH || innerW !== lastInnerW || vvH !== lastVvH || vvTop !== lastVvTop || kbTop !== lastKbTop || kbH !== lastKbH;
+    }
+    function recordSnapshot() {
+        const innerH = Number(view.innerHeight) || 0;
+        lastInnerH = innerH;
+        lastInnerW = Number(view.innerWidth) || 0;
+        lastVvH = vv ? Number(vv.height) || 0 : innerH;
+        lastVvTop = vv ? Number(vv.offsetTop) || 0 : 0;
+        const rect = keyboard && keyboard.boundingRect;
+        lastKbTop = rect && Number.isFinite(Number(rect.top)) ? Number(rect.top) : -1;
+        lastKbH = rect && Number.isFinite(Number(rect.height)) ? Number(rect.height) : 0;
+        boxDirty = false;
     }
     function sync() {
         frame = 0;
         if (disposed) return;
-        html.classList.toggle("dsh-tavern-coarse-play", narrow.matches);
+        toggleClass("dsh-tavern-coarse-play", narrow.matches);
         if (!narrow.matches && !touch.matches) {
             removeClasses("dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
             restore();
             holdScale(false);
+            recordSnapshot();
             return;
         }
         holdScale(true);
@@ -104,7 +130,7 @@ function installVisualViewportPin(doc) {
         const height = vv ? vv.height : view.innerHeight;
         const top = vv ? vv.offsetTop : 0;
         if (!(height > 0)) return;
-        html.classList.toggle("dsh-tavern-viewport-pinned", true);
+        toggleClass("dsh-tavern-viewport-pinned", true);
         // 外壳高度：布局视口已被顶上去就 100%，键盘浮在页面上才用可视区像素。
         const shell = tavernShellHeight(view.innerHeight, height);
         setValue("--dsh-shell-height", shell || "100%");
@@ -117,16 +143,19 @@ function installVisualViewportPin(doc) {
         // 外壳高度已经按布局视口算的时候，可视区偏移由页面自己负责，不能再叠一次。
         setPx("--dsh-vv-top", shell === "100%" ? 0 : top);
         setPx("--dsh-vv-height", visible);
-        // 整个外壳使用可视区高度，输入条仍贴外壳底部，避免重复叠加键盘补偿。
+        // 先一次性批量读完所有几何属性，再统一写 CSS 变量与类名，避免读-写-读交替导致单帧 3 次强制同步布局。
         const headerBottom = header ? header.getBoundingClientRect().bottom - top : 44;
+        const pin = seat || card;
+        const pinRect = pin ? pin.getBoundingClientRect() : null;
+        const rectTop = pinRect ? pinRect.top : 0;
+        const activeCard = card || pin;
+        const bounds = activeCard ? (activeCard === pin ? pinRect : activeCard.getBoundingClientRect()) : null;
+        const seatScroll = Boolean(seat && seat.scrollHeight > seat.clientHeight + 1);
+        // 整个外壳使用可视区高度，输入条仍贴外壳底部，避免重复叠加键盘补偿。
         setPx("--dsh-header-bottom", headerBottom);
         // 横屏键盘下优先保留编辑和发送；展开列表改为可关闭的覆盖层。
-        html.classList.toggle("dsh-tavern-short-viewport", visible - headerBottom < 280);
-        const pin = seat || doc.querySelector("[data-composer-card]");
-        if (pin) {
-            const rectTop = pin.getBoundingClientRect().top;
-            const card = doc.querySelector('[data-composer-card]') || pin;
-            const bounds = card.getBoundingClientRect();
+        toggleClass("dsh-tavern-short-viewport", visible - headerBottom < 280);
+        if (pin && bounds) {
             // 平板多栏布局中浮层只覆盖当前聊天列，不跨过左右侧栏。
             setPx("--dsh-composer-left", bounds.left);
             setPx("--dsh-composer-width", bounds.width);
@@ -140,7 +169,8 @@ function installVisualViewportPin(doc) {
         }
         // Only scroll the seat when its content really exceeds the cap: a scrolling seat clips
         // every menu that opens upward from the composer (更多, access mode, model picker).
-        html.classList.toggle("dsh-tavern-seat-scroll", Boolean(seat && seat.scrollHeight > seat.clientHeight + 1));
+        toggleClass("dsh-tavern-seat-scroll", seatScroll);
+        recordSnapshot();
     }
 
     function schedule() {
@@ -148,10 +178,11 @@ function installVisualViewportPin(doc) {
     }
     // 输入法动画期间系统可能只在首尾各给一次事件：焦点进出后自己刷几帧，
     // 事件到了立刻跟上，事件漏了也能在下一帧把页面拉回正确高度。
+    // 空转帧若视口/键盘几何与观测盒均未变化则跳过 DOM 测量，避免动画期间逐帧强制布局。
     function chase() {
         chaseFrame = 0;
         if (disposed) return;
-        sync();
+        if (snapshotChanged()) sync();
         if (Date.now() < chaseUntil) chaseFrame = view.requestAnimationFrame(chase);
     }
     function chaseFor(ms) {
@@ -160,28 +191,57 @@ function installVisualViewportPin(doc) {
         if (!chaseFrame) chaseFrame = view.requestAnimationFrame(chase);
     }
     function immediate() {
+        boxDirty = true;
         sync();
         chaseFor(TAVERN_KEYBOARD_SETTLE_MS);
+    }
+    // 只有可编辑输入控件进出焦点才会唤起或收起软键盘；普通按钮（如展开/收起侧栏、切换标签）
+    // 触发的 focusin/focusout 不应启动 450ms 的逐帧同步布局轮询。
+    function isKeyboardTarget(target) {
+        if (!target) return true;
+        if (target.nodeType !== 1) return false;
+        if (target.isContentEditable) return true;
+        const tag = String(target.tagName || "").toUpperCase();
+        if (tag === "TEXTAREA" || tag === "SELECT") return true;
+        if (tag === "INPUT") {
+            const type = String(target.type || "text").toLowerCase();
+            return !/^(button|checkbox|color|file|hidden|image|radio|range|reset|submit)$/.test(type);
+        }
+        const ce = typeof target.getAttribute === "function" ? target.getAttribute("contenteditable") : null;
+        return ce === "" || ce === "true" || ce === "plaintext-only";
+    }
+    function onFocusChange(event) {
+        if (isKeyboardTarget(event && event.target)) immediate();
+    }
+    function onViewportScroll() {
+        if (snapshotChanged()) sync();
+        const layout = Number(view.innerHeight) || 0;
+        const visual = vv && vv.height > 0 ? Number(vv.height) : layout;
+        if (Math.round(layout - visual) >= TAVERN_KEYBOARD_INSET_MIN) chaseFor(TAVERN_KEYBOARD_SETTLE_MS);
+    }
+    function markDirtyAndSchedule() {
+        boxDirty = true;
+        schedule();
     }
     // 会话切换会替换 seat；只在结构锚点变化时重新测量，不遍历流式正文。
     const mutations = typeof view.MutationObserver === "function" && doc.body ? new view.MutationObserver(records => {
         if (!narrow.matches && !touch.matches) return;
-        if ((seat && !seat.isConnected) || (header && !header.isConnected) || records.some(record =>
+        if ((seat && !seat.isConnected) || (card && !card.isConnected) || (header && !header.isConnected) || records.some(record =>
             Array.from(record.addedNodes).some(node => node.nodeType === 1 &&
-                (node.matches('[data-composer-seat], header') || node.querySelector('[data-composer-seat], ' + TAVERN_HEADER_SELECTOR))))) schedule();
+                (node.matches('[data-composer-seat], [data-composer-card], header') || node.querySelector('[data-composer-seat], [data-composer-card], ' + TAVERN_HEADER_SELECTOR))))) markDirtyAndSchedule();
     }) : null;
     mutations?.observe(doc.body, { childList: true, subtree: true });
     for (const name of ["resize", "orientationchange", "pageshow"]) view.addEventListener(name, immediate);
-    for (const name of ["focusin", "focusout"]) doc.addEventListener(name, immediate);
+    for (const name of ["focusin", "focusout"]) doc.addEventListener(name, onFocusChange);
     // 原生全屏切换可能只改变安全区样式，不触发窗口 resize；及时重算顶栏与浮层锚点。
-    for (const name of ["fullscreenchange", "webkitfullscreenchange"]) doc.addEventListener(name, schedule);
+    for (const name of ["fullscreenchange", "webkitfullscreenchange"]) doc.addEventListener(name, markDirtyAndSchedule);
     // 键盘事件只有 resize/scroll 两个来源，必须在处理函数里当场改样式，再延后一帧就是肉眼可见的错位。
     vv?.addEventListener("resize", immediate);
-    vv?.addEventListener("scroll", immediate);
+    vv?.addEventListener("scroll", onViewportScroll);
     // 输入法自己的几何事件：键盘动画期间每帧都会来，比等可视化视口可靠。
     if (keyboard && typeof keyboard.addEventListener === "function") keyboard.addEventListener("geometrychange", immediate);
-    narrow.addEventListener("change", schedule);
-    touch.addEventListener("change", schedule);
+    narrow.addEventListener("change", markDirtyAndSchedule);
+    touch.addEventListener("change", markDirtyAndSchedule);
     sync();
     return function () {
         disposed = true;
@@ -190,13 +250,13 @@ function installVisualViewportPin(doc) {
         observer?.disconnect();
         mutations?.disconnect();
         for (const name of ["resize", "orientationchange", "pageshow"]) view.removeEventListener(name, immediate);
-        for (const name of ["focusin", "focusout"]) doc.removeEventListener(name, immediate);
-        for (const name of ["fullscreenchange", "webkitfullscreenchange"]) doc.removeEventListener(name, schedule);
+        for (const name of ["focusin", "focusout"]) doc.removeEventListener(name, onFocusChange);
+        for (const name of ["fullscreenchange", "webkitfullscreenchange"]) doc.removeEventListener(name, markDirtyAndSchedule);
         vv?.removeEventListener("resize", immediate);
-        vv?.removeEventListener("scroll", immediate);
+        vv?.removeEventListener("scroll", onViewportScroll);
         if (keyboard && typeof keyboard.removeEventListener === "function") keyboard.removeEventListener("geometrychange", immediate);
-        narrow.removeEventListener("change", schedule);
-        touch.removeEventListener("change", schedule);
+        narrow.removeEventListener("change", markDirtyAndSchedule);
+        touch.removeEventListener("change", markDirtyAndSchedule);
         html.classList.remove("dsh-tavern-coarse-play", "dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
         restore();
         holdScale(false);
