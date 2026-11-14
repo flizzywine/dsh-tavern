@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createComfyProgress } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-progress.js'
 import { installTavernBridge } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/tavern-bridge.js'
+import { createMediaActions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/media-actions.js'
 
 test('ComfyUI progress shares a lazy connection, isolates prompt IDs, and discards terminal jobs', () => {
   const connections = []
@@ -70,4 +71,54 @@ test('the bridge writes progress only for the pending image and keeps the ready 
   assert.deepEqual(updates.map(({ id, patch }) => [id, patch.status, patch.progress]), [
     ['media-1', undefined, 0.27], ['media-1', 'ready', 1],
   ])
+})
+
+test('a failed save after the picture was drawn tells the player in plain words and keeps the raw error in the log', { timeout: 5000 }, async t => {
+  const updates = [], warnings = []
+  const job = { state: 'done', percent: 100, file: 'image.png' }
+  const text = '她推开了木门，屋里的灯亮了起来。'
+  const raw = 'Could not load the "sharp" module\nERR_DLOPEN_FAILED: runtime/node_modules/sharp.node'
+  const tavern = {
+    apiVersion: 5, promptSection() {}, onTurnSettled() {}, list: async () => [],
+    getTurn: async () => ({ textVersion: 'v1', text }),
+    attach: async () => ({ id: 'media-1' }),
+    async update(id, patch) { updates.push(patch) },
+  }
+  const bridge = installTavernBridge({
+    tavern, attachments: { saveImage: async () => { throw new Error(raw) } },
+    getConfig: () => ({}), readFileAsBytes: async () => new Uint8Array([1]), logger: { warn: line => warnings.push(line) },
+    engine: {
+      getJob: () => job,
+      planMessage: async ({ onPlan }) => { onPlan({ jobId: 'job-1', regex: text, caption: '进门' }); return { plans: [] } },
+    },
+  })
+  t.after(() => bridge.dispose())
+  await bridge.attachTurn({ gameId: 'g', turn: 1, textVersion: 'v1', text, manual: true })
+  const failed = updates.find(patch => patch.status === 'failed')
+  assert.equal(failed.error, '图片已生成，但保存失败，请点重试')
+  assert.deepEqual(failed.actions, [{ id: 'retry', label: '重试' }])
+  assert.ok(warnings.some(line => line.includes('ERR_DLOPEN_FAILED')), 'raw error is logged')
+})
+
+test('retrying a save failure reuses the generated image without starting a new job', async t => {
+  const item = { id: 'media-1', kind: 'dsh-tavern-image/image', turn: 1, textVersion: 'v1',
+    status: 'failed', data: { jobId: 'job-1' } }
+  const job = { id: 'job-1', state: 'done', file: 'image.png', mediaType: 'image/png', params: { rawTag: '原提示词' } }
+  let submitted = 0, saved = 0
+  const actions = createMediaActions({
+    tavern: { getTurn: async () => ({ textVersion: 'v1' }), list: async () => [item],
+      update: async (_id, patch) => Object.assign(item, patch) },
+    attachments: { saveImage: async () => { saved++; return { id: 'attachment-1' } } },
+    getJob: async () => job, readFileAsBytes: async () => new Uint8Array([1]),
+    startReplacement: async () => { submitted++; return { jobId: 'new-job' } },
+  })
+  t.after(() => actions.dispose())
+  const result = await actions.handle({ operation: 'retry', gameId: 'g', turn: 1,
+    textVersion: 'v1', mediaId: 'media-1', jobId: 'job-1' })
+  assert.equal(result.jobId, 'job-1')
+  for (let i = 0; i < 100 && item.status !== 'ready'; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(item.status, 'ready')
+  assert.equal(item.attachment.id, 'attachment-1')
+  assert.equal(saved, 1)
+  assert.equal(submitted, 0, '保存重试不能再次发起生图')
 })

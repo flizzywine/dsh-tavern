@@ -460,7 +460,12 @@ export function createMediaActions({
       throw Object.assign(new Error('作业号与所选图片不匹配'), { code: 'JOB_MISMATCH' })
     }
     if (input.operation === 'cancel') return cancel(normalized, item)
-    if (input.operation === 'recover') {
+    const failedJobId = String(item.data?.replacement?.jobId || item.data?.jobId || '')
+    const failedJob = input.operation === 'retry' && item.status === 'failed' && failedJobId
+      ? await readJob(failedJobId) : null
+    // A finished image may only have failed while attaching it. Reuse its file.
+    const retrySave = failedJob?.state === 'done' && Boolean(failedJob.file)
+    if (input.operation === 'recover' || retrySave) {
       const key = keyOf(normalized)
       if (recovering.has(key)) return recovering.get(key)
       const recovery = recover(normalized, item)
