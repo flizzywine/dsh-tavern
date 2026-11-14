@@ -1,4 +1,4 @@
-import { sessionEvents } from './session-events.js'
+import { matchesEventType, sessionEvents, appendSessionEvent } from './session-events.js'
 
 // DSH 0.2 lists a game's subagents from `subagent/catalog` facts in the game's own Session.
 // Background agents created before Tavern wrote that fact (background-agent-sessions.js)
@@ -12,7 +12,7 @@ export function createBackgroundCatalogBackfill({ agents, sessionQuery, onListed
     const parent = agents?.get?.(parentId)
     if (!parent?.session || typeof parent.session.append !== 'function') return 0
     if (typeof sessionQuery?.listSessions !== 'function' || typeof sessionQuery.readSession !== 'function') { done.add(parentId); return 0 }
-    const listed = new Set(sessionEvents(parent.session).filter(event => event.type === 'subagent/catalog').map(event => event.data?.childId))
+    const listed = new Set(sessionEvents(parent.session).filter(event => matchesEventType(event, 'subagent/catalog')).map(event => event.data?.childId))
     // listSessions leaves out retired background workers (background-session-retirement.js).
     const children = (await sessionQuery.listSessions()).filter(record => record.header?.parentSession === parentId
       && record.header.origin === 'subagent' && !listed.has(record.header.id))
@@ -20,9 +20,9 @@ export function createBackgroundCatalogBackfill({ agents, sessionQuery, onListed
     let count = 0
     for (const record of children) {
       const snapshot = await sessionQuery.readSession(record.header.id).catch(() => null)
-      const descriptor = snapshot?.events?.find(event => event.type === 'subagent/descriptor')?.data
+      const descriptor = snapshot?.events?.find(event => matchesEventType(event, 'subagent/descriptor'))?.data
       if (!descriptor || !['one-shot', 'continuable'].includes(descriptor.mode) || descriptor.mode === 'continuable' && typeof descriptor.label !== 'string') continue
-      parent.session.append('subagent/catalog', { version: 0, childId: record.header.id, childCreatedAt: Math.max(0, Math.floor(Number(record.header.createdAt) || 0)),
+      appendSessionEvent(parent.session, 'subagent/catalog', { version: 0, childId: record.header.id, childCreatedAt: Math.max(0, Math.floor(Number(record.header.createdAt) || 0)),
         mode: descriptor.mode, ...(typeof descriptor.label === 'string' ? { label: descriptor.label } : {}) })
       count++
     }

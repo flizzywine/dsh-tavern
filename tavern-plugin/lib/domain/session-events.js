@@ -138,7 +138,23 @@ export function appendSessionEvent(session, type, data, intent) {
     }
   }
   data = sessionEventData(session, type, data)
-  return intent === undefined ? session.append(type, data) : session.append(type, data, intent)
+  try {
+    return intent === undefined ? session.append(type, data) : session.append(type, data, intent)
+  } catch (error) {
+    // DSH 0.2.2 起 session.append 只接受 KNOWN_SESSION_EVENT_TYPES 里的 core 类型，
+    // 插件自己的记录要走 session.commitPluginRecord，而且类型必须以 `plugin:` 开头。
+    // 0.2.1 不会抛这个错，所以这里只在新宿主上生效，旧宿主的行为一个字都没变。
+    if (typeof session.commitPluginRecord === 'function' && /only accepts known core event types/.test(String(error?.message))) {
+      return session.commitPluginRecord('plugin:' + type, data)
+    }
+    throw error
+  }
+}
+
+// 插件记录在 0.2.2 上带 `plugin:` 前缀写进去；读的时候两种名字都要认，
+// 否则升级后读不到自己以前写的记录。
+export function matchesEventType(event, type) {
+  return event?.type === type || event?.type === 'plugin:' + type
 }
 
 export function surfaceReplacementRange(op) {

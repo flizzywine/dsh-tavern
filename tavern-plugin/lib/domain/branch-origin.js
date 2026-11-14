@@ -6,6 +6,7 @@
 // every history read with "subagent descriptor is corrupt" and replaces the game's
 // composer with its read-only subagent seat. The stale marker is dropped here; a
 // session that really was delegated keeps its descriptor and is left untouched.
+import { matchesEventType } from './session-events.js'
 import { access, copyFile, readFile, rename, writeFile } from 'node:fs/promises'
 import { parseSessionLog, encodeCurrentGeneration } from './session-log-codec.js'
 
@@ -31,7 +32,7 @@ export function withoutBranchSubagentOrigin(buffer, catalog) {
   if (header?.version !== catalog.currentVersion) return refuse('不是当前版本会话日志')
   if (header.origin !== 'subagent') return { ok: true, changed: false, reason: '不是按子智能体记录的会话' }
   // The host delegated this session: its descriptor is the record both sides rely on.
-  if (parsed.events.some(event => event?.type === 'subagent/descriptor')) {
+  if (parsed.events.some(event => matchesEventType(event, 'subagent/descriptor'))) {
     return { ok: true, changed: false, reason: '会话带子智能体描述，保持原样' }
   }
   let artifact

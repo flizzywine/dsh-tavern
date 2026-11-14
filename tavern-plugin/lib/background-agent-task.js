@@ -10,7 +10,7 @@ import { prependSystemInstruction } from './domain/system-append.js'
 import { backgroundSystemPrompt, backgroundTaskPrompt, usesSharedBackgroundContext, directorTaskTools, assertDirectorToolSurface } from './domain/background-task-prompt.js'
 import { markTavernSectionsLiteral } from './domain/literal-sections.js'
 import { rewindBackgroundSurface } from './domain/background-surface.js'
-import { ensureSessionSystemHead, releaseOpeningTurn, sessionEvents } from './domain/session-events.js'
+import { appendSessionEvent, ensureSessionSystemHead, releaseOpeningTurn, sessionEvents } from './domain/session-events.js'
 // expose provider-reported director usage before the temporary agent is disposed.
 import { lastDirectorProviderUsage } from './domain/stage-director-tokens.js'
 import { randomUUID } from 'node:crypto'
@@ -223,7 +223,7 @@ export function createBackgroundAgentTask(options) {
         const decision = await next()
         if (!descriptorAppended && decision.kind === 'enter') {
           descriptorAppended = true
-          agent.session.append('subagent/descriptor', descriptor)
+          appendSessionEvent(agent.session, 'subagent/descriptor', descriptor)
         }
         if (decision.kind !== 'enter') return decision
         if (director && !usesSharedBackgroundContext(state.input)) return decision

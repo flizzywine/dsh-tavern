@@ -1,7 +1,7 @@
 import { promptSection, promptSectionBody } from './prompt-section.js'
 import { sessionVariableDirectorySection } from './session-variable-directory.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
-import { ensureSessionSystemHead, sessionEvents, appendSessionEvent } from './session-events.js'
+import { ensureSessionSystemHead, matchesEventType, sessionEvents, appendSessionEvent } from './session-events.js'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
@@ -134,7 +134,7 @@ export function readSessionStablePrefix(session) {
 }
 
 function legacyEventText(session) {
-  const event = sessionEvents(session).find(item => item.type === EVENT && item.data?.version === 1 && item.data.id === 'tavern-session-prefix:' + session.id)
+  const event = sessionEvents(session).find(item => matchesEventType(item, EVENT) && item.data?.version === 1 && item.data.id === 'tavern-session-prefix:' + session.id)
   return str(event && event.data && event.data.text).trim()
 }
 

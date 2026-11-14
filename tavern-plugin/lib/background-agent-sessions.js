@@ -1,4 +1,4 @@
-import { sessionEvents } from './domain/session-events.js'
+import { appendSessionEvent, matchesEventType, sessionEvents } from './domain/session-events.js'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
@@ -75,8 +75,8 @@ export function createBackgroundAgentSessions(options, task) {
     if (!id || catalogued.has(id) || typeof parent?.session?.append !== 'function') return
     catalogued.add(id)
     try {
-      if (sessionEvents(parent.session).some(event => event.type === 'subagent/catalog' && event.data?.childId === id)) return
-      parent.session.append('subagent/catalog', { version: 0, childId: id, childCreatedAt: Math.max(0, Math.floor(Number(child.header.createdAt) || now())), mode: descriptor.mode, label: descriptor.label })
+      if (sessionEvents(parent.session).some(event => matchesEventType(event, 'subagent/catalog') && event.data?.childId === id)) return
+      appendSessionEvent(parent.session, 'subagent/catalog', { version: 0, childId: id, childCreatedAt: Math.max(0, Math.floor(Number(child.header.createdAt) || now())), mode: descriptor.mode, label: descriptor.label })
       options.onCreated?.(id, str(parent.id))
     } catch (error) {
       catalogued.delete(id)
@@ -279,7 +279,7 @@ export function createBackgroundAgentSessions(options, task) {
           }
           if (handle !== undefined) {
             const session = handle.agent.session
-            const savedDescriptor = sessionEvents(session).find(event => event.type === 'subagent/descriptor')?.data
+            const savedDescriptor = sessionEvents(session).find(event => matchesEventType(event, 'subagent/descriptor'))?.data
             const savedParent = session.header?.parentSession
             if (savedParent && savedParent !== parent.id || savedDescriptor &&
               (savedDescriptor.provider === 'dsh-tavern-image' || (savedDescriptor.provider === 'dsh-tavern-polish') !== (input.task === 'polish'))) {
@@ -312,7 +312,7 @@ export function createBackgroundAgentSessions(options, task) {
             setup: task.setup(state, descriptor, false)
           })
           // Publish identity before the first model turn, including failed starts.
-          handle.agent.session.append('subagent/descriptor', descriptor)
+          appendSessionEvent(handle.agent.session, 'subagent/descriptor', descriptor)
         }
       } catch (error) {
         const wrapped = traceError(error, traceSessionId, input.task)
