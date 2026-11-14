@@ -58,6 +58,32 @@ export const DEFAULT_MODULAR_TEMPLATE = {
   ] },
 }
 
+// Galgame styles describe only how to paint; the request names the subject. Style text without a usage applies to every
+// request, a block with a usage adds what only that use needs: an empty background, a character on a transparent
+// background (sprites, avatars) or a character sheet.
+const GALGAME_FIGURE_STYLE = 'Draw the character exactly in the style of the character reference sheet: the sheet\'s line style and colouring come first, and manga marks appear only if the sheet uses them'
+const GALGAME_SHEET_STYLE = 'The reference artwork\'s line style and colouring come first'
+function galgameStyle(id, name, look, background) {
+  return { id, name, independent: true, structure: { format: 'auto', targets: [], blocks: [
+    ...DEFAULT_MODULAR_TEMPLATE.structure.blocks.filter(block => ['output', 'scene', 'library'].includes(block.kind)),
+    { kind: 'style', title: '画风', text: look },
+    { kind: 'style', title: '画风 · 空背景', usage: 'background', text: background },
+    { kind: 'style', title: '画风 · 透明底人物', usage: 'figure', text: GALGAME_FIGURE_STYLE },
+    { kind: 'style', title: '画风 · 人物设定图', usage: 'sheet', text: GALGAME_SHEET_STYLE },
+  ] } }
+}
+export const GALGAME_STYLE_PRESETS = [
+  galgameStyle('galgame-clean', 'Galgame · 干净低细节',
+    'Clean cel-shaded anime rendering with large simple colour masses, low visual frequency, restrained edge density, clear edge hierarchy, minimal internal contour lines, broad shadow shapes, suppressed micro-texture and micro-contrast, and no unnecessary specular highlights. This finish only reduces noise and texture and never redesigns anything',
+    'Keep the composition and colour very clean'),
+  galgameStyle('galgame-anime', 'Galgame · 动画截图',
+    'Looks like a frame of the original TV anime: reproduce the series\' own drawing style faithfully, including its simplifications, with broadcast line weight, flat cel shading in one or two shadow tones, the show\'s own palette and the plain look of an actual episode screenshot, and no extra rendering, painterly texture, gradients, glow or detail the series itself does not draw. This finish only matches the broadcast look and never redesigns the characters',
+    'An empty background plate from an episode, painted in the series\' own background art style'),
+  galgameStyle('galgame-polished', 'Galgame · 精美插画',
+    'Polished, high-quality commercial anime illustration at key-visual or gacha-card quality: refined lighting with soft rim light and controlled highlights, rich but disciplined colour, crisp clean line art, carefully rendered eyes, hair, fabric folds and materials, and clear form and depth. This finish only raises the rendering quality; designs, proportions and palette stay exactly as designed',
+    'Carefully rendered materials and atmospheric depth, lit by the light sources in the scene'),
+]
+
 export const BUILTIN_PROMPT_PRESETS = [
   STRUCTURED_PROMPT_TEMPLATE,
   EXAMPLE_PROMPT_PRESET,
@@ -113,6 +139,7 @@ export const BUILTIN_PROMPT_PRESETS = [
     mixedPositive: 'A strong landscape silhouette with clear foreground, middle ground and distance; atmospheric perspective, natural light direction, varied terrain and material texture, balanced negative space, coherent weather and color.',
     negative: 'flat depth, featureless terrain, competing focal points, incoherent weather, oversaturated color, text, watermark',
   },
+  ...GALGAME_STYLE_PRESETS,
 ]
 
 /** Read-only presets supplied by server-side plugins at runtime; never persisted with user settings. */
