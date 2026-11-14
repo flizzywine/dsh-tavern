@@ -6,7 +6,7 @@ const TavernJsonValueRemoteCodec$schema = () => (TavernJsonValueRemoteCodec$sche
 let TavernJsonValueRemoteCodec$schema2$value
 const TavernJsonValueRemoteCodec$schema2 = () => (TavernJsonValueRemoteCodec$schema2$value ??= z.union([z.literal(null), z.string(), z.number(), z.literal(false), z.literal(true), z.array(z.lazy(() => TavernJsonValueRemoteCodec$schema2())), z.record(z.string(), z.lazy(() => TavernJsonValueRemoteCodec$schema2()))]))
 let dsh_tavern_remote_tavernSignals_control_parameter_0$schema$value
-const dsh_tavern_remote_tavernSignals_control_parameter_0$schema = () => (dsh_tavern_remote_tavernSignals_control_parameter_0$schema$value ??= z.union([z.literal("claimTavernScriptWork"), z.literal("startTavernScriptWork"), z.literal("getTavernScriptWorkState"), z.literal("heartbeatTavernScriptRuntime"), z.literal("completeTavernHelperEvent"), z.literal("releaseTavernHelperRuntime")]))
+const dsh_tavern_remote_tavernSignals_control_parameter_0$schema = () => (dsh_tavern_remote_tavernSignals_control_parameter_0$schema$value ??= z.union([z.literal("claimTavernScriptWork"), z.literal("startTavernScriptWork"), z.literal("getTavernScriptWorkState"), z.literal("heartbeatTavernScriptRuntime"), z.literal("completeTavernHelperEvent"), z.literal("releaseTavernHelperRuntime"), z.literal("getStageDirection"), z.literal("getStageModHistory"), z.literal("getDialogueBubbles")]))
 let dsh_tavern_remote_tavernSignals_control_parameter_1$schema$value
 const dsh_tavern_remote_tavernSignals_control_parameter_1$schema = () => (dsh_tavern_remote_tavernSignals_control_parameter_1$schema$value ??= z.record(z.string(), z.union([z.literal(null), z.string(), z.number(), z.literal(false), z.literal(true), z.array(z.lazy(() => TavernJsonValueRemoteCodec$schema2())), z.record(z.string(), z.lazy(() => TavernJsonValueRemoteCodec$schema2()))])))
 let dsh_tavern_remote_tavernSignals_control_result$schema$value
@@ -130,7 +130,7 @@ export const TYPERT = {
           },
           {
             "name": "TavernRuntimeControlMethod",
-            "declaration": "export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernScriptWork' | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime' | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime';"
+            "declaration": "export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernScriptWork' | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime' | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime' | 'getStageDirection' | 'getStageModHistory' | 'getDialogueBubbles';"
           },
           {
             "name": "TavernSessionSignal",
@@ -165,7 +165,7 @@ export const TYPERT = {
           },
           {
             "name": "TavernRuntimeControlMethod",
-            "declaration": "export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernScriptWork' | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime' | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime';"
+            "declaration": "export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernScriptWork' | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime' | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime' | 'getStageDirection' | 'getStageModHistory' | 'getDialogueBubbles';"
           },
           {
             "name": "TavernSessionSignal",

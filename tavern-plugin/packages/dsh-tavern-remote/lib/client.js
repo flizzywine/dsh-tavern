@@ -4278,7 +4278,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			literal("getTavernScriptWorkState"),
 			literal("heartbeatTavernScriptRuntime"),
 			literal("completeTavernHelperEvent"),
-			literal("releaseTavernHelperRuntime")
+			literal("releaseTavernHelperRuntime"),
+			literal("getStageDirection"),
+			literal("getStageModHistory"),
+			literal("getDialogueBubbles")
 		]);
 		let dsh_tavern_remote_tavernSignals_control_parameter_1$schema$value;
 		const dsh_tavern_remote_tavernSignals_control_parameter_1$schema = () => dsh_tavern_remote_tavernSignals_control_parameter_1$schema$value ??= record(string(), union([
