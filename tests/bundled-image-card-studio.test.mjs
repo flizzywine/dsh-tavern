@@ -274,8 +274,9 @@ test('read_character gives the macro instead of traits and full traits only on r
   assert.equal(brief.outfits[0].lower, '白色长裙摆')
   // 宏体只能是 ${ 与 }$ 之间的一层键值对：多一层花括号会让引擎 JSON.parse 失败，整段宏被静默删掉。
   // name 用人物库里的英文别名，跟游玩模式一致：中文名在 allowChinesePrompt 关闭时会被清掉。
+  // outfit 固定 unknown：告诉引擎这张图的衣服不归它管，别补常穿、也别展开任何一套。
   assert.equal(brief.macroName, 'Chun Xue')
-  assert.match(brief.macro, /^\$\{"name":"Chun Xue","angle":"from front","upperBody":"sfw","lowerBody":"sfw"\}\$$/)
+  assert.match(brief.macro, /^\$\{"name":"Chun Xue","angle":"from front","upperBody":"sfw","lowerBody":"sfw","outfit":"unknown"\}\$$/)
   assert.equal(brief.macro.includes('{{'), false)
   const expanded = expandRosterCalls(brief.macro, { characters: definitions.characters }, 'replace', { style: 'tag' })
   assert.equal(expanded.includes('${'), false)
@@ -290,6 +291,56 @@ test('read_character gives the macro instead of traits and full traits only on r
   assert.equal(full.traits.face, '银白长发，蓝绿色眼睛')
   assert.equal(full.macro, undefined)
   assert.equal(full.outfits[0].upper, '白色吊带')
+})
+
+test('a chosen outfit never drags the default outfit in alongside it', async t => {
+  const definitions = {
+    characters: [{
+      id: 'c1', name: '春雪', match: 'Chun Xue', traits: { face: '银白长发' },
+      outfits: [
+        { id: 'o1', name: '红夹克', default: true, upper: 'red leather jacket', lower: 'blue jeans' },
+        { id: 'o2', name: '蓝上衣', default: false, upper: 'navy sailor shirt', lower: 'white skirt' },
+      ],
+    }],
+    outfits: [],
+  }
+  const f = await studio(t, { definitions })
+  const brief = await f.tools.get('read_character').execute({ name: '春雪' })
+  // 换掉常穿那套：宏 + 选中那套的正文，就是这一张的全部衣服信息。
+  const chosen = brief.outfits.find(item => item.name === '蓝上衣')
+  const prompt = brief.macro + ', ' + chosen.upper + ', ' + chosen.lower
+  const expanded = expandRosterCalls(prompt, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  assert.equal(expanded.includes('${'), false)
+  assert.match(expanded, /navy sailor shirt/)
+  assert.match(expanded, /white skirt/)
+  // 宏里的 outfit 若缺失，引擎会补常穿那套，两套衣服一起进提示词。
+  assert.equal(expanded.includes('red leather jacket'), false)
+  assert.equal(expanded.includes('blue jeans'), false)
+})
+
+test('a shared alias makes the macro fall back to the entry id so it still resolves', async t => {
+  const definitions = {
+    characters: [
+      { id: 'c1', name: '雪莉甲', match: 'Shirley', traits: { face: 'silver white hair' }, outfits: [] },
+      { id: 'c2', name: '雪莉乙', match: 'Shirley', traits: { face: 'black hair' }, outfits: [] },
+    ],
+    outfits: [],
+  }
+  const f = await studio(t, { definitions })
+  const read = f.tools.get('read_character')
+  // 两条目共用别名 Shirley，宏必须用能唯一解析的 id。
+  const one = await read.execute({ name: '雪莉甲' })
+  assert.equal(one.macroName, 'c1')
+  assert.match(one.macro, /^\$\{"name":"c1",/)
+  const expanded = expandRosterCalls(one.macro, { characters: definitions.characters }, 'replace', { style: 'tag' })
+  assert.match(expanded, /silver white hair/)
+  assert.equal(expanded.includes('black hair'), false)
+  const other = await read.execute({ name: '雪莉乙' })
+  assert.equal(other.macroName, 'c2')
+  assert.match(expandRosterCalls(other.macro, { characters: definitions.characters }, 'replace', { style: 'tag' }), /black hair/)
+  // 没有冲突时仍然用可读的英文别名。
+  const solo = await studio(t, { definitions: { characters: [{ id: 'c9', name: '独行', match: 'Loner', traits: { face: 'grey eyes' }, outfits: [] }], outfits: [] } })
+  assert.equal((await solo.tools.get('read_character').execute({ name: '独行' })).macroName, 'Loner')
 })
 
 test('read_image_config lists presets by name only and expands one on request', async t => {
