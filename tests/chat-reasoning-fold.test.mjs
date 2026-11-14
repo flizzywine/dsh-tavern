@@ -88,6 +88,23 @@ test('非字符串输入与缺少 running prop 的宿主保持原样', () => {
   assert.equal(patchReasoningChatSource(noRunning).text, noRunning)
 })
 
+test('running 被别名解构时不打补丁；同名别名与默认值仍是 running 绑定', () => {
+  // running: isRunning 绑定的是 isRunning，注入代码引用 running 会 ReferenceError
+  const aliased = 'const ReasoningRow=(0,react.memo)(function ReasoningRow({text:rawText,running:isRunning,useDisclosure}){const{expanded,toggle}=useDisclosure();return expanded});'
+  const result = patchReasoningChatSource(aliased)
+  assert.equal(result.status, 'unmatched')
+  assert.equal(result.text, aliased)
+  const aliasedSpaced = aliased.replace('running:isRunning', 'running : isRunning')
+  assert.equal(patchReasoningChatSource(aliasedSpaced).status, 'unmatched')
+  // 别名回同名、带默认值：局部绑定仍是 running，补丁照常生效且语法合法
+  for (const params of ['running:running', 'running=false']) {
+    const source = `const ReasoningRow=(0,react.memo)(function ReasoningRow({${params},useDisclosure}){const{expanded,toggle}=useDisclosure();return expanded});`
+    const patched = patchReasoningChatSource(source)
+    assert.equal(patched.status, 'applied', params)
+    new Function('react', patched.text + '\nreturn ReasoningRow;')({ memo: fn => fn, useSyncExternalStore: (s, snap) => snap() })
+  }
+})
+
 test('页面补丁脚本同时带上两条改写规则', () => {
   const script = chatAnswerBootScript()
   assert.ok(script.includes('dsh-tavern:answer-step'))
