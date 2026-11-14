@@ -211,7 +211,7 @@ export function registerCardEditingTools({
       },
       visibility: {
         type: 'json',
-        description: '可选，隐藏属性规则映射（键为相对 stat_data 的路径或含 * 通配符路径，如 "/人物/*/好感度"）。每项支持 mode: "masked"（纯迷雾，默认显示 ？？？、回执仅提示已发生变化）、"trend"（迷雾+趋势，回执显示上升 ↑ / 下降 ↓ 不透具体数值）、"tiered"（模糊档位，配合 tiers: [[0,"戒备"],[60,"信赖"]] 显示阶段词，默认带趋势与跨档提示），可选 placeholder、largeDelta 及预留字段 revealWhen；传 {} 清空隐藏规则'
+        description: '可选，隐藏属性规则映射（键为相对 stat_data 的路径或含 * 通配符路径，如 "/人物/*/好感度"）。每项支持 mode: "masked"（纯迷雾，默认显示 ？？？、回执仅提示已发生变化）、"trend"（迷雾+趋势，回执显示上升 ↑ / 下降 ↓ 不透具体数值）、"tiered"（模糊档位，配合 tiers: [[0,"戒备"],[60,"信赖"]] 显示阶段词，默认带趋势与跨档提示）、"unlisted"（连名字一起不列出：变量面板、回执和状态栏里都没有这一项，玩家不知道它存在；对象的字段全是 unlisted 时对象也不列出），可选 placeholder、largeDelta 及预留字段 revealWhen；传 {} 清空隐藏规则'
       }
     },
     output: {
