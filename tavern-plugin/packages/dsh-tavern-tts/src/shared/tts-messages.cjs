@@ -3,6 +3,7 @@
 // ttsErrorMessage(code): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
 function ttsErrorMessage(code) {
   const messages = {
+    CREATOR_DISABLED:'创作者工具未开启，请在语音后端开启「创作者工具」。',
     PROVIDER_AUTH_FAILED:'语音服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
     FISH_AUTH_FAILED:'Fish 服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
     VOLCENGINE_AUTH_FAILED:'火山引擎 API Key 无效或无权访问：豆包语音请填写新版控制台目标项目的 API Key 并确认已开通语音合成模型；方舟 Agent Plan 订阅请改用「自定义语音服务」的「火山方舟 Agent Plan」预设。',

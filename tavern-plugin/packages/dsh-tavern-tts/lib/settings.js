@@ -7,7 +7,6 @@ import recommendedFishVoices from './shared/fish-recommended.json' with {type:'j
 import { createAzureAdapter, azureVoices } from './providers/azure.js'
 import { createQwenAdapter, qwenModelInstructions, qwenVoices, QWEN_MODELS } from './providers/qwen.js'
 import { createFishAudioAdapter } from './providers/fish-audio.js'
-import { createVoicePilot } from './providers/fish-voice-design.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
 import { createMinimaxAdapter, MINIMAX_MODELS } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
@@ -19,6 +18,8 @@ import { createModelValidation } from './model-validation.js'
 // picker's binding: {browser:name}, {serviceId, voice}, a pack voice or a template. Schemastery drops null defaults, so readingOf fills them.
 const Reading = z.object({ general: z.object({ figure: z.any() }), narrator: z.object({ enabled: z.boolean().default(false), figure: z.any() }), readAloud: z.object({ voice: z.any(), auto: z.boolean().default(false) }) })
 export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
+  // Creator tools (Fish voice design, batch reading trials): off by default, independent of the player's 配音 switch.
+  creator: z.object({ enabled: z.boolean().default(false).description('启用创作者工具') }).default({enabled:false}).description('创作者工具'),
   reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
   cacheMaxAgeDays: z.natural().min(1).max(3650).default(30).description('\u7f13\u5b58\u4fdd\u7559\u5929\u6570'),
@@ -27,6 +28,7 @@ export const Settings = z.object({ enabled: z.boolean().default(true), providers
 const MODEL_MOVED = ['fish-audio', 'minimax']
 export function validateSettings(value) {
   if (typeof value.enabled !== 'boolean') fail('INVALID_INPUT')
+  if (value.creator !== undefined && typeof value.creator?.enabled !== 'boolean') fail('INVALID_INPUT')
   if (!Number.isFinite(value.cacheMaxGB) || value.cacheMaxGB < 0.1 || value.cacheMaxGB > 100 || !Number.isInteger(value.cacheMaxAgeDays) || value.cacheMaxAgeDays < 1 || value.cacheMaxAgeDays > 3650) fail('INVALID_INPUT')
   const seen = new Set()
   for (const p of value.providers) {
@@ -115,8 +117,7 @@ export function plainError(error) {
   return PLAIN_ERRORS[message] || '请求失败'
 }
 // \changed\: called when the voice services catalog changes (a service saved, removed or checked).
-export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, pilotBudgetRoot, changed = () => {} }) {
-  const voicePilot = createVoicePilot({fetch, budgetRoot:pilotBudgetRoot})
+export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, changed = () => {} }) {
   // Fish owns its free-only retry policy; do not wrap it in generic retries.
   const fish = createFishAudioAdapter({fetch}), discovery = createFishDiscovery({fetch})
   fetch = boundedFetch(fetch)
@@ -278,10 +279,10 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     return {voices:structuredClone(voices),refreshing:entry.refreshing}
   }
   const api = {
-    voicePilot(args) {
-      const p = record(args.serviceId)
-      return voicePilot(args, p, async () => (await secrets(p)).key)
-    },
+    // For the creator tools (creator/index.js): the saved service record and its key, resolved like synthesis does
+    // (stored credential first, then the Fish cloud env key). The key never leaves the host.
+    getCreatorProvider:id => record(id),
+    async getCreatorKey(serviceId) { return (await secrets(record(serviceId))).key },
     // Read-only names for the CLI. Host records are listed by key only; each saved Fish service is asked by its canonical
     // credential ref through describe alone. `present` is the host's configured flag, never a value or a successful lookup.
     async credentialNames() {

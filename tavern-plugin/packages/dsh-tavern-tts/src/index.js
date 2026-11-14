@@ -9,6 +9,7 @@ import { createSampleCache } from './sample-cache.js'
 import { Settings, validateSettings, createServiceSettings, readingOf, patchReading } from './settings.js'
 import { registerRoutes, registerEnabledRoute } from './routes.js'
 import { fail, hash, id, canonical } from './core.js'
+import { createCreatorControl } from './creator/control.js'
 export const name = 'dsh-tavern-tts'
 export function apply(ctx, config = {}) {
   const settingsReady = installTtsSettingsMigration(ctx)
@@ -28,8 +29,7 @@ export function apply(ctx, config = {}) {
     if (next !== lastReading) { lastReading = next; tts.readingChanged() }
   }
   const samples = config.dataDir ? createSampleCache({dataDir:config.dataDir}) : undefined
-  // Pilot files and its cumulative budget follow the host's stable plugin data directory.
-  const services = createServiceSettings({ tts, samples, pilotBudgetRoot:config.dataDir, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
+  const services = createServiceSettings({ tts, samples, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
   // The one write of tts.reading (the 配音 page through ttsControl, the stage's one-time migration on the host).
@@ -124,6 +124,11 @@ export function apply(ctx, config = {}) {
   void syncEnabled()
   void settingsReady.then(async ok => { ready = ok; if (ok) await changed() }).catch(error => ctx.logger.warn(error))
   registerEnabledRoute(ctx, { get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  // Creator tools load on first allowed use; trial files and the cumulative budget follow the host's stable plugin data directory.
+  const creatorControl = createCreatorControl({
+    getEnabled:() => source().creator?.enabled === true,
+    load:async () => (await import('./creator/index.js')).createCreator({getProvider:services.getCreatorProvider, resolveKey:services.getCreatorKey, budgetRoot:config.dataDir}),
+  })
   const control=async (method,args = {}) => {
     switch (method) {
       case 'getEnabled': return {enabled:ready && source().enabled}
@@ -132,6 +137,12 @@ export function apply(ctx, config = {}) {
         const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
         await settings.replace('tts',validateSettings({...source(),enabled:args.enabled}),settings.describe().find(row => row.ns === 'tts')?.revision); await syncEnabled()
         return {enabled:source().enabled}
+      }
+      case 'setCreatorEnabled': {
+        if (typeof args.enabled !== 'boolean') fail('INVALID_INPUT')
+        const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
+        await settings.replace('tts',validateSettings({...source(),creator:{enabled:args.enabled}}),settings.describe().find(row => row.ns === 'tts')?.revision)
+        return {enabled:source().creator.enabled}
       }
       case 'reading': return readingOf(source())
       case 'setReading': return tts.setReading(args)
@@ -144,7 +155,8 @@ export function apply(ctx, config = {}) {
       case 'validateFishVoice': return services.validateFishVoice(args)
       case 'searchFishVoices': return services.searchFishVoices(args)
       case 'fishSample': return services.fishSample(args)
-      case 'voicePilot': return services.voicePilot(args)
+      case 'creator.voiceDesign':
+      case 'creator.voicePilot': return creatorControl(method,args)
       case 'credentialNames': return services.credentialNames()
       case 'voiceModelStatus': return services.voiceModelStatus(args)
       case 'validateVoiceModel': return services.validateVoiceModel(args)
