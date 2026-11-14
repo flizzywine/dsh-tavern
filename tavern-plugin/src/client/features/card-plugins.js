@@ -1,13 +1,16 @@
 		// Plugins a DSH card carries (Wiki「设计：dsh-card-format」): listed with the card, turned on
 		// by the player, and confined to that card's games, here in the page as on the host.
 		const tavernCardPluginScopes = (function () {
-			let scopes = {}, loaded = false, loading = null;
+			// null until the host has answered: until then any plugin may be another card's.
+			// A failed read keeps what was known; the next subscriber or change asks again.
+			let scopes = null, loading = null;
 			const listeners = new Set();
 			function load() {
 				if (loading) return loading;
-				loading = rpc("cardPluginScopes").then(function (reply) { scopes = reply && reply.scopes || {}; }, function () {}).finally(function () {
-					loading = null; loaded = true; Array.from(listeners).forEach(function (listener) { listener(); });
-				});
+				loading = rpc("cardPluginScopes").then(function (reply) {
+					scopes = reply && reply.scopes || {};
+					Array.from(listeners).forEach(function (listener) { listener(); });
+				}, function () {}).finally(function () { loading = null; });
 				return loading;
 			}
 			if (typeof window.addEventListener === "function") {
@@ -17,14 +20,16 @@
 			}
 			return {
 				load: load,
-				subscribe: function (listener) { listeners.add(listener); if (!loaded) void load(); return function () { listeners.delete(listener); }; },
+				subscribe: function (listener) { listeners.add(listener); if (!scopes) void load(); return function () { listeners.delete(listener); }; },
 				get: function () { return scopes; }
 			};
 		})();
 
 		/** Whether a plugin may show itself in this game: everything does, except a card plugin outside the cards it is bound to. */
 		function tavernPluginAllowed(owner, sessionId) {
-			const cards = tavernCardPluginScopes.get()[owner];
+			const scopes = tavernCardPluginScopes.get();
+			if (!scopes) return false; // not known yet: this may be another card's plugin
+			const cards = scopes[owner];
 			if (!Array.isArray(cards)) return true; // an empty list is a card plugin with no live binding: shown nowhere
 			if (!sessionId) return false;
 			const view = liveTavernView.getSnapshot(sessionId).view;
