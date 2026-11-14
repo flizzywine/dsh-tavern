@@ -105,6 +105,8 @@ export async function createClipBrowser({snapshot,plan,transport,readAsset,signa
         if(url.pathname==='/')return await route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><body></body>'})
         // Dev-diagnostics beacon of the audio trace: not an asset, so acknowledge it without an export error.
         if(url.pathname==='/api/dsh-tavern/recordAudioTrace')return await route.fulfill({status:204,body:''})
+        // The client reads the global settings once while loading, before the export transport is installed; the export has no settings to show.
+        if(url.pathname==='/api/dsh-tavern/getTavernSettings')return await route.fulfill({status:204,body:''})
         requested.add(url.pathname)
         const value=await readAsset(url)
         if(!value)throw new Error('Export asset unavailable: '+url.pathname)
