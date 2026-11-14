@@ -28,6 +28,12 @@ function text(path, value, optional) {
   if (typeof value !== 'string' || !value.trim()) fail(path, 'must be non-empty text')
   return value
 }
+// A variable kept from the player: true (its name shows, the value is ？？？) or "unlisted" (its name is not shown either).
+function secrecy(path, value) {
+  if (value === undefined || value === false) return false
+  if (value === true || value === 'unlisted') return value
+  fail(path, 'must be true or "unlisted"')
+}
 function plain(path, value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(path, 'must be an object')
   return value
@@ -113,7 +119,7 @@ export function compileRulesV2(source) {
       if (!Object.keys(fields).length) fail(at + '.fields', 'list at least one field')
     }
     const spec = fields ? { values: null, initial: null, min: null, max: null } : valueSpec(at, row, label, keys && keys !== '*' ? sets[keys] : null)
-    state[id] = { id, path: ownPath(at + '.path', row.path), label, keys, entries: keys && keys !== '*' ? sets[keys] : null, fields, ...spec, secret: row.secret === true }
+    state[id] = { id, path: ownPath(at + '.path', row.path), label, keys, entries: keys && keys !== '*' ? sets[keys] : null, fields, ...spec, secret: secrecy(at + '.secret', row.secret) }
   }
   const read = {}
   for (const [id, path] of Object.entries(source.read || {})) { claim('read.' + id, id); read[id] = { id, path: ownPath('read.' + id, path) } }
@@ -122,7 +128,7 @@ export function compileRulesV2(source) {
     const at = 'derived.' + id
     claim(at, id)
     plain(at, row)
-    derived[id] = { id, path: ownPath(at + '.path', row.path), label: row.label === undefined ? id : text(at + '.label', row.label), value: formula(at + '.value', row.value), secret: row.secret === true }
+    derived[id] = { id, path: ownPath(at + '.path', row.path), label: row.label === undefined ? id : text(at + '.label', row.label), value: formula(at + '.value', row.value), secret: secrecy(at + '.secret', row.secret) }
   }
   const global = new Set([...Object.keys(state), ...Object.keys(read), ...Object.keys(derived), ...Object.keys(sets), ...Object.keys(tables)])
   const check = (at, tree, known) => { for (const name of formulaNames(tree)) if (!known.has(name) && !FORMULA_FUNCTIONS.includes(name)) fail(at, 'reads unknown name ' + name) }

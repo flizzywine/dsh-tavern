@@ -15,7 +15,8 @@ import {normalizeMvuVisibility} from './domain/mvu-visibility.js'
 // cardExtension, if given, names the card extension key that offers the tool by itself (the card declares what it needs, so
 // the tool comes with the card whatever the mod switch says; cardOffers). Such a card stands for the mod (cardGoverns): its
 // games get only the tools the card declares, and the mod switch adds none of the mod's other tools or prompts.
-// hidden(card), if given, lists the /stat_data paths a card offering the tool keeps from the player (withModHidden).
+// hidden(card), if given, maps the stat_data paths a card offering the tool keeps from the player to a hidden-attribute rule,
+// 'masked' or 'unlisted' (withModHidden).
 export const modTools = Object.freeze((await Promise.all(firstPartyModIds.map(async folder => {
   const directory=firstPartyModDirectory(folder)
   if (!await access(new URL('tools.js',directory)).then(()=>true,()=>false)) return []
@@ -31,12 +32,12 @@ export const cardGoverns = (modId, card) => modTools.some(tool => tool.modId ===
 
 /**
  * The card's hidden attributes (domain/mvu-visibility.js) plus the variables the tools it offers keep from the player
- * (hidden(card)), masked in the variable panel, the receipts and the card's own pages. The card's own rule for one of
- * those paths wins (a tiered display, a revealWhen).
+ * (hidden(card)), masked or unlisted in the variable panel, the receipts and the card's own pages. The card's own rule for
+ * one of those paths wins (a tiered display, a revealWhen).
  */
 export function withModHidden(visibility, card) {
-  const paths = modTools.flatMap(tool => tool.hidden && cardOffers(tool, card) ? tool.hidden(card) : [])
-  return paths.length ? { ...normalizeMvuVisibility(Object.fromEntries(paths.map(path => [path, 'masked']))), ...visibility } : visibility
+  const rules = Object.assign({}, ...modTools.map(tool => tool.hidden && cardOffers(tool, card) ? tool.hidden(card) : {}))
+  return Object.keys(rules).length ? { ...normalizeMvuVisibility(rules), ...visibility } : visibility
 }
 
 /** How a game of this card gets the tool: 'card' (offered by the card), 'withheld' (the card declares another tool of its mod) or null (the mod switch decides). */

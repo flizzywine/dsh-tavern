@@ -409,3 +409,49 @@ test('revealWhen {path, equals} shows a hidden value once the variable it names 
   assert.deepEqual(maskMvuStatDataForDisplay(seen, visibility).幕后.暗处, { q1: 2 })
   assert.equal(maskMvuReceipt({ changes: [{ path: '/stat_data/幕后/暗处/q1', before: '1', after: '2', operation: 'replace' }] }, visibility).changes[0].after, '？？？', 'a receipt has no variables to read the condition from: it stays masked')
 })
+test('unlisted: the name is kept from the player too - the variable panel, receipts and the card pages leave it out', async () => {
+  const { JSDOM } = loadPackage('jsdom')
+  assert.equal(normalizeMvuVisibility({ '/幕后/良知': 'unlisted' })['/幕后/良知'].mode, 'unlisted')
+  assert.match(validateMvuVisibility({ '/a': { mode: 'secret' } }).errors[0].message, /unlisted/)
+  const visibility = validateMvuVisibility({
+    '/幕后/良知': 'unlisted', '/幕后/共谋': { mode: 'unlisted' },
+    '/幕后/看见': { mode: 'unlisted', revealWhen: { path: '/幕后/看见', equals: 1 } }
+  }).normalized
+  const dark = { 公司: { 现金: 5 }, 幕后: { 良知: 2, 共谋: 1, 看见: 0 } }
+  const seen = { 公司: { 现金: 5 }, 幕后: { 良知: 2, 共谋: 1, 看见: 1 } }
+  // An object all of whose fields are unlisted is not listed either: nothing says a 幕后 exists.
+  assert.deepEqual(maskMvuStatDataForDisplay(dark, visibility), { 公司: { 现金: 5 } })
+  assert.deepEqual(maskMvuStatDataForEditor(dark, visibility), { 公司: { 现金: 5 } })
+  // The card's reveal condition shows the name and the value from then on.
+  assert.deepEqual(maskMvuStatDataForDisplay(seen, visibility), { 公司: { 现金: 5 }, 幕后: { 看见: 1 } })
+  // Writing back what the player saw keeps what he did not see, with or without the editor's lock.
+  for (const lockHidden of [true, false]) {
+    assert.deepEqual(restoreHiddenMvuStatData({ 公司: { 现金: 9 } }, dark, visibility, { lockHidden }), { 公司: { 现金: 9 }, 幕后: { 良知: 2, 共谋: 1, 看见: 0 } })
+  }
+  assert.deepEqual(restoreHiddenMvuStatData({ 公司: { 现金: 9 }, 幕后: { 看见: 1 } }, seen, visibility), { 公司: { 现金: 9 }, 幕后: { 看见: 1, 良知: 2, 共谋: 1 } })
+  // Receipts: no line for them, nor for an object made of them; a round that changed only them changed nothing visible.
+  const receipt = maskMvuReceipt({ status: 'updated', changes: [
+    { path: '/stat_data/幕后/良知', before: '1', after: '2', operation: 'replace' },
+    { path: '/stat_data/公司/现金', before: '4', after: '5', operation: 'replace' },
+    { path: '/stat_data/幕后', before: '（不存在）', after: JSON.stringify(dark.幕后), operation: 'add' }
+  ] }, visibility)
+  assert.deepEqual(receipt.changes.map(change => change.path), ['/stat_data/公司/现金'])
+  assert.equal(receipt.status, 'updated')
+  assert.equal(maskMvuReceipt({ status: 'updated', changes: [{ path: '/stat_data/幕后/共谋', before: '0', after: '1', operation: 'replace' }] }, visibility).status, 'unchanged')
+  assert.doesNotMatch(JSON.stringify(maskMvuReceipt({ damper: { clamped: [{ path: '/stat_data/幕后/良知', operation: 'replace' }] } }, visibility)), /良知/)
+  const read = JSON.parse(maskTavernReadVariablesResultText(JSON.stringify({ available: true, path: '/', value: dark,
+    entries: [{ path: '/幕后/良知', value: 2 }, { path: '/公司/现金', value: 5 }] }), visibility))
+  assert.deepEqual(read.value, { 公司: { 现金: 5 } })
+  assert.deepEqual(read.entries.map(entry => entry.path), ['/公司/现金'])
+  // A generated status panel keeps the row hidden while the page's data leaves the field out.
+  const html = generatePanel({ title: '状态', sections: [{ title: '', fields: ['/公司/现金', '/幕后/看见'] }] }, dark, visibility)
+  for (const [state, shown] of [[dark, false], [seen, true]]) {
+    const dom = new JSDOM(html.replace(/<script>[\s\S]*<\/script>/, ''), { runScripts: 'outside-only' })
+    const script = html.match(/<script>([\s\S]*)<\/script>/)[1]
+    const page = maskMvuStatDataForDisplay(state, visibility)
+    Object.assign(dom.window, { Mvu: { getMvuData: () => ({ stat_data: page }), events: {} }, tavern_events: {}, eventOn() {}, waitGlobalInitialized: () => Promise.resolve() })
+    dom.window.eval(script)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(dom.window.document.querySelector('[data-mvu-unlisted]').hidden, !shown)
+  }
+})

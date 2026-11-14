@@ -90,8 +90,10 @@ export function generatePanel(spec, state, visibility = null) {
     const path = escapeHtml(field.path)
     // Yes/no words for a true/false value, e.g. 在线 / 离线; the script falls back to 是 / 否.
     const yesNo = (str(field.yes) ? ' data-yes="' + escapeHtml(field.yes) + '"' : '') + (str(field.no) ? ' data-no="' + escapeHtml(field.no) + '"' : '')
-    const hidden = Boolean(matchMvuVisibilityRule(rules, field.path, state))
-    const kind = hidden ? 'text' : (field.kind || (Array.isArray(at(state, field.path)) ? 'list' : 'text'))
+    const matched = matchMvuVisibilityRule(rules, field.path, state)
+    const kind = matched ? 'text' : (field.kind || (Array.isArray(at(state, field.path)) ? 'list' : 'text'))
+    // An unlisted field's row stays hidden while the page's data leaves it out (until a revealWhen holds).
+    if (matched && matched.rule.mode === 'unlisted') return '<div class="row" data-mvu-unlisted="' + path + '" hidden><b>' + label(field) + '</b><span data-mvu="' + path + '"' + yesNo + '></span></div>'
     if (kind === 'list') return '<div class="row list"><b>' + label(field) + '</b><ul data-mvu-list="' + path + '"></ul></div>'
     if (kind === 'bar') {
       const max = Number(field.max) > 0 ? Number(field.max) : 100
@@ -101,7 +103,7 @@ export function generatePanel(spec, state, visibility = null) {
   }
   const body = sections.map(section => '<section>' + (section.title ? '<h3>' + escapeHtml(section.title) + '</h3>' : '') + section.fields.map(row).join('') + '</section>').join('\n')
   const rulesJson = rules ? JSON.stringify(rules).replace(/</g, '\\u003c').replace(/\$/g, '\\u0024') : ''
-  const maskLine = rules ? `\n  var vis = ${rulesJson};\n  function mask(path, val) { var segs = path.split('/').slice(1), rule = null; Object.keys(vis).forEach(function (pat) { var ps = pat.split('/').slice(1); if (ps.length === segs.length && ps.every(function (p, i) { return p === '*' || p === segs[i]; })) rule = vis[pat]; }); if (!rule) return val; var raw = Array.isArray(val) && val.length === 2 && typeof val[1] === 'string' ? val[0] : val; if (rule.mode === 'tiered') { var s = typeof raw === 'string' ? raw.trim() : ''; if (typeof raw === 'string' && (!s || !Number.isFinite(Number(s)))) return s || rule.placeholder || '未知'; var n = typeof raw === 'number' ? raw : Number(s); if (!Number.isFinite(n)) return rule.placeholder || '未知'; var label = rule.tiers[0][1]; rule.tiers.forEach(function (t) { if (n >= t[0]) label = t[1]; }); return label; } return rule.placeholder || '？？？'; }` : ''
+  const maskLine = rules ? `\n  var vis = ${rulesJson};\n  function mask(path, val) { var segs = path.split('/').slice(1), rule = null; Object.keys(vis).forEach(function (pat) { var ps = pat.split('/').slice(1); if (ps.length === segs.length && ps.every(function (p, i) { return p === '*' || p === segs[i]; })) rule = vis[pat]; }); if (!rule || rule.mode === 'unlisted') return val; var raw = Array.isArray(val) && val.length === 2 && typeof val[1] === 'string' ? val[0] : val; if (rule.mode === 'tiered') { var s = typeof raw === 'string' ? raw.trim() : ''; if (typeof raw === 'string' && (!s || !Number.isFinite(Number(s)))) return s || rule.placeholder || '未知'; var n = typeof raw === 'number' ? raw : Number(s); if (!Number.isFinite(n)) return rule.placeholder || '未知'; var label = rule.tiers[0][1]; rule.tiers.forEach(function (t) { if (n >= t[0]) label = t[1]; }); return label; } return rule.placeholder || '？？？'; }` : ''
   const readExpr = rules ? 'mask(el.dataset.mvu, get(data, el.dataset.mvu))' : 'get(data, el.dataset.mvu)'
   return `<!doctype html>
 <html lang="zh-CN">
@@ -130,6 +132,7 @@ ${body}
   function render() {
     var data = Mvu.getMvuData({ type: 'message', message_id: 'latest' }).stat_data || {};
     document.querySelectorAll('[data-mvu]').forEach(function (el) { var v = ${readExpr}; el.textContent = v == null || v === '' ? '未明确' : typeof v === 'boolean' ? (v ? el.dataset.yes || '是' : el.dataset.no || '否') : typeof v === 'object' ? JSON.stringify(v) : String(v); });
+    document.querySelectorAll('[data-mvu-unlisted]').forEach(function (el) { el.hidden = get(data, el.dataset.mvuUnlisted) === undefined; });
     document.querySelectorAll('[data-mvu-width]').forEach(function (el) { var v = Number(get(data, el.dataset.mvuWidth)) || 0, max = Number(el.dataset.max) || 100; el.style.width = Math.max(0, Math.min(100, v / max * 100)) + '%'; });
     document.querySelectorAll('[data-mvu-list]').forEach(function (el) { var v = get(data, el.dataset.mvuList); el.replaceChildren(); (Array.isArray(v) ? v : []).forEach(function (item) { var li = document.createElement('li'); li.textContent = typeof item === 'object' ? JSON.stringify(item) : String(item); el.append(li); }); if (!el.children.length) { var li = document.createElement('li'); li.textContent = '无'; el.append(li); } });
   }

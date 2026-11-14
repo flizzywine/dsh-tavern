@@ -3205,13 +3205,18 @@ window.__ModuleLoader__.load({
 		  return [...byMin.entries()].sort((a, b) => a[0] - b[0]).map(([min, label]) => [min, label])
 		}
 
+		// Modes: masked (the name shows, the value is ？？？), trend (masked, a receipt says which way it moved), tiered (a band
+		// label instead of the number) and unlisted (the name goes too: the variable is not listed at all, so the player does not
+		// learn that something is kept from him; an object all of whose fields are unlisted is not listed either).
+		const MVU_VISIBILITY_MODES = ['masked', 'trend', 'tiered', 'unlisted']
+
 		function normalizeSingleMvuVisibilityRule(rawRule, rulePath, error) {
 		  if (typeof rawRule === 'string') {
 		    const shorthand = rawRule.trim().toLowerCase()
-		    if (shorthand === 'masked' || shorthand === 'trend') {
+		    if (shorthand === 'masked' || shorthand === 'trend' || shorthand === 'unlisted') {
 		      return { mode: shorthand, trend: shorthand === 'trend', placeholder: '？？？', largeDelta: 10 }
 		    }
-		    if (error) error(rulePath, '简写隐藏规则仅支持 "masked" 或 "trend"')
+		    if (error) error(rulePath, '简写隐藏规则仅支持 "masked"、"trend" 或 "unlisted"')
 		    return null
 		  }
 		  if (!mvuVisPlainObject(rawRule)) {
@@ -3219,12 +3224,12 @@ window.__ModuleLoader__.load({
 		    return null
 		  }
 		  const rawMode = rawRule.mode === undefined ? 'masked' : mvuVisStr(rawRule.mode).trim().toLowerCase()
-		  if (!['masked', 'trend', 'tiered'].includes(rawMode)) {
-		    if (error) error(rulePath + '/mode', 'mode 必须是 masked、trend 或 tiered')
+		  if (!MVU_VISIBILITY_MODES.includes(rawMode)) {
+		    if (error) error(rulePath + '/mode', 'mode 必须是 masked、trend、tiered 或 unlisted（连名字一起不列出）')
 		    return null
 		  }
 		  const mode = rawMode === 'masked' && rawRule.trend === true ? 'trend' : rawMode
-		  const trend = mode === 'trend' ? true : (mode === 'masked' ? false : rawRule.trend !== false)
+		  const trend = mode === 'trend' ? true : (mode === 'masked' || mode === 'unlisted' ? false : rawRule.trend !== false)
 		  const defaultPlaceholder = mode === 'tiered' ? '未知' : '？？？'
 		  const placeholder = rawRule.placeholder === undefined ? defaultPlaceholder : (mvuVisStr(rawRule.placeholder).trim() || defaultPlaceholder)
 		  const largeDeltaRaw = rawRule.largeDelta === undefined ? 10 : Number(rawRule.largeDelta)
@@ -3454,10 +3459,13 @@ window.__ModuleLoader__.load({
 		  return { mode: 'tiered', text: currentTier + '（' + hint + '）', before: currentTier, after: currentTier, direction: rule.trend !== false ? direction : null, strength: rule.trend !== false ? strength : null, crossed: false, beforeTier: currentTier, afterTier: currentTier }
 		}
 
+		// An unlisted node comes back `omitted`: an object leaves the key out (and is itself omitted when every field it had is),
+		// an array keeps the position with the placeholder (its indices are what the editor writes back by).
 		function maskMvuSubtree(node, segments, rules, rootStatData, forEditor) {
 		  const matched = matchMvuVisibilityRule(rules, segments, rootStatData)
 		  if (matched && matched.tupleIndex === null) {
-		    return { changed: true, value: forEditor ? MVU_HIDDEN_SENTINEL : formatMvuHiddenValue(node, matched.rule) }
+		    const value = forEditor ? MVU_HIDDEN_SENTINEL : formatMvuHiddenValue(node, matched.rule)
+		    return matched.rule.mode === 'unlisted' ? { changed: true, omitted: true, value } : { changed: true, value }
 		  }
 		  if (Array.isArray(node)) {
 		    let anyChanged = false
@@ -3469,17 +3477,25 @@ window.__ModuleLoader__.load({
 		    return anyChanged ? { changed: true, value: next } : { changed: false, value: node }
 		  }
 		  if (mvuVisPlainObject(node)) {
-		    let anyChanged = false
+		    let anyChanged = false, fields = 0, omitted = 0
 		    const next = {}
 		    for (const [key, childVal] of Object.entries(node)) {
 		      if (key.startsWith('$')) { next[key] = childVal; continue }
+		      fields += 1
 		      const child = maskMvuSubtree(childVal, segments.concat(key), rules, rootStatData, forEditor)
 		      if (child.changed) anyChanged = true
-		      next[key] = child.value
+		      if (child.omitted) omitted += 1
+		      else next[key] = child.value
 		    }
+		    if (segments.length && fields && omitted === fields) return { changed: true, omitted: true, value: forEditor ? MVU_HIDDEN_SENTINEL : '？？？' }
 		    return anyChanged ? { changed: true, value: next } : { changed: false, value: node }
 		  }
 		  return { changed: false, value: node }
+		}
+
+		// Whether the player's view leaves this node out entirely (an unlisted variable, or an object of unlisted fields).
+		function isMvuNodeUnlisted(node, segments, wrappedRules, rootStatData) {
+		  return maskMvuSubtree(node, segments, wrappedRules, rootStatData, false).omitted === true
 		}
 
 		function maskMvuStatDataForDisplay(statData, visibility) {
@@ -3539,18 +3555,22 @@ window.__ModuleLoader__.load({
 		  return copy
 		}
 
+		// A change's before/after text with the hidden fields inside masked; `omitted` when the whole value is unlisted.
 		function maskMvuJsonTextAtPath(text, baseSegments, wrappedRules) {
 		  const raw = mvuVisStr(text)
-		  if (!/^\s*[\[{]/.test(raw)) return text
+		  if (!/^\s*[\[{]/.test(raw)) return { text }
 		  try {
 		    const parsed = JSON.parse(raw)
-		    if (!parsed || typeof parsed !== 'object') return text
+		    if (!parsed || typeof parsed !== 'object') return { text }
 		    const masked = maskMvuSubtree(parsed, baseSegments, wrappedRules, null, false)
-		    return masked.changed ? JSON.stringify(masked.value) : text
+		    if (masked.omitted) return { text, omitted: true }
+		    return { text: masked.changed ? JSON.stringify(masked.value) : text }
 		  } catch (_error) {
-		    return text
+		    return { text }
 		  }
 		}
+
+		const mvuVisAbsent = value => value === undefined || value === null || value === '' || value === '（不存在）'
 
 		function maskMvuChangeList(changes, wrappedRules) {
 		  if (!Array.isArray(changes) || !changes.length) return changes
@@ -3567,7 +3587,7 @@ window.__ModuleLoader__.load({
 		    const matched = matchMvuVisibilityRule(wrappedRules, segments, null)
 		    if (matched) {
 		      anyChanged = true
-		      if (matched.tupleIndex === 1) continue
+		      if (matched.tupleIndex === 1 || matched.rule.mode === 'unlisted') continue
 		      const canonicalPath = mvuVisFormatPointer(matched.matchedSegments, rooted)
 		      // A tuple's value or a field of a hidden object: one row for the hidden path.
 		      if (matched.matchedSegments.length < segments.length) {
@@ -3586,9 +3606,11 @@ window.__ModuleLoader__.load({
 		    // Check if an inserted/updated object or array contains hidden descendant fields.
 		    const nextBefore = maskMvuJsonTextAtPath(change.before, segments, wrappedRules)
 		    const nextAfter = maskMvuJsonTextAtPath(change.after, segments, wrappedRules)
-		    if (nextBefore !== change.before || nextAfter !== change.after) {
+		    // An object that is (or was, when it went away) all unlisted fields: the change is not listed either.
+		    if (nextAfter.omitted || (mvuVisAbsent(change.after) && nextBefore.omitted)) { anyChanged = true; continue }
+		    if (nextBefore.text !== change.before || nextAfter.text !== change.after) {
 		      anyChanged = true
-		      out.push(Object.assign({}, change, { before: nextBefore, after: nextAfter }))
+		      out.push(Object.assign({}, change, { before: nextBefore.text, after: nextAfter.text }))
 		    } else {
 		      out.push(change)
 		    }
@@ -3609,7 +3631,7 @@ window.__ModuleLoader__.load({
 		    const matched = matchMvuVisibilityRule(wrappedRules, segments, null)
 		    if (matched) {
 		      anyChanged = true
-		      if (matched.tupleIndex === 1) continue
+		      if (matched.tupleIndex === 1 || matched.rule.mode === 'unlisted') continue
 		      const canonicalPath = mvuVisFormatPointer(matched.matchedSegments, rooted)
 		      out.push({
 		        path: canonicalPath,
@@ -3634,7 +3656,10 @@ window.__ModuleLoader__.load({
 		    ? maskMvuDamperClampedList(receipt.damper.clamped, wrapped)
 		    : receipt.damper?.clamped
 		  if (nextChanges === receipt.changes && nextSideEffects === receipt.sideEffects && nextDamperClamped === receipt.damper?.clamped) return receipt
+		  // A round that changed only unlisted variables reads as a round that changed nothing.
+		  const unlistedOnly = receipt.status === 'updated' && Array.isArray(receipt.changes) && receipt.changes.length > 0 && nextChanges.length === 0
 		  return Object.assign({}, receipt, {
+		    ...(unlistedOnly ? { status: 'unchanged' } : {}),
 		    ...(Array.isArray(receipt.changes) ? { changes: nextChanges } : {}),
 		    ...(Array.isArray(receipt.sideEffects) ? { sideEffects: nextSideEffects } : {}),
 		    ...(receipt.damper && nextDamperClamped !== receipt.damper.clamped
@@ -3665,7 +3690,9 @@ window.__ModuleLoader__.load({
 		        const childSegs = segments.concat(key)
 		        if (Object.prototype.hasOwnProperty.call(out, key)) {
 		          out[key] = restoreNode(out[key], authChild, childSegs)
-		        } else if (lockHidden && matchMvuVisibilityRule(wrapped, childSegs, authoritativeStatData)) {
+		        } else if ((lockHidden && matchMvuVisibilityRule(wrapped, childSegs, authoritativeStatData))
+		          || isMvuNodeUnlisted(authChild, childSegs, wrapped, authoritativeStatData)) {
+		          // The writer never saw an unlisted variable, so its absence is not a deletion.
 		          out[key] = mvuVisClone(authChild)
 		        }
 		      }
@@ -3694,17 +3721,21 @@ window.__ModuleLoader__.load({
 		        parsed.value = formatMvuHiddenValue(parsed.value, matched.rule)
 		        parsed.hidden = true
 		        changed = true
+		      } else if (parsed.value && typeof parsed.value === 'object') {
+		        const masked = maskMvuSubtree(parsed.value, mvuVisPointerSegments(parsed.path), wrapped, null, false)
+		        if (masked.changed) { parsed.value = masked.value; changed = true }
 		      }
 		    }
 		    if (Array.isArray(parsed.entries)) {
-		      parsed.entries = parsed.entries.map(entry => {
-		        if (!mvuVisPlainObject(entry) || typeof entry.path !== 'string') return entry
+		      parsed.entries = parsed.entries.flatMap(entry => {
+		        if (!mvuVisPlainObject(entry) || typeof entry.path !== 'string') return [entry]
 		        const matched = matchMvuVisibilityRule(wrapped, entry.path, null)
-		        if (!matched) return entry
+		        if (!matched) return [entry]
 		        changed = true
+		        if (matched.rule.mode === 'unlisted') return []
 		        const next = Object.assign({}, entry, { hidden: true })
 		        if (Object.prototype.hasOwnProperty.call(next, 'value')) next.value = formatMvuHiddenValue(next.value, matched.rule)
-		        return next
+		        return [next]
 		      })
 		    }
 		    return changed ? JSON.stringify(parsed) : resultText

@@ -369,4 +369,10 @@ test('secret for the player only: a report line, a derived value, and the panel,
   const own = { '/幕后/阶段': { mode: 'masked', trend: false, placeholder: '？？？', largeDelta: 10, revealWhen: { path: '/幕后/看见', equals: true } } }
   assert.deepEqual(withModHidden(own, card)['/幕后/阶段'], own['/幕后/阶段'])
   assert.equal(withModHidden(own, { extensions: {} }), own)
+  // secret: "unlisted" keeps the name from the player too; anything else is a card error.
+  const unlisted = { ...source, state: { ...source.state, notice: { ...source.state.notice, secret: 'unlisted' } } }
+  assert.equal(compileRulesV2(unlisted).state.notice.secret, 'unlisted')
+  assert.deepEqual(Object.entries(withModHidden(null, { extensions: { 'dsh.rules': unlisted } })).map(([path, rule]) => [path, rule.mode]),
+    [['/幕后/察觉', 'unlisted'], ['/幕后/阶段', 'masked']])
+  assert.throws(() => compileRulesV2({ ...source, derived: { stage: { ...source.derived.stage, secret: 'yes' } } }), /derived\.stage\.secret: must be true or "unlisted"/)
 })
