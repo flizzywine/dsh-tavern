@@ -31,9 +31,10 @@ export function apply(ctx, config = {}) {
     check(owner, '$.mediaStore', 'Media owner unavailable', 'RECOVERY_REQUIRED')
     return owner[method](...args)
   }]))
-  // figureImageExtras: a pack leaving the library (export, copy) takes its figures' 配图 外貌 from the host (figure-image-extras.js);
+  // figureImageExtras: a pack leaving the library (export, copy) takes its figures' 配图 外貌 from the host (figure-image-extras.js),
+  // figureImageMedia: and the bytes of a 参考图 it names that the pack does not hold;
   // adoptFigureImageLooks: an update the user confirmed with 「用导入的外貌」 for some figures tells the host before it is written.
-  const transport = createAssetPackTransport({...config, mediaStore, figureImageExtras:input => ctx.get('tavernFigureImageExtras')?.forFigures(input), adoptFigureImageLooks:input => ctx.get('tavernFigureImageExtras')?.adopt(input), normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards,
+  const transport = createAssetPackTransport({...config, mediaStore, figureImageExtras:input => ctx.get('tavernFigureImageExtras')?.forFigures(input), figureImageMedia:input => ctx.get('tavernFigureImageExtras').media(input), adoptFigureImageLooks:input => ctx.get('tavernFigureImageExtras')?.adopt(input), normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards,
     // a card's voice source maps to a configured voice service of the same kind (card-material.js).
     voiceChannels:async () => ((await ctx.get('tts')?.listServices()) || []).map(service => service.kind)})
   ctx.provide('assetLibrary',transport.service)

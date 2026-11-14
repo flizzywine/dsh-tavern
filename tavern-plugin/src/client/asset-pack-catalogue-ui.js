@@ -506,11 +506,14 @@ function PackSetInstall({binding,set,origin,onDone,onClose}) {
   return h(ConflictDialog,{key:preview.inspectionId,binding,preview,origin,step:members.length>1?{index,count:members.length}:null,onDone:next,onClose:()=>next(null)});
 }
 // An update keeps each figure's local 外貌 (配图 人物库); a figure whose imported 外貌 differs gets one row: its name, the
-// two answers (保留本机的 by default / 用导入的) and both texts in words. Confirming sends the adopted ids (adoptLooks).
+// two answers (保留本机的 by default / 用导入的) and both texts in words, then its 参考图 by name. Confirming sends the
+// adopted ids (adoptLooks).
 const CAT_LOOK_PARTS=['upper','lower','shoes','accessory','full','back'];
 function catLookText(look) {
   const words=[...Object.values(look?.traits||{}),...(look?.outfits||[]).map(o=>{const text=CAT_LOOK_PARTS.map(k=>o[k]).filter(Boolean).join('，');return text&&(o.name?o.name+'：':'')+text;})].filter(Boolean).join('；');
-  return words.length>120?words.slice(0,120)+'…':words;
+  const pictures=[look?.referenceImage,...(look?.outfits||[]).map(o=>o.characterOutfitImage)].filter(Boolean).map(image=>image.name||'未命名');
+  const text=words.length>100?words.slice(0,100)+'…':words;
+  return pictures.length?(text?text+'；':'')+'参考图：'+pictures.join('、').slice(0,60):text;
 }
 function CatLookChoice({row,adopted,disabled,onChange}) {
   return h('div',{className:'ap-card-pack ap-cat-look'},
