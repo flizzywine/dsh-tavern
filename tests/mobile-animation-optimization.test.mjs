@@ -68,7 +68,7 @@ test('移动端左侧栏抽屉在收起与展开态保持恒定 100vw 宽度且�
   assert.equal(expandedWidth, 390, '展开态保持相同 100vw 宽度，无宽度重排')
 })
 
-test('dsh-web-mobile 点击展开抽屉复用 content-visibility 分帧揭示，首帧不阻塞滑入动画', { skip: !existsSync(webMobileUrl) }, async () => {
+test('dsh-web-mobile 点击展开抽屉改为两拍：先在屏外成帧，再放行位移', { skip: !existsSync(webMobileUrl) }, async () => {
   const source = await readFile(webMobileUrl, 'utf8')
   assert.match(source, /exports\.openDrawerAnimated = openDrawerAnimated;/, '导出 openDrawerAnimated')
   assert.match(source, /if \(\(0, sidebar_swipe_ts_1\.openDrawerAnimated\)\(ctx\)\)\s*return;/, 'toggleDrawer 点击展开走分帧揭示路径')
@@ -82,6 +82,7 @@ test('dsh-web-mobile 点击展开抽屉复用 content-visibility 分帧揭示，
   const rafQueue = []
   const styleMap = new Map()
   const drawer = {
+    offsetWidth: 390,
     style: {
       setProperty: (k, v, p) => { styleMap.set(k, `${v}${p ? '!' + p : ''}`); events.push(`style:${k}=${v}`) },
       removeProperty: k => { styleMap.delete(k); events.push(`remove:${k}`) },
@@ -90,6 +91,7 @@ test('dsh-web-mobile 点击展开抽屉复用 content-visibility 分帧揭示，
   let isOpen = false
   const sandbox = {
     window: { matchMedia: () => ({ matches: false }) },
+    getComputedStyle: () => ({ transform: 'matrix(1, 0, 0, 1, -393.9, 0)' }),
     drawerOpen: () => isOpen,
     findDrawer: () => drawer,
     modalOpen: () => false,
@@ -108,11 +110,85 @@ test('dsh-web-mobile 点击展开抽屉复用 content-visibility 分帧揭示，
   const openDrawerAnimated = vm.runInNewContext(`(${fnSource})`, sandbox)
   const handled = openDrawerAnimated({ layout: { toggleSidebar() { isOpen = true; events.push('toggleSidebar') } } })
   assert.equal(handled, true)
-  assert.deepEqual(events, ['style:content-visibility=hidden', 'toggleSidebar'], '先挂 content-visibility:hidden 再翻转侧栏状态')
+  // 位移先钉在收起槽里并退出过渡，再翻状态、再挂 content-visibility：
+  // 点击那一帧只挂载子树，不排版也不绘制抽屉内容。
+  assert.deepEqual(events, [
+    'style:transform=matrix(1, 0, 0, 1, -393.9, 0)',
+    'style:transition=none',
+    'style:content-visibility=hidden',
+    'toggleSidebar',
+  ], '先钉住收起位与 transition:none，再翻侧栏状态')
+  assert.equal(styleMap.get('transform'), 'matrix(1, 0, 0, 1, -393.9, 0)!important', '收起位用行内 !important 钉住，压过展开态的 transform:none')
+  assert.equal(styleMap.get('transition'), 'none!important')
   assert.equal(styleMap.get('content-visibility'), 'hidden!important')
 
-  while (rafQueue.length) rafQueue.shift()()
-  assert.equal(styleMap.has('content-visibility'), false, '两帧 rAF 后自动恢复抽屉子树可见性')
+  // 第二拍：在屏外把子树排版成帧，此时位移仍未动。
+  assert.equal(rafQueue.length, 1)
+  rafQueue.shift()()
+  assert.equal(styleMap.has('content-visibility'), false, '屏外成帧后才恢复抽屉子树可见性')
+  assert.equal(styleMap.get('transform'), 'matrix(1, 0, 0, 1, -393.9, 0)!important', '成帧这一拍位移仍钉在收起位，排版耗时不计入动画')
+  assert.equal(styleMap.get('transition'), 'none!important', '成帧这一拍还没有过渡')
+
+  // 第三拍：交还样式表里的 transition，抽屉从收起槽滑到展开位。
+  assert.equal(rafQueue.length, 1)
+  rafQueue.shift()()
+  assert.equal(styleMap.has('transform'), false, '放行位移后交还原生规则')
+  assert.equal(styleMap.has('transition'), false, '放行位移后交还原生过渡')
+  assert.equal(rafQueue.length, 0, '展开链到此结束')
+})
+
+test('移动端抽屉展开时内容先成帧再动：真实浏览器里揭示帧不推进位移', async t => {
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  const page = await context.newPage()
+  await page.setContent(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>${tavernCss}</style>
+    <style>${paperCss}</style>
+  </head><body class="dsh-tavern-shell-active">
+    <div data-slot="root">
+      <div class="VFpnAa_frame" data-mobile-nav="frame" data-sidebar-drawer="true" data-sidebar-collapsed="true">
+        <div class="VFpnAa_drawerMask" data-sidebar-mask="true"></div>
+        <div class="VFpnAa_sidebarCol" id="col">
+          <div class="dsh-tavern-sidebar collapsed"></div>
+        </div>
+      </div>
+    </div>
+  </body></html>`)
+
+  const trace = await page.evaluate(async () => {
+    const col = document.getElementById('col')
+    const frame = document.querySelector('.VFpnAa_frame')
+    // 与 openDrawerAnimated 相同的三拍：钉住 → 成帧 → 放行。
+    const pinned = getComputedStyle(col).transform
+    col.style.setProperty('transform', pinned, 'important')
+    col.style.setProperty('transition', 'none', 'important')
+    col.style.setProperty('content-visibility', 'hidden', 'important')
+    const samples = []
+    const sample = label => samples.push({ label, x: Math.round(Math.abs(new DOMMatrix(getComputedStyle(col).transform).m41)) })
+    sample('pinned')
+    frame.removeAttribute('data-sidebar-collapsed')
+    sample('after-flip')
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+    col.style.removeProperty('content-visibility')
+    void col.offsetWidth
+    sample('revealed')
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+    col.style.removeProperty('transition')
+    col.style.removeProperty('transform')
+    sample('released')
+    await new Promise(r => setTimeout(r, 320))
+    sample('settled')
+    return { samples, width: Math.round(col.getBoundingClientRect().width) }
+  })
+
+  const byLabel = Object.fromEntries(trace.samples.map(s => [s.label, s.x]))
+  assert.ok(byLabel.pinned > 0, '收起时抽屉在屏外：' + JSON.stringify(trace.samples))
+  assert.equal(byLabel['after-flip'], byLabel.pinned, '翻开状态后位移仍被钉住，不提前滑动')
+  assert.equal(byLabel.revealed, byLabel.pinned, '成帧这一拍位移不动，排版与首帧绘制不占用动画帧')
+  assert.equal(byLabel.released, byLabel.pinned, '放行后的第一帧从收起位起步')
+  assert.equal(byLabel.settled, 0, '动画结束后抽屉在展开位')
+  assert.equal(trace.width, 390)
 })
 
 test('mobile-layout 点击普通按钮不触发 450ms 逐帧同步布局，且空转帧零 DOM 测量', () => {
