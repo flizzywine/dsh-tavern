@@ -1,7 +1,7 @@
 import { storyEventTurn } from './session-upgrade-references.js'
 import { sessionEvents } from './session-events.js'
 import { turnStartIndex } from './session-turn-input.js'
-import { STORY_SUBMIT_ACK_TEXT, detectStoryRefusal, storySubmissionForTurn } from './story-tool-submission.js'
+import { storySubmissionForTurn } from './story-tool-submission.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -37,14 +37,12 @@ export function assistantResultForTurn(session, turn) {
     if (!source || source.kind !== 'model') continue
     const text = blockText(message, 'text')
     const reasoningText = blockText(message, 'reasoning')
-    const plainTextRefusal = text !== '' && (text === STORY_SUBMIT_ACK_TEXT || detectStoryRefusal(text))
     return {
       index,
       event,
       text,
       reasoningText,
-      reasoningOnly: text === '' && reasoningText !== '',
-      ...(plainTextRefusal ? { plainTextRefusal: true } : {})
+      reasoningOnly: text === '' && reasoningText !== ''
     }
   }
   return null

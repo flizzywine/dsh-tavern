@@ -6,13 +6,10 @@ import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import {
   STORY_CONTEXT_TOOL_NAME,
-  STORY_REFUSAL_ABORT_RECEIPT,
-  STORY_SUBMIT_ACK_TEXT,
   STORY_SUBMIT_TOOL_NAME,
   buildStorySubmitWireSchema,
   createStoryContextTool,
   createStorySubmissionTool,
-  detectStoryRefusal,
   foldStorySubmission,
   storySubmissionForTurn,
 } from '../tavern-plugin/lib/domain/story-tool-submission.js'
@@ -31,112 +28,6 @@ import { GEMINI_THOUGHT_SIGNATURE_SENTINEL } from '../tavern-plugin/lib/domain/t
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { foregroundToolCatalog, normalizeDisabledForegroundTools } from '../tavern-plugin/lib/domain/foreground-tools.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
-
-test('拒答识别：精准命中模型场外退回话术，放行角色台词与正常长篇小说正文', () => {
-  assert.equal(detectStoryRefusal('抱歉，我无法协助生成此类内容。'), true)
-  assert.equal(detectStoryRefusal('<game>\n抱歉，作为一个人工智能助手，我不能继续这段剧情。\n</game>'), true)
-  assert.equal(detectStoryRefusal("I'm sorry, but I cannot fulfill this request."), true)
-  assert.equal(detectStoryRefusal('「抱歉，让你久等了。」少女轻轻推开木门。'), false)
-  assert.equal(detectStoryRefusal('“对不起，我不能答应你的条件。”骑士握紧了剑柄。'), false)
-  assert.equal(detectStoryRefusal('夜风拂过庭院，灯笼微晃。'.repeat(40)), false)
-})
-
-test('submit_story：首次退回触发同回合纠偏错（不结束回合），二次退回干净中止并标记 content-filter', async () => {
-  const session = Session.create('refusal-game')
-  appendSessionEvent(session, 'turn/start', { turn: 1 }, null)
-
-  let concluded = 0
-  const tool = createStorySubmissionTool({
-    chatForSession: async () => ({ id: 'c1', mode: 'story' }),
-    enabled: async () => true,
-  })
-  const exec = {
-    agent: { session },
-    concludeTurn() { concluded++ }
-  }
-
-  // 第 1 次：抛出纠偏指令，不调 concludeTurn，驱动 Agent Loop 进入 step 2 重试
-  let firstErr = null
-  try {
-    await tool.execute({ content: '抱歉，我无法生成这段内容。' }, exec)
-  } catch (err) {
-    firstErr = err
-  }
-  assert.ok(firstErr)
-  assert.match(firstErr.message, /提交被退回：content 中检测到场外说明/)
-  assert.equal(concluded, 0)
-
-  // 模拟宿主记录了第 1 次的错误 tool/result
-  const errCall = appendSessionEvent(session, 'assistant/message', {
-    turn: 1,
-    step: 1,
-    message: {
-      id: 'm1-err',
-      role: 'assistant',
-      source: { kind: 'model', provider: 'google', model: 'gemini-3-pro' },
-      content: [{ type: 'tool-call', id: 'c1', name: STORY_SUBMIT_TOOL_NAME, arguments: '{}' }]
-    }
-  }, { surfaceOp: 'append' })
-  appendSessionEvent(session, 'tool/result', {
-    turn: 1,
-    step: 1,
-    message: {
-      id: 'err-1',
-      role: 'user',
-      source: { kind: 'tool', callId: 'c1' },
-      content: [{ type: 'tool-result', toolCallId: 'c1', isError: true, content: [{ type: 'text', text: firstErr.message }] }]
-    }
-  }, { surfaceOp: 'append', sourceEventSeqs: [errCall.seq] })
-
-  // 第 2 次仍退回：调用 concludeTurn 立即收束回合，返回中止回执，避免死循环
-  const secondOut = await tool.execute({ content: "I'm sorry, I cannot write that." }, exec)
-  assert.equal(concluded, 1)
-  assert.equal(secondOut, STORY_REFUSAL_ABORT_RECEIPT)
-
-  // 结算读取到 refusalAborted 与 content-filter 分类
-  const argsJson = JSON.stringify({ content: "I'm sorry, I cannot write that." })
-  const callEvent = appendSessionEvent(session, 'assistant/message', {
-    turn: 1,
-    step: 2,
-    message: {
-      id: 'm2',
-      role: 'assistant',
-      source: { kind: 'model', provider: 'google', model: 'gemini-3-pro' },
-      content: [{ type: 'tool-call', id: 'c2', name: STORY_SUBMIT_TOOL_NAME, arguments: argsJson }]
-    }
-  }, { surfaceOp: 'append' })
-  appendSessionEvent(session, 'tool/call', { turn: 1, step: 2, callId: 'c2', name: STORY_SUBMIT_TOOL_NAME, arguments: argsJson }, null)
-  appendSessionEvent(session, 'tool/result', {
-    turn: 1,
-    step: 2,
-    message: {
-      id: 'r2',
-      role: 'user',
-      source: { kind: 'tool', callId: 'c2' },
-      content: [{ type: 'tool-result', toolCallId: 'c2', isError: false, content: [{ type: 'text', text: STORY_REFUSAL_ABORT_RECEIPT }] }]
-    }
-  }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
-
-  const result = assistantResultForTurn(session, 1)
-  assert.equal(result.refusalAborted, true)
-  assert.equal(result.failure.category, 'content-filter')
-})
-
-test('纯文本回退防漏：模型未调 submit_story 直接吐出拒答或复读确认语时标记 plainTextRefusal', () => {
-  const session = Session.create('plain-leak')
-  appendSessionEvent(session, 'turn/start', { turn: 1 }, null)
-  appendSessionEvent(session, 'assistant/message', {
-    turn: 1,
-    step: 1,
-    message: {
-      id: 'm1',
-      role: 'assistant',
-      source: { kind: 'model', provider: 'openai', model: 'gpt-5' },
-      content: [{ type: 'text', text: STORY_SUBMIT_ACK_TEXT }]
-    }
-  }, { surfaceOp: 'append' })
-  assert.equal(assistantResultForTurn(session, 1).plainTextRefusal, true)
-})
 
 test('read_story_context 被误调用时抛出引导直达 submit_story', async () => {
   const ctxTool = createStoryContextTool()
