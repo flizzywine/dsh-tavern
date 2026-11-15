@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fe0726a7e074f02ca7f33bab0297d4807a515e9b",
-  "releaseSequence": 1675,
+  "revision": "625ba913fbda2246ffd72d12bd6b3000463cfa94",
+  "releaseSequence": 1676,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ab3ab27dfed7d665c76ee60e6fab56808f5883d9954401f6dc1715ff1b9066d2",
-      "size": 6456174
+      "sha256": "0772d067b711256dc11f9c22a71727ac637b705861e206c37602c477b51d67d2",
+      "size": 6457048
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -9221,8 +9221,8 @@
     },
     {
       "path": "tavern-plugin/src/client/bubble-line.cjs",
-      "sha256": "faeffb9150d2068ac47ce1e1a91d254cbbcc835c8f9833f23a271336c27a36fa",
-      "size": 19475
+      "sha256": "4cc4d075f4fc979498dacb27a7baf5209f6dcf406cda78f120c1e8aec7a3e214",
+      "size": 20289
     },
     {
       "path": "tavern-plugin/src/client/mod-projection.cjs",
@@ -9286,9 +9286,9 @@
     }
   ],
   "archive": {
-    "commit": "e2274357c8adaf1e203bb3f8052549c69096955c",
+    "commit": "50f28c035471deccefd42a713df59e342e8dbe8c",
     "path": "runtime.zip",
-    "sha256": "1d3846c8b993e093f93ec4c1034b13603c198ef9fdf3a316c9baa770511e8590",
-    "size": 16597190
+    "sha256": "a05dedd7e9edf39e6aea803a2a736f6585085763bc878ea6adb21098463f4698",
+    "size": 16597691
   }
 }
