@@ -126,3 +126,21 @@ test('玩家行的请求号跟着故事窗口一起送到页面，且只搬请�
     assert.equal(assistant.message.source, undefined, '没有请求号的行不带 source')
   }
 })
+
+test('重复 turn 的富文本回复按实际行传送正文和状态面板', async () => {
+  const reply = (turn, prose, panel) => ({ role: 'assistant', turn, displayMode: 'html',
+    displayText: `${prose}\n\n\`\`\`html\n<div>${panel}</div>\n\`\`\`` })
+  const messages = [reply(10, '**旧正文**', '旧面板'), reply(11, '**普通正文**', '普通面板'), reply(10, '**新正文**', '新面板')]
+  for (const paged of [true, false]) {
+    const { reader } = fixture(messages, { paged })
+    const { messages: rows } = (await reader('session')).storyTranscript
+    assert.deepEqual(rows.map(row => row.key), ['index:0', 'turn:11', 'index:2'])
+    assert.equal(rows[1].message.displayParts, undefined)
+    for (const [index, prose, panel] of [[0, '旧正文', '旧面板'], [2, '新正文', '新面板']]) {
+      const parts = rows[index].message.displayParts.filter(part => (part.text ?? part.content).trim())
+      assert.deepEqual(parts.map(part => part.kind), ['markdown', 'html'])
+      assert.equal(parts[0].text.trim(), `**${prose}**`)
+      assert.equal(parts[1].content.trim(), `<div>${panel}</div>`)
+    }
+  }
+})

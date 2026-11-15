@@ -144,6 +144,7 @@ function tavernStoryTranscriptRows(transcript) {
 				turn: Number.isInteger(message.turn) ? message.turn : (message.greeting === true ? 1 : 0),
 				text: text,
 				mode: streaming ? 'markdown' : (typeof message.displayMode === 'string' && message.displayMode ? message.displayMode : 'markdown'),
+				...(!streaming && Array.isArray(message.displayParts) ? { parts: message.displayParts } : {}),
 				warnings: Array.isArray(message.projectionWarnings) ? message.projectionWarnings : []
 			} : null,
 			message: message

@@ -2,6 +2,7 @@ import { readRecentWindow } from './bounded-history.js'
 import { projectStoryTranscript, storyReplyNativeTurns } from './story-transcript.js'
 import { storyToolCalls } from './story-tool-calls.js'
 import { sessionViewMessageFields } from './session-view-projection.js'
+import { projectDisplayParts } from './display-source.js'
 
 const summaryOf = message => ({
   role: message?.role,
@@ -18,7 +19,7 @@ const transportFields = Object.freeze([
 // 会话视图投影本身不读 source，故事列表却要按请求号把宿主的提交回声换成落盘行；
 // 这里只点取请求号，不把整段 source 读进窗口。
 export const storyTranscriptMessageFields = Object.freeze([...sessionViewMessageFields, 'source.rpcId'])
-function transportMessage(message) {
+function transportMessage(message, includeDisplayParts) {
   if (!message || typeof message !== 'object' || Array.isArray(message)) return message
   const result = {}
   for (const field of transportFields) {
@@ -34,6 +35,10 @@ function transportMessage(message) {
     if (Object.hasOwn(message, 'message')) result.message = message.message
     if (Object.hasOwn(message, 'content')) result.content = message.content
   }
+  if (includeDisplayParts && result.role === 'assistant' && result.placeholder !== true
+    && (result.displayMode === 'html' || result.displayMode === 'rich') && typeof result.displayText === 'string') {
+    result.displayParts = projectDisplayParts(result.displayText).parts
+  }
   return result
 }
 async function projectWindow(window, summaries, readToolEvents) {
@@ -42,7 +47,7 @@ async function projectWindow(window, summaries, readToolEvents) {
   const calls = readToolEvents ? await storyToolCalls(window.chat.sessionId, nativeTurns, readToolEvents) : []
   return {
     ...transcript,
-    messages: transcript.messages.map((entry, index) => ({ ...entry, message: transportMessage(entry.message),
+    messages: transcript.messages.map((entry, index) => ({ ...entry, message: transportMessage(entry.message, entry.key.startsWith('index:')),
       ...(nativeTurns[index] === null ? {} : { nativeTurn: nativeTurns[index] }),
       ...(calls[index]?.length ? { toolCalls: calls[index] } : {}) }))
   }

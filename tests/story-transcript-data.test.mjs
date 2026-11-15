@@ -31,6 +31,15 @@ const partial = { turn: 0, blocks: [{ kind: 'reasoning', text: '思考' }, { kin
 
 const baseRows = () => data.rows(story(MESSAGES))
 
+test('富文本故事行转发各自的分段投影', () => {
+	const parts = [{ kind: 'markdown', text: '**正文**' }, { kind: 'html', content: '<div>状态</div>' }]
+	const messages = MESSAGES.map(message => message.messageUid === 'uid-target'
+		? { ...message, displayMode: 'html', displayParts: parts } : message)
+	const rows = data.rows(story(messages))
+	assert.equal(rows.find(row => row.messageUid === 'uid-target').projection.parts, parts)
+	assert.equal(rows.find(row => row.messageUid === 'uid-sibling').projection.parts, undefined)
+})
+
 test('UID 找不到对应行时不回退到 turn 匹配', () => {
 	const rows = baseRows()
 	assert.deepEqual(data.streamRows(rows, partial, [], 3, true, 'uid-missing'), rows)
