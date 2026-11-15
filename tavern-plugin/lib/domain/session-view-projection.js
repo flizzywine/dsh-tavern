@@ -577,9 +577,9 @@ export function createSessionViewProjection({
     return next
   }
   async function projectFullSessionView(chat, { windowHelperMessages = false, inputChanges, deferResources } = {}) {
-    const mode = chat.mode || 'story', isCard = mode === 'card', cardPath = str(chat.cardPath)
+    const mode = chat.mode || 'story', isCard = mode === 'card'
     let card = null, cardReadError = null
-    try { card = isCard && cardPath === '' ? null : await requestPerformance.stage('readCard', () => readChatCard(chat)) }
+    try { card = await requestPerformance.stage('readCard', () => readChatCard(chat)) }
     catch (error) {
       if (!isCard) throw error
       cardReadError = '人物卡暂时无法读取，请在工作台校验并修复：' + chat.cardPath

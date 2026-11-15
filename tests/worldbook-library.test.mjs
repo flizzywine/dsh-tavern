@@ -72,6 +72,15 @@ function harness(extra = {}) {
   return { library, cards, files, bindings, removed }
 }
 
+test('空白卡片工作台可读取全局世界书，已挂载但丢失的卡仍报错', async () => {
+  const { library } = harness()
+  const chat = { mode: 'card', cardPath: '' }
+  assert.equal(await library.bound(chat.cardPath, null, chat), null)
+  await library.setGlobal({ kind: 'standalone', path: 'worldbooks/王都.json' }, true)
+  assert.equal((await library.bound(chat.cardPath, null, chat)).view.displayName, '王都')
+  await assert.rejects(library.bound('cards/已丢失.json', null, { ...chat, cardPath: 'cards/已丢失.json' }), /人物卡不存在/)
+})
+
 test('单本世界书或人物卡损坏时目录保留正常项目并返回诊断', async () => {
   const library = createWorldBookLibrary({
     normalizePath(path) { return path },

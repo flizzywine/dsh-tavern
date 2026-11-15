@@ -259,9 +259,8 @@ export function createWorldBookLibrary(options = {}) {
     // This resolver lives for one bound read only. Binding metadata, the view
     // and the exported document must describe the same resource observation.
     const records = new Map()
-    const normalizedCardPath = normalizePath(cardPath, 'card')
-    card ??= await cards.read(normalizedCardPath)
-    if (card === undefined) throw new Error('人物卡不存在: ' + normalizedCardPath)
+    const blankWorkspace = chat?.mode === 'card' && str(cardPath) === ''
+    const normalizedCardPath = blankWorkspace ? '' : normalizePath(cardPath, 'card')
     function read(locator) {
       const source = sourceOf(locator)
       const key = JSON.stringify(source)
@@ -269,9 +268,14 @@ export function createWorldBookLibrary(options = {}) {
         source.kind === 'card' && source.cardPath === normalizedCardPath ? card : undefined, templateOnly))
       return records.get(key)
     }
-    const current = await binding(cardPath, { card, read })
-    if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
-    const localSources = current.kind === 'multiple' ? current.books.map(book => book.source) : current.source ? [current.source] : []
+    let localSources = []
+    if (!blankWorkspace) {
+      card ??= await cards.read(normalizedCardPath)
+      if (card === undefined) throw new Error('人物卡不存在: ' + normalizedCardPath)
+      const current = await binding(normalizedCardPath, { card, read })
+      if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+      localSources = current.kind === 'multiple' ? current.books.map(book => book.source) : current.source ? [current.source] : []
+    }
     const sources = [], identities = new Set()
     for (const locator of localSources.concat(includeGlobals ? await globalSources() : [])) {
       const source = sourceOf(locator), identity = JSON.stringify(source)

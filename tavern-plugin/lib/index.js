@@ -1465,6 +1465,7 @@ export async function apply(ctx) {
   })
   async function readChatCard(chat) {
     if (chat.mode !== 'card' && chat.cardDefinitionSnapshot) return copyJsonTree(chat.cardDefinitionSnapshot)
+    if (chat.mode === 'card' && str(chat.cardPath) === '') return null
     const card = await readCard(chat.cardPath)
     if (card === undefined) throw new Error('人物卡不存在: ' + chat.cardPath)
     return card

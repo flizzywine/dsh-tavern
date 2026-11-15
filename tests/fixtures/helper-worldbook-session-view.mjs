@@ -8,17 +8,23 @@ import { resolveTavernDataRoot } from '../../tavern-plugin/lib/domain/tavern-dat
 
 const root = resolveTavernDataRoot()
 await mkdir(join(root, 'resources', 'cards'), {recursive: true})
-await writeFile(join(root, 'sessions.json'), JSON.stringify({s: 'worldbook-chat'}))
+await writeFile(join(root, 'sessions.json'), JSON.stringify({s: 'worldbook-chat', workbench: 'blank-workbench'}))
 const book = {name: '回归世界书', entries: [{id: 7, comment: '站台', keys: ['车站'], content: '测试资料', enabled: true}]}
 const card = {name: 'Worldbook test', extensions: {}, character_book: book}
 const workspace = createCardPreparation().create({ kind: 'import', payload: card })
 await writeFile(join(root, 'resources', 'cards', 'worldbook.json'), JSON.stringify(workspace))
-await createChatJournalStore({dataRoot: root}).update('worldbook-chat', () => ({
+const journal = createChatJournalStore({dataRoot: root})
+await journal.update('worldbook-chat', () => ({
   id: 'worldbook-chat', _storageRevision: 1, sessionId: 's', mode: 'story', cardPath: 'cards/worldbook.json',
   backgroundConfigVersion: 1, conversationFeaturesVersion: 1,
   cardDefinitionSnapshot: card,
   openingWorldbookSnapshot: {version: 1, source: {kind: 'card', cardPath: 'cards/worldbook.json'}, document: book},
   mvu: {enabled: true}, messages: [{role: 'assistant', turn: 1, text: 'Opening'}]
+}))
+await journal.update('blank-workbench', () => ({
+  id: 'blank-workbench', _storageRevision: 1, sessionId: 'workbench', mode: 'card', cardPath: '', cardName: '卡片工作台',
+  backgroundConfigVersion: 1, conversationFeaturesVersion: 1,
+  workspace: { mountedResources: [], sourcePaths: [], draft: { name: '' } }, messages: []
 }))
 const host = await createPluginHost()
 try {
@@ -36,5 +42,13 @@ try {
       assert.equal(Object.hasOwn(view.tavernHelper.worldbook, 'entries'), false, 'descriptor must not eagerly copy the book')
     } else assert.equal(view.tavernHelper.worldbook.entries[0].uid, 7)
   }
+  const readWorkbench = async () => (await host.rpc('getSession', {sessionId: 'workbench', resourceSync: 1})).view
+  const blank = await readWorkbench()
+  assert.equal(blank.mode, 'card')
+  assert.equal(blank.cardReadError, undefined)
+  await journal.update('blank-workbench', chat => ({ ...chat, _storageRevision: 2, posture: '更新后的状态' }))
+  const updated = await readWorkbench()
+  assert.equal(updated.posture, '更新后的状态')
+  assert.equal(updated.cardReadError, undefined)
   console.log('helper worldbook full/deferred/cached RPC projections passed')
 } finally { await host.dispose() }
