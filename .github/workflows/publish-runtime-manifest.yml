@@ -31,6 +31,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
       - name: Build immutable runtime manifest
         shell: bash
         run: |
@@ -38,6 +41,9 @@ jobs:
           git checkout "$GITHUB_REF_NAME"
           git pull --ff-only origin "$GITHUB_REF_NAME"
           node .github/scripts/write-runtime-manifest.mjs "$(git rev-parse HEAD)" "${{ github.run_number }}"
+          if [[ "$GITHUB_REF_NAME" == main ]]; then
+            node --experimental-vm-modules .github/scripts/check-runtime-imports.mjs
+          fi
       # Publish a small CDN tree: an immutable ZIP commit, followed by a commit
       # containing matching installers and metadata. Source branches exceed CDN limits.
       - name: Publish runtime archive
