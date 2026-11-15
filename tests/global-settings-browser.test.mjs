@@ -225,4 +225,20 @@ test('全局默认模型区支持设置剧情罗盘默认模型：跟随后台�
   )
 })
 
+test('开局默认功能区支持设置剧情罗盘自动更新间隔并保存进 defaultPlaySettings', async t => {
+  const backend = fixture()
+  const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
+  const input = page.getByLabel('剧情罗盘自动更新', { exact: true })
+  await input.waitFor()
+  assert.equal(await input.inputValue(), '0')
+  await input.fill('6')
+  await input.press('Enter')
+  await page.waitForFunction(() => document.querySelector('input[aria-label="剧情罗盘自动更新"]')?.value === '6')
+  assert.deepEqual(
+    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
+    { defaultPlaySettings: { plotCompassAutoUpdateInterval: 6 } }
+  )
+})
+
+
 

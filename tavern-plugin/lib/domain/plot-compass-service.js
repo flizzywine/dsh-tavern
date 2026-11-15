@@ -583,7 +583,7 @@ export function createPlotCompassService({
     return readPlotCompass(saved?.plotCompass)
   }
 
-  async function setPreferences({ sessionId, pace, blindBox, customDirective } = {}) {
+  async function setPreferences({ sessionId, pace, blindBox, customDirective, autoUpdateInterval } = {}) {
     const chat = await requirePlayChat(sessionId)
     if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启')
     const saved = await store.updateChat(chat.id, current => {
@@ -593,6 +593,7 @@ export function createPlotCompassService({
         pace,
         blindBox,
         customDirective,
+        autoUpdateInterval,
         now: now()
       })
       current.updatedAt = now()
@@ -626,18 +627,77 @@ export function createPlotCompassService({
     }
   }
 
-  async function hasTrackableSteps(chatOrSlice, explicitTurn, sessionId) {
-    if (typeof callModel !== 'function') return false
+  async function resolveTurnTarget(chatOrSlice, sessionId) {
+    if (chatOrSlice && chatOrSlice.backgroundTasks !== undefined && !isPlotCompassEnabled(chatOrSlice)) {
+      return null
+    }
     let target = chatOrSlice
     if ((!target || target.plotCompass === undefined || target.backgroundTasks === undefined) && sessionId) {
       target = await store.chatForSession(str(sessionId))
     }
+    return target
+  }
+
+  function isAutoUpdateDue(chat, explicitTurn) {
+    if (typeof runAgent !== 'function') return false
+    if (!isPlayableChat(chat) || !isPlotCompassEnabled(chat) || jobs.has(str(chat.id))) return false
+    const compass = readPlotCompass(chat.plotCompass)
+    const interval = compass.autoUpdateInterval || 0
+    if (interval <= 0) return false
+    const latestTurn = Math.max(Number(explicitTurn) || 0, latestStoryTurnOf(chat))
+    return latestTurn > 0 && (latestTurn - compass.basedOnTurn) >= interval
+  }
+
+  async function hasScheduledAutoUpdate(chatOrSlice, explicitTurn, sessionId) {
+    if (typeof runAgent !== 'function') return false
+    const target = await resolveTurnTarget(chatOrSlice, sessionId)
+    return isAutoUpdateDue(target, explicitTurn)
+  }
+
+  async function hasTrackableSteps(chatOrSlice, explicitTurn, sessionId) {
+    if (typeof callModel !== 'function') return false
+    const target = await resolveTurnTarget(chatOrSlice, sessionId)
     if (!isPlayableChat(target) || !isPlotCompassEnabled(target)) return false
+    // 若本轮已到达定时全量演进间隔，直接交给定期演进任务全局刷新，避免重复核对消耗。
+    if (isAutoUpdateDue(target, explicitTurn)) return false
     const compass = readPlotCompass(target.plotCompass)
     const pending = collectPendingCompassSteps(compass)
     if (pending.length === 0) return false
     const latestTurn = Math.max(Number(explicitTurn) || 0, latestStoryTurnOf(target))
     return latestTurn > Math.max(compass.basedOnTurn, compass.lastCheckedTurn || 0)
+  }
+
+  async function autoUpdateOnTurn({ sessionId, chat: hintChat, turn: hintTurn, wait = true } = {}) {
+    if (typeof runAgent !== 'function') return null
+    const targetSessionId = str(sessionId || hintChat?.sessionId)
+    if (!targetSessionId) return null
+    const baseChat = hintChat?.id ? hintChat : await store.chatForSession(targetSessionId)
+    if (!isPlayableChat(baseChat) || jobs.has(baseChat.id)) return null
+    if (baseChat.backgroundTasks !== undefined && !isPlotCompassEnabled(baseChat)) return null
+
+    const freshChat = await store.readChat(baseChat.id)
+    if (!isPlayableChat(freshChat) || !isPlotCompassEnabled(freshChat) || jobs.has(freshChat.id)) return null
+    const compass = readPlotCompass(freshChat.plotCompass)
+    const interval = compass.autoUpdateInterval || 0
+    if (interval <= 0) return null
+    const latestTurn = Math.max(Number(hintTurn) || 0, latestStoryTurnOf(freshChat))
+    if (latestTurn <= 0 || (latestTurn - compass.basedOnTurn) < interval) return null
+    const model = selection(freshChat)
+    if (!model) return null
+
+    const hasExisting = compass.shortTerm.length > 0 || compass.midTerm.length > 0 || compass.longTerm.length > 0
+    const guidance = hasExisting
+      ? `本次为每 ${interval} 楼定时自动演进刷新（当前第 ${latestTurn} 轮，距上次推演已过 ${latestTurn - compass.basedOnTurn} 轮）：请对照最新剧情勾选已完成节拍/里程碑，延续玩家已点亮路线并补充新分支。`
+      : `本次为每 ${interval} 楼定时自动推演（当前第 ${latestTurn} 轮）：请结合当前剧情、人物卡与世界书暗线，生成今期、中期、长期的多路线剧情发展规划。`
+    return await generate({
+      sessionId: targetSessionId,
+      scope: 'all',
+      guidance,
+      wait
+    }).catch(err => {
+      onError(err)
+      return null
+    })
   }
 
   /**
@@ -729,6 +789,8 @@ export function createPlotCompassService({
     toggleStep,
     setArchetypes,
     setPreferences,
+    hasScheduledAutoUpdate,
+    autoUpdateOnTurn,
     hasTrackableSteps,
     syncTurnProgress,
     autoEvolveAfterCompaction,

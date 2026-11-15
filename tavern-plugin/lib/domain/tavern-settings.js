@@ -3,6 +3,7 @@ import { normalizeBackgroundModel, normalizePlotCompassModel } from './backgroun
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from './narrative-damper.js'
+import { PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL, normalizePlotCompassAutoUpdateInterval } from './plot-compass.js'
 
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
@@ -245,6 +246,7 @@ export function normalizePlayDefaults(value) {
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
     // New games get 文风联想 unless the defaults turn it off; an existing game without the key stays off.
     backgroundTasks: { ...normalizeConfiguredBackgroundTasks(input.backgroundTasks), styleReference: object(input.backgroundTasks).styleReference !== false },
+    plotCompassAutoUpdateInterval: normalizePlotCompassAutoUpdateInterval(input.plotCompassAutoUpdateInterval),
     webSearchEnabled: input.webSearchEnabled === true }
 }
 
@@ -265,6 +267,16 @@ export function applyTavernSettingsPatch(current, patch) {
     if (Object.hasOwn(patch, 'webSearchEnabled') && typeof patch.webSearchEnabled !== 'boolean') throw new Error('默认开关必须为布尔值')
     if (Object.hasOwn(patch, 'playerName') && (typeof patch.playerName !== 'string' || patch.playerName.length > 80)) throw new Error('玩家称呼最多 80 字')
     if (Object.hasOwn(patch, 'statusBarPlacement') && !['body', 'sidebar'].includes(patch.statusBarPlacement)) throw new Error('状态栏位置无效')
+    if (Object.hasOwn(patch, 'plotCompassAutoUpdateInterval')) {
+      const rawInterval = patch.plotCompassAutoUpdateInterval
+      if (rawInterval === null || typeof rawInterval === 'boolean' || (typeof rawInterval === 'string' && !rawInterval.trim())) {
+        throw new Error(`剧情罗盘自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
+      }
+      const interval = Number(rawInterval)
+      if (!Number.isInteger(interval) || interval < 0 || interval > PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL) {
+        throw new Error(`剧情罗盘自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
+      }
+    }
     for (const key of ['posture', 'styleReference', 'foregroundCandidates', 'plotCompass', 'preset']) if (Object.hasOwn(object(patch.backgroundTasks), key) && typeof patch.backgroundTasks[key] !== 'boolean') throw new Error('默认结算开关必须为布尔值')
     const current = normalizePlayDefaults(next.defaultPlaySettings)
     next.defaultPlaySettings = normalizePlayDefaults({ ...current, ...patch, backgroundTasks: { ...current.backgroundTasks, ...object(patch.backgroundTasks) } })

@@ -1989,3 +1989,253 @@ test('前端浏览器交互：剧情罗盘侧栏支持跟随后台、跟随前�
   }
 })
 
+test('剧情罗盘定期自动更新：间隔配置校验、达到间隔楼数触发全层刷新并跳过冗余节拍核对', async () => {
+  const { BACKGROUND_TASK_CATALOG, registerBackgroundTasks } = await import('../tavern-plugin/lib/domain/background-tasks.js')
+  const { createStoryEvents } = await import('../tavern-plugin/lib/domain/story-events.js')
+  const { createWorkflow } = await import('../tavern-plugin/lib/domain/workflow.js')
+
+  // 1. readPlotCompass / applyPlotCompassPreferences 规范化与边界校验
+  assert.equal(readPlotCompass(null).autoUpdateInterval, 0)
+  assert.equal(readPlotCompass({ version: 1, autoUpdateInterval: 5 }).autoUpdateInterval, 5)
+  assert.equal(readPlotCompass({ version: 1, autoUpdateInterval: -2 }).autoUpdateInterval, 0)
+  assert.equal(readPlotCompass({ version: 1, autoUpdateInterval: 999 }).autoUpdateInterval, 100)
+  assert.equal(applyPlotCompassPreferences(null, { autoUpdateInterval: 10 }).autoUpdateInterval, 10)
+  for (const invalid of [-1, 101, 2.5, '', null, true, 'abc']) {
+    assert.throws(() => applyPlotCompassPreferences(null, { autoUpdateInterval: invalid }), /自动更新间隔须为/)
+  }
+
+  // 2. 服务层触发判断、跳过同轮节拍核对以及 workflow 调度集成
+  const submitted = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD })
+  let savedChat = {
+    id: 'chat-auto',
+    sessionId: 'session-auto',
+    mode: 'story',
+    cardPath: 'cards/test.json',
+    cardName: '沈清弦',
+    backgroundTasks: { plotCompass: true },
+    plotCompass: applyPlotCompassPreferences(
+      applyPlotCompassPin(
+        mergePlotCompassUpdate(null, submitted, { scope: 'all', turn: 2, now: 1000 }),
+        { horizon: 'shortTerm', routeId: 'st-probe', now: 1000 }
+      ),
+      { autoUpdateInterval: 3, now: 1001 }
+    ),
+    messages: [
+      { role: 'assistant', turn: 1, text: '开场。' },
+      { role: 'user', turn: 2, text: '继续' },
+      { role: 'assistant', turn: 2, text: '第二轮对峙。' }
+    ]
+  }
+  const runAgentCalls = []
+  const callModelCalls = []
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(savedChat),
+      readChat: async () => structuredClone(savedChat),
+      updateChat: async (_id, updater) => {
+        const next = await updater(structuredClone(savedChat))
+        if (next) savedChat = next
+        return structuredClone(savedChat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'openai', model: 'gpt-test' }),
+    runAgent: async input => {
+      runAgentCalls.push(input)
+      await input.onToolCall({ name: PLOT_COMPASS_SUBMIT_TOOL_NAME, arguments: JSON.stringify(sampleSubmission()) })
+      return {}
+    },
+    callModel: async opts => {
+      callModelCalls.push(opts)
+      return JSON.stringify({ completed: [], lapsed: false })
+    }
+  })
+
+  const prefsResult = await service.setPreferences({ sessionId: 'session-auto', autoUpdateInterval: 3 })
+  assert.equal(prefsResult.autoUpdateInterval, 3)
+
+  // 第 3、4 轮尚未到达 +3 间隔：不触发定期更新，走常规节拍核对
+  assert.equal(await service.hasScheduledAutoUpdate(savedChat, 3, 'session-auto'), false)
+  assert.equal(await service.hasTrackableSteps(savedChat, 3, 'session-auto'), true)
+  assert.equal(await service.hasScheduledAutoUpdate(savedChat, 4, 'session-auto'), false)
+
+  // 第 5 轮恰好达到 5 - 2 = 3：触发定期自动更新，同轮跳过冗余节拍核对
+  savedChat.messages.push(
+    { role: 'user', turn: 3, text: '三' }, { role: 'assistant', turn: 3, text: '三回' },
+    { role: 'user', turn: 4, text: '四' }, { role: 'assistant', turn: 4, text: '四回' },
+    { role: 'user', turn: 5, text: '五' }, { role: 'assistant', turn: 5, text: '五回' }
+  )
+  assert.equal(await service.hasScheduledAutoUpdate(savedChat, 5, 'session-auto'), true)
+  assert.equal(await service.hasTrackableSteps(savedChat, 5, 'session-auto'), false)
+
+  // 关闭剧情罗盘总开关时不触发
+  assert.equal(await service.hasScheduledAutoUpdate({ ...savedChat, backgroundTasks: { plotCompass: false } }, 5, 'session-auto'), false)
+
+  // 通过 background-tasks + workflow 事件总线验证 turn-settled 完整触发链路
+  const events = createStoryEvents({ logger: { warn() {} } })
+  const workflow = createWorkflow({ events, tasks: BACKGROUND_TASK_CATALOG })
+  const stop = registerBackgroundTasks(workflow, {
+    plotCompassService: service,
+    turnUpkeepService: { hasTaskEnabled: () => false },
+    announceCast: () => {},
+    gameTitles: { afterTurn: () => {} },
+    saveMaintenance: { noteWrite: () => {} },
+    pluginApi: { turnSettled: () => {} },
+    candidateWorldbookPreparation: { warm: () => {} },
+    polishPrereview: { start: () => {} },
+    backgroundTasks: { activity: () => ({ role: '', phase: 'idle' }) }
+  })
+
+  try {
+    // 1) 未到间隔（turn 4，间隔 3）：仅运行 plot-compass-progress
+    const chatTurn4 = { ...structuredClone(savedChat), messages: savedChat.messages.slice(0, 7) }
+    events.emit('turn-settled', { chatId: 'chat-auto', latest: chatTurn4, turn: 4 })
+    for (let i = 0; i < 20 && callModelCalls.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(runAgentCalls.length, 0)
+    assert.equal(callModelCalls.length, 1)
+
+    // 2) 到达间隔（turn 5，间隔 3）：运行 plot-compass-auto-update（scope=all），不重复跑 plot-compass-progress
+    events.emit('turn-settled', { chatId: 'chat-auto', latest: structuredClone(savedChat), turn: 5 })
+    for (let i = 0; i < 40 && (runAgentCalls.length === 0 || savedChat.plotCompass.basedOnTurn !== 5); i++) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    assert.equal(runAgentCalls.length, 1)
+    assert.equal(callModelCalls.length, 1)
+    assert.ok(String(runAgentCalls[0]?.taskText || '').includes('每 3 楼定时自动演进刷新'))
+    assert.equal(savedChat.plotCompass.basedOnTurn, 5)
+    assert.equal(savedChat.plotCompass.autoUpdateInterval, 3)
+
+    // 3) 即使罗盘此前尚无路线（空罗盘），首次推进到第 3 轮也会触发自动推演
+    const emptyChat = {
+      id: 'chat-empty',
+      sessionId: 'session-auto',
+      mode: 'story',
+      backgroundTasks: { plotCompass: true },
+      plotCompass: applyPlotCompassPreferences(null, { autoUpdateInterval: 3 })
+    }
+    assert.equal(await service.hasScheduledAutoUpdate(emptyChat, 2, 'session-auto'), false)
+    assert.equal(await service.hasScheduledAutoUpdate(emptyChat, 3, 'session-auto'), true)
+  } finally {
+    stop()
+  }
+})
+
+test('前端浏览器交互：剧情罗盘侧栏支持设置自动更新间隔与自定义楼数并显示倒计时提示', async t => {
+  const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  const browser = await chromium.launch({ headless: true })
+  t.after(async () => { await browser.close().catch(() => {}) })
+  try {
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    const pageErrors = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    await page.setViewportSize({ width: 1280, height: 860 })
+
+    let plotCompass = {
+      pace: 'natural',
+      blindBox: false,
+      customDirective: '',
+      autoUpdateInterval: 0,
+      shortTerm: [],
+      midTerm: [],
+      longTerm: [],
+      pinned: { shortTerm: null, midTerm: null, longTerm: null },
+      archived: [],
+      chatHistory: [],
+      basedOnTurn: 2
+    }
+    const calls = []
+    await page.route('http://tavern.test/**', async route => {
+      const url = route.request().url()
+      if (url === 'http://tavern.test/') {
+        return route.fulfill({ status: 200, contentType: 'text/html', body: '<div id="compass-tab"></div>' })
+      }
+      const method = new URL(url).pathname.split('/').at(-1)
+      const args = route.request().postDataJSON() || {}
+      calls.push({ method, args })
+      if (method === 'setPlotCompassPreferences') {
+        plotCompass = { ...plotCompass, ...args }
+      }
+      const responses = {
+        listSessions: { sessions: [{ sessionId: 'game', chatId: 'chat', mode: 'story', cardName: '沈清弦' }] },
+        setPlotCompassPreferences: { plotCompass },
+        getTavernModelCatalog: { modelCatalog: [] },
+        getSession: {
+          view: {
+            mode: 'story',
+            latestAssistantTurn: 4,
+            latestAssistantMessageId: 'reply-4',
+            activity: { busy: false },
+            plotCompass,
+            plotCompassEnabled: true,
+            plotCompassModel: 'background',
+            plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+            tavernHelper: { messages: [] }
+          }
+        },
+        getTavernSettings: { settings: {} },
+        getChoices: { candidates: null },
+        syncSession: { sync: { activity: { busy: false, phase: 'idle' } } }
+      }
+      await route.fulfill({ json: { ok: true, ...(responses[method] || {}) } })
+    })
+
+    await page.goto('http://tavern.test/')
+    await page.addScriptTag({ content: await browserReactScript() })
+    await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?modules.react:{});}};` })
+    await page.addScriptTag({ content: clientSource })
+
+    await page.evaluate(() => {
+      const tabs = {}
+      const noop = () => () => {}
+      const sessionState = { current: 'game', byId: { game: { id: 'game' } } }
+      const ctx = {
+        inject() { return { dispose() {} } },
+        get() {},
+        provide() {},
+        effect(run, label) {
+          if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: plot compass tab'].includes(label)) return run()
+          return () => {}
+        },
+        slots: { inject(_name, run) { return run() }, register() { return () => {} } },
+        sessions: { subagentAddress: () => null, refresh: async () => {}, list: { subscribe: noop, getSnapshot: () => sessionState }, binding: () => null },
+        workspaces: {},
+        betterSidebar: { registerTab(descriptor) { tabs[descriptor.id] = descriptor; return () => {} }, openTab() {} },
+        tavernSessionSignals: { subscribe: noop }
+      }
+      window.client.apply(ctx)
+      const React = modules.react
+      const createRoot = modules['react-dom/client'].createRoot
+      createRoot(document.querySelector('#compass-tab')).render(React.createElement(tabs['dsh-tavern:plot-compass'].component, { scope: {} }))
+    })
+
+    const intervalGroup = page.getByRole('group', { name: '剧情罗盘自动更新间隔' })
+    await intervalGroup.waitFor({ timeout: 5000 })
+    assert.equal(await intervalGroup.locator('button[aria-pressed="true"]').textContent(), '关闭')
+
+    await intervalGroup.getByRole('button', { name: '每 5 楼', exact: true }).click()
+    await page.waitForFunction(() => document.querySelector('[aria-label="剧情罗盘自动更新间隔"] button[aria-pressed="true"]')?.textContent === '每 5 楼')
+    assert.equal(calls.filter(c => c.method === 'setPlotCompassPreferences').at(-1)?.args.autoUpdateInterval, 5)
+    // latestAssistantTurn=4, basedOnTurn=2 => 已推进 2 楼，距 5 楼还差 3 楼
+    await page.getByText('还差 3 楼全局刷新', { exact: true }).waitFor()
+
+    await intervalGroup.getByRole('button', { name: '自定义', exact: true }).click()
+    const input = page.getByLabel('自定义自动更新楼数', { exact: true })
+    await input.waitFor()
+    await input.fill('7')
+    await page.getByRole('button', { name: '应用', exact: true }).click()
+    await page.waitForFunction(() => document.querySelector('[aria-label="剧情罗盘自动更新间隔"] button[aria-pressed="true"]')?.textContent === '自定义(7楼)')
+    assert.equal(calls.filter(c => c.method === 'setPlotCompassPreferences').at(-1)?.args.autoUpdateInterval, 7)
+    await page.getByText('还差 5 楼全局刷新', { exact: true }).waitFor()
+
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await browser.close()
+  }
+})
+
+

@@ -9,6 +9,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL_NAME = 'plot_compass_submit'
 export const PLOT_COMPASS_HORIZONS = Object.freeze(['shortTerm', 'midTerm', 'longTerm'])
 export const PLOT_COMPASS_SCOPES = Object.freeze(['all', 'shortTerm', 'midTerm', 'longTerm'])
 export const PLOT_COMPASS_PACES = Object.freeze(['foreshadow', 'natural', 'climax'])
+export const PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL = 100
 
 const MAX_ROUTES_PER_HORIZON = 4
 const MAX_STEPS_PER_ROUTE = 4
@@ -19,6 +20,14 @@ const MAX_COMPASS_CHAT_MESSAGES = 16
 
 function normalizePlotCompassPace(value) {
   return PLOT_COMPASS_PACES.includes(value) ? value : 'natural'
+}
+
+export function normalizePlotCompassAutoUpdateInterval(value) {
+  if (value === undefined || value === null || value === '' || value === false) return 0
+  if (typeof value === 'boolean') return null
+  const n = Number(value)
+  if (!Number.isSafeInteger(n) || n < 0) return null
+  return Math.min(PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL, n)
 }
 
 function str(value) {
@@ -174,6 +183,7 @@ export function emptyPlotCompass() {
     updatedAt: 0,
     basedOnTurn: 0,
     lastCheckedTurn: 0,
+    autoUpdateInterval: 0,
     pace: 'natural',
     blindBox: false,
     customDirective: '',
@@ -245,6 +255,7 @@ export function readPlotCompass(value) {
     updatedAt: Math.max(0, Number(src.updatedAt) || 0),
     basedOnTurn,
     lastCheckedTurn: Math.max(basedOnTurn, Number(src.lastCheckedTurn) || 0),
+    autoUpdateInterval: normalizePlotCompassAutoUpdateInterval(src.autoUpdateInterval) ?? 0,
     pace: normalizePlotCompassPace(src.pace),
     blindBox: src.blindBox === true,
     customDirective: cleanText(src.customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH }),
@@ -562,9 +573,9 @@ export function applyPlotCompassCustomArchetypes(previousRaw, archetypes, { now 
 }
 
 /**
- * 更新剧情罗盘的控制偏好（推进节奏、盲盒防剧透开关、玩家自定义微调引导）。
+ * 更新剧情罗盘的控制偏好（推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔）。
  */
-export function applyPlotCompassPreferences(previousRaw, { pace, blindBox, customDirective, now = Date.now() } = {}) {
+export function applyPlotCompassPreferences(previousRaw, { pace, blindBox, customDirective, autoUpdateInterval, now = Date.now() } = {}) {
   const next = readPlotCompass(previousRaw)
   if (pace !== undefined) {
     if (!PLOT_COMPASS_PACES.includes(pace)) throw new Error('无效的推进节奏选项：' + str(pace))
@@ -575,6 +586,16 @@ export function applyPlotCompassPreferences(previousRaw, { pace, blindBox, custo
   }
   if (customDirective !== undefined) {
     next.customDirective = cleanText(customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH })
+  }
+  if (autoUpdateInterval !== undefined) {
+    if (typeof autoUpdateInterval === 'boolean' || autoUpdateInterval === null || (typeof autoUpdateInterval === 'string' && !autoUpdateInterval.trim())) {
+      throw new Error(`自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
+    }
+    const parsed = Number(autoUpdateInterval)
+    if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL) {
+      throw new Error(`自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
+    }
+    next.autoUpdateInterval = parsed
   }
   next.updatedAt = now
   return next

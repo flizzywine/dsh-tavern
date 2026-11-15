@@ -192,7 +192,8 @@ export function createPlayHandlers(deps) {
         sessionId: args?.sessionId,
         pace: args?.pace,
         blindBox: args?.blindBox,
-        customDirective: args?.customDirective
+        customDirective: args?.customDirective,
+        autoUpdateInterval: args?.autoUpdateInterval
       })
       return { plotCompass }
     },

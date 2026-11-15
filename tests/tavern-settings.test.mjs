@@ -393,3 +393,82 @@ test('剧情罗盘模型默认跟随后台，支持跟随前台和独立模型�
   assert.deepEqual(publishedChat.plotCompassModelSelection, indModel)
 })
 
+test('剧情罗盘自动更新间隔支持全局开局默认配置、校验与默认模板保存恢复及新局继承', async () => {
+  const { applyTavernSettingsPatch, normalizePlayDefaults, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
+  const { createSettingsHandlers } = await import('../tavern-plugin/lib/rpc/settings.js')
+  const { createConversationInitialization } = await import('../tavern-plugin/lib/domain/conversation-initialization.js')
+  const { applyPlotCompassPreferences, readPlotCompass } = await import('../tavern-plugin/lib/domain/plot-compass.js')
+
+  assert.equal(normalizePlayDefaults({}).plotCompassAutoUpdateInterval, 0)
+  for (const invalid of [-1, 101, 2.5, '', null, true, 'abc']) {
+    assert.throws(() => applyTavernSettingsPatch({}, { defaultPlaySettings: { plotCompassAutoUpdateInterval: invalid } }), /剧情罗盘自动更新间隔须为/)
+  }
+  const patched = applyTavernSettingsPatch({}, { defaultPlaySettings: { plotCompassAutoUpdateInterval: 5 } })
+  assert.equal(presentTavernSettings(patched, {}).defaultPlaySettings.plotCompassAutoUpdateInterval, 5)
+
+  let settingsDoc = {}
+  const chats = new Map([
+    ['s1', {
+      id: 'c1', sessionId: 's1', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: 'background',
+      backgroundTasks: { plotCompass: true }, disabledForegroundTools: [], disabledWritingSkills: [], messages: [],
+      plotCompass: applyPlotCompassPreferences(null, { pace: 'climax', autoUpdateInterval: 4 })
+    }],
+    ['s2', {
+      id: 'c2', sessionId: 's2', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: 'background',
+      backgroundTasks: {}, disabledForegroundTools: [], disabledWritingSkills: [], messages: [],
+      plotCompass: applyPlotCompassPreferences(null, { blindBox: true, autoUpdateInterval: 0 })
+    }]
+  ])
+  const readTavernSettings = async () => presentTavernSettings(settingsDoc, {})
+  const updateTavernSettings = async patch => {
+    settingsDoc = applyTavernSettingsPatch(settingsDoc, patch)
+    return presentTavernSettings(settingsDoc, {})
+  }
+  const handlers = createSettingsHandlers({
+    str: v => v == null ? '' : String(v),
+    groupOfMode: mode => mode === 'card' ? 'card' : 'play',
+    chatForSession: async sid => chats.get(sid),
+    chatHeaderForSession: async sid => chats.get(sid),
+    updateChat: async (chatId, updater) => {
+      for (const [sid, chat] of chats.entries()) {
+        if (chat.id === chatId) {
+          const next = updater({ ...chat })
+          chats.set(sid, next)
+          return next
+        }
+      }
+      throw new Error('missing chat')
+    },
+    readTavernSettings,
+    updateTavernSettings,
+    llm: { resolveCallConfig: async () => ({}) }
+  })
+
+  await handlers.saveConversationSettingsAsDefaultTemplate({ sessionId: 's1' })
+  assert.equal((await readTavernSettings()).defaultPlaySettings.plotCompassAutoUpdateInterval, 4)
+
+  await handlers.restoreConversationSettingsFromDefaultTemplate({ sessionId: 's2' })
+  assert.equal(readPlotCompass(chats.get('s2').plotCompass).autoUpdateInterval, 4)
+  assert.equal(readPlotCompass(chats.get('s2').plotCompass).blindBox, true)
+
+  let publishedChat = null
+  const init = createConversationInitialization({
+    id: prefix => prefix + '-new',
+    timeline: { apply: ({ chat }) => ({ chat }) },
+    cards: {
+      read: async () => ({ path: 'cards/a.json', name: '卡', first_mes: '开场' }),
+      extensions: async () => ({}),
+      script: async () => undefined
+    },
+    chats: { resolve: async () => undefined, publish: async chat => { publishedChat = chat } },
+    snapshots: { prepare: async () => {} },
+    presets: { fullSnapshot: async () => null },
+    settings: readTavernSettings,
+    emptyCardWorkspace: () => ({}),
+    present: async chat => chat
+  })
+  await init.start({ cardPath: 'cards/a.json', mode: 'story' })
+  assert.equal(readPlotCompass(publishedChat.plotCompass).autoUpdateInterval, 4)
+})
+
+

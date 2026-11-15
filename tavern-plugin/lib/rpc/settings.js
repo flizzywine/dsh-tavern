@@ -5,6 +5,7 @@ import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
 import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
 import { DAMPER_KEY_REFS, validateNarrativeDamperConfig } from '../domain/narrative-damper.js'
+import { applyPlotCompassPreferences, readPlotCompass } from '../domain/plot-compass.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -251,6 +252,7 @@ export function createSettingsHandlers(deps) {
         defaultPlaySettings: {
           playerName,
           backgroundTasks: { posture: tasks.posture !== false, plotCompass: tasks.plotCompass === true, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true },
+          plotCompassAutoUpdateInterval: readPlotCompass(chat.plotCompass).autoUpdateInterval,
           webSearchEnabled: chat.webSearchEnabled === true
         },
         defaultDisabledForegroundTools: disabledForegroundTools,
@@ -326,6 +328,9 @@ export function createSettingsHandlers(deps) {
         current.backgroundModelSelection = normalizeBackgroundModel(settings.defaultBackgroundModel)
         current.plotCompassModelSelection = normalizePlotCompassModel(settings.plotCompassModel) || 'background'
         current.backgroundTasks = normalizeConfiguredBackgroundTasks(defaults.backgroundTasks)
+        if (current.plotCompass || defaults.plotCompassAutoUpdateInterval > 0) {
+          current.plotCompass = applyPlotCompassPreferences(current.plotCompass, { autoUpdateInterval: defaults.plotCompassAutoUpdateInterval })
+        }
         current.webSearchEnabled = defaults.webSearchEnabled === true
         current.disabledForegroundTools = normalizeDisabledForegroundTools(settings.defaultDisabledForegroundTools)
         current.disabledWritingSkills = [...(settings.defaultDisabledWritingSkills || [])]

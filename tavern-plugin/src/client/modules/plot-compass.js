@@ -37,6 +37,13 @@ const PLOT_COMPASS_MODEL_OPTIONS = Object.freeze([
     { key: "independent", label: "独立", title: "单独为剧情罗盘指定独立模型" }
 ]);
 
+const PLOT_COMPASS_AUTO_UPDATE_PRESETS = Object.freeze([
+    { value: 0, label: "关闭" },
+    { value: 3, label: "每 3 楼" },
+    { value: 5, label: "每 5 楼" },
+    { value: 10, label: "每 10 楼" }
+]);
+
 function compassMidPhaseLabel(index, total) {
     if (total <= 1) return "";
     if (index === total - 1) return "高潮";
@@ -136,7 +143,7 @@ function TavernPlotCompassTab(props) {
     const [modelReasoning, setModelReasoning] = React.useState({ key: "", value: null, error: "" });
 
     const compass = (view && view.plotCompass) || {
-        pace: "natural", blindBox: false, customDirective: "",
+        pace: "natural", blindBox: false, customDirective: "", autoUpdateInterval: 0,
         playArchetypes: [], customArchetypes: [], situationDigest: "",
         shortTerm: [], midTerm: [], longTerm: [],
         pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], chatHistory: [], basedOnTurn: 0
@@ -153,7 +160,22 @@ function TavernPlotCompassTab(props) {
     const currentPace = compass.pace || "natural";
     const blindBox = compass.blindBox === true;
     const customDirective = String(compass.customDirective || "");
+    const autoUpdateInterval = Number.isInteger(Number(compass.autoUpdateInterval)) && Number(compass.autoUpdateInterval) >= 0
+        ? Math.min(100, Number(compass.autoUpdateInterval))
+        : 0;
+    const isPresetAutoUpdateInterval = PLOT_COMPASS_AUTO_UPDATE_PRESETS.some(function (opt) { return opt.value === autoUpdateInterval; });
+    const latestTurn = Number(view && view.latestAssistantTurn) || 0;
+    const basedOnTurn = Number(compass.basedOnTurn) || 0;
+    const sinceBaseTurns = Math.max(0, latestTurn - basedOnTurn);
+    const remainingAutoUpdateFloors = Math.max(0, autoUpdateInterval - sinceBaseTurns);
+    const autoUpdateHint = !compassEnabled
+        ? "当前罗盘已关闭，暂不触发"
+        : (remainingAutoUpdateFloors === 0
+            ? "下轮结算后立即全局刷新"
+            : "还差 " + remainingAutoUpdateFloors + " 楼全局刷新");
     const chatHistory = Array.isArray(compass.chatHistory) ? compass.chatHistory : [];
+    const [customIntervalOpen, setCustomIntervalOpen] = React.useState(false);
+    const [intervalDraft, setIntervalDraft] = React.useState("");
 
     React.useEffect(function () {
         setLocalError("");
@@ -163,7 +185,13 @@ function TavernPlotCompassTab(props) {
         setPeekedCards({});
         setChatOpen(false);
         setPickingIndependentModel(false);
+        setCustomIntervalOpen(false);
     }, [sessionId]);
+
+    React.useEffect(function () {
+        setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : "");
+        setCustomIntervalOpen(autoUpdateInterval > 0 && !PLOT_COMPASS_AUTO_UPDATE_PRESETS.some(function (opt) { return opt.value === autoUpdateInterval; }));
+    }, [autoUpdateInterval, sessionId]);
 
     React.useEffect(function () {
         if (!compassEnabled || (!pickingIndependentModel && !compassModelIsObject)) return;
@@ -449,6 +477,30 @@ function TavernPlotCompassTab(props) {
         }
     }
 
+    function commitCustomInterval() {
+        const trimmed = String(intervalDraft || "").trim();
+        if (!trimmed) {
+            setCustomIntervalOpen(false);
+            setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : "");
+            return;
+        }
+        const parsed = Number(trimmed);
+        if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+            setLocalError("自动更新间隔须为 0–100 的整数（0 表示关闭）");
+            return;
+        }
+        if (parsed === autoUpdateInterval) {
+            if (PLOT_COMPASS_AUTO_UPDATE_PRESETS.some(function (opt) { return opt.value === parsed; })) {
+                setCustomIntervalOpen(false);
+            }
+            return;
+        }
+        savePreferences(
+            { autoUpdateInterval: parsed },
+            parsed > 0 ? "已设置每 " + parsed + " 楼自动全局刷新剧情罗盘。" : "已关闭剧情罗盘定期自动更新。"
+        );
+    }
+
     function toggleCardPeek(horizon, routeId) {
         const key = horizon + ":" + routeId;
         setPeekedCards(function (prev) {
@@ -721,6 +773,65 @@ function TavernPlotCompassTab(props) {
                             savePreferences({ blindBox: !blindBox }, !blindBox ? "已开启盲盒防剧透模式，卡片剧透详情已遮罩。" : "已切回明牌模式。");
                         }
                     }, blindBox ? "🎁 盲盒防剧透：开" : "👁 明牌模式")
+                ),
+                h("div", { className: "dsh-tavern-compass-interval-row" },
+                    h("div", { className: "dsh-tavern-compass-pace-group", role: "group", "aria-label": "剧情罗盘自动更新间隔" },
+                        h("span", { className: "dsh-tavern-compass-label" }, "自动更新："),
+                        h("div", { className: "dsh-tavern-compass-pace-pills" },
+                            PLOT_COMPASS_AUTO_UPDATE_PRESETS.map(function (opt) {
+                                const selected = !customIntervalOpen && autoUpdateInterval === opt.value;
+                                return h("button", {
+                                    key: opt.value,
+                                    type: "button",
+                                    className: "dsh-tavern-compass-pace-btn" + (selected ? " is-active" : ""),
+                                    disabled: Boolean(busyAction),
+                                    "aria-pressed": selected ? "true" : "false",
+                                    title: opt.value === 0 ? "仅手动推演或归卷时更新" : "每隔 " + opt.value + " 楼回合结算后自动全层刷新路线",
+                                    onClick: function () {
+                                        setCustomIntervalOpen(false);
+                                        if (autoUpdateInterval !== opt.value) {
+                                            savePreferences({ autoUpdateInterval: opt.value }, opt.value > 0 ? "已设置每 " + opt.value + " 楼自动全局刷新剧情罗盘。" : "已关闭剧情罗盘定期自动更新。");
+                                        }
+                                    }
+                                }, opt.label);
+                            }),
+                            h("button", {
+                                key: "custom",
+                                type: "button",
+                                className: "dsh-tavern-compass-pace-btn" + ((customIntervalOpen || !isPresetAutoUpdateInterval) ? " is-active" : ""),
+                                disabled: Boolean(busyAction),
+                                "aria-pressed": (customIntervalOpen || !isPresetAutoUpdateInterval) ? "true" : "false",
+                                title: "自定义每隔多少楼自动全层刷新（1–100 楼，0 为关闭）",
+                                onClick: function () {
+                                    setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : "");
+                                    setCustomIntervalOpen(true);
+                                }
+                            }, !isPresetAutoUpdateInterval && autoUpdateInterval > 0 ? "自定义(" + autoUpdateInterval + "楼)" : "自定义")
+                        )
+                    ),
+                    (customIntervalOpen || !isPresetAutoUpdateInterval) ? h("div", { className: "dsh-tavern-compass-interval-custom" },
+                        h("input", {
+                            type: "number",
+                            min: 0,
+                            max: 100,
+                            step: 1,
+                            className: "dsh-tavern-compass-input dsh-tavern-compass-interval-input",
+                            "aria-label": "自定义自动更新楼数",
+                            placeholder: "1–100",
+                            value: intervalDraft,
+                            disabled: Boolean(busyAction),
+                            onChange: function (e) { setIntervalDraft(e.target.value); },
+                            onKeyDown: function (e) { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); commitCustomInterval(); } }
+                        }),
+                        h("span", { className: "dsh-tavern-compass-label" }, "楼"),
+                        h("button", {
+                            type: "button",
+                            className: "dsh-tavern-btn",
+                            disabled: Boolean(busyAction),
+                            onClick: commitCustomInterval
+                        }, "应用")
+                    ) : null,
+                    autoUpdateInterval > 0 ? h("span", { className: "dsh-tavern-compass-interval-hint" }, autoUpdateHint) : null
                 ),
                 h("div", { className: "dsh-tavern-compass-model-row" },
                     h("div", { className: "dsh-tavern-compass-pace-group", role: "group", "aria-label": "剧情罗盘模型" },
