@@ -79,6 +79,27 @@ function ImageViewer(props) {
         try { if (!node.matches(":popover-open")) node.showPopover(); } catch (_) {}
         return () => { try { if (node.matches(":popover-open")) node.hidePopover(); } catch (_) {} };
     }, []);
+    // The viewer covers the whole window: on the Windows Desktop it is shown in full screen, where the native minimise /
+    // maximise / close are hidden and its own ✕ is the only one. It leaves the full screen it entered on
+    // close; leaving full screen (Esc, which the browser takes first) closes it. Opened over a full-screen stage, it changes nothing.
+    React.useEffect(function () {
+        // (the page goes full screen and enters the top layer after the open viewer, so the viewer is shown again on top of it)
+        const node = root.current, html = typeof document === "undefined" ? null : document.documentElement;
+        if (!node || !html || !html.hasAttribute("data-windows-titlebar") || document.fullscreenElement || !html.requestFullscreen) return undefined;
+        let entered = false, gone = false;
+        const onChange = () => { if (entered && !document.fullscreenElement) { entered = false; close(); } };
+        document.addEventListener("fullscreenchange", onChange);
+        html.requestFullscreen().then(() => {
+            if (gone) { document.exitFullscreen().catch(() => {}); return; }
+            entered = true;
+            try { if (node.matches(":popover-open")) { node.hidePopover(); node.showPopover(); node.focus({ preventScroll: true }); } } catch (_) {}
+        }, () => {});
+        return () => {
+            gone = true;
+            document.removeEventListener("fullscreenchange", onChange);
+            if (entered && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        };
+    }, []);
     React.useEffect(function () {
         const previous = typeof document === "undefined" ? null : document.activeElement;
         if (root.current && root.current.focus) root.current.focus({ preventScroll: true });

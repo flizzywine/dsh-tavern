@@ -82,6 +82,11 @@ body {
   color: #0f1115;
 }
 
+/* The window's own top band, which a layer covering the window keeps its controls out of: the Windows Desktop draws its
+   native minimise / maximise / close over the top --dsh-windows-titlebar-height, above any page layer (hidden in full
+   screen); a phone has its notch. */
+:root { --fork-safe-top: env(safe-area-inset-top, 0px); }
+:root[data-windows-titlebar]:not(:fullscreen) { --fork-safe-top: max(env(safe-area-inset-top, 0px), var(--dsh-windows-titlebar-height, 40px)); }
 /* ==== fork UI standard tokens ==== */
 /* the semantic tokens of the UI standard that had no single name.
    Declared on every context root so var() resolves against that context's re-pointed --fork-* inks. Values only alias
@@ -2251,10 +2256,11 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-ui details > summary { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); cursor: pointer; }
 
 /* Dialogs: the only second-level container; dividers inside. */
-.ap-modal-scrim { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: var(--fk-s-modal-veil); padding: 16px; }
+/* starts below the window's own top band (--fork-safe-top): a dialog that fills a narrow window keeps its ⋯ and ✕ clear of the native window buttons */
+.ap-modal-scrim { position: fixed; inset: 0; z-index: 10000; top: var(--fork-safe-top, 0px); display: grid; place-items: center; background: var(--fk-s-modal-veil); padding: 16px; }
 /* a dialog that takes focus itself never shows a ring for it. */
 .ap-modal:focus, .ap-modal:focus-visible { outline: none; }
-.ap-modal { width: min(720px,100%); max-height: calc(100dvh - 32px); overflow: auto; padding: 22px 24px; border: .5px solid var(--ap-border-strong); border-radius: 14px; background: linear-gradient(var(--fork-surface, transparent), var(--fork-surface, transparent)), Canvas; box-shadow: 0 18px 60px #0000003d; }
+.ap-modal { width: min(720px,100%); max-height: calc(100dvh - 32px - var(--fork-safe-top, 0px)); overflow: auto; padding: 22px 24px; border: .5px solid var(--ap-border-strong); border-radius: 14px; background: linear-gradient(var(--fork-surface, transparent), var(--fork-surface, transparent)), Canvas; box-shadow: 0 18px 60px #0000003d; }
 .ap-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
 .ap-modal > header h2 { font-size: 16px; }
 /* 展开大屏 / 放大面板 (ui/frame-sheet.js): the card frame is laid over .dsh-tavern-frame-sheet-body. The scrim is a
@@ -6338,7 +6344,7 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-viewer-img.is-gliding { transition: transform 180ms cubic-bezier(.2, .7, .2, 1); }
 .fork-viewer-stage > .fork-spinner.is-fill { color: var(--fork-viewer-ink); }
 .fork-viewer-error { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--fork-viewer-ink); font-size: var(--fork-fs-body); }
-.fork-viewer-tools { position: absolute; top: calc(var(--dsh-title-bar-strip, 0px) + 12px); right: 12px; display: flex; gap: 8px; }
+.fork-viewer-tools { position: absolute; top: calc(var(--fork-safe-top, 0px) + 12px); right: 12px; display: flex; gap: 8px; }
 .fork-viewer-button { display: grid; place-items: center; width: 36px; height: 36px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--fork-viewer-control); color: var(--fork-viewer-ink); cursor: pointer; }
 .fork-viewer-button:hover:not(:disabled) { background: var(--fork-viewer-control-hover); }
 .fork-viewer-button:focus-visible { outline: 2px solid var(--fork-viewer-ink); outline-offset: 2px; }
