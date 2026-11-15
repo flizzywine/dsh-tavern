@@ -15198,7 +15198,9 @@ function GalStage(props) {
     // the box, or the chip it opts into; skin-fix r4) - the classic stage, a skin without art and a wide stage's face
     // window or bust show none there (owner 10-31: an engine default for every skin).
     const artMarks = activeSkin?.resolvedArt?.marks;
-    const faceMode = film || accepted.cg || cg.visible || narrow && !(artMarks && 'data-fk-skin-phone-face' in artMarks) ? 'off' : advLayout && !artMarks?.['data-fk-skin-portrait'] ? (narrow && artMarks?.['data-fk-skin-face-chip'] === '' ? 'chip' : 'off') : 'always';
+    // A CG hides the face column only for skins that draw no portrait panel: a framed skin keeps its panel (and the text's room beside it) under a CG.
+    const cgHidesFace = (accepted.cg || cg.visible) && !(advLayout && artMarks?.['data-fk-skin-portrait'] && !narrow);
+    const faceMode = film || cgHidesFace || narrow && !(artMarks && 'data-fk-skin-phone-face' in artMarks) ? 'off' : advLayout && !artMarks?.['data-fk-skin-portrait'] ? (narrow && artMarks?.['data-fk-skin-face-chip'] === '' ? 'chip' : 'off') : 'always';
     // the gutter is latched per page (useGalFaceColumn); every theme only shows a face in a page
     // that reserved its column (narration and faceless pages start at the
     // box padding in every theme, not only classic).
