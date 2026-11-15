@@ -31,6 +31,7 @@ import { copyFigureAssets } from './copy-figure.js'
 import {readCopyMouthDebt, copiedMouthDebt, retireLocalMouthDebt} from './copied-mouth-debt.js'
 import { copyPackItems } from './copy-items.js'
 import { mergePackContents } from './merge-packs.js'
+import { moveFigureContents } from './move-figures.js'
 import {createStageSetupMethods} from './stage-setup.js'
 import {createAutomaticWriteMethods, patchFigureDocument} from './automatic-writes.js'
 import { stat, writeFile } from 'node:fs/promises'
@@ -889,6 +890,42 @@ export function createAssetPackService(options) {
         evictMetadata(input.packId); evictMetadata(input.sourcePackId)
         emit({...pack,local},before); emit(null,source)
         return {status:'merged',revision:local.revision,...plan}
+      },input.dryRun === true)
+    },
+    // Host maintenance only, like mergePacks: figures keep their ids and change owner pack; the caller stops the profile and
+    // rewrites the (pack, figure) references. Target first, then source; the offline command's backup covers an interruption.
+    moveFigures(input) {
+      validateUuid(input.sourcePackId); validateUuid(input.packId)
+      check(input.sourcePackId !== input.packId, '$.sourcePackId', 'Choose distinct packs')
+      return run([input.sourcePackId,input.packId], async () => {
+        const source = await loadForExport(input.sourcePackId), before = await loadForExport(input.packId)
+        cas(source,input.sourceRevision); cas(before,input.expectedRevision)
+        check(source && before, '$', 'Both packs must exist', 'ASSET_UNAVAILABLE')
+        const moved = moveFigureContents(source,before,input.figureIds), checks = []
+        for (const [next,prior] of [[moved.to,before],[moved.from,source]]) {
+          trimAuthoringImages(next.manifest,next.files,{...source.figures,...before.figures})
+          await sealPack(next.manifest,next.files,prior,storedCopyHashes(next.files,[source,before]))
+          budget(next.files,limits)
+          const documents = {figures:Object.fromEntries(next.manifest.figures.map(id=>[id,readDocument(next.files.get('figures/'+id+'.json'))])),sprites:Object.fromEntries(Object.entries(next.manifest.sprites).map(([key,file])=>[key,readDocument(next.files.get(file))]))}
+          validatePackDocuments({...documents,manifest:next.manifest}); checks.push({...documents,manifest:next.manifest,files:next.files})
+        }
+        const [target,remaining] = checks
+        const installed = await all()
+        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),target.manifest,remaining.manifest])
+        const retired = new Set(before.local.retired || [])
+        for (const key of keys(target)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
+        const sourceRetired = new Set(source.local.retired || []), nextSourceKeys = keys(remaining)
+        for (const key of keys(source)) if (!nextSourceKeys.has(key)) sourceRetired.add(key)
+        const debt = Object.fromEntries(input.figureIds.filter(id => source.local.mouthDebt?.[id]).map(id => [id,source.local.mouthDebt[id]]))
+        const sourceDebt = {...source.local.mouthDebt}; for (const id of input.figureIds) delete sourceDebt[id]
+        const plan = {mapping:moved.mapping,figures:input.figureIds.length,sourceFigures:remaining.manifest.figures.length,targetFigures:target.manifest.figures.length}
+        if (input.dryRun) return {status:'dry-run',...plan,...(input.includeSnapshot ? {snapshots:{source:snapshot({...remaining,local:source.local}),target:snapshot({...target,local:before.local})}} : {})}
+        const targetLocal = nextLocal({...before.local,mouthDebt:{...before.local.mouthDebt,...debt}}), sourceLocal = nextLocal({...source.local,mouthDebt:sourceDebt},[...sourceRetired].sort())
+        await storage.publish(input.packId,target,targetLocal,before)
+        await storage.publish(input.sourcePackId,remaining,sourceLocal,source)
+        evictMetadata(input.packId); evictMetadata(input.sourcePackId)
+        emit({...target,local:targetLocal},before); emit({...remaining,local:sourceLocal},source)
+        return {status:'moved',revisions:{source:sourceLocal.revision,target:targetLocal.revision},...plan}
       },input.dryRun === true)
     },
     removePack(input) {
