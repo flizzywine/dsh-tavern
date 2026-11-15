@@ -135,8 +135,8 @@ export function readAssetPackPreview(preview) {
 }
 
 function carryProjection(state, context) {
-  // a missed trigger hides a choice, not an already playing resource.
-  const next = clone(state), available = new Set(context.catalogue.rows.filter(row => !row.excluded || row.excluded === 'no-trigger').map(row => assetRefKey(row.ref)))
+  // a missed trigger or an unmet condition hides a choice, not an already playing resource.
+  const next = clone(state), available = new Set(context.catalogue.rows.filter(row => !row.excluded || row.excluded === 'no-trigger' || row.excluded === 'condition-unmet').map(row => assetRefKey(row.ref)))
   if (next.scene) next.scene.timeLook = null
   next.lighting.time={mode:'auto',ref:null}
   const valid = ref => ref && available.has(assetRefKey(ref))
@@ -181,21 +181,21 @@ function directorDimensions(engine) {
   return dimensions
 }
 
-function recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, state, activeStageSkin}) {
+function recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, state, activeStageSkin, condition}) {
   return recallAssetPacks({ snapshots, boundPackIds: extension.assetBindings.boundPackIds, globalEnabledPackIds, modAssetKinds:mods?.enabledAssetKinds,
-    units:recallUnits, dimensions, assetStatus, widgetsEnabled: dimensions.widgets, judgeRecall, activeSkin:activeStageSkin?.({extension,engine,manifests:snapshots.map(pack=>pack.manifest),state}) })
+    units:recallUnits, dimensions, assetStatus, widgetsEnabled: dimensions.widgets, judgeRecall, condition, activeSkin:activeStageSkin?.({extension,engine,manifests:snapshots.map(pack=>pack.manifest),state}) })
 }
 
 /** The recalled catalogue of prepareAssetPackDirector for the same input, without the rest of the preparation. */
-export function assetPackDirectorCatalogue({ raw, snapshots = [], globalEnabledPackIds = [], engine, units, recallUnits = units, assetStatus = {}, judgeRecall, mods, record, baseline, opening, activeStageSkin }) {
+export function assetPackDirectorCatalogue({ raw, snapshots = [], globalEnabledPackIds = [], engine, units, recallUnits = units, assetStatus = {}, judgeRecall, mods, record, baseline, opening, activeStageSkin, condition }) {
   const extension = readCardAssetExtension(raw)
-  return extension ? recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions:directorDimensions(engine), assetStatus, judgeRecall, engine, activeStageSkin, state:record ? readAssetPackRecord(record).end : baseline || opening}) : null
+  return extension ? recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions:directorDimensions(engine), assetStatus, judgeRecall, engine, activeStageSkin, condition, state:record ? readAssetPackRecord(record).end : baseline || opening}) : null
 }
 
 /** Only a new Card Preparation binding extension opts in. An absent extension returns null;
  * a malformed extension rejects, and a missing asset service never selects the old catalogue.
  */
-export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], globalEnabledPackIds = [], engine, target, units, imageUnits = units, pageIndex, assetStatus = {}, record, predecessor = [], generation = 0, baseline, opening, modelInfo, recallUnits = units, continuation = false, items, judgeRecall, modPrompts = [], modPromptContext, mods, stateSource, playerInput = '', playerName, modTurn = {}, activeStageSkin }) {
+export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], globalEnabledPackIds = [], engine, target, units, imageUnits = units, pageIndex, assetStatus = {}, record, predecessor = [], generation = 0, baseline, opening, modelInfo, recallUnits = units, continuation = false, items, condition, judgeRecall, modPrompts = [], modPromptContext, mods, stateSource, playerInput = '', playerName, modTurn = {}, activeStageSkin }) {
   if(modPromptContext && modPrompts.length)throw modError('MOD_CODE_CONFLICT','Use one director mod contribution source')
   const promptContext=modPromptContext && captureModPromptContext(modPromptContext)
   const extension = readCardAssetExtension(raw)
@@ -216,7 +216,7 @@ export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], gl
     mods?.capabilities && !mods.capabilities[control.consumer]?.some(edge=>edge.available && edge.provider===control.provider))
   if (!continuation && previous.performance?.phase === 'exit') previous.performance = null
   validateAssetPackStage(previous)
-  const catalogue = recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, activeStageSkin, state:previous})
+  const catalogue = recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, activeStageSkin, condition, state:previous})
   items = dimensions.items !== false && catalogue.candidates.props?.length ? {...items,version:2,enabled:true,catalogue:coreItemCatalogue(catalogue,snapshots)} : undefined
   // retain motion/photosensitivity safety, not presentation quotas.
   const actionCaps = { act: engine.actionCaps?.act ?? 4, beat: engine.actionCaps?.beat ?? 6 }

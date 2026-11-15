@@ -12,6 +12,31 @@ function clean(actions) {
     for (const action of actions) { try { action(); } catch (error) { errors.push(error); } }
     if (errors.length) throw new AggregateError(errors, 'Stage CG cleanup failed');
 }
+// 叠字: the shown CG's caption (title, one line) laid over the picture. It enters with the picture and leaves with it;
+// its appearance (fade, type, rise) is CSS keyed to the caption, so a new caption restarts it and a snapped present
+// (history, skip, reopen) shows it settled. Pause and reduced motion are CSS (data-paused, data-reduced-motion).
+function paintCgCaption(element, frame, snap) {
+    const box=element?.querySelector(':scope > .fork-cg-caption');
+    if (!box) return;
+    const shown=frame.current || frame.previous, caption=shown?.caption;
+    const key=caption ? JSON.stringify([shown.media?.identity,caption]) : '';
+    if (box.dataset.key === key) return;
+    box.dataset.key=key;box.replaceChildren();
+    if (!caption) {box.hidden=true;return;}
+    const appear=caption.appear || 'fade', doc=box.ownerDocument;
+    box.hidden=false;box.dataset.appear=appear;
+    if (snap) box.dataset.snap='true'; else delete box.dataset.snap;
+    let index=0;
+    for (const [field,text] of [['title',caption.title],['line',caption.line]]) {
+        if (!text) continue;
+        const row=doc.createElement('div');
+        row.className='fork-cg-caption-'+field;row.style.setProperty('--row',String(index ? 1 : 0));
+        if (appear === 'type') for (const char of text) {
+            const span=doc.createElement('span');span.textContent=char;span.style.setProperty('--i',String(index++));row.append(span);
+        } else {row.textContent=text;index++;}
+        box.append(row);
+    }
+}
 function useCgStage(sessionId, store, options) {
     const root = React.useRef(null), latest = React.useRef(options); latest.current=options;
     const [visible,setVisible]=React.useState(false), [notice,setNotice]=React.useState('');
@@ -37,7 +62,12 @@ function useCgStage(sessionId, store, options) {
         try {
             lease.consumer=createCgConsumer({clock:forkForeground,
                 onVisible:value=>{if(lease.live&&!disposed)setVisible(value);},
-                onFrame:frame=>lease.live&&!disposed ? cgPaintFrame(root.current,frame) : false,
+                onFrame:frame=>{
+                    if (!lease.live || disposed) return false;
+                    const painted=cgPaintFrame(root.current,frame);
+                    paintCgCaption(root.current,frame,lease.snap);
+                    return painted;
+                },
                 onPlayed(value,provenance) {
                     if(!current(provenance)||latest.current.paused)return;
                     if(value.receipt)void rpc('ackCgPlayed',{turn:provenance.source.turn,receipt:value.receipt,ref:value.ref,variant:value.variant},sessionId)
@@ -65,10 +95,12 @@ function useCgStage(sessionId, store, options) {
     const accept=React.useCallback(intent=>{
         const consumer=slot.current?.consumer;
         if(disposed||!consumer)return Promise.resolve();
-        if(intent.type==='release-presentation'||intent.type==='revoke-presentation')return consumer.present(null,{snap:true});
-        return consumer.present(intent.accepted.cg,{snap:intent.transition==='snap'||!latest.current.forward,provenance:intent.accepted.provenanceByChannel.cg?.token});
+        if(intent.type==='release-presentation'||intent.type==='revoke-presentation'){slot.current.snap=true;return consumer.present(null,{snap:true});}
+        const snap=intent.transition==='snap'||!latest.current.forward;
+        slot.current.snap=snap;
+        return consumer.present(intent.accepted.cg,{snap,provenance:intent.accepted.provenanceByChannel.cg?.token});
     },[slot]);
-    return {visible,accept,notice,node:React.createElement('div',{ref:root,className:'fork-cg-stage','aria-hidden':true},React.createElement('img',{draggable:false}),React.createElement('img',{draggable:false}),React.createElement('div',{className:'fork-cg-white'}))};
+    return {visible,accept,notice,node:React.createElement('div',{ref:root,className:'fork-cg-stage','aria-hidden':true,'data-paused':options.paused ? 'true' : undefined},React.createElement('img',{draggable:false}),React.createElement('img',{draggable:false}),React.createElement('div',{className:'fork-cg-caption',hidden:true}),React.createElement('div',{className:'fork-cg-white'}))};
 }
 return {useStage:useCgStage, dispose() { if(disposed)return;disposed=true;clean([...cleanups]); }};
 }

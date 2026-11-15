@@ -11,7 +11,8 @@ export const ASSET_CONTENT_FIELDS = Object.freeze({
   // default loop, soundtrack mixer layer, intrinsic size and fit. Referenced by id from entrances (and later performances, skins).
   videos: ['bundleKey', 'entry', 'poster', 'durationMs', 'loop', 'audio', 'size', 'fit', 'volume', 'loudness'],
   backgrounds: ['media', 'pendingMedia', 'tags', 'stageTheme'],
-  cg: ['media', 'pendingMedia', 'description', 'focusHints'],
+  // caption: optional words laid over the picture while it shows (title, one line, how they appear).
+  cg: ['media', 'pendingMedia', 'description', 'focusHints', 'caption'],
   props: ['media', 'pendingMedia'],
   // loudness {v:1,lufs,peak} is measured once when the media is installed .
   music: ['media', 'usage', 'tags', 'volume', 'loopStart', 'loopEnd', 'loudness'],

@@ -148,15 +148,26 @@ function hasMvuVisibilityRules(visibility) {
   return Boolean(rules && Object.keys(rules).length > 0)
 }
 
-// Conditional fog-of-war reveal: `revealWhen: { path, equals }` shows the value once the variable at path (under
-// stat_data) equals `equals`. Read where the variables are at hand (the panel, the card's pages); a receipt without them
-// stays masked. A condition string stays reserved.
-function isMvuPathRevealed(rule, statData) {
-  const when = rule && rule.revealWhen
+// A variable condition `{ path, equals | atLeast | atMost }` (or an array of them, all holding) on stat_data: the one
+// reader of conditions a card or pack writes against its variables (revealWhen, an asset's recall.when).
+function mvuConditionHolds(when, statData) {
+  if (Array.isArray(when)) return when.length > 0 && when.every(row => mvuConditionHolds(row, statData))
   if (!mvuVisPlainObject(when) || typeof when.path !== 'string' || !mvuVisPlainObject(statData)) return false
   let node = statData
   for (const segment of mvuVisPointerSegments(when.path)) node = mvuVisPlainObject(node) || Array.isArray(node) ? node[segment] : undefined
-  return unwrapMvuScalar(node) === when.equals
+  const value = unwrapMvuScalar(node)
+  if (Object.hasOwn(when, 'equals')) return value === when.equals
+  const number = parseMvuFiniteNumber(value)
+  if (number === null) return false
+  if (Object.hasOwn(when, 'atLeast')) return number >= when.atLeast
+  if (Object.hasOwn(when, 'atMost')) return number <= when.atMost
+  return false
+}
+
+// Conditional fog-of-war reveal: `revealWhen` shows the value once its condition holds. Read where the variables are
+// at hand (the panel, the card's pages); a receipt without them stays masked. A condition string stays reserved.
+function isMvuPathRevealed(rule, statData) {
+  return mvuConditionHolds(rule && rule.revealWhen, statData)
 }
 
 function mvuVisSegmentsMatch(patternSegs, targetSegs, pIdx = 0, tIdx = 0) {
@@ -638,6 +649,7 @@ export {
   normalizeMvuVisibility,
   hasMvuVisibilityRules,
   isMvuPathRevealed,
+  mvuConditionHolds,
   matchMvuVisibilityRule,
   unwrapMvuScalar,
   parseMvuFiniteNumber,

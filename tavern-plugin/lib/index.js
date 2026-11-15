@@ -4,6 +4,7 @@ import {selectSessionModel} from './domain/session-model-selection.js'
 import { promptSection } from './domain/prompt-section.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
+import {mvuConditionHolds} from './domain/mvu-visibility.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
 import {createReplyStreamRewriters} from './domain/reply-stream-rewrite.js'
 import {createSpeechRecognitionHost} from './speech-recognition-host.js'
@@ -2885,6 +2886,8 @@ export async function apply(ctx) {
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   await stageRuntime.start({hostLibrary, contextHost, dataRoot, activeStageSkin,
+    // the one reader of variable conditions (an asset's recall.when, revealWhen), for the stage's recall.
+    variableConditionHolds: mvuConditionHolds,
     presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
     // No background task starts while the game is compacted (ADR 0003); the coordinator's own guard.
     backgroundBlocked: chat => Boolean(autoCompaction?.blocked(chat)),

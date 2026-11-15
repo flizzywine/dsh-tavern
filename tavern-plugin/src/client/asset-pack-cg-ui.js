@@ -22,6 +22,38 @@ function cgSettle(view,size,focus) {
   return {x:cgRound(axis(focus.x,win.w),3),y:cgRound(axis(focus.y,win.h),3),zoom};
 }
 const CG_ACTION_HELP='告诉导演这张差分里人物在做什么，最多 80 字。';
+// 出现条件 (recall.when) as one line of text: 「/好感/小林 >= 60；/剧情/阶段 = 夏天」. = compares text, a number or
+// true / false; >= and <= compare numbers. All of them must hold.
+const CG_WHEN_HELP='只在卡的变量满足条件时才交给导演，读上一轮结算后的变量。写法：/好感/某人 >= 60；多个条件用分号隔开，全部满足才算。比较可用 =、>=、<=。';
+const CG_WHEN_OPS={'>=':'atLeast','≥':'atLeast','<=':'atMost','≤':'atMost','=':'equals'};
+function cgWhenText(when) {
+  if (!when) return '';
+  return (Array.isArray(when)?when:[when]).map(row=>row.path+' '+(Object.hasOwn(row,'atLeast')?'>= '+row.atLeast:Object.hasOwn(row,'atMost')?'<= '+row.atMost:'= '+row.equals)).join('；');
+}
+function cgParseWhen(text) {
+  const parts=text.split(/[;；]/).map(s=>s.trim()).filter(Boolean);
+  if (!parts.length) return {when:undefined};
+  if (parts.length>8) return {error:'最多 8 个条件'};
+  const rows=[];
+  for (const part of parts) {
+    const m=part.match(/^(\/\S.*?)\s*(>=|≥|<=|≤|=)\s*(.+)$/u);
+    if (!m) return {error:'写成「/变量路径 >= 数字」或「/变量路径 = 值」'};
+    const op=CG_WHEN_OPS[m[2]],raw=m[3].trim().replace(/^["「“](.*)["」”]$/u,'$1'),num=/^-?\d+(?:\.\d+)?$/.test(raw)?Number(raw):null;
+    if (op!=='equals'&&num===null) return {error:m[2]+' 后面要写数字'};
+    rows.push({path:m[1].trim(),[op]:op==='equals'?raw==='true'?true:raw==='false'?false:num??raw:num});
+  }
+  return {when:rows.length===1?rows[0]:rows};
+}
+const CG_CAPTION_APPEAR=[{value:'fade',label:'淡入'},{value:'type',label:'逐字'},{value:'rise',label:'上浮'}];
+const CG_CAPTION_HELP='CG 显示时叠在图上的字，随 CG 出现和消失；不填就照常显示。';
+// one caption field changed; an empty caption leaves the variant.
+function cgCaptionPatch(content,patch) {
+  const caption={...content.caption,...patch};
+  for (const key of Object.keys(caption)) if (caption[key]===''||caption[key]===undefined) delete caption[key];
+  const next={...content};
+  if (caption.title||caption.line) next.caption=caption; else delete next.caption;
+  return next;
+}
 async function prepareCgFiles(files) {
   const updates=new Map(),blobs={},variants=[];
   if (!files.length || files.length>CG_VARIANTS_MAX) throw new Error('CG 需要 1 到 16 张差分');
@@ -204,7 +236,11 @@ function CgVariants({binding,pack,packId,draft,variant,files,blobs,busy,onSelect
     big&&h(CgVariantView,{binding,packId,variant,files,blobs,onClose:()=>setBig(false)}),
     h(InlineGrid,{label:'所选差分',columns:1,className:'ap-cg-variant-fields'},
       h(InlineField,{key:'label:'+variant.id,kind:'text',label:'差分名称',value:variant.name||'',placeholder:'未填写',maxLength:32,validate:v=>v.trim()?'':'请填写差分名称',onCommit:name=>update({name})}),
-      h(InlineField,{key:'action:'+variant.id,kind:'text',multiline:true,label:'动作描述',help:h(Help,{text:CG_ACTION_HELP,label:'动作描述 说明'}),value:variant.content.description||'',placeholder:'例：低头扒饭',maxLength:80,onCommit:description=>update({content:{...variant.content,description}})})));
+      h(InlineField,{key:'action:'+variant.id,kind:'text',multiline:true,label:'动作描述',help:h(Help,{text:CG_ACTION_HELP,label:'动作描述 说明'}),value:variant.content.description||'',placeholder:'例：低头扒饭',maxLength:80,onCommit:description=>update({content:{...variant.content,description}})}),
+      // 叠字: optional title / line over the picture; 出现方式 only once there are words.
+      h(InlineField,{key:'cap-title:'+variant.id,kind:'text',label:'叠字标题',help:h(Help,{text:CG_CAPTION_HELP,label:'叠字 说明'}),hideEmpty:true,value:variant.content.caption?.title||'',maxLength:40,onCommit:title=>update({content:cgCaptionPatch(variant.content,{title})})}),
+      h(InlineField,{key:'cap-line:'+variant.id,kind:'text',label:'叠字一行',hideEmpty:true,value:variant.content.caption?.line||'',maxLength:80,onCommit:line=>update({content:cgCaptionPatch(variant.content,{line})})}),
+      variant.content.caption&&h(InlineField,{key:'cap-appear:'+variant.id,kind:'menu',label:'叠字出现',value:variant.content.caption.appear||'fade',options:CG_CAPTION_APPEAR,onCommit:appear=>update({content:cgCaptionPatch(variant.content,{appear:appear==='fade'?undefined:appear})})})));
 }
 // 构图焦点: 「完整图」 (the built-in full view) and one chip per focus, a dashed ＋; the open focus is edited on the preview
 // (CgComposer), its name and delete below. While 预览动效 runs a chip is where the camera moves.
@@ -278,6 +314,8 @@ function CgEntryEditor({binding,pack,asset,save,remove,back=null,fresh=false}) {
     h(InlineGrid,{label:draft.name+' 设置',columns:1,className:'ap-entry-fields'},
       h(InlineRow,{label:'触发策略',help:help('触发策略',LAMP_HELP+' 关闭：这张 CG 不再用于舞台。')},h(LampMenu,{mode:entryLamp(draft,false),named:true,label:'触发策略',onChange:mode=>setDraft(current=>setEntryLamp(current,mode))})),
       triggerFields({value:draft.recall.keywords,suggest:keywordSuggest,fresh:fresh&&draft.enabled===false,onCommit:keywords=>setDraft(current=>applyEntryFields(current,{recall:{keywords},top:{}}))}),
+      h(InlineField,{kind:'text',label:'出现条件',help:help('出现条件',CG_WHEN_HELP),hideEmpty:true,placeholder:'/好感/某人 >= 60',value:cgWhenText(draft.recall.when),maxLength:1000,
+        validate:v=>cgParseWhen(v).error||'',onCommit:v=>setDraft(current=>{const {when}=cgParseWhen(v),recall={...current.recall};if(when)recall.when=when;else delete recall.when;return {...current,recall};})}),
       // 详情 is the inline multi-line field of the audio editors; it fills the draft on Enter / blur.
       // 使用情景 (directorNote; always shown, like 触发词), then the owner's 备注 (`remark`, never sent) in the same draft.
       h(InlineField,{kind:'text',multiline:true,label:NOTE_LABEL,className:'ap-note-field',help:help(NOTE_LABEL,'会和名称一起发给导演，用来判断什么时候展示这张 CG。写什么情景下用它，最多 300 字。'),placeholder:NOTE_PLACEHOLDER,value:draft.directorNote||'',

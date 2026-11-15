@@ -138,7 +138,7 @@ export async function createStageModule(core) {
     void modService.installBuiltinAssets(owner).catch(error=>ctx.logger.warn('MOD_BUILTIN_ASSETS %s',error.message))
   })
   // galgame stage director
-  const stageDirector = createStageDirector({activeStageSkin:core.activeStageSkin,
+  const stageDirector = createStageDirector({activeStageSkin:core.activeStageSkin,conditionHolds:core.variableConditionHolds,
     readChat:readStageChat,
     trace: requestPerformance,
     judge:engineJudge,mods:modService,

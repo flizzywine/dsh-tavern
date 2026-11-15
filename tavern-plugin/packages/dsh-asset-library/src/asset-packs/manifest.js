@@ -23,10 +23,27 @@ export function validateBlob(value, path = '$') {
   check(Object.hasOwn(BLOB_MIME_TYPES, value.ext) && value.mime === BLOB_MIME_TYPES[value.ext], path, 'Noncanonical blob ext/MIME')
   integer(value.size, path + '.size', 1); return value
 }
-export function validateRecall(value, path = '$', minKeywordLength = 2) {
+// 出现条件: a director-recalled entry is offered only while the card's settled variables meet `when` -
+// one `{path, equals | atLeast | atMost}` or up to eight of them, all holding (mvuConditionHolds reads it).
+export function validateRecallWhen(value, path) {
+  const rows = Array.isArray(value) ? value : [value]
+  check(rows.length >= 1 && rows.length <= 8, path, 'Use one to eight conditions', 'LIMIT_EXCEEDED')
+  rows.forEach((row, index) => {
+    const p = Array.isArray(value) ? `${path}[${index}]` : path
+    shape(row, ['path', 'equals', 'atLeast', 'atMost'], ['path'], p)
+    text(row.path, p + '.path', 200); check(/^\/./.test(row.path), p + '.path', 'Write a variable path such as /好感/某人')
+    const ops = ['equals', 'atLeast', 'atMost'].filter(key => Object.hasOwn(row, key))
+    check(ops.length === 1, p, 'Give exactly one of equals, atLeast, atMost')
+    if (ops[0] === 'equals') check(typeof row.equals === 'boolean' || Number.isFinite(row.equals) || typeof row.equals === 'string' && [...row.equals].length <= 200, p + '.equals', 'Compare with text, a number or true/false')
+    else check(Number.isFinite(row[ops[0]]), p + '.' + ops[0], 'Compare with a number')
+  })
+}
+const UNRECALLED_KINDS = ['directions', 'skins', 'entrances', 'videos', 'items']
+export function validateRecall(value, path = '$', minKeywordLength = 2, {when = false} = {}) {
   assertJson(value)
   // 优先级 is gone; an old `priority` is UNKNOWN_FIELD (ingress strips it once, recall-priority.js).
-  shape(value, ['mode', 'keywords', 'synonyms'], ['mode', 'keywords'], path)
+  shape(value, ['mode', 'keywords', 'synonyms', ...(when ? ['when'] : [])], ['mode', 'keywords'], path)
+  if (value.when !== undefined) validateRecallWhen(value.when, path + '.when')
   oneOf(value.mode, ['constant', 'keyword'], path + '.mode'); array(value.keywords, path + '.keywords', 16)
   for (const word of value.keywords) text(word, path + '.keywords', 40, minKeywordLength)
   unique(value.keywords, path + '.keywords')
@@ -66,7 +83,7 @@ export function validateAsset(value, path = '$') {
   validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); if (value.kind !== 'skins') bool(value.enabled, path + '.enabled')
   if (value.remark !== undefined) check(typeof value.remark === 'string', path + '.remark')
   validateCopiedFrom(value.extensions,value.kind,path + '.extensions')
-  validateRecall(value.recall, path + '.recall'); text(value.directorNote, path + '.directorNote', 300, 0); validateMetadata(value, path)
+  validateRecall(value.recall, path + '.recall', 2, {when: !UNRECALLED_KINDS.includes(value.kind)}); text(value.directorNote, path + '.directorNote', 300, 0); validateMetadata(value, path)
   if (value.kind === 'directions') {
     check(value.recall.mode === 'constant' && value.recall.keywords.length === 0 && value.recall.synonyms === undefined, path + '.recall')
     check(value.directorNote === '', path + '.directorNote')

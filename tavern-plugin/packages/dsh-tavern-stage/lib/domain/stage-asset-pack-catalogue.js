@@ -25,9 +25,11 @@ export function stageAssetRefs(state) {
 
 /** snapshots are verified path-free pack DTOs; status is the resolver's per-full-ref availability.
  * Widgets have one item/module availability gate; private resources never become catalogue roots.
+ * condition(when): whether the card's settled variables meet an entry's recall.when (stage-director); it is offered only
+ * while it holds - never by blue, words or the judge - and stays on stage when already playing (carryProjection).
  */
 export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPackIds = [], units = [],
-  dimensions = {}, assetStatus = {}, activeSkin = null, widgetsEnabled = true, judgeRecall, modAssetKinds = ['props','performances','audience','timers'], kinds = ASSET_KINDS }) {
+  dimensions = {}, assetStatus = {}, activeSkin = null, widgetsEnabled = true, judgeRecall, condition, modAssetKinds = ['props','performances','audience','timers'], kinds = ASSET_KINDS }) {
   const ids = [...new Set([...boundPackIds, ...globalEnabledPackIds])].sort(codepointCompare)
   ids.forEach(id => validateUuid(id))
   const effective = listEffectiveAssets({snapshots,boundPackIds,globalEnabledPackIds})
@@ -56,6 +58,7 @@ export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPa
       const dimension = {props:'items',backgrounds:'scene',music:'music',sfx:'sfx',ambience:'sound',looks:'lighting',widgets:'widgets',skins:'skin',performances:'performance',cg:'cg'}[asset.kind]
       if (!excluded && (dimensions[dimension] === false || asset.kind === 'sfx' && dimensions.events === false || asset.kind === 'looks' && dimensions['lighting.' + asset.layer] === false)) excluded = 'dimension-disabled'
       if (!excluded && asset.kind === 'widgets' && !widgetIsActive(activeWidgets,ref)) excluded = 'widget-unavailable'
+      if (!excluded && asset.recall.when !== undefined && condition?.(asset.recall.when) !== true) excluded = 'condition-unmet'
       let visibleSettings
       if (!excluded && asset.kind === 'widgets') {
         try {
