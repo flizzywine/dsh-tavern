@@ -481,7 +481,7 @@ function reduceStageRuntime(previous, event) {
         const revoke = old && !sameContext(old, source);
         if (revoke) {
             patch({accepted: emptyAccepted(state.accepted.presentationRevision + 1)});
-            effect('revoke-presentation', {source: old, groups: Object.keys(GROUPS), reason: 'context-changed'});
+            effect('revoke-presentation', {source: old, next: source || null, groups: Object.keys(GROUPS), reason: 'context-changed'});
         }
         const nextText = text || emptyText(), replay = mode === 'replay';
         // Mod one-shots are consumed for the session, not for a reading visit; a replay of their round consumes them anew.

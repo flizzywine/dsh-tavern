@@ -7238,7 +7238,12 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
             state.timeline?.dispose(intent.type); state.finishPerformance?.();
             state.musicLock?.handle?.release({token:state.musicLock.token,reason:intent.type,snap:true}); state.musicLock=null;
             state.jobs.clear(); releaseWarm(state); releaseAccepted(state); present(sessionId,intent);
-            if (state.authority) owner.revoke({authority:true},state.authority);
+            // The presentation belongs to the story context; the bytes belong to the resource authority. A context change
+            // under the same authority (a new stage branch: a card or worldbook write, a regenerated or withdrawn round) keeps
+            // them: destroying them revoked the Blob URLs other holders still draw (the card skin's bundle, held by
+            // useStageConfigSkin under an unchanged key, lost its art mid-game until a later page). A changed authority revokes.
+            const kept = intent.type === 'revoke-presentation' && intent.next && stageResourceAuthority(intent.next) === state.authority;
+            if (state.authority && !kept) owner.revoke({authority:true},state.authority);
             if (intent.type === 'release-presentation') sessions.delete(sessionId);
             break;
         }
@@ -10318,7 +10323,7 @@ function reduceStageRuntime(previous, event) {
         const revoke = old && !sameContext(old, source);
         if (revoke) {
             patch({accepted: emptyAccepted(state.accepted.presentationRevision + 1)});
-            effect('revoke-presentation', {source: old, groups: Object.keys(GROUPS), reason: 'context-changed'});
+            effect('revoke-presentation', {source: old, next: source || null, groups: Object.keys(GROUPS), reason: 'context-changed'});
         }
         const nextText = text || emptyText(), replay = mode === 'replay';
         // Mod one-shots are consumed for the session, not for a reading visit; a replay of their round consumes them anew.
