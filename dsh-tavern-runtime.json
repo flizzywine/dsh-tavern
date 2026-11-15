@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "80bdd7faa733383333283256d5213d3d186c61bb",
-  "releaseSequence": 1680,
+  "revision": "2850febce44eb1f853dc918b3dc9e97a7d18c4af",
+  "releaseSequence": 1681,
   "version": "3.3.0",
   "files": [
     {
@@ -8076,8 +8076,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "1359f6000f931c3233ae607bf01af094257d18452ba9af38f1044a9e6936b3fc",
-      "size": 3679300
+      "sha256": "16ee5c4089c00756594027fa20d643c9cac9564589453254cffdc0d1bf433928",
+      "size": 3682133
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8746,8 +8746,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/voice-schema.js",
-      "sha256": "77302db9a6b3bfb29b6bad8b720dacf70e78b702de937311f7401004a818605f",
-      "size": 7009
+      "sha256": "faaf4ab3f2fdc038a7101b539bc858166caf01334a78ea3911d8b6e0c2b46c11",
+      "size": 7200
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/volcengine-speakers.json",
@@ -9291,9 +9291,9 @@
     }
   ],
   "archive": {
-    "commit": "d86c6ee0436f809525cae322381db66044014c66",
+    "commit": "e6466843b1a4bd36a8704c34f74f7de0aebe9f0a",
     "path": "runtime.zip",
-    "sha256": "f58bfa49b65171ee48349f2c212d79edbbe1284b03deab62e9565b602487092a",
-    "size": 16604424
+    "sha256": "280a785813ed599e4c04a9d4fc552b439155640122649f1cf7f7d4f46fb29bdc",
+    "size": 16605352
   }
 }
