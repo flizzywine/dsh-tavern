@@ -15,6 +15,7 @@ const MAX_STEPS_PER_ROUTE = 4
 const MAX_ARCHETYPES = 5
 const MAX_ARCHIVED = 8
 const MAX_CUSTOM_DIRECTIVE_LENGTH = 240
+const MAX_COMPASS_CHAT_MESSAGES = 16
 
 function normalizePlotCompassPace(value) {
   return PLOT_COMPASS_PACES.includes(value) ? value : 'natural'
@@ -183,7 +184,27 @@ export function emptyPlotCompass() {
     midTerm: [],
     longTerm: [],
     pinned: { shortTerm: null, midTerm: null, longTerm: null },
-    archived: []
+    archived: [],
+    chatHistory: []
+  }
+}
+
+function normalizeCompassChatEntry(raw, index = 0) {
+  const row = object(raw)
+  if (!row) return null
+  const role = row.role === 'assistant' ? 'assistant' : (row.role === 'user' ? 'user' : '')
+  if (!role) return null
+  const text = decodeLiteralUnicodeEscapes(str(row.text)).trim()
+  if (!text) return null
+  const maxLength = role === 'assistant' ? 1800 : 800
+  const scopeApplied = PLOT_COMPASS_SCOPES.includes(row.scopeApplied) ? row.scopeApplied : ''
+  return {
+    id: str(row.id).trim() || `compass-msg-${index + 1}`,
+    role,
+    text: text.length > maxLength ? text.slice(0, maxLength).trim() : text,
+    ...(scopeApplied ? { scopeApplied } : {}),
+    turn: Math.max(0, Number(row.turn) || 0),
+    createdAt: Math.max(0, Number(row.createdAt) || 0)
   }
 }
 
@@ -214,6 +235,10 @@ export function readPlotCompass(value) {
     })
     .filter(Boolean)
     .slice(-MAX_ARCHIVED)
+  const chatHistory = (Array.isArray(src.chatHistory) ? src.chatHistory : [])
+    .map((entry, idx) => normalizeCompassChatEntry(entry, idx))
+    .filter(Boolean)
+    .slice(-MAX_COMPASS_CHAT_MESSAGES)
   const basedOnTurn = Math.max(0, Number(src.basedOnTurn) || 0)
   return {
     version: 1,
@@ -234,7 +259,8 @@ export function readPlotCompass(value) {
       midTerm: resolvePin(midTerm, rawPinned.midTerm),
       longTerm: resolvePin(longTerm, rawPinned.longTerm)
     },
-    archived
+    archived,
+    chatHistory
   }
 }
 
@@ -368,9 +394,32 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
   })
 })
 
+export const PLOT_COMPASS_CHAT_SUBMIT_TOOL = Object.freeze({
+  name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+  description: '仅当玩家明确要求生成、修改、重推或替换剧情路线时调用此工具；支持通过 targetScope 指定只刷新某一个时间层级（如 shortTerm / midTerm / longTerm）或 all。',
+  parameters: Object.freeze({
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      targetScope: {
+        type: 'string',
+        enum: ['shortTerm', 'midTerm', 'longTerm', 'all'],
+        description: '本次要更新的时间层级。只改动某一层时选对应层级，未选中的层级会完整保留玩家已有路线。'
+      },
+      ...PLOT_COMPASS_SUBMIT_TOOL.parameters.properties
+    },
+    required: ['targetScope']
+  })
+})
+
 export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat } = {}) {
   const payload = parseJsonLenient(rawArgs)
   const opts = { card, chat }
+  const requestedTarget = PLOT_COMPASS_SCOPES.includes(payload.targetScope) ? payload.targetScope : ''
+  const effectiveScope = scope === 'chat'
+    ? (requestedTarget || 'all')
+    : (PLOT_COMPASS_SCOPES.includes(scope) ? scope : 'all')
+
   const shortTerm = (Array.isArray(payload.shortTerm) ? payload.shortTerm : [])
     .map((item, index) => normalizeShortRoute(item, index, opts))
     .filter(Boolean)
@@ -384,17 +433,18 @@ export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat 
     .filter(Boolean)
     .slice(0, MAX_ROUTES_PER_HORIZON)
 
-  if ((scope === 'all' || scope === 'shortTerm') && shortTerm.length < 2) {
+  if ((effectiveScope === 'all' || effectiveScope === 'shortTerm') && shortTerm.length < 2) {
     throw new Error('今期规划（shortTerm）至少需要提供 2 条不同方向的路线')
   }
-  if ((scope === 'all' || scope === 'midTerm') && midTerm.length < 2) {
+  if ((effectiveScope === 'all' || effectiveScope === 'midTerm') && midTerm.length < 2) {
     throw new Error('中期规划（midTerm）至少需要提供 2 条不同方向的篇章路线')
   }
-  if ((scope === 'all' || scope === 'longTerm') && longTerm.length < 2) {
+  if ((effectiveScope === 'all' || effectiveScope === 'longTerm') && longTerm.length < 2) {
     throw new Error('长期规划（longTerm）至少需要提供 2 条不同方向的终局蓝图')
   }
 
   return {
+    targetScope: effectiveScope,
     playArchetypes: normalizeArchetypeList(payload.playArchetypes, opts),
     situationDigest: cleanText(payload.situationDigest, { ...opts, maxLength: 240 }),
     shortTerm,
@@ -526,6 +576,32 @@ export function applyPlotCompassPreferences(previousRaw, { pace, blindBox, custo
   if (customDirective !== undefined) {
     next.customDirective = cleanText(customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH })
   }
+  next.updatedAt = now
+  return next
+}
+
+/**
+ * 向剧情罗盘的脑暴聊天记录追加一条对话消息（保留最近 16 条）。
+ */
+export function appendPlotCompassChat(previousRaw, entry = {}, { now = Date.now() } = {}) {
+  const next = readPlotCompass(previousRaw)
+  const normalized = normalizeCompassChatEntry({
+    ...entry,
+    id: entry.id || `compass-msg-${randomUUID().slice(0, 8)}`,
+    createdAt: entry.createdAt ?? now
+  }, next.chatHistory.length)
+  if (!normalized) return next
+  next.chatHistory = [...next.chatHistory, normalized].slice(-MAX_COMPASS_CHAT_MESSAGES)
+  next.updatedAt = now
+  return next
+}
+
+/**
+ * 清空剧情罗盘脑暴聊天历史。
+ */
+export function clearPlotCompassChat(previousRaw, { now = Date.now() } = {}) {
+  const next = readPlotCompass(previousRaw)
+  next.chatHistory = []
   next.updatedAt = now
   return next
 }
@@ -793,7 +869,7 @@ export function extractSceneFreezeSnapshot(chat) {
 /**
  * Assemble compact, high-signal context material for the background Plot Compass Agent.
  */
-export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, scope = 'all', guidance = '' }) {
+export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, scope = 'all', guidance = '', includeRequest = true }) {
   const compass = readPlotCompass(chat?.plotCompass)
   const blocks = []
 
@@ -884,17 +960,54 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
     })))
   }
 
-  const requestLines = [
-    `Target refresh scope: "${scope}" (${scope === 'all' ? 'generate or evolve all 3 horizons: shortTerm, midTerm, longTerm' : `focus fresh divergent routes on "${scope}" while keeping the other two horizons consistent`}).`,
-    compass.customArchetypes.length > 0
-      ? `Player-specified Play Archetypes (MUST honor and build routes around these): ${compass.customArchetypes.join('、')}`
-      : 'Infer 1–3 accurate Play Archetypes from the card, worldbook, variables, and story tone.',
-    guidance.trim() ? `Extra player inspiration request / guidance:\n${guidance.trim().slice(0, 800)}` : '',
-    'Call `plot_compass_submit` now with complete, concrete, inspiring multi-route plans.'
-  ].filter(Boolean)
-  blocks.push(promptSection('plot_compass_request', requestLines.join('\n\n')))
+  if (includeRequest) {
+    const requestLines = [
+      `Target refresh scope: "${scope}" (${scope === 'all' ? 'generate or evolve all 3 horizons: shortTerm, midTerm, longTerm' : `focus fresh divergent routes on "${scope}" while keeping the other two horizons consistent`}).`,
+      compass.customArchetypes.length > 0
+        ? `Player-specified Play Archetypes (MUST honor and build routes around these): ${compass.customArchetypes.join('、')}`
+        : 'Infer 1–3 accurate Play Archetypes from the card, worldbook, variables, and story tone.',
+      guidance.trim() ? `Extra player inspiration request / guidance:\n${guidance.trim().slice(0, 800)}` : '',
+      'Call `plot_compass_submit` now with complete, concrete, inspiring multi-route plans.'
+    ].filter(Boolean)
+    blocks.push(promptSection('plot_compass_request', requestLines.join('\n\n')))
+  }
 
   return blocks.join('\n\n')
+}
+
+export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
+  'You are the Plot Compass Story Co-pilot (剧情罗盘策划搭档) for an interactive story game.',
+  'Your role is to brainstorm plot directions, character motives, twists, and pacing ideas WITH the player—strictly respecting `<latest_scene_snapshot>`, `<card_profile>`, `<settled_state>`, and `<dormant_worldbook_hooks>`.',
+  'Interaction Rules (Mode A - Safe Discussion First):',
+  '1) DEFAULT TO DISCUSSION: By default, do NOT overwrite existing routes on the compass board. Reply directly in concise, vivid Simplified Chinese (or the story\'s language) with 2–3 concrete, causally plausible dramatic angles, key risks/hooks, and a short prompt inviting the player to refine or apply the idea.',
+  '2) ONLY CALL `plot_compass_submit` WHEN EXPLICITLY REQUESTED: Call `plot_compass_submit` ONLY if the player clearly asks you in this turn to generate, rewrite, replace, or update compass routes (e.g. "按第2条生成今期路线" / "帮我重新生成中期方向" / "把这套思路落盘成新路线").',
+  '3) SCOPED UPDATES: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and provide 2–4 distinct routes for each updated horizon. Never fabricate deus ex machina teleportation or break passive constraints.',
+  '4) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
+].join('\n')
+
+export function buildPlotCompassBrainstormPrompt({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, message = '' }) {
+  const base = buildPlotCompassMaterial({
+    chat,
+    card,
+    worldbookEntries,
+    constantWorldbookText,
+    scriptWindow,
+    scope: 'chat',
+    includeRequest: false
+  })
+  const compass = readPlotCompass(chat?.plotCompass)
+  const historyLines = compass.chatHistory.map(item =>
+    `[${item.role === 'user' ? '玩家' : '罗盘助手'}${item.scopeApplied ? ` · 已更新${item.scopeApplied}` : ''}]\n${item.text}`
+  )
+  const blocks = [base]
+  if (historyLines.length > 0) {
+    blocks.push(promptSection('brainstorm_conversation', historyLines.join('\n\n')))
+  }
+  const latestText = decodeLiteralUnicodeEscapes(str(message)).trim().slice(0, 800)
+  if (latestText) {
+    blocks.push(promptSection('latest_brainstorm_message', `Player says now:\n${latestText}\n\nRespond as the Story Co-pilot (discuss ideas by default; call \`plot_compass_submit\` only if the player explicitly asks to generate/update routes now).`))
+  }
+  return blocks.filter(Boolean).join('\n\n')
 }
 
 export const PLOT_COMPASS_PROGRESS_SYSTEM = [

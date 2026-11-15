@@ -120,6 +120,7 @@ function TavernPlotCompassTab(props) {
     const [editingDirective, setEditingDirective] = React.useState(false);
     const [directiveDraft, setDirectiveDraft] = React.useState("");
     const [peekedCards, setPeekedCards] = React.useState({});
+    const [chatOpen, setChatOpen] = React.useState(false);
     const [busyAction, setBusyAction] = React.useState("");
     const [localError, setLocalError] = React.useState("");
     const [localNotice, setLocalNotice] = React.useState("");
@@ -128,7 +129,7 @@ function TavernPlotCompassTab(props) {
         pace: "natural", blindBox: false, customDirective: "",
         playArchetypes: [], customArchetypes: [], situationDigest: "",
         shortTerm: [], midTerm: [], longTerm: [],
-        pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], basedOnTurn: 0
+        pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], chatHistory: [], basedOnTurn: 0
     };
     const compassEnabled = Boolean(view && view.plotCompassEnabled === true);
     const task = (view && view.plotCompassTask) || { status: "idle", scope: "all", error: "" };
@@ -138,6 +139,7 @@ function TavernPlotCompassTab(props) {
     const currentPace = compass.pace || "natural";
     const blindBox = compass.blindBox === true;
     const customDirective = String(compass.customDirective || "");
+    const chatHistory = Array.isArray(compass.chatHistory) ? compass.chatHistory : [];
 
     React.useEffect(function () {
         setLocalError("");
@@ -145,7 +147,14 @@ function TavernPlotCompassTab(props) {
         setEditingArchetypes(false);
         setEditingDirective(false);
         setPeekedCards({});
+        setChatOpen(false);
     }, [sessionId]);
+
+    React.useEffect(function () {
+        if (chatHistory.length > 0 && task.scope === "chat") {
+            setChatOpen(true);
+        }
+    }, [chatHistory.length, task.scope]);
 
     React.useEffect(function () {
         setDirectiveDraft(customDirective);
@@ -181,6 +190,47 @@ function TavernPlotCompassTab(props) {
         } finally {
             setBusyAction("");
         }
+    }
+
+    async function sendCompassChat(overrideText) {
+        const text = String(overrideText !== undefined ? overrideText : guidance).trim();
+        if (!text || !sessionId || isRunning || busyAction) return;
+        setBusyAction("chat");
+        setLocalError("");
+        setLocalNotice("");
+        setChatOpen(true);
+        if (overrideText === undefined) setGuidance("");
+        try {
+            await rpc("chatPlotCompass", { message: text }, sessionId);
+            liveTavernView.invalidate(sessionId);
+        } catch (err) {
+            setLocalError(String(err && err.message || err));
+        } finally {
+            setBusyAction("");
+        }
+    }
+
+    async function clearCompassChatHistory() {
+        if (!sessionId || isRunning || busyAction) return;
+        setBusyAction("clearChat");
+        setLocalError("");
+        try {
+            await rpc("clearPlotCompassChat", {}, sessionId);
+            setChatOpen(false);
+            liveTavernView.invalidate(sessionId);
+            setLocalNotice("已清空脑暴对话记录。");
+        } catch (err) {
+            setLocalError(String(err && err.message || err));
+        } finally {
+            setBusyAction("");
+        }
+    }
+
+    async function applyBrainstormIdea(scope, ideaText) {
+        const target = scope === "shortTerm" ? "shortTerm" : "all";
+        const promptText = "请严格围绕我们刚才在罗盘对话里讨论通过的以下思路，直接生成并更新正式的多分支路线规划：\n" + String(ideaText || "").slice(0, 680);
+        if (target === "shortTerm") setActiveHorizon("shortTerm");
+        await runGenerate(target, promptText);
     }
 
     async function cancelGenerate() {
@@ -615,17 +665,91 @@ function TavernPlotCompassTab(props) {
                         }
                     }, blindBox ? "🎁 盲盒防剧透：开" : "👁 明牌模式")
                 ),
-                h("div", { className: "dsh-tavern-compass-guidance-box" },
-                    h("input", {
-                        type: "text",
-                        className: "dsh-tavern-compass-input",
-                        maxLength: 400,
-                        disabled: isRunning,
-                        placeholder: "脑暴灵感方向（可选，如：给几条和宿敌暗中联手搞事的路线）",
-                        value: guidance,
-                        onChange: function (e) { setGuidance(e.target.value); },
-                        onKeyDown: function (e) { if (e.key === "Enter" && !e.isComposing && !isRunning) { e.preventDefault(); runGenerate("all"); } }
-                    })
+                h("div", { className: "dsh-tavern-compass-chat-wrap" },
+                    chatHistory.length > 0 ? h("div", { className: "dsh-tavern-compass-chat-bar" },
+                        h("button", {
+                            type: "button",
+                            className: "dsh-tavern-compass-link-btn",
+                            onClick: function () { setChatOpen(!chatOpen); }
+                        }, (chatOpen ? "▾ 收起" : "▸ 展开") + "脑暴对话（" + chatHistory.length + "）"),
+                        chatOpen ? h("button", {
+                            type: "button",
+                            className: "dsh-tavern-compass-link-btn",
+                            disabled: isRunning || Boolean(busyAction),
+                            onClick: clearCompassChatHistory
+                        }, "清空记录") : null
+                    ) : null,
+                    chatOpen && chatHistory.length > 0 ? h("div", { className: "dsh-tavern-compass-chat-thread", "aria-label": "剧情罗盘脑暴对话记录" },
+                        chatHistory.map(function (msg) {
+                            const isUser = msg.role === "user";
+                            const scopeBadge = msg.scopeApplied === "shortTerm" ? "今期"
+                                : msg.scopeApplied === "midTerm" ? "中期"
+                                : msg.scopeApplied === "longTerm" ? "长期"
+                                : msg.scopeApplied === "all" ? "全部" : "";
+                            return h("div", { key: msg.id, className: "dsh-tavern-compass-chat-msg " + (isUser ? "is-user" : "is-assistant") },
+                                h("div", { className: "dsh-tavern-compass-chat-bubble" }, msg.text),
+                                !isUser ? h("div", { className: "dsh-tavern-compass-chat-msg-foot" },
+                                    scopeBadge
+                                        ? h("button", {
+                                            type: "button",
+                                            className: "dsh-tavern-compass-pill is-active",
+                                            onClick: function () {
+                                                if (msg.scopeApplied && msg.scopeApplied !== "all") setActiveHorizon(msg.scopeApplied);
+                                            }
+                                        }, "★ 已按此对话更新「" + scopeBadge + "」路线")
+                                        : h("div", { className: "dsh-tavern-compass-chat-apply-row" },
+                                            h("button", {
+                                                type: "button",
+                                                className: "dsh-tavern-compass-apply-btn",
+                                                disabled: isRunning || Boolean(busyAction),
+                                                title: "将上面讨论的方案立即生成并更新今期路线卡片",
+                                                onClick: function () { applyBrainstormIdea("shortTerm", msg.text); }
+                                            }, "✨ 应用为今期"),
+                                            h("button", {
+                                                type: "button",
+                                                className: "dsh-tavern-compass-apply-btn",
+                                                disabled: isRunning || Boolean(busyAction),
+                                                title: "将上面讨论的方案同步规划进今/中/长期全部路线",
+                                                onClick: function () { applyBrainstormIdea("all", msg.text); }
+                                            }, "✦ 应用为全局")
+                                        )
+                                ) : null
+                            );
+                        })
+                    ) : null,
+                    h("div", { className: "dsh-tavern-compass-guidance-box" },
+                        h("input", {
+                            type: "text",
+                            className: "dsh-tavern-compass-input",
+                            maxLength: 400,
+                            disabled: isRunning,
+                            placeholder: "聊聊剧情点子或指定发展方向（回车对话商量，不覆盖当前路线）",
+                            value: guidance,
+                            onChange: function (e) { setGuidance(e.target.value); },
+                            onKeyDown: function (e) {
+                                if (e.key === "Enter" && !e.isComposing && !isRunning) {
+                                    e.preventDefault();
+                                    sendCompassChat();
+                                }
+                            }
+                        }),
+                        h("div", { className: "dsh-tavern-compass-guidance-actions" },
+                            h("button", {
+                                type: "button",
+                                className: "dsh-tavern-btn primary",
+                                disabled: isRunning || Boolean(busyAction) || !guidance.trim(),
+                                title: "与剧情罗盘多轮讨论灵感（仅当你在对话里明确要求改路线时才会更新卡片）",
+                                onClick: function () { sendCompassChat(); }
+                            }, isRunning && task.scope === "chat" ? "思考中…" : "💬 发送"),
+                            guidance.trim() ? h("button", {
+                                type: "button",
+                                className: "dsh-tavern-btn",
+                                disabled: isRunning || Boolean(busyAction),
+                                title: "不经对话，直接按输入框方向全局重推今/中/长期路线",
+                                onClick: function () { runGenerate("all"); }
+                            }, "✨ 直接重推") : null
+                        )
+                    )
                 )
             ),
 
@@ -697,11 +821,13 @@ function TavernPlotCompassTab(props) {
 
             isRunning ? h("div", { className: "fork-status-alert", "data-kind": "info", role: "status" },
                 h(Spinner, { className: "dsh-tavern-compass-dock-spinner" }),
-                h("span", null, "后台正在结合人物卡、变量状态与世界书暗线推演" + (task.scope === "shortTerm" ? "今期" : task.scope === "midTerm" ? "中期" : task.scope === "longTerm" ? "长期" : "今期 / 中期 / 长期") + "路线…（不影响继续对话）")
+                h("span", null, task.scope === "chat"
+                    ? "脑暴灵感助手正在结合人设、现场定格与世界书暗线构思回复…"
+                    : "后台正在结合人物卡、变量状态与世界书暗线推演" + (task.scope === "shortTerm" ? "今期" : task.scope === "midTerm" ? "中期" : task.scope === "longTerm" ? "长期" : "今期 / 中期 / 长期") + "路线…（不影响继续对话）")
             ) : null,
             task.status === "failed" && task.error ? h("div", { className: "fork-status-alert", "data-kind": "error", role: "alert" },
                 h("span", null, task.error),
-                h("button", { type: "button", disabled: isRunning || Boolean(busyAction), onClick: function () { runGenerate(task.scope || "all"); } }, "重试")
+                task.scope !== "chat" ? h("button", { type: "button", disabled: isRunning || Boolean(busyAction), onClick: function () { runGenerate(task.scope || "all"); } }, "重试") : null
             ) : null,
             localError ? h("div", { className: "fork-status-alert", "data-kind": "error", role: "alert" }, h("span", null, localError)) : null,
             localNotice ? h("p", { className: "dsh-tavern-compass-notice", role: "status" }, localNotice) : null,

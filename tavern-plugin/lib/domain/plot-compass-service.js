@@ -1,19 +1,25 @@
 import { scriptForState } from './script-layout.js'
 import {
+  PLOT_COMPASS_BRAINSTORM_SYSTEM,
+  PLOT_COMPASS_CHAT_SUBMIT_TOOL,
   PLOT_COMPASS_PROGRESS_SYSTEM,
   PLOT_COMPASS_SCOPES,
   PLOT_COMPASS_SUBMIT_TOOL,
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
+  appendPlotCompassChat,
   applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
   applyPlotCompassPin,
   applyPlotCompassPreferences,
   applyPlotCompassStepToggle,
+  buildPlotCompassBrainstormPrompt,
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
+  clearPlotCompassChat,
   collectAssistantProseForGrounding,
   collectPendingCompassSteps,
   collectTrackableCompassRoutes,
+  extractStoryProseForGrounding,
   isPlotCompassEnabled,
   mergePlotCompassUpdate,
   parsePlotCompassProgressOutcome,
@@ -97,6 +103,43 @@ export function createPlotCompassService({
     onStatus(str(sessionId))
   }
 
+  async function loadGenerationContext(freshChat) {
+    const cardPath = str(freshChat.cardPath || freshChat.cardId)
+    const card = await store.readCard(cardPath, freshChat)
+    if (!card) throw new Error('人物卡不存在：' + cardPath)
+
+    let worldbookEntries = []
+    let constantWorldbookText = ''
+    try {
+      if (worldBooks?.bound) {
+        const bound = await worldBooks.bound(cardPath, card, freshChat)
+        worldbookEntries = Array.isArray(bound?.view?.entries) ? bound.view.entries : []
+      }
+      if (worldBooks?.constantContext) {
+        constantWorldbookText = str(await worldBooks.constantContext(freshChat, card))
+      }
+    } catch {}
+
+    let scriptWindow = null
+    if ((freshChat.mode || 'story') === 'script' && scripts && typeof store.readScript === 'function') {
+      try {
+        const rawScript = await store.readScript(cardPath)
+        const script = scriptForState(rawScript, freshChat.scriptState)
+        if (script && Array.isArray(script.chunks) && script.chunks.length > 0) {
+          scriptWindow = scripts.inspect({ script, state: freshChat.scriptState, request: { kind: 'choice' } })
+        }
+      } catch {}
+    }
+
+    return {
+      card,
+      worldbookEntries,
+      constantWorldbookText,
+      scriptWindow,
+      basedOnTurn: latestStoryTurnOf(freshChat)
+    }
+  }
+
   async function executeGeneration({ chatId, sessionId, expectedBranchId, scope, guidance, model, controller }) {
     let submitted = null
     let submissionError = null
@@ -106,34 +149,8 @@ export function createPlotCompassService({
       const freshChat = await store.readChat(chatId)
       if (!isPlayableChat(freshChat)) throw new Error('游玩会话不存在或已关闭')
       if (!isPlotCompassEnabled(freshChat)) throw new Error('剧情罗盘已关闭')
-      const cardPath = str(freshChat.cardPath || freshChat.cardId)
-      const card = await store.readCard(cardPath, freshChat)
-      if (!card) throw new Error('人物卡不存在：' + cardPath)
+      const { card, worldbookEntries, constantWorldbookText, scriptWindow, basedOnTurn } = await loadGenerationContext(freshChat)
 
-      let worldbookEntries = []
-      let constantWorldbookText = ''
-      try {
-        if (worldBooks?.bound) {
-          const bound = await worldBooks.bound(cardPath, card, freshChat)
-          worldbookEntries = Array.isArray(bound?.view?.entries) ? bound.view.entries : []
-        }
-        if (worldBooks?.constantContext) {
-          constantWorldbookText = str(await worldBooks.constantContext(freshChat, card))
-        }
-      } catch {}
-
-      let scriptWindow = null
-      if ((freshChat.mode || 'story') === 'script' && scripts && typeof store.readScript === 'function') {
-        try {
-          const rawScript = await store.readScript(cardPath)
-          const script = scriptForState(rawScript, freshChat.scriptState)
-          if (script && Array.isArray(script.chunks) && script.chunks.length > 0) {
-            scriptWindow = scripts.inspect({ script, state: freshChat.scriptState, request: { kind: 'choice' } })
-          }
-        } catch {}
-      }
-
-      const basedOnTurn = latestStoryTurnOf(freshChat)
       const material = buildPlotCompassMaterial({
         chat: freshChat,
         card,
@@ -225,6 +242,132 @@ export function createPlotCompassService({
     }
   }
 
+  async function executeBrainstormChat({ chatId, sessionId, expectedBranchId, userMsgId, message, model, controller }) {
+    let submitted = null
+    let submissionError = null
+    let runResult = null
+    try {
+      await ensureSession(sessionId)
+      const freshChat = await store.readChat(chatId)
+      if (!isPlayableChat(freshChat)) throw new Error('游玩会话不存在或已关闭')
+      if (!isPlotCompassEnabled(freshChat)) throw new Error('剧情罗盘已关闭')
+      const { card, worldbookEntries, constantWorldbookText, scriptWindow, basedOnTurn } = await loadGenerationContext(freshChat)
+
+      const compassNow = readPlotCompass(freshChat.plotCompass)
+      // 传入过往对话时排除掉刚记入的本轮玩家发言，避免在 latest_brainstorm_message 中重复出现
+      const priorHistory = compassNow.chatHistory.filter(item => item.id !== userMsgId)
+      const promptChat = {
+        ...freshChat,
+        plotCompass: { ...compassNow, chatHistory: priorHistory }
+      }
+
+      const brainstormPrompt = buildPlotCompassBrainstormPrompt({
+        chat: promptChat,
+        card,
+        worldbookEntries,
+        constantWorldbookText,
+        scriptWindow,
+        message
+      })
+
+      controller.signal.throwIfAborted()
+      runResult = await runAgent({
+        task: 'plot-compass',
+        persistent: false,
+        ownPrefix: true,
+        sessionId: str(sessionId),
+        chatId: str(chatId),
+        turn: basedOnTurn,
+        selection: model,
+        temperature: 0.85,
+        signal: controller.signal,
+        backgroundTasks: { variables: false, posture: false, characterDesign: false },
+        system: PLOT_COMPASS_BRAINSTORM_SYSTEM,
+        taskText: brainstormPrompt,
+        messages: [],
+        tools: [PLOT_COMPASS_CHAT_SUBMIT_TOOL],
+        maxToolCalls: 2,
+        acceptWithoutText: () => submitted !== null,
+        onToolCall: async call => {
+          if (!call || call.name !== PLOT_COMPASS_SUBMIT_TOOL_NAME) {
+            return JSON.stringify({ ok: false, retryable: true, error: '只允许调用 ' + PLOT_COMPASS_SUBMIT_TOOL_NAME })
+          }
+          try {
+            submitted = parsePlotCompassSubmission(call.arguments, { scope: 'chat', card, chat: freshChat })
+            submissionError = null
+            return JSON.stringify({
+              ok: true,
+              targetScope: submitted.targetScope,
+              shortTerm: submitted.shortTerm.length,
+              midTerm: submitted.midTerm.length,
+              longTerm: submitted.longTerm.length
+            })
+          } catch (err) {
+            submitted = null
+            submissionError = err
+            return JSON.stringify({ ok: false, retryable: true, error: str(err?.message || err) })
+          }
+        }
+      })
+
+      controller.signal.throwIfAborted()
+      const rawReplyText = extractStoryProseForGrounding(runResult?.text || '').trim()
+      const scopeApplied = submitted ? submitted.targetScope : ''
+      const scopeLabel = scopeApplied === 'shortTerm' ? '今期' : scopeApplied === 'midTerm' ? '中期' : scopeApplied === 'longTerm' ? '长期' : '全部层级'
+      const assistantText = rawReplyText || (submitted
+        ? `已根据我们的讨论为你更新「${scopeLabel}」路线卡片，你可以在下方查看或直接点亮使用。`
+        : '')
+      if (!assistantText) {
+        throw submissionError || new Error('剧情罗盘脑暴助手未返回有效回复，请重试')
+      }
+
+      const traceSessionId = str(runResult?.traceSessionId)
+      await store.updateChat(chatId, current => {
+        if (!isPlayableChat(current) || !isPlotCompassEnabled(current)) return undefined
+        if (expectedBranchId && str(current.timeline?.branchId) && str(current.timeline?.branchId) !== expectedBranchId) {
+          throw new Error('会话分支已变更，本次脑暴对话未写入')
+        }
+        let nextCompass = readPlotCompass(current.plotCompass)
+        if (submitted) {
+          nextCompass = mergePlotCompassUpdate(nextCompass, submitted, {
+            scope: submitted.targetScope,
+            turn: latestStoryTurnOf(current) || basedOnTurn,
+            now: now()
+          })
+        }
+        nextCompass = appendPlotCompassChat(nextCompass, {
+          role: 'assistant',
+          text: assistantText,
+          scopeApplied,
+          turn: latestStoryTurnOf(current) || basedOnTurn,
+          createdAt: now()
+        }, { now: now() })
+        current.plotCompass = nextCompass
+        current.plotCompassTask = {
+          status: 'done',
+          scope: 'chat',
+          error: '',
+          updatedAt: now(),
+          ...(traceSessionId ? { traceSessionId } : {})
+        }
+        current.updatedAt = now()
+        return current
+      }, { source: 'plot-compass.chat' })
+      onStatus(str(sessionId))
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        await setTaskState(chatId, sessionId, { status: 'idle', scope: 'chat', error: '' }).catch(onError)
+        return
+      }
+      await setTaskState(chatId, sessionId, {
+        status: 'failed',
+        scope: 'chat',
+        error: str(error?.message || error) || '剧情罗盘对话失败',
+        ...(runResult?.traceSessionId ? { traceSessionId: str(runResult.traceSessionId) } : {})
+      }).catch(onError)
+    }
+  }
+
   async function generate({ sessionId, scope = 'all', guidance = '', wait = false } = {}) {
     const normalizedScope = PLOT_COMPASS_SCOPES.includes(scope) ? scope : 'all'
     const chat = await requirePlayChat(sessionId)
@@ -268,6 +411,86 @@ export function createPlotCompassService({
       }
     }
     return { status: 'running', scope: normalizedScope }
+  }
+
+  async function chat({ sessionId, message, wait = false } = {}) {
+    const trimmed = str(message).trim().slice(0, 800)
+    if (!trimmed) throw new Error('请输入想讨论的剧情方向或点子')
+    const targetChat = await requirePlayChat(sessionId)
+    if (!isPlotCompassEnabled(targetChat)) throw new Error('剧情罗盘已关闭，请先开启后再使用脑暴对话')
+    if (jobs.has(targetChat.id)) throw new Error('剧情罗盘正在推演或回复中，请稍候或先取消')
+    const model = selection(targetChat)
+    if (!model) throw new Error('请先配置可用的后台模型')
+
+    const userMsgId = `compass-u-${now()}-${Math.random().toString(36).slice(2, 6)}`
+    const turn = latestStoryTurnOf(targetChat)
+    const controller = new AbortController()
+    const expectedBranchId = str(targetChat.timeline?.branchId)
+    const entry = { controller, promise: null }
+    jobs.set(targetChat.id, entry)
+    try {
+      await store.updateChat(targetChat.id, current => {
+        requirePlayChatSync(current)
+        if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
+        current.plotCompass = appendPlotCompassChat(current.plotCompass, {
+          id: userMsgId,
+          role: 'user',
+          text: trimmed,
+          turn,
+          createdAt: now()
+        }, { now: now() })
+        current.plotCompassTask = {
+          ...(current.plotCompassTask || {}),
+          status: 'running',
+          scope: 'chat',
+          error: '',
+          updatedAt: now()
+        }
+        current.updatedAt = now()
+        return current
+      }, { source: 'plot-compass.chat-user' })
+      onStatus(str(sessionId))
+    } catch (err) {
+      jobs.delete(targetChat.id)
+      throw err
+    }
+
+    const promise = executeBrainstormChat({
+      chatId: targetChat.id,
+      sessionId: str(sessionId),
+      expectedBranchId,
+      userMsgId,
+      message: trimmed,
+      model,
+      controller
+    }).catch(onError).finally(() => {
+      if (jobs.get(targetChat.id) === entry) jobs.delete(targetChat.id)
+    })
+    entry.promise = promise
+
+    if (wait === true) {
+      await promise
+      const updated = await store.readChat(targetChat.id)
+      return {
+        status: updated?.plotCompassTask?.status || 'done',
+        scope: 'chat',
+        plotCompass: readPlotCompass(updated?.plotCompass),
+        plotCompassTask: projectTask(updated)
+      }
+    }
+    return { status: 'running', scope: 'chat' }
+  }
+
+  async function clearChat({ sessionId } = {}) {
+    const targetChat = await requirePlayChat(sessionId)
+    const saved = await store.updateChat(targetChat.id, current => {
+      requirePlayChatSync(current)
+      current.plotCompass = clearPlotCompassChat(current.plotCompass, { now: now() })
+      current.updatedAt = now()
+      return current
+    }, { source: 'plot-compass.chat-clear' })
+    onStatus(str(sessionId))
+    return readPlotCompass(saved?.plotCompass)
   }
 
   async function cancel({ sessionId } = {}) {
@@ -496,6 +719,8 @@ export function createPlotCompassService({
   return Object.freeze({
     projectTask,
     generate,
+    chat,
+    clearChat,
     cancel,
     setEnabled,
     pin,

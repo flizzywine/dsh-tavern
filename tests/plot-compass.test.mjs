@@ -6,14 +6,19 @@ import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 import { createBackgroundNativeRuntime } from './fixtures/background-native-runtime.mjs'
 import {
+  PLOT_COMPASS_BRAINSTORM_SYSTEM,
+  PLOT_COMPASS_CHAT_SUBMIT_TOOL,
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
+  appendPlotCompassChat,
   applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
   applyPlotCompassPin,
   applyPlotCompassPreferences,
   applyPlotCompassStepToggle,
+  buildPlotCompassBrainstormPrompt,
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
+  clearPlotCompassChat,
   extractDormantWorldbookHooks,
   extractSceneFreezeSnapshot,
   extractStoryProseForGrounding,
@@ -1500,7 +1505,299 @@ test('前端浏览器交互：推进节奏三档切换、盲盒防剧透遮罩/�
   }
 })
 
+test('剧情罗盘脑暴对话模式A：纯讨论不覆盖现有路线、指令触发局部/全部落盘、多轮记忆与清空历史', async () => {
+  const initialParsed = parsePlotCompassSubmission(sampleSubmission(), { card: SAMPLE_CARD })
+  const pinnedInitial = applyPlotCompassPin(
+    applyPlotCompassPin(mergePlotCompassUpdate(null, initialParsed, { scope: 'all', turn: 2 }), { horizon: 'shortTerm', routeId: 'st-probe' }),
+    { horizon: 'midTerm', routeId: 'mt-alliance' }
+  )
 
+  // 验证历史上限截断（16条）与清空逻辑
+  let rolling = pinnedInitial
+  for (let i = 1; i <= 18; i++) {
+    rolling = appendPlotCompassChat(rolling, { role: i % 2 ? 'user' : 'assistant', text: `第${i}轮思路`, turn: 2 }, { now: 1000 + i })
+  }
+  assert.equal(readPlotCompass(rolling).chatHistory.length, 16)
+  assert.equal(readPlotCompass(rolling).chatHistory[0].text, '第3轮思路')
+  assert.equal(readPlotCompass(rolling).chatHistory.at(-1).text, '第18轮思路')
+  assert.equal(readPlotCompass(clearPlotCompassChat(rolling)).chatHistory.length, 0)
 
+  let chat = {
+    id: 'chat-brainstorm',
+    sessionId: 'sess-brainstorm',
+    mode: 'story',
+    backgroundTasks: { plotCompass: true },
+    cardPath: 'cards/shen.json',
+    cardName: '沈清弦',
+    messages: [
+      { role: 'user', turn: 1, text: '借雨水掩护靠近书案' },
+      { role: 'assistant', turn: 1, text: '沈清弦抬眼望向你指尖的火漆残片，冷声问你究竟想赌哪一边。' },
+      { role: 'user', turn: 2, text: '先试探她对盐铁司旧账的态度' },
+      { role: 'assistant', turn: 2, text: '她把半枚铜印按在密信上，窗外瓦片轻响。' }
+    ],
+    plotCompass: pinnedInitial
+  }
 
+  // 验证 buildPlotCompassBrainstormPrompt 组装与 <brainstorm_conversation> 保留历史但不重复最新输入
+  const chatWithOldMsg = {
+    ...chat,
+    plotCompass: appendPlotCompassChat(chat.plotCompass, { role: 'user', text: '旧问题：先讨论反转角度', turn: 2 })
+  }
+  const builtPrompt = buildPlotCompassBrainstormPrompt({
+    chat: chatWithOldMsg,
+    card: SAMPLE_CARD,
+    message: '新消息：不想被动挨打'
+  })
+  assert.ok(builtPrompt.includes('<brainstorm_conversation>'))
+  assert.ok(builtPrompt.includes('旧问题：先讨论反转角度'))
+  assert.ok(builtPrompt.includes('<latest_brainstorm_message>'))
+  assert.ok(builtPrompt.includes('新消息：不想被动挨打'))
+  assert.equal(builtPrompt.includes('<generate_request>'), false)
 
+  let agentTurn = 0
+  const capturedInputs = []
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(chat),
+      readChat: async () => structuredClone(chat),
+      updateChat: async (_id, mutator) => {
+        const next = await mutator(structuredClone(chat))
+        if (next) chat = next
+        return structuredClone(chat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'mock', model: 'mock-planner' }),
+    runAgent: async input => {
+      agentTurn++
+      capturedInputs.push(input)
+      assert.equal(input.system, PLOT_COMPASS_BRAINSTORM_SYSTEM)
+      assert.equal(input.tools?.[0]?.name, PLOT_COMPASS_CHAT_SUBMIT_TOOL.name)
+      assert.equal(input.stopToolsWhen, undefined)
+
+      if (agentTurn === 1) {
+        // 第1轮：纯讨论模式，不调用 plot_compass_submit
+        return { text: '可以设计两种反客为主的角度：1）反诈她的暗哨接头暗号；2）假借交出空白信封诱她先亮底牌。' }
+      }
+
+      // 第2轮：玩家要求按讨论落盘为今期路线，触发局部更新 targetScope: 'shortTerm'
+      await input.onToolCall({
+        name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+        arguments: {
+          targetScope: 'shortTerm',
+          situationDigest: '主角准备借假暗号反制门外暗哨并逼沈清弦先摊牌。',
+          shortTerm: [
+            {
+              id: 'st-bluff-1',
+              tag: '反诈暗哨',
+              title: '借错位暗号反诈门外暗哨自乱阵脚',
+              direction: '智力破局',
+              summary: '在{{char}}尚未抬手前先敲三长两短假暗号',
+              beats: [{ text: '敲出半真半假的东厂暗号', done: false }, { text: '趁暗哨迟疑逼{{char}}顺水保人', done: false }]
+            },
+            {
+              id: 'st-bluff-2',
+              tag: '空白密函',
+              title: '递出空白密函试探她最忌惮的势力',
+              direction: '心理博弈',
+              summary: '把火漆密封的空纸推过去观其微表情',
+              beats: [{ text: '声明信里只写了三个名字', done: false }, { text: '看她先防内阁还是先防东厂', done: false }]
+            }
+          ]
+        }
+      })
+      return { text: '已按刚才反诈底牌的思路为你重写「今期」路线，中期和长期保留不变。' }
+    }
+  })
+
+  // 第1轮纯讨论：不应改动已有路线与锚定
+  const res1 = await service.chat({ sessionId: 'sess-brainstorm', message: '不想被动挨打，有什么反诈她底牌的点子？', wait: true })
+  assert.equal(res1.status, 'done')
+  assert.equal(res1.scope, 'chat')
+  let afterTurn1 = readPlotCompass(chat.plotCompass)
+  assert.equal(afterTurn1.shortTerm[0].id, 'st-probe')
+  assert.equal(afterTurn1.pinned.shortTerm, 'st-probe')
+  assert.equal(afterTurn1.pinned.midTerm, 'mt-alliance')
+  assert.equal(afterTurn1.chatHistory.length, 2)
+  assert.equal(afterTurn1.chatHistory[0].role, 'user')
+  assert.equal(afterTurn1.chatHistory[1].role, 'assistant')
+  assert.equal(afterTurn1.chatHistory[1].scopeApplied, undefined)
+  assert.match(afterTurn1.chatHistory[1].text, /反客为主/)
+
+  // 第2轮显式指令更新今期：应携带上一轮历史并仅更新 shortTerm，同时保留 midTerm/longTerm 与中长期锚定
+  const res2 = await service.chat({ sessionId: 'sess-brainstorm', message: '好，就按反诈思路把今期路线改成这两条！', wait: true })
+  assert.equal(res2.status, 'done')
+  assert.ok(capturedInputs[1].taskText.includes('<brainstorm_conversation>'))
+  assert.ok(capturedInputs[1].taskText.includes('反客为主'))
+
+  const afterTurn2 = readPlotCompass(chat.plotCompass)
+  assert.equal(afterTurn2.shortTerm.length, 2)
+  assert.equal(afterTurn2.shortTerm[0].id, 'st-bluff-1')
+  assert.equal(afterTurn2.midTerm[0].id, 'mt-alliance')
+  assert.equal(afterTurn2.longTerm[0].id, 'lt-overturn')
+  assert.equal(afterTurn2.pinned.shortTerm, null)
+  assert.equal(afterTurn2.pinned.midTerm, 'mt-alliance')
+  assert.equal(afterTurn2.chatHistory.length, 4)
+  assert.equal(afterTurn2.chatHistory[3].scopeApplied, 'shortTerm')
+  assert.match(afterTurn2.chatHistory[3].text, /已按刚才反诈底牌的思路/)
+
+  // 清空历史
+  const cleared = await service.clearChat({ sessionId: 'sess-brainstorm' })
+  assert.equal(cleared.chatHistory.length, 0)
+  assert.equal(readPlotCompass(chat.plotCompass).chatHistory.length, 0)
+  // 清空对话不影响已经更新的路线
+  assert.equal(readPlotCompass(chat.plotCompass).shortTerm[0].id, 'st-bluff-1')
+})
+
+test('前端浏览器交互：脑暴对话发送消息、收起展开清空、以及将讨论思路一键应用为今期路线', async () => {
+  const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  const baseCompass = parsePlotCompassSubmission(sampleSubmission(), { card: SAMPLE_CARD })
+  let currentCompass = applyPlotCompassPin(
+    mergePlotCompassUpdate(null, baseCompass, { scope: 'all', turn: 2 }),
+    { horizon: 'shortTerm', routeId: 'st-probe' }
+  )
+
+  const calls = []
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage()
+    const pageErrors = []
+    page.on('pageerror', err => pageErrors.push(String(err)))
+
+    await page.route('http://tavern.test/**', async route => {
+      const url = route.request().url()
+      if (url === 'http://tavern.test/') {
+        return route.fulfill({ status: 200, contentType: 'text/html', body: '<div id="compass-tab"></div>' })
+      }
+      const method = new URL(url).pathname.split('/').at(-1)
+      const args = route.request().postDataJSON() || {}
+      calls.push({ method, args })
+
+      if (method === 'chatPlotCompass') {
+        currentCompass = appendPlotCompassChat(currentCompass, { role: 'user', text: args.message, turn: 2 }, { now: 2001 })
+        currentCompass = appendPlotCompassChat(currentCompass, {
+          role: 'assistant',
+          text: '建议用假借半枚虎符反诈她底牌，引她自己说出盐铁司暗哨位置。',
+          turn: 2
+        }, { now: 2002 })
+        return route.fulfill({ json: { ok: true, status: 'idle', scope: 'chat', plotCompass: currentCompass } })
+      }
+      if (method === 'clearPlotCompassChat') {
+        currentCompass = clearPlotCompassChat(currentCompass, { now: 2003 })
+        return route.fulfill({ json: { ok: true, plotCompass: currentCompass } })
+      }
+      if (method === 'generatePlotCompass') {
+        const nextShort = parsePlotCompassSubmission({
+          targetScope: 'shortTerm',
+          situationDigest: currentCompass.situationDigest,
+          shortTerm: [
+            { id: 'st-tiger-1', tag: '假符反诈', title: '抛半枚虎符诱她说出暗哨口令', direction: '反客为主', summary: '顺势试探盐铁司内应', beats: [{ text: '扣住火漆冷笑抛符', done: false }] },
+            { id: 'st-tiger-2', tag: '将计就计', title: '顺她话风把嫌疑引向东厂', direction: '借刀杀人', summary: '逼她临时倒戈', beats: [{ text: '反咬东厂早知密信', done: false }] }
+          ]
+        }, { scope: 'chat', card: SAMPLE_CARD })
+        currentCompass = mergePlotCompassUpdate(currentCompass, nextShort, { scope: 'shortTerm', turn: 2 })
+        return route.fulfill({ json: { ok: true, status: 'idle', scope: args.scope || 'shortTerm', plotCompass: currentCompass } })
+      }
+
+      const responses = {
+        listSessions: { sessions: [{ sessionId: 'game', chatId: 'chat', mode: 'story', cardName: '沈清弦' }] },
+        getSession: {
+          view: {
+            mode: 'story',
+            latestAssistantTurn: 2,
+            latestAssistantMessageId: 'reply-2',
+            activity: { busy: false },
+            plotCompass: currentCompass,
+            plotCompassEnabled: true,
+            plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+            tavernHelper: { messages: [] }
+          }
+        },
+        getTavernSettings: { settings: {} },
+        getChoices: { candidates: null },
+        syncSession: { sync: { activity: { busy: false, phase: 'idle' } } }
+      }
+      await route.fulfill({ json: { ok: true, ...(responses[method] || {}) } })
+    })
+
+    await page.goto('http://tavern.test/')
+    await page.addScriptTag({ content: await browserReactScript() })
+    await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?modules.react:{});}};` })
+    await page.addScriptTag({ content: clientSource })
+
+    await page.evaluate(() => {
+      const tabs = {}
+      const noop = () => () => {}
+      const sessionState = { current: 'game', byId: { game: { id: 'game' } } }
+      const ctx = {
+        inject() { return { dispose() {} } },
+        get() {},
+        provide() {},
+        effect(run, label) {
+          if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: plot compass tab'].includes(label)) return run()
+          return () => {}
+        },
+        slots: {
+          inject(_name, run) { return run() },
+          register() { return () => {} }
+        },
+        sessions: {
+          subagentAddress: () => null,
+          refresh: async () => {},
+          list: { subscribe: noop, getSnapshot: () => sessionState },
+          binding: () => null
+        },
+        workspaces: {},
+        betterSidebar: {
+          registerTab(descriptor) { tabs[descriptor.id] = descriptor; return () => {} },
+          openTab() {}
+        },
+        tavernSessionSignals: { subscribe: noop }
+      }
+      window.client.apply(ctx)
+      const React = modules.react
+      const createRoot = modules['react-dom/client'].createRoot
+      const CompassComponent = tabs['dsh-tavern:plot-compass'].component
+      createRoot(document.querySelector('#compass-tab')).render(React.createElement(CompassComponent, { scope: {} }))
+    })
+
+    // 1. 输入脑暴问题后同步出现「💬 发送」和「✨ 直接重推」，点击「💬 发送」进行纯讨论
+    const chatInput = page.getByPlaceholder('聊聊剧情点子或指定发展方向（回车对话商量，不覆盖当前路线）')
+    await chatInput.waitFor({ timeout: 5000 })
+    await chatInput.fill('不想被动挨打，想设计一个主角反过来诈他底牌的局')
+    await page.getByRole('button', { name: '✨ 直接重推' }).waitFor()
+    await page.getByRole('button', { name: '💬 发送' }).click()
+
+    await page.getByText('不想被动挨打，想设计一个主角反过来诈他底牌的局').waitFor()
+    await page.getByText('建议用假借半枚虎符反诈她底牌，引她自己说出盐铁司暗哨位置。').waitFor()
+    await page.getByRole('button', { name: '✨ 应用为今期' }).waitFor()
+    await page.getByRole('button', { name: '✦ 应用为全局' }).waitFor()
+    assert.ok(calls.some(c => c.method === 'chatPlotCompass' && c.args.message.includes('反过来诈他底牌')))
+
+    // 2. 点击「✨ 应用为今期」将讨论结果局部落盘为今期路线
+    await page.getByRole('button', { name: '✨ 应用为今期' }).click()
+    await page.getByText('抛半枚虎符诱她说出暗哨口令').waitFor()
+    assert.ok(calls.some(c =>
+      c.method === 'generatePlotCompass' &&
+      c.args.scope === 'shortTerm' &&
+      String(c.args.guidance || '').includes('假借半枚虎符反诈她底牌')
+    ))
+
+    // 3. 测试收起、再展开对话与清空记录
+    await page.getByRole('button', { name: /▾ 收起脑暴对话（2）/ }).click()
+    assert.equal(await page.getByLabel('剧情罗盘脑暴对话记录').count(), 0)
+    await page.getByRole('button', { name: /▸ 展开脑暴对话（2）/ }).click()
+    await page.getByLabel('剧情罗盘脑暴对话记录').waitFor()
+    await page.getByRole('button', { name: '清空记录' }).click()
+    await page.waitForFunction(() => document.querySelectorAll('.dsh-tavern-compass-chat-thread').length === 0)
+    assert.ok(calls.some(c => c.method === 'clearPlotCompassChat'))
+
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await browser.close()
+  }
+})
