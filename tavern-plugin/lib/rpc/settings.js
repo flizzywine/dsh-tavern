@@ -114,7 +114,7 @@ export function createSettingsHandlers(deps) {
       const { readTavernSettings } = deps
 
         const settings = await readTavernSettings()
-        return { candidateDismissMode: settings.candidateDismissMode, candidateAutoGenerate: settings.candidateAutoGenerate }
+        return { candidateDismissMode: settings.candidateDismissMode, candidateAutoGenerate: settings.candidateAutoGenerate, candidateTabs: settings.candidateTabs === true }
 
     },
 

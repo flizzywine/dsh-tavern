@@ -159,6 +159,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                             onCommit: value => saveDefault("storyToolHistoryMode", value) })),
                     sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                     sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
+                    sw("candidateTabs", "候选多角色 / 全局 Tab", "候选项按在场角色和全局事件分成「精选 / 角色 / 全局」几组 Tab 切换，默认停在精选。关闭后候选卡只显示精选一组，不再出现 Tab 条。改动立即生效。", false),
                     h(PromptTemplateSettingsEntry),
                     h(ContextCompactionSettings)))
         );

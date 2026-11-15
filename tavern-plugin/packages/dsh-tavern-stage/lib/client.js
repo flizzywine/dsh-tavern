@@ -19183,12 +19183,6 @@ function galFill(sessionId, text) {
     galFills.set(String(sessionId), String(text));
     for (const fn of [...galFillListeners]) fn();
 }
-// The stage lists the options flat, as a visual novel does: the featured list (the AI's combined options, or the
-// per-actor picks when there are none) with each option's actor shown on it. The chat view keeps its tabs.
-function galFlatChoices(choices) {
-    const group = stageCandidateTabs.buildCandidateChoiceTabs(choices);
-    return { current: group.hasTabs ? group.tabs[0] : group.current, badges: group.hasTabs };
-}
 function galChoiceBadges(choice, tabKind, hasTabs) {
     return stageCandidateTabs.candidateChoiceBadges(choice, { tabKind, hasTabs });
 }
@@ -19235,14 +19229,14 @@ function GalChoices(props) {
     const rootRef = React.useRef(null);
     useForkUiSfxControls(rootRef, state !== "hidden");
     const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => stageCandidateTabs.normalizeCandidateChoice(choice, undefined, props.decode)) : [];
-    const flat = galFlatChoices(rawChoices);
-    const currentTab = flat.current;
+    // The stage lists every choice flat: no 精选 / 角色 / 全局 tab strip (that grouping is the chat card's, behind
+    // 设置 › 高级 › 候选多角色 / 全局 Tab). Badges carry who/what each row is, since the tabs no longer do.
     // A short stage: when the list overflows its bottom rows stay in view and the choices above scroll.
-    const choiceCount = currentTab.items.length;
+    const choiceCount = rawChoices.length;
     (React.useLayoutEffect || React.useEffect)(function () {
         const el = rootRef.current;
         if (el && el.scrollHeight > el.clientHeight + 1) el.scrollTop = el.scrollHeight;
-    }, [state, choiceCount, currentTab.key]);
+    }, [state, choiceCount]);
     // Image bars on the pixel step (galSnapChoices): after layout, on every resize of the list or the window, and
     // when the screen's pixel ratio changes (a window moved to another monitor, the zoom).
     // only new choices, a new state or a resize
@@ -19303,7 +19297,7 @@ function GalChoices(props) {
         // Fit before the first paint: one pass per frame painted the menu at every in-between size (it jumped on each tab switch).
         resnapRef.current(null, null);
         return function () { stopped = true; resnapRef.current = null; if (frame) cancelAnimationFrame(frame); observer?.disconnect(); window.removeEventListener("resize", resize); media?.removeEventListener?.("change", onRatio); };
-    }, [state, choiceCount, currentTab.key]);
+    }, [state, choiceCount]);
     (React.useLayoutEffect || React.useEffect)(function () {
         const field = rootRef.current?.querySelector?.(":scope > .is-editing") || null;
         // An opened suggestion is edited from its end: the caret after its text (autoFocus left it at the start).
@@ -19423,7 +19417,7 @@ function GalChoices(props) {
         try {await commands.generate();}finally{requestRef.current=false;}
     }
     const choices = rawChoices;
-    const visibleChoices = currentTab.items;
+    const visibleChoices = rawChoices;
     const textOf = choice => stageCandidateTabs.formatCandidateChoiceText(choice);
     // The reply deadline's fallback goes through this panel's one send lock, synchronously checked: nothing typed or picked,
     // nothing sending. It returns whether it was sent (the caller marks the offer consumed before, so it is never retried).
@@ -19494,7 +19488,7 @@ function GalChoices(props) {
     return h("div", { ref: rootRef, className: "fork-gal-choices fork-gal-endpanel", style: props.hidden ? { display: "none" } : { "--rows": rows }, "data-hidden": props.hidden ? "" : undefined, "data-state": state, "data-settled": settledRef.current ? "" : undefined, "data-picked": picked !== null ? "" : undefined, role: "menu", "aria-label": "接下来", onClick: e => e.stopPropagation(), onWheel: e => e.stopPropagation() },
         visibleChoices.map(function (choice, index) {
             const key = textOf(choice), draft = drafts[key];
-            const badges = draft == null ? galChoiceBadges(choice, currentTab.kind, flat.badges) : [];
+            const badges = draft == null ? galChoiceBadges(choice, "featured", true) : [];
             const actorAttr = choice.actor || (Array.isArray(choice.actors) && choice.actors.length > 0 ? choice.actors.join(",") : undefined);
             // data-index stays on the open field: a numbered skin keeps its number in the cell (theme.css) and the rows below it theirs.
             if (editingAt === key) return h("div", { key: key, ref: editorRef, className: "fork-gal-choice is-editing", "data-type": choice.type, "data-index": index }, editor(key, '[data-index="' + index + '"] > .fork-gal-choice-main'));

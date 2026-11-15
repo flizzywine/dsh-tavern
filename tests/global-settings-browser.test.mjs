@@ -242,3 +242,14 @@ test('开局默认功能区支持设置剧情罗盘自动更新间隔并保存�
 
 
 
+
+test('候选多角色 / 全局 Tab 在高级里默认关闭，打开后只保存这一项', async t => {
+  const backend = fixture()
+  const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
+  const toggle = page.getByRole('switch', {name:'候选多角色 / 全局 Tab', exact:true})
+  await toggle.waitFor()
+  assert.equal(await toggle.isChecked(), false, '出厂默认关闭')
+  await toggle.press('Space')
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="候选多角色 / 全局 Tab"]')?.checked === true)
+  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {candidateTabs:true})
+})

@@ -337,6 +337,11 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.candidateAutoGenerate !== 'boolean') throw new Error('无效的自动生成候选项设置')
     next.candidateAutoGenerate = input.candidateAutoGenerate
   }
+  // 设置 › 高级 › 候选多角色 / 全局 Tab：默认关闭，候选项只显示精选一组。
+  if (Object.hasOwn(input, 'candidateTabs')) {
+    if (typeof input.candidateTabs !== 'boolean') throw new Error('无效的候选 Tab 设置')
+    next.candidateTabs = input.candidateTabs
+  }
   if (Object.hasOwn(input, 'showPlayProcess')) {
     if (typeof input.showPlayProcess !== 'boolean') throw new Error('无效的游玩过程显示设置')
     next.showPlayProcess = input.showPlayProcess
@@ -535,6 +540,8 @@ export function presentTavernSettings(document, defaults) {
     // existing profiles stay manual until explicitly enabled.
     
     candidateAutoGenerate: object(document).candidateAutoGenerate === true,
+    // 设置 › 高级 › 候选多角色 / 全局 Tab：默认关闭，候选卡只显示精选一组。
+    candidateTabs: object(document).candidateTabs === true,
     // 自动精修: off by default, since it reviews and rewords every reply.
     polishPrereview: object(document).polishPrereview === true,
     storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',

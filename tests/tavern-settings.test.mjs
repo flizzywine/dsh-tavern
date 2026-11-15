@@ -472,3 +472,18 @@ test('剧情罗盘自动更新间隔支持全局开局默认配置、校验与�
 })
 
 
+
+test('候选多角色/全局 Tab 默认关闭，保存布尔值并原样读回', async () => {
+  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
+  const { createSettingsHandlers } = await import('../tavern-plugin/lib/rpc/settings.js')
+  assert.equal(presentTavernSettings({}, {}).candidateTabs, false)
+  assert.throws(() => applyTavernSettingsPatch({}, { candidateTabs: 'yes' }), /无效的候选 Tab 设置/)
+  const patched = applyTavernSettingsPatch({}, { candidateTabs: true })
+  assert.equal(patched.candidateTabs, true)
+  assert.equal(presentTavernSettings(patched, {}).candidateTabs, true)
+  // 候选偏好 RPC 把开关一起带给候选卡（默认关闭时是 false，不是 undefined）。
+  const handlers = createSettingsHandlers({ readTavernSettings: async () => presentTavernSettings(patched, {}) })
+  assert.equal((await handlers.getCandidatePreferences({})).candidateTabs, true)
+  const off = createSettingsHandlers({ readTavernSettings: async () => presentTavernSettings({}, {}) })
+  assert.equal((await off.getCandidatePreferences({})).candidateTabs, false)
+})

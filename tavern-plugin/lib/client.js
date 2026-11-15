@@ -46723,6 +46723,25 @@ function TavernCardUpdateDialog(props) {
             return mode;
         }
 
+        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）: the candidate card splits into 精选 / 角色 / 全局 tabs only
+        // while this switch is on; off (the shipped default) keeps the flat 精选 list. Reread on every settings save so a
+        // switch flipped in 设置 reaches an open game without a reload.
+        function useCandidateTabPreference() {
+            const [enabled, setEnabled] = React.useState(false);
+            React.useEffect(function () {
+                let active = true;
+                function read() {
+                    rpc("getCandidatePreferences").then(result => {
+                        if (active) setEnabled(result && result.candidateTabs === true);
+                    }, () => {});
+                }
+                read();
+                window.addEventListener("dsh-tavern-settings-changed", read);
+                return () => { active = false; window.removeEventListener("dsh-tavern-settings-changed", read); };
+            }, []);
+            return enabled;
+        }
+
         // the automatic candidate preference hook (its switch lives in 舞台设置 › 基础设置); no stage/bubble dependency.
         // the global candidateAutoGenerate preference (tavern-settings.json), independent of stage/bubble features.
         // Its one switch is 舞台设置 › 基础设置 「自动生成选项」 (asset-pack-card-ui.js StageAutoChoicesSwitch, injected through
@@ -47090,6 +47109,7 @@ function TavernCardUpdateDialog(props) {
                                     onCommit: value => saveDefault("storyToolHistoryMode", value) })),
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                             sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
+                            sw("candidateTabs", "候选多角色 / 全局 Tab", "候选项按在场角色和全局事件分成「精选 / 角色 / 全局」几组 Tab 切换，默认停在精选。关闭后候选卡只显示精选一组，不再出现 Tab 条。改动立即生效。", false),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );
@@ -57841,7 +57861,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             return candidateTabs.normalizeCandidateChoice(choice, index, decode);
         });
         const tabState = buildCandidateTabs(items, isScript);
-        const currentTab = tabState.hasTabs ? (tabState.tabs.find(function (tab) { return tab.key === activeTab; }) || tabState.tabs[0]) : tabState.current;
+        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）: off keeps the flat 精选 list and drops the tab strip.
+        const showTabs = typeof useCandidateTabPreference === "function" ? useCandidateTabPreference() === true : false;
+        const tabs = showTabs || !tabState.hasTabs ? tabState : { hasTabs: false, tabs: [], current: { key: "featured", kind: "featured", items: tabState.tabs[0].items } };
+        const currentTab = tabs.hasTabs ? (tabs.tabs.find(function (tab) { return tab.key === activeTab; }) || tabs.tabs[0]) : tabs.current;
         const visibleItems = currentTab.items;
         // 默认点击选项追加到输入框，再点一次移除；开启「直发」模式时直接入队发送。
         function pick(index) {
@@ -57871,11 +57894,11 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             else setAdded(list => isAdded ? list.filter(value => value !== index) : list.concat(index));
         }
         function onTabKeyDown(event) {
-            if (!tabState.hasTabs || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+            if (!tabs.hasTabs || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
             event.preventDefault();
-            const at = tabState.tabs.findIndex(function (tab) { return tab.key === currentTab.key; });
-            const nextIndex = (at + (event.key === "ArrowRight" ? 1 : tabState.tabs.length - 1)) % tabState.tabs.length;
-            const nextTab = tabState.tabs[nextIndex];
+            const at = tabs.tabs.findIndex(function (tab) { return tab.key === currentTab.key; });
+            const nextIndex = (at + (event.key === "ArrowRight" ? 1 : tabs.tabs.length - 1)) % tabs.tabs.length;
+            const nextTab = tabs.tabs[nextIndex];
             setActiveTab(nextTab.key);
             const buttons = event.currentTarget.querySelectorAll("[role='tab']");
             if (buttons[nextIndex]) buttons[nextIndex].focus();
@@ -57915,7 +57938,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 compassBarDetail ? h("span", { className: "dsh-tavern-question-compass-bar-detail" }, compassBarDetail) : null
             ) : null,
             expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
-            expanded && tabState.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabState.tabs.map(function (tab) {
+            expanded && tabs.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabs.tabs.map(function (tab) {
                 const isSelectedTab = tab.key === currentTab.key;
                 const pickedCount = (tab.kind === "featured" && !tab.custom) ? 0 : tab.items.filter(function (item) { return added.includes(item.index); }).length;
                 return h("button", { key: tab.key, type: "button", role: "tab", "data-tab": tab.key, "data-kind": tab.kind, className: "dsh-tavern-question-tab" + (isSelectedTab ? " active" : "") + (pickedCount > 0 ? " has-picked" : ""), "aria-selected": isSelectedTab ? "true" : "false", tabIndex: isSelectedTab ? 0 : -1, onClick: function () { setActiveTab(tab.key); } },

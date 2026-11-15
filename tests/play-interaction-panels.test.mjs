@@ -196,6 +196,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidateTabPreference: () => true,
     latestTavernAssistantMessageId: () => 'm-1', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -266,6 +267,7 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidateTabPreference: () => true,
     latestTavernAssistantMessageId: () => 'm-featured', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -403,3 +405,47 @@ test('候选项面板展示剧情罗盘态势与节拍进度，并支持填入/�
 })
 
 
+test('候选多角色/全局 Tab 默认关闭：设置 › 高级 未打开时只显示精选一组，没有 Tab 条', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
+  const { createRoot } = await import('react-dom/client')
+  const signals = createSessionSignalTransport()
+  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
+    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
+  let draft = ''
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
+    window: dom.window, document: dom.window.document,
+    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidateTabPreference: () => false,
+    latestTavernAssistantMessageId: () => 'm-off', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
+  vm.runInContext(source, context)
+  const panels = context.createPlayInteractionPanels({ interactions,
+    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
+    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
+    useRegenPanel: () => null, usePhonePlay: () => false })
+  const makeProps = () => ({ sessionId: 'a', useSession: select => select({ running: false }),
+    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft }),
+    inputActions: { setDraft(next) { draft = next } } })
+  const root = createRoot(dom.window.document.querySelector('main'))
+
+  const choices = [
+    { type: 'action', actor: '苏晚', text: '苏晚突然拉开门审视门外' },
+    { type: 'action', actor: '陆沉', text: '陆沉推门而入坦然应对' },
+    { type: 'event', text: '走廊尽头突然传来急促脚步声' },
+    { type: 'featured', actors: ['苏晚', '陆沉'], text: '苏晚借审视门外顺势拉开门闩，陆沉趁隙推门而入交换眼色' }
+  ]
+  interactions.candidates.set({ sessionId: 'a', messageId: 'm-off', phase: 'ready', expanded: true, choices })
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 0, '开关关闭时不应渲染 Tab 条')
+  const options = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
+  assert.equal(options.length, 1, '关闭时只列精选一组')
+  assert.ok(options[0].textContent.includes('苏晚借审视门外顺势拉开门闩'), '精选条目照常渲染')
+  await act(async () => options[0].click())
+  assert.equal(draft, '苏晚借审视门外顺势拉开门闩，陆沉趁隙推门而入交换眼色')
+  await act(async () => root.unmount())
+})

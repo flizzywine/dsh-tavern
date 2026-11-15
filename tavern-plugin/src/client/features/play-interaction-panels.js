@@ -79,7 +79,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             return candidateTabs.normalizeCandidateChoice(choice, index, decode);
         });
         const tabState = buildCandidateTabs(items, isScript);
-        const currentTab = tabState.hasTabs ? (tabState.tabs.find(function (tab) { return tab.key === activeTab; }) || tabState.tabs[0]) : tabState.current;
+        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）: off keeps the flat 精选 list and drops the tab strip.
+        const showTabs = typeof useCandidateTabPreference === "function" ? useCandidateTabPreference() === true : false;
+        const tabs = showTabs || !tabState.hasTabs ? tabState : { hasTabs: false, tabs: [], current: { key: "featured", kind: "featured", items: tabState.tabs[0].items } };
+        const currentTab = tabs.hasTabs ? (tabs.tabs.find(function (tab) { return tab.key === activeTab; }) || tabs.tabs[0]) : tabs.current;
         const visibleItems = currentTab.items;
         // 默认点击选项追加到输入框，再点一次移除；开启「直发」模式时直接入队发送。
         function pick(index) {
@@ -109,11 +112,11 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             else setAdded(list => isAdded ? list.filter(value => value !== index) : list.concat(index));
         }
         function onTabKeyDown(event) {
-            if (!tabState.hasTabs || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+            if (!tabs.hasTabs || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
             event.preventDefault();
-            const at = tabState.tabs.findIndex(function (tab) { return tab.key === currentTab.key; });
-            const nextIndex = (at + (event.key === "ArrowRight" ? 1 : tabState.tabs.length - 1)) % tabState.tabs.length;
-            const nextTab = tabState.tabs[nextIndex];
+            const at = tabs.tabs.findIndex(function (tab) { return tab.key === currentTab.key; });
+            const nextIndex = (at + (event.key === "ArrowRight" ? 1 : tabs.tabs.length - 1)) % tabs.tabs.length;
+            const nextTab = tabs.tabs[nextIndex];
             setActiveTab(nextTab.key);
             const buttons = event.currentTarget.querySelectorAll("[role='tab']");
             if (buttons[nextIndex]) buttons[nextIndex].focus();
@@ -153,7 +156,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 compassBarDetail ? h("span", { className: "dsh-tavern-question-compass-bar-detail" }, compassBarDetail) : null
             ) : null,
             expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
-            expanded && tabState.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabState.tabs.map(function (tab) {
+            expanded && tabs.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabs.tabs.map(function (tab) {
                 const isSelectedTab = tab.key === currentTab.key;
                 const pickedCount = (tab.kind === "featured" && !tab.custom) ? 0 : tab.items.filter(function (item) { return added.includes(item.index); }).length;
                 return h("button", { key: tab.key, type: "button", role: "tab", "data-tab": tab.key, "data-kind": tab.kind, className: "dsh-tavern-question-tab" + (isSelectedTab ? " active" : "") + (pickedCount > 0 ? " has-picked" : ""), "aria-selected": isSelectedTab ? "true" : "false", tabIndex: isSelectedTab ? 0 : -1, onClick: function () { setActiveTab(tab.key); } },

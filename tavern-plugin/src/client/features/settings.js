@@ -411,6 +411,25 @@
             return mode;
         }
 
+        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）: the candidate card splits into 精选 / 角色 / 全局 tabs only
+        // while this switch is on; off (the shipped default) keeps the flat 精选 list. Reread on every settings save so a
+        // switch flipped in 设置 reaches an open game without a reload.
+        function useCandidateTabPreference() {
+            const [enabled, setEnabled] = React.useState(false);
+            React.useEffect(function () {
+                let active = true;
+                function read() {
+                    rpc("getCandidatePreferences").then(result => {
+                        if (active) setEnabled(result && result.candidateTabs === true);
+                    }, () => {});
+                }
+                read();
+                window.addEventListener("dsh-tavern-settings-changed", read);
+                return () => { active = false; window.removeEventListener("dsh-tavern-settings-changed", read); };
+            }, []);
+            return enabled;
+        }
+
         // the automatic candidate preference hook (its switch lives in 舞台设置 › 基础设置); no stage/bubble dependency.
         // @include auto-choices-preference.js
 
