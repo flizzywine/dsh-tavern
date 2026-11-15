@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5f0be65c4b2c24c0afcdec6d5005ed14ecaa051d",
-  "releaseSequence": 1653,
+  "revision": "1190c3d4ab8f568bc75a6c8c58282ade97de9003",
+  "releaseSequence": 1654,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "c7178e6b41784481b20d71d748b51b7da05b9fc87dcb7c5e282ce0f06cb36383",
-      "size": 6423007
+      "sha256": "ede9375d2fe1f8f17887d0afdeaa078382bbacdc914dd85e47775754667c50ca",
+      "size": 6424712
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7291,7 +7291,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "ae34af0825f7c68043aa375e8ed4d4d60ba1229b687d2caa451a8eba94721418",
+      "sha256": "8d8477a26c6297b7a79dca9757693a5bed1527147cea55ab13308e998382019b",
       "size": 260
     },
     {
@@ -7301,8 +7301,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/client.js",
-      "sha256": "69b42ff5898584356c3bb5894b90467fb908e2513dfb88d27d3da924142168a6",
-      "size": 624463
+      "sha256": "4d3309c5953e9969cbde70037b8162773164f0785137e19193dad3b2503db7ee",
+      "size": 625552
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/console.html",
@@ -7791,13 +7791,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "e1f036c41455777750a0aab15cfb11bc863220b5b6100dea95fa99291b8f34de",
+      "sha256": "81e9653c7da5bf6ee528ebfa7ef948a75065139756563a50feed7c3448f6aa8e",
       "size": 2422
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/README.md",
-      "sha256": "69c462190d62e50203c3272a94ad1f450ea8f7c6856fd7e3966e48bd6844b2a3",
-      "size": 66659
+      "sha256": "d97f59e25715ca6f3c969a652824a037c8e80bb2d77b460442dd548cee03951d",
+      "size": 66778
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/skills/character-authoring/references/design-rules.md",
@@ -9271,9 +9271,9 @@
     }
   ],
   "archive": {
-    "commit": "b219c96aec1cce3aeee766662eab0825fa54ad30",
+    "commit": "395d3d731f79fbac0c9d71d52645591253547c7f",
     "path": "runtime.zip",
-    "sha256": "95a7fb6c716f47b731d1c07125a401e90ea6359847edfaa7f01376f7478f827f",
-    "size": 16570482
+    "sha256": "870adc7cc5e26c7a32e3560d3abe8a3d3ee16f9f71146bbc34b311a6f820fbb2",
+    "size": 16571509
   }
 }
