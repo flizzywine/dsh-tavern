@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 import vm from './fixtures/client-vm.mjs'
+import { createResourceHandlers } from '../tavern-plugin/lib/rpc/resources.js'
 
 async function loadExports() {
   const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
@@ -30,6 +33,53 @@ function harness(overrides = {}) {
   }
   return { calls, module: createConversationLifecycleModule(Object.assign(adapters, overrides)) }
 }
+
+test('数据迁移并留下目录联接后，新游戏使用实际目录的工作区', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'tavern-workspace-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const dataRoot = path.join(root, 'data')
+  const movedData = path.join(root, 'moved-data')
+  const resources = path.join(dataRoot, 'resources')
+  await mkdir(resources, { recursive: true })
+
+  const oldWorkspace = { id: 'old-workspace', path: await realpath(resources) }
+  const workspaces = new Map([[oldWorkspace.id, oldWorkspace]])
+  const registry = {
+    get: id => workspaces.get(id),
+    async resolveByPath(directory) {
+      const canonical = await realpath(directory)
+      return [...workspaces.values()].find(workspace => workspace.path === canonical)
+    }
+  }
+  const resourcesRpc = createResourceHandlers({ ctx: { get: () => registry }, dataRoot })
+  const resolveWorkspace = createPlayWorkspaceResolver({
+    currentWorkspaceId: () => oldWorkspace.id,
+    resourceRoot: workspaceId => resourcesRpc.getResourceWorkspace({ workspaceId }),
+    async createWorkspace({ path: directory }) {
+      const workspace = { id: 'new-workspace', path: await realpath(directory) }
+      workspaces.set(workspace.id, workspace)
+      return { workspaceId: workspace.id }
+    }
+  })
+  assert.equal(await resolveWorkspace(), oldWorkspace.id)
+  assert.equal(workspaces.size, 1)
+  await rename(dataRoot, movedData)
+  await symlink(movedData, dataRoot, process.platform === 'win32' ? 'junction' : 'dir')
+
+  const { module } = harness({
+    resolveWorkspace,
+    async connectWorkspace(id) {
+      const workspace = workspaces.get(id)
+      assert.equal(workspace.path, await realpath(workspace.path), 'host attaches only to the canonical workspace')
+      assert.equal(id, 'new-workspace')
+      return 'session-1'
+    }
+  })
+  const request = { kind: 'play', targetMode: 'story', card: { path: 'card' } }
+  assert.equal((await module.start(request)).sessionId, 'session-1')
+  assert.equal(await resolveWorkspace(), 'new-workspace')
+  assert.equal(workspaces.get(oldWorkspace.id), oldWorkspace)
+})
 
 test('开场事件已写入后的刷新重试直接恢复 Chat，不重复选择已锁定 preset', async () => {
   const values = new Map()

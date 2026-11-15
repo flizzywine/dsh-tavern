@@ -12,7 +12,7 @@ function worldBookForClient(record) {
 // World books, presets, skills, scripts, regex and guide libraries.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createResourceHandlers(deps) {
-  const { agentRegistry, bindScript, chatForSession, chatHeaderForSession, dataRoot, deletePreset,
+  const { agentRegistry, bindScript, chatForSession, chatHeaderForSession, ctx, dataRoot, deletePreset,
     deleteResource, deleteScript, exportSettingsBundle, fileResources, groupOfMode, guideLibrary,
     importPreset, importScript, importSettingsBundle, importSource, listTavernResources, presetLibrary,
     previewPreset, readScript, readTavernSettings, renameResource, runtimePresets,
@@ -20,6 +20,16 @@ export function createResourceHandlers(deps) {
     updateTavernSettings, worldBooks } = deps
   return {
     async getResourceWorkspace(args) {
+      const workspaceId = args?.workspaceId
+      if (typeof workspaceId === 'string' && workspaceId) {
+        const registry = ctx.get('workspaceRegistry')
+        const workspace = registry?.get(workspaceId)
+        if (!workspace) return { workspaceId }
+        // A directory junction can leave the stored path behind after relocation.
+        // Use the host's canonical lookup before session.create can publish an unattached session.
+        const resolved = await registry.resolveByPath(workspace.path)
+        return resolved ? { workspaceId: resolved.id } : { path: workspace.path }
+      }
       return { path: dataRoot + '/resources' }
     },
     async listResources(args) {

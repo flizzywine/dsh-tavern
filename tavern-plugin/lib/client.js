@@ -16590,20 +16590,13 @@ window.__ModuleLoader__.load({
 			for (const method of ["currentWorkspaceId", "resourceRoot", "createWorkspace"]) {
 				if (!options || typeof options[method] !== "function") throw new Error("Play Workspace Resolver 缺少 " + method + " adapter");
 			}
-			let fallbackPromise = null;
 			return async function () {
 				const currentWorkspaceId = String(options.currentWorkspaceId() || "");
-				if (currentWorkspaceId) return currentWorkspaceId;
-				if (!fallbackPromise) {
-					fallbackPromise = (async function () {
-						const root = await options.resourceRoot();
-						const created = await options.createWorkspace({ path: root.path });
-						if (!created || !created.workspaceId) throw new Error("无法创建 DSH Tavern Workspace");
-						return created.workspaceId;
-					})();
-					fallbackPromise.catch(function () { fallbackPromise = null; });
-				}
-				return fallbackPromise;
+				const root = await options.resourceRoot(currentWorkspaceId);
+				if (root.workspaceId) return root.workspaceId;
+				const created = await options.createWorkspace({ path: root.path });
+				if (!created || !created.workspaceId) throw new Error("无法创建 DSH Tavern Workspace");
+				return created.workspaceId;
 			};
 		}
 
@@ -44271,7 +44264,7 @@ function TavernCardUpdateDialog(props) {
 			if (playWorkspaceResolverRef.current === null) {
 				playWorkspaceResolverRef.current = createPlayWorkspaceResolver({
 					currentWorkspaceId: function () { return playWorkspaceIdRef.current; },
-					resourceRoot: function () { return call("getResourceWorkspace"); },
+					resourceRoot: function (workspaceId) { return call("getResourceWorkspace", { workspaceId: workspaceId }); },
 					createWorkspace: function (input) { return props.workspaces.create(input); }
 				});
 			}
@@ -44546,9 +44539,8 @@ function TavernCardUpdateDialog(props) {
 			// clearMain() leaves no Session for the host's blank-session entries
 			// (including better-sidebar's bottom-panel toggle) to mount into.
 			async function openBlankConversation() {
-				const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
 				try {
-					if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+					const targetWorkspaceId = await playWorkspaceResolverRef.current();
 					await openSessionWhenReady(await props.conversationHost.connectWorkspace(targetWorkspaceId));
 				} catch (err) {
 					props.sessions.clear();
@@ -45118,8 +45110,7 @@ function TavernCardUpdateDialog(props) {
 						? { chatId: item.chatId, sessionId: item.sessionId, messageIndex: target.messageIndex, revision: target.revision, messageUid: target.messageUid }
 						: { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
 					if (plan.storyDirect) {
-						const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
-						if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+						const targetWorkspaceId = await playWorkspaceResolverRef.current();
 						targetSessionId = await props.conversationHost.connectWorkspace(targetWorkspaceId);
 						await ensureTavernPreset(targetSessionId, {});
 					} else targetSessionId = await props.conversationHost.forkSession(item.sessionId, plan.atSeq);

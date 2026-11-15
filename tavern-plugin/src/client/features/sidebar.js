@@ -437,7 +437,7 @@
 			if (playWorkspaceResolverRef.current === null) {
 				playWorkspaceResolverRef.current = createPlayWorkspaceResolver({
 					currentWorkspaceId: function () { return playWorkspaceIdRef.current; },
-					resourceRoot: function () { return call("getResourceWorkspace"); },
+					resourceRoot: function (workspaceId) { return call("getResourceWorkspace", { workspaceId: workspaceId }); },
 					createWorkspace: function (input) { return props.workspaces.create(input); }
 				});
 			}
@@ -712,9 +712,8 @@
 			// clearMain() leaves no Session for the host's blank-session entries
 			// (including better-sidebar's bottom-panel toggle) to mount into.
 			async function openBlankConversation() {
-				const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
 				try {
-					if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+					const targetWorkspaceId = await playWorkspaceResolverRef.current();
 					await openSessionWhenReady(await props.conversationHost.connectWorkspace(targetWorkspaceId));
 				} catch (err) {
 					props.sessions.clear();
@@ -1284,8 +1283,7 @@
 						? { chatId: item.chatId, sessionId: item.sessionId, messageIndex: target.messageIndex, revision: target.revision, messageUid: target.messageUid }
 						: { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
 					if (plan.storyDirect) {
-						const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
-						if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+						const targetWorkspaceId = await playWorkspaceResolverRef.current();
 						targetSessionId = await props.conversationHost.connectWorkspace(targetWorkspaceId);
 						await ensureTavernPreset(targetSessionId, {});
 					} else targetSessionId = await props.conversationHost.forkSession(item.sessionId, plan.atSeq);
