@@ -1,5 +1,5 @@
-import { expandComfyImageInputs } from './comfy-dynamic.js'
-import { comfyWorkflowFields, comfyFieldKey, comfyPromptMarkers, validateComfyTextBindings } from './comfy-inputs.js'
+import { expandComfyImageInputs, comfyDynamicImageGroup } from './comfy-dynamic.js'
+import { comfyWorkflowFields, comfyInputContract, comfyFieldKey, comfyPromptMarkers, validateComfyTextBindings } from './comfy-inputs.js'
 const record = value => value && typeof value === 'object' && !Array.isArray(value)
 
 function compareNodeIds(a, b) {
@@ -52,7 +52,10 @@ function detachOptionalImageBranch(workflow, prompt, start) {
     }
   }
   roots.forEach(visit)
-  if (!live.has(start)) return true
+  if (!live.has(start)) {
+    for (const id of Object.keys(prompt)) if (!live.has(id)) delete prompt[id]
+    return true
+  }
   const removals = [], seen = new Set()
   function walk(id) {
     if (seen.has(id)) return false
@@ -67,13 +70,15 @@ function detachOptionalImageBranch(workflow, prompt, start) {
     for (const use of uses) {
       const sourceType = outputTypes?.[use.output] || (/^(LoadImage)$/.test(source.class_type) && use.output === 0 ? 'IMAGE' : '')
       const target = prompt[use.target], targetSchema = schema[target.class_type]
-      const contract = targetSchema?.inputs?.[use.input]
+      const contract = comfyInputContract(targetSchema, use.input)
       if (sourceType !== 'IMAGE' || contract?.type !== 'IMAGE') return false
       if (contract.optional === true || contract.dynamicGroup) {
-        const group = contract.dynamicGroup
-        const first = group && Object.keys(targetSchema.inputs).filter(key => targetSchema.inputs[key]?.dynamicGroup === group)
-          .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))[0]
-        if (group && targetSchema.inputs[group]?.optional !== true && first === use.input) return false
+        const group = comfyDynamicImageGroup(targetSchema, target, use.input)
+        if (group) {
+          const remaining = group.inputs.filter(input => Object.hasOwn(target.inputs, input)
+            && input !== use.input && !removals.some(([node, field]) => node === use.target && field === input)).length
+          if (group.inputs.indexOf(use.input) < group.min || remaining < group.min) throw Object.assign(new Error('该工作流的图片输入至少需要 ' + group.min + ' 张参考图'), { submissionNotStarted: true })
+        }
         removals.push([use.target, use.input])
       }
       else {
@@ -87,6 +92,9 @@ function detachOptionalImageBranch(workflow, prompt, start) {
   }
   if (!walk(start)) return false
   for (const [node, input] of removals) delete prompt[node].inputs[input]
+  // ComfyUI validates empty loaders even after their optional consumers are detached.
+  live.clear(); roots.forEach(visit)
+  for (const id of Object.keys(prompt)) if (!live.has(id)) delete prompt[id]
   return true
 }
 
@@ -115,6 +123,7 @@ export function applyComfyReferenceImages(workflow, imageNames) {
   const imageFields = comfyWorkflowFields({ ...workflow, prompt }).filter(field => field.image && field.editable)
   for (const field of imageFields) {
     if (!field.image || !field.editable || typeof field.node !== 'string') continue
+    if (!prompt[field.node]) continue
     const value = prompt[field.node]?.inputs?.[field.input]
     if (typeof value !== 'string' || value.trim()) continue
     const sharesNode = imageFields.some(other => other.node === field.node && other.input !== field.input

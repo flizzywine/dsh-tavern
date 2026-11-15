@@ -1,12 +1,24 @@
-import { comfyWorkflowFields } from './comfy-inputs.js'
+import { comfyWorkflowFields, comfyInputContract } from './comfy-inputs.js'
 import { scanWorkflowLoras, applyWorkflowLora } from './comfy-lora.js'
 
 const link = value => Array.isArray(value) && value.length === 2 && Number.isInteger(value[1])
 const idFor = (prompt, prefix) => { let id = prefix; while (Object.hasOwn(prompt, id)) id += '_'; return id }
 const fail = message => Object.assign(new Error(message), { submissionNotStarted: true })
 
+export function comfyDynamicImageGroup(schema, node, input) {
+  const contract = comfyInputContract(schema, input)
+  if (!contract || contract.type !== 'IMAGE') return null
+  const group = contract.dynamicGroup
+  if (!group && !(contract.optional && /^image\d+$/.test(input))) return null
+  const inputs = [...new Set([...Object.keys(schema.inputs), ...Object.keys(node.inputs)])]
+    .filter(key => group ? key.startsWith(group + '.') : /^image\d+$/.test(key))
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+  const parent = group && schema.inputs[group]
+  return { inputs, min: group ? parent?.dynamicMin ?? (parent?.optional ? 0 : 1) : 0 }
+}
+
 /** Follow an IMAGE-only path from an explicitly bound loader to an expandable image input. */
-export function dynamicImagePlan(workflow, binding) {
+export function dynamicImagePlan(workflow, binding, slot = 0) {
   if (workflow.dynamicImages === false || !binding) return null
   const fields = comfyWorkflowFields(workflow)
   const pending = [{ id: binding.node, path: [String(binding.node)] }], found = []
@@ -14,12 +26,10 @@ export function dynamicImagePlan(workflow, binding) {
     const item = pending.shift()
     for (const field of fields.filter(field => field.linked && field.source === item.id)) {
       if (field.type !== 'IMAGE') continue
-      const contract = workflow.nodeSchemas?.[workflow.prompt[field.node].class_type]?.inputs?.[field.input]
-      if (contract?.dynamicGroup || contract?.optional && /^image\d+$/.test(field.input)) {
-        const candidates = Object.keys(workflow.nodeSchemas[workflow.prompt[field.node].class_type].inputs)
-          .filter(key => contract.dynamicGroup ? key.startsWith(contract.dynamicGroup + '.') : /^image\d+$/.test(key))
-          .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
-        if (candidates[0] === field.input) found.push({ target: field.node, inputs: candidates, path: item.path })
+      const node = workflow.prompt[field.node]
+      const group = comfyDynamicImageGroup(workflow.nodeSchemas?.[node.class_type], node, field.input)
+      if (group) {
+        if (group.inputs[slot] === field.input) found.push({ target: field.node, inputs: group.inputs, min: group.min, path: item.path })
       } else if (!item.path.includes(field.node)) {
         // A transform can be duplicated only when it has one IMAGE input.
         const imageInputs = fields.filter(other => other.node === field.node && other.type === 'IMAGE' && other.linked)
@@ -27,31 +37,50 @@ export function dynamicImagePlan(workflow, binding) {
       }
     }
   }
-  return found.length === 1 ? found[0] : null
+  if (!found.length || found.some(plan => JSON.stringify(plan.inputs) !== JSON.stringify(found[0].inputs))) return null
+  return { ...found[0], min: Math.max(...found.map(plan => plan.min)), targets: found }
+}
+
+function referenceImagePlan(workflow, bindings) {
+  if (!bindings?.length) return null
+  const plan = dynamicImagePlan(workflow, bindings[0])
+  if (!plan) return null
+  const signature = value => JSON.stringify(value.targets.map(target => [target.target, target.inputs]).sort((a,b) => a[0].localeCompare(b[0])))
+  for (let index = 1; index < bindings.length; index++) {
+    const other = dynamicImagePlan(workflow, bindings[index], index)
+    if (!other || signature(other) !== signature(plan)) return null
+  }
+  return plan
 }
 
 export function comfyReferenceCapacity(workflow, bindings) {
-  const plan = bindings?.length === 1 ? dynamicImagePlan(workflow, bindings[0]) : null
+  const plan = referenceImagePlan(workflow, bindings)
   return plan ? plan.inputs.length : bindings?.length || 0
 }
 
 /** Expand a per-job clone; the saved graph remains a reusable single-image template. */
 export function expandComfyImageInputs(workflow, bindings, count) {
-  const plan = bindings.length === 1 ? dynamicImagePlan(workflow, bindings[0]) : null
-  if (!plan) return { workflow, bindings }
+  const plan = referenceImagePlan(workflow, bindings)
+  if (!plan || bindings.length > 1 && count <= bindings.length) return { workflow, bindings }
   if (count > plan.inputs.length) throw fail('这个工作流最多支持 ' + plan.inputs.length + ' 张输入图片')
-  const prompt = structuredClone(workflow.prompt), expanded = [bindings[0]]
-  // Managed dynamic slots never retain pictures from an earlier edit.
-  for (const field of plan.inputs) if (field !== plan.inputs[0]) delete prompt[plan.target].inputs[field]
-  const finalLink = workflow.prompt[plan.target].inputs[plan.inputs[0]]
-  for (let index = 1; index < count; index++) {
-    const ids = new Map(plan.path.map(id => [id, idFor(prompt, 'dsh_image_' + (index + 1) + '_' + id)]))
-    for (const id of plan.path) {
+  if (count < plan.min) throw fail('该工作流的图片输入至少需要 ' + plan.min + ' 张参考图')
+  const prompt = structuredClone(workflow.prompt), expanded = [...bindings]
+  // Positive and negative encoders share cloned loaders and transforms.
+  const paths = [...new Set(plan.targets.flatMap(target => target.path))]
+  for (const target of plan.targets) for (const field of target.inputs) {
+    if (bindings.length === 1 && field !== target.inputs[0]) delete prompt[target.target].inputs[field]
+  }
+  for (let index = bindings.length; index < count; index++) {
+    const ids = new Map(paths.map(id => [id, idFor(prompt, 'dsh_image_' + (index + 1) + '_' + id)]))
+    for (const id of paths) {
       const node = structuredClone(workflow.prompt[id])
       for (const [key, value] of Object.entries(node.inputs)) if (link(value) && ids.has(String(value[0]))) node.inputs[key] = [ids.get(String(value[0])), value[1]]
       prompt[ids.get(id)] = node
     }
-    prompt[plan.target].inputs[plan.inputs[index]] = [ids.get(String(finalLink[0])), finalLink[1]]
+    for (const target of plan.targets) {
+      const finalLink = workflow.prompt[target.target].inputs[target.inputs[0]]
+      prompt[target.target].inputs[target.inputs[index]] = [ids.get(String(finalLink[0])), finalLink[1]]
+    }
     expanded.push({ node: ids.get(String(bindings[0].node)), input: bindings[0].input })
   }
   return { workflow: { ...workflow, prompt }, bindings: expanded }
