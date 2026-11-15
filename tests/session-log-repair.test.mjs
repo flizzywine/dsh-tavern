@@ -318,3 +318,75 @@ test('a template edit step written into an open turn is renumbered before the Ag
   const answer = result.artifact.events.find(event => event.data?.message?.id === 'a2')
   assert.deepEqual([answer.data.turn, answer.data.step], [2, 2])
 })
+
+// A rollback after an input edit opened its edit turn while a manual compaction was
+// summarizing, and the Agent's next turn then took the same number again.
+function compactionCrossedLog() {
+  const rows = []
+  const add = (type, data, extra = {}) => { const event = { seq: rows.length, type, time: rows.length, data, ...extra }; rows.push(event); return event }
+  const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
+  const reply = (turn, id, text) => ({ turn, step: 1, stream: [], message: { id, role: 'assistant', content: text === '' ? [] : [{ type: 'text', text }], source: model } })
+  function round(turn) {
+    add('turn/start', { turn })
+    add('step/start', { turn, step: 1 })
+    const input = add('user/message', { id: 'u' + turn, role: 'user', content: [{ type: 'text', text: '行动' + turn }], source: { kind: 'user' }, turn, step: 1 }, { surfaceOp: 'append' })
+    const answer = add('assistant/message', reply(turn, 'a' + turn, '正文' + turn), { surfaceOp: 'append' })
+    add('step/end', { turn, step: 1 })
+    add('turn/end', { turn, reason: { kind: 'completed' } })
+    return [input, answer]
+  }
+  const [firstInput, firstAnswer] = round(1)
+  const [input, answer] = round(2)
+  const owner = { compactionId: 'c1', sourceCommandId: 'cmd-1' }
+  add('command/run', { commandId: 'cmd-1', name: 'compact', args: '', source: { kind: 'user' } })
+  const start = add('compaction/start', { ...owner, turn: null })
+  // The edit turn: round 2 withdrawn while the summary was still being written.
+  add('turn/start', { turn: 3 })
+  add('step/start', { turn: 3, step: 1 })
+  const withdrawn = add('assistant/message', reply(3, 'withdrawn', ''), { surfaceOp: { op: 'replace', startSeq: input.seq, endSeq: answer.seq }, sourceEventSeqs: [input.seq, answer.seq] })
+  add('step/end', { turn: 3, step: 1 })
+  add('turn/end', { turn: 3, reason: { kind: 'completed' } })
+  const shadowed = [firstInput.seq, firstAnswer.seq]
+  const summary = add('compaction/summary', { ...owner, summary: [{ type: 'text', text: '摘要' }], rawOutput: [{ type: 'text', text: '摘要' }],
+    shadowedRange: { start: firstInput.seq, end: firstAnswer.seq }, shadowedSeqs: shadowed, shadowedTokenCount: 10, provider: 'fixture', model: 'fixture' })
+  add('user/message', { id: 'checkpoint', role: 'user', content: [{ type: 'text', text: '摘要' }], source: { kind: 'compact-checkpoint', ...owner } },
+    { surfaceOp: { op: 'replace', startSeq: firstInput.seq, endSeq: firstAnswer.seq }, sourceEventSeqs: [start.seq, summary.seq, ...shadowed] })
+  add('compaction/end', { ...owner, turn: null })
+  add('command/done', { commandId: 'cmd-1', kind: 'success', text: '压缩完成', sourceEventSeq: summary.seq })
+  // The Agent never learned the edit turn and numbered its next turn 3 as well.
+  add('turn/start', { turn: 3 })
+  add('step/start', { turn: 3, step: 1 })
+  add('user/message', { id: 'u4', role: 'user', content: [{ type: 'text', text: '重写的行动' }], source: { kind: 'user' }, turn: 3, step: 1 }, { surfaceOp: 'append' })
+  add('assistant/message', reply(3, 'a4', '新正文'), { surfaceOp: 'append' })
+  add('step/end', { turn: 3, step: 1 })
+  add('turn/end', { turn: 3, reason: { kind: 'completed' } })
+  return { rows, withdrawn }
+}
+
+test('a whole edit turn written inside an open compaction moves ahead of that compaction', needsHost, async () => {
+  const catalog = await patchedCatalog()
+  const { rows, withdrawn } = compactionCrossedLog()
+  assert.throws(() => open(catalog, rows), /turn\/start crosses an open compaction/)
+  const result = repairCurrentSessionBuffer(encodeCurrentGeneration({ ...open(catalog, []), events: rows }, catalog), catalog)
+  assert.equal(result.ok, true, result.reason)
+  assert.equal(result.changed, true)
+  const events = result.artifact.events
+  assert.doesNotThrow(() => open(catalog, events))
+  // Every row survives with a contiguous seq; the compaction now starts after the edit turn.
+  assert.equal(events.length, rows.length)
+  assert.deepEqual(events.map(event => event.seq), rows.map(event => event.seq))
+  const start = events.find(event => event.type === 'compaction/start')
+  assert.deepEqual([events[start.seq - 1].type, events[start.seq - 1].data.turn], ['turn/end', 3])
+  assert.deepEqual(turnNumbers(events), [1, 2, 3, 4])
+  // References follow the moved rows: the checkpoint still cites its compaction/start and summary.
+  const summary = events.find(event => event.type === 'compaction/summary')
+  const checkpoint = events.find(event => event.data?.id === 'checkpoint')
+  assert.deepEqual(checkpoint.sourceEventSeqs.slice(0, 2), [start.seq, summary.seq])
+  assert.equal(events.find(event => event.type === 'command/done').data.sourceEventSeq, summary.seq)
+  // The withdrawal still replaces the same round, and the story text is untouched.
+  const moved = events.find(event => event.data?.message?.id === 'withdrawn')
+  assert.deepEqual(moved.surfaceOp, withdrawn.surfaceOp)
+  assert.deepEqual(moved.sourceEventSeqs, withdrawn.sourceEventSeqs)
+  assert.deepEqual(events.filter(event => event.type === 'user/message').map(event => event.data.content[0]?.text),
+    rows.filter(event => event.type === 'user/message').map(event => event.data.content[0]?.text))
+})

@@ -759,12 +759,12 @@
         const visible=composing || typing ? lines.filter(row=>row.id!==current.id) : lines;
         const existing=new Map([...messages.children].filter(row=>row!==typingRow).map(row=>[row.dataset.messageId,row])),keep=new Set(visible.map(message=>message.id));
         for(const [id,row] of existing)if(!keep.has(id))row.remove();
-        let index=0,created=0;
+        let index=0,created=0;const started=performance.now();
         for(const [i,message] of visible.entries()) {
             let row=existing.get(message.id);
             if(!row){
-                // Bound initial history construction even when the iframe shares the stage thread.
-                if(created===8){if(threadTask===null)threadTask=setTimeout(()=>{threadTask=null;render();},0);break;}
+                // Bound initial history construction by rows and by time (a slow or busy thread gets smaller chunks), even when the iframe shares the stage thread.
+                if(created>0 && (created===8 || performance.now()-started>8)){if(threadTask===null)threadTask=setTimeout(()=>{threadTask=null;render();},0);break;}
                 created++;row=makeRow(message);
                 // Only a fresh, live line animates in; history, skip and restores appear at once.
                 if(hydrated && live() && message.id===current?.id && (message.id!==lastCurrent || message.id===typedId))row.classList.add(message.side==='out'?'sent':'enter');

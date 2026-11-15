@@ -22,15 +22,34 @@ export function compactComfySchema(info) {
           && options.image_upload !== true ? { choices } : {}),
         ...Object.fromEntries(['min', 'max', 'step'].filter(key => Number.isFinite(options[key])).map(key => [key, options[key]])),
       }
-      if (spec[0] === 'COMFY_AUTOGROW_V3' && Array.isArray(options.template?.names)) {
-        const child = Object.values(options.template.input?.required || {})[0]
-        if (Array.isArray(child) && typeof child[0] === 'string') for (const name of options.template.names.slice(0, 32)) {
-          inputs[key + '.' + name] = { type: child[0], optional: true, dynamicGroup: key, dynamicIndex: name }
+      if (spec[0] === 'COMFY_AUTOGROW_V3') {
+        const template = options.template
+        const child = Object.values(template?.input?.required || {})[0] || Object.values(template?.input?.optional || {})[0]
+        const names = Array.isArray(template?.names) ? template.names.slice(0, 32)
+          : typeof template?.prefix === 'string' && Number.isInteger(template.max) && template.max > 0
+            ? Array.from({ length: Math.min(template.max, 32) }, (_, index) => template.prefix + index) : []
+        if (Array.isArray(child) && typeof child[0] === 'string' && names.length) {
+          const min = group === 'optional' || !Object.keys(template.input?.required || {}).length ? 0
+            : Number.isInteger(template.min) && template.min >= 0 ? template.min : 1
+          inputs[key].dynamicMin = min
+          for (const [index, name] of names.entries()) {
+            inputs[key + '.' + name] = { type: child[0], optional: index >= min, dynamicGroup: key, dynamicIndex: name }
+          }
         }
       }
     }
   }
   return { name: String(info.display_name || info.name || ''), inputs, outputNode: info.output_node === true, outputs: Array.isArray(info.output) ? info.output : [] }
+}
+
+/** Older imports retained only the parent autogrow type, without its template. */
+export function comfyInputContract(schema, input) {
+  const exact = schema?.inputs?.[input]
+  if (exact) return exact
+  const group = input.split('.')[0], parent = schema?.inputs?.[group]
+  if (input.startsWith(group + '.') && parent?.type === 'COMFY_AUTOGROW_V3') {
+    return { type: 'IMAGE', dynamicGroup: group }
+  }
 }
 
 /** Enumerate literal fields and typed links for any installed custom node. */
@@ -40,7 +59,7 @@ export function comfyWorkflowFields(workflow) {
     if (!object(value)) continue
     const schema = workflow.nodeSchemas?.[value.class_type]
     for (const [input, current] of Object.entries(value.inputs || {})) {
-      const contract = schema?.inputs?.[input]
+      const contract = comfyInputContract(schema, input)
       const linked = Array.isArray(current) && current.length === 2 && typeof current[1] === 'number'
         && Object.hasOwn(workflow.prompt, String(current[0]))
       const primitive = ['string', 'number', 'boolean'].includes(typeof current)
