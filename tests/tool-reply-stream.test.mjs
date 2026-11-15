@@ -151,13 +151,26 @@ test('ui-chat 工具流式补丁：0.2.2-rc.2+ 压缩形状（反引号、无空
   assert.equal(res.status, 'applied')
   assert.equal(patchToolReplyStreamChatSource(res.text).status, 'patched')
 
+  const terminator = 'argsRaw:previous?.kind===`tool-call`?previous.argsRaw:``};break'
+  for (const replacement of [
+    terminator.replace('};break', ',breakpoint:true};break'),
+    terminator.replace('};break', '};void "lunch break";break'),
+    terminator.replace('};break', '};breakpoint()')
+  ]) {
+    const changed = fixtureRc3.replace(terminator, replacement)
+    assert.notEqual(changed, fixtureRc3)
+    assert.doesNotThrow(() => new Function(changed))
+    assert.deepEqual(patchToolReplyStreamChatSource(changed), { status: 'unmatched', text: changed })
+  }
+
   const runtime = new Function(res.text)()
   let state = runtime.initialState(1, 1)
   state = runtime.updateChunk(state, { type: 'text-delta', index: 0, text: '好的，我来调用工具：' }, 1, 100)
   state = runtime.updateChunk(state, { type: 'tool-call-delta', index: 1, id: 'call_1', name: 'submit_story', argumentsDelta: '{"think":"分析局势' }, 2, 110)
   state = runtime.updateChunk(state, { type: 'tool-call-delta', index: 1, id: 'call_1', argumentsDelta: '完毕","content":"推开木门，风雪扑面而来。"}' }, 3, 120)
 
-  assert.ok(state.visibleBlocks >= 1)
+  assert.equal(state.visibleByIndex[1], true)
+  assert.equal(state.visibleBlocks, 2)
   assert.deepEqual(runtime.compactBlocks(state.blocks), [
     { kind: 'reasoning', text: '分析局势完毕' },
     { kind: 'text', text: '推开木门，风雪扑面而来。' }

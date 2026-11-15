@@ -121,16 +121,19 @@ export function patchToolReplyStreamChatSource(text) {
   const argsMatch = argsRe.exec(patched.slice(earlyIdx))
   if (!argsMatch) return { status: 'unmatched', text }
   const argsIdx = earlyIdx + argsMatch.index
+  const argsEnd = argsIdx + argsMatch[0].length
   const usesNextVisible = patched.slice(earlyIdx, argsIdx).includes('let nextVisible')
   const argsReplacement = 'argsRaw: (previous?.kind === "tool-call" ? previous.argsRaw : "") + ((chunk.name ?? (previous?.kind === "tool-call" ? previous.name : "")) === "submit_story" ? String(chunk.argumentsDelta ?? "") : "")'
-  patched = patched.slice(0, argsIdx) + argsReplacement + patched.slice(argsIdx + argsMatch[0].length)
 
   if (usesNextVisible) {
-    const closeMatch = /\bbreak\s*;?/.exec(patched.slice(argsIdx))
-    if (!closeMatch || closeMatch.index > 320) return { status: 'unmatched', text }
-    const closeAfterArgs = argsIdx + closeMatch.index
-    patched = patched.slice(0, closeAfterArgs) + 'nextVisible = blockIsVisible(blocks[chunk.index]); ' + patched.slice(closeAfterArgs)
+    // Recognize the end of the block assignment and the following break as one
+    // shape. If the case changes, leave the bundle intact.
+    const close = /^\s*,?\s*}(?:\s*;\s*|[^\S\r\n]*[\r\n]\s*)(?=break\s*[;}])/.exec(patched.slice(argsEnd))
+    if (!close) return { status: 'unmatched', text }
+    const beforeBreak = argsEnd + close[0].length
+    patched = patched.slice(0, beforeBreak) + 'nextVisible = blockIsVisible(blocks[chunk.index]); ' + patched.slice(beforeBreak)
   }
+  patched = patched.slice(0, argsIdx) + argsReplacement + patched.slice(argsEnd)
 
   return { status: 'applied', text: patched }
 }

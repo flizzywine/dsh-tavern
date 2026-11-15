@@ -23,24 +23,22 @@ export function patchReasoningChatSource(text) {
   if (typeof text !== 'string') return { status: 'unmatched', text: String(text ?? '') }
   if (text.includes(MARKER)) return { status: 'patched', text }
   // The shipped bundle memoizes the row: `const ReasoningRow = (0, react.memo)(function
-  // ReasoningRow(props) { … })`. Match that statement first — helper declarations cannot
-  // live inside the memo() argument — and fall back to a bare function declaration.
-  // The rewrite below reads the `running` prop; require it as a local binding in the
-  // parameter list so a host that renames it degrades to unmatched instead of a
-  // render-time ReferenceError. `running: isRunning` binds isRunning, not running —
-  // exclude a colon after the name (an alias back to `running` itself still matches
-  // on its second occurrence), while shorthand and `running = false` keep matching.
-  const memoized = /const\s+ReasoningRow\s*=\s*\(0,\s*react\.memo\)\(function\s+ReasoningRow\s*\(\s*\{(?=[^{}]*\brunning\b(?!\s*:))[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
-  const plain = /(?:^|\n)([\t ]*)function\s+ReasoningRow\s*\(\s*\{(?=[^{}]*\brunning\b(?!\s*:))[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
-  const match = memoized.exec(text) ?? plain.exec(text)
+  // ReasoningRow(props) { … })`. Capture that entire prefix so the helpers land
+  // outside memo(). A bare declaration uses the same parameter and disclosure shape.
+  const row = /((?:const\s+ReasoningRow\s*=\s*\(0,\s*react\.memo\)\(|(?:^|\n)[\t ]*)function\s+ReasoningRow\s*\(\s*\{([^{}]*)\}\s*\)\s*\{\s*)const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
+  const match = row.exec(text)
   if (!match) return { status: 'unmatched', text }
-  // 压缩宿主（0.2.2-rc.2+）里这句是 `const{expanded,toggle}=useDisclosure();`，
-  // 可读拼写的 lastIndexOf 会落空并把切点钉在 -1，截断语句造成语法错误。
-  // 按形状定位声明起点，两种宿主都切在语句边界上。
-  let cut = -1
-  for (const disclosure of match[0].matchAll(/const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/g)) cut = disclosure.index
-  if (cut < 0) return { status: 'unmatched', text }
-  const before = match[0].slice(0, cut)
+  const [, before, parameters] = match
+  // Verify the flat destructuring list used by the bundled hosts. Match complete
+  // properties so an alias, a comment or a quoted default cannot impersonate a binding.
+  const property = /\s*([$A-Z_a-z][\w$]*)\s*(?::\s*([$A-Z_a-z][\w$]*)\s*)?(?:=\s*(?:[$A-Z_a-z][\w$]*|-?\d+(?:\.\d+)?|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')\s*)?(?:,\s*|$)/gy
+  let matchedThrough = 0
+  let bindsRunning = false
+  for (const field of parameters.matchAll(property)) {
+    matchedThrough = field.index + field[0].length
+    bindsRunning ||= (field[2] ?? field[1]) === 'running'
+  }
+  if (!bindsRunning || matchedThrough !== parameters.length) return { status: 'unmatched', text }
   // Leading newline + indentation stay in front of the inserted declarations.
   const lead = /^\n?[ \t]*/.exec(before)[0]
   const head = before.slice(lead.length)

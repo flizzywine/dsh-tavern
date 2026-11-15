@@ -96,12 +96,17 @@ test('running 被别名解构时不打补丁；同名别名与默认值仍是 ru
   assert.equal(result.text, aliased)
   const aliasedSpaced = aliased.replace('running:isRunning', 'running : isRunning')
   assert.equal(patchReasoningChatSource(aliasedSpaced).status, 'unmatched')
-  // 别名回同名、带默认值：局部绑定仍是 running，补丁照常生效且语法合法
-  for (const params of ['running:running', 'running=false']) {
-    const source = `const ReasoningRow=(0,react.memo)(function ReasoningRow({${params},useDisclosure}){const{expanded,toggle}=useDisclosure();return expanded});`
-    const patched = patchReasoningChatSource(source)
+  const useDisclosure = () => ({ expanded: false, toggle: () => {} })
+  for (const params of ['running:running$1', 'running:$running', 'running:isRunning, label="a, running, b"', 'running:isRunning/* running */']) {
+    const source = SHIPPED.replace('text: rawText, running', params)
+    const skipped = patchReasoningChatSource(source)
+    assert.equal(load(skipped.text)({ running: true, useDisclosure }).expanded, false, params)
+    assert.deepEqual(skipped, { status: 'unmatched', text: source })
+  }
+  for (const params of ['running:running', 'running=false', 'label="a, b", running']) {
+    const patched = patchReasoningChatSource(SHIPPED.replace('text: rawText, running', params))
     assert.equal(patched.status, 'applied', params)
-    new Function('react', patched.text + '\nreturn ReasoningRow;')({ memo: fn => fn, useSyncExternalStore: (s, snap) => snap() })
+    assert.equal(load(patched.text)({ running: true, useDisclosure }).expanded, true, params)
   }
 })
 
