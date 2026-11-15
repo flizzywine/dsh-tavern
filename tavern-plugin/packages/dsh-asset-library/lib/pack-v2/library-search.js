@@ -4,6 +4,9 @@
 import figureResolution from '../shared/figure-resolution.cjs'
 import {check, text} from '../asset-packs/common.js'
 import {figureEmotionRows} from '../asset-packs/figure-emotions.js'
+import voiceAutoCastRule from '../shared/voice-auto-cast.cjs'
+
+const {voiceAutoCast} = voiceAutoCastRule
 
 const {normalizeCatalogueText, resolveFigureName, codepointCompare} = figureResolution
 const SUMMARY = 300
@@ -15,7 +18,7 @@ const includesAll = (texts, terms) => {
 
 // packs: installed pack snapshots ({manifest, figures, revision}); each row names its pack revision, which a copy's request\n// lists in its catalogueRevisions. Figures rank exact name/alias first, then a name/alias that
 // contains every word, then any text (介绍, 使用情景, its voice's name and 使用场景, the pack name) that does; voices match
-// their name, 使用场景 or pack name. `more` counts what the limit left out.
+// their name, 使用场景 or pack name and are only the 通用声音 (voiceRows). `more` counts what the limit left out.
 export function searchLibrary(packs, {query, limit = 20}) {
   text(query, '$.query', 200)
   check(Number.isSafeInteger(limit) && limit > 0 && limit <= 100, '$.limit')
@@ -41,16 +44,28 @@ export function searchLibrary(packs, {query, limit = 20}) {
       copyable:(pack.manifest.schemaVersion ?? 1) === 1,
       match:['exact', 'name', 'text'][rank]}})
   }
+  const voices = voiceRows(packs, (voice, pack) => includesAll([voice.name, voice.guidance, pack.manifest.name], terms))
+  figures.sort((a, b) => a.rank - b.rank || codepointCompare(a.row.name, b.row.name) || codepointCompare(a.row.packName, b.row.packName))
+  return {query, identity:identity.status === 'resolved' ? {status:'resolved', ref:identity.ref} : {status:identity.status},
+    figures:figures.slice(0, limit).map(item => item.row), voices:voices.slice(0, limit),
+    more:{figures:Math.max(0, figures.length - limit), voices:Math.max(0, voices.length - limit)}}
+}
+// The casting assistant's voice candidates: the library's 通用声音 (voiceAutoCast) the filter keeps, as search rows — pack,
+// name, language, 使用情景 and the figures speaking with it; by name, then pack name. A figure's own voice is never offered.
+function voiceRows(packs, keep) {
   const voices = []
   for (const pack of packs) for (const [voiceId, voice] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
-    if (!includesAll([voice.name, voice.guidance, pack.manifest.name], terms)) continue
+    if (!voiceAutoCast(voice) || !keep(voice, pack)) continue
     const users = pack.manifest.figures.map(id => pack.figures[id]).filter(figure => figure.voice?.voice === voiceId).map(figure => figure.name)
     voices.push({packId:pack.manifest.id, packName:pack.manifest.name, revision:pack.revision, voiceId, name:voice.name, language:voice.language,
       ...(voice.guidance ? {guidance:voice.guidance} : {}), figures:users})
   }
-  figures.sort((a, b) => a.rank - b.rank || codepointCompare(a.row.name, b.row.name) || codepointCompare(a.row.packName, b.row.packName))
-  voices.sort((a, b) => codepointCompare(a.name, b.name) || codepointCompare(a.packName, b.packName))
-  return {query, identity:identity.status === 'resolved' ? {status:'resolved', ref:identity.ref} : {status:identity.status},
-    figures:figures.slice(0, limit).map(item => item.row), voices:voices.slice(0, limit),
-    more:{figures:Math.max(0, figures.length - limit), voices:Math.max(0, voices.length - limit)}}
+  return voices.sort((a, b) => codepointCompare(a.name, b.name) || codepointCompare(a.packName, b.packName))
+}
+// 全库通用声音: every installed pack's 通用声音 (the casting assistant reads them all instead of guessing keywords);
+// `more` counts what the limit left out.
+export function listLibraryVoices(packs, {limit = 60} = {}) {
+  check(Number.isSafeInteger(limit) && limit > 0 && limit <= 200, '$.limit')
+  const voices = voiceRows(packs, () => true)
+  return {voices:voices.slice(0, limit), more:Math.max(0, voices.length - limit)}
 }

@@ -354,16 +354,15 @@ function FigureLivePreview(props) {
 // 基础设定 is one InlineGrid of InlineField rows (inline-field.js):
 // 身高 120 cm · 形象色 ● · 声音 大肥鱼（萌宝）› · 触发词 [chips] ＋ — label and value on one line, the value edited in place.
 // 默认外观 left this grid: it is set from the 差分 header's ⋯ of the view on show (FigureViewMenu, same figure.appearance).
-// the short values (身高 · 形象色 · 声音) share one row and
+// the short values (身高 · 形象色) share one row and
 // 触发词 (any length) takes the whole width under them; labels sit in the editor's one label column (theme.css 基础设定).
 const FIGURE_DESCRIPTION_MAX=1000;
-function FigureBasics({figure,write,voice}) {
+function FigureBasics({figure,write}) {
   const automatic=figure.autoColor??FIGURE_AUTO_NEUTRAL;
   return h(InlineGrid,{label:'人物资料',className:'ap-fe-basics'},
     h(InlineField,{kind:'number',label:'身高',className:'ap-height',hideEmpty:true,unit:'cm',integer:false,min:1,max:400,value:figure.heightCm||null,title:'用于在舞台上和其他角色比较高低',
       validate:v=>v>0&&v<=400?'':'身高需为 1–400 的数字',onCommit:v=>write(()=>({heightCm:v}))}),
     h(InlineField,{kind:'color',label:'形象色',className:'ap-color',auto:automatic,value:figure.imageColor||'',onCommit:v=>write(()=>({imageColor:v||null}))}),
-    voice,
     h(InlineField,{kind:'chips',label:'触发词',controlLabel:'人物触发词',className:'is-aliases',wide:true,help:h(Help,{text:ALIAS_HELP,label:'人物触发词 说明'}),value:figureNames(figure),split:splitAliases,validate:aliasProblem,onCommit:names=>write(f=>namesPatch(f,names))}),
     // 使用情景 (figure.guidance, owner 11-08) stands open like every entry's: the line the story model reads for this figure in
     // <speaker_roster> (card-stage.js → dialogue-bubbles.js) and the background judge's text for it. A paragraph under 触发词;
@@ -856,13 +855,17 @@ function SpriteMouth({binding,packId,outfit,manifest,state,audio,style}) {
   return h('canvas',{ref,className:'ap-stand-mouth','aria-hidden':true,'data-talking':painted&&!!audio||undefined,style:{...style,visibility:painted&&audio?'visible':'hidden'}});
 }
 // 「编辑」 is the figure as it plays; 「生图」 holds what only exists for image
-// generation (外貌, 服装描述, 设定图). gen-tab redesign: 立绘 / 头像 are generated from 「编辑」, so a new 立绘 / 头像
-// waiting for a decision dots 「编辑」 and a new 设定图 dots 「生图」.
-function FigureTabs({tab,setTab,waiting}) {
-  const tabs=[['edit','编辑'],['gen','生图']],go=next=>{if(next!==tab)setTab(next);};
-  return h('div',{className:'ap-fe-tabs',role:'tablist','aria-label':'人物页面',onKeyDown:e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=tab==='edit'?'gen':'edit';go(next);e.currentTarget.querySelector?.('[data-tab="'+next+'"]')?.focus?.();}}},
-    tabs.map(([value,label])=>h('button',{key:value,type:'button',role:'tab','data-tab':value,'aria-selected':tab===value,tabIndex:tab===value?0:-1,onClick:()=>go(value),
-      title:waiting?.[value]?'有新图等你选':undefined},label,waiting?.[value]&&h('span',{className:'ap-fe-tab-dot','aria-label':'有新图'}))));
+// generation (外貌, 服装描述, 设定图); 「声音」 is everything about its voice (asset-pack-voice-ui.js VoiceTab). gen-tab redesign:
+// 立绘 / 头像 are generated from 「编辑」, so a new 立绘 / 头像 waiting for a decision dots 「编辑」 and a new 设定图 dots 「生图」;
+// a voice that cannot speak dots 「声音」 in the warning colour (`silent`). Without the generation tools there is no 「生图」.
+function FigureTabs({tab,setTab,waiting,silent,gen=true}) {
+  const tabs=[['edit','编辑'],...(gen?[['gen','生图']]:[]),['voice','声音']],go=next=>{if(next!==tab)setTab(next);};
+  const keys=e=>{const i=tabs.findIndex(([v])=>v===tab),n=tabs.length,step={ArrowRight:1,ArrowLeft:-1,Home:-i,End:n-1-i}[e.key];if(step===undefined)return;e.preventDefault();
+    const next=tabs[(i+step+n)%n][0];go(next);e.currentTarget.querySelector?.('[data-tab="'+next+'"]')?.focus?.();};
+  return h('div',{className:'ap-fe-tabs',role:'tablist','aria-label':'人物页面',onKeyDown:keys},
+    tabs.map(([value,label])=>{const dot=value==='voice'?silent&&h('span',{className:'ap-fe-tab-dot is-warn','aria-label':'不能发声'}):waiting?.[value]&&h('span',{className:'ap-fe-tab-dot','aria-label':'有新图'});
+      return h('button',{key:value,type:'button',role:'tab','data-tab':value,'aria-selected':tab===value,tabIndex:tab===value?0:-1,onClick:()=>go(value),
+        title:value==='voice'?(silent?'不能发声':undefined):waiting?.[value]?'有新图等你选':undefined},label,dot||null);}));
 }
 // the figure's own ⋯ at the right end of the name row (after the lamp), so
 // every row of the page ends on the same edge as 服装 / 差分. 复制到… and 删除人物 use the pack modal's writers (`actions`:
@@ -907,25 +910,25 @@ function FigureImageRemoval({binding,target,choice}) {
   return h(Segmented,{label:'生图外貌',value,onChange:setValue,options:[['keep','保留生图外貌'],['delete','一起删除']]});
 }
 
-function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions,nav,narrow=false,onBack,onClose,onChanged,backLabel='人物',gen,importSettei,removeFigureImage,identityBoard,tab:tabChoice,setTab,voiceOpen:voiceFirst=false}) {
+function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions,nav,narrow=false,onBack,onClose,onChanged,backLabel='人物',gen,importSettei,removeFigureImage,identityBoard,tab:tabChoice,setTab}) {
   // the figure's default outfit is its first enabled one (asset-packs.md: no
   // defaultOutfit field, order is the default) — what the stage starts with and what an opening scene without its own
   // outfit uses. Figure select: the editor no longer shows or sets it (the opening outfit is chosen in
   // 舞台设置 › 开场); it only opens on that outfit. No data change.
   const packId=pack.manifest.id,list=figure.outfits.map(o=>figureOutfitView(figure,o)),defaultKey=list.find(o=>o.enabled)?.key;
-  // 声音 is one compact property; its page replaces this column (the preview card stays).
-  // `voiceOpen` opens the figure straight on its 声音 page (配角色 › 声音).
-  // every voice the 声音 page plays speaks through the preview card (usePreviewSpeech).
-  const [voiceOpen,setVoiceOpen]=React.useState(voiceFirst),voicePill=React.useRef(null),voiceStatus=useFigureVoiceStatus(binding,pack,figure),speech=usePreviewSpeech(),voicePreview=useVoicePreview(binding,speech);
-  const closeVoice=()=>{voicePreview.stop();setVoiceOpen(false);setTimeout(()=>voicePill.current?.focus?.({preventScroll:false}),0);};
+  // every voice the 声音 tab plays speaks through the preview card (usePreviewSpeech).
+  const voiceStatus=useFigureVoiceStatus(binding,pack,figure),speech=usePreviewSpeech(),voicePreview=useVoicePreview(binding,speech);
   const [key,setKey]=React.useState(defaultKey||list[0]?.key),[error,setError]=React.useState(''),[face,setFace]=React.useState(list.find(o=>o.enabled)?.defaultEmotion || figure.emotions?.[0]?.id||''),[confirm,setConfirm]=React.useState(null),[nameFocus,setNameFocus]=React.useState(null);
   const [kindChoice,setKindChoice]=React.useState(null),[framing,setFraming]=React.useState(null),[spineOpen,setSpineOpen]=React.useState(false),[modelOpen,setModelOpen]=React.useState(false);
   // the 服装 grid's delete mode — the shared multi-select (useSelection,
   // SelectBar: UI standard §三.15). 差分 have none: 「删除差分…」 is each tile's menu (variant-menu).
   const outfitSel=useSelection(),pickGrid=outfitSel.on?'outfits':null;
   const setPicking=v=>{if(v?.grid==='outfits')outfitSel.start();else outfitSel.stop();};
-  const tab=gen&&tabChoice==='gen'?'gen':'edit';
-  const tabs=gen&&setTab&&h(FigureTabs,{tab,setTab,waiting:{edit:gen.waiting(figure.id,['sprite','avatar','avatar-sheet']),gen:gen.waiting(figure.id,['settei'])}});
+  const tab=gen&&tabChoice==='gen'?'gen':setTab&&tabChoice==='voice'?'voice':'edit',voiceOpen=tab==='voice';
+  // the 声音 tab's dot: the voice the figure speaks with (配音 on) has a problem.
+  const silent=!!figure.voice&&figure.voice.source!==null&&!!voiceStatus?.issues?.length;
+  React.useEffect(()=>{if(!voiceOpen)voicePreview.stop();},[voiceOpen]);
+  const tabs=setTab&&h(FigureTabs,{tab,setTab,gen:!!gen,silent,waiting:gen&&{edit:gen.waiting(figure.id,['sprite','avatar','avatar-sheet']),gen:gen.waiting(figure.id,['settei'])}});
   const upload=useUpload();
   const outfit=list.find(o=>o.key===key)||list[0]||null;
   const pickOutfit=next=>{setKey(next);};
@@ -1183,7 +1186,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const pickTools=()=>h(SelectBar,{count:pickedOutfits.length,action:'删除',danger:true,busy:!!upload.busy,onCancel:()=>setPicking(null),onAction:deleteOutfits});
   const kindMenu=h(FigureViewMenu,{kind,isDefault:look===kind,onDefault:()=>write(()=>({appearance:kind})),extras:kindExtras,disabled:!!upload.busy});
   // Leaving the editing page (生图, 声音) or the figure ends the mode; entering focuses 取消, leaving returns to the ⋯.
-  React.useEffect(()=>{setPicking(null);},[tab,voiceOpen,figure.id]);
+  React.useEffect(()=>{setPicking(null);},[tab,figure.id]);
   const pickWas=React.useRef(null);
   React.useEffect(()=>{const grid=pickGrid,prev=pickWas.current;if(grid===prev)return;pickWas.current=grid;const root=paneRef.current;
     if(grid)root?.querySelector?.('[data-pick-grid="'+grid+'"] .ap-pick-cancel')?.focus?.({preventScroll:true});
@@ -1212,7 +1215,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   return h('div',{ref:paneRef,className:'ap-detail-pane ap-figure-pane ap-figure-editor','data-narrow':narrow||undefined,'data-tab':tab,'data-voice':voiceOpen||undefined,'data-disabled':figure.enabled===false||undefined,style:{'--figure-color':figureColor(figure)}},
     // Phone: one header only (r4) — ‹ · the name · lamp slot · × replaces the drawer's own title bar.
     narrow&&h('div',{className:'ap-fe-topbar'},onBack&&h(IconButton,{icon:'back',label:'返回'+backLabel+'列表',onClick:onBack}),nameInput,enable,more,onClose&&h(IconButton,{icon:'close',label:'关闭',onClick:onClose})),
-    narrow&&!voiceOpen&&tabs,
+    narrow&&tabs,
     automaticReview&&h(AutomaticWriteReview,{binding,packId:pack.manifest.id,figureId:figure.id,onClose:()=>setAutomaticReview(false),onChanged}),
     h('div',{className:'ap-figure-stage'},
       h('div',{className:'ap-stand-wrap','data-form':kind,'data-empty':previewEmpty||undefined,'data-stand-in':standStill?true:undefined,'data-speaking':speaking||undefined},
@@ -1226,10 +1229,10 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
         live?h(FigureLivePreview,{key:'live2d',source,delay:120,fit:liveFit,audio:speaking?speech.audio:null,expression:live2dExpression(liveEntry(picked.id)),motion:picked.id===outfit.defaultEmotion?'':live2dMotion(outfit.live2d.emotionMap?.[picked.id]),fallback:still,label:figure.name,interactive:true}):
           showSpine?h(spineKit.Preview,{key:'spine',source:spineSource,config:outfit.spine,animation:spineEmotionAnimation(outfit.spine,picked.id,outfit.defaultEmotion).animation,label:figure.name}):
           candidatePreview||(previewEmpty?still:h(FigureStillPreview,{key:(outfit?.key||'')+kind},still)),
-        outfit&&tab==='edit'&&!voiceOpen&&tool)),
+        outfit&&tab==='edit'&&tool)),
     h('div',{className:'ap-figure-main'},
       figure.extensions?.['dsh.automatic-write']&&h(Button,{className:'ap-inline-link',onClick:()=>setAutomaticReview(true)},'自动变更…'),
-      voiceOpen?h(VoicePage,{binding,pack,figure,rows:figureDeclaredRows(figure,pack),status:voiceStatus,preview:voicePreview,speech,commitVoice,assignFigureVoice,nav,onClose:closeVoice}):h(React.Fragment,null,
+      h(React.Fragment,null,
       h(ErrorBox,{error}),
       !narrow&&h('div',{className:'ap-detail-title'},nameInput,h('span',{className:'ap-title-tools'},enable,more)),
       !narrow&&tabs,
@@ -1237,6 +1240,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
       // 「生图」 is 设定 and this outfit's 生成 records; a record picks its 差分 and view here.
       // gen-ui b5: 「生图」 is the outfits and this outfit's 差分 wall; a tile picks its 差分 in the preview.
       // the 配图 人物库 record of this figure (its 外貌, outfits' text and reference images) sits under the gen tab.
+      voiceOpen?h(VoiceTab,{binding,pack,figure,rows:figureDeclaredRows(figure,pack),status:voiceStatus,preview:voicePreview,speech,commitVoice,nav}):
       tab==='gen'?h(React.Fragment,null,h(FigureGenTab,{binding,pack,figure,outfit,onOutfit:pickOutfit,write,writeOutfit,gen,identityBoard,removeFigureImage,
         settei:{upload:importSettei,remove:removeFigureImage?(figureId,outfitKey)=>removeFigureImage(figureId,outfitKey,null,'settei'):null},
         onPick:id=>{if(kind!=='sprite'&&kind!=='avatar')setKindChoice('sprite');setFace(id);},
@@ -1247,7 +1251,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
       h('h4',{className:'ap-sub ap-basic-head'},'基础设定',h(Help,{text:BASIC_HELP,label:'基础设定 说明'})),
       // 触发词 (data `aliases`) is one list of the figure's other names — each
       // one both names the speaker of a line and calls the figure in (the old separate list was the same thing).
-      h(FigureBasics,{figure,write,voice:h(FigureVoiceField,{binding,pack,figure,status:voiceStatus,pillRef:voicePill,onOpen:()=>setVoiceOpen(true)})})),
+      h(FigureBasics,{figure,write})),
       h('section',{className:'ap-fe-section'+(pickIn('outfits')?' is-picking':''),'aria-label':'服装','data-pick-grid':'outfits',
           onKeyDown:e=>{if(e.key==='Escape'&&!e.defaultPrevented&&pickIn('outfits')){e.preventDefault();e.stopPropagation();setPicking(null);}}},
         // v3.1 r2: the 触发策略 explanation moved to the section's ? (the rows below are plain labelled properties).
