@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "22767864542569cd638040c3ada196bd52dcc2d1",
-  "releaseSequence": 1672,
+  "revision": "16ff8abc76b3acbf2593cfec4d33eab652cb6ffc",
+  "releaseSequence": 1673,
   "version": "3.3.0",
   "files": [
     {
@@ -856,8 +856,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/references/panel-contract.md",
-      "sha256": "249fe59f0d65a8b787436d7a9da28749812322ec7924c9fba196a7ece3e21304",
-      "size": 17562
+      "sha256": "435f4e9652df1452e8ca718b6046e5e3044a9e42864da5ff995453944c5b9699",
+      "size": 17580
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/SKILL.md",
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "31f31b5e48a22376a4d76952ca0a1508edcae193782cf05cd8c241b2050df0de",
-      "size": 6456121
+      "sha256": "8b2a07f81809140906f5409e73298513f4d8fa1ebda3e4bd0e10216c9c9aefb8",
+      "size": 6455893
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8066,8 +8066,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "e5773e5bd9113fc9aabf79f42a4e500e284e12c192db68a02e1d5799caf78252",
-      "size": 3675335
+      "sha256": "787867a30a71c368a496c3fcf1c5ac481e50f28cee12b63a535ba829f801fcca",
+      "size": 3675328
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9281,9 +9281,9 @@
     }
   ],
   "archive": {
-    "commit": "afe5f385276876657bc58c2c8fcf8a1e412e8f5b",
+    "commit": "cf059a21a8e65c28f35ac0b1134a699e0a24450f",
     "path": "runtime.zip",
-    "sha256": "01133295839866c24261bf1856d532f0dc52d53a4ae8fde8d083e2a1c0d0694b",
-    "size": 16597073
+    "sha256": "7fd0c131db27f09f7bee79e1171ab8ab024ad0a930cc38a3c76813c1fe200917",
+    "size": 16597027
   }
 }
