@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a33939298d531feb4e26767e4d7f57d6e8904e4e",
-  "releaseSequence": 1683,
+  "revision": "5d3645616629e4867ecb534cf271aacba5ecb255",
+  "releaseSequence": 1684,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "5e86024d5f0b379fff092f7376522b923e58c96e0df9d79e71a05219ba2e6c99",
-      "size": 6494058
+      "sha256": "f12983c0389985c445a2a3af9e7b7df429e785bd5040b60715de09e43cb31d4c",
+      "size": 6494168
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3021,8 +3021,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-content-projection.js",
-      "sha256": "a996a7b6845be0a951a3a7caa90f3e4da449407ac753d04fd276909cae8f8ed4",
-      "size": 5857
+      "sha256": "f7ffa068e84fed99a5a426d161f5b8d4fa0ac6966c73e189f8376abdd1a29267",
+      "size": 5989
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-health.js",
@@ -3586,8 +3586,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-regex-engine.js",
-      "sha256": "2b675a55ec40bced19b971b9ddc0b64e1e36e73a16b7196891c26c51ca4ce924",
-      "size": 6912
+      "sha256": "c0e1af90252b9d5541ffb6bee00ad9dcb588d5ffe0348b3c575fbcdb0942508e",
+      "size": 7022
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-remote-assets.js",
@@ -9291,9 +9291,9 @@
     }
   ],
   "archive": {
-    "commit": "2fb315ca3c454ef73852cd1d99f39b57ffcbb69a",
+    "commit": "f04e057b53dcde9b71f914c5b79b69e2d0e80982",
     "path": "runtime.zip",
-    "sha256": "6266f7dfad5c0d7bfaf46c215ae8c31ab77602b422a3b6cf7f1e7fd52971f0a9",
-    "size": 16624685
+    "sha256": "d1f296bd8b33e7b5608bc89e43ed42cb1402dcb81e486b982303c49a9371e8e3",
+    "size": 16624820
   }
 }
