@@ -1976,3 +1976,125 @@ test('插件轮次读取：传入 regexScripts 时 text 经过显示正则投影
   assert.equal(latest.source, source, 'rawText 保留完整标记供插件解析')
   assert.equal(latest.text, '她推开门。', '给插件的 text 经过宿主显示正则与去 HTML 投影')
 })
+
+test('决策模型开放接口：capability 探测、卡内作用域限制、全链路判定与错误码映射', { skip: !cordis }, async t => {
+  const { createNarrativeDamper, defaultNarrativeDamperConfig } = await import('../tavern-plugin/lib/domain/narrative-damper.js')
+
+  // 未注入 decisionJudge 时的降级表现
+  const bare = await harness(t)
+  let barePlugin
+  await bare.root.plugin({ name: 'bare-plugin', inject: ['tavern'], apply(ctx) { barePlugin = ctx.tavern } })
+  await tick()
+  assert.equal(barePlugin.capabilities.decisionJudge, undefined)
+  const unavailableStatus = await barePlugin.decisionJudgeStatus()
+  assert.equal(unavailableStatus.available, false)
+  assert.equal(unavailableStatus.reason, 'UNAVAILABLE')
+  await assert.rejects(
+    () => barePlugin.judgeDecision({ input: '尝试撬锁', questions: [{ id: 'q1', instructions: '难吗？' }] }),
+    err => err.code === 'TAVERN_PLUGIN_NOT_FOUND'
+  )
+
+  // 注入完整 narrativeDamper 后的集成链路
+  let damperConfig = {
+    ...defaultNarrativeDamperConfig(),
+    enabled: false,
+    provider: 'gemini-compatible',
+    model: 'gemini-decision-1',
+    baseUrl: 'https://internal-damper.example.com/v1beta',
+    timeoutMs: 2500
+  }
+  const secretValue = 'secret-damper-api-key-999'
+  let mockFetch = async () => ({
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        answers: {
+          difficulty: { type: 'choice', choice: 'hard', probabilities: { easy: 0.1, hard: 0.9 }, confidence: 0.87 }
+        },
+        usage: { total_input_tokens: 45, total_output_tokens: 12 }
+      }
+    }
+  })
+  const damper = createNarrativeDamper({
+    getConfig: async () => damperConfig,
+    credentials: () => ({ async resolve() { return { value: secretValue, source: 'file' } } }),
+    fetch: (url, init) => mockFetch(url, init)
+  })
+  const cardByGame = new Map([['game-a', '/cards/a.json'], ['game-b', '/cards/b.json']])
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-dice', { cards: ['/cards/a.json'] }]]),
+    cardPathOf: async gameId => cardByGame.get(gameId) || null,
+    resolveGame: async gameId => cardByGame.has(gameId) ? { sessionId: gameId, chatId: 'chat-' + gameId, cardPath: cardByGame.get(gameId) } : null,
+    decisionJudge: {
+      status: () => damper.judgeStatus(),
+      judge: input => damper.judge(input)
+    }
+  })
+  const services = {}
+  for (const name of ['global-dice', 'card-dice']) {
+    await h.root.plugin({ name, inject: ['tavern'], apply(ctx) { services[name] = ctx.tavern } })
+  }
+  await tick()
+
+  assert.equal(services['global-dice'].capabilities.decisionJudge, 1)
+  const status = await services['global-dice'].decisionJudgeStatus()
+  assert.deepEqual(status, {
+    available: true,
+    provider: 'gemini-compatible',
+    model: 'gemini-decision-1',
+    capabilities: { noul: true, choice: true, score: true }
+  })
+  assert.equal(JSON.stringify(status).includes(secretValue), false)
+  assert.equal(JSON.stringify(status).includes('internal-damper.example.com'), false)
+
+  const sampleQuestions = [{
+    id: 'difficulty',
+    type: 'choice',
+    instructions: '评定本次行动难度档位',
+    criteria: { easy: '简单', hard: '困难' }
+  }]
+
+  // 全局插件可省略 gameId
+  const globalRes = await services['global-dice'].judgeDecision({ input: '赤手空拳正面迎战武装守卫', questions: sampleQuestions })
+  assert.equal(globalRes.answers.difficulty.choice, 'hard')
+  assert.deepEqual(globalRes.usage, { inputTokens: 45, outputTokens: 12 })
+
+  // 卡内插件未传 gameId 或访问其他人物卡会话将被 TAVERN_PLUGIN_SCOPE 拦截
+  await assert.rejects(
+    () => services['card-dice'].judgeDecision({ input: '尝试说服她', questions: sampleQuestions }),
+    err => err.code === 'TAVERN_PLUGIN_SCOPE'
+  )
+  await assert.rejects(
+    () => services['card-dice'].judgeDecision({ gameId: 'game-b', input: '尝试说服她', questions: sampleQuestions }),
+    err => err.code === 'TAVERN_PLUGIN_SCOPE'
+  )
+  const cardRes = await services['card-dice'].judgeDecision({ gameId: 'game-a', input: '尝试说服她', questions: sampleQuestions })
+  assert.equal(cardRes.answers.difficulty.choice, 'hard')
+
+  // 输入预校验与错误码映射
+  await assert.rejects(
+    () => services['global-dice'].judgeDecision({ input: '   ', questions: sampleQuestions }),
+    err => err.code === 'TAVERN_PLUGIN_DECISION_INVALID_INPUT'
+  )
+  await assert.rejects(
+    () => services['global-dice'].judgeDecision({ input: '测试', questions: sampleQuestions, timeoutMs: -10 }),
+    err => err.code === 'TAVERN_PLUGIN_DECISION_INVALID_INPUT'
+  )
+
+  mockFetch = async () => ({
+    ok: false,
+    status: 400,
+    async json() { return { error: { code: 'prohibited_content', message: 'blocked by safety' } } }
+  })
+  await assert.rejects(
+    () => services['global-dice'].judgeDecision({ input: '敏感内容测试', questions: sampleQuestions }),
+    err => err.code === 'TAVERN_PLUGIN_DECISION_SAFETY_BLOCKED'
+  )
+
+  damperConfig = { ...damperConfig, provider: 'jev', model: 'jev-1.13.0', baseUrl: '' }
+  await assert.rejects(
+    () => services['global-dice'].judgeDecision({ input: '常规检查', questions: sampleQuestions }),
+    err => err.code === 'TAVERN_PLUGIN_DECISION_UNSUPPORTED_QUESTION_TYPE'
+  )
+})

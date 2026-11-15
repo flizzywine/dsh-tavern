@@ -1050,6 +1050,175 @@ function parseTurnDecisionResponse(protocol, data, config = null) {
   return { godmode, retcon, epistemic, leverageScore, rulingTier, deltaBudget, overreachProb: overreaches }
 }
 
+const PLUGIN_QUESTION_ID = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
+const PLUGIN_CHOICE_KEY = /^[A-Za-z0-9_.-]{1,64}$/
+const PLUGIN_QUESTION_TYPES = new Set(['noul', 'choice', 'score'])
+
+function extractDecisionUsage(body) {
+  if (!body?.usage || typeof body.usage !== 'object') return undefined
+  return {
+    inputTokens: Number(body.usage.total_input_tokens ?? body.usage.input_tokens ?? 0),
+    outputTokens: Number(body.usage.total_output_tokens ?? body.usage.output_tokens ?? 0)
+  }
+}
+
+function judgeProtocolFor(config) {
+  return DAMPER_PROVIDERS[config?.provider]?.protocol || 'gemini'
+}
+
+function judgeCapabilitiesForProtocol(protocol) {
+  return {
+    noul: true,
+    choice: protocol === 'gemini',
+    score: protocol === 'gemini'
+  }
+}
+
+// 校验并规范化插件传入的决策题目清单，按当前协议阻断不支持的题型
+function normalizePluginQuestions(questions, protocol) {
+  if (!Array.isArray(questions) || !questions.length || questions.length > 16) {
+    throw error('DAMPER_INVALID_INPUT', 'questions 必须为 1 至 16 条题目组成的数组')
+  }
+  const seen = new Set()
+  const supportsStructured = protocol === 'gemini'
+  return questions.map((raw, index) => {
+    const item = object(raw)
+    const id = str(item.id).trim()
+    if (!PLUGIN_QUESTION_ID.test(id)) {
+      throw error('DAMPER_INVALID_INPUT', `第 ${index + 1} 题的 id 格式无效`)
+    }
+    if (seen.has(id)) {
+      throw error('DAMPER_INVALID_INPUT', `题目 id 重复：${id}`)
+    }
+    seen.add(id)
+    const type = item.type === undefined ? 'noul' : str(item.type).trim()
+    if (!PLUGIN_QUESTION_TYPES.has(type)) {
+      throw error('DAMPER_INVALID_INPUT', `未知题型：${type}`)
+    }
+    if (type !== 'noul' && !supportsStructured) {
+      throw error('DAMPER_UNSUPPORTED_QUESTION_TYPE', `当前决策模型协议（${protocol}）仅支持 noul 是非概率题，暂不支持 ${type}`)
+    }
+    const instructions = str(item.instructions).trim()
+    if (!instructions || instructions.length > 2000) {
+      throw error('DAMPER_INVALID_INPUT', `题目 ${id} 的 instructions 必须为 1 至 2000 字符的非空文本`)
+    }
+    if (type === 'noul') return { id, type, instructions }
+    if (type === 'score') {
+      if (!Array.isArray(item.criteria) || item.criteria.length < 2 || item.criteria.length > 10) {
+        throw error('DAMPER_INVALID_INPUT', `score 题目 ${id} 的 criteria 必须为 2 至 10 项字符串数组`)
+      }
+      const criteria = item.criteria.map(entry => str(entry).trim())
+      if (criteria.some(text => !text || text.length > 500)) {
+        throw error('DAMPER_INVALID_INPUT', `score 题目 ${id} 的每项档位说明必须为 1 至 500 字符`)
+      }
+      return { id, type, instructions, criteria }
+    }
+    const rawCriteria = object(item.criteria)
+    const keys = Object.keys(rawCriteria)
+    if (keys.length < 2 || keys.length > 30) {
+      throw error('DAMPER_INVALID_INPUT', `choice 题目 ${id} 的 criteria 必须包含 2 至 30 个选项键`)
+    }
+    const criteria = {}
+    for (const key of keys) {
+      if (!PLUGIN_CHOICE_KEY.test(key)) {
+        throw error('DAMPER_INVALID_INPUT', `choice 题目 ${id} 的选项键格式无效：${key}`)
+      }
+      const desc = str(rawCriteria[key]).trim()
+      if (!desc || desc.length > 500) {
+        throw error('DAMPER_INVALID_INPUT', `choice 题目 ${id} 的选项 ${key} 说明必须为 1 至 500 字符`)
+      }
+      criteria[key] = desc
+    }
+    return { id, type, instructions, criteria }
+  })
+}
+
+function buildPluginDecisionRequest(config, material, questions) {
+  const url = damperEndpointUrl(config)
+  if (!url) return null
+  const protocol = judgeProtocolFor(config)
+  if (protocol === 'gemini') {
+    const questionMap = Object.fromEntries(questions.map(q => [
+      q.id,
+      q.type === 'noul'
+        ? { type: 'noul', instructions: q.instructions }
+        : { type: q.type, instructions: q.instructions, criteria: q.criteria }
+    ]))
+    const body = JSON.stringify({ model: config.model, input: material, questions: questionMap })
+    return { protocol, url, body, authHeader: key => ({ 'x-goog-api-key': key, 'Content-Type': 'application/json' }) }
+  }
+  if (protocol === 'jev') {
+    const questionMap = Object.fromEntries(questions.map(q => [q.id, { type: 'noul', instructions: q.instructions }]))
+    const body = JSON.stringify({ model: config.model, state: material, questions: questionMap })
+    return { protocol, url, body, authHeader: key => ({ Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }) }
+  }
+  const body = JSON.stringify({
+    model: config.model,
+    input: material,
+    questions: questions.map(q => ({ type: 'predicate', name: q.id, instructions: q.instructions }))
+  })
+  return { protocol, url, body, authHeader: key => ({ Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }) }
+}
+
+function parsePluginDecisionResponse(protocol, data, questions) {
+  const answers = {}
+  if (protocol === 'gemini') {
+    const rawAnswers = object(data?.answers)
+    for (const q of questions) {
+      const entry = object(rawAnswers[q.id])
+      const confidence = Number(entry.confidence)
+      const extra = Number.isFinite(confidence) ? { confidence } : {}
+      if (q.type === 'noul') {
+        const probability = Number(entry.noul)
+        if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
+          throw error('DAMPER_INVALID_RESPONSE', `决策模型返回的题目 ${q.id} 概率无效`)
+        }
+        answers[q.id] = { type: 'noul', probability, ...extra }
+      } else if (q.type === 'score') {
+        const score = Number(entry.score)
+        if (!Number.isFinite(score)) {
+          throw error('DAMPER_INVALID_RESPONSE', `决策模型返回的题目 ${q.id} 评分无效`)
+        }
+        answers[q.id] = { type: 'score', score, ...extra }
+      } else {
+        const choice = str(entry.choice).trim()
+        if (!choice || !Object.hasOwn(q.criteria, choice)) {
+          throw error('DAMPER_INVALID_RESPONSE', `决策模型返回的题目 ${q.id} 选项无效`)
+        }
+        const rawProbs = entry.probabilities && typeof entry.probabilities === 'object' ? entry.probabilities : null
+        let probabilities
+        if (rawProbs) {
+          const clean = {}
+          for (const [k, v] of Object.entries(rawProbs)) {
+            const num = Number(v)
+            if (Object.hasOwn(q.criteria, k) && Number.isFinite(num)) clean[k] = num
+          }
+          if (Object.keys(clean).length) probabilities = clean
+        }
+        answers[q.id] = { type: 'choice', choice, ...(probabilities ? { probabilities } : {}), ...extra }
+      }
+    }
+    return answers
+  }
+  const rawAnswers = protocol === 'jev'
+    ? object(data?.answers)
+    : Object.fromEntries((Array.isArray(data?.answers) ? data.answers : []).map(item => [item?.name, item]))
+  for (const q of questions) {
+    const entry = object(rawAnswers[q.id])
+    const probability = protocol === 'jev' ? Number(entry.noul) : Number(entry.probability)
+    if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
+      throw error('DAMPER_INVALID_RESPONSE', `决策模型返回的题目 ${q.id} 概率无效`)
+    }
+    const confidence = Number(entry.confidence)
+    answers[q.id] = {
+      type: 'noul',
+      probability,
+      ...(Number.isFinite(confidence) ? { confidence } : {})
+    }
+  }
+  return answers
+}
+
 const SAFETY_ERROR_CODES = new Set(['safety', 'prohibited_content', 'blocklist', 'image_safety', 'content_blocked', 'safety_blocked', 'harmful_content', 'sexual_content'])
 const SAFETY_HINT = /safety|prohibit|blocklist|blocked|harmful|policy|content.?filter|inappropriate|敏感|违规|不当|拦截/i
 
@@ -1421,6 +1590,102 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         if (key.startsWith(prefix)) found = value
       }
       return found
+    },
+
+    // 查询决策模型当前可用性与题型能力，不泄露密钥名称、密钥或自定义地址
+    async judgeStatus() {
+      const config = normalizeNarrativeDamperConfig(await getConfig())
+      const protocol = judgeProtocolFor(config)
+      const capabilities = judgeCapabilitiesForProtocol(protocol)
+      const url = damperEndpointUrl(config)
+      if (!url) {
+        return { available: false, provider: config.provider, model: config.model, capabilities, reason: 'INVALID_CONFIG' }
+      }
+      const apiKey = await resolveCredential(config)
+      if (!apiKey) {
+        return { available: false, provider: config.provider, model: config.model, capabilities, reason: 'NOT_CONFIGURED' }
+      }
+      return { available: true, provider: config.provider, model: config.model, capabilities }
+    },
+
+    // 供开放插件复用的通用决策判定接口，沿用阻尼器的提供方配置、凭据、脱敏与安全拒绝识别
+    async judge({ input, questions, desensitize, signal, timeoutMs } = {}) {
+      const rawInput = str(input).trim()
+      if (!rawInput || rawInput.length > 24000) {
+        throw error('DAMPER_INVALID_INPUT', 'input 必须为 1 至 24000 字符的非空文本')
+      }
+      if (signal?.aborted) {
+        throw error('DAMPER_ABORTED', '决策请求已取消')
+      }
+      const config = normalizeNarrativeDamperConfig(await getConfig())
+      const protocol = judgeProtocolFor(config)
+      const normalizedQuestions = normalizePluginQuestions(questions, protocol)
+      if (!damperEndpointUrl(config)) {
+        throw error('DAMPER_INVALID_CONFIG', '决策模型配置无效')
+      }
+      const apiKey = await resolveCredential(config)
+      if (!apiKey) {
+        throw error('DAMPER_NO_KEY', '尚未配置决策模型 API Key')
+      }
+      const useDesensitize = desensitize === undefined ? config.desensitizeR18 !== false : Boolean(desensitize)
+      const material = useDesensitize ? desensitizeForDecisionJudge(rawInput) : rawInput
+      const request = buildPluginDecisionRequest(config, material, normalizedQuestions)
+      if (!request) {
+        throw error('DAMPER_INVALID_CONFIG', '决策接口地址无效')
+      }
+      const requestedTimeout = Number(timeoutMs)
+      const budgetMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
+        ? Math.max(500, Math.min(30000, Math.round(requestedTimeout)))
+        : Math.max(500, Math.min(30000, Number(config.timeoutMs) || 2500))
+      const start = performance.now()
+      const controller = new AbortController()
+      const onExternalAbort = () => controller.abort()
+      if (signal && typeof signal.addEventListener === 'function') {
+        signal.addEventListener('abort', onExternalAbort, { once: true })
+      }
+      try {
+        const body = await sendAttempt(request, apiKey, budgetMs, controller)
+        const answers = parsePluginDecisionResponse(request.protocol, body, normalizedQuestions)
+        const usage = extractDecisionUsage(body)
+        const latencyMs = Math.round(performance.now() - start)
+        log({
+          kind: 'decision-judge',
+          provider: config.provider,
+          model: config.model,
+          code: 'OK',
+          latencyMs,
+          questionCount: normalizedQuestions.length,
+          ...(usage ? { usage } : {})
+        })
+        return {
+          provider: config.provider,
+          model: config.model,
+          latencyMs,
+          answers,
+          ...(usage ? { usage } : {})
+        }
+      } catch (cause) {
+        controller.abort()
+        const isAborted = Boolean(signal?.aborted) || cause?.code === 'DAMPER_ABORTED'
+        const known = ['DAMPER_TIMEOUT', 'DAMPER_NO_KEY', 'DAMPER_SAFETY_BLOCKED', 'DAMPER_AUTH_ERROR', 'DAMPER_RATE_LIMIT', 'DAMPER_HTTP_ERROR', 'DAMPER_INVALID_RESPONSE', 'DAMPER_UNSUPPORTED_QUESTION_TYPE', 'DAMPER_INVALID_CONFIG', 'DAMPER_INVALID_INPUT']
+        const code = isAborted ? 'DAMPER_ABORTED' : (known.includes(cause?.code) ? cause.code : 'DAMPER_ERROR')
+        const latencyMs = Math.round(performance.now() - start)
+        log({
+          kind: 'decision-judge',
+          provider: config.provider,
+          model: config.model,
+          code,
+          latencyMs,
+          questionCount: normalizedQuestions.length
+        })
+        if (isAborted) throw error('DAMPER_ABORTED', '决策请求已取消')
+        if (cause?.code === code) throw cause
+        throw error(code, str(cause?.message || '决策模型请求失败'))
+      } finally {
+        if (signal && typeof signal.removeEventListener === 'function') {
+          signal.removeEventListener('abort', onExternalAbort)
+        }
+      }
     }
   }
 }

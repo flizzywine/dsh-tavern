@@ -1256,3 +1256,154 @@ test('远端过滤记忆：本回合被拦后，短时间内高风险内容直�
   assert.equal(DAMPER_DIGEST_MARKER.test(sent[afterFirst + 1].input), false)
   assert.equal(third.outcome.judgeTier, 'full')
 })
+
+test('judgeStatus：阻尼器开关关闭时只要密钥与地址有效仍返回可用，且不泄露敏感配置', async () => {
+  const emptyCreds = createMemoryCredentials()
+  let currentConfig = {
+    ...defaultNarrativeDamperConfig(),
+    enabled: false,
+    provider: 'gemini-compatible',
+    model: 'gemini-decision-1',
+    baseUrl: 'https://secret-proxy.example.com/v1beta',
+    keyName: 'MY_PRIVATE_KEY'
+  }
+  const damper = createNarrativeDamper({
+    getConfig: async () => currentConfig,
+    credentials: () => emptyCreds
+  })
+  const noKey = await damper.judgeStatus()
+  assert.equal(noKey.available, false)
+  assert.equal(noKey.reason, 'NOT_CONFIGURED')
+  assert.deepEqual(noKey.capabilities, { noul: true, choice: true, score: true })
+  assert.equal(JSON.stringify(noKey).includes('secret-proxy'), false)
+  assert.equal(JSON.stringify(noKey).includes('MY_PRIVATE_KEY'), false)
+
+  const creds = createMemoryCredentials({ DSH_TAVERN_DAMPER_GEMINI_COMPAT_KEY: 'super-secret-value' })
+  const readyDamper = createNarrativeDamper({
+    getConfig: async () => currentConfig,
+    credentials: () => creds
+  })
+  const ready = await readyDamper.judgeStatus()
+  assert.deepEqual(ready, {
+    available: true,
+    provider: 'gemini-compatible',
+    model: 'gemini-decision-1',
+    capabilities: { noul: true, choice: true, score: true }
+  })
+  assert.equal(JSON.stringify(ready).includes('super-secret-value'), false)
+  assert.equal(JSON.stringify(ready).includes('secret-proxy'), false)
+
+  currentConfig = { ...currentConfig, provider: 'jev', model: 'jev-1.13.0', baseUrl: '' }
+  const jevDamper = createNarrativeDamper({
+    getConfig: async () => currentConfig,
+    credentials: () => createMemoryCredentials({ DSH_TAVERN_DAMPER_JEV_KEY: 'jev-secret' })
+  })
+  const jevStatus = await jevDamper.judgeStatus()
+  assert.deepEqual(jevStatus, {
+    available: true,
+    provider: 'jev',
+    model: 'jev-1.13.0',
+    capabilities: { noul: true, choice: false, score: false }
+  })
+
+  currentConfig = { ...currentConfig, provider: 'gemini-compatible', baseUrl: 'http://invalid-plain-http.example.com' }
+  const badUrlStatus = await readyDamper.judgeStatus()
+  assert.equal(badUrlStatus.available, false)
+  assert.equal(badUrlStatus.reason, 'INVALID_CONFIG')
+})
+
+test('judge：Gemini 协议支持 noul/score/choice 混合题目、脱敏开关与响应校验', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'gm-key' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: false, provider: 'gemini', desensitizeR18: true }
+  const sentBodies = []
+  const logs = []
+  let mockResponse = {
+    answers: {
+      is_risky: { type: 'noul', noul: 0.78, confidence: 0.91 },
+      leverage: { type: 'score', score: 2, confidence: 0.85 },
+      dc_tier: { type: 'choice', choice: 'moderate', probabilities: { trivial: 0.1, moderate: 0.7, hard: 0.2 }, confidence: 0.88 }
+    },
+    usage: { total_input_tokens: 120, total_output_tokens: 18 }
+  }
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    log: entry => logs.push(entry),
+    fetch: async (_url, init) => {
+      sentBodies.push(JSON.parse(init.body))
+      return { ok: true, status: 200, async json() { return mockResponse } }
+    }
+  })
+
+  const questions = [
+    { id: 'is_risky', type: 'noul', instructions: '这个行动是否有失败代价？' },
+    { id: 'leverage', type: 'score', instructions: '行动筹码评分', criteria: ['0: 无', '1: 弱', '2: 中', '3: 强'] },
+    { id: 'dc_tier', type: 'choice', instructions: '选择检定难度档位', criteria: { trivial: '极易', moderate: '中等', hard: '困难' } }
+  ]
+  const res = await damper.judge({ input: '我顶着她的肉棒尝试强行挣脱束缚。', questions })
+  assert.equal(res.provider, 'gemini')
+  assert.equal(res.model, 'gemini-decision-1')
+  assert.equal(sentBodies[0].input.includes('肉棒'), false, '默认开启脱敏')
+  assert.deepEqual(res.answers, {
+    is_risky: { type: 'noul', probability: 0.78, confidence: 0.91 },
+    leverage: { type: 'score', score: 2, confidence: 0.85 },
+    dc_tier: { type: 'choice', choice: 'moderate', probabilities: { trivial: 0.1, moderate: 0.7, hard: 0.2 }, confidence: 0.88 }
+  })
+  assert.deepEqual(res.usage, { inputTokens: 120, outputTokens: 18 })
+  assert.equal(logs[0].kind, 'decision-judge')
+  assert.equal(logs[0].code, 'OK')
+
+  await damper.judge({ input: '我顶着她的肉棒尝试强行挣脱束缚。', questions, desensitize: false })
+  assert.equal(sentBodies[1].input.includes('肉棒'), true, '显式关闭脱敏保留原文')
+
+  mockResponse = {
+    answers: {
+      is_risky: { type: 'noul', noul: 0.5 },
+      leverage: { type: 'score', score: 1 },
+      dc_tier: { type: 'choice', choice: 'unknown_tier' }
+    }
+  }
+  await assert.rejects(() => damper.judge({ input: '测试', questions }), err => err.code === 'DAMPER_INVALID_RESPONSE')
+})
+
+test('judge：jev/openai 协议支持 noul、拦截非 noul 题型并响应 AbortSignal', async () => {
+  const jevDamper = createNarrativeDamper({
+    getConfig: async () => ({ ...defaultNarrativeDamperConfig(), provider: 'jev', model: 'jev-1.13.0', keyName: 'TYPESAFE_API_KEY' }),
+    credentials: () => createMemoryCredentials({ TYPESAFE_API_KEY: 'jev-k' }),
+    fetch: async (_url, init) => {
+      const req = JSON.parse(init.body)
+      assert.equal(typeof req.state, 'string')
+      return { ok: true, status: 200, async json() { return { answers: { hard_check: { noul: 0.64 } } } } }
+    }
+  })
+  const jevRes = await jevDamper.judge({
+    input: '徒手攀爬潮湿的垂直悬崖。',
+    questions: [{ id: 'hard_check', instructions: '该动作是否属于高难度动作？' }]
+  })
+  assert.equal(jevRes.answers.hard_check.probability, 0.64)
+
+  await assert.rejects(
+    () => jevDamper.judge({
+      input: '徒手攀崖',
+      questions: [{ id: 'dc_tier', type: 'choice', instructions: '档位', criteria: { low: '低', high: '高' } }]
+    }),
+    err => err.code === 'DAMPER_UNSUPPORTED_QUESTION_TYPE'
+  )
+
+  const controller = new AbortController()
+  const openaiDamper = createNarrativeDamper({
+    getConfig: async () => ({ ...defaultNarrativeDamperConfig(), provider: 'openai', model: 'gpt-6-luna', keyName: 'OPENAI_API_KEY', timeoutMs: 5000 }),
+    credentials: () => createMemoryCredentials({ OPENAI_API_KEY: 'oa-k' }),
+    fetch: (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true })
+    })
+  })
+  const pending = openaiDamper.judge({
+    input: '观察门锁结构',
+    questions: [{ id: 'tricky', type: 'noul', instructions: '是否很棘手？' }],
+    signal: controller.signal
+  })
+  controller.abort()
+  await assert.rejects(() => pending, err => err.code === 'DAMPER_ABORTED')
+})
+

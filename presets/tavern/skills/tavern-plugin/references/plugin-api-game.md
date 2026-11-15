@@ -459,3 +459,69 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 
 - `text` 是完整的新正文，请在 `rawText` 的基础上改；不要拿 `text` 字段去改，它去掉了 HTML 块，交回来会被拒绝。正文里的 HTML 块（状态栏、美化代码等）必须原样保留，只能改它们之间的文字，也不能在 HTML 块之间新增段落。
 - 改完后所有插件会再收到一次这一轮的 `onTurnSettled`（`textVersion` 是新的）。在 `onTurnSettled` 里改正文的插件，要先判断是不是已经改过，避免反复修改。
+
+---
+
+## 决策判定模型（`capabilities.decisionJudge === 1`）
+
+当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在 Tavern「叙事阻尼器」中配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
+
+### `decisionJudgeStatus()`
+
+查询当前决策判定模型的可用状态、提供方、模型名和支持的题型，不返回密钥或自定义 URL：
+
+```js
+const status = await ctx.tavern.decisionJudgeStatus()
+// {
+//   available: true,
+//   provider: 'gemini',
+//   model: 'gemini-decision-1',
+//   capabilities: { noul: true, choice: true, score: true },
+//   // 不可用时附带 reason: 'NOT_CONFIGURED' | 'INVALID_CONFIG' | 'UNAVAILABLE'
+// }
+```
+
+### `judgeDecision({ gameId?, input, questions, desensitize?, signal?, timeoutMs? })`
+
+提交一段待判定上下文 `input`（1–24000 字符）和 1–16 道题目 `questions`：
+
+- `gameId`：全局/宿主插件可省略；卡内插件**必须**传入其所在人物卡的 `gameId`（否则报错 `TAVERN_PLUGIN_SCOPE`）。传入时还会核对本局未停用该插件。
+- `desensitize`：布尔值，省略时沿用玩家的 `desensitizeR18` 设置；显式传 `true` / `false` 可覆盖是否先对高敏词句脱敏。
+- `signal` / `timeoutMs`：支持传入 `AbortSignal` 取消请求，或指定毫秒超时（限定在 `500–30000` ms，默认沿用阻尼器超时配置）。
+- `questions` 每项为：
+  - `{ id, type: 'noul', instructions }`：是非概率题，返回 `{ type: 'noul', probability, confidence? }`（`0 <= probability <= 1`）。所有协议均支持（`type` 默认 `'noul'`）。
+  - `{ id, type: 'score', instructions, criteria: string[] }`：分值题（`criteria` 需 2–10 项说明），返回 `{ type: 'score', score, confidence? }`。仅 `capabilities.score === true`（`gemini` 协议）时可用。
+  - `{ id, type: 'choice', instructions, criteria: Record<string, string> }`：单选枚举题（`criteria` 需 2–30 个合法键名及说明），返回 `{ type: 'choice', choice, probabilities?, confidence? }`。仅 `capabilities.choice === true`（`gemini` 协议）时可用。
+
+```js
+const status = await ctx.tavern.decisionJudgeStatus()
+if (!status.available) return null
+
+const questions = status.capabilities.choice
+  ? [{
+      id: 'dc_tier',
+      type: 'choice',
+      instructions: '根据当前场景危险程度与角色能力，裁定这次检定难度档位：',
+      criteria: { trivial: '极易 (DC 5)', moderate: '中等 (DC 12)', hard: '困难 (DC 18)' }
+    }]
+  : [{
+      id: 'is_risky',
+      type: 'noul',
+      instructions: '当前行动是否面临高失败风险或恶劣后果？'
+    }]
+
+const res = await ctx.tavern.judgeDecision({ gameId, input: contextText, questions })
+// res => { provider, model, latencyMs, answers: { dc_tier: { type: 'choice', choice: 'moderate', ... } }, usage? }
+```
+
+### 错误码
+
+- `TAVERN_PLUGIN_SCOPE`：卡内插件未传 `gameId` 或越权访问其他人物卡会话。
+- `TAVERN_PLUGIN_DECISION_INVALID_INPUT`：参数不合法（空 `input`、超限长度、非法题干/`criteria`、无效 `signal` 或 `timeoutMs`）。
+- `TAVERN_PLUGIN_DECISION_NOT_CONFIGURED` / `TAVERN_PLUGIN_DECISION_INVALID_CONFIG`：未配置密钥或提供方地址无效。
+- `TAVERN_PLUGIN_DECISION_UNSUPPORTED_QUESTION_TYPE`：在仅支持 `noul` 的协议（如 `jev` / `openai`）中提交了 `choice` 或 `score` 题型。
+- `TAVERN_PLUGIN_DECISION_SAFETY_BLOCKED`：触发远端内容安全拦截。
+- `TAVERN_PLUGIN_DECISION_AUTH_ERROR` / `TAVERN_PLUGIN_DECISION_RATE_LIMIT`：密钥鉴权失败或触发速率限制。
+- `TAVERN_PLUGIN_DECISION_TIMEOUT` / `TAVERN_PLUGIN_DECISION_ABORTED`：请求超时或被 `AbortSignal` 取消。
+- `TAVERN_PLUGIN_DECISION_INVALID_RESPONSE` / `TAVERN_PLUGIN_DECISION_FAILED`：返回结构无效或请求失败。
+
