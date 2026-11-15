@@ -235,6 +235,20 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     }
     if (changed) await save()
   }
+  async function reserveJobs(count) {
+    const active = Object.values(jobs).filter(job => ['running','candidate','save_failed'].includes(job.status)).length
+    assert(active + count <= 32, 'TOO_MANY_ACTIVE_JOBS', '待处理的生图候选已满（最多 32 张），请先采用或丢弃候选后重试')
+    // Retain unresolved billing outcomes: the next purchase still needs confirmation.
+    const removable = Object.values(jobs).filter(job => ['accepted','rejected','failed'].includes(job.status) && job.outcome !== 'unconfirmed')
+      .sort((a,b) => a.createdAt - b.createdAt)
+    let changed = false
+    for (const job of removable) {
+      if (Object.keys(jobs).length + count <= 128) break
+      await removeImages(job); pendingBytes.delete(job.jobId); delete jobs[job.jobId]; changed = true
+    }
+    if (changed) await save()
+    assert(Object.keys(jobs).length + count <= 128, 'GENERATION_RECORD_POOL_FULL', '生图记录已满；请先处理待用候选或确认未返回结果的任务，记录会在 24 小时后到期')
+  }
   async function removeImages(job) {
     await store.remove(path(job.jobId))
     for (let i = 0; i < (job.references?.length || 0); i++) await store.remove(referencePath(job.jobId,i))
@@ -321,7 +335,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
   }
   const api = {
     prepare: input => serial(async () => {
-      assert(input.preview === true || plans.size < 8 && Object.keys(jobs).length < 128 && Object.values(jobs).filter(j => ['running','candidate','save_failed'].includes(j.status)).length < 32, 'LIMIT_EXCEEDED', '请先丢弃候选或等待记录到期')
+      assert(input.preview === true || plans.size < 8, 'TOO_MANY_GENERATION_PLANS', '未使用的生成方案已满（最多 8 个），请先生成已确认的方案，或等待 15 分钟后重试')
       const target = targetInput(input.target), pack = await snapshot(target, input.expectedRevision), ctx = context(pack,target), followUp = followUpInput(input.followUp, target)
       if (target.kind === 'avatar-sheet') target.emotionIds = ctx.emotions.map(emotion => emotion.id)
       // 方案甲: a figure's 外貌 lives only in its 配图 人物库 record; without one the prompt has no 外貌 text.
@@ -340,6 +354,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       }
       const count = input.count ?? 1
       assert(Number.isInteger(count) && count >= 1 && count <= 4, 'LIMIT_EXCEEDED', '每次显式请求 1 至 4 张候选')
+      if (!preview) await reserveJobs(count)
       const userPrompt = text(input.userPrompt), references = input.references || []
       assert(Array.isArray(references) && references.length <= 4, 'LIMIT_EXCEEDED', '参考图最多四张')
       const images = [], refs = []
@@ -462,7 +477,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(!Object.values(jobs).some(job => job.status === 'running' && targetKey(job.target) === targetKey(plan.target)), 'BUSY', '同一目标已有生成任务，请等待或取消')
       for (const previous of uncertain(plan.target)) checkPurchaseConfirmation(previous,{confirmNewRequestId:input.confirmNewRequestIds?.includes(previous.jobId) ? previous.jobId : input.confirmNewRequestId})
       assert(controllers.size + plan.imageCount <= 4, 'BUSY', '已有素材生图任务在途（最多四张）')
-      assert(Object.keys(jobs).length + plan.imageCount <= 128 && Object.values(jobs).filter(j => ['running','candidate','save_failed'].includes(j.status)).length + plan.imageCount <= 32, 'LIMIT_EXCEEDED', '候选数量达到上限')
+      await reserveJobs(plan.imageCount)
       const pack = await snapshot(plan.target,plan.expectedRevision); context(pack,plan.target)
       const group = Array.from({length:plan.imageCount},(_,index) => {
         const id = index ? randomUUID() : plan.planId
