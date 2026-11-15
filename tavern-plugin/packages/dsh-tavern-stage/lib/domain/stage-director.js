@@ -527,6 +527,8 @@ export function createStageDirector(deps) {
     const stream = streams.get(id)
     if (stream) {
       if (stream.stopped) return {status:'missing'}
+      // Registered before its assets, mods and model are read: nothing to publish until the pack exists.
+      if (!stream.pack) return {status:'running',baseline:predecessor(chat,index,options.history)?.end || null}
       if (options.generate !== false && !stream.finishing) void finishStream(chat,turn,stream)
       return streamEnvelope(chat,turn,stream)
     }
