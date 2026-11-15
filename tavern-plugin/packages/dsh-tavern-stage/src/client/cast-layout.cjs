@@ -14,26 +14,34 @@ function createStageCastLayout({calculate,mix}) {
     function create({drawn=kind=>kind==='spine'}={}){
         if(disposed)throw new Error('Cast layout owner disposed');
         let closed=false,layout=null,seen=null,transition=null,memo=null,shown=null;
+        // The scene ruler the cast stands on while the cap leaves a taller figure out (galFigureLayout drawn): eased with the fit.
+        function sceneAt(from,to,k){
+            if(!from.drawn&&!to.drawn)return {};
+            return {drawn:true,sceneH:from.sceneH+(to.sceneH-from.sceneH)*k,sceneG:from.sceneG+(to.sceneG-from.sceneG)*k};
+        }
         function fit(now){
             if(!transition)return {fit:1,drop:0};
             const {from,to,start}=transition,k=mix(0,1,now-start);
             if(k===1)return {...to};
             return {fit:from.fit+(to.fit-from.fit)*k,drop:from.drop+(to.drop-from.drop)*k,
-                top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread};
+                top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread,...sceneAt(from,to,k)};
         }
-        function update({plan,figures,W,H,now,top,ruler,loaded,crops,instant}){
+        function update({plan,figures,W,H,now,top,ruler,loaded,crops,sizes,instant}){
             if(closed)return {layout:null,report:null};
             if(!plan){layout=seen=transition=null;return {layout:null,report:null};}
             if(seen&&seen.plan===plan&&seen.figures===figures&&seen.W===W&&seen.H===H&&seen.top===top&&seen.ruler===ruler&&seen.loaded===loaded){
                 if(instant)transition.from=transition.to;
                 return {layout,report:null};
             }
-            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
+            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(sizes||null),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
             let report=null;
             if(layout?.key!==key){
-                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
-                const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread};
-                transition=!transition||instant||transition.to.ruler!==to.ruler||transition.to.spread!==to.spread?{from:to,to,start:now}:{from:fit(now),to,start:now};
+                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,sizes,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
+                const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread,...(next.drawn?{drawn:true,sceneH:next.drawn.hMax,sceneG:next.drawn.groundRatio}:null)};
+                const was=transition&&fit(now);
+                // an eased scene ruler has both ends, whichever side is the scene's own
+                if(was&&!instant){if(to.drawn&&!was.drawn)Object.assign(was,{sceneH:ruler?.to,sceneG:ruler?.groundTo});else if(!to.drawn&&was.drawn)Object.assign(to,{sceneH:ruler?.to,sceneG:ruler?.groundTo});}
+                transition=!transition||instant||transition.to.ruler!==to.ruler||transition.to.spread!==to.spread?{from:to,to,start:now}:{from:was,to,start:now};
                 layout=next;
                 const signature=JSON.stringify([layout.x,W]);
                 if(signature!==shown){shown=signature;report={count:layout.count,x:layout.x,visible:layout.visible,width:W};}
