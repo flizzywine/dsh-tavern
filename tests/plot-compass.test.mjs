@@ -7,13 +7,17 @@ import { browserReactScript } from './fixtures/browser-react.mjs'
 import { createBackgroundNativeRuntime } from './fixtures/background-native-runtime.mjs'
 import {
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
+  applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
   applyPlotCompassPin,
   applyPlotCompassStepToggle,
   buildPlotCompassMaterial,
+  buildPlotCompassProgressPrompt,
   extractDormantWorldbookHooks,
+  extractSceneFreezeSnapshot,
   isPlotCompassEnabled,
   mergePlotCompassUpdate,
+  parsePlotCompassProgressOutcome,
   parsePlotCompassSubmission,
   plotCompassBodySection,
   plotCompassCandidateSection,
@@ -805,6 +809,223 @@ test('剧情罗盘关闭后停止一切注入与自动演进，并保留原有�
   assert.ok(plotCompassCandidateSection(chat))
   assert.ok(statusEvents.length >= 2)
 })
+
+test('因果来源、世界内载体化预兆、最新回合定格与被动受困状态检测正确组装且无剧透', async () => {
+  const parsed = parsePlotCompassSubmission({
+    playArchetypes: ['悬疑调查'],
+    situationDigest: '沈清弦重伤未醒，地牢四周布防森严',
+    shortTerm: [
+      {
+        id: 'st-observe',
+        tag: '暗中观察',
+        title: '借昏睡伺机窥听狱卒换防',
+        causalBasis: '左肩贯通伤与手腕铁锁限制，只宜靠听觉摸清外间动静',
+        summary: '暂忍痛楚不动声色，记下看守交接暗号',
+        beats: [{ text: '屏息辨认门外换防脚步', done: false }]
+      },
+      {
+        id: 'st-probe',
+        tag: '言语试探',
+        title: '以密信暗号惊动看守主事',
+        summary: '抛出只有线人知晓的旧年暗号',
+        beats: [{ text: '借索水之机点出暗号', done: false }]
+      }
+    ],
+    midTerm: [
+      {
+        id: 'mt-omen',
+        tag: '黑市传闻',
+        title: '城南鬼市暗账浮出水面',
+        causalBasis: '密信残角上的印泥来自鬼市',
+        summary: '追查鬼市私盐暗账链',
+        diegeticOmen: '狱卒低声抱怨南城昨晚又封了三家米铺',
+        milestones: [{ text: '脱困后夜探南城粮行', done: false }]
+      },
+      {
+        id: 'mt-alt',
+        tag: '外援破局',
+        title: '线人设法劫囚改线',
+        summary: '城外旧部按约定日落行动',
+        milestones: [{ text: '听见城西钟响作为接应信号', done: false }]
+      }
+    ],
+    longTerm: [
+      {
+        id: 'lt-omen',
+        tag: '掀翻棋盘',
+        title: '重审十年前旧案洗雪全族',
+        vision: '终局推翻幕后主使并重定朝纲',
+        prerequisites: ['拿到鬼市暗账原件', '说服沈清弦作证'],
+        toneGuidance: '暗处积蓄星火，在看似绝境处埋下反证线头',
+        diegeticOmen: '窗外遥遥传来更夫口中念叨的旧朝童谣'
+      },
+      {
+        id: 'lt-alt',
+        tag: '隐遁江湖',
+        title: '烧毁名册远走海疆',
+        vision: '舍弃过往身份远遁海外',
+        prerequisites: ['凑齐渡海路引']
+      }
+    ]
+  }, { scope: 'all', card: SAMPLE_CARD, chat: { mode: 'story' } })
+
+  assert.equal(parsed.shortTerm[0].causalBasis, '左肩贯通伤与手腕铁锁限制，只宜靠听觉摸清外间动静')
+  assert.equal(parsed.midTerm[0].diegeticOmen, '狱卒低声抱怨南城昨晚又封了三家米铺')
+  assert.equal(parsed.longTerm[0].diegeticOmen, '窗外遥遥传来更夫口中念叨的旧朝童谣')
+
+  const longMidPadding = '铺垫描写'.repeat(600)
+  const chat = {
+    mode: 'story',
+    backgroundTasks: { plotCompass: true },
+    posture: '双腕被玄铁铐锁在石柱上，左肩渗血未止',
+    ledger: { location: '诏狱丙字牢房', npcs: [{ name: '沈清弦', relation: '对峙', condition: '守在栅门外冷眼旁观' }], items: [{ name: '半截炭笔' }] },
+    messages: [
+      { role: 'user', turn: 1, text: '我尝试挣开绳索' },
+      { role: 'assistant', turn: 1, text: longMidPadding + '\n末尾定格：铁链紧扣腕骨，狱卒落锁转身离开，唯余半截炭笔落在草堆旁。' }
+    ],
+    plotCompass: mergePlotCompassUpdate(null, parsed, { scope: 'all', turn: 1, now: 100 })
+  }
+  chat.plotCompass = applyPlotCompassPin(chat.plotCompass, { horizon: 'shortTerm', routeId: 'st-observe' })
+  chat.plotCompass = applyPlotCompassPin(chat.plotCompass, { horizon: 'midTerm', routeId: 'mt-omen' })
+  chat.plotCompass = applyPlotCompassPin(chat.plotCompass, { horizon: 'longTerm', routeId: 'lt-omen' })
+
+  const body = plotCompassBodySection(chat)
+  assert.ok(body.text.includes('Causal anchor: 左肩贯通伤与手腕铁锁限制'))
+  assert.ok(body.text.includes('狱卒低声抱怨南城昨晚又封了三家米铺'))
+  assert.ok(body.text.includes('窗外遥遥传来更夫口中念叨的旧朝童谣'))
+  assert.ok(!body.text.includes('终局推翻幕后主使并重定朝纲'), '世界内风声与基调不得泄漏终局剧透')
+
+  const cand = plotCompassCandidateSection(chat)
+  assert.ok(cand.text.includes('狱卒低声抱怨南城昨晚又封了三家米铺'))
+
+  const snap = extractSceneFreezeSnapshot(chat)
+  assert.equal(snap.passiveConstraint, true)
+  assert.ok(snap.text.includes('唯余半截炭笔落在草堆旁'))
+
+  const material = buildPlotCompassMaterial({ chat, card: SAMPLE_CARD, scope: 'shortTerm' })
+  assert.ok(material.includes('<latest_scene_snapshot>'))
+  assert.ok(material.includes('唯余半截炭笔落在草堆旁'))
+  assert.ok(material.includes('处于受困 / 受制'))
+})
+
+test('回合核验识别前提失效(lapsed)路线：自动归档并解除点亮后触发新今期路线推演', async () => {
+  const baseCompass = mergePlotCompassUpdate(null, parsePlotCompassSubmission({
+    playArchetypes: ['权谋博弈'],
+    situationDigest: '酒楼密会前的最后半个时辰',
+    shortTerm: [
+      {
+        id: 'st-tea',
+        tag: '茶楼暗访',
+        title: '按约潜入望月茶楼二楼雅间',
+        causalBasis: '对方仍未识破主角化名，愿在茶楼单独接头',
+        summary: '赴茶楼雅间套话',
+        beats: [{ text: '登楼入座观察屏风后的人影', done: false }]
+      },
+      {
+        id: 'st-guard',
+        tag: '先手布防',
+        title: '提前在茶楼外街角安排眼线',
+        summary: '在外围布眼线防埋伏',
+        beats: [{ text: '打发旧部守住后门巷口', done: false }]
+      }
+    ],
+    midTerm: [
+      { id: 'mt-1', tag: '稳步查案', title: '查清漕运账目', summary: '追查账册', milestones: [{ text: '拿到盐引簿', done: false }] },
+      { id: 'mt-2', tag: '掀桌反击', title: '公开实名弹劾', summary: '当庭参奏', milestones: [{ text: '联名御史递折', done: false }] }
+    ],
+    longTerm: [
+      { id: 'lt-1', tag: '清流柱石', title: '重整朝堂法度', vision: '肃清朝纲', prerequisites: ['定案'] },
+      { id: 'lt-2', tag: '远走高飞', title: '功成身退归隐', vision: '退出风波', prerequisites: ['脱身'] }
+    ]
+  }, { scope: 'all', chat: { mode: 'story' } }), { scope: 'all', turn: 1, now: 100 })
+  const pinnedCompass = applyPlotCompassPin(baseCompass, { horizon: 'shortTerm', routeId: 'st-tea' })
+
+  const parsedOutcome = parsePlotCompassProgressOutcome(
+    JSON.stringify({
+      completed: [],
+      lapsed: [{ horizon: 'shortTerm', routeId: 'st-tea', reason: '主角当街炸毁茶楼并公开身份撤离' }]
+    }),
+    ['shortTerm:st-tea:0'],
+    [{ horizon: 'shortTerm', routeId: 'st-tea' }]
+  )
+  assert.equal(parsedOutcome.lapsed.length, 1)
+
+  const applied = applyPlotCompassAutoProgress(pinnedCompass, parsedOutcome, { turn: 2, now: 200 })
+  assert.equal(applied.newlyLapsedCount, 1)
+  assert.equal(applied.pinnedShortLapsed, true)
+  assert.equal(applied.compass.pinned.shortTerm, null)
+  assert.equal(applied.compass.shortTerm.some(r => r.id === 'st-tea'), false)
+  assert.match(applied.compass.archived.at(-1).reason, /前提失效：主角当街炸毁茶楼/)
+
+  // 测试 service.syncTurnProgress 在锚定今期路线 lapsed 后自动重演 shortTerm
+  let chat = {
+    id: 'chat-lapsed',
+    sessionId: 'sess-lapsed',
+    mode: 'story',
+    backgroundTasks: { plotCompass: true },
+    cardPath: 'cards/shen.json',
+    cardName: '沈清弦',
+    messages: [
+      { role: 'user', turn: 1, text: '先去茶楼附近看看' },
+      { role: 'assistant', turn: 1, text: '茶楼已点亮灯笼。' },
+      { role: 'user', turn: 2, text: '我不进茶楼了，直接纵火烧楼引出官兵后趁乱出城！' },
+      { role: 'assistant', turn: 2, text: '烈焰吞没了整座望月茶楼，主角借着黑烟与嘈杂已纵马冲出西门。' }
+    ],
+    plotCompass: pinnedCompass
+  }
+
+  let replanGuidance = ''
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(chat),
+      readChat: async () => structuredClone(chat),
+      updateChat: async (_id, mutator) => {
+        const next = await mutator(structuredClone(chat))
+        if (next) chat = next
+        return structuredClone(chat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'mock', model: 'mock-planner' }),
+    callModel: async ({ messages }) => {
+      assert.ok(messages[0].content.includes('<active_routes>'))
+      return JSON.stringify({
+        completed: [],
+        lapsed: [{ horizon: 'shortTerm', routeId: 'st-tea', reason: '望月茶楼已焚毁且主角已出城，茶楼接头前提作废' }]
+      })
+    },
+    runAgent: async input => {
+      replanGuidance = input.taskText || ''
+      await input.onToolCall({
+        name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+        arguments: {
+          playArchetypes: ['权谋博弈'],
+          situationDigest: '茶楼火起惊动全城，主角出西门连夜遁走',
+          shortTerm: [
+            { id: 'st-escape-1', tag: '城外避锋', title: '沿运河官道借商船隐匿', causalBasis: '主角刚冲出西门，河港夜船可掩护去向', summary: '搭夜航货船甩开追兵', beats: [{ text: '买通船老大藏身底舱', done: false }] },
+            { id: 'st-escape-2', tag: '反杀追兵', title: '在乱石坡设伏截杀先锋', causalBasis: '追兵仓促出城队列分散', summary: '抓一名活口审问幕后动向', beats: [{ text: '放过哨骑只锁死断后副将', done: false }] }
+          ],
+          midTerm: baseCompass.midTerm,
+          longTerm: baseCompass.longTerm
+        }
+      })
+      return { text: '' }
+    }
+  })
+
+  const syncOutcome = await service.syncTurnProgress({ sessionId: 'sess-lapsed', chat, turn: 2 })
+  assert.equal(syncOutcome.pinnedShortLapsed, true)
+  const pendingReplan = service.wait(chat.id)
+  if (pendingReplan) await pendingReplan
+  assert.match(replanGuidance, /按约潜入望月茶楼二楼雅间.*不再成立/)
+  assert.equal(readPlotCompass(chat.plotCompass).shortTerm[0].id, 'st-escape-1')
+  assert.ok(readPlotCompass(chat.plotCompass).archived.some(a => a.title === '按约潜入望月茶楼二楼雅间' && a.reason.includes('前提失效')))
+})
+
 
 
 

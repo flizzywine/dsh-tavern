@@ -56,6 +56,14 @@ function normalizeTag(rawTag, fallbackTitle, options = {}) {
   return fromTitle || '分支'
 }
 
+function normalizeCausalBasis(item, options = {}) {
+  return cleanText(item.causalBasis || item.causal || item.premiseBasis, { ...options, maxLength: 100 })
+}
+
+function normalizeDiegeticOmen(item, options = {}) {
+  return cleanText(item.diegeticOmen || item.worldWhisper || item.omen, { ...options, maxLength: 100 })
+}
+
 function normalizeShortRoute(raw, index, options = {}) {
   const item = object(raw)
   if (!item) return null
@@ -67,12 +75,14 @@ function normalizeShortRoute(raw, index, options = {}) {
   const id = cleanText(item.id, { maxLength: 40 }) || `st-${index + 1}-${randomUUID().slice(0, 6)}`
   const sourceHook = cleanText(item.sourceHook || item.hookSource, { ...options, maxLength: 16 })
   const direction = cleanText(item.direction || item.angle, { ...options, maxLength: 32 })
+  const causalBasis = normalizeCausalBasis(item, options)
   return {
     id,
     tag: normalizeTag(item.tag || item.routeTag, finalTitle, options),
     title: finalTitle,
     ...(direction ? { direction } : {}),
     summary: summary || beats.map(b => b.text).join(' → '),
+    ...(causalBasis ? { causalBasis } : {}),
     beats: beats.length > 0 ? beats : [{ text: summary || finalTitle, done: false }],
     ...(sourceHook ? { sourceHook } : {})
   }
@@ -91,15 +101,19 @@ function normalizeMidRoute(raw, index, options = {}) {
   const id = cleanText(item.id, { maxLength: 40 }) || `mt-${index + 1}-${randomUUID().slice(0, 6)}`
   const sourceHook = cleanText(item.sourceHook || item.hookSource, { ...options, maxLength: 16 })
   const direction = cleanText(item.direction || item.angle, { ...options, maxLength: 32 })
+  const causalBasis = normalizeCausalBasis(item, options)
+  const diegeticOmen = normalizeDiegeticOmen(item, options)
   return {
     id,
     tag: normalizeTag(item.tag || item.routeTag, finalTitle, options),
     title: finalTitle,
     ...(direction ? { direction } : {}),
     summary: summary || entryHook || finalTitle,
+    ...(causalBasis ? { causalBasis } : {}),
     ...(entryHook ? { entryHook } : {}),
     milestones: milestones.length > 0 ? milestones : [{ text: summary || finalTitle, done: false }],
     ...(stakes ? { stakes } : {}),
+    ...(diegeticOmen ? { diegeticOmen } : {}),
     ...(sourceHook ? { sourceHook } : {})
   }
 }
@@ -111,6 +125,7 @@ function normalizeLongRoute(raw, index, options = {}) {
   const vision = cleanText(item.vision || item.summary || item.ending || item.description, { ...options, maxLength: 220 })
   const tone = cleanText(item.tone || item.direction, { ...options, maxLength: 32 })
   const toneGuidance = cleanText(item.toneGuidance || item.antiSpoilerNote, { ...options, maxLength: 140 })
+  const diegeticOmen = normalizeDiegeticOmen(item, options)
   const prerequisites = (Array.isArray(item.prerequisites) ? item.prerequisites : [])
     .map(entry => cleanText(typeof entry === 'string' ? entry : entry?.text, { ...options, maxLength: 90 }))
     .filter(Boolean)
@@ -127,6 +142,7 @@ function normalizeLongRoute(raw, index, options = {}) {
     vision: vision || finalTitle,
     prerequisites,
     toneGuidance: toneGuidance || (tone ? `维持「${tone}」的长线叙事伏脉，渐进蓄力，不提前挑明终局结果` : ''),
+    ...(diegeticOmen ? { diegeticOmen } : {}),
     ...(sourceHook ? { sourceHook } : {})
   }
 }
@@ -278,6 +294,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
             title: { type: 'string', minLength: 1 },
             direction: { type: 'string', description: '路线戏剧维度（如：顺水推舟、反客为主、支线切入）' },
             summary: { type: 'string', minLength: 1 },
+            causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
             beats: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
             sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
           },
@@ -298,9 +315,11 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
             title: { type: 'string', minLength: 1 },
             direction: { type: 'string' },
             summary: { type: 'string', minLength: 1 },
+            causalBasis: { type: 'string', description: '因果出发点：触发此篇章的已知伏笔、人物动机或局势推力' },
             entryHook: { type: 'string', description: '入线契机：玩家近期做什么就能拐入此篇章' },
             milestones: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
             stakes: { type: 'string', description: '潜在收获与代价风险' },
+            diegeticOmen: { type: 'string', description: '无剧透的世界内可闻风声/环境异象（如茶馆议论、街角告示、远处钟声），供正文自然渗透线索' },
             sourceHook: { type: 'string' }
           },
           required: ['tag', 'title', 'summary', 'milestones']
@@ -310,7 +329,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
         type: 'array',
         minItems: 2,
         maxItems: 4,
-        description: '长期规划（20+ 轮至终局）：3-4 条命运归宿或世界终局蓝图',
+        description: '长期规划（20+ 轮至结局）：3-4 条命运归宿或世界终局蓝图',
         items: {
           type: 'object',
           additionalProperties: false,
@@ -322,6 +341,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
             vision: { type: 'string', minLength: 1, description: '远期命运与世界状态假想' },
             prerequisites: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', minLength: 1 } },
             toneGuidance: { type: 'string', description: '无剧透的前台氛围指引（仅供正文模型把握长线暗流，不暴露终局结果）' },
+            diegeticOmen: { type: 'string', description: '无剧透的远期命运征象或微弱世界涟漪，不提前剧透结局' },
             sourceHook: { type: 'string' }
           },
           required: ['tag', 'title', 'vision']
@@ -543,19 +563,22 @@ export function plotCompassBodySection(chat) {
   if (!shortTerm && !midTerm && !longTerm) return null
 
   const lines = [
-    'Active Plot Compass (soft narrative direction chosen by the player; weave naturally into pacing and foreshadowing, NEVER rush future milestones in a single turn, and always yield to the player\'s immediate turn input if they pivot):'
+    'Active Plot Compass (soft narrative direction chosen by the player; weave naturally into pacing and foreshadowing, NEVER rush future milestones in a single turn, obey concrete causal grounding, and always yield to the player\'s immediate turn input if they pivot):'
   ]
   if (longTerm) {
     const toneLine = longTerm.toneGuidance || (longTerm.tone ? `长线基调「${longTerm.tone}」` : longTerm.title)
-    lines.push(`- Long-term atmosphere (foreshadowing tone only, do NOT reveal or jump to endgame): ${toneLine}`)
+    const omenHint = longTerm.diegeticOmen ? ` | Distant in-world echo (subtle sensory detail only, zero spoiler): ${longTerm.diegeticOmen}` : ''
+    lines.push(`- Long-term atmosphere (foreshadowing tone only, do NOT reveal or jump to endgame): ${toneLine}${omenHint}`)
   }
   if (midTerm) {
     const nextMilestone = (midTerm.milestones || []).find(step => !step.done)?.text || midTerm.summary
-    lines.push(`- Current chapter arc [${midTerm.title}]: ${midTerm.summary}${nextMilestone ? ` | Current phase focus: ${nextMilestone} (plant seeds gradually; do not resolve later chapter milestones prematurely).` : ''}`)
+    const omenHint = midTerm.diegeticOmen ? ` | In-world whisper / ambient ripple (surface through rumors or environment when fitting, zero spoiler): ${midTerm.diegeticOmen}` : ''
+    lines.push(`- Current chapter arc [${midTerm.title}]: ${midTerm.summary}${nextMilestone ? ` | Current phase focus: ${nextMilestone} (plant seeds gradually; do not resolve later chapter milestones prematurely).` : ''}${omenHint}`)
   }
   if (shortTerm) {
     const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text || shortTerm.summary
-    lines.push(`- Near-term scene direction [${shortTerm.title}]: ${nextBeat}`)
+    const causalHint = shortTerm.causalBasis ? ` (Causal anchor: ${shortTerm.causalBasis})` : ''
+    lines.push(`- Near-term scene direction [${shortTerm.title}]: ${nextBeat}${causalHint}`)
   }
 
   return {
@@ -571,11 +594,11 @@ export function plotCompassBodySection(chat) {
  */
 export function plotCompassCandidateSection(chat) {
   if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
-  const { compass, shortTerm: pinnedShort, midTerm: pinnedMid } = activePlotCompassRoutes(chat.plotCompass)
+  const { compass, shortTerm: pinnedShort, midTerm: pinnedMid, longTerm: pinnedLong } = activePlotCompassRoutes(chat.plotCompass)
   if (compass.shortTerm.length === 0 && !pinnedMid) return null
 
   const lines = [
-    'Plot Compass routes are available for this session. Align distinct candidate choices with these routes where natural, and attach the matching short `routeTag` (2–6 chars) on `actors[].routeTags` or `featured[].routeTag` so the player sees which arc each choice advances:'
+    'Plot Compass routes are available for this session. Align distinct candidate choices with these routes where natural (respecting current physical constraints and causal plausibility), and attach the matching short `routeTag` (2–6 chars) on `actors[].routeTags` or `featured[].routeTag` so the player sees which arc each choice advances:'
   ]
   if (pinnedShort) {
     const nextBeat = (pinnedShort.beats || []).find(step => !step.done)?.text || pinnedShort.summary
@@ -593,7 +616,10 @@ export function plotCompassCandidateSection(chat) {
   }
   if (pinnedMid) {
     const hook = pinnedMid.entryHook || (pinnedMid.milestones || []).find(step => !step.done)?.text || pinnedMid.summary
-    lines.push(`- [Pinned Mid-Term Arc: ${pinnedMid.title}] tag="${pinnedMid.tag}": keep subtle hooks aligned with "${hook}".`)
+    const omen = pinnedMid.diegeticOmen ? ` | Ambient in-world ripple (good for event choices): ${pinnedMid.diegeticOmen}` : ''
+    lines.push(`- [Pinned Mid-Term Arc: ${pinnedMid.title}] tag="${pinnedMid.tag}": keep subtle hooks aligned with "${hook}".${omen}`)
+  } else if (pinnedLong?.diegeticOmen) {
+    lines.push(`- [Long-Term In-World Omen] tag="${pinnedLong.tag}": ambient whisper "${pinnedLong.diegeticOmen}"`)
   }
   return {
     kind: 'plot-compass',
@@ -614,6 +640,66 @@ export function plotCompassCompactionNote(chat) {
   if (midTerm) items.push(`中期锚定篇章「${midTerm.title}」：${midTerm.summary}`)
   if (longTerm) items.push(`长期基调方向「${longTerm.title}」（${longTerm.tone || '远期伏脉'}）`)
   return `玩家当前在剧情罗盘中点亮了以下发展方向，压缩摘要时务必在 Foreshadowing and promises / Relationships 中完整保留与之相关的伏笔、约定与暗线线索（但只记录已发生的剧情事实，不要把未发生的规划当成既成事实写进摘要）：\n- ` + items.join('\n- ')
+}
+
+const PASSIVE_CONSTRAINT_RE = /囚禁|关押|软禁|挟持|被擒|捆绑|束缚|锁链|铁链|镣铐|手铐|重伤|昏迷|晕倒|濒死|动弹不得|瘫痪|无力反抗|受制|押解|监禁|restrained|bound|imprisoned|captive|unconscious|paralyzed|incapacitated|cornered/i
+
+/**
+ * Extract the exact end-of-turn freeze frame, physical location, posture, and passive-constraint signal
+ * so long-prose clipping in `<recent_story>` never misleads route planning about where characters are.
+ */
+export function extractSceneFreezeSnapshot(chat) {
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  let latestAssistant = null
+  let latestUser = null
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (!msg) continue
+    const raw = str(msg.sourceText ?? msg.text).trim()
+    if (!raw) continue
+    if (!latestAssistant && msg.role === 'assistant') {
+      latestAssistant = { turn: Number(msg.turn) || 0, text: raw }
+    } else if (!latestUser && msg.role === 'user') {
+      latestUser = { turn: Number(msg.turn) || 0, text: raw }
+    }
+    if (latestAssistant && latestUser) break
+  }
+
+  const posture = str(chat?.posture).trim()
+  const ledger = readLedger(chat?.ledger)
+  const parts = []
+  if (posture) parts.push(`当前现场姿态 / 处境（Posture）：\n${posture.slice(0, 600)}`)
+  if (ledger.location) parts.push(`当前地点：${ledger.location}`)
+  if (ledger.npcs.length > 0) {
+    parts.push(`已知在场 / 关联人物：${ledger.npcs.slice(0, 8).map(n => `${n.name}${n.condition ? `（${n.condition}）` : ''}`).join('、')}`)
+  }
+  if (ledger.items.length > 0) {
+    parts.push(`当前随身物品 / 关键线索：${ledger.items.slice(0, 8).map(i => i.name).join('、')}`)
+  }
+  if (latestUser) {
+    const tailUser = latestUser.text.length > 220 ? '…' + latestUser.text.slice(-220) : latestUser.text
+    parts.push(`玩家上一轮行动（第${latestUser.turn || '?'}轮）：${tailUser}`)
+  }
+  if (latestAssistant) {
+    const tailAssistant = latestAssistant.text.length > 520 ? '…' + latestAssistant.text.slice(-520) : latestAssistant.text
+    parts.push(`最新正文末尾定格（第${latestAssistant.turn || '?'}轮收尾状态）：\n${tailAssistant}`)
+  }
+
+  const probeSource = [
+    posture,
+    ledger.location,
+    ledger.npcs.map(n => `${n.name} ${n.condition}`).join(' '),
+    latestAssistant ? latestAssistant.text.slice(-600) : ''
+  ].join('\n')
+  const passiveConstraint = PASSIVE_CONSTRAINT_RE.test(probeSource)
+  if (passiveConstraint) {
+    parts.push('⚠ 处境约束提示：检测到主角当前处于受困 / 受制 / 重伤 / 昏迷或无法自由离场的被动局面，近期路线（shortTerm）必须围绕「被动承接 / 暗中观察拖延 / 外部变量破局」分化，禁止凭空生成自由离场路线！')
+  }
+
+  return {
+    passiveConstraint,
+    text: parts.join('\n\n')
+  }
 }
 
 /**
@@ -649,6 +735,12 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
     const scriptText = scriptWindow.chunks.map(chunk => `[${chunk.id}]\n${str(chunk.text).slice(0, 1200)}`).join('\n\n')
     blocks.push(promptSection('script_context',
       `Bound Script Mode (cursor ${Math.min((scriptWindow.cursor || 0) + 1, scriptWindow.total || 1)} / ${scriptWindow.total || 1}). Offer BOTH canonical script-aligned routes (sourceHook="原著主线") AND 1–2 creative What-If divergence routes (sourceHook="IF偏离"):\n` + scriptText))
+  }
+
+  // Scene freeze snapshot (never clipped out by long middle prose)
+  const freezeSnapshot = extractSceneFreezeSnapshot(chat)
+  if (freezeSnapshot.text) {
+    blocks.push(promptSection('latest_scene_snapshot', freezeSnapshot.text))
   }
 
   // Variables, Posture, Guides & Ledger
@@ -718,12 +810,15 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
 }
 
 export const PLOT_COMPASS_PROGRESS_SYSTEM = [
-  'You are a strict story-beat progress verifier for an interactive story.',
-  'Given the recent story text and a list of pending plot beats / milestones, identify ONLY the items that have ALREADY concretely happened or been achieved in the story prose.',
+  'You are a strict story-beat progress & premise-validity verifier for an interactive story.',
+  'Given the recent story text, pending plot beats / milestones, and active routes:',
+  '1) Identify ONLY the beats/milestones that have ALREADY concretely happened or been achieved in the story prose (`completed`).',
+  '2) Identify ONLY routes whose core premise or causal foundation has been IRREVERSIBLY INVALIDATED / bypassed by the player\'s actual actions or settled events (`lapsed`), e.g. the player left the city or openly attacked the ally that an infiltration route depended on.',
   'Rules:',
-  '- Player intentions or unfulfilled plans that have NOT actually played out in the assistant story prose do NOT count.',
+  '- Player intentions or unfulfilled plans that have NOT actually played out in the assistant story prose do NOT count as `completed`.',
   '- Partial similarity is fine if the dramatic core of that beat has clearly already taken place on screen, so the story does not repeat it.',
-  '- Output ONLY a single valid JSON object with no extra commentary: {"completed":["<key>", ...]} (use an empty array [] if none were fulfilled).'
+  '- Do NOT mark a route as `lapsed` merely because it has not happened yet or progresses slowly; mark `lapsed` ONLY when its core premise is now contradictory or impossible.',
+  '- Output ONLY a single valid JSON object with no extra commentary: {"completed":["<key>",...],"lapsed":[{"horizon":"shortTerm"|"midTerm","routeId":"<id>","reason":"<brief reason>"}]} (use [] when empty).'
 ].join('\n')
 
 export function collectPendingCompassSteps(compassRaw) {
@@ -751,7 +846,26 @@ export function collectPendingCompassSteps(compassRaw) {
   return pending
 }
 
-export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 0 } = {}) {
+export function collectTrackableCompassRoutes(compassRaw) {
+  const compass = readPlotCompass(compassRaw)
+  const routes = []
+  for (const horizon of ['shortTerm', 'midTerm']) {
+    const pinnedId = compass.pinned[horizon]
+    for (const route of compass[horizon]) {
+      routes.push({
+        horizon,
+        routeId: route.id,
+        title: route.title,
+        summary: route.summary,
+        causalBasis: route.causalBasis || '',
+        pinned: route.id === pinnedId
+      })
+    }
+  }
+  return routes
+}
+
+export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 0, compass = null } = {}) {
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
   const turnBlocks = []
   for (let i = messages.length - 1; i >= 0 && turnBlocks.length < 6; i--) {
@@ -768,23 +882,73 @@ export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 
     `- key="${item.key}" (${item.horizon === 'shortTerm' ? '今期节拍' : '中期里程碑'} · 路线「${item.routeTitle}」${item.pinned ? ' [玩家当前点亮]' : ''}): ${item.text}`
   ).join('\n')
 
-  return [
+  const trackableRoutes = compass
+    ? collectTrackableCompassRoutes(compass)
+    : Array.from(new Map(pendingSteps.map(item => [`${item.horizon}:${item.routeId}`, {
+        horizon: item.horizon,
+        routeId: item.routeId,
+        title: item.routeTitle,
+        summary: '',
+        causalBasis: '',
+        pinned: item.pinned
+      }])).values())
+  const routeLines = trackableRoutes.map(r =>
+    `- horizon="${r.horizon}" routeId="${r.routeId}"${r.pinned ? ' [玩家当前点亮]' : ''}: 「${r.title}」${r.causalBasis ? ` | 因果前提: ${r.causalBasis}` : (r.summary ? ` | 简述: ${r.summary}` : '')}`
+  ).join('\n')
+
+  const sections = [
     promptSection('recent_story_turns', turnBlocks.join('\n\n')),
-    promptSection('pending_steps', stepLines),
-    'Return strictly JSON: {"completed":["..."]}'
-  ].join('\n\n')
+    promptSection('pending_steps', stepLines)
+  ]
+  if (routeLines) sections.push(promptSection('active_routes', routeLines))
+  sections.push('Return strictly JSON: {"completed":["..."],"lapsed":[{"horizon":"shortTerm","routeId":"...","reason":"..."}]}')
+  return sections.join('\n\n')
 }
 
-export function parsePlotCompassProgressResponse(rawText, validKeys) {
+export function parsePlotCompassProgressOutcome(rawText, validKeys, validRoutes = []) {
   const parsed = parseJsonLenient(rawText)
   const list = Array.isArray(parsed.completed) ? parsed.completed : []
   const allowed = new Set(validKeys)
-  return [...new Set(list.map(item => str(item).trim()).filter(key => allowed.has(key)))]
+  const completed = [...new Set(list.map(item => str(item).trim()).filter(key => allowed.has(key)))]
+
+  const routeMap = new Map()
+  for (const r of validRoutes) {
+    if (r?.horizon && r?.routeId) routeMap.set(`${r.horizon}:${r.routeId}`, r)
+  }
+  const lapsed = []
+  const seenRoutes = new Set()
+  const rawLapsed = Array.isArray(parsed.lapsed) ? parsed.lapsed : []
+  for (const entry of rawLapsed) {
+    const obj = object(entry)
+    if (!obj) continue
+    const horizon = obj.horizon === 'midTerm' ? 'midTerm' : (obj.horizon === 'shortTerm' ? 'shortTerm' : '')
+    const routeId = str(obj.routeId || obj.id).trim()
+    const key = `${horizon}:${routeId}`
+    if (!horizon || !routeId || seenRoutes.has(key)) continue
+    if (routeMap.size > 0 && !routeMap.has(key)) continue
+    seenRoutes.add(key)
+    lapsed.push({
+      horizon,
+      routeId,
+      reason: cleanText(obj.reason || obj.note || '玩家行动已改写原定前提', { maxLength: 100 })
+    })
+  }
+  return { completed, lapsed }
 }
 
-export function applyPlotCompassAutoProgress(previousRaw, completedKeys, { turn = 0, now = Date.now() } = {}) {
+export function parsePlotCompassProgressResponse(rawText, validKeys) {
+  return parsePlotCompassProgressOutcome(rawText, validKeys).completed
+}
+
+export function applyPlotCompassAutoProgress(previousRaw, completedOrOutcome, { turn = 0, now = Date.now() } = {}) {
   const next = readPlotCompass(previousRaw)
-  const keySet = new Set(Array.isArray(completedKeys) ? completedKeys : [])
+  const completedList = Array.isArray(completedOrOutcome)
+    ? completedOrOutcome
+    : (Array.isArray(completedOrOutcome?.completed) ? completedOrOutcome.completed : [])
+  const lapsedInput = Array.isArray(completedOrOutcome)
+    ? []
+    : (Array.isArray(completedOrOutcome?.lapsed) ? completedOrOutcome.lapsed : [])
+  const keySet = new Set(completedList)
   let newlyCompletedCount = 0
   let pinnedShortTouched = false
 
@@ -802,8 +966,38 @@ export function applyPlotCompassAutoProgress(previousRaw, completedKeys, { turn 
     }
   }
 
-  next.lastCheckedTurn = Math.max(next.lastCheckedTurn || 0, Number(turn) || 0)
-  if (newlyCompletedCount > 0) next.updatedAt = now
+  const lapsedRoutes = []
+  let pinnedShortLapsed = false
+  let lapsedPinnedShortTitle = ''
+  let lapsedPinnedShortReason = ''
+  const resolvedTurn = Math.max(0, Number(turn) || 0)
+
+  for (const entry of lapsedInput) {
+    const horizon = entry?.horizon === 'midTerm' ? 'midTerm' : (entry?.horizon === 'shortTerm' ? 'shortTerm' : '')
+    const routeId = str(entry?.routeId).trim()
+    if (!horizon || !routeId) continue
+    const idx = next[horizon].findIndex(r => r.id === routeId)
+    if (idx < 0) continue
+    const [removed] = next[horizon].splice(idx, 1)
+    const reasonText = cleanText(entry?.reason || '玩家行动已改写原定前提', { maxLength: 100 })
+    const wasPinned = next.pinned[horizon] === routeId
+    if (wasPinned) next.pinned[horizon] = null
+    if (horizon === 'shortTerm' && wasPinned) {
+      pinnedShortLapsed = true
+      lapsedPinnedShortTitle = removed.title
+      lapsedPinnedShortReason = reasonText
+    }
+    next.archived = [...next.archived, {
+      horizon,
+      title: removed.title,
+      reason: `前提失效：${reasonText}`,
+      turn: resolvedTurn
+    }].slice(-MAX_ARCHIVED)
+    lapsedRoutes.push({ horizon, routeId, title: removed.title, reason: reasonText, wasPinned })
+  }
+
+  next.lastCheckedTurn = Math.max(next.lastCheckedTurn || 0, resolvedTurn)
+  if (newlyCompletedCount > 0 || lapsedRoutes.length > 0) next.updatedAt = now
 
   const pinnedShortRoute = next.pinned.shortTerm
     ? next.shortTerm.find(r => r.id === next.pinned.shortTerm) || null
@@ -819,7 +1013,12 @@ export function applyPlotCompassAutoProgress(previousRaw, completedKeys, { turn 
   return {
     compass: next,
     newlyCompletedCount,
+    newlyLapsedCount: lapsedRoutes.length,
+    lapsedRoutes,
     pinnedShortCompleted,
-    completedPinnedShortTitle: pinnedShortCompleted ? pinnedShortRoute.title : ''
+    completedPinnedShortTitle: pinnedShortCompleted ? pinnedShortRoute.title : '',
+    pinnedShortLapsed,
+    lapsedPinnedShortTitle,
+    lapsedPinnedShortReason
   }
 }

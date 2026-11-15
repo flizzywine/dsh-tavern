@@ -349,6 +349,9 @@ function TavernPlotCompassTab(props) {
                 )
             ),
             h("p", { className: "dsh-tavern-compass-card-summary" }, horizon === "longTerm" ? route.vision : route.summary),
+            route.causalBasis && horizon !== "longTerm" ? h("p", { className: "dsh-tavern-compass-meta-line is-causal" },
+                h("strong", null, "因果依据："), route.causalBasis
+            ) : null,
             horizon === "midTerm" && route.entryHook ? h("div", { className: "dsh-tavern-compass-callout" },
                 h("strong", null, "入线契机："),
                 h("span", null, route.entryHook)
@@ -386,6 +389,9 @@ function TavernPlotCompassTab(props) {
             ) : null,
             horizon === "longTerm" && route.toneGuidance ? h("p", { className: "dsh-tavern-compass-meta-line is-subtle", title: "点亮此终局后，前台正文只会收到这句暗流基调，不会剧透或抢跑结局" },
                 h("strong", null, "防剧透暗流指引："), route.toneGuidance
+            ) : null,
+            route.diegeticOmen && horizon !== "shortTerm" ? h("p", { className: "dsh-tavern-compass-meta-line is-subtle", title: "点亮此路线时，正文可通过传闻/异象自然透出此风声（不剧透）" },
+                h("strong", null, "世界内预兆："), route.diegeticOmen
             ) : null,
             h("footer", { className: "dsh-tavern-compass-card-actions" },
                 h("button", {

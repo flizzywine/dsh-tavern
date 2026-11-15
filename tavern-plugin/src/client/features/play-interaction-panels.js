@@ -31,6 +31,11 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const pinnedShortRoute = compass && compass.pinned && compass.pinned.shortTerm && Array.isArray(compass.shortTerm)
             ? compass.shortTerm.find(function (r) { return r && r.id === compass.pinned.shortTerm; }) || null
             : null;
+        const pinnedBeats = pinnedShortRoute && Array.isArray(pinnedShortRoute.beats) ? pinnedShortRoute.beats : [];
+        const pinnedBeatDone = pinnedBeats.filter(function (b) { return b && b.done; }).length;
+        const pinnedNextBeat = pinnedBeats.find(function (b) { return b && !b.done; });
+        const canDirectSend = Boolean(props.inputActions && typeof props.inputActions.submit === "function");
+        const [sendOnPick, setSendOnPick] = React.useState(false);
         const [added, setAdded] = React.useState([]);
         const [activeTab, setActiveTab] = React.useState("featured");
         const expanded = Boolean(panel && panel.expanded);
@@ -76,14 +81,15 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const tabState = buildCandidateTabs(items, isScript);
         const currentTab = tabState.hasTabs ? (tabState.tabs.find(function (tab) { return tab.key === activeTab; }) || tabState.tabs[0]) : tabState.current;
         const visibleItems = currentTab.items;
-        // 点选项即追加到输入框，再点一次取消并从输入框移除；发送前仍可修改。
+        // 默认点击选项追加到输入框，再点一次移除；开启「直发」模式时直接入队发送。
         function pick(index) {
             const item = items[index];
             const isAdded = added.includes(index);
             const marked = formatCandidateDraftText(item);
             const current = String(draftRef.current || "");
+            const directMode = sendOnPick && canDirectSend;
             let next;
-            if (isAdded) {
+            if (!directMode && isAdded) {
                 // 只移除原样追加的那一行；用户改过的文字保留不动。
                 const lines = current.split("\n");
                 const at = lines.lastIndexOf(marked);
@@ -92,6 +98,12 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             } else next = current + (current && !current.endsWith("\n") ? "\n" : "") + marked;
             draftRef.current = next;
             props.inputActions.setDraft(next);
+            if (directMode) {
+                tavernPlayEvents.emit("choice", props.sessionId, { choiceIndex: index });
+                setCandidatePanel(null);
+                Promise.resolve(props.inputActions.submit("queue")).catch(function () {});
+                return;
+            }
             if (!isAdded) tavernPlayEvents.emit("choice", props.sessionId, { choiceIndex: index });
             if (!isAdded && dismissMode !== "after-send") setCandidatePanel(null);
             else setAdded(list => isAdded ? list.filter(value => value !== index) : list.concat(index));
@@ -106,17 +118,40 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             const buttons = event.currentTarget.querySelectorAll("[role='tab']");
             if (buttons[nextIndex]) buttons[nextIndex].focus();
         }
+        const compassDigestText = compass && compass.situationDigest ? String(compass.situationDigest) : "";
+        const compassBarTitle = pinnedShortRoute
+            ? ("🧭 " + pinnedShortRoute.title + (pinnedBeats.length > 0 ? " (" + pinnedBeatDone + "/" + pinnedBeats.length + ")" : ""))
+            : "🧭 剧情态势";
+        const compassBarDetail = pinnedNextBeat
+            ? ("当前节拍：" + pinnedNextBeat.text)
+            : compassDigestText;
         return h("div", { className: "dsh-tavern-question dsh-tavern-candidate-question" + (expanded ? "" : " collapsed") },
             h("div", { className: "dsh-tavern-question-head", role: "button", tabIndex: 0, "aria-expanded": expanded ? "true" : "false", onClick: function () { setExpanded(!expanded); }, onKeyDown: function (event) { if (event.target === event.currentTarget && !event.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setExpanded(!expanded); } } },
                 h("span", null, heading),
                 pinnedShortRoute ? h("button", {
                     type: "button",
                     className: "dsh-tavern-question-compass-pill",
-                    title: "当前近期锚定目标：" + pinnedShortRoute.title + "（点击打开剧情罗盘）",
+                    title: "当前近期锚定目标：" + pinnedShortRoute.title + (pinnedBeats.length > 0 ? "（已完成 " + pinnedBeatDone + "/" + pinnedBeats.length + " 节拍）" : "") + "，点击打开剧情罗盘",
                     onClick: function (event) { event.stopPropagation(); if (typeof props.openPlotCompass === "function") props.openPlotCompass(); }
-                }, "🧭 " + (pinnedShortRoute.tag || pinnedShortRoute.title)) : null,
+                }, "🧭 " + (pinnedShortRoute.tag || pinnedShortRoute.title) + (pinnedBeats.length > 0 ? " " + pinnedBeatDone + "/" + pinnedBeats.length : "")) : null,
+                canDirectSend ? h("button", {
+                    type: "button",
+                    className: "dsh-tavern-question-mode-pill" + (sendOnPick ? " is-send" : ""),
+                    "aria-pressed": sendOnPick ? "true" : "false",
+                    title: sendOnPick ? "当前：点击行动直接发送（点此切回先填入输入框）" : "当前：点击行动先填入输入框微调（点此切为点击即发送）",
+                    onClick: function (event) { event.stopPropagation(); setSendOnPick(function (prev) { return !prev; }); }
+                }, sendOnPick ? "⚡ 直发" : "✎ 填入") : null,
                 h("span", { className: "dsh-tavern-question-sub" }, summary),
                 h("button", { type: "button", className: "dsh-tavern-question-close", title: expanded ? "收起行动列表" : "展开行动列表", "aria-label": expanded ? "收起行动列表" : "展开行动列表", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
+            expanded && compassEnabled && (pinnedShortRoute || compassDigestText) ? h("button", {
+                type: "button",
+                className: "dsh-tavern-question-compass-bar",
+                title: "点击打开剧情罗盘查看或切换路线",
+                onClick: function () { if (typeof props.openPlotCompass === "function") props.openPlotCompass(); }
+            },
+                h("span", { className: "dsh-tavern-question-compass-bar-title" }, compassBarTitle),
+                compassBarDetail ? h("span", { className: "dsh-tavern-question-compass-bar-detail" }, compassBarDetail) : null
+            ) : null,
             expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
             expanded && tabState.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabState.tabs.map(function (tab) {
                 const isSelectedTab = tab.key === currentTab.key;
@@ -129,7 +164,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                         const isAdded = added.includes(item.index);
                         const badges = candidateItemBadges(item, currentTab.kind);
                         const actorAttr = item.actor || (Array.isArray(item.actors) && item.actors.length > 0 ? item.actors.join(",") : undefined);
-                        return h("button", { key: item.index, className: "dsh-tavern-question-option" + (isAdded ? " selected" : ""), "data-type": item.type, "data-actor": actorAttr, "aria-pressed": isAdded, title: isAdded ? "从输入框移除" : "追加到输入框", onClick: function () { pick(item.index); } },
+                        return h("button", { key: item.index, className: "dsh-tavern-question-option" + (isAdded ? " selected" : ""), "data-type": item.type, "data-actor": actorAttr, "aria-pressed": isAdded, title: (sendOnPick && canDirectSend) ? "立即发送此行动" : (isAdded ? "从输入框移除" : "追加到输入框"), onClick: function () { pick(item.index); } },
                             h("span", { className: "dsh-tavern-question-index", "aria-hidden": true }, isAdded ? "✓" : String(visibleIndex + 1)),
                             h("span", { className: "dsh-tavern-question-text" },
                                 badges.length > 0 ? h("span", { className: "dsh-tavern-question-tags" }, badges.map(function (badge, badgeIndex) {

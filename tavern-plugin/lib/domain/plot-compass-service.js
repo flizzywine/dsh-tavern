@@ -11,9 +11,10 @@ import {
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
   collectPendingCompassSteps,
+  collectTrackableCompassRoutes,
   isPlotCompassEnabled,
   mergePlotCompassUpdate,
-  parsePlotCompassProgressResponse,
+  parsePlotCompassProgressOutcome,
   parsePlotCompassSubmission,
   readPlotCompass,
   setPlotCompassPin
@@ -411,6 +412,7 @@ export function createPlotCompassService({
     if (!isPlayableChat(freshChat) || !isPlotCompassEnabled(freshChat)) return null
     const compass = readPlotCompass(freshChat.plotCompass)
     const pending = collectPendingCompassSteps(compass)
+    const trackableRoutes = collectTrackableCompassRoutes(compass)
     const latestTurn = Math.max(Number(hintTurn) || 0, latestStoryTurnOf(freshChat))
     const checkedFloor = Math.max(compass.basedOnTurn, compass.lastCheckedTurn || 0)
     if (pending.length === 0 || latestTurn <= checkedFloor) return null
@@ -418,7 +420,7 @@ export function createPlotCompassService({
 
     progressJobs.add(freshChat.id)
     try {
-      const promptText = buildPlotCompassProgressPrompt(freshChat, pending, { fromTurn: checkedFloor + 1 })
+      const promptText = buildPlotCompassProgressPrompt(freshChat, pending, { fromTurn: checkedFloor + 1, compass })
       const rawReply = await callModel({
         sessionId: targetSessionId,
         background: true,
@@ -428,7 +430,7 @@ export function createPlotCompassService({
         messages: [{ role: 'user', content: promptText }]
       })
       const outputText = typeof rawReply === 'string' ? rawReply : str(rawReply?.output ?? rawReply?.text)
-      const completedKeys = parsePlotCompassProgressResponse(outputText, pending.map(item => item.key))
+      const parsedProgress = parsePlotCompassProgressOutcome(outputText, pending.map(item => item.key), trackableRoutes)
 
       let outcome = null
       let stillEnabled = true
@@ -437,14 +439,14 @@ export function createPlotCompassService({
           stillEnabled = false
           return undefined
         }
-        outcome = applyPlotCompassAutoProgress(current.plotCompass, completedKeys, { turn: latestTurn, now: now() })
+        outcome = applyPlotCompassAutoProgress(current.plotCompass, parsedProgress, { turn: latestTurn, now: now() })
         current.plotCompass = outcome.compass
-        if (outcome.newlyCompletedCount > 0) current.updatedAt = now()
+        if (outcome.newlyCompletedCount > 0 || outcome.newlyLapsedCount > 0) current.updatedAt = now()
         return current
       }, { source: 'plot-compass.auto-progress' })
 
       if (!stillEnabled) return null
-      if (outcome?.newlyCompletedCount > 0) {
+      if (outcome && (outcome.newlyCompletedCount > 0 || outcome.newlyLapsedCount > 0)) {
         onStatus(targetSessionId)
       }
       if (outcome?.pinnedShortCompleted && !jobs.has(freshChat.id)) {
@@ -452,6 +454,12 @@ export function createPlotCompassService({
           sessionId: targetSessionId,
           scope: 'shortTerm',
           guidance: `上一幕点亮的近期路线「${outcome.completedPinnedShortTitle}」全部节拍已在剧情中达成，请紧承最新回合结尾与已点亮的中长期方向，推演下一幕新的今期（2-5轮）多路线节拍。`
+        }).catch(() => {})
+      } else if (outcome?.pinnedShortLapsed && !jobs.has(freshChat.id)) {
+        await generate({
+          sessionId: targetSessionId,
+          scope: 'shortTerm',
+          guidance: `原定近期路线「${outcome.lapsedPinnedShortTitle}」因玩家行动或局势变化已不再成立（${outcome.lapsedPinnedShortReason}），请严格依据最新场面定格与已有中长期基调，重新推演符合当前因果与处境的今期（2-5轮）新分支。`
         }).catch(() => {})
       }
       return outcome
