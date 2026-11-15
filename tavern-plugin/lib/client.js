@@ -25952,8 +25952,9 @@ function tavernModelRefusalNotice(text) {
 		    if (speaksGeneral(config,character,segment)) {
 		        // 配音语言 not 中文: its 配音补译 voice text (segment.speech); a held line waits for it.
 		        if (segment.kind !== 'bubble' || segment.streaming) return null;
-		        if (segment.voiceHold === true && voiceBackfillNeeded(segment, lineVoiceLanguage(config,character,segment))) return null;
-		        const text = segment.speech ?? segment.text;
+		        const language = lineVoiceLanguage(config,character,segment);
+		        if (segment.voiceHold === true && voiceBackfillNeeded(segment, language)) return null;
+		        const text = spokenLineText(segment, language);
 		        return speakableText(text) ? {text, mood:null, general:true} : null;
 		    }
 		    return packSpeechInput(segment,config,character,bubbleMood(segment.mood,bubbleMoodList(config,character?.alias)));
@@ -26614,13 +26615,23 @@ function tavernModelRefusalNotice(text) {
 		    else if (asked && record.status === 'failed') paragraph.voiceFallback = true;
 		    return paragraph;
 		}
+		// What a line says aloud in its 配音语言: the voice text, else the display text. In 中文 a voice text only adds {cues} (voice
+		// direction) to the display text's words; one that says other words was written while the speaker had another 配音语言
+		// (or is a 配音补译 from then), and the display text is spoken instead. An empty voice text stays silent in every language.
+		const lineWords = text => String(text).replace(/\{[^{}]*\}/g, '').replace(/[^\p{L}\p{N}]/gu, '');
+		function spokenLineText(segment, language) {
+		    const speech = segment.speech;
+		    if (speech === undefined || voiceTranslates(language) || !speakableText(speech)) return speech ?? segment.text;
+		    return lineWords(speech) === lineWords(segment.text) ? speech : segment.text;
+		}
 		// Shared by playback and export; missing voice text uses the display text with the same bound voice.
 		// An explicitly empty/incomplete voice field stays silent; identity/mood resolution stays with the caller.
 		// A held line (applyVoiceBackfill) of a translating speaker waits for its voice text.
 		function packSpeechInput(segment, config, character, mood) {
 		    if (segment.kind !== 'bubble' || segment.streaming || !character?.voice) return null;
-		    if (segment.voiceHold === true && voiceBackfillNeeded(segment, characterVoiceLanguage(character))) return null;
-		    const text = segment.speech ?? segment.text;
+		    const language = characterVoiceLanguage(character);
+		    if (segment.voiceHold === true && voiceBackfillNeeded(segment, language)) return null;
+		    const text = spokenLineText(segment, language);
 		    if (!speakableText(text)) return null;
 		    return {text, mood:mood?.id || character.defaultEmotion || null};
 		}
@@ -26628,7 +26639,7 @@ function tavernModelRefusalNotice(text) {
 		function speakableText(text) {
 		    return Boolean(text) && /[\p{L}\p{N}]/u.test(text) && text.length <= 1500;
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, speaksGeneral, lineVoiceLanguage, voiceBackfillNeeded, voiceBackfillKey, applyVoiceBackfill, narrationVoiceKey, narrationBackfillNeeded, applyNarrationBackfill, packSpeechInput, speakableText };
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, speaksGeneral, lineVoiceLanguage, voiceBackfillNeeded, voiceBackfillKey, applyVoiceBackfill, narrationVoiceKey, narrationBackfillNeeded, applyNarrationBackfill, spokenLineText, packSpeechInput, speakableText };
 
 		const BUBBLE_MOODS = [];
 		// Explicit engine declarations and alias-scoped figure declarations have the same status.
