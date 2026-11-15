@@ -42705,7 +42705,35 @@ function createTavernStoryTranscriptFeature(deps) {
 		// Archiving is one host round-trip per session, so a batch runs a few at a time —
 		// it used to wait for each one before starting the next.
 		const ARCHIVE_CONCURRENCY = 4;
+		// Chats this page is deleting or has deleted. Between the archive step and the record
+		// removal a chat is already archived, so the history would list it under 已归档 with a
+		// 恢复 that cannot bring it back; the lists hide these instead. Failures are released.
+		const tavernChatRemovals = (function () {
+			let removing = new Set();
+			const listeners = new Set();
+			function publish(next) { removing = next; listeners.forEach(listener => listener()); }
+			return {
+				begin(chatIds) { publish(new Set([...removing, ...chatIds])); },
+				release(chatIds) {
+					if (!chatIds.some(id => removing.has(id))) return;
+					const next = new Set(removing);
+					chatIds.forEach(id => next.delete(id));
+					publish(next);
+				},
+				subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+				getSnapshot() { return removing; }
+			};
+		})();
 		async function deleteTavernChats(items, archiveSession, call = rpc) {
+			const chatIds = items.map(item => item.chatId);
+			tavernChatRemovals.begin(chatIds);
+			let outcome;
+			try { outcome = await archiveAndDeleteTavernChats(items, archiveSession, call); }
+			catch (error) { tavernChatRemovals.release(chatIds); throw error; }
+			tavernChatRemovals.release(chatIds.filter(id => !outcome.removed.includes(id)));
+			return outcome;
+		}
+		async function archiveAndDeleteTavernChats(items, archiveSession, call) {
 			const failures = [];
 			if (!items.length) return { removed: [], failures };
 			const prepared = await call("prepareDeleteChats", { chatIds: items.map(item => item.chatId) });
@@ -43880,7 +43908,9 @@ function TavernCardUpdateDialog(props) {
 					return order;
 				});
 			}
-			const unarchivedHistory = React.useMemo(() => history.filter(item => !archivedSessions.has(item.sessionId)), [history, archivedSessions]);
+			const removingChats = React.useSyncExternalStore(tavernChatRemovals.subscribe, tavernChatRemovals.getSnapshot);
+			const listedHistory = React.useMemo(() => removingChats.size ? history.filter(item => !removingChats.has(item.chatId)) : history, [history, removingChats]);
+			const unarchivedHistory = React.useMemo(() => listedHistory.filter(item => !archivedSessions.has(item.sessionId)), [listedHistory, archivedSessions]);
 			const [historyGroupState, setHistoryGroupState] = React.useState(function () {
 				try { const value = JSON.parse(window.localStorage.getItem("dsh-tavern-history-groups") || "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch (_) { return {}; }
 			});
@@ -45058,11 +45088,8 @@ function TavernCardUpdateDialog(props) {
 				finally { setBusy(false); }
 			}
 			async function removeChat(item) {
-				const prepared = await call("prepareDeleteChats", { chatIds: [item.chatId] });
-				if (!prepared.results[0].ok) throw new Error(prepared.results[0].error);
-				try { await props.archiveSession(item.sessionId); }
-				catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
-				await call("deleteChat", { chatId: item.chatId });
+				const outcome = await deleteTavernChats([item], props.archiveSession);
+				if (outcome.failures.length) throw new Error(outcome.failures[0].error);
 			}
 			async function deleteConversation(item, currentTitle) {
 				setMenuSession(null);
@@ -45075,10 +45102,10 @@ function TavernCardUpdateDialog(props) {
 						if (next) await openSessionWhenReady(next.sessionId);
 						else { await openBlankConversation(); openPicker("cards"); }
 					}
-					// Deleting a chat never touches cards, so reload only the history list.
-					await refresh(["sessions"]);
 				} catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
+				// Deleting a chat never touches cards, so reload only the history list; a failed
+				// deletion reloads it too, or the row would stay listed as it was before.
+				finally { await refresh(["sessions"]); setBusy(false); }
 			}
 			async function forkConversation(item, currentTitle, turn, target) {
 				setMenuSession(null);
@@ -45154,8 +45181,8 @@ function TavernCardUpdateDialog(props) {
 				return unarchivedHistory.filter(function (item) { return groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern"); });
 			}, [unarchivedHistory, uiMode]);
 			const archivedHistory = React.useMemo(function () {
-				return history.filter(function (item) { return archivedSessions.has(item.sessionId) && groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern"); });
-			}, [history, archivedSessions, uiMode]);
+				return listedHistory.filter(function (item) { return archivedSessions.has(item.sessionId) && groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern"); });
+			}, [listedHistory, archivedSessions, uiMode]);
 			const visibleHistory = React.useMemo(function () {
 				return archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
 			}, [archiveExpanded, activeHistory, archivedHistory]);

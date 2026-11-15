@@ -23,7 +23,35 @@
 		// Archiving is one host round-trip per session, so a batch runs a few at a time —
 		// it used to wait for each one before starting the next.
 		const ARCHIVE_CONCURRENCY = 4;
+		// Chats this page is deleting or has deleted. Between the archive step and the record
+		// removal a chat is already archived, so the history would list it under 已归档 with a
+		// 恢复 that cannot bring it back; the lists hide these instead. Failures are released.
+		const tavernChatRemovals = (function () {
+			let removing = new Set();
+			const listeners = new Set();
+			function publish(next) { removing = next; listeners.forEach(listener => listener()); }
+			return {
+				begin(chatIds) { publish(new Set([...removing, ...chatIds])); },
+				release(chatIds) {
+					if (!chatIds.some(id => removing.has(id))) return;
+					const next = new Set(removing);
+					chatIds.forEach(id => next.delete(id));
+					publish(next);
+				},
+				subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+				getSnapshot() { return removing; }
+			};
+		})();
 		async function deleteTavernChats(items, archiveSession, call = rpc) {
+			const chatIds = items.map(item => item.chatId);
+			tavernChatRemovals.begin(chatIds);
+			let outcome;
+			try { outcome = await archiveAndDeleteTavernChats(items, archiveSession, call); }
+			catch (error) { tavernChatRemovals.release(chatIds); throw error; }
+			tavernChatRemovals.release(chatIds.filter(id => !outcome.removed.includes(id)));
+			return outcome;
+		}
+		async function archiveAndDeleteTavernChats(items, archiveSession, call) {
 			const failures = [];
 			if (!items.length) return { removed: [], failures };
 			const prepared = await call("prepareDeleteChats", { chatIds: items.map(item => item.chatId) });

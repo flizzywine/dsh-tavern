@@ -10,6 +10,13 @@ test('已归档在历史列表底部折叠，展开后可恢复或彻底删除',
   const page = await browser.newPage()
   page.setDefaultTimeout(5000)
   const errors = [], deleteCalls = []
+  let finishDeletion = null
+  async function releaseDeletion() {
+    while (!finishDeletion) await new Promise(resolve => setTimeout(resolve, 20))
+    const finish = finishDeletion
+    finishDeletion = null
+    finish()
+  }
   page.on('pageerror', error => errors.push(error.message))
   let history = [
     { sessionId: 'active', chatId: 'chat-active', mode: 'story', cardName: '测试卡', title: '普通存档' },
@@ -20,11 +27,16 @@ test('已归档在历史列表底部折叠，展开后可恢复或彻底删除',
     if (!url.includes('/api/dsh-tavern/')) return route.fulfill({ contentType: 'text/html', body: '<main></main>' })
     const method = new URL(url).pathname.split('/').at(-1)
     if (method === 'listSessions') return route.fulfill({ json: { ok: true, sessions: history } })
-    if (method === 'prepareDeleteChats' || method === 'deleteChat') {
+    if (method === 'prepareDeleteChats' || method === 'deleteChats') {
       const { _sessionPatchPage, ...args } = route.request().postDataJSON()
       deleteCalls.push({ method, args })
-      if (method === 'prepareDeleteChats') return route.fulfill({ json: { ok: true, results: [{ ok: true }] } })
-      history = history.filter(item => item.chatId !== args.chatId)
+      const results = args.chatIds.map(chatId => ({ chatId, ok: true }))
+      if (method === 'prepareDeleteChats') return route.fulfill({ json: { ok: true, results } })
+      // Removing a long save takes a while; the archive step has already happened by now.
+      return new Promise(resolve => { finishDeletion = resolve }).then(() => {
+        history = history.filter(item => !args.chatIds.includes(item.chatId))
+        return route.fulfill({ json: { ok: true, results } })
+      })
     }
     return route.fulfill({ json: { ok: true } })
   })
@@ -96,9 +108,22 @@ test('已归档在历史列表底部折叠，展开后可恢复或彻底删除',
   await row('旧归档').waitFor({ state: 'detached' })
   await archiveToggle.waitFor({ state: 'detached' })
   await row('普通存档').waitFor()
+  assert.equal(await page.locator('.dsh-tavern-side-row').count(), 1)
+  await releaseDeletion()
+
+  // 彻底删除先归档再删记录：删除还没完成时，这条不能出现在「已归档」里给人点「恢复到历史」。
+  await menu('普通存档')
+  await button('彻底删除').click()
+  await page.getByRole('dialog').getByRole('button', { name: '彻底删除', exact: true }).click()
+  await row('普通存档').waitFor({ state: 'detached' })
+  assert.equal(await page.locator('.dsh-tavern-side-row').count(), 0)
+  assert.equal(await archiveToggle.count(), 0)
+  await releaseDeletion()
   assert.deepEqual(deleteCalls, [
     { method: 'prepareDeleteChats', args: { chatIds: ['chat-archived'] } },
-    { method: 'deleteChat', args: { chatId: 'chat-archived' } },
+    { method: 'deleteChats', args: { chatIds: ['chat-archived'] } },
+    { method: 'prepareDeleteChats', args: { chatIds: ['chat-active'] } },
+    { method: 'deleteChats', args: { chatIds: ['chat-active'] } },
   ])
   assert.deepEqual(errors, [])
 })

@@ -34,9 +34,9 @@ function deleteFixture() {
     activeHistory: [],
     setMenuSession() {}, setBusy() {}, setError() {},
     askConfirm: async () => true,
-    call: async method => {
+    rpc: async (method, args) => {
       calls.push([method])
-      return method === 'prepareDeleteChats' ? { results: [{ ok: true }] } : {}
+      return { results: args.chatIds.map(chatId => ({ chatId, ok: true })) }
     },
     props: {
       archiveSession: async id => { calls.push(['archive', id]) },
@@ -49,6 +49,8 @@ function deleteFixture() {
     refresh: async () => {},
   })
   vm.runInContext(sourceFunction(source, 'changeConversationArchive'), ctx)
+  // deleteTavernChats and the removal marks it keeps, shared by every deletion path
+  vm.runInContext(source.slice(source.indexOf('const ARCHIVE_CONCURRENCY'), source.indexOf('function tavernCardPathKey')), ctx)
   // (removeChat, the shared removal deleteConversation calls, sits right before it)
   vm.runInContext(source.slice(source.indexOf('async function removeChat'), source.indexOf('async function forkConversation')), ctx)
   return { ctx, calls }
@@ -57,7 +59,7 @@ function deleteFixture() {
 test('删掉当前仅剩的对话时回到空白会话，而不是只清空主视图', async () => {
   const { ctx, calls } = deleteFixture()
   await ctx.deleteConversation({ sessionId: 'session-open', chatId: 'chat-1', cardName: '测试卡' }, '测试对话')
-  assert.deepEqual(calls, [['prepareDeleteChats'], ['archive', 'session-open'], ['deleteChat'], ['blank'], ['picker']])
+  assert.deepEqual(calls, [['prepareDeleteChats'], ['archive', 'session-open'], ['deleteChats'], ['blank'], ['picker']])
 })
 
 test('归档当前对话后切到仍在历史中的对话', async () => {
