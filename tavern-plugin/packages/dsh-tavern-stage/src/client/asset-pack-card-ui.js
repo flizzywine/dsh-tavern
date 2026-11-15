@@ -511,22 +511,47 @@ function useStagePointed(ctx) {
     return {ref,pack,figure:pack?.figures[ref.figureId]||null};
   })),[ctx.binding,JSON.stringify(refs),!!reading],{keep:true});
   const rows=state.value&&STAGE_POINTERS.map(([id,label],i)=>({id,label,...state.value[i]}));
-  return {rows,revisions:rows?.map(row=>row.pack?.revision??null)};
+  return {rows,revisions:rows?.map(row=>row.pack?.revision??null),reload:state.reload};
 }
 const VOICE_HELP={
   page:'通用声音和旁白声音对所有卡生效，各用素材库里一个人物的声音；旁白的开关可以只对这张卡设置。',
-  general:'没有单独配声音的角色和临时 NPC 统一用这个人物的声音。想换成别的人物：在素材库打开它的声音页，⋯ › 用作通用声音。',
-  narr:'读出气泡外的叙述，用这个人物的声音。想换成别的人物：在素材库打开它的声音页，⋯ › 用作旁白声音。',
+  general:'没有单独配声音的角色和临时 NPC 都用这个声音。点声音名换一个；› 打开它所在的人物。',
+  narr:'读出气泡外的叙述。点声音名换一个；› 打开它所在的人物。',
   cast:'本卡用到的人物；点一行在素材库里改它的声音。',
   needBubble:'角色配音和旁白配音在对话气泡里播放，要先打开对话气泡。'};
-// 通用声音 / 旁白's one row: the figure it points at, the same row as 角色声音's (CastVoiceList); none chosen = the
-// browser's default voice, a figure gone = silent; both open the 素材库's 人物 to choose one there.
-function StagePointedVoice({ctx,row}) {
+// 通用声音 / 旁白's one row: ▶ · its voice's name ⌄ — the same 选择声音 list (no 「通用声音」 row), which
+// writes the voice of the figure it points at — · where that voice comes from · › (that figure's 声音 tab). Pointing at none:
+// the browser's default voice; at a figure gone: silent. Both open the 素材库's 人物.
+function StagePointedVoice({ctx,row,onChanged}) {
   if(!row)return null;
-  const library=()=>ctx.nav?.openLibrary?.({kind:'figures'}),face=h(Silhouette,{figure:{},className:'ap-avatar is-mini',empty:true});
-  const rows=row.figure?[{ref:row.ref,pack:row.pack,figure:row.figure,face:h(FigureCastFace,{binding:ctx.binding,packId:row.ref.packId,pack:row.pack,figure:row.figure,sprites:row.pack.sprites,avatar:figureAvatar(row.figure,row.pack.sprites),label:'',className:'ap-avatar is-mini',frame:'face'})}]:
-    [{key:'none',name:row.ref?'找不到所选人物':'未选择人物',text:row.ref?'不出声':'浏览器默认声音',face,onOpen:library}];
-  return h(CastVoiceList,{binding:ctx.binding,rows,label:row.label,unvoiced:'这个人物没有声音，不出声',onOpen:ref=>ctx.openPack(ref.packId,'figures',ref.figureId,'voice')});
+  const library=()=>ctx.nav?.openLibrary?.({kind:'figures'});
+  if(!row.figure)return h('div',{className:'ap-vx-stage-row'},h('span',{className:'ap-vx-row-pad','aria-hidden':true}),
+    h('span',{className:'ap-vx-stage-name is-quiet'},row.ref?'找不到所选人物':'浏览器默认声音'),
+    h(IconButton,{icon:'chevRight',label:row.label+'：去素材库选人物',className:'ap-vx-go',onClick:library}));
+  return h(StagePointedChoice,{ctx,row,onChanged});
+}
+function StagePointedChoice({ctx,row,onChanged}) {
+  const {binding}=ctx,{pack,figure,ref}=row,spec=figureVoiceSpec(pack,figure),muted=figure.voice?.source===null;
+  const [error,setError]=React.useState(''),[adding,setAdding]=React.useState(false),preview=useVoicePreview(binding,null),readiness=useVoiceReadiness(binding);
+  const commitVoice=async job=>{const result=await job(await binding.service.getPackSnapshot({packId:ref.packId}));onChanged?.();return result;};
+  const writer=useVoiceWriter({binding,pack,figure,commitVoice,setError,askShared:async()=>'all'});
+  const source=spec&&!muted?spec.sources[voiceSourceId(spec,figure.voice)]:null,language=figureVoiceLanguage(spec,figure.voice);
+  const key='stage:'+row.id,name=spec?spec.name:'没有声音';
+  const candidate=voiceSpec=>({packId:ref.packId,figureId:ref.figureId,expectedRevision:pack.revision,voiceSpec});
+  const play=()=>source.provider==='browser'?preview.playBrowser(key,{voice:source.voiceName,language,text:sampleText(language)}):
+    preview.play(key,{packId:ref.packId,figureId:ref.figureId,expectedRevision:pack.revision},{label:row.label});
+  const meta=muted?'不配音':source?[voiceServiceName(readiness.services,source),voiceLanguageName(primaryLanguage(language))].join(' · '):'';
+  const openSettings=ctx.nav?.openTab?(provider,options)=>openVoiceSettings(ctx.nav,provider,options):null;
+  return h(React.Fragment,null,h('div',{className:'ap-vx-stage-row'},
+      h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+row.label+'」',disabled:!source||!!voiceSourceUnset(source)||!binding.tts,onClick:play}),
+      h(VoicePicker,{binding,pack,figure,current:spec?figure.voice.voice:null,preview,candidate,setError,label:row.label,
+        trigger:({open,toggle})=>h('button',{type:'button',className:'ap-vx-name','aria-label':row.label+'：'+name,'aria-expanded':open,onClick:toggle},h('span',null,name),h(Glyph,{name:'chevDown'})),
+        onPick:choice=>{preview.stop();return writer.pick(choice);},onAdd:()=>setAdding(true)}),
+      h('span',{className:'ap-vx-row-meta'},meta),
+      h(IconButton,{icon:'chevRight',label:'打开「'+figure.name+'」的声音',className:'ap-vx-go',onClick:()=>{preview.stop();ctx.openPack(ref.packId,'figures',ref.figureId,'voice');}})),
+    error&&h('p',{className:'ap-alert',role:'alert'},error),
+    adding&&h(VoiceAddDialog,{binding,pack,figure,language,readiness,preview,candidate,writer,openSettings,onClose:()=>{preview.stop();setAdding(false);},onDone:()=>setAdding(false)}),
+    preview.dialog);
 }
 function StageVoicePage({ctx,onBack}) {
   const root=React.useRef(null),pointed=useStagePointed(ctx);
@@ -537,13 +562,12 @@ function StageVoicePage({ctx,onBack}) {
   return h('article',{ref:root,className:'ap-mod-detail ap-voice-page',onKeyDown:subpageKeys(onBack)},
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
     h(StageVoiceProblems,{ctx}),
-    // 通用声音 · 旁白声音 · 角色声音: three sections side by side (owner 11-09), each row a figure and its voice (owner 11-11:
-    // 通用 / 旁白 only point at a figure).
+    // 通用声音 · 旁白声音 · 角色声音: three sections side by side, each row a figure and its voice.
     h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:stageVoiceBackendLink(ctx)},
-      h(StagePointedVoice,{ctx,row:pointed.rows?.[0]})),
+      h(StagePointedVoice,{ctx,row:pointed.rows?.[0],onChanged:pointed.reload})),
     // 旁白's four-state switch sits in its section head; its figure under it while it speaks.
     h(StageSection,{title:'旁白声音',foldKey:'voice/narrator',help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,action:narratorTag},
-      narrator.effective.enabled?h(StagePointedVoice,{ctx,row:pointed.rows?.[1]}):null),
+      narrator.effective.enabled?h(StagePointedVoice,{ctx,row:pointed.rows?.[1],onChanged:pointed.reload}):null),
     h(StageCastVoices,{ctx}));
 }
 // 「语音后端 ›」 at the right of a section head (the TTS plugin's tab), like the 素材库 voice page's.
@@ -655,7 +679,42 @@ function StageAutoCastPage({ctx,onBack}) {
       h(InlineField,{kind:'menu',label:'生成策略',className:'fork-cfg-field',value,options:AUTO_CAST_LEVELS.map(([v,label])=>({value:v,label})),
         help:h(React.Fragment,null,h(Help,{text:AUTO_CAST_LEVEL_HELP,label:'生成策略 说明'}),dot),onCommit:set,
         trail:own?[h(ResetButton,{key:'reset',label:scope==='card'?'恢复为全局':'恢复默认',onClick:reset})]:[]})),
+    loading?null:h(AutoCastVoices,{ctx}),
     notes.map((text,index)=>h('p',{key:index,className:'ap-reading-note',role:'status'},h('span',null,text))));
+}
+// 可选声音: the voices the casting assistant may give a new figure. Preset 「默认」: every installed
+// voice with a 使用情景 or 「通用」 in its name (defaultCastVoices → voiceAutoCast, the one rule library-search.js also reads). A row: ▶ · name +
+// 语言 · its 使用情景 on a second line, edited in place (R23; one not written is a grey placeholder). The 使用情景 is the voice's
+// own `guidance` (≤ 60 字), saved in its pack.
+const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音和名字带「通用」的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
+function AutoCastVoices({ctx}) {
+  const {binding}=ctx,[error,setError]=React.useState('');
+  const list=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding],{keep:true}),preview=useVoicePreview(binding,null);
+  const rows=list.value?defaultCastVoices(list.value):null;
+  const save=async(v,text)=>{
+    setError('');
+    try{
+      const pack=await binding.service.getPackSnapshot({packId:v.ref.packId}),spec={...pack.manifest.voiceLibrary.voices[v.ref.voiceId]};
+      if(text)spec.guidance=text;else delete spec.guidance;
+      await binding.service.savePackVoice({packId:v.ref.packId,expectedRevision:pack.revision,voiceId:v.ref.voiceId,voiceSpec:spec,confirmShared:true});
+      list.reload();
+    }catch(e){setError(voiceErrorText(e));}
+  };
+  const row=v=>{const key='auto:'+v.ref.packId+':'+v.ref.voiceId,spec=v.voiceSpec,src=spec.sources?.[spec.defaultSource];
+    const play=src?.provider==='browser'?()=>preview.playBrowser(key,{voice:src.voiceName,language:spec.language,text:sampleText(spec.language)}):
+      v.previewFigureId?()=>preview.play(key,{packId:v.ref.packId,figureId:v.previewFigureId,expectedRevision:v.revision,voiceSpec:spec},{label:v.name}):null;
+    return h('li',{key,className:'ap-vx-auto-row'},
+      h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+v.name+'」',disabled:!play||!binding.tts||!!voiceSourceUnset(src||{}),onClick:play||(()=>{})}),
+      h('div',{className:'ap-vx-auto-main'},
+        h('div',{className:'ap-vx-auto-name'},h('span',{className:'ap-vx-row-name'},v.name),h(VoiceLangChip,{tag:spec.language})),
+        h(CommitInput,{className:'ap-vx-auto-guidance','aria-label':v.name+'：使用情景',value:spec.guidance||'',placeholder:'适合什么样的人',maxLength:60,onCommit:text=>save(v,text.trim())})));};
+  const presets=h(VoiceOptionPick,{label:'可选声音预设',value:'default',options:[{id:'default',label:'默认'}],onPick:()=>{}});
+  return h(StageSection,{title:'可选声音',meta:rows?.length||undefined,foldKey:'auto-cast/voices',help:AUTO_CAST_VOICES_HELP,action:presets,className:'ap-vx-auto'},
+    error&&h('p',{className:'ap-alert',role:'alert'},error),
+    list.error&&!list.value?h(VoiceLoadError,{error:voiceErrorText(list.error),retry:list.reload}):
+    rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):
+      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景，或在名字里带「通用」'}),
+    preview.dialog);
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same
 // deep link the library consumes) for the packs this card uses (全局 first, then 本卡). One pack opens directly; several

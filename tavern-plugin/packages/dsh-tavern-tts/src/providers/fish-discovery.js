@@ -11,6 +11,7 @@ export function fishVoiceMetadata(v) {
     sampleUrl:(v.samples || []).map(s => s.audio).find(url => typeof url === 'string' && /^https:\/\//.test(url)) || null,coverImage:typeof v.cover_image === 'string' && /^https:\/\//.test(v.cover_image) ? v.cover_image : null,visibility:['public','unlist','private'].includes(v.visibility) ? v.visibility : 'unknown',licensed:typeof v.licensed === 'boolean' ? v.licensed : null,
     licenseNote:v.licensed === true ? 'Fish reports rights secured from the voice owner; check current service terms before use.' : 'Public visibility is not a license grant; check author permission before use.'}
 }
+const FISH_SORTS = ['score','task_count','created_at']
 export function createFishDiscovery({fetch = globalThis.fetch} = {}) {
   async function get(provider, secret, route) {
     const config = providerConfig('fish-audio',provider.config), signal = AbortSignal.timeout(10000)
@@ -66,10 +67,14 @@ export function createFishDiscovery({fetch = globalThis.fetch} = {}) {
       if (result.voiceId !== voiceId) fail('FISH_REQUEST_FAILED')
       return result
     },
-    async search(provider, secret, {query = '',language,page = 1} = {}) {
-      if (typeof query !== 'string' || query.length > 200 || /\0/.test(query) || !Number.isSafeInteger(page) || page < 1 || page > 10000 || (language !== undefined && (typeof language !== 'string' || !/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/.test(language)))) fail('INVALID_INPUT')
+    // tags: Fish's own (English) tags, all must match — female, young, anime …; sort: Fish's sort_by.
+    async search(provider, secret, {query = '',language,page = 1,tags = [],sort} = {}) {
+      if (typeof query !== 'string' || query.length > 200 || /\0/.test(query) || !Number.isSafeInteger(page) || page < 1 || page > 10000 || (language !== undefined && (typeof language !== 'string' || !/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*$/.test(language)))
+        || !Array.isArray(tags) || tags.length > 8 || tags.some(tag => typeof tag !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(tag)) || (sort !== undefined && !FISH_SORTS.includes(sort))) fail('INVALID_INPUT')
       const params = new URLSearchParams({self:'false',page_size:'20',page_number:String(page),title:query})
       if (language) params.set('language',language)
+      for (const tag of tags) params.append('tag',tag)
+      if (sort) params.set('sort_by',sort)
       const data = await get(provider,secret,'/model?' + params)
       if (!Array.isArray(data.items) || data.items.length > 100 || !Number.isSafeInteger(data.total) || data.total < 0) fail('FISH_REQUEST_FAILED')
       const voices = data.items.filter(v => usableFishVoice(v) && v.visibility === 'public').map(fishVoiceMetadata)

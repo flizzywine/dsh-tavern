@@ -11,6 +11,7 @@ import {createSimpleSprite} from './simple-sprite.js'
 import {trimAuthoringImages, retireFigureBundles} from './image-closure.js'
 import {FIGURE_IMAGE_EXTENSION} from './figure-image-extras.js'
 import {searchLibrary, listLibraryVoices} from './library-search.js'
+import {dropVoices} from './voice-authoring.js'
 
 // Ordinary editing and automatic deltas use the same optional-field semantics.
 export function patchFigureDocument(before, patch) {
@@ -114,21 +115,7 @@ function retireVoices(manifest, files, voices) {
   const library = manifest.voiceLibrary
   if (!voices.length || !library) return
   const bound = new Set(manifest.figures.map(id => readDocument(files.get(`figures/${id}.json`)).voice?.voice))
-  const media = new Set()
-  for (const [id, spec] of voices) if (!bound.has(id) && canonicalJson(library.voices[id] ?? null) === canonicalJson(spec)) {
-    for (const ref of voiceReferences(spec)) media.add(ref.media)
-    delete library.voices[id]
-  }
-  const used = new Set()
-  const visit = value => {
-    if (typeof value === 'string' && media.has(value)) used.add(value)
-    else if (value && typeof value === 'object') Object.values(value).forEach(visit)
-  }
-  visit(manifest.assets); visit(library)
-  for (const hash of media) if (!used.has(hash) && manifest.blobs[hash]) {
-    files.delete(`media/${hash}.${manifest.blobs[hash].ext}`)
-    delete manifest.blobs[hash]
-  }
+  dropVoices(manifest, files, voices.filter(([id, spec]) => !bound.has(id) && canonicalJson(library.voices[id] ?? null) === canonicalJson(spec)).map(([id]) => id))
 }
 
 // Host capabilities bind a committed source and its planner to one immutable request.

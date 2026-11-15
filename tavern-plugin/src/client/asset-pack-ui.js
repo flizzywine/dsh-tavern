@@ -395,8 +395,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           onCommit:()=>setProblem('')}),
         problem&&h('p',{role:'alert',className:'ap-cat-problem'},problem)));
   }
-  // the delete confirmation's one consequence, in plain words and without a card count (owner dislikes
-  // counts). The dependency index only decides between 「有卡在用」 and 「没有卡在用」; unknown says the general rule.
+  // the delete confirmation's one consequence, in plain words and without a card count. The dependency index only decides between 「有卡在用」 and 「没有卡在用」; unknown says the general rule.
   function Impact({binding,packId}) {
     const state=useLoad(binding,()=>binding.rpc('getAssetPackDependencies',{packId}),[packId]);
     const lose='删除后，用到它的卡会少掉里面的素材，不会自动换成别的。',used=state.value?.available?state.value.count>0:null;
@@ -773,8 +772,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   function KindSortTools({packs,kind,setKind,sort,onSort}) {
     return h(React.Fragment,null,h(PackKindFilter,{packs,kind,setKind}),h(SortMenu,{sort,onSort}));
   }
-  function PackSearchBox({value,onChange,label,placeholder,className=''}) {
-    return h(SearchBox,{className:('ap-search '+className).trim(),icon:h(Glyph,{name:'search'}),label,placeholder:placeholder||label,value,onChange});
+  function PackSearchBox({value,onChange,label,placeholder,className='',onKeyDown}) {
+    return h(SearchBox,{className:('ap-search '+className).trim(),icon:h(Glyph,{name:'search'}),label,placeholder:placeholder||label,value,onChange,onKeyDown});
   }
   // New pack: an inline row in edit state, right under the toolbar. Enter creates; Escape / ✕ cancels.
   function NewPackRow({onCreate,onCancel,busy}) {
@@ -879,7 +878,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   const IMAGE_ACCEPT='.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif';
   // Audio: exactly the formats prepareAudio reads (audio/* would also list .aac / .wma, which it refuses).
   const AUDIO_ACCEPT='.mp3,.ogg,.wav,.m4a,.flac';
-  // 新建条目 (owner 11-08, 解耦): creating an entry is only creating it — a blank entry of the chosen kind with a default
+  // 新建条目: creating an entry is only creating it — a blank entry of the chosen kind with a default
   // name; its picture / audio / text, generation and model import are actions on its own page. The kinds a player can
   // create here, in KIND_ORDER, and their default names (a second one gets 「 2」, see newEntryName).
   const NEW_NAMES={figures:'新人物',backgrounds:'新背景',cg:'新 CG',props:'新物品',music:'新音乐',sfx:'新音效',ambience:'新环境音',directions:'新演出风格'};
@@ -956,7 +955,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const [kind,setKind]=React.useState(initial?.kind||null),[sel,setSel]=React.useState(initial?.figureId||null),[query,setQuery]=React.useState(''),[filter,setFilter]=React.useState('all'),[detail,setDetail]=React.useState(!!initial?.figureId),[category,setCategory]=React.useState('');
     const [selecting,setSelecting]=React.useState(false),[picked,setPicked]=React.useState(()=>new Set()),[notice,setNotice]=React.useState(null),changed=React.useRef(false);
     // the figure page's tab (编辑 / 生图) stays put while the user walks the figure list.
-    const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'?'gen':'edit');
+    const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'||initial?.tab==='voice'?initial.tab:'edit');
     // the entry just made from a dropped file — its detail opens on the 触发词 field with the hint (cleared by the next pick).
     const [fresh,setFresh]=React.useState(null);
     // the blank entry just made by 新建 — its page opens with the name field focused and selected (once).
@@ -1253,6 +1252,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       pack.automatic&&h(MenuItem,{onClick:()=>{closeMenu();setAutomaticReview(true);}},'自动变更…'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.exportPack(pack);}},'导出'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.copyPack(pack);}},'复制'),
+      h('button',{type:'button',role:'menuitemcheckbox','aria-checked':deleteAsk.get(),className:'ap-menu-item',onClick:()=>{closeMenu();deleteAsk.set(!deleteAsk.get());}},
+        h('span',null,'删除条目前确认'),deleteAsk.get()&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))),
       h(MenuItem,{danger:true,onClick:()=>{closeMenu();actions.askRemove(pack);}},'删除'))});
     // a single-figure pack is usually named after its figure; then the title would repeat the
     // heading beside it (大肥鱼 × 3), so it names the container instead.
@@ -1320,7 +1321,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h(PanelBoundary,{name:'entry-detail',lead:narrowBack&&h('div',{className:'ap-detail-title ap-subhead'},h(SubpageBack,narrowBack)),resetKey:current+'/'+(selected?.id||'')+'@'+pack.revision},
       current==='directions'&&selected?h(StyleDetail,{key:'directions/'+selected.id,pack,asset:selected,commit,remove:removeStyle,busy:work.busy,back:narrowBack}):
       !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,onChanged:automaticChanged,backLabel:kinds[current],
-          gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
+          gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab}):
         current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,remove:removeEntry,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
           onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
@@ -1433,7 +1434,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     entrances:'M8 9.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM8 12.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1',
     // 视频: a film frame with a play triangle.
     videos:'M2 3.5h12v9H2zM2 5.5h12M2 10.5h12M6.8 6.6v2.8L9.2 8z',
-    // 物品: a parcel (owner r1: not the picture glyph 背景 and CG share).
+    // 物品: a parcel.
     props:'M2.5 5 8 2.5 13.5 5v6.5L8 14l-5.5-2.5zM2.5 5 8 7.5 13.5 5M8 7.5V14M5.2 3.8l5.5 2.5'};
   function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[kind==='cg'?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
   // @include asset-pack-widgets.js
@@ -1463,7 +1464,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const notify=()=>{for(const fn of [...listeners])fn();};
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-    const names={useFigureLook, CastVoiceList, useReadingPointers, VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},

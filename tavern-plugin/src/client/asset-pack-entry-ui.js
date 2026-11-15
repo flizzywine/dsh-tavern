@@ -6,7 +6,7 @@
   // figure and outfit — sources, ids, to-dos. Never sent to the director; one multi-line row right after the director-facing
   // text (使用情景 / 人物介绍 / 正文). Written through the editor's usual pack write; empty removes the key.
   const REMARK_HELP='只给你和改卡 AI 看，导演看不到';
-  // 使用情景 is the player's word for directorNote (owner 11-08), the same name and meaning as an outfit's 使用情景.
+  // 使用情景 is the player's word for directorNote, the same name and meaning as an outfit's 使用情景.
   const NOTE_LABEL='使用情景',NOTE_PLACEHOLDER='什么情景下用它';
   const withRemark=(value,text)=>{const next={...value};if(text)next.remark=text;else delete next.remark;return next;};
   const remarkField=({value,onCommit,controlLabel,className='',wide,key})=>h(InlineField,{key,kind:'text',multiline:true,lines:true,label:'备注',controlLabel,wide,
@@ -475,7 +475,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   function entryRemoveItem({asset,pack,remove,ask,onError}) {
     const run=()=>Promise.resolve(remove(asset.kind,asset.id)).catch(e=>onError(errorText(e)));
     return close=>h(MenuItem,{key:'remove',danger:true,onClick:()=>{close();if(entryIsBlank(asset))run();
-      else ask({title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true,onConfirm:run});}},'删除…');
+      else askDelete(ask,{title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true},run);}},'删除…');
   }
   function EntryMoreMenu({asset,busy,items}) {
     return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),content:close=>items(close)});
@@ -518,7 +518,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const [variantChoice,setVariant]=React.useState(undefined),selected=asset.variants&&(assetVariantRow(asset.variants,variantChoice)||assetVariantRow(asset.variants));
     const content=selected?selected.content:asset;
     const write=update=>{setError('');return commit('directions',asset.id,update).catch(e=>setError(errorText(e)));};
-    const askRemove=()=>setConfirm({title:'删除演出风格「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，用到这个素材包的卡都不再发送它。',confirmLabel:'删除',danger:true,onConfirm:()=>remove(asset.id)});
+    const askRemove=()=>askDelete(setConfirm,{title:'删除演出风格「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，用到这个素材包的卡都不再发送它。',confirmLabel:'删除',danger:true},()=>remove(asset.id));
     const menu=remove&&h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
       content:close=>h(MenuItem,{danger:true,onClick:()=>{close();askRemove();}},'删除')});
     return h('div',{className:'ap-detail-pane ap-style-detail','data-disabled':!on||undefined},h(ErrorBox,{error}),
@@ -599,7 +599,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
           onCommit:keywords=>write(c=>applyEntryFields(c,{recall:{keywords},top:{}}))}),
         // 详情 is an inline multi-line field (no underline, no grip, grows with
         // its text, one paragraph like the stored note); no counter — only the over-limit message.
-        // 使用情景 stands open with 触发词 on every entry (owner r1: an entry is used through these two).
+        // 使用情景 stands open with 触发词 on every entry.
         !UNDIRECTED_KINDS.includes(kind)&&h(InlineField,{kind:'text',multiline:true,label:NOTE_LABEL,className:'ap-note-field',help:entryHelp(NOTE_LABEL,NOTE_HELP[kind]),placeholder:NOTE_PLACEHOLDER,value:note,
           validate:v=>chars(v)>300?NOTE_LABEL+'最多 300 字':'',onCommit:v=>write(c=>({...c,directorNote:v}))}),
         remarkField({value:asset.remark,onCommit:v=>write(c=>withRemark(c,v))}),
@@ -676,7 +676,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   }
   function EntryVariants({always,binding,packId,asset,selected,onSelect,write,busy,upload,onError}) {
     const input=React.useRef(null),target=React.useRef(null),[confirm,setConfirm]=React.useState(null),[renaming,setRenaming]=React.useState(null);
-    // a media entry without a table shows its one file as 「原图」 with the ＋ (owner r1: 变体 is there from the start).
+    // a media entry without a table shows its one file as 「原图」 with the ＋.
     const own=asset.variants,table=own||(always?entryVariantTable(asset):null);
     if(!table)return null;
     const rows=table.entries,current=selected||rows[0];
