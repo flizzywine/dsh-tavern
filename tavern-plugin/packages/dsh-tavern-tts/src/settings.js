@@ -10,7 +10,7 @@ import { createFishAudioAdapter } from './providers/fish-audio.js'
 import { createVoicePilot } from './providers/fish-voice-design.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
 import { createMinimaxAdapter, MINIMAX_MODELS } from './providers/minimax.js'
-import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
+import { hash, canonical, fail, voicePreset, describeTtsError, wav, durationMs } from './core.js'
 import { boundedFetch } from './providers/fetch.js'
 import { createModelValidation } from './model-validation.js'
 
@@ -281,6 +281,16 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     voicePilot(args) {
       const p = record(args.serviceId)
       return voicePilot(args, p, async () => (await secrets(p)).key)
+    },
+    // One short line through the service's own adapter (the path a figure's line takes), to check a voice speaks. The audio is
+    // measured here and not returned; nothing is cached or played.
+    async voiceSynth({serviceId, params, text}) {
+      const p = record(serviceId), a = adapters[p.kind]
+      if (!a || typeof text !== 'string' || !text.trim() || text.length > 200 || !params || typeof params !== 'object') fail('INVALID_INPUT')
+      const started = Date.now(), audio = wav(await a.synthesize(p, await secrets(p), {text, params, signal:AbortSignal.timeout(120000)}))
+      let peak = 0
+      for (let at = audio.length - (audio.length % 2) - 2; at >= 44; at -= 2) peak = Math.max(peak, Math.abs(audio.readInt16LE(at)))
+      return {serviceId, kind:p.kind, durationMs:durationMs(audio), bytes:audio.length, peak:+(peak / 32768).toFixed(4), elapsedMs:Date.now() - started}
     },
     // Read-only names for the CLI. Host records are listed by key only; each saved Fish service is asked by its canonical
     // credential ref through describe alone. `present` is the host's configured flag, never a value or a successful lookup.

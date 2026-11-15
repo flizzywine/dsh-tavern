@@ -214,3 +214,19 @@ test('voice pilot control rejects cross-origin requests and dry-run never resolv
   assert.deepEqual(await response.json(),{dryRun:true,model:'voice-design-1',requests:1,estimatedCostUsd:0.01,cumulativeReservedUsd:0})
   assert.deepEqual(await readdir(root),[])
 })
+
+test('voiceSynth speaks one short line through the service adapter with the voice-library id and reports duration and peak, returning no audio', async () => {
+  const requests = []
+  const tone = Buffer.alloc(44100 * 2); for (let i = 0; i < 44100; i++) tone.writeInt16LE(i % 2 ? 16384 : -16384, i * 2)
+  const fetch = async (url, init) => { requests.push({url, model:init.headers.model, authorization:init.headers.Authorization, body:JSON.parse(init.body)}); return new Response(tone) }
+  const services = createServiceSettings({tts:{}, get:() => ({providers:[provider]}), credentials:() => ({resolve:async () => ({value:key})}), fetch})
+  const result = await services.voiceSynth({serviceId:provider.id, params:{referenceId:'abc123'}, text:'你好。'})
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, 'https://api.fish.audio/v1/tts')
+  assert.equal(requests[0].model, 's2.1-pro-free')
+  assert.equal(requests[0].body.reference_id, 'abc123')
+  assert.equal(requests[0].authorization, 'Bearer ' + key)
+  assert.equal(result.durationMs, 1000); assert.equal(result.peak, 0.5); assert.equal(result.kind, 'fish-audio')
+  assert.equal(JSON.stringify(result).includes(key), false); assert.equal(Object.hasOwn(result, 'audioBase64'), false)
+  await assert.rejects(services.voiceSynth({serviceId:provider.id, params:{referenceId:'abc123'}, text:' '}), {code:'INVALID_INPUT'})
+})
