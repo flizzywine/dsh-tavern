@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fad064f8f9148d6aa4975302dbe5fb2fdefaf1c0",
-  "releaseSequence": 1652,
+  "revision": "5f0be65c4b2c24c0afcdec6d5005ed14ecaa051d",
+  "releaseSequence": 1653,
   "version": "3.3.0",
   "files": [
     {
@@ -1616,8 +1616,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-reasoning-fold.js",
-      "sha256": "04c9977e7e50555c1030e9c45b6280b07e60c9d06a02946bce122f0c9accc869",
-      "size": 3941
+      "sha256": "fc9df6be9c9e5b364b36baa9a2ee2da2adb0356f3247ce4fc00bda88cfe39d06",
+      "size": 4412
     },
     {
       "path": "tavern-plugin/lib/domain/chat-session-state.js",
@@ -1636,8 +1636,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-tool-reply-stream.js",
-      "sha256": "109e97a2721a3be46bfa794670b1ce5dfaf02aa01d64895185f595b648db8af6",
-      "size": 8080
+      "sha256": "b6db048f8d479c385e6b93e1842f7ba8526666d5c939fd194373fe4ee1a034c7",
+      "size": 8832
     },
     {
       "path": "tavern-plugin/lib/domain/chat-writes.js",
@@ -9271,9 +9271,9 @@
     }
   ],
   "archive": {
-    "commit": "683b5d9afbeafd59db59d4d15fdf2c18858499d5",
+    "commit": "b219c96aec1cce3aeee766662eab0825fa54ad30",
     "path": "runtime.zip",
-    "sha256": "0bf404c839e13c0b3d424b15dbbd09fc2d721de029b857b38ccbc31f7e63b3e7",
-    "size": 16569675
+    "sha256": "95a7fb6c716f47b731d1c07125a401e90ea6359847edfaa7f01376f7478f827f",
+    "size": 16570482
   }
 }
