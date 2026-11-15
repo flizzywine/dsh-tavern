@@ -2,8 +2,8 @@
 // dimmed page. 关闭, Esc and a press on the dimmed page close it through the shared popup
 // stack (inline-field.js overlayPush). The live iframe never moves: reparenting would reload
 // card scripts. It is lifted into the top layer and laid exactly over the sheet's body.
-// The sheet starts below the Windows title bar, whose native window buttons cover the top
-// 40 px of the page.
+// On the Windows Desktop it is shown in full screen, where the native window buttons are hidden; otherwise the sheet starts
+// below the Windows title bar, whose buttons cover the top 40 px of the page.
 let closeTavernFrameSheet = null;
 function openTavernFrameSheet(frame, options) {
     closeTavernFrameSheet?.();
@@ -42,12 +42,13 @@ function openTavernFrameSheet(frame, options) {
         const box = body.getBoundingClientRect();
         frame.style.cssText = (previousStyle || "") + ";position:fixed!important;inset:auto!important;left:" + box.left + "px!important;top:" + box.top + "px!important;width:" + box.width + "px!important;height:" + box.height + "px!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;border:0!important;border-radius:8px!important;overflow:hidden!important;pointer-events:auto!important;";
     };
-    let observer, resize, unstack, frameWindow = null;
+    let observer, resize, unstack, unhold, frameWindow = null;
     const onFrameKey = event => { if (event.key === "Escape") { event.preventDefault(); restore(); } };
     const restore = () => {
         if (closeTavernFrameSheet !== restore) return;
         closeTavernFrameSheet = null;
         unstack?.();
+        unhold?.();
         observer?.disconnect();
         resize?.disconnect();
         win.removeEventListener("resize", place);
@@ -73,6 +74,8 @@ function openTavernFrameSheet(frame, options) {
         place();
         if (typeof frame.showPopover === "function") { frame.setAttribute("popover", "manual"); frame.showPopover(); }
         unstack = overlayPush({ nodes: () => [sheet, frame], close: restore });
+        // the scrim covers the window: full screen on the Windows Desktop (holdWindowFullscreen), scrim and frame shown again above it
+        unhold = holdWindowFullscreen({ onLost: restore, topLayer: () => [scrim, frame] });
         // A same-origin (trusted) card keeps Esc working after a click inside it; a sandboxed
         // frame's keys never reach the page.
         try { frameWindow = frame.contentWindow; frameWindow?.addEventListener("keydown", onFrameKey); } catch (_) { frameWindow = null; }

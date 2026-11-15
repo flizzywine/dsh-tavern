@@ -858,6 +858,8 @@
 						container.setAttribute("role", "dialog");
 						container.setAttribute("aria-modal", "true");
 						document.body.append(container);
+						// it covers the window: full screen on the Windows Desktop while open (holdWindowFullscreen, inline-field.js)
+						const unhold = holdWindowFullscreen();
 						const root = require("react-dom/client").createRoot(container);
 						let closed = false;
 						function onKey(event) { if (event.key === "Escape" && input.dismissible !== false) { event.stopPropagation(); handle.close(); } }
@@ -866,6 +868,7 @@
 							if (closed) return;
 							closed = true;
 							document.removeEventListener("keydown", onKey, true);
+							unhold();
 							root.unmount();
 							container.remove();
 							if (input.onClose) try { input.onClose(); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }

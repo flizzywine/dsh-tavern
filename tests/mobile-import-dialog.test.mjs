@@ -60,7 +60,7 @@ function createComponent(options = {}) {
   const imported = []
   const rpcCalls = []
   const failures = new Set(options.failures || [])
-  const factory = new Function('React', 'rpcWithTimeout', 'rpc', componentSource() + '\nreturn { MobileCardImportButton, MOBILE_IMPORT_SORTS };')
+  const factory = new Function('React', 'rpcWithTimeout', 'rpc', 'useWindowFullscreen', componentSource() + '\nreturn { MobileCardImportButton, MOBILE_IMPORT_SORTS };')
   const { MobileCardImportButton, MOBILE_IMPORT_SORTS } = factory(
     React,
     async function () { return options.catalog === undefined ? CATALOG : options.catalog },
@@ -68,7 +68,8 @@ function createComponent(options = {}) {
       rpcCalls.push(args.id)
       if (failures.has(args.id)) throw new Error('手机文件不存在、过大或不允许读取')
       return { card: { path: args.id + '.json' } }
-    }
+    },
+    function () {}
   )
   return { MobileCardImportButton, MOBILE_IMPORT_SORTS, imported, rpcCalls }
 }

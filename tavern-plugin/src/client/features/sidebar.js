@@ -123,6 +123,8 @@
 			// 会盖住开场白预览和 letter 列表）；进入对局后由「人物卡应用」面板停靠显示。
 			const [expandedPreviews, setExpandedPreviews] = React.useState({});
 			const [historyManagerOpen, setHistoryManagerOpen] = React.useState(false);
+			// the card picker and the history manager cover the window: full screen on the Windows Desktop while shown (inline-field.js)
+			useWindowFullscreen((!collapsed && picking) || historyManagerOpen);
 			const [managerQuery, setManagerQuery] = React.useState("");
 			const [managerCardFilter, setManagerCardFilter] = React.useState("all");
 			const [managerStatusFilter, setManagerStatusFilter] = React.useState("all");

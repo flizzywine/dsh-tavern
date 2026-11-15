@@ -23,6 +23,8 @@ function LargeModalFrame(props) {
     // bundled — only the topmost popup closes; standalone harnesses keep the backdrop click below.
     const stacked = typeof useOverlay === "function";
     if (stacked) useOverlay(true, () => [panel.current], () => close.current());
+    // the backdrop covers the window: full screen on the Windows Desktop (inline-field.js)
+    if (typeof useWindowFullscreen === "function") useWindowFullscreen(true);
     // Narrow modals (under LARGE_MODAL_COMPACT px) shrink the nav to an icon / avatar column (names in tooltips).
     const [compact, setCompact] = React.useState(false);
     React.useEffect(function () {
