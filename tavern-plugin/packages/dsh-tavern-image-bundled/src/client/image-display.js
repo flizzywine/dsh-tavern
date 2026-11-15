@@ -88,7 +88,7 @@
               return [{ src, title: img.alt || '正文插图', element, anchor }]
             })
             setPictures(previous => previous.length === records.length && previous.every((item, index) =>
-              item.src === records[index].src && item.title === records[index].title) ? previous : records)
+              item.src === records[index].src && item.title === records[index].title && item.element === records[index].element) ? previous : records)
           }
           if (!records.length) { select(''); return }
           if (settings.follow === 'off') {
@@ -193,7 +193,7 @@
             collapsed ? null : h('button', { type: 'button', style: btn, 'aria-label': '下一张正文图片', disabled: index + 1 >= pictures.length, onClick: () => select(pictures[index + 1].src) }, '›'),
             h('button', { type: 'button', style: btn, onClick: () => setCollapsed(value => !value) }, collapsed ? '展开' : '收起')),
           collapsed ? null : h('button', { type: 'button', style: { display: 'flex', flex: '0 1 auto', minHeight: 0, width: '100%', overflow: 'hidden', border: 0, background: 'transparent', padding: 0, marginTop: 6, cursor: 'zoom-in' },
-            onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title })), index, note: '正文插图' }) },
+            onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title, element: item.element })), index, note: '正文插图' }) },
             h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', minHeight: 0, objectFit: 'contain', borderRadius: 6 } })),
           collapsed ? null : h('div', { style: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, marginTop: 8 } },
             h('input', { type: 'range', min: IMAGE_WIDTH_LIMIT.min, max: IMAGE_WIDTH_LIMIT.max, step: 1,

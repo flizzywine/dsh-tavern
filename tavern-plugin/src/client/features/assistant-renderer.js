@@ -340,7 +340,7 @@
 		})();
 
 		// the one shared large view (image-viewer.js openSceneImage).
-		function openSceneImagePreview(url, opener, version, onEditPrompt, gallery, label) { return openSceneImage(url, opener, version, onEditPrompt, gallery, label); }
+		function openSceneImagePreview(url, opener, onEditPrompt, gallery, label) { return openSceneImage(url, opener, onEditPrompt, gallery, label); }
 
 		function createTavernAssistantRendererFeatureModule() {
 			function TavernUserNodeView(props) {

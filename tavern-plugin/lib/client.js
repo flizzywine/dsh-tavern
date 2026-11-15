@@ -2054,10 +2054,10 @@ window.__ModuleLoader__.load({
 		    render();
 		    return { close, update(next) { if (!open) return; current = Object.assign({}, current, next); render(); } };
 		}
-		// Scene illustrations (the chat's upstream openSceneImagePreview call sites, same arguments): a gallery {urls, index} steps
+		// Scene illustrations: a gallery {urls, index} steps
 		// with ‹ › and ←→ (no wrap); 改提示词重画 (onEditPrompt) closes the view and opens the prompt editor. Focus returns to the
 		// opener when it closes. `label` (upstream 3.0: an avatar, 「X的头像」) names the picture instead of 场景插画.
-		function openSceneImage(url, opener, version, onEditPrompt, gallery, label) {
+		function openSceneImage(url, opener, onEditPrompt, gallery, label) {
 		    const urls = gallery && gallery.urls && gallery.urls.length > 1 ? gallery.urls : [url];
 		    let at = urls.length > 1 ? Math.max(0, Math.min(urls.length - 1, Number(gallery.index) || 0)) : 0, viewer = null;
 		    const step = delta => { if (urls[at + delta]) { at += delta; viewer.update(view()); } };
@@ -2067,7 +2067,7 @@ window.__ModuleLoader__.load({
 		        actions: [
 		            urls.length > 1 && { key: "prev", label: "上一张", icon: viewerGlyph("prev"), disabled: at === 0, onClick: () => step(-1) },
 		            urls.length > 1 && { key: "next", label: "下一张", icon: viewerGlyph("next"), disabled: at === urls.length - 1, onClick: () => step(1) },
-		            onEditPrompt && version && version.planPrompt && { key: "edit", label: "改提示词重画", icon: viewerGlyph("edit"), onClick: () => { viewer.close(); onEditPrompt(); } }]
+		            onEditPrompt && { key: "edit", label: "改提示词重画", icon: viewerGlyph("edit"), onClick: () => { viewer.close(); onEditPrompt(); } }]
 		    });
 		    viewer = openImageViewer(Object.assign(view(), { onClose: () => { if (opener && opener.isConnected && opener.focus) opener.focus(); } }));
 		    return viewer;
@@ -31984,15 +31984,33 @@ function bindTavernFontZoom(node, win) {
             let takenOver = false, disposed = false;
             layer.hidden = true;
             native.hidden = false;
+            const slots = "[data-dsh-script-media]";
+            // The copy gives scripts the prose and the media positions. Move each
+            // live portal only after takeover, preserving its React state and handlers.
+            function placeMedia() {
+                const destinations = takenOver ? new Map(Array.from(layer.querySelectorAll(slots), function (slot) {
+                    return [slot.getAttribute("data-dsh-script-media"), slot];
+                })) : null;
+                for (const slot of native.querySelectorAll(slots)) {
+                    const host = slot.tavernMediaHost;
+                    const target = destinations ? destinations.get(slot.getAttribute("data-dsh-script-media")) || layer : slot;
+                    if (host && host.parentNode !== target) target.append(host);
+                }
+            }
             const layerObserver = new Observer(function () {
-                if (takenOver || disposed) return;
-                takenOver = true;
-                layer.hidden = false;
-                native.hidden = true;
+                if (disposed) return;
+                if (!takenOver) {
+                    takenOver = true;
+                    layer.hidden = false;
+                    native.hidden = true;
+                }
+                placeMedia();
             });
             function rebuild() {
-                if (takenOver || disposed) return;
+                if (disposed) return;
+                if (takenOver) { placeMedia(); return; }
                 layer.replaceChildren.apply(layer, Array.from(native.childNodes).map(function (node) { return node.cloneNode(true); }));
+                for (const slot of layer.querySelectorAll(slots)) slot.replaceChildren();
                 // Our own copy is not a script edit.
                 layerObserver.takeRecords();
             }
@@ -32005,6 +32023,8 @@ function bindTavernFontZoom(node, win) {
                 disposed = true;
                 layerObserver.disconnect();
                 nativeObserver.disconnect();
+                takenOver = false;
+                placeMedia();
                 layer.replaceChildren();
                 layer.hidden = true;
                 native.hidden = false;
@@ -36947,7 +36967,7 @@ function tavernFloorHeightRecall(key, width) {
 			const workingLabel = (item.activity ? item.activity.label : "生成中") + (typeof progress === "number" && progress > 0 && progress < 1 ? " " + Math.round(progress * 100) + "%" : "…");
 			const canCancel = illustrator.cancel && (item.status === "pending" || item.activity && item.activity.cancellable);
 			return h("figure", { className: "dsh-tavern-plugin-media dsh-tavern-illustration", "data-kind": item.kind, "data-owner": item.owner },
-				url ? h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": "放大插图", onClick: function (event) { openSceneImagePreview(url, event.currentTarget, null, illustrator.editPrompt && !working ? function () { open("prompt"); } : null); } },
+				url ? h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": "放大插图", onClick: function (event) { openSceneImagePreview(url, event.currentTarget, current && illustrator.editPrompt && !busy && !working ? function () { open("prompt"); } : null); } },
 					h("img", { src: url, alt: item.caption || "插图", loading: "lazy" })) : null,
 				item.caption && url ? h("figcaption", null, current ? item.caption : history[index] && history[index].caption || item.caption) : null,
 				url ? h("div", { className: "dsh-tavern-image-actions" },
@@ -36957,12 +36977,13 @@ function tavernFloorHeightRecall(key, width) {
 						h("span", null, String(index + 1) + " / " + String(count)),
 						h("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "下一张插图", disabled: index >= count - 1, onClick: function () { setSelected(index + 1); } }, "›")) : null,
 					// With revise, 重画 opens a panel: the same prompt again, or a prompt rewritten by the wish (or freshly).
-					illustrator.revise ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || working, onClick: function () { open("redraw"); } }, "重画")
-						: illustrator.redraw ? h("button", { type: "button", className: "dsh-tavern-btn", title: "按这张图的提示词再画一张，旧图保留为上一个版本", disabled: busy || working, onClick: function () { return run("redraw"); } }, "重画") : null,
+					illustrator.revise || illustrator.redraw ? h("button", { type: "button", className: "dsh-tavern-btn", "data-dsh-illustration-action": current ? "redraw" : undefined,
+						title: illustrator.revise ? undefined : "按这张图的提示词再画一张，旧图保留为上一个版本", disabled: busy || working,
+						onClick: function () { return illustrator.revise ? open("redraw") : run("redraw"); } }, "重画") : null,
 					illustrator.editPrompt ? h("button", { type: "button", className: "dsh-tavern-btn", title: "自己改这张图的提示词再画", disabled: busy || working, onClick: function () { open("prompt"); } }, "改提示词") : null,
 					illustrator.add ? h("button", { type: "button", className: "dsh-tavern-btn", title: "为这一轮另选一个场景，再加一张插图", disabled: busy, onClick: function () { open("add"); } }, "新增插图") : null,
 					(item.actions || []).length && illustrator.action ? item.actions.map(function (entry) {
-					return h("button", { key: entry.id, type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: async function () {
+						return h("button", { key: entry.id, type: "button", className: "dsh-tavern-btn", "data-dsh-illustration-action": current && entry.id === "image-edit" ? entry.id : undefined, disabled: busy, onClick: async function () {
 						if (entry.confirm && !await askConfirm(entry.confirm)) return;
 						return run("action", { actionId: entry.id });
 					} }, entry.label);
@@ -37061,7 +37082,7 @@ function tavernFloorHeightRecall(key, width) {
 			const anchors = input.streaming ? [] : anchored.map(function (item) { return { id: item.id, anchor: item.anchor }; });
 			return {
 				placed: placed,
-				render: function (text, key, renderText) {
+				render: function (text, key, renderText, scripted) {
 					const result = segmentPluginText(text, { markers: markers.map(function (marker) { return marker.pattern; }), anchors: anchors.filter(function (anchor) { return !placed.has(anchor.id); }) });
 					result.placed.forEach(function (id) { placed.add(id); });
 					if (result.segments.length === 1 && result.segments[0].kind === "text") return renderText(text, key, 0);
@@ -37073,7 +37094,8 @@ function tavernFloorHeightRecall(key, width) {
 						if (segment.kind === "marker") sourceOffset += segment.match[0].length;
 						if (segment.kind === "media") return React.createElement(React.Fragment, { key: index }, segment.ids.map(function (id) {
 							if (extras.has(id)) return React.createElement(React.Fragment, { key: id }, extras.get(id).render());
-							return React.createElement(TavernPluginMediaItem, { key: id, item: byId.get(id), sessionId: input.sessionId, turn: input.turn });
+							const media = React.createElement(TavernPluginMediaItem, { key: id, item: byId.get(id), sessionId: input.sessionId, turn: input.turn });
+							return scripted ? React.createElement(TavernScriptLayerMedia, { key: id, id: id }, media) : media;
 						}));
 						return React.createElement(TavernPluginMarker, { key: index, marker: markers[segment.marker], match: segment.match, sessionId: input.sessionId, turn: input.turn, streaming: input.streaming });
 					}));
@@ -38707,8 +38729,9 @@ function tavernFloorHeightRecall(key, width) {
 			return parts.map(function (part, index) {
 				if (part.kind === "markdown") {
 					const renderMarkdown = function (text, key, offset = 0) { return h(bubblePublicationType(), { key: key, sessionId: options.sessionId, voiceScope: String(options.turn) + ":" + index + (offset ? ":plugin:" + key : ""), stageSource: options.forkStageSource, stageParaBase: parts.slice(0, index).reduce((n, part) => n + (part.kind === "markdown" ? galParagraphCount(part.text) : 0), 0), stageParaOffset: pluginTextPosition(part.text, offset), interrupted: options.interrupted, voiceAuto: options.voiceAuto, text: text, streaming: options.streaming, labels: tavernMarkdownLabels(options.codeLabels), codeLabels: options.codeLabels, fileMentions: options.mentions }); };
-					const markdown = options.plugin ? options.plugin.render(String(part.text || ""), index, renderMarkdown) : renderMarkdown(String(part.text || ""), index);
-					return options.scriptLayer && !options.streaming ? h(TavernScriptLayerPart, { key: index, layer: options.scriptLayer, partIndex: index, text: String(part.text || "") }, markdown) : markdown;
+					const scripted = options.scriptLayer && !options.streaming;
+					const markdown = options.plugin ? options.plugin.render(String(part.text || ""), index, renderMarkdown, scripted) : renderMarkdown(String(part.text || ""), index);
+					return scripted ? h(TavernScriptLayerPart, { key: index, layer: options.scriptLayer, partIndex: index, text: String(part.text || "") }, markdown) : markdown;
 				}
 				// Rounds past the render depth keep their prose; the card's HTML waits for one click.
 				if (typeof options.deferHtml === "function") {
@@ -38724,6 +38747,16 @@ function tavernFloorHeightRecall(key, width) {
 					: h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, frameOwner: options.frameOwner, frameSizing: options.frameSizing, helperContext: options.helperContext, helperContextReader: options.helperContextReader, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, onSubmitOpening: options.onSubmitOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
 				return pluginHtml && pluginHtml.after ? h(React.Fragment, { key: index }, html, pluginHtml.after) : html;
 			});
+		}
+
+		function TavernScriptLayerMedia(props) {
+			const [host] = React.useState(function () { return document.createElement("div"); });
+			const attach = React.useCallback(function (slot) {
+				if (!slot) { host.remove(); return; }
+				slot.tavernMediaHost = host;
+				slot.append(host);
+			}, [host]);
+			return React.createElement("div", { ref: attach, "data-dsh-script-media": props.id }, ReactDOM.createPortal(props.children, host));
 		}
 
 		function TavernScriptLayerPart(props) {
@@ -39459,7 +39492,7 @@ function tavernFloorHeightRecall(key, width) {
 		})();
 
 		// the one shared large view (image-viewer.js openSceneImage).
-		function openSceneImagePreview(url, opener, version, onEditPrompt, gallery, label) { return openSceneImage(url, opener, version, onEditPrompt, gallery, label); }
+		function openSceneImagePreview(url, opener, onEditPrompt, gallery, label) { return openSceneImage(url, opener, onEditPrompt, gallery, label); }
 
 		function createTavernAssistantRendererFeatureModule() {
 			function TavernUserNodeView(props) {
@@ -45860,7 +45893,7 @@ function TavernCardUpdateDialog(props) {
 							return h("figure", { key: shot.id, className: "dsh-tavern-gallery-shot" + (picked[shot.id] ? " is-picked" : ""), title: shot.version.description },
 									h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": shot.item.provider ? "放大「" + shot.item.provider + "」图库图片" : "放大第 " + shot.item.turn + " 轮插图", onClick: function (event) {
 									if (picking) toggle(shot, !picked[shot.id]);
-									else openSceneImagePreview(shot.url, event.currentTarget, null, null, { urls: urls, index: urls.indexOf(shot.url) });
+									else openSceneImagePreview(shot.url, event.currentTarget, null, { urls: urls, index: urls.indexOf(shot.url) });
 								} }, h("img", { src: shot.url, alt: shot.version.description || "插图", loading: "lazy" })),
 								picking ? h("label", { className: "dsh-tavern-gallery-pick" }, h("input", { type: "checkbox", "aria-label": "选择第 " + shot.item.turn + " 轮插图", checked: Boolean(picked[shot.id]), disabled: busy, onChange: function (event) { toggle(shot, event.target.checked); } }))
 									: h("button", { type: "button", className: "dsh-tavern-gallery-delete", "aria-label": "删除这张图片", title: "删除这张图片", disabled: busy, onClick: function () { void remove([shot]); } }, h(DshUi.IconTrashOutlineRegular, null)));

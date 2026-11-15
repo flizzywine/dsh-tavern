@@ -477,8 +477,9 @@
 			return parts.map(function (part, index) {
 				if (part.kind === "markdown") {
 					const renderMarkdown = function (text, key, offset = 0) { return h(bubblePublicationType(), { key: key, sessionId: options.sessionId, voiceScope: String(options.turn) + ":" + index + (offset ? ":plugin:" + key : ""), stageSource: options.forkStageSource, stageParaBase: parts.slice(0, index).reduce((n, part) => n + (part.kind === "markdown" ? galParagraphCount(part.text) : 0), 0), stageParaOffset: pluginTextPosition(part.text, offset), interrupted: options.interrupted, voiceAuto: options.voiceAuto, text: text, streaming: options.streaming, labels: tavernMarkdownLabels(options.codeLabels), codeLabels: options.codeLabels, fileMentions: options.mentions }); };
-					const markdown = options.plugin ? options.plugin.render(String(part.text || ""), index, renderMarkdown) : renderMarkdown(String(part.text || ""), index);
-					return options.scriptLayer && !options.streaming ? h(TavernScriptLayerPart, { key: index, layer: options.scriptLayer, partIndex: index, text: String(part.text || "") }, markdown) : markdown;
+					const scripted = options.scriptLayer && !options.streaming;
+					const markdown = options.plugin ? options.plugin.render(String(part.text || ""), index, renderMarkdown, scripted) : renderMarkdown(String(part.text || ""), index);
+					return scripted ? h(TavernScriptLayerPart, { key: index, layer: options.scriptLayer, partIndex: index, text: String(part.text || "") }, markdown) : markdown;
 				}
 				// Rounds past the render depth keep their prose; the card's HTML waits for one click.
 				if (typeof options.deferHtml === "function") {
@@ -494,6 +495,16 @@
 					: h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, frameOwner: options.frameOwner, frameSizing: options.frameSizing, helperContext: options.helperContext, helperContextReader: options.helperContextReader, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, onSubmitOpening: options.onSubmitOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
 				return pluginHtml && pluginHtml.after ? h(React.Fragment, { key: index }, html, pluginHtml.after) : html;
 			});
+		}
+
+		function TavernScriptLayerMedia(props) {
+			const [host] = React.useState(function () { return document.createElement("div"); });
+			const attach = React.useCallback(function (slot) {
+				if (!slot) { host.remove(); return; }
+				slot.tavernMediaHost = host;
+				slot.append(host);
+			}, [host]);
+			return React.createElement("div", { ref: attach, "data-dsh-script-media": props.id }, ReactDOM.createPortal(props.children, host));
 		}
 
 		function TavernScriptLayerPart(props) {

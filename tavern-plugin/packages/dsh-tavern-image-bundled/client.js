@@ -1229,7 +1229,7 @@ function versionsOf(jobId) {
         setPos({ x: touch.clientX - dragRef.current.x, y: touch.clientY - dragRef.current.y })
       }, [])
       openImageOverlay = (next) => setView(current => Object.assign({}, current, next && next.open ? Object.assign({ index: 0, versionAt: 0, versions: [], images: null, jobIds: [] }, next) : next))
-      const close = () => openImageOverlay({ open: false, jobIds: [], versions: [], versionAt: 0, note: '', working: false, index: 0 })
+      const close = () => openImageOverlay({ open: false, images: null, jobIds: [], versions: [], versionAt: 0, note: '', working: false, index: 0 })
       const total = (view.images ?? view.jobIds).length
       const at = total ? Math.max(0, Math.min(total - 1, Number(view.index) || 0)) : 0
       // 当前这张图自己的重画版本链（与整场翻页互不影响）
@@ -1238,6 +1238,21 @@ function versionsOf(jobId) {
       const vAt = vTotal ? Math.max(0, Math.min(vTotal - 1, Number(view.versionAt) || 0)) : 0
       // 真正显示的那张：有版本链就用版本链的当前版，否则用主列表的当前张
       const shownImage = view.images?.[at]
+      function illustrationAction(id) {
+        const element = shownImage?.element
+        if (!element?.isConnected || element.querySelector('img')?.getAttribute('src') !== shownImage.url) return null
+        return element.querySelector(`button[data-dsh-illustration-action="${id}"]:not(:disabled)`)
+      }
+      function runIllustrationAction(id) {
+        if (!illustrationAction(id)) return
+        close()
+        requestAnimationFrame(() => {
+          const button = illustrationAction(id)
+          if (!button) return
+          if (id === 'redraw') button.scrollIntoView({ block: 'nearest' })
+          button.click()
+        })
+      }
       const shownId = vTotal ? versions[vAt] : (shownImage?.jobId || view.jobIds[at])
       const src = shownImage?.url || (shownId ? BASE + '/jobs?id=' + encodeURIComponent(shownId) + '&image=1' : '')
       React.useEffect(() => {
@@ -1302,6 +1317,8 @@ function versionsOf(jobId) {
             src ? React.createElement('button', { type: 'button', title: '重置缩放', style: controls,
               onClick: () => { setZoom(1); setPos({ x: 0, y: 0 }) } }, Math.round(zoom * 100) + '%') : null,
             src ? React.createElement('button', { type: 'button', title: '放大', style: controls, onClick: () => setZoom(z => Math.min(8, z * 1.25)) }, '+') : null,
+            illustrationAction('redraw') ? React.createElement('button', { type: 'button', style: controls, onClick: () => runIllustrationAction('redraw') }, '重画') : null,
+            illustrationAction('image-edit') ? React.createElement('button', { type: 'button', style: controls, onClick: () => runIllustrationAction('image-edit') }, '改图') : null,
             React.createElement('button', {
               type: 'button', onClick: close,
               style: controls,
@@ -1504,7 +1521,7 @@ function versionsOf(jobId) {
               return [{ src, title: img.alt || '正文插图', element, anchor }]
             })
             setPictures(previous => previous.length === records.length && previous.every((item, index) =>
-              item.src === records[index].src && item.title === records[index].title) ? previous : records)
+              item.src === records[index].src && item.title === records[index].title && item.element === records[index].element) ? previous : records)
           }
           if (!records.length) { select(''); return }
           if (settings.follow === 'off') {
@@ -1609,7 +1626,7 @@ function versionsOf(jobId) {
             collapsed ? null : h('button', { type: 'button', style: btn, 'aria-label': '下一张正文图片', disabled: index + 1 >= pictures.length, onClick: () => select(pictures[index + 1].src) }, '›'),
             h('button', { type: 'button', style: btn, onClick: () => setCollapsed(value => !value) }, collapsed ? '展开' : '收起')),
           collapsed ? null : h('button', { type: 'button', style: { display: 'flex', flex: '0 1 auto', minHeight: 0, width: '100%', overflow: 'hidden', border: 0, background: 'transparent', padding: 0, marginTop: 6, cursor: 'zoom-in' },
-            onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title })), index, note: '正文插图' }) },
+            onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title, element: item.element })), index, note: '正文插图' }) },
             h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', minHeight: 0, objectFit: 'contain', borderRadius: 6 } })),
           collapsed ? null : h('div', { style: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, marginTop: 8 } },
             h('input', { type: 'range', min: IMAGE_WIDTH_LIMIT.min, max: IMAGE_WIDTH_LIMIT.max, step: 1,

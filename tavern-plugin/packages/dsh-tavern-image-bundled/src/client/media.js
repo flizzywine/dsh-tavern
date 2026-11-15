@@ -987,7 +987,7 @@ function versionsOf(jobId) {
         setPos({ x: touch.clientX - dragRef.current.x, y: touch.clientY - dragRef.current.y })
       }, [])
       openImageOverlay = (next) => setView(current => Object.assign({}, current, next && next.open ? Object.assign({ index: 0, versionAt: 0, versions: [], images: null, jobIds: [] }, next) : next))
-      const close = () => openImageOverlay({ open: false, jobIds: [], versions: [], versionAt: 0, note: '', working: false, index: 0 })
+      const close = () => openImageOverlay({ open: false, images: null, jobIds: [], versions: [], versionAt: 0, note: '', working: false, index: 0 })
       const total = (view.images ?? view.jobIds).length
       const at = total ? Math.max(0, Math.min(total - 1, Number(view.index) || 0)) : 0
       // 当前这张图自己的重画版本链（与整场翻页互不影响）
@@ -996,6 +996,21 @@ function versionsOf(jobId) {
       const vAt = vTotal ? Math.max(0, Math.min(vTotal - 1, Number(view.versionAt) || 0)) : 0
       // 真正显示的那张：有版本链就用版本链的当前版，否则用主列表的当前张
       const shownImage = view.images?.[at]
+      function illustrationAction(id) {
+        const element = shownImage?.element
+        if (!element?.isConnected || element.querySelector('img')?.getAttribute('src') !== shownImage.url) return null
+        return element.querySelector(`button[data-dsh-illustration-action="${id}"]:not(:disabled)`)
+      }
+      function runIllustrationAction(id) {
+        if (!illustrationAction(id)) return
+        close()
+        requestAnimationFrame(() => {
+          const button = illustrationAction(id)
+          if (!button) return
+          if (id === 'redraw') button.scrollIntoView({ block: 'nearest' })
+          button.click()
+        })
+      }
       const shownId = vTotal ? versions[vAt] : (shownImage?.jobId || view.jobIds[at])
       const src = shownImage?.url || (shownId ? BASE + '/jobs?id=' + encodeURIComponent(shownId) + '&image=1' : '')
       React.useEffect(() => {
@@ -1060,6 +1075,8 @@ function versionsOf(jobId) {
             src ? React.createElement('button', { type: 'button', title: '重置缩放', style: controls,
               onClick: () => { setZoom(1); setPos({ x: 0, y: 0 }) } }, Math.round(zoom * 100) + '%') : null,
             src ? React.createElement('button', { type: 'button', title: '放大', style: controls, onClick: () => setZoom(z => Math.min(8, z * 1.25)) }, '+') : null,
+            illustrationAction('redraw') ? React.createElement('button', { type: 'button', style: controls, onClick: () => runIllustrationAction('redraw') }, '重画') : null,
+            illustrationAction('image-edit') ? React.createElement('button', { type: 'button', style: controls, onClick: () => runIllustrationAction('image-edit') }, '改图') : null,
             React.createElement('button', {
               type: 'button', onClick: close,
               style: controls,

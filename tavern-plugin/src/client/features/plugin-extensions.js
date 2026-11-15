@@ -1285,7 +1285,7 @@
 			const workingLabel = (item.activity ? item.activity.label : "生成中") + (typeof progress === "number" && progress > 0 && progress < 1 ? " " + Math.round(progress * 100) + "%" : "…");
 			const canCancel = illustrator.cancel && (item.status === "pending" || item.activity && item.activity.cancellable);
 			return h("figure", { className: "dsh-tavern-plugin-media dsh-tavern-illustration", "data-kind": item.kind, "data-owner": item.owner },
-				url ? h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": "放大插图", onClick: function (event) { openSceneImagePreview(url, event.currentTarget, null, illustrator.editPrompt && !working ? function () { open("prompt"); } : null); } },
+				url ? h("button", { type: "button", className: "dsh-tavern-image-preview", "aria-label": "放大插图", onClick: function (event) { openSceneImagePreview(url, event.currentTarget, current && illustrator.editPrompt && !busy && !working ? function () { open("prompt"); } : null); } },
 					h("img", { src: url, alt: item.caption || "插图", loading: "lazy" })) : null,
 				item.caption && url ? h("figcaption", null, current ? item.caption : history[index] && history[index].caption || item.caption) : null,
 				url ? h("div", { className: "dsh-tavern-image-actions" },
@@ -1295,12 +1295,13 @@
 						h("span", null, String(index + 1) + " / " + String(count)),
 						h("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "下一张插图", disabled: index >= count - 1, onClick: function () { setSelected(index + 1); } }, "›")) : null,
 					// With revise, 重画 opens a panel: the same prompt again, or a prompt rewritten by the wish (or freshly).
-					illustrator.revise ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || working, onClick: function () { open("redraw"); } }, "重画")
-						: illustrator.redraw ? h("button", { type: "button", className: "dsh-tavern-btn", title: "按这张图的提示词再画一张，旧图保留为上一个版本", disabled: busy || working, onClick: function () { return run("redraw"); } }, "重画") : null,
+					illustrator.revise || illustrator.redraw ? h("button", { type: "button", className: "dsh-tavern-btn", "data-dsh-illustration-action": current ? "redraw" : undefined,
+						title: illustrator.revise ? undefined : "按这张图的提示词再画一张，旧图保留为上一个版本", disabled: busy || working,
+						onClick: function () { return illustrator.revise ? open("redraw") : run("redraw"); } }, "重画") : null,
 					illustrator.editPrompt ? h("button", { type: "button", className: "dsh-tavern-btn", title: "自己改这张图的提示词再画", disabled: busy || working, onClick: function () { open("prompt"); } }, "改提示词") : null,
 					illustrator.add ? h("button", { type: "button", className: "dsh-tavern-btn", title: "为这一轮另选一个场景，再加一张插图", disabled: busy, onClick: function () { open("add"); } }, "新增插图") : null,
 					(item.actions || []).length && illustrator.action ? item.actions.map(function (entry) {
-					return h("button", { key: entry.id, type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: async function () {
+						return h("button", { key: entry.id, type: "button", className: "dsh-tavern-btn", "data-dsh-illustration-action": current && entry.id === "image-edit" ? entry.id : undefined, disabled: busy, onClick: async function () {
 						if (entry.confirm && !await askConfirm(entry.confirm)) return;
 						return run("action", { actionId: entry.id });
 					} }, entry.label);
@@ -1399,7 +1400,7 @@
 			const anchors = input.streaming ? [] : anchored.map(function (item) { return { id: item.id, anchor: item.anchor }; });
 			return {
 				placed: placed,
-				render: function (text, key, renderText) {
+				render: function (text, key, renderText, scripted) {
 					const result = segmentPluginText(text, { markers: markers.map(function (marker) { return marker.pattern; }), anchors: anchors.filter(function (anchor) { return !placed.has(anchor.id); }) });
 					result.placed.forEach(function (id) { placed.add(id); });
 					if (result.segments.length === 1 && result.segments[0].kind === "text") return renderText(text, key, 0);
@@ -1411,7 +1412,8 @@
 						if (segment.kind === "marker") sourceOffset += segment.match[0].length;
 						if (segment.kind === "media") return React.createElement(React.Fragment, { key: index }, segment.ids.map(function (id) {
 							if (extras.has(id)) return React.createElement(React.Fragment, { key: id }, extras.get(id).render());
-							return React.createElement(TavernPluginMediaItem, { key: id, item: byId.get(id), sessionId: input.sessionId, turn: input.turn });
+							const media = React.createElement(TavernPluginMediaItem, { key: id, item: byId.get(id), sessionId: input.sessionId, turn: input.turn });
+							return scripted ? React.createElement(TavernScriptLayerMedia, { key: id, id: id }, media) : media;
 						}));
 						return React.createElement(TavernPluginMarker, { key: index, marker: markers[segment.marker], match: segment.match, sessionId: input.sessionId, turn: input.turn, streaming: input.streaming });
 					}));

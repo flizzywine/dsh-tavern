@@ -42,16 +42,16 @@ try{
  await page.addScriptTag({content:'window.__ModuleLoader__={load(spec){window.__plugin=spec.factory(name=>modules[name])}};'})
  await page.addScriptTag({content:source})
  await page.evaluate(()=>{
-  let Settings,Placement
-  window.__plugin.apply({slots:{inject(name,install){return install()},register(spec,component){if(spec.name==='settings.section')Settings=component;if(spec.id==='dsh-tavern-image-placement')Placement=component;return()=>{}}},inject(){}})
-  const h=modules.react.createElement;modules['react-dom/client'].createRoot(document.querySelector('#root')).render(h(modules.react.Fragment,null,h(Settings),h(Placement)))
+  let Settings,Placement,Overlay
+  window.__plugin.apply({slots:{inject(name,install){return install()},register(spec,component){if(spec.name==='settings.section')Settings=component;if(spec.id==='dsh-tavern-image-placement')Placement=component;if(spec.id==='dsh-tavern-image-overlay')Overlay=component;return()=>{}}},inject(){}})
+  const h=modules.react.createElement;modules['react-dom/client'].createRoot(document.querySelector('#root')).render(h(modules.react.Fragment,null,h(Settings),h(Placement),h(Overlay)))
  })
  await page.getByLabel('生图系统模式',{exact:true}).waitFor()
  assert.equal(await page.getByLabel('生图系统模式',{exact:true}).inputValue(),'worldbook')
  assert.equal(await page.getByRole('button',{name:'生图工作台',exact:true}).count(),0)
  await page.locator('summary').filter({hasText:'生图位置和大小'}).click()
  await page.getByLabel('生图显示位置').selectOption('floating')
- await page.evaluate(()=>{const row=document.createElement('article');row.setAttribute('data-chat-turn','1');row.innerHTML='<figure class="dsh-tavern-illustration" data-kind="dsh-tavern-image/image"><img src="/sample.png" alt="宽度验证"></figure>';document.body.append(row)})
+ await page.evaluate(()=>{const row=document.createElement('article');row.id='width-fixture';row.setAttribute('data-chat-turn','1');row.innerHTML='<figure class="dsh-tavern-illustration" data-kind="dsh-tavern-image/image"><img src="/sample.png" alt="宽度验证"></figure>';document.body.append(row)})
  const placement=page.getByLabel('正文图片查看器',{exact:true});await placement.waitFor()
  await page.getByLabel('正文图片显示宽度（像素）',{exact:true}).fill('520')
  await page.waitForFunction(()=>Math.round(document.querySelector('[data-dti-placement]').getBoundingClientRect().width)===520)
@@ -139,24 +139,77 @@ try{
  await page.getByText('词条已保存',{exact:true}).waitFor()
  assert.equal(state.config.promptEntries[0].injection,'positive')
  assert.equal(state.config.promptEntries[0].content,'cinematic lighting, rim light, depth of field')
- // Render the actual host component to check one row and dispatch of its extension action.
- const extensions=await readFile(new URL('../../tavern-plugin/src/client/features/plugin-extensions.js',import.meta.url),'utf8')
- let node
- const visit=n=>{if(!n||node)return;if(n.type==='FunctionDeclaration'&&n.id?.name==='TavernIllustrationCard'){node=n;return}for(const v of Object.values(n)){if(Array.isArray(v))v.forEach(visit);else if(v&&typeof v==='object'&&v.type)visit(v)}};visit(parse(extensions,{ecmaVersion:'latest'}));assert.ok(node)
+ // Use the real illustration card, script layer and full-screen viewer for #921.
+ const clientRoot=new URL('../../tavern-plugin/src/client/',import.meta.url)
+ async function declarations(file,names){
+  const source=await readFile(new URL(file,clientRoot),'utf8')
+  const nodes=parse(source,{ecmaVersion:'latest'}).body
+  return names.map(name=>{
+   const node=nodes.find(node=>node.type==='FunctionDeclaration'&&node.id?.name===name)
+   assert.ok(node,name)
+   return source.slice(node.start,node.end)
+  }).join('\n')
+ }
+ const [card,parts,scriptLayer,viewer]=await Promise.all([
+  declarations('features/plugin-extensions.js',['TavernIllustrationCard']),
+  declarations('ui/message-frame.js',['TavernScriptLayerMedia','TavernScriptLayerPart']),
+  declarations('runtime/helper-host.js',['mountTavernScriptLayer']),
+  readFile(new URL('image-viewer.js',clientRoot),'utf8')
+ ])
  const css=await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css',import.meta.url),'utf8')
  await page.addStyleTag({content:css})
- await page.addScriptTag({content:`(()=>{const React=modules.react;const useTavernConfirm=()=>async()=>true,tavernPluginMediaUrl=()=>'/sample.png',openSceneImagePreview=()=>{},rpc=async()=>{},TextArea=()=>null;window.actionCalls=[];${extensions.slice(node.start,node.end)};modules['react-dom/client'].createRoot(document.querySelector('#host')).render(React.createElement(TavernIllustrationCard,{sessionId:'test',turn:1,item:{id:'picture',kind:'dsh-tavern-image/image',attachment:{},caption:'操作栏验证',prompt:'A room',status:'ready',actions:[{id:'image-edit',label:'改图'}]},illustrator:{redraw:async()=>{},editPrompt:async()=>{},action:async r=>window.actionCalls.push(r)}}));})()`})
+ await page.evaluate(()=>document.querySelector('#width-fixture').remove())
+ await page.addScriptTag({content:[`(()=>{
+  const React=modules.react, h=React.createElement, ReactDOM={...modules['react-dom'],...modules['react-dom/client']}
+  const useTavernConfirm=()=>async()=>true,tavernPluginMediaUrl=()=>'/sample.png',openSceneImagePreview=(...args)=>openSceneImage(...args)
+  const useOverlay=()=>{},Spinner=()=>null,installTavernTextColors=()=>({dispose(){}}),findTavernQuoteRanges=()=>[],announceTavernMessageRendered=()=>{}
+  const TextArea=props=>h('textarea',{'aria-label':props['aria-label'],value:props.value,onChange:event=>props.onChange(event.target.value),autoFocus:props.autoFocus})
+  const rpc=async(method,args)=>window.actionCalls.push({method,...args})
+  window.actionCalls=[]
+ `,viewer,card,parts,scriptLayer,`
+  const illustration=h(TavernIllustrationCard,{sessionId:'test',turn:1,item:{id:'picture',kind:'dsh-tavern-image/image',attachment:{},caption:'操作栏验证',prompt:'A room',status:'ready',actions:[{id:'image-edit',label:'改图'}]},illustrator:{revise:async()=>{},redraw:async()=>{},editPrompt:async()=>{},action:async r=>window.actionCalls.push(r)}})
+  ReactDOM.createRoot(document.querySelector('#host')).render(h(TavernScriptLayerPart,{layer:{sessionId:'test',messageId:1},partIndex:0,text:'正文'},h('p',null,'正文'),h(TavernScriptLayerMedia,{id:'picture'},illustration)))
+ })()`].join('\n')})
  const toolbar=page.locator('#host .dsh-tavern-image-actions');await toolbar.waitFor()
  assert.equal(await toolbar.count(),1)
  const boxes=await toolbar.locator('button').evaluateAll(buttons=>buttons.map(b=>({top:b.getBoundingClientRect().top,text:b.textContent})))
  assert.equal(new Set(boxes.map(b=>b.top)).size,1,JSON.stringify(boxes))
+ await toolbar.getByRole('button',{name:'改提示词',exact:true}).click()
+ const prompt=page.getByRole('textbox',{name:'画面提示词'})
+ await prompt.fill('接管前编辑')
+ await page.evaluate(()=>document.querySelector('[data-dsh-script-layer]').setAttribute('data-card-touched',''))
+ await page.locator('[data-dsh-script-layer] figure').waitFor()
+ assert.equal(await prompt.inputValue(),'接管前编辑','保留插图表单的 React 状态')
+ await page.getByRole('button',{name:'取消',exact:true}).click()
+ await page.evaluate(()=>{document.querySelector('[data-dsh-script-layer]').innerHTML='<p>脚本改写的正文</p>'})
+ await page.getByRole('button',{name:'放大插图'}).click()
+ const inlineViewer=page.getByRole('dialog',{name:'场景插画'})
+ await inlineViewer.getByRole('button',{name:'改提示词重画'}).click()
+ await prompt.waitFor()
+ await page.getByRole('button',{name:'取消',exact:true}).click()
  await toolbar.getByRole('button',{name:'改图',exact:true}).click()
- assert.equal(await page.evaluate(()=>window.actionCalls[0].actionId),'image-edit')
+ await page.waitForFunction(()=>window.actionCalls.some(call=>call.actionId==='image-edit'))
+ await toolbar.getByRole('button',{name:'删除图片',exact:true}).click()
+ await page.waitForFunction(()=>window.actionCalls.some(call=>call.method==='removePluginMediaVersion'))
+ await page.getByRole('button',{name:'设置',exact:true}).click()
+ const placementSelect=page.getByLabel('生图显示位置')
+ if(!await placementSelect.isVisible())await page.locator('summary').filter({hasText:'生图位置和大小'}).click()
+ await placementSelect.selectOption('floating')
+ const floatingPreview=placement.getByRole('button').filter({has:page.getByRole('img',{name:'操作栏验证'})})
+ await floatingPreview.click()
+ const floatingViewer=page.getByRole('dialog',{name:'正文插图'})
+ await floatingViewer.getByRole('button',{name:'改图',exact:true}).click()
+ await page.waitForFunction(()=>window.actionCalls.filter(call=>call.actionId==='image-edit').length===2)
+ await floatingPreview.click()
+ await floatingViewer.getByRole('button',{name:'重画',exact:true}).click()
+ await page.getByRole('region',{name:'重画插图'}).waitFor()
+ await page.getByRole('button',{name:'取消',exact:true}).click()
+ await placementSelect.selectOption('inline')
  await page.locator('#host').screenshot({path:process.env.DSH_TOOLBAR_SCREENSHOT||join(tmpdir(),'dsh-image-actions-row.png')})
  await page.setViewportSize({width:390,height:844})
  await page.evaluate(()=>document.querySelector('#host').style.width='350px')
  const narrow=await toolbar.locator('button').evaluateAll(buttons=>buttons.map(b=>b.getBoundingClientRect().top))
  assert.equal(new Set(narrow).size,1)
  assert.deepEqual(errors,[])
- console.log('PASS: default worldbook, smooth floating drag/automatic save/visible controls, scenario save/reload, 64 tag entries, single-row native image actions at desktop/mobile widths')
+ console.log('PASS: scenario and placement settings, inline illustration actions after script takeover, floating edit/redraw, desktop and mobile action bar')
 }finally{await browser.close()}
