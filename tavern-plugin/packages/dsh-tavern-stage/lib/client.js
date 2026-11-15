@@ -25302,8 +25302,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
 //   openGallery() 回想 and openBacklog() 履历 over the page (a jump from the 履历 enters the stage there), exit() 返回主页面;
 //   title(text) the sheet's title line while the page is open (a sheet about one figure
 //   names it in the title, not in a heading of its own under it); '' gives the declared label back; at most 60 characters;
-//   sound(name) the shown skin's own move / confirm / open / close cue
-//   (a skin without that cue stays silent). Every action's Promise settles, so a page that disables its buttons while one
+//   sound(name) the move / confirm / open / close cue: the shown skin's own, else the engine's (ui-sfx.js).
+//   Every action's Promise settles, so a page that disables its buttons while one
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
@@ -25487,7 +25487,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         if (method === 'sound') {
             const name = String(args?.name || '');
             if (!PAGE_SOUNDS.has(name)) throw new Error('sound 只接受 move、confirm、open、close');
-            return {played: sounds?.playSkin(name) === true};
+            return {played: sounds?.play(name) === true};
         }
         throw new Error('卡片页面不支持：' + String(method || ''));
     }

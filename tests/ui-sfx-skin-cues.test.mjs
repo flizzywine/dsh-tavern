@@ -1,5 +1,5 @@
-// ui-sfx.js playSkin: a card page's sound(name) is the shown skin's own cue file, through the same mixer bus and UI volume
-// as the engine cues; a skin without that cue (or no skin palette at all) stays silent and fetches nothing.
+// ui-sfx.js play: a card page's sound(name) is the shown skin's own cue file, through the same mixer bus and UI volume
+// as the engine cues; a skin without that cue (or no skin palette at all) gets the engine's own cue of that name.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -35,21 +35,22 @@ test('a skin with sounds plays its own files for a card page cue', async () => {
   h.sfx.useSkin(SKIN_WITH_SOUNDS)
   await settle()
   assert.deepEqual(h.fetched, ['/skins/ink/move.ogg', '/skins/ink/confirm.ogg'])
-  assert.equal(h.sfx.playSkin('move'), true)
-  assert.equal(h.sfx.playSkin('confirm'), true)
-  assert.equal(h.sfx.playSkin('open'), false, 'a cue the skin does not define is silent')
-  assert.deepEqual(h.started, ['/skins/ink/move.ogg', '/skins/ink/confirm.ogg'])
+  assert.equal(h.sfx.play('move'), true)
+  assert.equal(h.sfx.play('confirm'), true)
+  await h.sfx.preload()
+  assert.equal(h.sfx.play('open'), true, 'a cue the skin does not define is the engine cue')
+  assert.deepEqual(h.started.slice(0, 2), ['/skins/ink/move.ogg', '/skins/ink/confirm.ogg'])
+  assert.match(h.started[2], /ui-sfx\/open\.ogg$/)
 })
 
-test('a skin without sounds, or no skin, stays silent and loads no engine cue', async () => {
+test('a skin without sounds, or no skin, gets the engine cue of that name', async () => {
   for (const palette of [SKIN_WITHOUT_SOUNDS, null]) {
     const h = harness()
     h.sfx.useSkin(palette)
     await settle()
-    for (const cue of ['move', 'confirm', 'open', 'close']) assert.equal(h.sfx.playSkin(cue), false)
-    await settle()
-    assert.deepEqual(h.fetched, [])
-    assert.deepEqual(h.started, [])
+    await h.sfx.preload()
+    assert.equal(h.sfx.play('move'), true)
+    assert.equal(h.started.length, 1)
   }
 })
 
@@ -57,6 +58,6 @@ test('a muted UI layer keeps the skin cue silent', async () => {
   const h = harness({master: 1, ui: 1, muted: {ui: true}})
   h.sfx.useSkin(SKIN_WITH_SOUNDS)
   await settle()
-  assert.equal(h.sfx.playSkin('move'), false)
+  assert.equal(h.sfx.play('move'), false)
   assert.deepEqual(h.started, [])
 })
