@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a6e050dd1769903811a11681793b423436874d0e",
-  "releaseSequence": 1685,
+  "revision": "cadb98a6966f92c25e365713cd550aa34ea9762d",
+  "releaseSequence": 1686,
   "version": "3.3.0",
   "files": [
     {
@@ -1911,8 +1911,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "ebb8b28b21d93923253542016bee72b2886f8393a720f81db351ecacf5e903af",
-      "size": 37793
+      "sha256": "7c2cdccb6deb94dec267e50b917f41a008e4372387642f4edda8056af07a9921",
+      "size": 37299
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3461,8 +3461,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-tool-submission.js",
-      "sha256": "c3e65c0299907dcad0f8d5007fc44c0d945ce8d942559a0f6e8eb1d687fe78fd",
-      "size": 16382
+      "sha256": "5d4ebf3f4478ca42daa493a4390e27be5e9ea51cc4e890255f840dc82b5f2d9b",
+      "size": 15126
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript-reader.js",
@@ -9291,9 +9291,9 @@
     }
   ],
   "archive": {
-    "commit": "f84eec094be250abefc481c2ee1905acc9ab7db7",
+    "commit": "e36852219b130d496e3e11816109ed65375b1ee1",
     "path": "runtime.zip",
-    "sha256": "def76a154d2e01786262fc5ab03dd9fd18e228043584945f2129faf41bfff8ea",
-    "size": 16623412
+    "sha256": "c71a6acd426853272918795f4484b1a3b931e4fd69c3c7f74b10ad1eaa497578",
+    "size": 16622808
   }
 }
