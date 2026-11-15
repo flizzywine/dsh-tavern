@@ -1909,8 +1909,8 @@ test('beforeImageGenerate: each linked person is dressed in the outfit the stage
   api.imageGates({ async beforePlan() {}, async awaitReferences() { return { unavailable: [] } },
     async wearing(input) { asked.push(input); return [{ packId: 'p', figureId: 'f-k', outfitKey: 'k06' }, { packId: 'p', figureId: 'f-i', outfitKey: 'i09' }] } })
   const subjects = ['c-lin', 'c-xin', 'c-free'].map(characterId => ({ characterId }))
-  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, subjects }), { outfits: { 'c-lin': 'k06' } }, 'an outfit the record does not have is not named')
-  assert.deepEqual(asked, [{ gameId: 'g', turn: 2 }])
+  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, anchor: '桥边。', subjects }), { outfits: { 'c-lin': 'k06' } }, 'an outfit the record does not have is not named')
+  assert.deepEqual(asked, [{ gameId: 'g', turn: 2, anchor: '桥边。' }])
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, subjects: [{ characterId: 'c-free' }] }), {}, 'no linked person, no stage read')
   assert.equal(asked.length, 1)
 })

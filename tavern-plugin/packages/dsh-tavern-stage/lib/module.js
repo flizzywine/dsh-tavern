@@ -27,7 +27,7 @@ import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
 import {createFigureVoiceAuthoring, countServiceUsers} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
-import {foldAssetPackEntries} from './domain/stage-asset-pack-director.js'
+import {stageImageOutfits} from './domain/stage-image-outfits.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
 import {createCardPagesService} from './domain/status-panel-service.js'
@@ -310,15 +310,11 @@ export async function createStageModule(core) {
       ctx.effect(() => deps.pluginApi.imageGates({
         async beforePlan({gameId, turn, signal}) { const cardPath = await castCard(gameId); if (cardPath) await autoCast.awaitCast(cardPath, gameId, turn, signal) },
         async awaitReferences({gameId, figures, signal}) { const cardPath = await castCard(gameId); return cardPath ? autoCast.awaitSettei(cardPath, figures, signal) : {unavailable:[]} },
-        // What each actor wears in the turn's stage (its record's end, a running director's preview, or the end it carries
-        // in), so a picture dresses them as their sprite is.
-        async wearing({gameId, turn}) {
+        // Dress each picture at its anchor paragraph, using the recorded stage, running preview or carried baseline.
+        async wearing({gameId, turn, anchor}) {
           const chat = await deps.chatForSession(gameId)
           if (!chat || chat.mode === 'card') return []
-          const direction = await stageDirector.get(chat, turn, null, {readOnly:true}), checked = direction.record || direction.preview
-          const state = checked ? foldAssetPackEntries(checked) : direction.baseline
-          return Object.values(state?.actors || {}).filter(actor => actor.figure?.figureId && actor.outfitKey)
-            .map(actor => ({packId:actor.figure.packId, figureId:actor.figure.figureId, outfitKey:actor.outfitKey}))
+          return stageImageOutfits(await stageDirector.get(chat, turn, null, {readOnly:true}), anchor)
         }
       }), 'dsh-tavern: CG waits for 自动素材, dressed as the stage')
       const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport,autoCastSettings,

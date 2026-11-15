@@ -569,7 +569,7 @@ export function createTavernPluginApi(deps) {
     // picture once beforeImageGenerate does, skipping it on {skip, reason}. Tavern releases a turn once its new people are
     // written (their 人物库 records exist, with their 外貌), and a picture once each of its people linked to a pack figure
     // without a 参考图 has one: their 人设图 is drawn first; at once when nothing is being prepared. The answer's
-    // `outfits` ({[characterId]: outfitId}) names the outfit the stage has each linked person wear in that turn (a record's
+    // `outfits` ({[characterId]: outfitId}) names the outfit the stage has each linked person wear at the anchor paragraph (a record's
     // outfit ids are its figure's outfit keys): the stage is the one authority on what a person wears now.
     async beforeImagePlan({ gameId, turn, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Number.isSafeInteger(turn)) throw new TypeError('beforeImagePlan 需要 gameId 与整数 turn')
@@ -578,7 +578,7 @@ export function createTavernPluginApi(deps) {
       // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
       await deps.imageCharactersSettled?.()
     },
-    async beforeImageGenerate({ gameId, turn, subjects, signal } = {}) {
+    async beforeImageGenerate({ gameId, turn, anchor, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
       if (!imageGateProvider) return {}
       const ids = [...new Set(subjects.map(subject => subject?.characterId).filter(id => typeof id === 'string' && id))]
@@ -586,7 +586,7 @@ export function createTavernPluginApi(deps) {
       const records = (await Promise.all(ids.flatMap(characterId => libraries.map(({ providerId }) => imageCatalog.record('getCharacter', {}, { providerId, characterId })
         .then(found => found.character, error => { if (error.code === 'NOT_FOUND') return null; throw error }))))).filter(Boolean)
       const linked = records.filter(record => record.figureId && record.figurePackId)
-      const worn = linked.length && Number.isSafeInteger(turn) ? await imageGateProvider.wearing({ gameId, turn }) : []
+      const worn = linked.length && Number.isSafeInteger(turn) ? await imageGateProvider.wearing({ gameId, turn, anchor }) : []
       const outfits = Object.fromEntries(linked.flatMap(record => {
         const row = worn.find(item => item.packId === record.figurePackId && item.figureId === record.figureId)
         return row && record.outfits?.some(outfit => outfit.id === row.outfitKey) ? [[record.id, row.outfitKey]] : []

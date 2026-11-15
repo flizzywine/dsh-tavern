@@ -656,7 +656,7 @@ export function createStageDirector(deps) {
     const body = {status:value.status, phase:value.status === 'missing' ? 'unknown' : value.status,
       target, generation, token, units, displayUnits, body:round, pageIndex, legacyPlayback, assetRevision:deps.assets.revision || 0, complete:!!record, through:record ? units.length : preview?.through || 0,
       ...(binding ? {binding, bindingKey:token.bindingKey, prefixRevision, baseline:record?.baseline || preview.baseline,
-        entries:record?.entries || preview.entries} : {}),
+        entries:record?.entries || preview.entries} : value.baseline ? {baseline:value.baseline} : {}),
       ...(record ? {record} : {}), ...(preview ? {preview} : {}), ...(value.opening ? {opening:value.opening} : {}), ...(value.error ? {error:value.error, ...(value.code ? {code:value.code} : {})} : {})}
     Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview,items:await deps.itemsEnabled?.(chat) !== false}))
     const result = observation(chat,turn,body,assetPackDigest(displayUnits),unitsDigest,pageDigest,options)
