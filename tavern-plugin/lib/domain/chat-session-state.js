@@ -42,7 +42,7 @@ export function projectChatSessionState(chat, options = {}) {
   }
   for (const key of ['id', 'sessionId', '_storageRevision', 'mode', 'cardPath', 'cardContextRevision',
     'backgroundConfigVersion', 'conversationFeaturesVersion', 'backgroundTasks', 'disabledWritingSkills', 'contextCompaction', 'updatedAt', 'timeline', 'candidateAgent',
-    'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'plotCompass', 'plotCompassTask', 'taskMailbox', 'regenInProgress',
+    'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'plotCompass', 'plotCompassModelSelection', 'plotCompassTask', 'taskMailbox', 'regenInProgress',
     'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'failedRegenerationTarget', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
@@ -341,7 +341,7 @@ export function projectDisplayRuntimeState(chat, requestedTurn) {
 export function projectChatBackgroundConfig(chat) {
   const selected = {}
   for (const key of ['id', 'sessionId', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion',
-    'backgroundModelSelection', 'backgroundModelRevision', 'backgroundTasks','worldbookStrategy', 'webSearchEnabled', 'disabledForegroundTools', 'cardContextRevision']) {
+    'backgroundModelSelection', 'backgroundModelRevision', 'plotCompassModelSelection', 'backgroundTasks','worldbookStrategy', 'webSearchEnabled', 'disabledForegroundTools', 'cardContextRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   selected.backgroundSessionStatus = chat.timeline?.participants?.background?.status

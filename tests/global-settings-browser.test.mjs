@@ -203,3 +203,26 @@ test('开局默认功能区包含“后台任务附加预设”开关，默认�
   )
 })
 
+test('全局默认模型区支持设置剧情罗盘默认模型：跟随后台、跟随前台与独立模型', async t => {
+  const backend = fixture()
+  const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
+  const trigger = page.locator('button[aria-label^="默认剧情罗盘模型："]')
+  await page.waitForFunction(() => document.querySelector('button[aria-label^="默认剧情罗盘模型："]')?.disabled === false)
+  await trigger.click()
+  await page.getByRole('menuitemradio', { name: '跟随前台' }).click()
+  await page.getByRole('button', { name: /^默认剧情罗盘模型：.*跟随前台/ }).waitFor()
+  assert.deepEqual(
+    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
+    { plotCompassModel: 'foreground' }
+  )
+
+  await trigger.click()
+  await page.getByRole('menuitemradio', { name: 'm' }).click()
+  await page.getByRole('button', { name: /^默认剧情罗盘模型：.*m/ }).waitFor()
+  assert.deepEqual(
+    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
+    { plotCompassModel: { provider: 'p', model: 'm' } }
+  )
+})
+
+

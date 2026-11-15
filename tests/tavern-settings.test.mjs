@@ -324,3 +324,72 @@ test('后台任务附加预设默认关闭且校验布尔类型', async () => {
   const patched = applyTavernSettingsPatch({}, { defaultPlaySettings: { backgroundTasks: { preset: true } } })
   assert.equal(patched.defaultPlaySettings.backgroundTasks.preset, true)
 })
+
+test('剧情罗盘模型默认跟随后台，支持跟随前台和独立模型且随默认模板继承', async () => {
+  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
+  const { createSettingsHandlers } = await import('../tavern-plugin/lib/rpc/settings.js')
+  const { createConversationInitialization } = await import('../tavern-plugin/lib/domain/conversation-initialization.js')
+
+  assert.equal(presentTavernSettings({}, {}).plotCompassModel, 'background')
+  assert.throws(() => applyTavernSettingsPatch({}, { plotCompassModel: 'other' }), /剧情罗盘模型配置无效/)
+  const fgDoc = applyTavernSettingsPatch({}, { plotCompassModel: 'foreground' })
+  assert.equal(presentTavernSettings(fgDoc, {}).plotCompassModel, 'foreground')
+  const indModel = { provider: 'openai', model: 'gpt-5', reasoningEffort: 'high' }
+  const indDoc = applyTavernSettingsPatch({}, { plotCompassModel: indModel })
+  assert.deepEqual(presentTavernSettings(indDoc, {}).plotCompassModel, indModel)
+
+  let settingsDoc = {}
+  const chats = new Map([
+    ['s1', { id: 'c1', sessionId: 's1', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: indModel, backgroundTasks: {}, disabledForegroundTools: [], disabledWritingSkills: [], messages: [] }],
+    ['s2', { id: 'c2', sessionId: 's2', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: 'background', backgroundTasks: {}, disabledForegroundTools: [], disabledWritingSkills: [], messages: [] }]
+  ])
+  const readTavernSettings = async () => presentTavernSettings(settingsDoc, {})
+  const updateTavernSettings = async patch => {
+    settingsDoc = applyTavernSettingsPatch(settingsDoc, patch)
+    return presentTavernSettings(settingsDoc, {})
+  }
+  const handlers = createSettingsHandlers({
+    str: v => v == null ? '' : String(v),
+    groupOfMode: mode => mode === 'card' ? 'card' : 'play',
+    chatForSession: async sid => chats.get(sid),
+    chatHeaderForSession: async sid => chats.get(sid),
+    updateChat: async (chatId, updater) => {
+      for (const [sid, chat] of chats.entries()) {
+        if (chat.id === chatId) {
+          const next = updater({ ...chat })
+          chats.set(sid, next)
+          return next
+        }
+      }
+      throw new Error('missing chat')
+    },
+    readTavernSettings,
+    updateTavernSettings,
+    llm: { resolveCallConfig: async () => ({}) }
+  })
+
+  await handlers.saveConversationSettingsAsDefaultTemplate({ sessionId: 's1' })
+  assert.deepEqual((await readTavernSettings()).plotCompassModel, indModel)
+  await handlers.restoreConversationSettingsFromDefaultTemplate({ sessionId: 's2' })
+  assert.deepEqual(chats.get('s2').plotCompassModelSelection, indModel)
+
+  let publishedChat = null
+  const init = createConversationInitialization({
+    id: prefix => prefix + '-new',
+    timeline: { apply: ({ chat }) => ({ chat }) },
+    cards: {
+      read: async () => ({ path: 'cards/a.json', name: '卡', first_mes: '开场' }),
+      extensions: async () => ({}),
+      script: async () => undefined
+    },
+    chats: { resolve: async () => undefined, publish: async chat => { publishedChat = chat } },
+    snapshots: { prepare: async () => {} },
+    presets: { fullSnapshot: async () => null },
+    settings: readTavernSettings,
+    emptyCardWorkspace: () => ({}),
+    present: async chat => chat
+  })
+  await init.start({ cardPath: 'cards/a.json', mode: 'story' })
+  assert.deepEqual(publishedChat.plotCompassModelSelection, indModel)
+})
+

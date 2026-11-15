@@ -977,7 +977,7 @@ export async function apply(ctx) {
   // ---------- 模型调用 ----------
   const helperGenerationTasks = createHelperGenerationTasks()
   ctx.effect(() => () => helperGenerationTasks.dispose())
-  const { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel } = createModelCalls({
+  const { modelSelection, backgroundModelSelection, plotCompassModelSelection, tavernModelCatalog, callModel } = createModelCalls({
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
   function scoringCatalog() {return [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model}))}
@@ -2687,7 +2687,7 @@ export async function apply(ctx) {
   // ownModel (keep the selection it brings), webSearch: false, cardContext: false (no card/worldbook injection),
   // frozenContext(input) → a frozen shared context {worldbook, stablePrefix, stablePrefixRevision} or null.
   // The stage module declares its director's; 精修 brings its own model.
-  const backgroundTaskPolicies = new Map([['polish', { ownModel: true }]])
+  const backgroundTaskPolicies = new Map([['polish', { ownModel: true }], ['plot-compass', { ownModel: true }]])
   const taskPolicy = input => backgroundTaskPolicies.get(input?.task) || {}
   const frozenContext = input => taskPolicy(input).frozenContext?.(input) || null
   const contextHost = createContextHost({ pluginApi: { resolveReadCapability: input => pluginApi.resolveReadCapability(input) }, chatForSession, recallHistoryForSession, callModel, runner: () => backgroundAgentRunner })
@@ -2875,7 +2875,7 @@ export async function apply(ctx) {
     },
     scripts: scriptContinuity,
     prompt: runtimePrompt,
-    selection: backgroundModelSelection,
+    selection: plotCompassModelSelection,
     runAgent: input => backgroundAgentRunner.run(input),
     callModel,
     ensureSession: async sessionId => {
@@ -4289,7 +4289,7 @@ export async function apply(ctx) {
     regenBody, regexLibrary, regexManager, removePluginGalleryItems, removePluginMediaVersion, removePluginPicture, renameResource,
     requestPerformance, retrySettlement, retryStyleReference, rollbackTurn, rollbackToTurn,
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, scriptContinuity,
-    scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
+    scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch, sessionSignals,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
     skillImportFiles, sleep, speakLine, speech, startChat, switchSessionOpening: conversationInitialization.switchOpening, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, turnOrchestrator, undoRollbackTurn,

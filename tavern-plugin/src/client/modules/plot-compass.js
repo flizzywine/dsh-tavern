@@ -31,6 +31,12 @@ const PLOT_COMPASS_PACE_OPTIONS = Object.freeze([
     { key: "climax", label: "尽快引爆", title: "提高戏剧张力，推动当前节拍或篇章冲突正面对撞" }
 ]);
 
+const PLOT_COMPASS_MODEL_OPTIONS = Object.freeze([
+    { key: "background", label: "跟随后台", title: "使用本局或全局后台模型" },
+    { key: "foreground", label: "跟随前台", title: "使用当前对话前台模型" },
+    { key: "independent", label: "独立", title: "单独为剧情罗盘指定独立模型" }
+]);
+
 function compassMidPhaseLabel(index, total) {
     if (total <= 1) return "";
     if (index === total - 1) return "高潮";
@@ -124,6 +130,10 @@ function TavernPlotCompassTab(props) {
     const [busyAction, setBusyAction] = React.useState("");
     const [localError, setLocalError] = React.useState("");
     const [localNotice, setLocalNotice] = React.useState("");
+    const [pickingIndependentModel, setPickingIndependentModel] = React.useState(false);
+    const [modelCatalog, setModelCatalog] = React.useState([]);
+    const [catalogLoading, setCatalogLoading] = React.useState(false);
+    const [modelReasoning, setModelReasoning] = React.useState({ key: "", value: null, error: "" });
 
     const compass = (view && view.plotCompass) || {
         pace: "natural", blindBox: false, customDirective: "",
@@ -132,6 +142,10 @@ function TavernPlotCompassTab(props) {
         pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], chatHistory: [], basedOnTurn: 0
     };
     const compassEnabled = Boolean(view && view.plotCompassEnabled === true);
+    const compassModel = (view && view.plotCompassModel) || "background";
+    const compassModelIsObject = Boolean(compassModel && typeof compassModel === "object");
+    const compassModelMode = compassModelIsObject ? "independent" : (compassModel === "foreground" ? "foreground" : "background");
+    const compassModelKey = compassModelIsObject ? JSON.stringify({ provider: compassModel.provider, model: compassModel.model }) : "";
     const task = (view && view.plotCompassTask) || { status: "idle", scope: "all", error: "" };
     const isRunning = task.status === "running";
     const active = activeCompassSummaryOf(compass);
@@ -148,7 +162,33 @@ function TavernPlotCompassTab(props) {
         setEditingDirective(false);
         setPeekedCards({});
         setChatOpen(false);
+        setPickingIndependentModel(false);
     }, [sessionId]);
+
+    React.useEffect(function () {
+        if (!compassEnabled || (!pickingIndependentModel && !compassModelIsObject)) return;
+        let activeEffect = true;
+        setCatalogLoading(true);
+        rpc("getTavernModelCatalog").then(function (result) {
+            if (!activeEffect) return;
+            setModelCatalog(Array.isArray(result && result.modelCatalog) ? result.modelCatalog : []);
+            setCatalogLoading(false);
+        }, function () {
+            if (activeEffect) setCatalogLoading(false);
+        });
+        return function () { activeEffect = false; };
+    }, [compassEnabled, pickingIndependentModel, compassModelIsObject]);
+
+    React.useEffect(function () {
+        if (!compassEnabled || !compassModelKey) return;
+        let activeEffect = true;
+        rpc("getBackgroundModelReasoning", JSON.parse(compassModelKey), sessionId).then(function (result) {
+            if (activeEffect) setModelReasoning({ key: compassModelKey, value: result && result.reasoning || null, error: "" });
+        }, function (err) {
+            if (activeEffect) setModelReasoning({ key: compassModelKey, value: null, error: String(err && err.message || err) });
+        });
+        return function () { activeEffect = false; };
+    }, [compassEnabled, compassModelKey, sessionId]);
 
     React.useEffect(function () {
         if (chatHistory.length > 0 && task.scope === "chat") {
@@ -159,6 +199,23 @@ function TavernPlotCompassTab(props) {
     React.useEffect(function () {
         setDirectiveDraft(customDirective);
     }, [customDirective, sessionId]);
+
+    async function saveCompassModel(nextModel, message) {
+        if (!sessionId || busyAction) return;
+        setBusyAction("model");
+        setLocalError("");
+        setLocalNotice("");
+        try {
+            await rpc("setPlotCompassModel", { model: nextModel }, sessionId);
+            liveTavernView.invalidate(sessionId);
+            setPickingIndependentModel(false);
+            if (message) setLocalNotice(message);
+        } catch (err) {
+            setLocalError(String(err && err.message || err));
+        } finally {
+            setBusyAction("");
+        }
+    }
 
     async function toggleEnabled(nextEnabled) {
         if (!sessionId || busyAction) return;
@@ -664,6 +721,78 @@ function TavernPlotCompassTab(props) {
                             savePreferences({ blindBox: !blindBox }, !blindBox ? "已开启盲盒防剧透模式，卡片剧透详情已遮罩。" : "已切回明牌模式。");
                         }
                     }, blindBox ? "🎁 盲盒防剧透：开" : "👁 明牌模式")
+                ),
+                h("div", { className: "dsh-tavern-compass-model-row" },
+                    h("div", { className: "dsh-tavern-compass-pace-group", role: "group", "aria-label": "剧情罗盘模型" },
+                        h("span", { className: "dsh-tavern-compass-label" }, "推演模型："),
+                        h("div", { className: "dsh-tavern-compass-pace-pills" }, PLOT_COMPASS_MODEL_OPTIONS.map(function (opt) {
+                            const activeMode = pickingIndependentModel ? "independent" : compassModelMode;
+                            const selected = activeMode === opt.key;
+                            return h("button", {
+                                key: opt.key,
+                                type: "button",
+                                className: "dsh-tavern-compass-pace-btn" + (selected ? " is-active" : ""),
+                                disabled: Boolean(busyAction),
+                                "aria-pressed": selected ? "true" : "false",
+                                title: opt.title,
+                                onClick: function () {
+                                    if (opt.key === "independent") {
+                                        setPickingIndependentModel(true);
+                                        return;
+                                    }
+                                    setPickingIndependentModel(false);
+                                    if (compassModelMode !== opt.key) {
+                                        saveCompassModel(opt.key, "剧情罗盘模型已切换为「" + opt.label + "」。");
+                                    }
+                                }
+                            }, opt.label);
+                        }))
+                    ),
+                    (compassModelIsObject || pickingIndependentModel) ? (function () {
+                        const compassEfforts = modelReasoning.key === compassModelKey ? (modelReasoning.value && modelReasoning.value.efforts) || [] : [];
+                        const compassKnown = !compassModelIsObject || modelCatalog.some(function (group) {
+                            return group.provider === compassModel.provider && Array.isArray(group.models) && group.models.some(function (m) { return m.id === compassModel.model; });
+                        });
+                        const fallbackName = compassModelIsObject ? (compassModel.provider + " / " + compassModel.model) : "";
+                        const modelChoices = (!compassModelIsObject ? [{ value: "", label: catalogLoading ? "正在加载模型…" : "选择独立模型" }] : [])
+                            .concat(!compassKnown && compassModelIsObject ? [{ value: compassModelKey, label: fallbackName + "（当前不可用）" }] : [])
+                            .concat(modelCatalog.flatMap(function (group) {
+                                return (group.models || []).map(function (model) {
+                                    return { value: JSON.stringify({ provider: group.provider, model: model.id }), label: model.name || model.id, group: group.providerName || group.provider };
+                                });
+                            }));
+                        const effortVal = compassModelIsObject ? (compassModel.reasoningEffort || "") : "";
+                        return h("div", { className: "dsh-tavern-compass-model-pickers" },
+                            h(InlineField, {
+                                kind: "menu",
+                                label: "剧情罗盘独立模型",
+                                hideLabel: true,
+                                value: compassModelKey,
+                                disabled: Boolean(busyAction) || catalogLoading,
+                                options: modelChoices,
+                                onCommit: function (value) {
+                                    if (!value) return;
+                                    saveCompassModel(JSON.parse(value), "已切换剧情罗盘独立模型。");
+                                }
+                            }),
+                            compassModelKey ? h(InlineField, {
+                                kind: "menu",
+                                label: "剧情罗盘推理强度",
+                                hideLabel: true,
+                                value: effortVal,
+                                disabled: Boolean(busyAction) || !compassEfforts.length,
+                                options: [{ value: "", label: "模型默认" }].concat(
+                                    effortVal && !compassEfforts.some(function (item) { return item.id === effortVal; }) ? [{ value: effortVal, label: effortVal }] : [],
+                                    compassEfforts.map(function (item) { return { value: item.id, label: item.name || item.id }; })
+                                ),
+                                onCommit: function (value) {
+                                    const next = { provider: compassModel.provider, model: compassModel.model };
+                                    if (value) next.reasoningEffort = value;
+                                    saveCompassModel(next, "已更新剧情罗盘推理强度。");
+                                }
+                            }) : null
+                        );
+                    }()) : null
                 ),
                 h("div", { className: "dsh-tavern-compass-chat-wrap" },
                     chatHistory.length > 0 ? h("div", { className: "dsh-tavern-compass-chat-bar" },

@@ -1801,3 +1801,191 @@ test('前端浏览器交互：脑暴对话发送消息、收起展开清空、�
     await browser.close()
   }
 })
+
+test('剧情罗盘模型解析与传参：支持跟随后台、跟随前台与独立模型并透传至 syncTurnProgress', async () => {
+  const { normalizePlotCompassModel, resolvePlotCompassModel } = await import('../tavern-plugin/lib/domain/background-model-selection.js')
+  const { createModelCalls } = await import('../tavern-plugin/lib/domain/model-calls.js')
+
+  assert.equal(normalizePlotCompassModel(undefined), 'background')
+  assert.equal(normalizePlotCompassModel(null), 'background')
+  assert.equal(normalizePlotCompassModel(''), 'background')
+  assert.equal(normalizePlotCompassModel('background'), 'background')
+  assert.equal(normalizePlotCompassModel('foreground'), 'foreground')
+  assert.deepEqual(normalizePlotCompassModel({ provider: 'p1', model: 'm1', reasoningEffort: 'high' }), { provider: 'p1', model: 'm1', reasoningEffort: 'high' })
+  assert.deepEqual(normalizePlotCompassModel({ provider: 'p1', model: 'm1', reasoningEffort: null }), { provider: 'p1', model: 'm1' })
+  assert.equal(normalizePlotCompassModel('invalid'), null)
+
+  const fg = { provider: 'fg', model: 'fg-model' }
+  const bg = { provider: 'bg', model: 'bg-model', reasoningEffort: 'medium' }
+  const own = { provider: 'ind', model: 'ind-model', reasoningEffort: 'low' }
+  assert.deepEqual(resolvePlotCompassModel({ plotCompassModelSelection: 'background' }, { foreground: fg, background: bg }), bg)
+  assert.deepEqual(resolvePlotCompassModel({ plotCompassModelSelection: 'foreground' }, { foreground: fg, background: bg }), fg)
+  assert.deepEqual(resolvePlotCompassModel({ plotCompassModelSelection: own }, { foreground: fg, background: bg }), own)
+
+  const calls = createModelCalls({
+    llm: {},
+    agentDefaultModel: { currentSelection: () => fg },
+    agents: () => ({ get: () => undefined }),
+    sessionProjections: () => ({ snapshot: () => null }),
+    backgroundConfigForSession: async () => ({})
+  })
+  assert.deepEqual(calls.plotCompassModelSelection({ sessionId: 's1', backgroundModelSelection: bg, plotCompassModelSelection: 'background' }), bg)
+  assert.deepEqual(calls.plotCompassModelSelection({ sessionId: 's1', backgroundModelSelection: bg, plotCompassModelSelection: 'foreground' }), fg)
+  assert.deepEqual(calls.plotCompassModelSelection({ sessionId: 's1', backgroundModelSelection: bg, plotCompassModelSelection: own }), own)
+
+  const capturedAgent = []
+  const capturedCallModel = []
+  let savedChat = {
+    id: 'c-model',
+    sessionId: 's-model',
+    mode: 'story',
+    cardPath: 'cards/test.json',
+    backgroundTasks: { plotCompass: true },
+    plotCompassModelSelection: own,
+    backgroundModelSelection: bg,
+    messages: [
+      { role: 'user', turn: 1, text: '推门进去看看' },
+      { role: 'assistant', turn: 1, text: '走廊尽头亮起一盏孤灯。' },
+      { role: 'user', turn: 2, text: '走近铜钟查验' },
+      { role: 'assistant', turn: 2, text: '借着月光核对钟壁铭文。' }
+    ]
+  }
+  const initialCompass = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat: savedChat })
+  savedChat.plotCompass = applyPlotCompassPin(
+    mergePlotCompassUpdate(null, initialCompass, { scope: 'all', turn: 1, now: 1000 }),
+    { horizon: 'shortTerm', routeId: 'st-bell', now: 1000 }
+  )
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(savedChat),
+      readChat: async () => structuredClone(savedChat),
+      updateChat: async (_id, updater) => {
+        const next = await updater(structuredClone(savedChat))
+        if (next) savedChat = next
+        return structuredClone(savedChat)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: chat => calls.plotCompassModelSelection(chat),
+    runAgent: async input => {
+      capturedAgent.push(input)
+      return {}
+    },
+    callModel: async opts => {
+      capturedCallModel.push(opts)
+      return JSON.stringify({ completed: ['shortTerm:st-bell:0'] })
+    }
+  })
+
+  await service.syncTurnProgress({ sessionId: 's-model', turn: 2 })
+  assert.deepEqual(capturedCallModel[0]?.selection, own)
+  await service.generate({ sessionId: 's-model', wait: true })
+  assert.deepEqual(capturedAgent[0]?.selection, own)
+
+  savedChat = { ...savedChat, plotCompassModelSelection: 'foreground' }
+  await service.generate({ sessionId: 's-model', wait: true })
+  assert.deepEqual(capturedAgent[1]?.selection, fg)
+})
+
+test('前端浏览器交互：剧情罗盘侧栏支持跟随后台、跟随前台与独立模型切换', async t => {
+  const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  const browser = await chromium.launch({ headless: true })
+  t.after(async () => { await browser.close().catch(() => {}) })
+  try {
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    const pageErrors = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    await page.setViewportSize({ width: 1280, height: 860 })
+
+    let plotCompassModel = 'background'
+    const calls = []
+    await page.route('http://tavern.test/**', async route => {
+      const url = route.request().url()
+      if (url === 'http://tavern.test/') {
+        return route.fulfill({ status: 200, contentType: 'text/html', body: '<div id="compass-tab"></div>' })
+      }
+      const method = new URL(url).pathname.split('/').at(-1)
+      const args = route.request().postDataJSON() || {}
+      calls.push({ method, args })
+      if (method === 'setPlotCompassModel') {
+        plotCompassModel = args.model
+      }
+      const responses = {
+        listSessions: { sessions: [{ sessionId: 'game', chatId: 'chat', mode: 'story', cardName: '沈清弦' }] },
+        setPlotCompassModel: { plotCompassModel },
+        getTavernModelCatalog: { modelCatalog: [{ provider: 'openai', providerName: 'OpenAI', models: [{ id: 'gpt-compass', name: 'GPT Compass' }] }] },
+        getBackgroundModelReasoning: { reasoning: { efforts: [{ id: 'high', name: 'High' }] } },
+        getSession: {
+          view: {
+            mode: 'story',
+            latestAssistantTurn: 1,
+            latestAssistantMessageId: 'reply-1',
+            activity: { busy: false },
+            plotCompass: { pace: 'natural', blindBox: false, customDirective: '', shortTerm: [], midTerm: [], longTerm: [], pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], chatHistory: [], basedOnTurn: 0 },
+            plotCompassEnabled: true,
+            plotCompassModel,
+            plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+            tavernHelper: { messages: [] }
+          }
+        },
+        getTavernSettings: { settings: {} },
+        getChoices: { candidates: null },
+        syncSession: { sync: { activity: { busy: false, phase: 'idle' } } }
+      }
+      await route.fulfill({ json: { ok: true, ...(responses[method] || {}) } })
+    })
+
+    await page.goto('http://tavern.test/')
+    await page.addScriptTag({ content: await browserReactScript() })
+    await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?modules.react:{});}};` })
+    await page.addScriptTag({ content: clientSource })
+
+    await page.evaluate(() => {
+      const tabs = {}
+      const noop = () => () => {}
+      const sessionState = { current: 'game', byId: { game: { id: 'game' } } }
+      const ctx = {
+        inject() { return { dispose() {} } },
+        get() {},
+        provide() {},
+        effect(run, label) {
+          if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: plot compass tab'].includes(label)) return run()
+          return () => {}
+        },
+        slots: { inject(_name, run) { return run() }, register() { return () => {} } },
+        sessions: { subagentAddress: () => null, refresh: async () => {}, list: { subscribe: noop, getSnapshot: () => sessionState }, binding: () => null },
+        workspaces: {},
+        betterSidebar: { registerTab(descriptor) { tabs[descriptor.id] = descriptor; return () => {} }, openTab() {} },
+        tavernSessionSignals: { subscribe: noop }
+      }
+      window.client.apply(ctx)
+      const React = modules.react
+      const createRoot = modules['react-dom/client'].createRoot
+      createRoot(document.querySelector('#compass-tab')).render(React.createElement(tabs['dsh-tavern:plot-compass'].component, { scope: {} }))
+    })
+
+    const fgBtn = page.getByRole('button', { name: '跟随前台', exact: true })
+    await fgBtn.waitFor({ timeout: 5000 })
+    await fgBtn.click()
+    await page.waitForFunction(() => document.querySelector('[aria-label="剧情罗盘模型"] button[aria-pressed="true"]')?.textContent === '跟随前台')
+    assert.equal(calls.find(c => c.method === 'setPlotCompassModel')?.args.model, 'foreground')
+
+    await page.getByRole('button', { name: '独立', exact: true }).click()
+    const modelMenu = page.getByRole('button', { name: /^剧情罗盘独立模型：/ })
+    await modelMenu.waitFor({ timeout: 5000 })
+    await modelMenu.click()
+    await page.getByRole('menuitemradio', { name: 'GPT Compass' }).click()
+    await page.waitForFunction(() => document.querySelector('[aria-label="剧情罗盘模型"] button[aria-pressed="true"]')?.textContent === '独立')
+    const independentSave = calls.filter(c => c.method === 'setPlotCompassModel').at(-1)
+    assert.deepEqual(independentSave?.args.model, { provider: 'openai', model: 'gpt-compass' })
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await browser.close()
+  }
+})
+

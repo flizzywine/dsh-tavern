@@ -127,33 +127,41 @@
         function TavernDefaultModelSetting(props) {
             const h = React.createElement;
             const selection = props.selection;
-            const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
+            const modeOptions = Array.isArray(props.modeOptions) ? props.modeOptions : null;
+            const isModeString = Boolean(modeOptions && typeof selection === "string");
+            const isModelObject = Boolean(selection && typeof selection === "object");
+            const key = isModeString ? selection : isModelObject ? JSON.stringify({ provider: selection.provider, model: selection.model }) : (modeOptions ? modeOptions[0].value : "");
+            const modelKey = isModelObject ? key : "";
             const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
             React.useEffect(() => {
                 let active = true;
-                if (key && props.kind !== "scoring") rpc("getBackgroundModelReasoning", JSON.parse(key)).then(result => {
-                    if (active) setReasoning({ key, value: result.reasoning, error: "" });
-                }, err => { if (active) setReasoning({ key, value: null, error: String(err.message || err) }); });
+                if (modelKey && props.kind !== "scoring") rpc("getBackgroundModelReasoning", JSON.parse(modelKey)).then(result => {
+                    if (active) setReasoning({ key: modelKey, value: result.reasoning, error: "" });
+                }, err => { if (active) setReasoning({ key: modelKey, value: null, error: String(err.message || err) }); });
                 return () => { active = false; };
-            }, [key]);
-            const efforts = reasoning.key === key ? reasoning.value?.efforts || [] : [];
-            const known = !selection || props.catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
+            }, [modelKey]);
+            const efforts = reasoning.key === modelKey ? reasoning.value?.efforts || [] : [];
+            const known = !isModelObject || props.catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
             // one row — the name and its 「?」, then model · reasoning as the shared
             // inline menus (no native select, ui-design §三.5); the provider is the menu's group heading.
-            const models = [{ value: "", label: props.fallback }]
-                .concat(!known ? [{ value: key, label: backgroundModelLabel(selection, props.catalog) + "（当前不可用）" }] : [])
+            const models = (modeOptions ? modeOptions : [{ value: "", label: props.fallback }])
+                .concat(!known ? [{ value: modelKey, label: backgroundModelLabel(selection, props.catalog) + "（当前不可用）" }] : [])
                 .concat(props.catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: model.name || model.id, group: group.providerName || group.provider }))));
             // Every slot offers the same choices; a slot's declared initial effort (the phone call: off) is the
             // value shown until this slot stores its own, where the model offers it (model-slots.js resolves the same way).
             // 模型默认 is stored as null so it stays chosen over that initial value.
             const initial = props.initialEffort && efforts.some(item => item.id === props.initialEffort) ? props.initialEffort : "";
-            const effort = selection && Object.hasOwn(selection, "reasoningEffort") ? selection.reasoningEffort || "" : initial;
+            const effort = isModelObject && Object.hasOwn(selection, "reasoningEffort") ? selection.reasoningEffort || "" : initial;
+            const idleEffortLabel = modeOptions ? (modeOptions.find(item => item.value === key)?.label || modeOptions[0].label) : "模型默认";
             return h(TavernSettingRow, { title: props.title || props.label, help: props.description, className: "dsh-tavern-model-row",
-                    note: key && reasoning.key === key && reasoning.error ? "⚠ " + reasoning.error : "", noteRole: "alert" },
+                    note: modelKey && reasoning.key === modelKey && reasoning.error ? "⚠ " + reasoning.error : "", noteRole: "alert" },
                 h(InlineField, { kind: "menu", label: props.label, hideLabel: true, value: key, disabled: props.disabled, options: models, className: "dsh-tavern-model-pick",
-                    onCommit: value => props.onChange(value ? JSON.parse(value) : null) }),
-                props.kind === "scoring" ? null : h(InlineField, { kind: "menu", label: props.label + "推理强度", hideLabel: true, value: effort, disabled: props.disabled || !key || !efforts.length, className: "dsh-tavern-effort-pick",
-                    options: [{ value: "", label: "模型默认" }].concat(effort && !efforts.some(item => item.id === effort) ? [{ value: effort, label: effort }] : [], efforts.map(item => ({ value: item.id, label: item.name || item.id }))),
+                    onCommit: value => {
+                        if (modeOptions && modeOptions.some(item => item.value === value)) return props.onChange(value);
+                        return props.onChange(value ? JSON.parse(value) : null);
+                    } }),
+                props.kind === "scoring" ? null : h(InlineField, { kind: "menu", label: props.label + "推理强度", hideLabel: true, value: effort, disabled: props.disabled || !modelKey || !efforts.length, className: "dsh-tavern-effort-pick",
+                    options: [{ value: "", label: isModelObject ? "模型默认" : idleEffortLabel }].concat(effort && !efforts.some(item => item.id === effort) ? [{ value: effort, label: effort }] : [], efforts.map(item => ({ value: item.id, label: item.name || item.id }))),
                     onCommit: value => props.onChange({ ...selection, reasoningEffort: value || null }) }));
         }
 

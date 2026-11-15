@@ -1,4 +1,4 @@
-import { normalizeBackgroundModel, readBackgroundModelReasoning } from '../domain/background-model-selection.js'
+import { normalizeBackgroundModel, normalizePlotCompassModel, readBackgroundModelReasoning } from '../domain/background-model-selection.js'
 import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
 import { configuredBodyGeneration } from '../domain/plugin-body-generation.js'
 import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
@@ -90,6 +90,9 @@ export function createSettingsHandlers(deps) {
       const result = await conversationBackgroundSettings.save(args)
       if (args?.backgroundTasks?.plotCompass === false && deps.plotCompassService) {
         await deps.plotCompassService.cancel({ sessionId: args?.sessionId }).catch(() => {})
+      }
+      if (Object.hasOwn(args || {}, 'plotCompassModel') && str(args?.sessionId) && deps.sessionSignals) {
+        deps.sessionSignals.publish(str(args.sessionId), { kind: 'tavern-state', version: 'plot-compass-model:' + Date.now() })
       }
       return result
     },
@@ -196,6 +199,14 @@ export function createSettingsHandlers(deps) {
           warnings.push('本局后台模型当前不可用，未更新默认后台模型')
         }
       }
+      const plotCompassModel = normalizePlotCompassModel(chat.plotCompassModelSelection) || 'background'
+      let includePlotCompassModel = true
+      if (typeof plotCompassModel === 'object' && typeof llm?.resolveCallConfig === 'function') {
+        try { await llm.resolveCallConfig(plotCompassModel) } catch {
+          includePlotCompassModel = false
+          warnings.push('本局剧情罗盘模型当前不可用，未更新默认剧情罗盘模型')
+        }
+      }
       const disabledForegroundTools = normalizeDisabledForegroundTools(chat.disabledForegroundTools)
       const disabledWritingSkills = (Array.isArray(chat.disabledWritingSkills) ? chat.disabledWritingSkills : [])
         .map(canonicalTavernSkillName)
@@ -246,7 +257,8 @@ export function createSettingsHandlers(deps) {
         defaultDisabledWritingSkills: disabledWritingSkills,
         defaultBodyGeneration,
         defaultPluginGameSettings,
-        ...(includeBackgroundModel ? { defaultBackgroundModel: backgroundModel } : {})
+        ...(includeBackgroundModel ? { defaultBackgroundModel: backgroundModel } : {}),
+        ...(includePlotCompassModel ? { plotCompassModel } : {})
       }
       const settings = await updateTavernSettings(patch)
       return { saved: true, warnings, settings }
@@ -312,6 +324,7 @@ export function createSettingsHandlers(deps) {
         current.backgroundConfigVersion = 1
         current.conversationFeaturesVersion = 1
         current.backgroundModelSelection = normalizeBackgroundModel(settings.defaultBackgroundModel)
+        current.plotCompassModelSelection = normalizePlotCompassModel(settings.plotCompassModel) || 'background'
         current.backgroundTasks = normalizeConfiguredBackgroundTasks(defaults.backgroundTasks)
         current.webSearchEnabled = defaults.webSearchEnabled === true
         current.disabledForegroundTools = normalizeDisabledForegroundTools(settings.defaultDisabledForegroundTools)

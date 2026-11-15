@@ -5289,6 +5289,20 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
   color: #fff;
   font-weight: 600;
 }
+.dsh-tavern-compass-model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dsh-tavern-compass-model-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dsh-tavern-compass-model-pickers .fork-inline-field {
+  min-width: 0;
+}
 .dsh-tavern-compass-blindbox-toggle {
   appearance: none;
   border: 1px solid var(--dsw-alias-border-l2);

@@ -32,6 +32,27 @@ export function resolveChatBackgroundModel(chat, fallback, settings) {
   return normalizeBackgroundModel(source)
 }
 
+/**
+ * 规范化剧情罗盘模型配置：
+ * - `'background'`（含 undefined / null / ''）：跟随后台模型
+ * - `'foreground'`：跟随前台模型
+ * - `{ provider, model, reasoningEffort? }`：独立指定模型
+ * - 其他无效值返回 `null`
+ */
+export function normalizePlotCompassModel(value) {
+  if (value === undefined || value === null || value === '' || value === 'background') return 'background'
+  if (value === 'foreground') return 'foreground'
+  if (typeof value !== 'object' || Array.isArray(value)) return null
+  return normalizeBackgroundModel(value)
+}
+
+export function resolvePlotCompassModel(chat, { foreground = null, background = null, settings = null } = {}) {
+  const spec = normalizePlotCompassModel(chat?.plotCompassModelSelection ?? settings?.plotCompassModel) || 'background'
+  if (spec === 'foreground') return normalizeBackgroundModel(foreground)
+  if (spec === 'background') return normalizeBackgroundModel(background) || normalizeBackgroundModel(foreground)
+  return normalizeBackgroundModel(spec)
+}
+
 export async function readBackgroundModelReasoning(llm, selection) {
   const route = normalizeBackgroundModel(selection)
   if (!route) throw new Error('后台模型配置无效')

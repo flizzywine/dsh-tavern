@@ -13,6 +13,7 @@ import { applyRegexOverrides } from './regex-manager.js'
 import { projectCharacterDesignDocument } from './character-design-document.js'
 import { readLedger } from './story-ledger.js'
 import { isPlotCompassEnabled, readPlotCompass } from './plot-compass.js'
+import { normalizePlotCompassModel } from './background-model-selection.js'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from './tavern-compatibility-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { forkTurnsByMessageId as forkTargetsFromSession } from './conversation-fork-targets.js'
@@ -233,7 +234,8 @@ export function createSessionViewProjection({
       ledger: readLedger(chat.ledger),
       ledgerTask: projectLedgerTask(chat),
       plotCompass: readPlotCompass(chat.plotCompass),
-      plotCompassEnabled: isPlotCompassEnabled(chat),
+      plotCompassEnabled: isPlotCompassEnabled(chat.plotCompass === undefined ? chat : chat),
+      plotCompassModel: normalizePlotCompassModel(chat.plotCompassModelSelection) || 'background',
       plotCompassTask: projectPlotCompassTask(chat),
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
@@ -474,6 +476,7 @@ export function createSessionViewProjection({
       cardSave: cardSaveViewOf(chat),
       plotCompass: readPlotCompass(chat.plotCompass),
       plotCompassEnabled: isPlotCompassEnabled(chat),
+      plotCompassModel: normalizePlotCompassModel(chat.plotCompassModelSelection) || 'background',
       plotCompassTask: projectPlotCompassTask(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }
@@ -520,6 +523,7 @@ export function createSessionViewProjection({
       ledgerTask: projectLedgerTask(chat),
       plotCompass: readPlotCompass(chat.plotCompass),
       plotCompassEnabled: isPlotCompassEnabled(chat),
+      plotCompassModel: normalizePlotCompassModel(chat.plotCompassModelSelection) || 'background',
       plotCompassTask: projectPlotCompassTask(chat),
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),

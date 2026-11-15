@@ -58,11 +58,11 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
     }
 
     function TavernSettingsSection({ renderSlot }) {
-        const [state, setState] = React.useState({ loading: true, busy: false, defaultForegroundModel: null, defaultBackgroundModel: null, defaultWorkbenchModel: null, notice: "", settings: null, modelCatalog: [], modModelSlots: [], error: "" });
+        const [state, setState] = React.useState({ loading: true, busy: false, defaultForegroundModel: null, defaultBackgroundModel: null, defaultWorkbenchModel: null, plotCompassModel: "background", notice: "", settings: null, modelCatalog: [], modModelSlots: [], error: "" });
         React.useEffect(function () {
             let active = true;
             rpc("getTavernSettings").then(function (result) {
-                if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
+                if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, plotCompassModel: result.settings?.plotCompassModel || "background", notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
             }, function (error) {
                 if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
             });
@@ -110,6 +110,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             React.createElement(TavernDefaultModelSetting, { label: "默认前台模型", title: "前台模型", description: "写正文、扮演角色，直接决定剧情质量", fallback: "使用 DSH 默认模型", selection: state.defaultForegroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultForegroundModel", selection) }),
             React.createElement(TavernDefaultModelSetting, { label: "默认后台模型", title: "后台模型", description: "变量结算、世界书筛选、候选回复、手机消息等幕后任务", fallback: "跟随前台", selection: state.defaultBackgroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultBackgroundModel", selection) }),
             React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
+            React.createElement(TavernDefaultModelSetting, { label: "默认剧情罗盘模型", title: "剧情罗盘模型", description: "剧情罗盘推演、脑暴对话与节拍核对；可选择跟随后台、跟随前台或独立指定模型", modeOptions: [{ value: "background", label: "跟随后台" }, { value: "foreground", label: "跟随前台" }], selection: state.plotCompassModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("plotCompassModel", selection) }),
             null),
                 h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.modId !== 'dsh.stage'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
             group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",

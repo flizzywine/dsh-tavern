@@ -1,4 +1,4 @@
-import { configuredChatBackgroundModel, normalizeBackgroundModel } from './background-model-selection.js'
+import { configuredChatBackgroundModel, normalizeBackgroundModel, normalizePlotCompassModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
@@ -7,6 +7,7 @@ export function adoptConversationBackground(chat, legacy = {}) {
   if (chat.backgroundConfigVersion === 1) return chat
   return { ...chat, backgroundConfigVersion: 1,
     backgroundModelSelection: configuredChatBackgroundModel(chat, legacy),
+    plotCompassModelSelection: normalizePlotCompassModel(chat.plotCompassModelSelection) || 'background',
     backgroundTasks: normalizeConfiguredBackgroundTasks(chat.backgroundTasks || legacy.backgroundTasks) }
 }
 
@@ -15,6 +16,11 @@ export function patchConversationBackground(chat, patch) {
   if (Object.hasOwn(patch, 'backgroundModel')) {
     next.backgroundModelSelection = normalizeBackgroundModel(patch.backgroundModel)
     if (patch.backgroundModel !== null && !next.backgroundModelSelection) throw new Error('后台模型配置无效')
+  }
+  if (Object.hasOwn(patch, 'plotCompassModel')) {
+    const model = normalizePlotCompassModel(patch.plotCompassModel)
+    if (!model) throw new Error('剧情罗盘模型配置无效')
+    next.plotCompassModelSelection = model
   }
   if (Object.hasOwn(patch, 'worldbookStrategy')) {
     if (typeof patch.worldbookStrategy !== 'string' || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(patch.worldbookStrategy) || patch.worldbookStrategy.length > 96) throw new Error('世界书策略配置无效')

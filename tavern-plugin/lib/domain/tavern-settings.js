@@ -1,5 +1,5 @@
 import { compactionPolicy } from './auto-compaction.js'
-import { normalizeBackgroundModel } from './background-model-selection.js'
+import { normalizeBackgroundModel, normalizePlotCompassModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from './narrative-damper.js'
@@ -305,6 +305,11 @@ export function applyTavernSettingsPatch(current, patch) {
     if (input[name] !== null && !selection) throw new Error('默认模型配置无效')
     next[name] = selection
   }
+  if (Object.hasOwn(input, 'plotCompassModel')) {
+    const selection = normalizePlotCompassModel(input.plotCompassModel)
+    if (!selection) throw new Error('剧情罗盘模型配置无效')
+    next.plotCompassModel = selection
+  }
   if (Object.hasOwn(input, 'modModelSelection')) {
     const {modId,slotId,selection}=object(input.modModelSelection)
     if(typeof modId!=='string' || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(modId) || typeof slotId!=='string' || !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(slotId) || ['constructor','prototype','__proto__'].includes(slotId))throw new Error('无效的模组模型槽')
@@ -508,6 +513,7 @@ export function presentTavernSettings(document, defaults) {
     defaultBackgroundModel: normalizeBackgroundModel(object(document).defaultBackgroundModel),
     polishModel: normalizeBackgroundModel(object(document).polishModel),
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
+    plotCompassModel: normalizePlotCompassModel(object(document).plotCompassModel) || 'background',
     contextCompaction: compactionPolicy(object(document).contextCompaction),
     showPlayProcess: object(document).showPlayProcess === true,
     hideContextAndReasoning: object(document).hideContextAndReasoning === true,

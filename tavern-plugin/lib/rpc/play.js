@@ -12,11 +12,11 @@ import { randomUUID } from 'node:crypto'
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createPlayHandlers(deps) {
   const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
-    candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationGuides, ctx,
+    candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationBackgroundSettings, conversationGuides, ctx,
     ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat, plotCompassService,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
-    retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
+    retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
     templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
   // 发送键只认宿主的运行状态。重新生成要先把存档读出来、挑出要替换的正文、拼好这一轮的
@@ -212,6 +212,17 @@ export function createPlayHandlers(deps) {
         sessionId: args?.sessionId,
         enabled: args?.enabled
       })
+    },
+    async setPlotCompassModel(args) {
+      const sessionId = str(args?.sessionId)
+      const saved = await conversationBackgroundSettings.save({
+        sessionId,
+        plotCompassModel: args?.model
+      })
+      if (sessionId && sessionSignals) {
+        sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'plot-compass-model:' + Date.now() })
+      }
+      return { plotCompassModel: saved.plotCompassModel }
     },
     async deleteMessages(args) {
       autoChoices.cancel(args && args.sessionId)

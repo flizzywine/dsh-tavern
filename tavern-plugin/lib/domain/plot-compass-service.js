@@ -374,7 +374,7 @@ export function createPlotCompassService({
     if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启后再推演')
     if (jobs.has(chat.id)) throw new Error('剧情罗盘正在推演中，请稍候或先取消当前推演')
     const model = selection(chat)
-    if (!model) throw new Error('请先配置可用的后台模型')
+    if (!model) throw new Error('请先配置可用的剧情罗盘模型（或前台/后台模型）')
 
     const controller = new AbortController()
     const expectedBranchId = str(chat.timeline?.branchId)
@@ -420,7 +420,7 @@ export function createPlotCompassService({
     if (!isPlotCompassEnabled(targetChat)) throw new Error('剧情罗盘已关闭，请先开启后再使用脑暴对话')
     if (jobs.has(targetChat.id)) throw new Error('剧情罗盘正在推演或回复中，请稍候或先取消')
     const model = selection(targetChat)
-    if (!model) throw new Error('请先配置可用的后台模型')
+    if (!model) throw new Error('请先配置可用的剧情罗盘模型（或前台/后台模型）')
 
     const userMsgId = `compass-u-${now()}-${Math.random().toString(36).slice(2, 6)}`
     const turn = latestStoryTurnOf(targetChat)
@@ -660,7 +660,8 @@ export function createPlotCompassService({
     const latestTurn = Math.max(Number(hintTurn) || 0, latestStoryTurnOf(freshChat))
     const checkedFloor = Math.max(compass.basedOnTurn, compass.lastCheckedTurn || 0)
     if (pending.length === 0 || latestTurn <= checkedFloor) return null
-    if (!selection(freshChat)) return null
+    const model = selection(freshChat)
+    if (!model) return null
 
     progressJobs.add(freshChat.id)
     try {
@@ -669,6 +670,7 @@ export function createPlotCompassService({
       const rawReply = await callModel({
         sessionId: targetSessionId,
         background: true,
+        selection: model,
         temperature: 0.1,
         maxTokens: 512,
         system: PLOT_COMPASS_PROGRESS_SYSTEM,

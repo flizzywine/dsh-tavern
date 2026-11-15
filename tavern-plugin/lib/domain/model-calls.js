@@ -1,4 +1,4 @@
-import { resolveChatBackgroundModel } from './background-model-selection.js'
+import { resolveChatBackgroundModel, resolvePlotCompassModel } from './background-model-selection.js'
 import { identifyHelperModelMessages } from './helper-generation.js'
 
 // Which model a request uses, and one plain text call to it. The session's own choice wins
@@ -35,6 +35,11 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
   }
   function backgroundModelSelection(chat) {
     return resolveChatBackgroundModel(chat, modelSelection(chat && chat.sessionId))
+  }
+  function plotCompassModelSelection(chat) {
+    const foreground = modelSelection(chat && chat.sessionId)
+    const background = resolveChatBackgroundModel(chat, foreground)
+    return resolvePlotCompassModel(chat, { foreground, background })
   }
   // Providers and their model lists change when the player edits a provider, not
   // per request: every settings read used to re-walk every provider. Cache the
@@ -161,5 +166,5 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
     }
   }
 
-  return { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel }
+  return { modelSelection, backgroundModelSelection, plotCompassModelSelection, tavernModelCatalog, callModel }
 }
