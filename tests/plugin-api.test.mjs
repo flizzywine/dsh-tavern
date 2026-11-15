@@ -2098,3 +2098,168 @@ test('决策模型开放接口：capability 探测、卡内作用域限制、全
     err => err.code === 'TAVERN_PLUGIN_DECISION_UNSUPPORTED_QUESTION_TYPE'
   )
 })
+test('叙事阻尼器联动：附加题收集过滤与上限、合并答案零延迟读取、真骰配额回灌', { skip: !cordis }, async t => {
+  const { createNarrativeDamper, defaultNarrativeDamperConfig } = await import('../tavern-plugin/lib/domain/narrative-damper.js')
+  const config = {
+    ...defaultNarrativeDamperConfig(),
+    enabled: true,
+    provider: 'gemini-compatible',
+    model: 'gemini-decision-1',
+    baseUrl: 'https://damper.example.com/v1beta',
+    timeoutMs: 2500
+  }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => ({ async resolve() { return { value: 'damper-key', source: 'file' } } }),
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body)
+      sent.push(body)
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          const answers = {
+            godmode_outcome: { noul: 0.1 },
+            unfounded_retcon: { noul: 0.1 },
+            epistemic_violation: { noul: 0.1 },
+            leverage_score: { score: 2 },
+            ruling_tier: { type: 'choice', choice: 'conflicted_half_step' },
+            mvu_delta_budget: { type: 'choice', choice: 'micro_step' }
+          }
+          // 同一份响应里按题目类型逐个回答案：合并请求的每个 plg_ 题都能拿到答案
+          for (const [id, question] of Object.entries(body.questions)) {
+            if (!id.startsWith('plg_')) continue
+            answers[id] = question.type === 'noul'
+              ? { type: 'noul', noul: 0.42 }
+              : question.type === 'score'
+                ? { type: 'score', score: 2 }
+                : { type: 'choice', choice: Object.keys(question.criteria)[0], probabilities: {} }
+          }
+          return { answers }
+        }
+      }
+    }
+  })
+
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-dice', { cards: ['/cards/a.json'] }], ['other-card', { cards: ['/cards/b.json'] }]]),
+    cardPathOf: async gameId => gameId === 'game-1' ? '/cards/a.json' : '/cards/b.json',
+    narrativeDamper: {
+      turnContextForPlugin: (...a) => damper.turnContextForPlugin(...a),
+      applyDiceOutcomeShift: (...a) => damper.applyDiceOutcomeShift(...a)
+    }
+  })
+  const services = {}
+  const asked = []
+  const make = (name, count, type = 'noul') => Array.from({ length: count }, (_, i) => ({
+    id: 'q' + (i + 1),
+    type,
+    instructions: name + ' 的第 ' + (i + 1) + ' 题',
+    ...(type === 'score' ? { criteria: ['低', '中', '高'] } : {})
+  }))
+  // 抛错的插件：只记日志，不影响其他插件
+  await h.root.plugin({ name: 'aaa-broken', inject: ['tavern'], apply(ctx) {
+    ctx.tavern.damperTurnQuestions({ name: 'check', questions: () => { throw new Error('boom') } })
+  } })
+  await h.root.plugin({ name: 'bbb-greedy', inject: ['tavern'], apply(ctx) {
+    services.greedy = ctx.tavern
+    ctx.tavern.damperTurnQuestions({ name: 'check', questions: input => { asked.push(input); return make('greedy', 9) } })
+  } })
+  await h.root.plugin({ name: 'card-dice', inject: ['tavern'], apply(ctx) {
+    services.card = ctx.tavern
+    ctx.tavern.damperTurnQuestions({ name: 'check', questions: () => [
+      { id: 'card_mood', type: 'noul', instructions: '她的心情如何？' },
+      { id: 'card_score', type: 'score', instructions: '张力评分', criteria: ['低', '高'] }
+    ] })
+  } })
+  await h.root.plugin({ name: 'other-card', inject: ['tavern'], apply(ctx) {
+    ctx.tavern.damperTurnQuestions({ name: 'check', questions: () => make('other', 2) })
+  } })
+  let seenContext = null
+  let shiftResult = null
+  await h.root.plugin({ name: 'ccc-dice', inject: ['tavern'], apply(ctx) {
+    services.dice = ctx.tavern
+    ctx.tavern.damperTurnQuestions({ name: 'check', questions: () => [
+      { id: 'difficulty', type: 'choice', instructions: '评定难度', criteria: { easy: '简单', hard: '困难' } },
+      { id: 'risk', type: 'noul', instructions: '有额外风险吗？' },
+      { id: 'weight', type: 'score', instructions: '权重', criteria: ['低', '高'] }
+    ] })
+    // 插件本轮段落：零延迟读合并答案，并把真骰结果回灌配额
+    ctx.tavern.turnSection({ name: 'dice', text: async () => {
+      seenContext = await ctx.tavern.getDamperTurnContext({ gameId: 'game-1', turn: 3 })
+      shiftResult = await ctx.tavern.applyDamperDiceShift({ gameId: 'game-1', turn: 3, tier: 'critical', check: '潜行开锁', summary: 'd20=19' })
+      return '骰子段落'
+    } })
+  } })
+  await tick()
+
+  assert.equal(services.dice.capabilities.narrativeDamper, 1)
+  // 注册校验
+  assert.throws(() => services.dice.damperTurnQuestions({ name: 'Bad Name', questions: () => [] }))
+  assert.throws(() => services.dice.damperTurnQuestions({ name: 'ok', questions: [] }), TypeError)
+
+  const prep = await damper.turnPrepStatus()
+  const extraQuestions = await h.api.collectDamperQuestions({
+    gameId: 'game-1', turn: 3, input: '我推门进去。', protocol: prep.protocol, capabilities: prep.capabilities,
+    stateSnapshot: { kind: 'plain', data: { 好感: 30 } }, posture: '走廊'
+  })
+  // 本局越权卡内插件（other-card）被过滤，抛错插件被跳过，单插件 6 题、总计 10 题封顶
+  assert.deepEqual(extraQuestions.map(batch => batch.owner), ['bbb-greedy', 'card-dice', 'ccc-dice'])
+  assert.deepEqual(extraQuestions.map(batch => batch.questions.length), [6, 2, 2])
+  assert.deepEqual(extraQuestions[2].questions.map(q => q.id), ['difficulty', 'risk'])
+  assert.equal(asked.length, 1)
+  assert.equal(asked[0].protocol, 'gemini')
+  assert.equal(asked[0].capabilities.choice, true)
+  assert.equal(asked[0].posture, '走廊')
+  assert.equal(asked[0].turn, 3)
+  assert.equal(h.errors().some(row => row.plugin === 'aaa-broken' && row.stage === '阻尼器附加题'), true)
+
+  const chat = {
+    id: 'chat-1', mode: 'story', posture: '走廊尽头，她站在门口。', timeline: { branchId: 'main' },
+    messages: [{ role: 'assistant', swipeId: 0, swipes: ['她推开走廊尽头那扇门。'], variables: [{ stat_data: { 好感: 30 } }] }]
+  }
+  const evaluated = await damper.evaluateTurn({ chat, card: { name: 'A' }, turn: 3, userText: '我抬手敲了敲门。', extraQuestions })
+  // 一趟请求同时拿到阻尼裁定与全部插件答案
+  assert.equal(sent.length, 1)
+  const merged = sent[0].questions
+  assert.ok(merged.godmode_outcome && merged.ruling_tier, '阻尼器自身题目仍在同一请求里')
+  assert.ok(merged.plg_0_q1 && merged.plg_2_difficulty, '附加题按 plg_<批次>_<id> 合入同一 questions map')
+  assert.equal(evaluated.ruling.rulingTier, 'conflicted_half_step')
+  assert.equal(evaluated.pluginAnswers['bbb-greedy'].q1.probability, 0.42)
+  assert.deepEqual(evaluated.pluginAnswers['card-dice'].card_score, { type: 'score', score: 2 })
+  assert.equal(evaluated.pluginAnswers['ccc-dice'].difficulty.choice, 'easy')
+  assert.equal(evaluated.pluginAnswers['ccc-dice'].risk.probability, 0.42)
+  assert.equal('weight' in evaluated.pluginAnswers['ccc-dice'], false, '超出总题数上限的题目不进请求')
+  assert.equal('other-card' in evaluated.pluginAnswers, false)
+
+  // 宿主时序：先 collect + evaluate，再跑插件 turnSection（可读上下文并回灌真骰）
+  const sections = await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '我抬手敲了敲门。' })
+  assert.equal(sections.some(section => section.text === '骰子段落'), true)
+  assert.equal(seenContext.active, true)
+  assert.equal(seenContext.turn, 3)
+  assert.equal(seenContext.posture, chat.posture)
+  assert.equal(seenContext.answers.difficulty.choice, 'easy')
+  assert.equal(seenContext.outcome.rulingTier, 'conflicted_half_step')
+  assert.equal(shiftResult.applied, true)
+  assert.equal(shiftResult.ruling.rulingTier, 'full_accept')
+  assert.equal(shiftResult.ruling.deltaBudget, 'breakthrough')
+  assert.deepEqual(shiftResult.ruling.diceShift, {
+    owner: 'ccc-dice', tier: 'critical', check: '潜行开锁', summary: 'd20=19',
+    prevRulingTier: 'conflicted_half_step', prevDeltaBudget: 'micro_step'
+  })
+  // 宿主随后从 activeRuling 取到已被真骰修正的配额与裁定文本
+  const finalDamper = damper.activeRuling('chat-1', 3)
+  assert.equal(finalDamper.outcome.rulingTier, 'full_accept')
+  assert.equal(finalDamper.outcome.deltaBudget, 'breakthrough')
+  assert.deepEqual(finalDamper.outcome.diceShift, shiftResult.ruling.diceShift)
+  assert.match(finalDamper.rulingText, /命运检定联动：本轮「潜行开锁」真骰裁定为【大成功】/)
+  assert.match(finalDamper.rulingText, /（full_accept \/ breakthrough）/)
+
+  // 作用域与禁用检查
+  await assert.rejects(() => services.card.getDamperTurnContext({ gameId: 'game-2', turn: 3 }), err => err.code === 'TAVERN_PLUGIN_SCOPE')
+  await assert.rejects(() => services.card.applyDamperDiceShift({ gameId: 'game-2', turn: 3, tier: 'critical' }), err => err.code === 'TAVERN_PLUGIN_SCOPE')
+  await assert.rejects(() => services.dice.getDamperTurnContext({ gameId: 'game-9', turn: 3 }), err => err.code === 'TAVERN_PLUGIN_NOT_FOUND')
+  assert.equal(await services.card.getDamperTurnContext({ gameId: 'game-1', turn: 3 }) !== null, true)
+  assert.equal(await services.dice.getDamperTurnContext({ gameId: 'game-1', turn: 99 }), null)
+})

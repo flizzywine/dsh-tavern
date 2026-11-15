@@ -45,7 +45,7 @@ import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
-import { createNarrativeDamper } from './domain/narrative-damper.js'
+import { createNarrativeDamper, readDamperStateSnapshot } from './domain/narrative-damper.js'
 import { registerGameplayTools } from './tools/gameplay.js'
 import { cardGoverns, cardOffer, modTools, withModHidden } from './mod-tools.js'
 import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
@@ -3202,6 +3202,10 @@ export async function apply(ctx) {
       status: () => narrativeDamper.judgeStatus(),
       judge: input => narrativeDamper.judge(input)
     },
+    narrativeDamper: {
+      turnContextForPlugin: (...a) => narrativeDamper.turnContextForPlugin(...a),
+      applyDiceOutcomeShift: (...a) => narrativeDamper.applyDiceOutcomeShift(...a)
+    },
     readDefaultPlayerName: async () => (await readTavernSettings()).defaultPlaySettings.playerName,
     readPlayerName: async sessionId => (await chatHeaderForSession(sessionId, ['macroState']))?.macroState?.userName,
     writeDefaultPlayerName: async playerName => (await updateTavernSettings({ defaultPlaySettings: { playerName } })).defaultPlaySettings.playerName,
@@ -3825,38 +3829,69 @@ export async function apply(ctx) {
     publishLiveDamperState(sessionId, { active: false })
   }
   async function projectPluginTurnContext(input) {
-    const sections = [...(await Promise.resolve(pluginApi.turnContext(input)).catch(() => []) || [])]
     const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
     const mode = header?.mode || 'story'
-    if (mode !== 'story' && mode !== 'script') return sections
-    if (await narrativeDamper.enabled()) {
+    const excludeAssistantIndex = Number.isInteger(input.excludeAssistantIndex) ? input.excludeAssistantIndex : -1
+    let damperRan = false
+    let damperChatId = ''
+    let damperEvaluated = null
+    if ((mode === 'story' || mode === 'script') && await narrativeDamper.enabled()) {
+      damperRan = true
       const chat = await storyContext({ sessionId: str(input.gameId) }).catch(() => null)
+      damperChatId = str(chat?.id)
       const card = chat ? await readChatCard(chat).catch(() => null) : null
-      const evaluated = chat ? await narrativeDamper.evaluateTurn({
+      // 插件附加题与阻尼器自身题目合并成同一趟请求：先问清协议能力，再收集附加题
+      let extraQuestions = []
+      if (chat) {
+        try {
+          const prep = await narrativeDamper.turnPrepStatus()
+          const stateSnapshot = readDamperStateSnapshot(chat, { excludeAssistantIndex, fallbackForPlain: true })
+          extraQuestions = await pluginApi.collectDamperQuestions({
+            gameId: str(input.gameId),
+            turn: Number(input.turn) || 0,
+            input: str(input.input),
+            protocol: prep?.protocol || '',
+            capabilities: prep?.capabilities || {},
+            stateSnapshot,
+            posture: str(chat.posture)
+          }) || []
+        } catch { extraQuestions = [] }
+      }
+      damperEvaluated = chat ? await narrativeDamper.evaluateTurn({
         chat,
         card,
         turn: input.turn,
         userText: input.input,
-        excludeAssistantIndex: Number.isInteger(input.excludeAssistantIndex) ? input.excludeAssistantIndex : -1
+        excludeAssistantIndex,
+        extraQuestions
       }).catch(() => null) : null
-      if (evaluated?.outcome) {
+    } else {
+      narrativeDamper.clearActive?.()
+      clearLiveDamperState(input.gameId)
+    }
+    // 插件 turnSection 在这里才跑：它们可以零延迟读取合并后的附加题答案，并把真骰结果回灌配额
+    const sections = [...(await Promise.resolve(pluginApi.turnContext(input)).catch(() => []) || [])]
+    if (mode !== 'story' && mode !== 'script') return sections
+    if (damperRan) {
+      // 取真骰联动修正后的最新裁定（可能已被插件 applyDamperDiceShift 改写）
+      const finalDamper = damperChatId ? narrativeDamper.activeRuling(damperChatId, input.turn) : null
+      const outcome = finalDamper?.outcome || damperEvaluated?.outcome || null
+      if (outcome) {
         publishLiveDamperState(input.gameId, {
           active: true,
           turn: Number(input.turn) || null,
           storyTurn: Number(input.storyTurn ?? input.turn) || null,
           targetMessageUid: typeof input.targetMessageUid === 'string' && input.targetMessageUid !== '' ? input.targetMessageUid : null,
           regeneration: input.regeneration === true,
-          outcome: structuredClone(evaluated.outcome)
+          outcome: structuredClone(outcome)
         })
       } else {
         clearLiveDamperState(input.gameId)
       }
-      if (evaluated?.rulingText) {
-        sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'last', text: evaluated.rulingText })
+      const rulingText = finalDamper?.rulingText || damperEvaluated?.rulingText || ''
+      if (rulingText) {
+        sections.push({ owner: 'dsh-tavern', name: 'narrative-damper', position: 'last', text: rulingText })
       }
-    } else {
-      narrativeDamper.clearActive?.()
-      clearLiveDamperState(input.gameId)
     }
     if (mode !== 'story') return sections
     if (header?.backgroundTasks?.styleReference === true) {

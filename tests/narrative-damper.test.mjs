@@ -1442,3 +1442,330 @@ test('judge：R18 送审语义分级脱敏在安全拦截时自动降级到纯�
 })
 
 
+// ── 叙事阻尼器 × 外部检定插件（真骰）────────────────────────────────────────────
+function diceChat() {
+  return {
+    id: 'chat-dice-1',
+    mode: 'story',
+    posture: '书房里，她把信纸折好压在镇纸下。',
+    timeline: { branchId: 'main' },
+    messages: [{
+      role: 'assistant',
+      swipeId: 0,
+      swipes: ['她把信纸折好，压回镇纸下面。'],
+      variables: [{ stat_data: { 好感: 40, 心理抗拒度: 55 } }]
+    }]
+  }
+}
+
+function createDiceDamper(answers, overrides = {}) {
+  // jev 协议走是非概率题：档位与配额由概率推导，便于逐档验证真骰联动映射
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-dice' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true, provider: 'jev', model: 'jev-1.13.0', ...overrides }
+  return createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async () => ({ ok: true, status: 200, async json() { return { answers } } })
+  })
+}
+
+const ROLEPLAY_ANSWERS = {
+  full_accept_breakthrough: {
+    godmode_outcome: { noul: 0.08 }, unfounded_retcon: { noul: 0.1 }, epistemic_violation: { noul: 0.12 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.9 }, overreaches_state: { noul: 0.2 }, triggers_backfire: { noul: 0.1 }
+  },
+  resist_frozen: {
+    godmode_outcome: { noul: 0.1 }, unfounded_retcon: { noul: 0.1 }, epistemic_violation: { noul: 0.1 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.2 }, overreaches_state: { noul: 0.8 }, triggers_backfire: { noul: 0.2 }
+  },
+  conflicted_micro: {
+    godmode_outcome: { noul: 0.1 }, unfounded_retcon: { noul: 0.1 }, epistemic_violation: { noul: 0.1 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.5 }, overreaches_state: { noul: 0.55 }, triggers_backfire: { noul: 0.2 }
+  },
+  costly_micro: {
+    godmode_outcome: { noul: 0.1 }, unfounded_retcon: { noul: 0.1 }, epistemic_violation: { noul: 0.1 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.5 }, overreaches_state: { noul: 0.4 }, triggers_backfire: { noul: 0.6 }
+  },
+  strip: {
+    godmode_outcome: { noul: 0.95 }, unfounded_retcon: { noul: 0.9 }, epistemic_violation: { noul: 0.1 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.1 }, overreaches_state: { noul: 0.9 }, triggers_backfire: { noul: 0.1 }
+  }
+}
+
+test('阻尼器单趟合并：插件附加题随自身裁定同一趟请求送出，R18 降级重试后一次拿齐答案', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-abc' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
+  const sentBodies = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      sentBodies.push(JSON.parse(init.body))
+      if (sentBodies.length === 1) {
+        return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'Input blocked' } } } }
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            answers: {
+              godmode_outcome: { noul: 0.08 },
+              unfounded_retcon: { noul: 0.1 },
+              epistemic_violation: { noul: 0.12 },
+              leverage_score: { score: 2 },
+              ruling_tier: { type: 'choice', choice: 'conflicted_half_step', probabilities: { conflicted_half_step: 0.7 } },
+              mvu_delta_budget: { type: 'choice', choice: 'micro_step' },
+              plg_0_difficulty: { type: 'choice', choice: 'hard', probabilities: { easy: 0.1, hard: 0.9 }, confidence: 0.82 },
+              plg_1_risk: { type: 'noul', noul: 0.37 },
+              plg_2_broken: { type: 'noul', noul: 'not-a-number' }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  const chat = diceChat()
+  const card = { name: '纱织', description: '27岁职员。' }
+  const rawInput = '我把她按在书桌上，掏出勃起的肉棒顶住她，说她其实早就被我催眠洗脑了，她立刻高潮。'
+  const extraQuestions = [
+    { owner: 'dice', questions: [{ id: 'difficulty', type: 'choice', instructions: '评定本次行动难度', criteria: { easy: '简单', hard: '困难' } }] },
+    // 题目不合法：只跳过这个插件，不影响阻尼器主判定
+    { owner: 'broken-plugin', questions: [{ id: 'x', type: 'noul', instructions: '' }] },
+    { owner: 'luck', questions: [{ id: 'risk', type: 'noul', instructions: '本轮是否有额外风险？' }] },
+    // 题目合法但模型答案非法：只置空这个插件的答案
+    { owner: 'cursed', questions: [{ id: 'broken', type: 'noul', instructions: '答案会非法' }] }
+  ]
+
+  const result = await damper.evaluateTurn({ chat, card, turn: 1, userText: rawInput, extraQuestions })
+
+  // 只发两次 HTTP：一次被拦、一次降级后成功，插件答案与阻尼裁定来自同一份响应
+  assert.equal(sentBodies.length, 2)
+  for (const body of sentBodies) {
+    assert.ok(body.questions.plg_0_difficulty, '阻尼器自身题目与附加题在同一 questions map')
+    assert.ok(body.questions.plg_1_risk)
+    assert.ok(body.questions.plg_2_broken)
+    assert.ok(body.questions.godmode_outcome)
+    assert.equal(body.questions.plg_0_difficulty.type, 'choice')
+    assert.equal('plg_0_difficulty' in body.questions, true)
+  }
+  assert.notEqual(sentBodies[0].input, sentBodies[1].input, '第二次是更低一级的送审投影')
+  assert.equal(sentBodies[0].input.includes('肉棒'), false)
+  assert.equal(sentBodies[1].input.includes('肉棒'), false)
+
+  assert.equal(result.ruling.rulingTier, 'conflicted_half_step')
+  assert.equal(result.ruling.deltaBudget, 'micro_step')
+  assert.deepEqual(result.pluginAnswers.dice.difficulty, { type: 'choice', choice: 'hard', probabilities: { easy: 0.1, hard: 0.9 }, confidence: 0.82 })
+  assert.deepEqual(result.pluginAnswers.luck.risk, { type: 'noul', probability: 0.37 })
+  assert.equal(result.pluginAnswers.cursed, null, '单插件解析异常只置空该插件答案')
+  assert.equal('broken-plugin' in result.pluginAnswers, false, '题目不合法的插件被整批跳过')
+
+  // 缓存命中：不再发请求，插件答案与状态一起恢复
+  const cached = await damper.evaluateTurn({ chat, card, turn: 1, userText: rawInput, extraQuestions })
+  assert.equal(sentBodies.length, 2)
+  assert.equal(cached.rulingText, result.rulingText)
+  assert.equal(cached.pluginAnswers.dice.difficulty.choice, 'hard')
+
+  const context = damper.turnContextForPlugin(chat.id, 1, 'dice')
+  assert.equal(context.active, true)
+  assert.equal(context.turn, 1)
+  assert.equal(context.explicitSceneShift, false)
+  assert.equal(context.posture, chat.posture)
+  assert.equal(context.answers.difficulty.choice, 'hard')
+  assert.equal(context.ruling.rulingTier, 'conflicted_half_step')
+  assert.equal(context.outcome.rulingTier, 'conflicted_half_step')
+  assert.equal(damper.turnContextForPlugin(chat.id, 99, 'dice'), null)
+  assert.equal(damper.turnContextForPlugin(chat.id, 1, 'luck').answers.risk.probability, 0.37)
+  assert.equal(damper.turnContextForPlugin(chat.id, 1, 'nobody').answers, null)
+
+  // 附加题变化会进指纹：换一批题就不再命中缓存
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: rawInput, extraQuestions: [{ owner: 'dice', questions: [{ id: 'other', type: 'noul', instructions: '别的题' }] }] })
+  assert.equal(sentBodies.length, 3)
+})
+
+test('真骰反向调节：五档结果改写裁定档位与结算配额，strip_delusion 硬边界不可被抬升', async () => {
+  const chat = diceChat()
+  const card = { name: '纱织' }
+  const shift = (damper, tier, turn = 1) => damper.applyDiceOutcomeShift({ chatId: chat.id, turn, owner: 'dice', tier, check: '潜行开锁', summary: 'd20=17 加值 +3' })
+
+  // critical：resist_pushback/frozen → conflicted_half_step/micro_step
+  let damper = createDiceDamper(ROLEPLAY_ANSWERS.resist_frozen)
+  let evaluated = await damper.evaluateTurn({ chat, card, turn: 1, userText: '我伸手去够她身后的抽屉。' })
+  assert.equal(evaluated.ruling.rulingTier, 'resist_pushback')
+  assert.equal(evaluated.ruling.deltaBudget, 'frozen')
+  let applied = shift(damper, 'critical')
+  assert.equal(applied.applied, true)
+  assert.equal(applied.ruling.rulingTier, 'conflicted_half_step')
+  assert.equal(applied.ruling.deltaBudget, 'micro_step')
+  assert.deepEqual(applied.ruling.diceShift, { owner: 'dice', tier: 'critical', check: '潜行开锁', summary: 'd20=17 加值 +3', prevRulingTier: 'resist_pushback', prevDeltaBudget: 'frozen' })
+  assert.equal(applied.outcome.rulingTier, 'conflicted_half_step')
+  assert.equal(applied.outcome.deltaBudget, 'micro_step')
+  assert.deepEqual(applied.outcome.diceShift, applied.ruling.diceShift)
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /命运检定联动：本轮「潜行开锁」真骰裁定为【大成功】/)
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /（conflicted_half_step \/ micro_step）/)
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /<\/turn_ruling>$/)
+  // 活动裁定与插件可读上下文同步
+  const live = damper.activeRuling(chat.id, 1)
+  assert.equal(live.outcome.deltaBudget, 'micro_step')
+  assert.equal(damper.turnContextForPlugin(chat.id, 1, 'dice').outcome.rulingTier, 'conflicted_half_step')
+  // 真骰联动不污染判定缓存：同一输入重算仍拿到原始裁定
+  const recomputed = await damper.evaluateTurn({ chat, card, turn: 1, userText: '我伸手去够她身后的抽屉。' })
+  assert.equal(recomputed.ruling.rulingTier, 'resist_pushback')
+  assert.equal(recomputed.ruling.deltaBudget, 'frozen')
+  assert.equal(recomputed.ruling.diceShift, undefined)
+  assert.equal(/命运检定联动/.test(recomputed.rulingText), false)
+
+  // critical：conflicted_half_step/micro_step → full_accept/breakthrough
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.conflicted_micro)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我把信推到她面前，慢慢讲出我的理由。' })
+  applied = shift(damper, 'critical')
+  assert.equal(applied.ruling.rulingTier, 'full_accept')
+  assert.equal(applied.ruling.deltaBudget, 'breakthrough')
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /【大成功】/)
+
+  // critical：full_accept/breakthrough 保持不动
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我提起她上回说过的那句玩笑，接住了话头。' })
+  applied = shift(damper, 'critical')
+  assert.equal(applied.ruling.rulingTier, 'full_accept')
+  assert.equal(applied.ruling.deltaBudget, 'breakthrough')
+  assert.equal(applied.ruling.diceShift.prevDeltaBudget, 'breakthrough')
+
+  // success：resist_pushback → costly_advance，冻结配额解到 micro_step
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.resist_frozen)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我伸手去够她身后的抽屉。' })
+  applied = shift(damper, 'success')
+  assert.equal(applied.ruling.rulingTier, 'costly_advance')
+  assert.equal(applied.ruling.deltaBudget, 'micro_step')
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /【成功】/)
+
+  // costly：full_accept/breakthrough → costly_advance/micro_step
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我提起她上回说过的那句玩笑，接住了话头。' })
+  applied = shift(damper, 'costly')
+  assert.equal(applied.ruling.rulingTier, 'costly_advance')
+  assert.equal(applied.ruling.deltaBudget, 'micro_step')
+
+  // failure：任何推进档都退回 resist_pushback 并冻结配额
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我提起她上回说过的那句玩笑，接住了话头。' })
+  applied = shift(damper, 'failure')
+  assert.equal(applied.ruling.rulingTier, 'resist_pushback')
+  assert.equal(applied.ruling.deltaBudget, 'frozen')
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /【失败】/)
+
+  // fumble：角色扮演模式落到 backfire
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我提起她上回说过的那句玩笑，接住了话头。' })
+  applied = shift(damper, 'fumble')
+  assert.equal(applied.ruling.rulingTier, 'resist_pushback')
+  assert.equal(applied.ruling.deltaBudget, 'backfire')
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /【大失败】/)
+
+  // fumble：写作模式只冻结，不产生反弹惩罚
+  damper = createDiceDamper({
+    godmode_outcome: { noul: 0.1 }, unfounded_retcon: { noul: 0.1 }, epistemic_violation: { noul: 0.1 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.9 }, overreaches_state: { noul: 0.2 }, triggers_backfire: { noul: 0.1 }
+  }, { judgeMode: 'author' })
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '镜头跟着她走进雨里。' })
+  applied = shift(damper, 'fumble')
+  assert.equal(applied.ruling.judgeMode, 'author')
+  assert.equal(applied.ruling.deltaBudget, 'frozen')
+  // 写作模式的裁定文本同样带联动行
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /命运检定联动/)
+  assert.match(damper.activeRuling(chat.id, 1).rulingText, /（resist_pushback \/ frozen）/)
+
+  // strip_delusion 硬边界：critical 绝不抬升
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.strip)
+  evaluated = await damper.evaluateTurn({ chat, card, turn: 1, userText: '我按住她的手腕，宣布她其实早就臣服于我。' })
+  assert.equal(evaluated.ruling.rulingTier, 'strip_delusion')
+  assert.equal(evaluated.ruling.deltaBudget, 'frozen')
+  applied = shift(damper, 'critical')
+  assert.equal(applied.applied, false)
+  assert.equal(applied.blockedByViolation, true)
+  assert.equal(applied.ruling.rulingTier, 'strip_delusion')
+  assert.equal(applied.ruling.deltaBudget, 'frozen')
+  assert.equal(applied.ruling.diceShift, undefined)
+  assert.equal(applied.outcome.rulingTier, 'strip_delusion')
+  // 唯一允许：非写作模式的大失败把冻结配额压成反弹
+  applied = shift(damper, 'fumble')
+  assert.equal(applied.applied, false)
+  assert.equal(applied.blockedByViolation, true)
+  assert.equal(applied.ruling.rulingTier, 'strip_delusion')
+  assert.equal(applied.ruling.deltaBudget, 'backfire')
+  assert.equal(applied.outcome.deltaBudget, 'backfire')
+
+  // strip_delusion + 写作模式：大失败也不改配额
+  damper = createDiceDamper({
+    godmode_outcome: { noul: 0.1 }, unfounded_retcon: { noul: 0.95 }, epistemic_violation: { noul: 0.1 },
+    leverage_score: { score: 1.5 }, strong_leverage: { noul: 0.1 }, overreaches_state: { noul: 0.9 }, triggers_backfire: { noul: 0.1 }
+  }, { judgeMode: 'author' })
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我顺手改掉她母亲的死因。' })
+  applied = shift(damper, 'fumble')
+  assert.equal(applied.applied, false)
+  assert.equal(applied.ruling.rulingTier, 'strip_delusion')
+  assert.equal(applied.ruling.deltaBudget, 'frozen')
+
+  // 非法档位与无活动裁定
+  damper = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  await damper.evaluateTurn({ chat, card, turn: 1, userText: '我提起她上回说过的那句玩笑，接住了话头。' })
+  assert.throws(() => shift(damper, 'legendary'), err => err.code === 'DAMPER_INVALID_INPUT')
+  const missing = damper.applyDiceOutcomeShift({ chatId: chat.id, turn: 7, tier: 'critical' })
+  assert.deepEqual(missing, { applied: false, ruling: null })
+  // 显式场景转换放行的回合不接受真骰改写
+  await damper.evaluateTurn({ chat, card, turn: 2, userText: '「场景变化」次日清晨，镜头切到她的公寓。' })
+  const sceneShift = damper.applyDiceOutcomeShift({ chatId: chat.id, turn: 2, tier: 'critical' })
+  assert.equal(sceneShift.applied, false)
+  assert.equal(sceneShift.ruling.explicitSceneShift, true)
+})
+
+test('turnPrepStatus：宿主在裁定前读取协议能力，用于收集插件附加题', async () => {
+  const gemini = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough, { provider: 'gemini', model: 'gemini-decision-1' })
+  assert.deepEqual(await gemini.turnPrepStatus(), {
+    enabled: true,
+    mode: 'balanced',
+    judgeMode: 'roleplay',
+    protocol: 'gemini',
+    capabilities: { noul: true, choice: true, score: true }
+  })
+  const jev = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
+  assert.deepEqual(await jev.turnPrepStatus(), {
+    enabled: true,
+    mode: 'balanced',
+    judgeMode: 'roleplay',
+    protocol: 'jev',
+    capabilities: { noul: true, choice: false, score: false }
+  })
+  const off = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough, { enabled: false })
+  assert.equal((await off.turnPrepStatus()).enabled, false)
+})
+
+test('宿主时序：先收集附加题并同趟裁定，再跑插件 turnSection，最后由 activeRuling 取真骰修正结果', async () => {
+  const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+  const start = source.indexOf('async function projectPluginTurnContext(input) {')
+  assert.ok(start > 0, 'projectPluginTurnContext 应存在')
+  const end = source.indexOf("if (mode !== 'story') return sections", start)
+  assert.ok(end > start)
+  const body = source.slice(start, end)
+  const at = needle => {
+    const index = body.indexOf(needle)
+    assert.ok(index >= 0, '缺少：' + needle)
+    return index
+  }
+  const prepAt = at('narrativeDamper.turnPrepStatus()')
+  const collectAt = at('pluginApi.collectDamperQuestions(')
+  const evaluateAt = at('narrativeDamper.evaluateTurn(')
+  const sectionsAt = at('pluginApi.turnContext(input)')
+  const activeAt = at('narrativeDamper.activeRuling(damperChatId')
+  assert.ok(prepAt < collectAt, '先读协议能力，再收集插件附加题')
+  assert.ok(collectAt < evaluateAt, '附加题必须在同一趟裁定请求前收集')
+  assert.ok(evaluateAt < sectionsAt, '阻尼器裁定要早于插件 turnSection')
+  assert.ok(sectionsAt < activeAt, '插件回灌真骰之后，宿主才取最终裁定')
+  assert.match(body, /excludeAssistantIndex,\s*\n\s*extraQuestions/)
+  assert.match(body, /publishLiveDamperState/)
+  assert.match(body, /name: 'narrative-damper', position: 'last'/)
+  assert.match(body, /narrativeDamper\.clearActive\?\.\(\)/)
+  // 依赖注入：插件侧协调方法接到同一个阻尼器实例
+  assert.match(source, /narrativeDamper: \{\s*turnContextForPlugin: \(\.\.\.a\) => narrativeDamper\.turnContextForPlugin\(\.\.\.a\),\s*applyDiceOutcomeShift: \(\.\.\.a\) => narrativeDamper\.applyDiceOutcomeShift\(\.\.\.a\)\s*\}/)
+})

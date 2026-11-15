@@ -37,6 +37,10 @@ const POOL_ENTRY_ID = /^[A-Za-z0-9._-]{1,64}$/
 const PLUGIN_TIMEOUT_MS = 30000
 const REPLACEMENT_TIMEOUT_MS = 120000
 const MAX_MEMBER_SYSTEM = 20000
+// 叙事阻尼器附加题：插件在宿主裁定前补问的题目，随阻尼器同一趟请求送出
+const DAMPER_QUESTION_TIMEOUT_MS = 1500
+const MAX_DAMPER_QUESTIONS_PER_PLUGIN = 6
+const MAX_DAMPER_QUESTIONS_TOTAL = 10
 const MAX_VARIABLES = 1024 * 1024
 const MAX_EDIT_TEXT = 200000
 const MAX_HISTORY_TURNS = 50
@@ -181,6 +185,8 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
+  // 插件注册的阻尼器附加题：{ owner, name, questions }
+  const damperQuestionProviders = new Map()
   // Host-only: whoever prepares what a picture needs (the stage's 自动素材), behind tavern.beforeImagePlan /
   // beforeImageGenerate (null: nothing to wait for).
   let imageGateProvider = null
@@ -198,7 +204,8 @@ export function createTavernPluginApi(deps) {
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
-    ...(deps.decisionJudge ? { decisionJudge: 1 } : {}) })
+    ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
+    ...(deps.narrativeDamper ? { narrativeDamper: 1 } : {}) })
   // Allocated only when a plugin declares a read capability.
   let readDeclarations
   let readEpoch = 0
@@ -469,6 +476,50 @@ export function createTavernPluginApi(deps) {
       result.push({ name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' ? { position: 'before' } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) })
     }
     return result
+  }
+
+  // 宿主在阻尼器裁定前收集插件附加题：本局已关闭的插件与越权卡内插件都不参与
+  async function collectDamperQuestions(input = {}) {
+    const gameId = input.gameId === undefined || input.gameId === null ? '' : String(input.gameId)
+    const { disabled, elsewhere } = gameId
+      ? await choicesFor(gameId).catch(() => ({ disabled: new Set(), elsewhere: new Set() }))
+      : { disabled: new Set(), elsewhere: new Set() }
+    const context = {
+      gameId: gameId || null,
+      turn: Number(input.turn) || 0,
+      input: String(input.input ?? '').slice(0, 4000),
+      protocol: String(input.protocol || ''),
+      capabilities: {
+        noul: Boolean(input.capabilities?.noul),
+        choice: Boolean(input.capabilities?.choice),
+        score: Boolean(input.capabilities?.score)
+      },
+      stateSnapshot: input.stateSnapshot === undefined ? null : structuredClone(input.stateSnapshot),
+      posture: String(input.posture ?? '').slice(0, 400)
+    }
+    const entries = Array.from(damperQuestionProviders.values())
+      .filter(entry => !disabled.has(entry.owner) && !elsewhere.has(entry.owner))
+      .sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
+    const collected = []
+    let total = 0
+    for (const entry of entries) {
+      if (total >= MAX_DAMPER_QUESTIONS_TOTAL) break
+      let questions
+      try {
+        questions = await bounded(Promise.resolve().then(() => entry.questions(structuredClone(context))),
+          '阻尼器附加题 ' + entry.name, DAMPER_QUESTION_TIMEOUT_MS)
+      } catch (error) {
+        recordError(gameId || null, entry.owner, '阻尼器附加题', error)
+        continue
+      }
+      if (!Array.isArray(questions) || !questions.length) continue
+      const room = Math.min(MAX_DAMPER_QUESTIONS_PER_PLUGIN, MAX_DAMPER_QUESTIONS_TOTAL - total)
+      const picked = questions.filter(question => question !== null && typeof question === 'object').slice(0, room)
+      if (!picked.length) continue
+      total += picked.length
+      collected.push({ owner: entry.owner, questions: picked.map(question => structuredClone(question)) })
+    }
+    return collected
   }
 
   const hostBehavior = createHostBehaviorPolicies({ allowed: async (owner, gameId) => {
@@ -1439,6 +1490,40 @@ export function createTavernPluginApi(deps) {
       }
     },
 
+    // 注册阻尼器附加题：宿主在裁定前调用，题目随阻尼器同一趟请求送出
+    damperTurnQuestions({ name, questions } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      if (typeof questions !== 'function') throw new TypeError('questions 必须是函数')
+      const entry = { owner, name, questions }
+      return register.call(this, damperQuestionProviders, owner + '\u0000' + name, entry,
+        'tavern.damperTurnQuestions()', '阻尼器附加题 ' + name + ' 已注册')
+    },
+
+    // 读取本轮阻尼状态与合并后的附加题答案（只读克隆）
+    async getDamperTurnContext({ gameId, turn } = {}) {
+      const owner = ownerOf(this)
+      if (!deps.narrativeDamper?.turnContextForPlugin) {
+        throw Object.assign(new Error('当前版本不支持叙事阻尼器上下文'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      }
+      const game = await requireGame(gameId)
+      await guardScope(owner, { gameId: game.sessionId })
+      if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
+      return deps.narrativeDamper.turnContextForPlugin(game.chatId, turn, owner)
+    },
+
+    // 把真骰结果回传给阻尼器，同步本轮推进尺度与结算配额
+    async applyDamperDiceShift({ gameId, turn, tier, check, summary } = {}) {
+      const owner = ownerOf(this)
+      if (!deps.narrativeDamper?.applyDiceOutcomeShift) {
+        throw Object.assign(new Error('当前版本不支持叙事阻尼器联动'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      }
+      const game = await requireGame(gameId)
+      await guardScope(owner, { gameId: game.sessionId })
+      if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
+      return deps.narrativeDamper.applyDiceOutcomeShift({ chatId: game.chatId, turn, owner, tier, check, summary })
+    },
+
     async attach({ gameId, turn, textVersion, item } = {}) {
       const owner = ownerOf(this)
       const material = await requireTurn(gameId, turn)
@@ -2241,7 +2326,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates,
+  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

@@ -635,6 +635,27 @@ export function normalizeDecisionRuling(rawDecision, config) {
   }
 }
 
+// 外部检定插件（真骰）回传的五档结果，用于把阻尼裁定与结算配额反向对齐
+export const DAMPER_DICE_TIERS = Object.freeze(['critical', 'success', 'costly', 'failure', 'fumble'])
+export const DAMPER_DICE_TIER_LABELS = Object.freeze({
+  critical: '大成功',
+  success: '成功',
+  costly: '代价成功',
+  failure: '失败',
+  fumble: '大失败'
+})
+const TIER_LABELS = DAMPER_DICE_TIER_LABELS
+
+// 真骰联动行：只在 ruling.diceShift 存在时追加到 </turn_ruling> 之前
+function diceShiftLine(ruling) {
+  const shift = ruling && typeof ruling === 'object' ? ruling.diceShift : null
+  if (!shift || typeof shift !== 'object') return ''
+  const label = TIER_LABELS[str(shift.tier)] || str(shift.tier)
+  if (!label) return ''
+  const check = str(shift.check) || '行动'
+  return `- 命运检定联动：本轮「${check}」真骰裁定为【${label}】，推进尺度与状态结算配额已同步对齐（${str(ruling.rulingTier)} / ${str(ruling.deltaBudget)}）。`
+}
+
 function compileAuthorTurnRuling(ruling, { stateLine, postureLine }) {
   const tier = str(ruling && ruling.rulingTier)
   const score = Number(ruling?.leverageScore || 1).toFixed(2)
@@ -693,7 +714,15 @@ function compileAuthorTurnRuling(ruling, { stateLine, postureLine }) {
   ].join('\n')
 }
 
-export function compileTurnRuling(ruling, { stateSnapshot, posture, explicitSceneShift = false } = {}) {
+// 真骰联动行统一在这里拼到闭合标签之前，roleplay 与 author 两个分支都覆盖
+export function compileTurnRuling(ruling, options = {}) {
+  const text = compileTurnRulingBody(ruling, options)
+  const diceLine = diceShiftLine(ruling)
+  if (!diceLine) return text
+  return text.replace(/<\/turn_ruling>$/, diceLine + '\n</turn_ruling>')
+}
+
+function compileTurnRulingBody(ruling, { stateSnapshot, posture, explicitSceneShift = false } = {}) {
   const stateLine = compactStateSummary(stateSnapshot)
   const postureLine = str(posture).trim() ? `；现场姿势锚点：${str(posture).trim().slice(0, 140)}` : ''
   if (explicitSceneShift) {
@@ -998,31 +1027,94 @@ function buildJudgeMaterial({ chat, card, userText, stateSnapshot, config, exclu
   return config.desensitizeR18 !== false ? desensitizeForDecisionJudge(rawMaterial) : rawMaterial
 }
 
-function buildProviderRequest(config, material, customBinaryQuestions = null) {
+// 附加题合并上限：单趟请求里最多带 8 个插件批次、16 道附加题
+const MAX_MERGED_PLUGIN_BATCHES = 8
+const MAX_MERGED_PLUGIN_QUESTIONS = 16
+
+// 把插件附加题规范化并按 plg_<idx>_<id> 分配内部键名；单个插件不合法/协议不支持时只跳过该插件
+function normalizeExtraQuestionBatches(extraQuestions, protocol) {
+  const batches = []
+  if (!Array.isArray(extraQuestions) || !extraQuestions.length) return batches
+  let total = 0
+  for (const raw of extraQuestions) {
+    if (batches.length >= MAX_MERGED_PLUGIN_BATCHES || total >= MAX_MERGED_PLUGIN_QUESTIONS) break
+    const item = object(raw)
+    const owner = str(item.owner).trim()
+    if (!owner) continue
+    let normalized
+    try {
+      normalized = normalizePluginQuestions(item.questions, protocol)
+    } catch {
+      // 题目不合法或当前协议不支持该题型：只丢这个插件的题，阻尼器主判定照常进行
+      continue
+    }
+    const room = MAX_MERGED_PLUGIN_QUESTIONS - total
+    const picked = normalized.slice(0, room)
+    if (!picked.length) continue
+    const index = batches.length
+    batches.push({
+      owner,
+      questions: picked.map(q => ({ ...q, id: `plg_${index}_${q.id}`, localId: q.id }))
+    })
+    total += picked.length
+  }
+  return batches
+}
+
+function mergeExtraQuestions(target, extraBatches) {
+  for (const batch of extraBatches || []) {
+    for (const q of batch.questions) {
+      target[q.id] = q.type === 'noul'
+        ? { type: 'noul', instructions: q.instructions }
+        : { type: q.type, instructions: q.instructions, criteria: q.criteria }
+    }
+  }
+}
+
+// 同一份响应里按插件批次解析附加题答案；单插件解析异常只置空该插件，不影响阻尼主结果
+function parseMergedPluginAnswers(protocol, data, extraBatches) {
+  const result = {}
+  if (!data || !Array.isArray(extraBatches) || !extraBatches.length) return result
+  for (const batch of extraBatches) {
+    try {
+      const parsed = parsePluginDecisionResponse(protocol, data, batch.questions)
+      const answers = {}
+      for (const q of batch.questions) {
+        if (parsed[q.id] !== undefined) answers[q.localId] = parsed[q.id]
+      }
+      result[batch.owner] = answers
+    } catch {
+      result[batch.owner] = null
+    }
+  }
+  return result
+}
+
+function buildProviderRequest(config, material, customBinaryQuestions = null, extraBatches = null) {
   const url = damperEndpointUrl(config)
   if (!url) return null
   const protocol = DAMPER_PROVIDERS[config.provider]?.protocol || 'gemini'
   if (protocol === 'gemini') {
     const questions = customBinaryQuestions
       ? Object.fromEntries(customBinaryQuestions.map(q => [q.id, { type: 'noul', instructions: q.text }]))
-      : damperQuestionSet(config)
+      : { ...damperQuestionSet(config) }
+    mergeExtraQuestions(questions, extraBatches)
     const body = JSON.stringify({ model: config.model, input: material, questions })
     return { protocol, url, body, authHeader: key => ({ 'x-goog-api-key': key, 'Content-Type': 'application/json' }) }
   }
   const list = customBinaryQuestions || damperBinaryQuestionSet(config)
   if (protocol === 'jev') {
-    const body = JSON.stringify({
-      model: config.model,
-      state: material,
-      questions: Object.fromEntries(list.map(q => [q.id, { type: 'noul', instructions: q.text }]))
-    })
+    const questions = Object.fromEntries(list.map(q => [q.id, { type: 'noul', instructions: q.text }]))
+    // jev 只支持 noul 是非概率题，附加题已在规范化阶段按协议过滤
+    mergeExtraQuestions(questions, extraBatches)
+    const body = JSON.stringify({ model: config.model, state: material, questions })
     return { protocol, url, body, authHeader: key => ({ Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }) }
   }
-  const body = JSON.stringify({
-    model: config.model,
-    input: material,
-    questions: list.map(q => ({ type: 'predicate', name: q.id, instructions: q.text }))
-  })
+  const questions = list.map(q => ({ type: 'predicate', name: q.id, instructions: q.text }))
+  for (const batch of extraBatches || []) {
+    for (const q of batch.questions) questions.push({ type: 'predicate', name: q.id, instructions: q.instructions })
+  }
+  const body = JSON.stringify({ model: config.model, input: material, questions })
   return { protocol, url, body, authHeader: key => ({ Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }) }
 }
 
@@ -1325,10 +1417,10 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
     }
   }
 
-  async function runTurnQuery({ materials, config }) {
+  async function runTurnQuery({ materials, config, extraBatches = null }) {
     const ladder = Array.isArray(materials) && materials.length ? materials : []
     if (!ladder.length) return { ok: false, code: 'DAMPER_INACTIVE', latencyMs: 0, decision: null }
-    const request = buildProviderRequest(config, ladder[0].material)
+    const request = buildProviderRequest(config, ladder[0].material, null, extraBatches)
     if (!request) return { ok: false, code: 'DAMPER_INACTIVE', latencyMs: 0, decision: null }
     const start = performance.now()
     const controller = new AbortController()
@@ -1341,7 +1433,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       for (let index = 0; index < ladder.length; index++) {
         const item = ladder[index]
         judgeTier = item.tier
-        const attempt = index === 0 ? request : buildProviderRequest(config, item.material)
+        const attempt = index === 0 ? request : buildProviderRequest(config, item.material, null, extraBatches)
         if (!attempt) throw error('DAMPER_INACTIVE', '决策接口地址无效')
         try {
           // Each projection tier is cheaper to judge but needs its own round trip: give the
@@ -1366,7 +1458,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       } : undefined
       const stat = { kind: 'narrative-damper', provider: config.provider, model: config.model, code: 'OK', latencyMs, judgeTier, rulingTier: ruling.rulingTier, deltaBudget: ruling.deltaBudget, ...(blockedTiers.length ? { safetyBlockedTiers: blockedTiers } : {}), ...(usage ? { usage } : {}) }
       log(stat)
-      return { ok: true, code: 'OK', latencyMs, ruling, usage, judgeTier, safetyBlockedTiers: blockedTiers, retriedSafetyFallback: blockedTiers.length > 0 }
+      return { ok: true, code: 'OK', latencyMs, ruling, usage, judgeTier, safetyBlockedTiers: blockedTiers, retriedSafetyFallback: blockedTiers.length > 0, body }
     } catch (cause) {
       controller.abort()
       const known = ['DAMPER_TIMEOUT', 'DAMPER_NO_KEY', 'DAMPER_SAFETY_BLOCKED', 'DAMPER_AUTH_ERROR', 'DAMPER_RATE_LIMIT', 'DAMPER_HTTP_ERROR', 'DAMPER_INVALID_RESPONSE']
@@ -1452,13 +1544,17 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       }
     },
 
-    async evaluateTurn({ chat, card, turn, userText, excludeAssistantIndex = -1 }) {
+    async evaluateTurn({ chat, card, turn, userText, excludeAssistantIndex = -1, extraQuestions = [] }) {
       const activeKey = chat?.id ? `${chat.id}:${Number(turn) || 0}` : ''
       if (activeKey) activeTurnRulings.delete(activeKey)
       const config = normalizeNarrativeDamperConfig(await getConfig())
       if (!config.enabled || !chat || !['story', 'script'].includes(chat.mode || 'story')) return null
       const trimmedInput = str(userText).trim()
       if (!trimmedInput) return null
+      const protocol = judgeProtocolFor(config)
+      const posture = str(chat.posture)
+      // 插件附加题与阻尼器自身题目合并进同一趟请求；题目不合法或协议不支持的插件单独跳过
+      const extraBatches = normalizeExtraQuestionBatches(extraQuestions, protocol)
 
       const effectiveThreshold = config.mode === 'strict'
         ? Math.max(0.5, Math.round((config.godmodeThreshold - 0.08) * 100) / 100)
@@ -1489,7 +1585,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           stateKind: stateSnapshot.kind,
           latencyMs: 0
         })
-        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: sceneRuling, outcome, stateSnapshot })
+        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: sceneRuling, rulingText, outcome, stateSnapshot, posture, pluginAnswers: {} })
         return { ruling: sceneRuling, rulingText, stateSnapshot, outcome }
       }
 
@@ -1500,6 +1596,10 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         posture: str(chat.posture),
         state: stateSnapshot,
         input: trimmedInput,
+        extra: extraBatches.map(batch => ({
+          owner: batch.owner,
+          questions: batch.questions.map(q => ({ id: q.id, type: q.type, instructions: q.instructions, criteria: q.criteria ?? null }))
+        })),
         config: {
           mode: config.mode,
           judgeMode: config.judgeMode,
@@ -1523,7 +1623,8 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           stateKind: stateSnapshot.kind,
           latencyMs: 0
         })
-        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: cached.ruling, outcome, stateSnapshot })
+        const pluginAnswers = cached.pluginAnswers || {}
+        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: structuredClone(cached.ruling), rulingText: cached.rulingText, outcome, stateSnapshot, posture, pluginAnswers: structuredClone(pluginAnswers) })
         return { ...cached, stateSnapshot, outcome }
       }
 
@@ -1551,7 +1652,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
             ? skeletonizeForSafetyFallback({ stateSnapshot: stateSnapshot.data, posture: chat.posture, userText: trimmedInput, config })
             : material
       }))
-      const queryResult = await runTurnQuery({ materials, config })
+      const queryResult = await runTurnQuery({ materials, config, extraBatches })
       if (Array.isArray(queryResult.safetyBlockedTiers) && queryResult.safetyBlockedTiers.length) {
         safetySticky.set(`${config.provider}:${config.model}:${config.baseUrl}`, Date.now() + 90_000)
       }
@@ -1570,10 +1671,12 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
             ? { safetyBlockedTiers: queryResult.safetyBlockedTiers.slice() }
             : {})
         }
-        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: null, outcome, stateSnapshot })
+        if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: null, rulingText: '', outcome, stateSnapshot, posture, pluginAnswers: {} })
         return { ruling: null, rulingText: '', stateSnapshot, outcome }
       }
 
+      // 同一份响应里先由阻尼器自身题目定案，再按插件批次取附加题答案
+      const pluginAnswers = parseMergedPluginAnswers(protocol, queryResult.body, extraBatches)
       const rulingText = compileTurnRuling(queryResult.ruling, { stateSnapshot, posture: chat.posture, explicitSceneShift: false })
       const outcome = summarizeDamperRulingOutcome(queryResult.ruling, {
         source: 'model',
@@ -1586,12 +1689,12 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         safetyBlockedTiers: queryResult.safetyBlockedTiers,
         retriedSafetyFallback: queryResult.retriedSafetyFallback
       })
-      const entry = { ruling: queryResult.ruling, rulingText }
+      const entry = { ruling: queryResult.ruling, rulingText, pluginAnswers }
       rememberCache(decisionCache, cacheFingerprint, entry, 96)
-      if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: queryResult.ruling, outcome, stateSnapshot })
+      // 活动裁定持有独立副本：真骰联动会原地改写它，不能污染缓存里的原始裁定
+      if (activeKey) rememberCache(activeTurnRulings, activeKey, { ruling: structuredClone(queryResult.ruling), rulingText, outcome, stateSnapshot, posture, pluginAnswers: structuredClone(pluginAnswers) })
       return { ...entry, stateSnapshot, outcome }
     },
-
     clearActive() {
       activeTurnRulings.clear()
     },
@@ -1609,6 +1712,103 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         if (key.startsWith(prefix)) found = value
       }
       return found
+    },
+
+    // 真骰结果反向调节本轮阻尼配额：只改推进尺度与结算配额，不改写剧情事实
+    applyDiceOutcomeShift({ chatId, turn, owner, tier, check = '', summary = '' } = {}) {
+      const key = `${str(chatId)}:${Number(turn) || 0}`
+      const entry = activeTurnRulings.get(key)
+      if (!entry || !entry.ruling || entry.ruling.explicitSceneShift === true) {
+        return { applied: false, ruling: entry?.ruling ? structuredClone(entry.ruling) : null }
+      }
+      if (!DAMPER_DICE_TIERS.includes(tier)) {
+        throw error('DAMPER_INVALID_INPUT', 'tier 必须为 critical/success/costly/failure/fumble 之一')
+      }
+      // 防吃书硬边界：越权剥离绝不能被真骰抬成成功；只有非写作模式的大失败能把冻结配额压成反弹
+      if (entry.ruling.rulingTier === 'strip_delusion') {
+        if (tier === 'fumble' && entry.ruling.judgeMode !== 'author' && entry.ruling.deltaBudget === 'frozen') {
+          entry.ruling.deltaBudget = 'backfire'
+          entry.outcome = { ...(entry.outcome || {}), deltaBudget: 'backfire' }
+        }
+        return {
+          applied: false,
+          blockedByViolation: true,
+          ruling: structuredClone(entry.ruling),
+          outcome: entry.outcome ? structuredClone(entry.outcome) : null
+        }
+      }
+      const prevRulingTier = str(entry.ruling.rulingTier)
+      const prevDeltaBudget = str(entry.ruling.deltaBudget)
+      const tierOf = prevRulingTier
+      const budgetOf = prevDeltaBudget
+      if (tier === 'critical') {
+        if (tierOf === 'resist_pushback') entry.ruling.rulingTier = 'conflicted_half_step'
+        else if (tierOf === 'costly_advance' || tierOf === 'conflicted_half_step') entry.ruling.rulingTier = 'full_accept'
+        if (budgetOf === 'frozen' || budgetOf === 'backfire') entry.ruling.deltaBudget = 'micro_step'
+        else if (budgetOf === 'micro_step') entry.ruling.deltaBudget = 'breakthrough'
+      } else if (tier === 'success') {
+        if (tierOf === 'resist_pushback') entry.ruling.rulingTier = 'costly_advance'
+        if (budgetOf === 'frozen' || budgetOf === 'backfire') entry.ruling.deltaBudget = 'micro_step'
+      } else if (tier === 'costly') {
+        if (tierOf === 'full_accept' || tierOf === 'resist_pushback') entry.ruling.rulingTier = 'costly_advance'
+        if (budgetOf === 'breakthrough' || budgetOf === 'frozen' || budgetOf === 'backfire') entry.ruling.deltaBudget = 'micro_step'
+      } else if (tier === 'failure') {
+        if (tierOf === 'full_accept' || tierOf === 'conflicted_half_step' || tierOf === 'costly_advance') entry.ruling.rulingTier = 'resist_pushback'
+        entry.ruling.deltaBudget = 'frozen'
+      } else {
+        entry.ruling.rulingTier = 'resist_pushback'
+        entry.ruling.deltaBudget = entry.ruling.judgeMode === 'author' ? 'frozen' : 'backfire'
+      }
+      entry.ruling.diceShift = {
+        owner: str(owner),
+        tier,
+        check: str(check).slice(0, 24),
+        summary: str(summary).slice(0, 140),
+        prevRulingTier,
+        prevDeltaBudget
+      }
+      entry.rulingText = compileTurnRuling(entry.ruling, {
+        stateSnapshot: entry.stateSnapshot,
+        posture: entry.posture,
+        explicitSceneShift: false
+      })
+      entry.outcome = {
+        ...(entry.outcome || {}),
+        rulingTier: entry.ruling.rulingTier,
+        deltaBudget: entry.ruling.deltaBudget,
+        diceShift: structuredClone(entry.ruling.diceShift)
+      }
+      return { applied: true, ruling: structuredClone(entry.ruling), outcome: structuredClone(entry.outcome) }
+    },
+
+    // 供插件在本轮 turnSection 内零延迟读取合并后的附加题答案与阻尼状态（只读克隆）
+    turnContextForPlugin(chatId, turn, owner) {
+      const key = `${str(chatId)}:${Number(turn) || 0}`
+      const entry = activeTurnRulings.get(key)
+      if (!entry) return null
+      return {
+        active: true,
+        turn: Number(turn) || 0,
+        explicitSceneShift: Boolean(entry.ruling?.explicitSceneShift),
+        stateSnapshot: structuredClone(entry.stateSnapshot),
+        posture: entry.posture || '',
+        ruling: entry.ruling ? structuredClone(entry.ruling) : null,
+        outcome: entry.outcome ? structuredClone(entry.outcome) : null,
+        answers: structuredClone(entry.pluginAnswers?.[owner] || null)
+      }
+    },
+
+    // 宿主在 evaluateTurn 之前读取当前协议能力，用来决定收集哪些插件附加题
+    async turnPrepStatus() {
+      const config = normalizeNarrativeDamperConfig(await getConfig())
+      const protocol = judgeProtocolFor(config)
+      return {
+        enabled: config.enabled === true,
+        mode: config.mode,
+        judgeMode: config.judgeMode === 'author' ? 'author' : 'roleplay',
+        protocol,
+        capabilities: judgeCapabilitiesForProtocol(protocol)
+      }
     },
 
     // 查询决策模型当前可用性与题型能力，不泄露密钥名称、密钥或自定义地址
