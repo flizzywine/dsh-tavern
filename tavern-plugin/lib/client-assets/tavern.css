@@ -87,7 +87,8 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-empty { margin: auto; text-align: center; color: var(--dsw-alias-label-secondary); padding: 24px; line-height: 1.8; white-space: pre-wrap; }
 .dsh-tavern-dock-error { color: #ef8f8f; padding: 0 10px 7px; font-size: 12px; }
 .dsh-tavern-picker-error { position: sticky; top: 0; z-index: 2; margin: 0 0 10px; padding: 10px 12px; border: 1px solid rgba(196,95,95,.45); border-radius: 10px; background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 88%, #c45f5f 12%); color: #c45f5f; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.dsh-tavern-error-center { position: fixed; z-index: 2200; top: 16px; right: 16px; width: min(480px, calc(100vw - 32px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(196,95,95,.5); border-radius: 14px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 18px 54px rgba(0,0,0,.32); color: var(--dsw-alias-label-primary); }
+/* a corner panel, not a full-window layer: it starts below the window's own top band (--fork-safe-top, theme.css), clear of the Windows caption buttons */
+.dsh-tavern-error-center { position: fixed; z-index: 2200; top: calc(var(--fork-safe-top, 0px) + 16px); right: 16px; width: min(480px, calc(100vw - 32px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(196,95,95,.5); border-radius: 14px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 18px 54px rgba(0,0,0,.32); color: var(--dsw-alias-label-primary); }
 .dsh-tavern-error-center-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgba(196,95,95,.25); font-size: 13px; font-weight: 700; }
 .dsh-tavern-error-center-head span { flex: 1; }
 .dsh-tavern-error-list { overflow: auto; padding: 8px; }
@@ -3696,7 +3697,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
   background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary);
 }
 /* Full-screen plugins live below the host caption row, including its native window controls. */
-[data-windows-titlebar] .dsh-tavern-plugin-overlay { top: var(--dsh-windows-titlebar-height, 40px); }
+[data-windows-titlebar]:not(:fullscreen) .dsh-tavern-plugin-overlay { top: var(--dsh-windows-titlebar-height, 40px); }
 .dsh-tavern-plugin-overlay-error { display: flex; gap: 12px; align-items: center; justify-content: center; min-height: 100%; }
 
 /* the way back from a full-screen right panel on a phone (registerTavernPhonePanel). */

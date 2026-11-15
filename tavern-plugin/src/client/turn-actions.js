@@ -51,6 +51,7 @@ function ReceiptButton(props) {
 function TurnReceiptButton({ sessionId, view, receipt, storyTurn }) {
     const h = React.createElement;
     const [open, setOpen] = React.useState(false);
+    useWindowFullscreen(open); // the dialog backdrop covers the window (inline-field.js)
     const status = RECEIPT_TITLES[receipt.status] ? receipt.status : "unchanged";
     const busy = Boolean(view && view.activity && view.activity.busy);
     const changes = Array.isArray(receipt.changes) ? receipt.changes.length : 0;

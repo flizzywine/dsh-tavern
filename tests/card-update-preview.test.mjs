@@ -14,7 +14,7 @@ const file = (bytes, name) => Object.assign(new Blob([bytes]), { name })
 
 test('opening update dialog renders without relying on a parent component h alias', () => {
   const React = { useState: value => [value, () => {}], useEffect() {}, createElement: (type, props, ...children) => ({ type, props, children }) }
-  const dialog = vm.runInNewContext(source + ';TavernCardUpdateDialog({})', { React })
+  const dialog = vm.runInNewContext(source + ';TavernCardUpdateDialog({})', { React, useWindowFullscreen() {} })
   assert.equal(dialog.type, 'div')
 })
 

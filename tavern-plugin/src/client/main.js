@@ -294,6 +294,7 @@ window.__ModuleLoader__.load({
 		function MobileCardImportButton(props) {
 			const [catalog, setCatalog] = React.useState(null);
 			const [open, setOpen] = React.useState(false);
+			useWindowFullscreen(open); // the import sheet covers the window (inline-field.js)
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState("");
 			const [filter, setFilter] = React.useState("");

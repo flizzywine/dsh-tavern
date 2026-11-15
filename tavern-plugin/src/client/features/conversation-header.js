@@ -40,6 +40,7 @@ function createTavernHeaderFeature({ StatusAction, ExportAction, openPage, openW
         // editor in a dialog, so it works without a host route to the settings page.
         function TavernHeaderSettingsDialog(props) {
             const h = React.createElement;
+            useWindowFullscreen(true); // the backdrop covers the window (inline-field.js)
             React.useEffect(function () {
                 function key(event) { if (event.key === "Escape") props.onClose(); }
                 document.addEventListener("keydown", key);
