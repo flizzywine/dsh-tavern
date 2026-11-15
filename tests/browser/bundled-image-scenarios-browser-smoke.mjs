@@ -162,7 +162,7 @@ try{
  await page.addScriptTag({content:[`(()=>{
   const React=modules.react, h=React.createElement, ReactDOM={...modules['react-dom'],...modules['react-dom/client']}
   const useTavernConfirm=()=>async()=>true,tavernPluginMediaUrl=()=>'/sample.png',openSceneImagePreview=(...args)=>openSceneImage(...args)
-  const useOverlay=()=>{},Spinner=()=>null,installTavernTextColors=()=>({dispose(){}}),findTavernQuoteRanges=()=>[],announceTavernMessageRendered=()=>{}
+  const useOverlay=()=>{},useWindowFullscreen=()=>{},Spinner=()=>null,installTavernTextColors=()=>({dispose(){}}),findTavernQuoteRanges=()=>[],announceTavernMessageRendered=()=>{}
   const TextArea=props=>h('textarea',{'aria-label':props['aria-label'],value:props.value,onChange:event=>props.onChange(event.target.value),autoFocus:props.autoFocus})
   const rpc=async(method,args)=>window.actionCalls.push({method,...args})
   window.actionCalls=[]

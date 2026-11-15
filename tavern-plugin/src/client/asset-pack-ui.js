@@ -126,6 +126,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   function Modal({title,children,onClose,busy=false,className='',head,foot,closable=true,initialFocus='control',frame,headless=false}) {
     const ref=React.useRef(null);
     useOverlay(true,()=>[ref.current],()=>{if(!busy)onClose();});
+    // the scrim covers the whole window: in full screen on the Windows Desktop, so DSH's own window buttons are hidden (useWindowFullscreen)
+    useWindowFullscreen(true);
     React.useEffect(()=>{const previous=typeof document==='undefined'?null:document.activeElement;(initialFocus==='dialog'?ref.current:ref.current?.querySelector('[data-autofocus]')||ref.current?.querySelector('button,input,select,textarea'))?.focus?.({preventScroll:true});return()=>previous?.focus?.();},[]);
     function key(event){frame?.onKeyDown?.(event);if(event.key==='Escape'){if(!overlayEscape(event)){event.preventDefault();event.stopPropagation();if(!busy)onClose();}}if(event.key==='Tab'){const nodes=[...(ref.current?.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')||[])];if(!nodes.length)return;const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===ref.current)){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}
     // The empty first child is a stopgap for the phone-access plugin dsh-pocket 2.12: its phone stylesheet takes every
