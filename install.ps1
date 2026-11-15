@@ -1780,7 +1780,10 @@ try {
   if (-not $UsedCdn) {
     New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
     Write-InstallStatus '本地处理：下载完成，正在解压运行文件…'
-    Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractDir -Force
+    # The fresh extraction directory needs no overwrite support. Use the overload
+    # common to Windows PowerShell and PowerShell 7, independent of PSModulePath.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $ExtractDir)
     # Only the temporary download is pruned; never remove installed user files.
     @(Get-ChildItem -LiteralPath $ExtractDir -Directory -Recurse -Filter 'docs') |
       Sort-Object { $_.FullName.Length } -Descending |

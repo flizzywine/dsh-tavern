@@ -6,6 +6,33 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { encodeWindowsPowerShellScript } from '../bin/application-update.mjs'
+
+test('Windows updater preserves installer parameters and extracts Unicode paths in PowerShell 5.1', { skip: process.platform !== 'win32' }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'windows-runtime-zip-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const source = await readFile(new URL('../install.ps1', import.meta.url), 'utf8')
+  const extraction = source.match(/    New-Item -ItemType Directory -Force -Path \$ExtractDir \| Out-Null\r?\n[\s\S]+?(?=    # Only the temporary download)/)[0]
+  const repo = (...args) => execFileSync('git', ['-C', directory, ...args])
+  const name = '世界书.json'
+  await writeFile(path.join(directory, name), '原文')
+  repo('init', '-q')
+  repo('add', '--', name)
+  const tree = String(repo('write-tree')).trim()
+  repo('archive', '--format=zip', '--output=runtime.zip', tree)
+  const script = path.join(directory, 'probe.ps1')
+  await writeFile(script, encodeWindowsPowerShellScript(`param([switch]$LauncherOnly)
+$ErrorActionPreference = 'Stop'
+if (-not $LauncherOnly) { throw 'Installer switch was not bound' }
+function Write-InstallStatus {}
+function Expand-Archive { throw 'Incompatible PowerShell archive module' }
+$ArchivePath = Join-Path $PSScriptRoot 'runtime.zip'
+$ExtractDir = Join-Path $PSScriptRoot 'extract'
+${extraction}`))
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-LauncherOnly'])
+  assert.equal(await readFile(path.join(directory, 'extract', name), 'utf8'), '原文')
+})
 
 for (const transport of ['curl', 'node', 'curl-failed']) {
   test(`Windows CDN download survives blocked PowerShell sockets: ${transport}`, { skip: process.platform !== 'win32' }, async t => {

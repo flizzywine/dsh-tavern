@@ -20,8 +20,7 @@ import { recordProfileContinuation } from '../tavern-plugin/packages/dsh-tavern/
 
 // Own update execution and durable terminal outcomes, including installed-but-needs-restart.
 export function encodeWindowsPowerShellScript(source) {
-  const utf8Output = "$OutputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\r\n"
-  return `\uFEFF${utf8Output}${source.replace(/^\uFEFF/, '')}`
+  return `\uFEFF${source.replace(/^\uFEFF/, '')}`
 }
 
 export function decodeUpdateOutput(value) {
