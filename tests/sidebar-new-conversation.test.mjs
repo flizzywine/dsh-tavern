@@ -29,6 +29,9 @@ function fixture({ failCreate = false, failSend = false } = {}) {
       if (failSend) throw new Error('send failed')
     } },
     substituteTavernIdentityMacros: text => text,
+    // The first send reads the new chat's player name from the live view; without it the
+    // start fails before sending at all, which is not what this fixture is about.
+    liveTavernView: { getSnapshot: () => ({ view: { playerName: 'Player' } }) },
     setBusy: value => busy.push(value), setError: error => errors.push(error), setOpeningPicker() {},
     window: { localStorage: { setItem() {} } }, console: { info() {}, warn() {} }
   })
