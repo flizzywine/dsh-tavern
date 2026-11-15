@@ -136,15 +136,17 @@ function createTavernRegexEngine() {
       }
     }
 
-    if (applied.length > 0 && sourceText.trim() !== '' && bodyText.trim() === '') {
-      warnings.push('显示正则覆盖了整轮正文，已忽略本轮展示结果')
+    const displayText = restorePresentationTokens(text)
+    if (applied.length > 0 && sourceText.trim() !== '' && bodyText.trim() === '' &&
+        displayText.replace(/<!--[\s\S]*?-->/g, '').trim() === '') {
+      warnings.push('显示正则覆盖了整轮正文且展示结果为空，已回退原文')
       return {
         sourceText,
         text: sourceText,
         bodyText: sourceText,
         presentationText: '',
         changed: false,
-        applied: [],
+        applied,
         warnings
       }
     }
@@ -153,7 +155,7 @@ function createTavernRegexEngine() {
 
     return {
       sourceText,
-      text: restorePresentationTokens(text),
+      text: displayText,
       bodyText,
       presentationText: presentationTokens.map(restorePresentationTokens).filter(Boolean).join('\n'),
       changed: applied.length > 0,

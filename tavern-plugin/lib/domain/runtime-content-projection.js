@@ -111,11 +111,13 @@ export function projectOpeningPreview(value, options = {}) {
     isEdit: options && options.isEdit,
     depth: options && options.depth
   })
-  if (!display.changed || !display.presentationText.trim()) return projection
+  // Without a body to separate, keep the standard projection, which applies
+  // later rules to the actual output of earlier rules.
+  if (!display.changed || !display.bodyText.trim() || !display.presentationText.trim()) return projection
 
   const parts = []
   // Preserve body HTML while keeping regex-generated UI in a separate frame.
-  if (display.bodyText.trim()) parts.push(...openingPreviewParts(resolveDisplayIdentityMacros(display.bodyText, options)))
+  parts.push(...openingPreviewParts(resolveDisplayIdentityMacros(display.bodyText, options)))
   parts.push(...openingPreviewParts(resolveDisplayIdentityMacros(display.presentationText, options)))
   return Object.assign({}, projection, { displayParts: parts })
 }
