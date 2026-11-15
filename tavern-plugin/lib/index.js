@@ -150,6 +150,7 @@ import { userMessageForTurn, requestIdForTurn, requestIdForMessages } from './do
 import { createStoryReconciliation } from './domain/story-reconciliation.js'
 import { sessionOpeningDescriptor } from './domain/session-opening.js'
 import { scriptPromptScanText } from './domain/tavern-script-prompts.js'
+import { plotCompassWorldbookScanText } from './domain/plot-compass.js'
 import { createOpeningPreparation } from './domain/opening-preparation.js'
 import { createChatHistoryImportService } from './domain/chat-history-import-service.js'
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
@@ -2402,7 +2403,7 @@ export async function apply(ctx) {
     bound: (cardPath, card, chat) => playWorldBook(chat, card),
     runtime: promptTemplateRuntime,
     globalVariables: readPromptTemplateGlobalVariables,
-    scanText: scriptPromptScanText
+    scanText: chat => [scriptPromptScanText(chat), plotCompassWorldbookScanText(chat)].filter(Boolean).join('\n')
   })
   ctx.effect(() => () => projectBuiltinWorldbook.dispose())
   const worldbookStrategies = createWorldbookStrategies({

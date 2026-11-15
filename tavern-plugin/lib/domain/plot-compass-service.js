@@ -7,9 +7,11 @@ import {
   applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
   applyPlotCompassPin,
+  applyPlotCompassPreferences,
   applyPlotCompassStepToggle,
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
+  collectAssistantProseForGrounding,
   collectPendingCompassSteps,
   collectTrackableCompassRoutes,
   isPlotCompassEnabled,
@@ -358,6 +360,25 @@ export function createPlotCompassService({
     return readPlotCompass(saved?.plotCompass)
   }
 
+  async function setPreferences({ sessionId, pace, blindBox, customDirective } = {}) {
+    const chat = await requirePlayChat(sessionId)
+    if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启')
+    const saved = await store.updateChat(chat.id, current => {
+      requirePlayChatSync(current)
+      if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
+      current.plotCompass = applyPlotCompassPreferences(current.plotCompass, {
+        pace,
+        blindBox,
+        customDirective,
+        now: now()
+      })
+      current.updatedAt = now()
+      return current
+    }, { source: 'plot-compass.preferences' })
+    onStatus(str(sessionId))
+    return readPlotCompass(saved?.plotCompass)
+  }
+
   function requirePlayChatSync(current) {
     if (!isPlayableChat(current)) throw new Error('请先打开游玩会话')
   }
@@ -421,6 +442,7 @@ export function createPlotCompassService({
     progressJobs.add(freshChat.id)
     try {
       const promptText = buildPlotCompassProgressPrompt(freshChat, pending, { fromTurn: checkedFloor + 1, compass })
+      const proseText = collectAssistantProseForGrounding(freshChat)
       const rawReply = await callModel({
         sessionId: targetSessionId,
         background: true,
@@ -430,7 +452,7 @@ export function createPlotCompassService({
         messages: [{ role: 'user', content: promptText }]
       })
       const outputText = typeof rawReply === 'string' ? rawReply : str(rawReply?.output ?? rawReply?.text)
-      const parsedProgress = parsePlotCompassProgressOutcome(outputText, pending.map(item => item.key), trackableRoutes)
+      const parsedProgress = parsePlotCompassProgressOutcome(outputText, pending.map(item => item.key), trackableRoutes, { proseText })
 
       let outcome = null
       let stillEnabled = true
@@ -479,6 +501,7 @@ export function createPlotCompassService({
     pin,
     toggleStep,
     setArchetypes,
+    setPreferences,
     hasTrackableSteps,
     syncTurnProgress,
     autoEvolveAfterCompaction,

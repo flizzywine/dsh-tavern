@@ -8,11 +8,17 @@ import { decodeLiteralUnicodeEscapes } from './candidate-generation.js'
 export const PLOT_COMPASS_SUBMIT_TOOL_NAME = 'plot_compass_submit'
 export const PLOT_COMPASS_HORIZONS = Object.freeze(['shortTerm', 'midTerm', 'longTerm'])
 export const PLOT_COMPASS_SCOPES = Object.freeze(['all', 'shortTerm', 'midTerm', 'longTerm'])
+export const PLOT_COMPASS_PACES = Object.freeze(['foreshadow', 'natural', 'climax'])
 
 const MAX_ROUTES_PER_HORIZON = 4
 const MAX_STEPS_PER_ROUTE = 4
 const MAX_ARCHETYPES = 5
 const MAX_ARCHIVED = 8
+const MAX_CUSTOM_DIRECTIVE_LENGTH = 240
+
+function normalizePlotCompassPace(value) {
+  return PLOT_COMPASS_PACES.includes(value) ? value : 'natural'
+}
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -167,6 +173,9 @@ export function emptyPlotCompass() {
     updatedAt: 0,
     basedOnTurn: 0,
     lastCheckedTurn: 0,
+    pace: 'natural',
+    blindBox: false,
+    customDirective: '',
     playArchetypes: [],
     customArchetypes: [],
     situationDigest: '',
@@ -211,6 +220,9 @@ export function readPlotCompass(value) {
     updatedAt: Math.max(0, Number(src.updatedAt) || 0),
     basedOnTurn,
     lastCheckedTurn: Math.max(basedOnTurn, Number(src.lastCheckedTurn) || 0),
+    pace: normalizePlotCompassPace(src.pace),
+    blindBox: src.blindBox === true,
+    customDirective: cleanText(src.customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH }),
     playArchetypes: normalizeArchetypeList(src.playArchetypes),
     customArchetypes: normalizeArchetypeList(src.customArchetypes),
     situationDigest: cleanText(src.situationDigest, { maxLength: 240 }),
@@ -499,6 +511,25 @@ export function applyPlotCompassCustomArchetypes(previousRaw, archetypes, { now 
   return next
 }
 
+/**
+ * 更新剧情罗盘的控制偏好（推进节奏、盲盒防剧透开关、玩家自定义微调引导）。
+ */
+export function applyPlotCompassPreferences(previousRaw, { pace, blindBox, customDirective, now = Date.now() } = {}) {
+  const next = readPlotCompass(previousRaw)
+  if (pace !== undefined) {
+    if (!PLOT_COMPASS_PACES.includes(pace)) throw new Error('无效的推进节奏选项：' + str(pace))
+    next.pace = pace
+  }
+  if (blindBox !== undefined) {
+    next.blindBox = Boolean(blindBox)
+  }
+  if (customDirective !== undefined) {
+    next.customDirective = cleanText(customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH })
+  }
+  next.updatedAt = now
+  return next
+}
+
 export function activePlotCompassRoutes(compassRaw) {
   const compass = readPlotCompass(compassRaw)
   const pick = horizon => compass.pinned[horizon]
@@ -510,6 +541,38 @@ export function activePlotCompassRoutes(compassRaw) {
     midTerm: pick('midTerm'),
     longTerm: pick('longTerm')
   }
+}
+
+/**
+ * 仅从当前已点亮的剧情罗盘路线中提取纯剧情语义片段用于世界书关键词扫描，
+ * 不含任何系统引导语，防止指令词误触绿灯条目。
+ */
+export function plotCompassWorldbookScanText(chat) {
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return ''
+  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
+  if (!shortTerm && !midTerm && !longTerm) return ''
+  const snippets = []
+  if (longTerm) {
+    if (longTerm.title) snippets.push(longTerm.title)
+    if (longTerm.tone) snippets.push(longTerm.tone)
+    if (longTerm.diegeticOmen) snippets.push(longTerm.diegeticOmen)
+  }
+  if (midTerm) {
+    if (midTerm.title) snippets.push(midTerm.title)
+    if (midTerm.summary) snippets.push(midTerm.summary)
+    if (midTerm.entryHook) snippets.push(midTerm.entryHook)
+    if (midTerm.diegeticOmen) snippets.push(midTerm.diegeticOmen)
+    const nextMilestone = (midTerm.milestones || []).find(step => !step.done)?.text
+    if (nextMilestone) snippets.push(nextMilestone)
+  }
+  if (shortTerm) {
+    if (shortTerm.title) snippets.push(shortTerm.title)
+    if (shortTerm.summary) snippets.push(shortTerm.summary)
+    const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text
+    if (nextBeat) snippets.push(nextBeat)
+  }
+  if (compass.customDirective) snippets.push(compass.customDirective)
+  return snippets.join('\n')
 }
 
 /**
@@ -553,17 +616,32 @@ export function isPlotCompassEnabled(chat) {
   return chat?.backgroundTasks?.plotCompass === true
 }
 
+const PACE_GUIDANCE = Object.freeze({
+  foreshadow: 'Pacing stance [只铺垫 / Foreshadow-Only]: Prioritize sensory cues, character undercurrents, subtle setup, and reversible tension this turn; intentionally withhold final escalation or premature closure.',
+  natural: 'Pacing stance [自然推进 / Natural Progression]: Weave active beats organically through character agency and scene causality; neither stall artificially nor rush later phases.',
+  climax: 'Pacing stance [尽快引爆 / Escalate to Climax]: Sharpen stakes and bring looming friction to a crisp collision, confronting the player directly with the active turning point where causally earned.'
+})
+
+function arcPhaseRoleLabel(index, total) {
+  if (total <= 1 || index < 0) return ''
+  if (index === total - 1) return '篇章收束高潮 (climax)'
+  if (total >= 3 && index === total - 2) return '核心抉择拐点 (hardest)'
+  if (index === 0) return '入线铺垫 (setup)'
+  return '冲突升级 (rising)'
+}
+
 /**
  * Soft-guidance section for foreground story body (`purpose === 'body'`).
  * Zero injection when disabled or nothing is pinned. Strictly hides long-term ending spoilers!
  */
 export function plotCompassBodySection(chat) {
   if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
-  const { shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
+  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
   if (!shortTerm && !midTerm && !longTerm) return null
 
   const lines = [
-    'Active Plot Compass (soft narrative direction chosen by the player; weave naturally into pacing and foreshadowing, NEVER rush future milestones in a single turn, obey concrete causal grounding, and always yield to the player\'s immediate turn input if they pivot):'
+    'Active Plot Compass (soft narrative direction chosen by the player; weave naturally into pacing and foreshadowing, NEVER rush future milestones in a single turn, obey concrete causal grounding, and always yield to the player\'s immediate turn input if they pivot):',
+    `- ${PACE_GUIDANCE[compass.pace] || PACE_GUIDANCE.natural}`
   ]
   if (longTerm) {
     const toneLine = longTerm.toneGuidance || (longTerm.tone ? `长线基调「${longTerm.tone}」` : longTerm.title)
@@ -571,14 +649,24 @@ export function plotCompassBodySection(chat) {
     lines.push(`- Long-term atmosphere (foreshadowing tone only, do NOT reveal or jump to endgame): ${toneLine}${omenHint}`)
   }
   if (midTerm) {
-    const nextMilestone = (midTerm.milestones || []).find(step => !step.done)?.text || midTerm.summary
+    const milestones = Array.isArray(midTerm.milestones) ? midTerm.milestones : []
+    const nextIdx = milestones.findIndex(step => !step.done)
+    const nextMilestone = nextIdx >= 0 ? milestones[nextIdx].text : midTerm.summary
+    const roleTag = nextIdx >= 0 ? arcPhaseRoleLabel(nextIdx, milestones.length) : ''
+    const phaseNote = roleTag ? ` [${roleTag}]` : ''
     const omenHint = midTerm.diegeticOmen ? ` | In-world whisper / ambient ripple (surface through rumors or environment when fitting, zero spoiler): ${midTerm.diegeticOmen}` : ''
-    lines.push(`- Current chapter arc [${midTerm.title}]: ${midTerm.summary}${nextMilestone ? ` | Current phase focus: ${nextMilestone} (plant seeds gradually; do not resolve later chapter milestones prematurely).` : ''}${omenHint}`)
+    lines.push(`- Current chapter arc [${midTerm.title}]: ${midTerm.summary}${nextMilestone ? ` | Current phase focus${phaseNote}: ${nextMilestone} (plant seeds gradually; do not resolve later chapter milestones prematurely).` : ''}${omenHint}`)
   }
   if (shortTerm) {
     const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text || shortTerm.summary
     const causalHint = shortTerm.causalBasis ? ` (Causal anchor: ${shortTerm.causalBasis})` : ''
     lines.push(`- Near-term scene direction [${shortTerm.title}]: ${nextBeat}${causalHint}`)
+  }
+  if (midTerm || shortTerm) {
+    lines.push('- Off-screen ripple depiction: When player choices or settled events genuinely set off-screen consequences in motion along an active arc, you may depict them directly on screen via a brief POV cut, messenger/letter, unannounced arrival, or overheard rumor—never jump ahead of unmade player decisions.')
+  }
+  if (compass.customDirective) {
+    lines.push(`- Player micro-directive (adjust emphasis/nuance toward this preference whenever consistent with scene reality): ${compass.customDirective}`)
   }
 
   return {
@@ -812,14 +900,57 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
 export const PLOT_COMPASS_PROGRESS_SYSTEM = [
   'You are a strict story-beat progress & premise-validity verifier for an interactive story.',
   'Given the recent story text, pending plot beats / milestones, and active routes:',
-  '1) Identify ONLY the beats/milestones that have ALREADY concretely happened or been achieved in the story prose (`completed`).',
+  '1) Identify ONLY the beats/milestones that have ALREADY concretely happened or been achieved in the assistant story prose (`completed`), AND quote a verbatim 6–30 character excerpt from the assistant prose (`evidence`) proving each completed step.',
   '2) Identify ONLY routes whose core premise or causal foundation has been IRREVERSIBLY INVALIDATED / bypassed by the player\'s actual actions or settled events (`lapsed`), e.g. the player left the city or openly attacked the ally that an infiltration route depended on.',
   'Rules:',
-  '- Player intentions or unfulfilled plans that have NOT actually played out in the assistant story prose do NOT count as `completed`.',
-  '- Partial similarity is fine if the dramatic core of that beat has clearly already taken place on screen, so the story does not repeat it.',
+  '- Player intentions, thoughts, OOC planning, or unfulfilled promises that have NOT actually played out in the assistant story prose do NOT count as `completed`.',
+  '- Every item in `completed` MUST have concrete verbatim `evidence` copied directly from `<recent_story_turns>` assistant prose (NOT from `<thinking>`, variable updates, or user wishes). If you cannot find verbatim prose evidence, do NOT mark it completed.',
   '- Do NOT mark a route as `lapsed` merely because it has not happened yet or progresses slowly; mark `lapsed` ONLY when its core premise is now contradictory or impossible.',
-  '- Output ONLY a single valid JSON object with no extra commentary: {"completed":["<key>",...],"lapsed":[{"horizon":"shortTerm"|"midTerm","routeId":"<id>","reason":"<brief reason>"}]} (use [] when empty).'
+  '- Output ONLY a single valid JSON object with no extra commentary: {"completed":[{"key":"<key>","evidence":"<verbatim prose excerpt>"}],"lapsed":[{"horizon":"shortTerm"|"midTerm","routeId":"<id>","reason":"<brief reason>"}]} (use [] when empty).'
 ].join('\n')
+
+const GROUNDING_STRIP_BLOCK_RE = /<(?:thinking|thought|konatan_planning|draft_notes|logic_check|UpdateVariable|JSONPatch|mvu_update|analysis)\b[^>]*>[\s\S]*?<\/(?:thinking|thought|konatan_planning|draft_notes|logic_check|UpdateVariable|JSONPatch|mvu_update|analysis)>|<!--[\s\S]*?-->/gi
+const GROUNDING_NOISE_RE = /[\s\p{P}\p{S}]+/gu
+
+export function extractStoryProseForGrounding(text) {
+  return str(text)
+    .replace(GROUNDING_STRIP_BLOCK_RE, ' ')
+    .replace(/<[^>]{1,40}>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function collectAssistantProseForGrounding(chat, { maxMessages = 4 } = {}) {
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const chunks = []
+  for (let i = messages.length - 1; i >= 0 && chunks.length < maxMessages; i--) {
+    const msg = messages[i]
+    if (!msg || msg.role !== 'assistant') continue
+    const cleaned = extractStoryProseForGrounding(msg.sourceText ?? msg.text)
+    if (cleaned) chunks.unshift(cleaned)
+  }
+  return chunks.join('\n')
+}
+
+function normalizeGroundingStr(value) {
+  return str(value).toLowerCase().replace(GROUNDING_NOISE_RE, '')
+}
+
+/**
+ * 校验核验器给出的证据引句是否真实存在于剥离思维链与变量块后的助手正文中。
+ */
+export function verifyCompassEvidenceInText(proseText, evidence) {
+  const normProse = normalizeGroundingStr(extractStoryProseForGrounding(proseText))
+  const rawEvidence = str(evidence).trim()
+  const normEvidence = normalizeGroundingStr(rawEvidence)
+  if (!normProse || normEvidence.length < 4) return false
+  if (normProse.includes(normEvidence)) return true
+  const clauses = rawEvidence
+    .split(/[\n\r，。！？；：、…—,.!?;:\-]+/)
+    .map(part => normalizeGroundingStr(part))
+    .filter(part => part.length >= 6)
+  return clauses.length > 0 && clauses.some(clause => normProse.includes(clause))
+}
 
 export function collectPendingCompassSteps(compassRaw) {
   const compass = readPlotCompass(compassRaw)
@@ -873,9 +1004,11 @@ export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 
     if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) continue
     const turn = Number(msg.turn) || 0
     if (fromTurn > 0 && turn > 0 && turn < fromTurn && turnBlocks.length >= 2) break
-    const raw = str(msg.sourceText ?? msg.text).trim()
-    if (!raw) continue
-    const clipped = raw.length > 2400 ? raw.slice(0, 1200) + '\n…\n' + raw.slice(-1200) : raw
+    const rawText = msg.role === 'assistant'
+      ? extractStoryProseForGrounding(msg.sourceText ?? msg.text)
+      : str(msg.sourceText ?? msg.text).trim()
+    if (!rawText) continue
+    const clipped = rawText.length > 2400 ? rawText.slice(0, 1200) + '\n…\n' + rawText.slice(-1200) : rawText
     turnBlocks.unshift(`[${msg.role === 'user' ? '玩家' : '正文'} · 第${turn || '?'}轮]\n${clipped}`)
   }
   const stepLines = pendingSteps.map(item =>
@@ -901,15 +1034,37 @@ export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 
     promptSection('pending_steps', stepLines)
   ]
   if (routeLines) sections.push(promptSection('active_routes', routeLines))
-  sections.push('Return strictly JSON: {"completed":["..."],"lapsed":[{"horizon":"shortTerm","routeId":"...","reason":"..."}]}')
+  sections.push('Return strictly JSON: {"completed":[{"key":"...","evidence":"verbatim prose excerpt"}],"lapsed":[{"horizon":"shortTerm","routeId":"...","reason":"..."}]}')
   return sections.join('\n\n')
 }
 
-export function parsePlotCompassProgressOutcome(rawText, validKeys, validRoutes = []) {
+export function parsePlotCompassProgressOutcome(rawText, validKeys, validRoutes = [], options = {}) {
   const parsed = parseJsonLenient(rawText)
   const list = Array.isArray(parsed.completed) ? parsed.completed : []
   const allowed = new Set(validKeys)
-  const completed = [...new Set(list.map(item => str(item).trim()).filter(key => allowed.has(key)))]
+  const proseText = typeof options?.proseText === 'string' ? options.proseText : ''
+  const hasProseToVerify = proseText.trim().length > 0
+  const requireEvidence = options?.requireEvidence === true
+
+  const completed = []
+  const seenKeys = new Set()
+  const rejectedCompleted = []
+
+  for (const item of list) {
+    const isObj = Boolean(item && typeof item === 'object' && !Array.isArray(item))
+    const key = str(isObj ? (item.key ?? item.stepKey ?? item.id) : item).trim()
+    if (!key || !allowed.has(key) || seenKeys.has(key)) continue
+    const evidence = isObj ? str(item.evidence ?? item.quote ?? item.excerpt).trim() : ''
+
+    if (hasProseToVerify && (isObj || requireEvidence)) {
+      if (!evidence || !verifyCompassEvidenceInText(proseText, evidence)) {
+        rejectedCompleted.push({ key, evidence, reason: evidence ? 'evidence_not_grounded_in_prose' : 'missing_evidence' })
+        continue
+      }
+    }
+    seenKeys.add(key)
+    completed.push(key)
+  }
 
   const routeMap = new Map()
   for (const r of validRoutes) {
@@ -933,11 +1088,15 @@ export function parsePlotCompassProgressOutcome(rawText, validKeys, validRoutes 
       reason: cleanText(obj.reason || obj.note || '玩家行动已改写原定前提', { maxLength: 100 })
     })
   }
-  return { completed, lapsed }
+  return {
+    completed,
+    lapsed,
+    ...(rejectedCompleted.length > 0 ? { rejectedCompleted } : {})
+  }
 }
 
-export function parsePlotCompassProgressResponse(rawText, validKeys) {
-  return parsePlotCompassProgressOutcome(rawText, validKeys).completed
+export function parsePlotCompassProgressResponse(rawText, validKeys, options = {}) {
+  return parsePlotCompassProgressOutcome(rawText, validKeys, [], options).completed
 }
 
 export function applyPlotCompassAutoProgress(previousRaw, completedOrOutcome, { turn = 0, now = Date.now() } = {}) {

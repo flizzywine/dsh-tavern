@@ -32,7 +32,7 @@ Design genuinely different dramatic directions within each horizon:
   - Include mainstream progression, bold sideways turns, and at least 1 hidden subplot or worldbook-hook route when material allows.
   - `causalBasis` (~15–55 chars): what ongoing tension or clue legitimately seeds this arc.
   - `entryHook` (~25–55 chars): concrete action the player can take soon to enter this arc.
-  - `milestones`: 2–3 chapter milestones (`{text, done}`), plus `stakes` (expected reward vs. risk/price).
+  - `milestones`: 2–4 chapter milestones (`{text, done}`) shaped with an end-anchored dramatic arc (**setup / opening hook → rising complication → hardest dilemma or reversal [penultimate] → climax & aftermath [final]**), plus `stakes` (expected reward vs. risk/price).
   - `diegeticOmen` (~15–55 chars, spoiler-free): an ambient in-world sign or rumor hinting this arc exists.
 - **`longTerm` (长期规划 · 20+ turns to Endgame, 3–4 routes)**: Macro destiny & contrasting ending blueprints.
   - Offer starkly different ultimate fates (e.g., orthodox triumph, shared transgression/complicity, overturning the world's rules, walking away into seclusion).

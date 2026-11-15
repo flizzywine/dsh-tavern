@@ -60,7 +60,8 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
       const executionKey = String(requestKey ?? `${turn}:${purpose}:${virtualHash(userText || '')}`)
       const preparationScope = String(preparationKey ?? executionKey)
       const scope = virtualScope(chat)
-      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs])
+      const resolvedScanText = scanText(chat)
+      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText])
       const previous = requests.get(scope)
       if (previous?.version === version) return await previous.result
       // Upstream preprocessing is an effectful whole-book batch without a
@@ -97,7 +98,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
         const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat), ...(worldBook?.pluginActivationRequests || []), ...selectedRefs.map(ref => ({ ref, force: false, sourceRef: '[STRATEGY]' }))]
         const previousState = previous?.requestKey === executionKey ? (await previous.result).virtualState : undefined
         const executionChat = previousState ? { ...chat, worldBookVirtualState: previousState } : chat
-        const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: scanText(chat) })
+        const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: resolvedScanText })
         if (initial.sources.some(entry => entry.decorated)) projected.virtualState.preprocessing = {
           requestKey: preparationScope, sources: initial.sources,
           prepared: initial.snapshot
