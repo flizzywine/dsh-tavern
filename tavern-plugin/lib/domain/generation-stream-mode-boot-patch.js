@@ -5,7 +5,7 @@ export function generationStreamModeBootScript() {
   return `(function () {
   if (window.__dshTavernGenerationStreamMode) return
   var state = { stream: true, busy: false, loaded: false, pending: null }
-  var rows = []
+  const rows = new Map()
   function call(method, args) {
     return fetch('/api/dsh-tavern/' + method, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -16,8 +16,7 @@ export function generationStreamModeBootScript() {
     })
   }
   function render() {
-    rows = rows.filter(function (row) { return row.isConnected })
-    for (const row of rows) {
+    for (const row of rows.keys()) {
       row.setAttribute('data-stream', String(state.stream))
       row.setAttribute('aria-busy', String(state.busy))
       const options = row.querySelectorAll('[data-dsh-tavern-stream-option]')
@@ -60,16 +59,17 @@ export function generationStreamModeBootScript() {
     }).finally(function () { state.busy = false; render() })
   }
   function install(menu) {
-    if (!menu || menu.querySelector('[data-dsh-tavern-stream-mode]')) return
+    if (menu.querySelector('[data-dsh-tavern-stream-mode]')) return
     const modelLabel = Array.from(menu.querySelectorAll('button[role="menuitem"] [class*="cellLabel"]')).find(function (label) {
       return label.textContent.trim() === '模型' || label.textContent.trim() === 'Model'
     })
     if (!modelLabel) return
     const modelRow = modelLabel.closest('button')
+    if (modelRow.closest('[role="menu"]') !== menu) return
     const row = document.createElement('div')
     row.className = modelRow.className
     row.setAttribute('data-dsh-tavern-stream-mode', '')
-    row.setAttribute('role', 'group')
+    row.setAttribute('role', 'radiogroup')
     row.setAttribute('aria-label', '所有模型输出方式')
     row.title = '所有模型请求使用流式或非流式输出，默认流式；设置持续生效'
     const label = modelLabel.cloneNode(false)
@@ -83,7 +83,7 @@ export function generationStreamModeBootScript() {
       const option = document.createElement('button')
       option.type = 'button'
       option.setAttribute('data-dsh-tavern-stream-option', item.key)
-      option.setAttribute('role', 'menuitemradio')
+      option.setAttribute('role', 'radio')
       option.textContent = item.text
       option.style.border = '0'
       option.style.borderRadius = 'var(--dsw-radius-sm)'
@@ -105,14 +105,14 @@ export function generationStreamModeBootScript() {
     row.appendChild(label)
     row.appendChild(value)
     menu.appendChild(row)
-    rows.push(row)
+    rows.set(row, modelRow)
     render()
     refresh()
   }
   function scan(node) {
     if (!node || node.nodeType !== 1) return
-    if (node.matches && node.matches('[role="menu"]')) install(node)
-    if (node.querySelectorAll) for (const menu of node.querySelectorAll('[role="menu"]')) install(menu)
+    if (node.matches('[role="menu"]')) install(node)
+    for (const menu of node.querySelectorAll('[role="menu"]')) install(menu)
   }
   // The observer sits on the whole document, so one conversation re-render can
   // arrive as hundreds of records for the same container. Scanning per record
@@ -131,6 +131,12 @@ export function generationStreamModeBootScript() {
       scanScheduled = false
       const queued = [...scanQueue]
       scanQueue = new Set()
+      // DSH reuses the portal when drilling into model or effort choices.
+      for (const [row, modelRow] of rows) {
+        if (row.isConnected && row.parentElement === modelRow.closest('[role="menu"]')) continue
+        row.remove()
+        rows.delete(row)
+      }
       for (const item of queued) scan(item)
     })
   }
@@ -140,13 +146,13 @@ export function generationStreamModeBootScript() {
       for (const node of record.addedNodes) queueScan(node)
     }
   })
-  observer.observe(document.documentElement, { childList: true, subtree: true })
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['role'] })
   scan(document.documentElement)
   window.__dshTavernGenerationStreamMode = {
     choose: choose,
     refresh: refresh,
     snapshot: function () { return { stream: state.stream, busy: state.busy, loaded: state.loaded } },
-    dispose: function () { observer.disconnect(); rows = [] }
+    dispose: function () { observer.disconnect(); for (const row of rows.keys()) row.remove(); rows.clear() }
   }
 })()`
 }
