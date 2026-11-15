@@ -14460,6 +14460,8 @@ function GalStage(props) {
     const figureRecord = receivedDirection;
     const direction = receivedDirection;
     const [hidden, setHidden] = React.useState(false);
+    // A CG that arrives while reading forward is first seen alone: the box is hidden and the line's voice and typing wait for the next click (cgHeld).
+    const [cgHeld, setCgHeld] = React.useState(false);
     // the box's slot for the choices wait (gal-choices.js portals it here).
     const [choiceWaitSlot, setChoiceWaitSlot] = React.useState(null);
     const [auto, setAuto] = React.useState(false);
@@ -14932,7 +14934,7 @@ function GalStage(props) {
     },[sessionId,JSON.stringify(voiceWindow.map(handle=>[handle.owner,handle.id]))]);
     // Cached playback starts before paint; the outgoing line has a short fading tail.
     // (a story page's beat hold and phone beat are the round's; a lease line is not held by them)
-    const voice = (leasing || !beatHeld && !sourceWidget.phoneBeat) && current && current.voice;
+    const voice = (leasing || !beatHeld && !cgHeld && !sourceWidget.phoneBeat) && current && current.voice;
     const player = voicePlayer.get();
     const playingHere = Boolean(voice && player && player.owner === voice.owner && player.id === voice.id);
     function replay() {
@@ -14983,6 +14985,13 @@ function GalStage(props) {
     const state = React.useMemo(() => stageViews.device.state(pack.state, device), [pack.state, device]);
     const [shot, setShot] = React.useState({key:'',n:0,acts:{},effects:[],emotes:[]});
     const [debugEmote, setDebugEmote] = React.useState(null);
+    const cgSeen = React.useRef(!!accepted.cg);
+    React.useEffect(() => {
+        const shown = !!accepted.cg, arrived = shown && !cgSeen.current;
+        cgSeen.current = shown;
+        if (arrived && !leasing && forwardReading && !skipping && !auto && runtime.cursor.mode !== 'history') { setHidden(true); setCgHeld(true); }
+    }, [!!accepted.cg]);
+    React.useEffect(() => { if (!hidden) setCgHeld(false); }, [hidden]);
     const cg = useCgStage(sessionId,runtime.store,{paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen || sceneHolding,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,forward:forwardReading && !skipping});
     // The card's accent is its anchored line's speaker's 形象色, before or after that line.
     const takeoverAccent = anchor => { const line = pages.find(row => row.anchor?.para === anchor?.para && row.kind === 'line'); const alias = line ? bubbleCharacter(config,line)?.alias : ''; return alias ? colorOf(alias) : ''; };
@@ -15463,7 +15472,7 @@ function GalStage(props) {
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming || leasing ? "……" : "还没有正文"),
