@@ -819,8 +819,8 @@
 				try {
 					const prepared = await call("callOpeningRuntime", { id: draft.id, method: "prepareOpeningPage", args: choice });
 					await newConversation(card, null, choice.openingId, prepared.playerName, prepared.input || undefined, { preparationId: draft.id, replaces: item,
-						onCreated: function (created) { galEnter(created.sessionId, { page: "" }); } });
-				} finally { void call("releaseOpeningPreparation", { id: draft.id }).catch(function () {}); }
+						onCreated: function (created) { galHandover(); galEnter(created.sessionId, { page: "" }); } });
+				} catch (error) { galHandoverEnd(); throw error; } finally { void call("releaseOpeningPreparation", { id: draft.id }).catch(function () {}); }
 			};
 			React.useEffect(function () {
 				const listener = function (event) {

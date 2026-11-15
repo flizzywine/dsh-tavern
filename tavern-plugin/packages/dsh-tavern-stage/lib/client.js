@@ -40,6 +40,20 @@ function galCoverChat() {
     };
 }
 
+// A game started from the stage (a card's opening page) replaces the chat the stage stands on: the old session's stage
+// unmounts with its shell and the new one mounts only after its own data has loaded. This veil stands in the gap, so the
+// host chat never shows between the opening page and the new stage's loading screen. Ended by the new stage's mount, a
+// leave or a failed start (galHandoverEnd).
+let endHandover = null;
+function galHandover() {
+    if (endHandover) return;
+    const veil = document.createElement('div');
+    veil.className = 'fork-gal-handover';
+    document.body.appendChild(veil);
+    endHandover = () => { veil.remove(); endHandover = null; };
+}
+function galHandoverEnd() { endHandover?.(); }
+
 const galStageAvailable = (() => {
     let enabled = false;
     const listeners = new Set();
@@ -54,7 +68,7 @@ function galStageLifetime() {
         if (!live) return;
         live = false;
         galVisitGeneration++;
-        galEntry = null; galEntryPage = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
+        galHandoverEnd(); galEntry = null; galEntryPage = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
         try { galStageAvailable.set(false); }
         finally {
             try { galLeaveNow(); }
@@ -140,6 +154,7 @@ function galLeave() {
     galLeaveNow();
 }
 function galLeaveNow() {
+    galHandoverEnd();
     galVisitGeneration++;
     galEntering.set("");
     galActive.set("");
@@ -185,7 +200,7 @@ function galStageShortcut() {
         window.removeEventListener("keydown", onKey, true);
     };
 }
-return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
+return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galHandover, galHandoverEnd, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
     getEntryPage: () => galEntryPage,
     visit: () => galVisit,
@@ -26568,7 +26583,7 @@ function dispose() {
     }
     if (errors.length) throw new AggregateError(errors, 'Stage host cleanup failed');
 }
-const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
+const {galStageAvailable, galCoverChat, galUncover, galHandoverEnd, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
 function useGalOn(sessionId) {
     const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
     const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
@@ -26637,6 +26652,8 @@ function StagePortal(props) {
             throw error;
         }
     }, [props.sessionId, admitted]);
+    // the new game's stage stands: the handover veil (navigation.cjs galHandover) has done its work
+    React.useEffect(() => { if (target) galHandoverEnd(); }, [target]);
     React.useEffect(() => {
         if (disposed) return;
         return own(() => { if (galActive.get() === props.sessionId) galLeave(); });
@@ -26696,7 +26713,7 @@ function GalStageOpeningEntry(props) {
     if (!state.available || state.on || !pages?.pages?.some(page => page.showOn?.event === 'stage-enter')) return null;
     const h = React.createElement;
     return h("div", { className: "fork-gal-opening-entry", role: "group", "aria-label": "舞台游玩" },
-        h("span", null, "这张卡在舞台里游玩，开场和标题画面都在舞台上。"),
+        h("span", null, "本卡支持舞台模式，建议在舞台模式中游玩"),
         h("button", { type: "button", className: "dsh-tavern-btn", onClick: () => { if (!disposed) galEnter(props.sessionId); } },
             h(Icon, { name: "stage", size: 16 }), h("span", null, "进入舞台")));
 }
