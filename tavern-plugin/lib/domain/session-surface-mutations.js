@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
-import { appendSessionEvent, markSurfaceEditTurn, openTurnStep, sessionEvents, sessionEventData, surfaceReplacementRange } from './session-events.js'
+import { appendSessionEvent, COMPACTION_OPEN_MESSAGE, compactionOpen, markSurfaceEditTurn, openTurnStep, sessionEvents, sessionEventData, surfaceReplacementRange } from './session-events.js'
 import { agentForSession } from './agent-lookup.js'
 
 /** Commit a replacement against the current surface, never the raw history.
@@ -23,6 +23,7 @@ export function createSessionSurfaceMutator(session, events = sessionEvents(sess
   // to date from this batch's own appends, so a write never copies the whole log
   // again (restoring n messages stays O(n)).
   let open = openTurnStep(events)
+  let compacting = compactionOpen(events)
   let anyTurn = false
   let lastTurn = 0
   const lastStep = new Map()
@@ -40,6 +41,8 @@ export function createSessionSurfaceMutator(session, events = sessionEvents(sess
     else if (event.type === 'turn/end') open = { turn: null, step: null }
     else if (event.type === 'step/start') open = { ...open, step: event.data?.step ?? null }
     else if (event.type === 'step/end') open = { ...open, step: null }
+    else if (event.type === 'compaction/start') compacting = true
+    else if (event.type === 'compaction/end' || event.type === 'session/end-seed') compacting = false
   }
   function remember(event) {
     if (!event) return
@@ -71,6 +74,7 @@ export function createSessionSurfaceMutator(session, events = sessionEvents(sess
     if (open.turn !== null && open.step !== null) return body(open.turn, open.step)
     const turn = open.turn ?? lastTurn + 1
     const opensTurn = open.turn === null
+    if (opensTurn && compacting) throw new Error(COMPACTION_OPEN_MESSAGE)
     const step = opensTurn ? 1 : (lastStep.get(turn) || 0) + 1
     if (opensTurn) { markSurfaceEditTurn(session, turn); write('turn/start', { turn }) }
     write('step/start', { turn, step })
