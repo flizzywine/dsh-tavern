@@ -10,8 +10,9 @@ function segmentSpeechInput(segment, config) {
     if (speaksGeneral(config,character,segment)) {
         // 配音语言 not 中文: its 配音补译 voice text (segment.speech); a held line waits for it.
         if (segment.kind !== 'bubble' || segment.streaming) return null;
-        if (segment.voiceHold === true && voiceBackfillNeeded(segment, lineVoiceLanguage(config,character,segment))) return null;
-        const text = segment.speech ?? segment.text;
+        const language = lineVoiceLanguage(config,character,segment);
+        if (segment.voiceHold === true && voiceBackfillNeeded(segment, language)) return null;
+        const text = spokenLineText(segment, language);
         return speakableText(text) ? {text, mood:null, general:true} : null;
     }
     return packSpeechInput(segment,config,character,bubbleMood(segment.mood,bubbleMoodList(config,character?.alias)));
