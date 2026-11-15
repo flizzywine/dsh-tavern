@@ -10,7 +10,7 @@ import {copyFigureAssets} from './copy-figure.js'
 import {createSimpleSprite} from './simple-sprite.js'
 import {trimAuthoringImages, retireFigureBundles} from './image-closure.js'
 import {FIGURE_IMAGE_EXTENSION} from './figure-image-extras.js'
-import {searchLibrary} from './library-search.js'
+import {searchLibrary, listLibraryVoices} from './library-search.js'
 
 // Ordinary editing and automatic deltas use the same optional-field semantics.
 export function patchFigureDocument(before, patch) {
@@ -321,6 +321,11 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         searchLibrary({query, limit}) {
           live()
           return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit}))
+        },
+        // 全库声音: every installed pack's voices, read only (library-search.js).
+        listLibraryVoices({limit} = {}) {
+          live()
+          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit}))
         },
         authorize(input, source, context) {
           live()

@@ -41,7 +41,7 @@ export function newSpeakers(body, cast, record, playerIdentity) {
 }
 
 // The 选角助理's decisions as one write: each speaker not found to be an existing figure is copied from the library or
-// created (with its voice: a library voice copied, or a 配音后端 voice's spec). → {changes, sources, entries:[{name, copied, appearance}]}.
+// created (with its voice: a library 通用声音 copied). → {changes, sources, entries:[{name, copied, appearance}]}.
 export function castChanges(speakers, decided) {
   const changes = [], sources = [], entries = []
   for (const {name, aliases} of speakers) {
@@ -52,7 +52,7 @@ export function castChanges(speakers, decided) {
       // 外貌 goes with the figure to its 配图 人物库 record (looks), its 人物介绍 into the pack (description).
       const looks = decided?.appearance[name], about = decided?.about?.[name]
       changes.push({op:'create', kind:'figures', value:{name, aliases, ...(about ? {description:about} : {})}, ...(looks ? {looks} : {}),
-        ...(voice ? {voice:voice.from ? {from:voice.from} : {spec:voice.spec}} : {})})
+        ...(voice ? {voice:{from:voice.from}} : {})})
       if (voice?.from) sources.push({packId:voice.from.packId, revision:voice.revision})
     }
     entries.push({name, copied:!!copy, ...(!copy && decided?.appearance[name] ? {appearance:decided.appearance[name]} : {})})

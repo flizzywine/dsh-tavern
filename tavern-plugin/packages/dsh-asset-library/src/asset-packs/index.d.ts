@@ -1,7 +1,8 @@
 import type { UUID, Sha256, TimeOfDay, AssetRef, FigureRef, TimerContent } from './protocol.js';
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Extensions = Record<string, Json>;
-export interface Recall { mode: 'constant' | 'keyword'; keywords: string[]; synonyms?: Record<string, string[]> }
+export type RecallCondition = {path: string} & ({equals: string | number | boolean} | {atLeast: number} | {atMost: number});
+export interface Recall { mode: 'constant' | 'keyword'; keywords: string[]; synonyms?: Record<string, string[]>; when?: RecallCondition | RecallCondition[] }
 export interface FigureRecall { mode: 'constant' | 'keyword' }
 export function validateFigureRecall(value: unknown, path?: string): FigureRecall;
 export interface Metadata { description?: string; category?: string[]; aliases?: string[]; author?: string; license?: string; credits?: string[]; extensions?: Extensions }
@@ -9,7 +10,7 @@ export interface AssetBase extends Metadata { id: string; name: string; recall: 
 export interface ImageContent { media: Sha256 | null; pendingMedia?: boolean }
 export interface AssetContentMap {
   backgrounds: ImageContent & {stageTheme?: StageTheme; tags?: string[]};
-  cg: ImageContent & {description?: string; focusHints?: Array<{key:string;label:string;x:number;y:number;zoom:number}>};
+  cg: ImageContent & {description?: string; focusHints?: Array<{key:string;label:string;x:number;y:number;zoom:number}>; caption?: CgCaption};
   props: ImageContent;
   items: ImageContent & {categoryDefault?:boolean};
   directions: {text:string};
@@ -37,7 +38,7 @@ export interface VoiceReference {media: Sha256; text: string; language: string}
 export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string}
   | {kind:'preset'; provider:string; voiceName:string; model?:string}
   | {kind:'reference-list'; provider:'fish-audio'; references:VoiceReference[]};
-export interface VoiceSpec {name:string; /** 使用情景, ≤ 60 字 */ guidance?:string; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}
+export interface VoiceSpec {name:string; /** 使用情景, ≤ 60 字 */ guidance?:string; /** 通用声音（是否通用）: the casting assistant may pick it (absent: has a guidance); voice-auto-cast.cjs */ autoCast?:boolean; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}
 export interface VoiceLibrary {version:1; voices:Record<string,VoiceSpec>}
 export interface Voice {voice:string; source?:string|null; variant?:string; language?:string; emotionVariants?:Record<string,string>}
 export type OutfitRecall = Recall;
@@ -87,7 +88,8 @@ export const BLOB_MIME_TYPES: Readonly<Record<BlobDescriptor['ext'], string>>;
 export const LOCAL_ONLY_FIELDS: readonly string[];
 export const ASSET_PACK_ERROR_CODES: readonly string[];
 export function validateBlob(value: unknown, path?: string): BlobDescriptor;
-export function validateRecall(value: unknown, path?: string, minKeywordLength?: number): Recall;
+export function validateRecall(value: unknown, path?: string, minKeywordLength?: number, options?: {when?: boolean}): Recall;
+export interface CgCaption { title?: string; line?: string; appear?: 'fade' | 'type' | 'rise' }
 export function validateAsset(value: unknown, path?: string): Asset;
 export function validatePackManifest(value: unknown, path?: string): PackManifest;
 export function validatePackIdentities(values: PackManifest[]): PackManifest[];
