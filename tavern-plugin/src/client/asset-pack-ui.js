@@ -954,7 +954,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const [kind,setKind]=React.useState(initial?.kind||null),[sel,setSel]=React.useState(initial?.figureId||null),[query,setQuery]=React.useState(''),[filter,setFilter]=React.useState('all'),[detail,setDetail]=React.useState(!!initial?.figureId),[category,setCategory]=React.useState('');
     const [selecting,setSelecting]=React.useState(false),[picked,setPicked]=React.useState(()=>new Set()),[notice,setNotice]=React.useState(null),changed=React.useRef(false);
     // the figure page's tab (编辑 / 生图) stays put while the user walks the figure list.
-    const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'||initial?.tab==='voice'?initial.tab:'edit');
+    const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'?'gen':'edit');
     // the entry just made from a dropped file — its detail opens on the 触发词 field with the hint (cleared by the next pick).
     const [fresh,setFresh]=React.useState(null);
     // the blank entry just made by 新建 — its page opens with the name field focused and selected (once).
@@ -1318,7 +1318,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h(PanelBoundary,{name:'entry-detail',lead:narrowBack&&h('div',{className:'ap-detail-title ap-subhead'},h(SubpageBack,narrowBack)),resetKey:current+'/'+(selected?.id||'')+'@'+pack.revision},
       current==='directions'&&selected?h(StyleDetail,{key:'directions/'+selected.id,pack,asset:selected,commit,remove:removeStyle,busy:work.busy,back:narrowBack}):
       !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,onChanged:automaticChanged,backLabel:kinds[current],
-          gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab}):
+          gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
         current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,remove:removeEntry,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
           onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
@@ -1393,10 +1393,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     return present.filter(k=>keep.has(k));
   };
   // `newMenu`: the strip ends with 「＋ 新建」 (NewEntryMenu); its width is kept free before the tabs are fitted.
-  // The 声音 tab's 选声音 strip is the same strip: `names` (key → its text, instead of a kind's), `marks` (key → a node after
-  // the text: a count, ⚠) and `label` (the strip's name).
-  function PackKindNav({present,current,onSwitch,newMenu=null,names,marks,label:stripLabel='素材分类'}) {
-    const ref=React.useRef(null),refocus=React.useRef(false),[box,setBox]=React.useState(null),label=k=>names?.[k]??kinds[k];
+  function PackKindNav({manifest,present,current,onSwitch,newMenu=null}) {
+    const ref=React.useRef(null),refocus=React.useRef(false),[box,setBox]=React.useState(null),label=k=>kinds[k];
     (React.useLayoutEffect||React.useEffect)(()=>{const el=ref.current;if(!el||typeof ResizeObserver==='undefined')return;
       const measure=()=>{const widths={};for(const t of el.querySelectorAll('[data-kind]'))widths[t.dataset.kind]=t.offsetWidth;
         const next={avail:el.clientWidth-(el.querySelector('.ap-kind-new-anchor')?.offsetWidth||0),more:el.querySelector('.ap-kind-more')?.offsetWidth||60,widths};setBox(b=>JSON.stringify(b)===JSON.stringify(next)?b:next);};
@@ -1408,8 +1406,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // (新建条目) the strip shows from one kind on: it also holds 「＋ 新建」. An empty pack has none (its page is the kinds).
     if(!present.length)return null;
     return h('div',{ref,className:'ap-pack-kinds'},
-      h('div',{role:'tablist','aria-label':stripLabel,className:'ap-kind-tabs-line',onKeyDown:keys},present.map(k=>h('button',{key:k,type:'button',role:'tab','data-kind':k,
-        'data-overflow':hidden.includes(k)||undefined,'aria-selected':k===current,tabIndex:k===current?0:-1,'aria-label':label(k),onClick:()=>onSwitch(k)},h('span',null,label(k)),marks?.[k]||null))),
+      h('div',{role:'tablist','aria-label':'素材分类',className:'ap-kind-tabs-line',onKeyDown:keys},present.map(k=>h('button',{key:k,type:'button',role:'tab','data-kind':k,
+        'data-overflow':hidden.includes(k)||undefined,'aria-selected':k===current,tabIndex:k===current?0:-1,'aria-label':label(k),onClick:()=>onSwitch(k)},h('span',null,kinds[k])))),
       h(Popover,{label:'更多分类',className:'ap-kind-more-anchor'+(hidden.length?'':' is-idle'),
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-kind-more','aria-haspopup':'menu','aria-expanded':open,tabIndex:hidden.length?0:-1,onClick:toggle},'更多',h(Glyph,{name:'chevDown'})),
         content:close=>h(KindMenu,{list:hidden,label,onPick:k=>{close();go(k);}})}),
@@ -1421,7 +1419,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     React.useEffect(()=>{ref.current?.querySelector('button')?.focus();},[]);
     const move=e=>{const items=[...ref.current.querySelectorAll('button')],i=items.indexOf(document.activeElement),n=items.length,next={ArrowDown:i+1,ArrowUp:i-1,Home:0,End:n-1}[e.key];if(next===undefined)return;e.preventDefault();items[(next+n)%n].focus();};
     return h('div',{ref,className:'ap-kind-menu',onKeyDown:move},list.map(k=>h('button',{key:k,type:'button',role:'menuitem','aria-label':label(k),className:'ap-menu-item ap-kind-option',onClick:()=>onPick(k)},
-      icons&&h(KindIcon,{kind:k}),h('span',null,label(k)))));
+      icons&&h(KindIcon,{kind:k}),h('span',null,icons?label(k):kinds[k]))));
   }
   // Category glyphs for the pack navigation (the old 素材库 rail had one per kind).
   const kindGlyphs={timers:'M8 14a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM6.5 1.5h3M8 4V2M8 9V6.5M12 4.5l1-1',backgrounds:'M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3',music:'M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',sfx:'M3 8h1.5M6 5v6M8.5 3v10M11 5.5v5M13.5 7v2',ambience:'M2 6.5c2-1.5 4-1.5 6 0s4 1.5 6 0M2 10c2-1.5 4-1.5 6 0s4 1.5 6 0',looks:'M8 2.5l1.4 3.6 3.6 1.4-3.6 1.4L8 12.5l-1.4-3.6L3 7.5l3.6-1.4z',widgets:'M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z',figures:'M8 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3.5 13.5c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4',
