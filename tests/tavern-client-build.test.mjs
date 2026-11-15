@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import vm from './fixtures/client-vm.mjs'
+import { copyStageBuildSiblings } from './helpers/stage-build-siblings.mjs'
 
 import { assembleTavernClient } from '../bin/build-tavern-client.mjs'
 
@@ -44,17 +45,11 @@ for (const check of [false, true]) {
     const stage = path.join(root, 'tavern-plugin/packages/dsh-tavern-stage/lib/client')
     await mkdir(stage, {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs', import.meta.url), path.join(stage, 'skin-overlay-timing.cjs'))
-    // The stage build bundles each mod's stage client (mods/<folder>/client) with the own-folder files it requires.
-    await cp(new URL('../tavern-plugin/mods/', import.meta.url), path.join(root, 'tavern-plugin/mods'), {recursive:true})
+    await copyStageBuildSiblings(path.join(root, 'tavern-plugin'))
     for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/'+name,import.meta.url),path.join(stage,name))
-    // The stage build inlines the stage-only protocol contracts (stage-entrance.cjs, card-stage-mode.cjs) from the sibling protocol package.
-    await mkdir(path.join(root, 'tavern-plugin/packages/dsh-presentation-protocol/src'), {recursive:true})
-    for (const name of ['stage-entrance.cjs', 'card-stage-mode.cjs'])
-      await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/' + name, import.meta.url), path.join(root, 'tavern-plugin/packages/dsh-presentation-protocol/src', name))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/build.mjs', import.meta.url), path.join(stage, '../../build.mjs'))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js', import.meta.url), path.join(stage, '../client-assets.js'))
     await cp(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/', import.meta.url), path.join(stage, '../../src'), {recursive:true})
-    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs', import.meta.url), path.join(stage, 'runtime-kernel.cjs'))
     await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))
     await copyFile(new URL('../bin/lib/css-syntax-guard.mjs', import.meta.url), path.join(root, 'bin/lib/css-syntax-guard.mjs'))
     // The fixture includes every required inert builder input.
@@ -62,6 +57,9 @@ for (const check of [false, true]) {
       await copyFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), path.join(root, 'tavern-plugin/src/client', name))
     }
     for (const name of ['tavern.css', 'theme.css', 'layered-sprite.css', 'mod-config.css']) await writeFile(path.join(root, 'tavern-plugin/lib/client-assets', name), '')
+    const jqueryUi = 'tavern-plugin/lib/vendor/runtime-assets/jquery-ui/jquery-ui.min.js'
+    await mkdir(path.dirname(path.join(root, jqueryUi)), { recursive: true })
+    await copyFile(new URL('../' + jqueryUi, import.meta.url), path.join(root, jqueryUi))
     await mkdir(path.join(root, 'tavern-plugin/shared'), { recursive: true })
     await writeFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'module.exports = {};')
     // The copied builder resolves its own dependencies from the fixture root.
