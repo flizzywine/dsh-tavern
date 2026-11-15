@@ -155,7 +155,6 @@ function GalChoices(props) {
         watch();
         for (const row of [el, ...el.children]) row.style.removeProperty("--fk-snap-h");
         el.style.removeProperty("--art-choice-fit");
-        run();
         // The settled snaps are a fixed point (the list's snapped height stretches its grid rows): the rows keep theirs, the
         // list starts over, and the passes run here until they settle, before the frame is painted.
         const rest = new WeakMap();
@@ -170,6 +169,8 @@ function GalChoices(props) {
             for (let pass = 0; pass < 8; pass++) if (!(layout.galSnapChoices(el, window.devicePixelRatio || 1) || layout.galFitChoices(el))) return;
             later();
         };
+        // Fit before the first paint: one pass per frame painted the menu at every in-between size (it jumped on each tab switch).
+        resnapRef.current(null, null);
         return function () { stopped = true; resnapRef.current = null; if (frame) cancelAnimationFrame(frame); observer?.disconnect(); window.removeEventListener("resize", resize); media?.removeEventListener?.("change", onRatio); };
     }, [state, choiceCount, currentTab.key]);
     (React.useLayoutEffect || React.useEffect)(function () {
@@ -372,7 +373,7 @@ function GalChoices(props) {
         tabGroup.hasTabs ? h("div", { key: "tabs", className: "fork-gal-choice-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onStageTabKeyDown },
             tabGroup.tabs.map(tab => {
                 const isActive = tab.key === currentTab.key;
-                return h("button", { key: tab.key, type: "button", role: "tab", "data-tab": tab.key, "data-kind": tab.kind, "aria-selected": isActive ? "true" : "false", tabIndex: isActive ? 0 : -1, className: "fork-gal-choice-tab" + (isActive ? " is-active" : ""), disabled: sending, onClick: () => { closeField(false); setActiveTab(tab.key); } },
+                return h("button", { key: tab.key, type: "button", role: "tab", "data-tab": tab.key, "data-kind": tab.kind, "aria-selected": isActive ? "true" : "false", tabIndex: isActive ? 0 : -1, className: "fork-gal-choice-tab" + (isActive ? " is-active" : ""), disabled: sending, onClick: () => { closeField(false); settledRef.current = true; setActiveTab(tab.key); } },
                     h("span", { className: "fork-gal-choice-tab-label" }, tab.label),
                     h("span", { className: "fork-gal-choice-tab-count" }, String(tab.items.length)));
             })) : null,
