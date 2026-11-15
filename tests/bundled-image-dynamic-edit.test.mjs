@@ -26,6 +26,30 @@ const graph = {
   }, bindings: { positive: [{ node: '3', input: 'value' }], negative: [], referenceImages: [{ node: '1', input: 'image' }], seed: [{ node: '5', input: 'noise_seed' }], loras: [] },
 }
 
+function multipleImageGraph() {
+  const result = structuredClone(graph)
+  result.prompt['7'] = { class_type: 'LoadImage', inputs: { image: '' } }
+  result.prompt['8'] = { class_type: 'ImageScale', inputs: { image: ['7', 0], width: 512 } }
+  result.prompt['4'].inputs['images.image_2'] = ['8', 0]
+  result.bindings.referenceImages.push({ node: '7', input: 'image' })
+  return result
+}
+
+test('multiple image inputs use the selected references and omit an empty optional branch', () => {
+  const workflow = multipleImageGraph(), before = JSON.stringify(workflow)
+  const single = applyComfyReferenceImages(workflow, ['one.png'])
+  assert.equal(single.prompt['1'].inputs.image, 'one.png')
+  assert.equal(single.prompt['4'].inputs['images.image_2'], undefined)
+  const two = applyComfyReferenceImages(workflow, ['one.png', 'two.png'])
+  assert.equal(two.prompt['7'].inputs.image, 'two.png')
+  assert.deepEqual(two.prompt['4'].inputs['images.image_2'], ['8', 0])
+  assert.equal(JSON.stringify(workflow), before)
+  const required = multipleImageGraph()
+  required.nodeSchemas.Edit.inputs['images.image_2'].optional = false
+  delete required.nodeSchemas.Edit.inputs['images.image_2'].dynamicGroup
+  assert.throws(() => applyComfyReferenceImages(required, ['one.png']), /图片节点 #7.*没有图片/)
+})
+
 test('single loader expands its image processing branch in source order and leaves saved graph unchanged', () => {
   const before = JSON.stringify(graph)
   const result = applyComfyReferenceImages(graph, ['first.png', 'second.png'])
@@ -114,6 +138,36 @@ test('stage uses the same ComfyUI image upload, dynamic graph and persistent job
   const result = await provider.generate({ prompt: '给 <image1> 增加舞台灯光', background: 'transparent', references: [{ data: IMAGE_PNG, mediaType: 'image/png' }], modelId: 'template:stage-edit' })
   assert.deepEqual(Buffer.from(result.data), IMAGE_PNG)
   assert.match(submitted[0]['3'].inputs.value, /舞台灯光/)
+})
+
+test('stage supplies one or two references to a multi-input workflow', async t => {
+  let provider, uploads = 0
+  const fixture = await imagePluginFixture(t, {
+    tavern: { apiVersion: 5, attach() {}, promptSection() {}, onTurnSettled() {}, list: async () => [], imageProvider(value) { provider = value; return () => {} } },
+    config: { promptSystem: 'workbench', imageBackend: 'comfyui', comfyMode: 'workflow', comfyUrl: 'http://localhost:8188',
+      defaultWorkflow: 'edit', promptDefault: null, activePromptPreset: 'stage-edit',
+      promptPresets: [{ id: 'stage-edit', name: '舞台编辑', independent: true, structure: { format: 'natural', purpose: 'edit', targets: [{ kind: 'workflow', id: 'edit' }], blocks: [{ kind: 'scene', title: '编辑指令', text: '' }] } }],
+      workflows: [{ id: 'edit', file: 'workflows/edit.json' }] }, files: { 'workflows/edit.json': multipleImageGraph() },
+  })
+  const runtime = await fixture.start(), submitted = []
+  globalThis.fetch = async (url, init = {}) => {
+    const path = new URL(url).pathname
+    if (path === '/upload/image') return imageJson({ name: 'stage-' + (++uploads) + '.png', type: 'input' })
+    if (path === '/prompt') { submitted.push(JSON.parse(init.body).prompt); return imageJson({ prompt_id: 'stage-multi' }) }
+    if (path.startsWith('/history/')) return imageJson({ 'stage-multi': { outputs: { '6': { images: [{ filename: 'stage.png', type: 'output' }] } }, status: { completed: true, status_str: 'success' } } })
+    if (path === '/view') return new Response(IMAGE_PNG, { headers: { 'content-type': 'image/png' } })
+    return imageJson({ queue_running: [], queue_pending: [] })
+  }
+  await runtime.request('state')
+  for (let index = 0; index < 100 && !provider; index++) await new Promise(resolve => setTimeout(resolve, 10))
+  const ref = { data: IMAGE_PNG, mediaType: 'image/png' }
+  await provider.generate({ prompt: '舞台灯光', references: [ref], modelId: 'template:stage-edit' })
+  assert.equal(submitted[0]['4'].inputs['images.image_2'], undefined)
+  assert.equal(submitted[0]['1'].inputs.image, 'stage-1.png')
+  await provider.generate({ prompt: '变换舞台', references: [ref, ref], modelId: 'template:stage-edit' })
+  assert.equal(submitted[1]['1'].inputs.image, 'stage-2.png')
+  assert.equal(submitted[1]['7'].inputs.image, 'stage-3.png')
+  assert.deepEqual(submitted[1]['4'].inputs['images.image_2'], ['8', 0])
 })
 
 test('template mechanisms execute through the previewed prompt pipeline with bounded per-image seeds', async t => {

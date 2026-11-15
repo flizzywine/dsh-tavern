@@ -67,6 +67,28 @@ test('ComfyUI binding 仅自动接受唯一 LoadImage，多节点必须明确配
   assert.throws(() => applyComfyReferenceImages(workflow({ loaders: ['8'] }), ['a.png', 'b.png']), /只有 1 个.*有 2 张/)
 })
 
+test('缺少必填的第二张参考图时，任务提示节点并且不上传或提交工作流', async t => {
+  const graph = workflow({ loaders: ['8', '9'], bindings: [{ node: '8', input: 'image' }, { node: '9', input: 'image' }] })
+  graph.prompt['9'].inputs.image = ''
+  graph.prompt['12'] = { class_type: 'MixImages', inputs: { image1: ['8', 0], image2: ['9', 0] } }
+  graph.prompt['10'].inputs.images = ['12', 0]
+  graph.nodeSchemas = {
+    LoadImage: { inputs: { image: { type: 'COMBO', imageUpload: true } }, outputs: ['IMAGE', 'MASK'] },
+    MixImages: { inputs: { image1: { type: 'IMAGE' }, image2: { type: 'IMAGE' } }, outputs: ['IMAGE'] },
+    SaveImage: { inputs: { images: { type: 'IMAGE' } }, outputs: [], outputNode: true },
+  }
+  const { runtime } = await setup(t, graph)
+  const calls = []
+  globalThis.fetch = async url => { calls.push(String(url)); return imageJson({}) }
+  const result = await jobInput(runtime)
+  assert.equal(result.status, 200)
+  const job = (await runtime.request('jobs?id=' + result.body.id)).body.job
+  assert.equal(job.state, 'failed')
+  assert.match(job.error, /图片节点 #9.*没有图片/)
+  assert.equal(job.requestMayHaveSucceeded, false)
+  assert.deepEqual(calls, [])
+})
+
 test('ComfyUI 自动模式按实际工作流接图，纯文生图工作流不上传参考图', async t => {
   for (const reference of [false, true]) await t.test(reference ? 'reference graph' : 'text graph', async t => {
     const { runtime } = await setup(t, workflow({ loaders: reference ? ['8'] : [] }), { extraConfig: { generationMode: 'auto' } })
