@@ -576,12 +576,14 @@ function galSlots(count, skinSlots) {
 }
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
-//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top} }
+//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
+//   sizes: { id: { cm, ground } } of the cast's calibrated figures (ground: their groundRatio) }
 // -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
 // One framing for the whole cast; face visibility is handled by the renderer's existing lift, not a per-figure zoom.
 // The skin's maxFigures  and the viewport are one cap - the smaller wins - and
 // one rule picks who stays: the priority ranking. Size and drop are the viewport fit of the drawn count; the scene ruler
-// (hMax) stays the whole present cast's, so a hidden tall figure still sets the head line.
+// (hMax) is the whole present cast's until the cap leaves a figure out: then, as drawn, it is the tallest drawn figure's (a hidden
+// tall figure must not lower and shrink the ones on screen).
 // a skin frames the cast like its original - the
 // shared ruler times `scale`, its head line (the tallest figure's head top) moved to `top` x H. One zoom for the whole
 // cast: relative heights stay the ruler's. The viewport fit then works on the framed size, so a phone never gets larger
@@ -623,6 +625,15 @@ function galFigureLayout(input) {
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
     const slots = galSlots(visible.length, input.slots);
     visible.forEach((id, i) => { x[id] = slots[i]; });
+    // A figure the cap leaves out does not stand on the ruler: a tall one nobody sees would sink the cast that is drawn (head line,
+    // size, ground). The ruler is the tallest drawn figure's; with the cast it is the scene's again.
+    if (ruler == null && input.sizes && visible.length < cast.length) {
+        const drawn = visible.map(id => input.sizes[id]).filter(Boolean), tallest = Math.max(0, ...drawn.map(s => s.cm));
+        if (tallest > 0 && tallest < hMax) {
+            const groundRatio = Math.max(0, ...drawn.filter(s => s.cm === tallest).map(s => s.ground)) || 1;
+            return { ...galFigureLayout({ ...input, cast: visible, hMax: tallest, groundRatio, sizes: null }), drawn: { hMax: tallest, groundRatio } };
+        }
+    }
     const framed = framing?.scale != null || framing?.top != null || ruler != null;
     return { count: visible.length, fit: fit * zoom, drop, top, framed, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
 }

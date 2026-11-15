@@ -417,18 +417,27 @@ function galCreateScene(host, options, own) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
+    let castMeasure=null;
     function figureLayout(desc,W,H,now) {
-        // Missing lower-body artwork contributes to the shared viewport fit.
-        const crops={};
+        // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
+        // on the drawn cast. Measured when the descriptors or the loads change, not per frame.
+        if(!castMeasure||castMeasure.figures!==desc.figures||castMeasure.loads!==state.figureLoads)castMeasure=measureCast(desc);
+        const {crops,sizes}=castMeasure;
+        const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,sizes,instant:desc.snap||desc.skipping});
+        if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
+        return result.layout;
+    }
+    function measureCast(desc) {
+        const crops={},sizes={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
             const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
+            const size=input&&resolveFigureSizing({...input,canvas:input.metrics?.canvas,W:1,H:1});
+            if(size?.mode==='physical')sizes[figure.alias]={cm:size.heightCm,ground:size.restHead?(size.support.y-size.restHead.top)/size.displayPx:1};
         }
-        const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,instant:desc.snap||desc.skipping});
-        if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
-        return result.layout;
+        return {figures:desc.figures,loads:state.figureLoads,crops,sizes};
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size
     // changes, never per frame), so the speaker anchor can place a figure under a close-up: screen x = (x - fx) * zoom + ax.
@@ -671,8 +680,9 @@ function galCreateScene(host, options, own) {
         const fit = sceneLayout.fit(now);
         // A skin's fixed ruler (galFigureLayout) stands in for the scene's: one height, one head line, whoever is present.
         const ruled = fit.ruler != null;
-        const framing = { sceneHMax: ruled ? fit.ruler : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : sceneFrame.groundRatio,
-            groundHMax: ruled ? fit.ruler : state.figureScale?.to, groundRatio: ruled ? 1 : state.figureScale?.groundTo,
+        // ... or the tallest drawn figure's while the cap leaves a taller one out (fit.drawn)
+        const framing = { sceneHMax: ruled ? fit.ruler : fit.drawn ? fit.sceneH : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : fit.drawn ? fit.sceneG : sceneFrame.groundRatio,
+            groundHMax: ruled ? fit.ruler : fit.drawn ? fit.sceneH : state.figureScale?.to, groundRatio: ruled ? 1 : fit.drawn ? fit.sceneG : state.figureScale?.groundTo,
             occluderTop: faceEnvironment(desc, W, H).occluderTop, fit: fit.fit, fitDrop: fit.drop, fitTop: fit.top, spread: fit.spread };
         const reducedHop = galHopReduced(quality);
         const dofTarget = desc.dof ? entryOf(desc.dof) : null;
@@ -769,7 +779,7 @@ function galCreateScene(host, options, own) {
         const env = faceEnvironment(desc, W, H);
         const closeShot = desc.camera?.shot === "close";
         const castFit = sceneLayout.target;
-        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread].join(":");
+        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread, castFit.drawn && castFit.sceneH, castFit.drawn && castFit.sceneG].join(":");
         const ruled = castFit.ruler != null;
         state.figures.forEach(entry => {
             if (!entry.restHead) return;
@@ -783,8 +793,8 @@ function galCreateScene(host, options, own) {
             let lockBody = entry.figureResolved?.restBounds || (entry.restBody && { top: entry.restBody.y, bottom: entry.restBody.y + entry.restBody.height });
             if (old?.key !== key && entry.figureResolved?.mode === "physical") {
                 // A rare scene rescale locks against its destination ruler, not the first tween frame.
-                const target = resolveFigureSizing({ ...input, canvas: input?.metrics?.canvas, W, H, stageX: W * entry.cx.v, sceneHMax: ruled ? fitTo.ruler : state.figureScale?.to,
-                    sceneGroundRatio: ruled ? 1 : state.figureScale?.groundTo, occluderTop: env.occluderTop, fit: fitTo.fit, fitDrop: fitTo.drop, fitTop: fitTo.top, spread: fitTo.spread });
+                const target = resolveFigureSizing({ ...input, canvas: input?.metrics?.canvas, W, H, stageX: W * entry.cx.v, sceneHMax: ruled ? fitTo.ruler : fitTo.drawn ? fitTo.sceneH : state.figureScale?.to,
+                    sceneGroundRatio: ruled ? 1 : fitTo.drawn ? fitTo.sceneG : state.figureScale?.groundTo, occluderTop: env.occluderTop, fit: fitTo.fit, fitDrop: fitTo.drop, fitTop: fitTo.top, spread: fitTo.spread });
                 if (target.restHead) { lockHead = target.restHead; lockSupportY = target.support.y; lockBody = target.restBounds; }
             }
             entry.faceRest = galFaceRestUpdate(old, key, lockHead, lockSupportY, env.top, env.occluderTop, H, now,

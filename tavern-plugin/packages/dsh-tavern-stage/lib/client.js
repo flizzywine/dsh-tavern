@@ -8025,18 +8025,27 @@ function galCreateScene(host, options, own) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
+    let castMeasure=null;
     function figureLayout(desc,W,H,now) {
-        // Missing lower-body artwork contributes to the shared viewport fit.
-        const crops={};
+        // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
+        // on the drawn cast. Measured when the descriptors or the loads change, not per frame.
+        if(!castMeasure||castMeasure.figures!==desc.figures||castMeasure.loads!==state.figureLoads)castMeasure=measureCast(desc);
+        const {crops,sizes}=castMeasure;
+        const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,sizes,instant:desc.snap||desc.skipping});
+        if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
+        return result.layout;
+    }
+    function measureCast(desc) {
+        const crops={},sizes={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
             const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
+            const size=input&&resolveFigureSizing({...input,canvas:input.metrics?.canvas,W:1,H:1});
+            if(size?.mode==='physical')sizes[figure.alias]={cm:size.heightCm,ground:size.restHead?(size.support.y-size.restHead.top)/size.displayPx:1};
         }
-        const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,instant:desc.snap||desc.skipping});
-        if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
-        return result.layout;
+        return {figures:desc.figures,loads:state.figureLoads,crops,sizes};
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size
     // changes, never per frame), so the speaker anchor can place a figure under a close-up: screen x = (x - fx) * zoom + ax.
@@ -8279,8 +8288,9 @@ function galCreateScene(host, options, own) {
         const fit = sceneLayout.fit(now);
         // A skin's fixed ruler (galFigureLayout) stands in for the scene's: one height, one head line, whoever is present.
         const ruled = fit.ruler != null;
-        const framing = { sceneHMax: ruled ? fit.ruler : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : sceneFrame.groundRatio,
-            groundHMax: ruled ? fit.ruler : state.figureScale?.to, groundRatio: ruled ? 1 : state.figureScale?.groundTo,
+        // ... or the tallest drawn figure's while the cap leaves a taller one out (fit.drawn)
+        const framing = { sceneHMax: ruled ? fit.ruler : fit.drawn ? fit.sceneH : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : fit.drawn ? fit.sceneG : sceneFrame.groundRatio,
+            groundHMax: ruled ? fit.ruler : fit.drawn ? fit.sceneH : state.figureScale?.to, groundRatio: ruled ? 1 : fit.drawn ? fit.sceneG : state.figureScale?.groundTo,
             occluderTop: faceEnvironment(desc, W, H).occluderTop, fit: fit.fit, fitDrop: fit.drop, fitTop: fit.top, spread: fit.spread };
         const reducedHop = galHopReduced(quality);
         const dofTarget = desc.dof ? entryOf(desc.dof) : null;
@@ -8377,7 +8387,7 @@ function galCreateScene(host, options, own) {
         const env = faceEnvironment(desc, W, H);
         const closeShot = desc.camera?.shot === "close";
         const castFit = sceneLayout.target;
-        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread].join(":");
+        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread, castFit.drawn && castFit.sceneH, castFit.drawn && castFit.sceneG].join(":");
         const ruled = castFit.ruler != null;
         state.figures.forEach(entry => {
             if (!entry.restHead) return;
@@ -8391,8 +8401,8 @@ function galCreateScene(host, options, own) {
             let lockBody = entry.figureResolved?.restBounds || (entry.restBody && { top: entry.restBody.y, bottom: entry.restBody.y + entry.restBody.height });
             if (old?.key !== key && entry.figureResolved?.mode === "physical") {
                 // A rare scene rescale locks against its destination ruler, not the first tween frame.
-                const target = resolveFigureSizing({ ...input, canvas: input?.metrics?.canvas, W, H, stageX: W * entry.cx.v, sceneHMax: ruled ? fitTo.ruler : state.figureScale?.to,
-                    sceneGroundRatio: ruled ? 1 : state.figureScale?.groundTo, occluderTop: env.occluderTop, fit: fitTo.fit, fitDrop: fitTo.drop, fitTop: fitTo.top, spread: fitTo.spread });
+                const target = resolveFigureSizing({ ...input, canvas: input?.metrics?.canvas, W, H, stageX: W * entry.cx.v, sceneHMax: ruled ? fitTo.ruler : fitTo.drawn ? fitTo.sceneH : state.figureScale?.to,
+                    sceneGroundRatio: ruled ? 1 : fitTo.drawn ? fitTo.sceneG : state.figureScale?.groundTo, occluderTop: env.occluderTop, fit: fitTo.fit, fitDrop: fitTo.drop, fitTop: fitTo.top, spread: fitTo.spread });
                 if (target.restHead) { lockHead = target.restHead; lockSupportY = target.support.y; lockBody = target.restBounds; }
             }
             entry.faceRest = galFaceRestUpdate(old, key, lockHead, lockSupportY, env.top, env.occluderTop, H, now,
@@ -9561,12 +9571,14 @@ function galSlots(count, skinSlots) {
 }
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
-//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top} }
+//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
+//   sizes: { id: { cm, ground } } of the cast's calibrated figures (ground: their groundRatio) }
 // -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
 // One framing for the whole cast; face visibility is handled by the renderer's existing lift, not a per-figure zoom.
 // The skin's maxFigures  and the viewport are one cap - the smaller wins - and
 // one rule picks who stays: the priority ranking. Size and drop are the viewport fit of the drawn count; the scene ruler
-// (hMax) stays the whole present cast's, so a hidden tall figure still sets the head line.
+// (hMax) is the whole present cast's until the cap leaves a figure out: then, as drawn, it is the tallest drawn figure's (a hidden
+// tall figure must not lower and shrink the ones on screen).
 // a skin frames the cast like its original - the
 // shared ruler times `scale`, its head line (the tallest figure's head top) moved to `top` x H. One zoom for the whole
 // cast: relative heights stay the ruler's. The viewport fit then works on the framed size, so a phone never gets larger
@@ -9608,6 +9620,15 @@ function galFigureLayout(input) {
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
     const slots = galSlots(visible.length, input.slots);
     visible.forEach((id, i) => { x[id] = slots[i]; });
+    // A figure the cap leaves out does not stand on the ruler: a tall one nobody sees would sink the cast that is drawn (head line,
+    // size, ground). The ruler is the tallest drawn figure's; with the cast it is the scene's again.
+    if (ruler == null && input.sizes && visible.length < cast.length) {
+        const drawn = visible.map(id => input.sizes[id]).filter(Boolean), tallest = Math.max(0, ...drawn.map(s => s.cm));
+        if (tallest > 0 && tallest < hMax) {
+            const groundRatio = Math.max(0, ...drawn.filter(s => s.cm === tallest).map(s => s.ground)) || 1;
+            return { ...galFigureLayout({ ...input, cast: visible, hMax: tallest, groundRatio, sizes: null }), drawn: { hMax: tallest, groundRatio } };
+        }
+    }
     const framed = framing?.scale != null || framing?.top != null || ruler != null;
     return { count: visible.length, fit: fit * zoom, drop, top, framed, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
 }
@@ -17279,26 +17300,34 @@ function createStageCastLayout({calculate,mix}) {
     function create({drawn=kind=>kind==='spine'}={}){
         if(disposed)throw new Error('Cast layout owner disposed');
         let closed=false,layout=null,seen=null,transition=null,memo=null,shown=null;
+        // The scene ruler the cast stands on while the cap leaves a taller figure out (galFigureLayout drawn): eased with the fit.
+        function sceneAt(from,to,k){
+            if(!from.drawn&&!to.drawn)return {};
+            return {drawn:true,sceneH:from.sceneH+(to.sceneH-from.sceneH)*k,sceneG:from.sceneG+(to.sceneG-from.sceneG)*k};
+        }
         function fit(now){
             if(!transition)return {fit:1,drop:0};
             const {from,to,start}=transition,k=mix(0,1,now-start);
             if(k===1)return {...to};
             return {fit:from.fit+(to.fit-from.fit)*k,drop:from.drop+(to.drop-from.drop)*k,
-                top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread};
+                top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread,...sceneAt(from,to,k)};
         }
-        function update({plan,figures,W,H,now,top,ruler,loaded,crops,instant}){
+        function update({plan,figures,W,H,now,top,ruler,loaded,crops,sizes,instant}){
             if(closed)return {layout:null,report:null};
             if(!plan){layout=seen=transition=null;return {layout:null,report:null};}
             if(seen&&seen.plan===plan&&seen.figures===figures&&seen.W===W&&seen.H===H&&seen.top===top&&seen.ruler===ruler&&seen.loaded===loaded){
                 if(instant)transition.from=transition.to;
                 return {layout,report:null};
             }
-            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
+            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(sizes||null),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
             let report=null;
             if(layout?.key!==key){
-                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
-                const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread};
-                transition=!transition||instant||transition.to.ruler!==to.ruler||transition.to.spread!==to.spread?{from:to,to,start:now}:{from:fit(now),to,start:now};
+                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,sizes,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
+                const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread,...(next.drawn?{drawn:true,sceneH:next.drawn.hMax,sceneG:next.drawn.groundRatio}:null)};
+                const was=transition&&fit(now);
+                // an eased scene ruler has both ends, whichever side is the scene's own
+                if(was&&!instant){if(to.drawn&&!was.drawn)Object.assign(was,{sceneH:ruler?.to,sceneG:ruler?.groundTo});else if(!to.drawn&&was.drawn)Object.assign(to,{sceneH:ruler?.to,sceneG:ruler?.groundTo});}
+                transition=!transition||instant||transition.to.ruler!==to.ruler||transition.to.spread!==to.spread?{from:to,to,start:now}:{from:was,to,start:now};
                 layout=next;
                 const signature=JSON.stringify([layout.x,W]);
                 if(signature!==shown){shown=signature;report={count:layout.count,x:layout.x,visible:layout.visible,width:W};}
