@@ -4746,14 +4746,21 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
   margin: 0;
   white-space: nowrap;
 }
-.dsh-tavern-compass-dock-btn {
+/* 罗盘入口在输入框下排，和宿主的纯文字动作（重新生成正文 / 更多）同排：外壳一律不画，只留文字本身
+   （设计「把外面这层绿框去掉 只保留文字」）。锚定路线与否已经写在文字里（罗盘 · 路线名），
+   不需要再靠边框和底色区分；悬停仍给一层极淡的底色作为可点提示。 */
+.dsh-tavern-compass-dock-btn,
+.dsh-tavern-compass-dock-btn.is-pinned {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
 }
-.dsh-tavern-compass-dock-btn.is-pinned {
-  border-color: rgba(38, 130, 101, 0.42);
-  background: color-mix(in srgb, #268265 13%, var(--dsw-alias-bg-base, transparent));
+.dsh-tavern-compass-dock-btn:hover,
+.dsh-tavern-compass-dock-btn.is-pinned:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 .dsh-tavern-compass-dock-glyph {
