@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createHostToolPolicy } from '../tavern-plugin/lib/host/tools.js'
+import { createHostToolPolicy, presentNativeTools } from '../tavern-plugin/lib/host/tools.js'
 import { createBackgroundNativeRuntime } from './fixtures/background-native-runtime.mjs'
 
 // Model the host waterfall, including redispatch and unrelated scoped policies.
@@ -70,4 +70,11 @@ test('real resident background Agent refreshes worldbook and networking declarat
   await h.runBackground({ ...input, persistentSessionId: first.traceSessionId, worldbookSkillsEnabled: true, webSearchEnabled: true })
   assert.ok(offered().includes('read'))
   assert.ok(offered().includes('web_search'))
+})
+
+test('native presentation is selected through presentAs on 0.2.1 and left to the preset executor on 0.2.2', () => {
+  const modes = []
+  presentNativeTools({ tools: { presentAs: mode => modes.push(mode) } })
+  assert.deepEqual(modes, ['native'])
+  assert.doesNotThrow(() => presentNativeTools({ tools: {} }))
 })
