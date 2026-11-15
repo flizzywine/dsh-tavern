@@ -37,6 +37,7 @@ for (const [source, target] of [
   ['figure-resolution.cjs', 'shared/figure-resolution.cjs'],
   ['media-resolution.cjs', 'shared/media-resolution.cjs'],
   ['voice-schema.js', 'shared/voice-schema.js'],
+  ['voice-auto-cast.cjs', 'shared/voice-auto-cast.cjs'],
   ['cast-voice.js', 'shared/cast-voice.js'],
   ['asset-pack-json.js', 'shared/asset-pack-json.js'],
   ['asset-variant-table.cjs', 'shared/asset-variant-table.cjs'],

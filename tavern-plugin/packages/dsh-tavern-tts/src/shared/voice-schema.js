@@ -34,9 +34,11 @@ export function voiceReferences(voice) {
   return Object.values(voice.sources).flatMap(s => s.kind === 'reference-list' ? s.references : [])
 }
 export function validateVoiceSpec(v, path = '$.voice') {
-  shape(v,['name','guidance','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
+  shape(v,['name','guidance','autoCast','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
-  // 使用情景: one optional line saying whom the voice suits (「适合中年男性」); the casting assistant searches it.
+  // 使用情景: one optional line saying whom the voice suits (「适合中年男性」); the casting assistant reads it. It is kept while
+  // autoCast (通用声音, voice-auto-cast.cjs) is off (the page greys it).
+  if (v.autoCast !== undefined) check(typeof v.autoCast === 'boolean',path+'.autoCast')
   if (v.guidance !== undefined) check(typeof v.guidance === 'string' && [...v.guidance].length <= 60 && !/[\u0000-\u001f\u007f]/.test(v.guidance),path+'.guidance')
   record(v.sources,path+'.sources',(s,p) => {
     // `model`: the provider's synthesis model this source speaks with (a figure's choice, never the service's); absent = the

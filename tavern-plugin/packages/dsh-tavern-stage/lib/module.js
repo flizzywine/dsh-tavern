@@ -290,7 +290,7 @@ export async function createStageModule(core) {
         const raw = (await deps.readCardWorkspace(cardPath))?.raw, extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
         return effectiveAutoCast(extension, autoCastSettings.read().values, effectiveCardStage(extension, core.assetEngineSettings.read().values).dialogue)
       }
-      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary'), getTts:() => getTts()})
+      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary')})
       autoCast = createAutoCast({store:deps.profileData, settings:castSettings,
         library:autoCastLibrary,
 
@@ -299,8 +299,7 @@ export async function createStageModule(core) {
         // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
         cast:async ({chat, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
           selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
-          speakers, rows:cast.rows, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), spoken:cast.spoken,
-          backend:getTts() ? {voices:() => autoCastLibrary.backendVoices(), spec:(voiceId, language) => autoCastLibrary.backendVoiceSpec(voiceId, language)} : null}),
+          speakers, rows:cast.rows, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
       void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
