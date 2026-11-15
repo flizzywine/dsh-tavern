@@ -149,3 +149,16 @@ test('keyboard focus listeners belong to plugin lifetime and do not affect ordin
     api.galActive.set('')
   }
 })
+
+test('a game started from the stage keeps a veil between the old stage and the new one, ended by the new stage, a leave or a failed start', () => {
+  const body = [], make = () => ({className:'',remove() { const at = body.indexOf(this); if (at >= 0) body.splice(at,1) }})
+  const document = {documentElement:{requestFullscreen:async () => {}, setAttribute() {}, removeAttribute() {}},fullscreenElement:null,body:{appendChild:node => body.push(node)},
+    createElement:make,querySelectorAll:() => []}
+  const navigation = createStageNavigation({window:{},document,navigator:{},playCue() {},getSessionId:() => 's',getSettings:() => ({})})
+  navigation.galHandover(); navigation.galHandover()
+  assert.deepEqual(body.map(node => node.className),['fork-gal-handover'], 'one veil however often it is asked for')
+  navigation.galHandoverEnd()
+  assert.equal(body.length,0)
+  navigation.galHandover(); navigation.galLeaveNow()
+  assert.equal(body.length,0, 'a leave ends it')
+})

@@ -15,6 +15,8 @@ const galMenuSignal = stageNavigationSignal('galMenuRequest', 0);
 const galMenuRequest = {...galMenuSignal, request: () => stageNavigation?.galMenuRequest.request()};
 const galEntering = {get: () => stageNavigation?.galEntering.get() || ''};
 const galEnter = (...args) => stageNavigation?.galEnter(...args);
+const galHandover = () => stageNavigation?.galHandover();
+const galHandoverEnd = () => stageNavigation?.galHandoverEnd();
 const galKeyboardFocus = () => stageNavigation?.galKeyboardFocus() || false;
 const galLeave = () => stageNavigation?.galLeave();
 const galStageShortcut = () => stageNavigation.galStageShortcut();

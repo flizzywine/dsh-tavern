@@ -22,7 +22,7 @@ function dispose() {
     }
     if (errors.length) throw new AggregateError(errors, 'Stage host cleanup failed');
 }
-const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
+const {galStageAvailable, galCoverChat, galUncover, galHandoverEnd, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
 function useGalOn(sessionId) {
     const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
     const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
@@ -91,6 +91,8 @@ function StagePortal(props) {
             throw error;
         }
     }, [props.sessionId, admitted]);
+    // the new game's stage stands: the handover veil (navigation.cjs galHandover) has done its work
+    React.useEffect(() => { if (target) galHandoverEnd(); }, [target]);
     React.useEffect(() => {
         if (disposed) return;
         return own(() => { if (galActive.get() === props.sessionId) galLeave(); });
@@ -150,7 +152,7 @@ function GalStageOpeningEntry(props) {
     if (!state.available || state.on || !pages?.pages?.some(page => page.showOn?.event === 'stage-enter')) return null;
     const h = React.createElement;
     return h("div", { className: "fork-gal-opening-entry", role: "group", "aria-label": "舞台游玩" },
-        h("span", null, "这张卡在舞台里游玩，开场和标题画面都在舞台上。"),
+        h("span", null, "本卡支持舞台模式，建议在舞台模式中游玩"),
         h("button", { type: "button", className: "dsh-tavern-btn", onClick: () => { if (!disposed) galEnter(props.sessionId); } },
             h(Icon, { name: "stage", size: 16 }), h("span", null, "进入舞台")));
 }

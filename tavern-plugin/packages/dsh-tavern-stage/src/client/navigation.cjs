@@ -35,6 +35,20 @@ function galCoverChat() {
     };
 }
 
+// A game started from the stage (a card's opening page) replaces the chat the stage stands on: the old session's stage
+// unmounts with its shell and the new one mounts only after its own data has loaded. This veil stands in the gap, so the
+// host chat never shows between the opening page and the new stage's loading screen. Ended by the new stage's mount, a
+// leave or a failed start (galHandoverEnd).
+let endHandover = null;
+function galHandover() {
+    if (endHandover) return;
+    const veil = document.createElement('div');
+    veil.className = 'fork-gal-handover';
+    document.body.appendChild(veil);
+    endHandover = () => { veil.remove(); endHandover = null; };
+}
+function galHandoverEnd() { endHandover?.(); }
+
 const galStageAvailable = (() => {
     let enabled = false;
     const listeners = new Set();
@@ -49,7 +63,7 @@ function galStageLifetime() {
         if (!live) return;
         live = false;
         galVisitGeneration++;
-        galEntry = null; galEntryPage = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
+        galHandoverEnd(); galEntry = null; galEntryPage = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
         try { galStageAvailable.set(false); }
         finally {
             try { galLeaveNow(); }
@@ -135,6 +149,7 @@ function galLeave() {
     galLeaveNow();
 }
 function galLeaveNow() {
+    galHandoverEnd();
     galVisitGeneration++;
     galEntering.set("");
     galActive.set("");
@@ -180,7 +195,7 @@ function galStageShortcut() {
         window.removeEventListener("keydown", onKey, true);
     };
 }
-return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
+return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galHandover, galHandoverEnd, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
     getEntryPage: () => galEntryPage,
     visit: () => galVisit,
