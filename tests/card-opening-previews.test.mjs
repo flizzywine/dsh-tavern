@@ -36,6 +36,37 @@ test('whole-message HTML replacements keep chained rules in previews, committed 
   assert.equal(reply.sessionText, source)
 })
 
+test('chained rules render the same button beside story text in previews, committed openings, and later replies', async () => {
+  const source = '你推开门。\n[UI]'
+  const regexScripts = [
+    rule('\\[UI\\]', '<button>准备</button>'),
+    rule('准备', '开始')
+  ]
+  const preview = await projectCardOpeningPreviews({ card: { first_mes: source }, extensions: { regexScripts } })
+  const opening = projectOpeningCommit(source, { regexScripts, regexPlacement: 2 })
+  const reply = projectRuntimeReply(source, { regexScripts, placement: 2, depth: 1 })
+  const expected = [
+    { kind: 'markdown', text: '你推开门。\n' },
+    { kind: 'html', content: '<button>开始</button>' }
+  ]
+  assert.deepEqual(preview.openings[0].projection.parts, expected)
+  assert.deepEqual(opening.displayParts, expected)
+  assert.deepEqual(reply.displayParts, expected)
+})
+
+test('a fenced status panel keeps its own frame beside an HTML opening', async () => {
+  const opening = '<div>开场说明</div>\n'
+  const status = '<div>状态栏</div>\n'
+  const result = await projectCardOpeningPreviews({
+    card: { first_mes: opening + '<mvu-status/>' },
+    extensions: { regexScripts: [rule('<mvu-status\\s*/>', '```html\n' + status + '```')] }
+  })
+  assert.deepEqual(result.openings[0].projection.parts, [
+    { kind: 'html', content: opening },
+    { kind: 'html', content: status }
+  ])
+})
+
 test('a whole-opening display replacement renders an interactive iframe', { timeout: 15000 }, async t => {
   const result = await projectCardOpeningPreviews({
     card: { first_mes: '[DEMO_OPENING]' },

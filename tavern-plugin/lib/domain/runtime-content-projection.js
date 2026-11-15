@@ -1,6 +1,6 @@
-import { projectDisplayParts, projectReplyLayers, resolveDisplayIdentityMacros } from './reply-presentation.js'
+import { projectReplyLayers } from './reply-presentation.js'
 import { renderTavernMacros } from './tavern-macro-engine.js'
-import { applyTavernRegexText, renderTavernRegexDisplay } from './tavern-regex-display.js'
+import { applyTavernRegexText } from './tavern-regex-display.js'
 import { renderWorldbookRandom } from './worldbook-random.js'
 
 function str(value) {
@@ -95,31 +95,9 @@ export function projectAgentMessageText(message, options = {}) {
   return projectAgentContent(value, options).agentText
 }
 
-function openingPreviewParts(text) {
-  if (/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*?)?>/i.test(text)) {
-    return projectDisplayParts(text).parts
-  }
-  return [{ kind: 'markdown', text }]
-}
-
 /** Render a chooser preview while keeping the complete rendered opening. */
 export function projectOpeningPreview(value, options = {}) {
-  const projection = contentProjection(value, options, true, false)
-  const display = renderTavernRegexDisplay(projection.renderedText, options && options.regexScripts, {
-    placement: options && options.regexPlacement,
-    isMarkdown: true,
-    isEdit: options && options.isEdit,
-    depth: options && options.depth
-  })
-  // Without a body to separate, keep the standard projection, which applies
-  // later rules to the actual output of earlier rules.
-  if (!display.changed || !display.bodyText.trim() || !display.presentationText.trim()) return projection
-
-  const parts = []
-  // Preserve body HTML while keeping regex-generated UI in a separate frame.
-  parts.push(...openingPreviewParts(resolveDisplayIdentityMacros(display.bodyText, options)))
-  parts.push(...openingPreviewParts(resolveDisplayIdentityMacros(display.presentationText, options)))
-  return Object.assign({}, projection, { displayParts: parts })
+  return contentProjection(value, options, true, false)
 }
 
 /** Commit an opening as story text plus an isolated presentation projection. */
