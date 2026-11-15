@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0e4a4353be0e60fa537ffacc3e9a7c22f64da247",
-  "releaseSequence": 1669,
+  "revision": "8cf80e6a72a05e8521796095face4f93169efb1d",
+  "releaseSequence": 1670,
   "version": "3.3.0",
   "files": [
     {
@@ -8416,8 +8416,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
-      "sha256": "7b1bffbe040559be84c503498f93e4b1eb940a34fdb38bd0f827e831db6d019d",
-      "size": 38127
+      "sha256": "672676445c94c3e6081b8a296dd0978b53e538288167e45d070a82b6aeec5e67",
+      "size": 38202
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/reading-voice-migration.js",
@@ -9281,9 +9281,9 @@
     }
   ],
   "archive": {
-    "commit": "15ca14f7a7c047d085b18c080927ed22170631f5",
+    "commit": "4fcc7122f09948d480f1dd50b1fb4a365a7335f7",
     "path": "runtime.zip",
-    "sha256": "90add6a4b00a86d801e588ad14137e92b8bb61fea79e34e3e2e788eb8b9ab6ee",
-    "size": 16596351
+    "sha256": "99ec8a76e2d885d33c32f42b8356c2c3a32864507f4060eb9940cceaea1d99af",
+    "size": 16596365
   }
 }
