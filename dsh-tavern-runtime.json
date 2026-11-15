@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0fde3373a5130ed9281b9a3e3b73393db9e097d4",
-  "releaseSequence": 1651,
+  "revision": "fad064f8f9148d6aa4975302dbe5fb2fdefaf1c0",
+  "releaseSequence": 1652,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "1f27b62d190e76bb3a5f73c4c838ef96425a13668cd8d0d84fd6cca6309b53c2",
-      "size": 6422999
+      "sha256": "c7178e6b41784481b20d71d748b51b7da05b9fc87dcb7c5e282ce0f06cb36383",
+      "size": 6423007
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2686,13 +2686,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plot-compass-service.js",
-      "sha256": "e2da90251633f5d237e7cf25d9e5afce51b580e4c79d00a56ee7925bbe1ca9cb",
-      "size": 18546
+      "sha256": "5e3e7b55c9c0c240996f2ad2849a0b53e904b3e0d0f87106ac27a1c9b8e594ae",
+      "size": 18606
     },
     {
       "path": "tavern-plugin/lib/domain/plot-compass.js",
-      "sha256": "b44a42002158fc09ee68ce9e8b275a9ff06cec82a7fb0263f7e3b5089475bee8",
-      "size": 38174
+      "sha256": "bb35e3ff5732eff05960f1f06443251705a7c958c3f6cf61cf66a8735284912d",
+      "size": 38173
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-assets.js",
@@ -3621,8 +3621,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-settings.js",
-      "sha256": "9dcbbd98bb0331e6b5317e3fab628602a6c167f62a4ce6c3474b6c4238a3d12b",
-      "size": 33965
+      "sha256": "224e1a385ca2b35d03ddc416a059ffda651e6c61f0fe5a55cf8fae0e55e94c2a",
+      "size": 33964
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-skill-provider.js",
@@ -4266,8 +4266,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/settings.js",
-      "sha256": "ca78457955a5cb0cf384d068cab6f17235f0f0788b30a2addf3a6322a092028e",
-      "size": 22513
+      "sha256": "28d702177521f8f66d8a62cec08f0b4d77145118c4be8f815dbd4a6b6ebe8d9e",
+      "size": 22512
     },
     {
       "path": "tavern-plugin/lib/rpc/template.js",
@@ -9271,9 +9271,9 @@
     }
   ],
   "archive": {
-    "commit": "f15276d9d4fc06b5cfb450e7a0d41c75a3523089",
+    "commit": "683b5d9afbeafd59db59d4d15fdf2c18858499d5",
     "path": "runtime.zip",
-    "sha256": "e293933244aebf1560c932252ad36f981b806fd53d49547cd33e774ae6321f21",
-    "size": 16569664
+    "sha256": "0bf404c839e13c0b3d424b15dbbd09fc2d721de029b857b38ccbc31f7e63b3e7",
+    "size": 16569675
   }
 }
