@@ -1,0 +1,34 @@
+{
+  "name": "dsh-tavern-fate-dice",
+  "version": "1.0.0",
+  "description": "DSH Tavern 动态检定与真骰插件：复用叙事阻尼器决策模型毫秒级定难度，结合 R18 语义分级脱敏、crypto 真随机投骰与移动端非阻塞骰子动画。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "client.js",
+    "build.mjs",
+    "README.md"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "compatibility": {
+      "tavernApiVersion": 8
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "license": "MIT"
+}
