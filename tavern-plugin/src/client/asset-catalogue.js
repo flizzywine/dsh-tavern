@@ -2,7 +2,7 @@
 const CATALOGUE_KINDS = {backgrounds:'背景',music:'音乐',sfx:'音效',ambience:'环境音',looks:'滤镜',widgets:'模组'};
 function catalogueItemKey(row) { const ref = row.ref; return ref ? [ref.packId,ref.kind,ref.assetId].join('/') : ''; }
 function catalogueLamp(row) {
-    if (!row.sent) return {id:'off',label:({disabled:'已停用','over-cap':'超出上限',unmatched:'未命中','asset-unavailable':'不可用','widget-unauthorized':'未授权'})[row.excluded] || '未发送'};
+    if (!row.sent) return {id:'off',label:({disabled:'已停用','over-cap':'超出上限',unmatched:'未命中','asset-unavailable':'不可用','widget-unauthorized':'未授权','condition-unmet':'条件未满足'})[row.excluded] || '未发送'};
     if (row.reasons.includes('constant')) return {id:'blue',label:'常驻'};
     // one user-facing term — a green hit by its words is 「触发词」 (as in the
     // pack editor), and a 智能判断 pick says so instead of claiming a keyword hit.

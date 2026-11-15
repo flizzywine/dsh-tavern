@@ -525,7 +525,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
       catch(cause) {if(cause.code!=='REF_UNAVAILABLE')throw cause;variant=selectAssetVariant(asset)}
       const content=variant?.content ?? asset,selected=variant?.id ?? null
       const focus = content.focusHints?.find(f => f.key === requested.focus) || {key:'full',x:0.5,y:0.5,zoom:1}
-      return {ref:clone(requested.ref),variant:selected,focus:clone(focus),label:asset.name,
+      return {ref:clone(requested.ref),variant:selected,focus:clone(focus),label:asset.name,...(content.caption ? {caption:clone(content.caption)} : {}),
         media:{identity:mediaIdentity(requested.ref,content.media),url:await resource(requested.ref,resolved.revision,content.media,descriptors)},
         diagnostics:[...(selected !== requested.variant ? ['cg-variant-defaulted'] : []),...(focus.key !== requested.focus ? ['cg-focus-defaulted'] : [])]}
     },

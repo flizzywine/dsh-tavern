@@ -7,10 +7,19 @@ import {reconcileItems} from '../../../../lib/domain/item-settlement.js'
 import {verifiedWidgetSnapshot} from '../../../../lib/domain/widget-variable-transaction.js'
 
 const extension = raw => (raw?.data || raw)?.extensions?.dsh_tavern
+// The card's variables as last settled before the round at index: the latest assistant message with a verified snapshot.
+// A round's own settlement runs beside its director, so the director reads the round before it.
+function settledMessage(chat,index) {
+  return chat.messages.slice(0,index).findLast(message => message.role === 'assistant' && verifiedWidgetSnapshot(chat,message))
+}
+export function settledStatData(chat,index = chat.messages.length) {
+  const previous = settledMessage(chat,index)
+  return previous?.variables?.[previous.swipeId || 0]?.stat_data
+}
 export function prepareStageItems(raw,chat,index = chat.messages.length) {
   const ext = extension(raw) || {}
-  const previous = chat.messages.slice(0,index).findLast(message => message.role === 'assistant' && verifiedWidgetSnapshot(chat,message))
-  const variables = previous?.variables?.[previous.swipeId || 0]?.stat_data
+  const previous = settledMessage(chat,index)
+  const variables = settledStatData(chat,index)
   const slot = itemVariableProvider.slots({itemsEnabled:true})[0]
   const resolved = resolveSlot(slot,ext.variableBindings,analyzeVariableSchema(raw),{mvu:{available:variables !== undefined,value:variables}})
   const mapping = {scopeKey:resolved.variable?.path || 'inventory',ownerMapped:!!resolved.variable?.fields?.owner}
