@@ -910,7 +910,9 @@
 				if (busy) return;
 				setBusy(true); setError("");
 				try {
-					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件超过 256 MB");
+					const hint = misplacedFileHint(file, true);
+					if (hint) throw new Error(hint);
+					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件太大（上限 256 MB）。");
 					const bytes = new Uint8Array(await file.arrayBuffer());
 					let binary = "";
 					for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
@@ -918,7 +920,7 @@
 					notifyDataChanged(["cards", "sessions"]);
 					closePicker();
 					await finishPendingOpen({ sessionId: imported.sessionId, targetMode: "story" });
-				} catch (error) { setError("导入存档失败：" + String(error.message || error)); }
+				} catch (error) { setError("没能导入存档：" + String(error.message || error)); }
 				finally { setBusy(false); }
 			}
 			// 一份记录一个新对话。“仅导入正文”只作用于变量不兼容的那几份，其余照常恢复 MVU 状态；

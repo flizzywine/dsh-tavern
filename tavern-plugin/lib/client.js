@@ -14092,8 +14092,11 @@ window.__ModuleLoader__.load({
 		}
 
 		async function importTavernCardSelection(picked, call, { cardZip, onProgress, onTransfer } = {}) {
-			const { cards, zips } = cardZip ? await splitCardFiles(picked) : { cards: picked, zips: [] };
 			const failures = [], notices = [];
+			const misplaced = picked.filter(function (file) { return misplacedFileHint(file, false); });
+			for (const file of misplaced) failures.push({ name: file.name, plain: true, message: misplacedFileHint(file, false) });
+			picked = picked.filter(function (file) { return misplaced.indexOf(file) < 0; });
+			const { cards, zips } = cardZip ? await splitCardFiles(picked) : { cards: picked, zips: [] };
 			let imported = 0, existing = 0, lastPath = "";
 			for (const [index, file] of cards.entries()) {
 				onProgress?.("正在导入 " + (index + 1) + "/" + cards.length + "：" + file.name);
@@ -14123,9 +14126,17 @@ window.__ModuleLoader__.load({
 				+ (existing ? "，" + existing + " 张已在卡库中" : "")
 				+ (failures.length ? "，" + failures.length + " 个文件失败" : "") : "";
 			if (failures.length) notices.unshift("失败文件：" + failures.map(file => file.name).join("、"));
-			return { lastPath, failures: failures.map(file => file.name + "：" + file.message), summary: [summary, ...notices].filter(Boolean).join("\n") };
+			return { lastPath, failures: failures.map(file => file.plain ? file.message : file.name + "：" + file.message), summary: [summary, ...notices].filter(Boolean).join("\n") };
 		}
 
+		// A save or chat log picked in 「导入人物卡」 (and a card in 「导入存档」, sidebar.js) is told where it belongs, in one plain line.
+		function misplacedFileHint(file, wantsSave) {
+			const name = String(file && file.name || "").toLowerCase();
+			if (wantsSave) return /\.(png|json|charx|dshcard|zip)$/.test(name) ? "这是人物卡文件，不是存档。请关闭后点「导入人物卡」导入。" : "";
+			if (name.endsWith(".dshsave") || name.endsWith(".jsonl")) return "这是存档或聊天记录，不是人物卡。请改用「导入存档」导入。";
+			if (name.endsWith(".dshtransfer")) return "这是备份包，不是人物卡。请在侧栏「导出与导入」里导入。";
+			return "";
+		}
 		// No file filter on card import: macOS file dialogs (Chrome, Safari) grey out .dshcard and
 		// .charx however the accept list names them, since the system knows no type for them.
 		// The import checks the format and says what it accepts.
@@ -44779,7 +44790,9 @@ function TavernCardUpdateDialog(props) {
 				if (busy) return;
 				setBusy(true); setError("");
 				try {
-					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件超过 256 MB");
+					const hint = misplacedFileHint(file, true);
+					if (hint) throw new Error(hint);
+					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件太大（上限 256 MB）。");
 					const bytes = new Uint8Array(await file.arrayBuffer());
 					let binary = "";
 					for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
@@ -44787,7 +44800,7 @@ function TavernCardUpdateDialog(props) {
 					notifyDataChanged(["cards", "sessions"]);
 					closePicker();
 					await finishPendingOpen({ sessionId: imported.sessionId, targetMode: "story" });
-				} catch (error) { setError("导入存档失败：" + String(error.message || error)); }
+				} catch (error) { setError("没能导入存档：" + String(error.message || error)); }
 				finally { setBusy(false); }
 			}
 			// 一份记录一个新对话。“仅导入正文”只作用于变量不兼容的那几份，其余照常恢复 MVU 状态；
