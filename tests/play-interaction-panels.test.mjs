@@ -449,3 +449,41 @@ test('候选多角色/全局 Tab 默认关闭：设置 › 高级 未打开时�
   assert.equal(draft, '苏晚借审视门外顺势拉开门闩，陆沉趁隙推门而入交换眼色')
   await act(async () => root.unmount())
 })
+test('候选项从无到有不改 hook 数量：没有候选项的那一版渲染也经过 Tab 开关 hook', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
+  const { createRoot } = await import('react-dom/client')
+  const signals = createSessionSignalTransport()
+  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
+    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
+  let draft = ''
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
+    window: dom.window, document: dom.window.document,
+    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidateTabPreference: () => true,
+    latestTavernAssistantMessageId: () => 'm-hooks', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
+  vm.runInContext(source, context)
+  const panels = context.createPlayInteractionPanels({ interactions,
+    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
+    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
+    useRegenPanel: () => null, usePhonePlay: () => false })
+  const makeProps = () => ({ sessionId: 'a', useSession: select => select({ running: false }),
+    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft }),
+    inputActions: { setDraft(next) { draft = next } } })
+  const root = createRoot(dom.window.document.querySelector('main'))
+
+  // 第一版：这一局还没有候选项，组件在早退处返回 null。开关 hook 必须已经跑过，否则候选项到手时 hook 数会多出来。
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length, 0)
+
+  interactions.candidates.set({ sessionId: 'a', messageId: 'm-hooks', phase: 'ready', expanded: true,
+    choices: [{ type: 'action', actor: '苏晚', text: '苏晚拉开门' }, { type: 'featured', actors: ['苏晚'], text: '苏晚拉开门迎客' }] })
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+  assert.ok(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length > 0, '候选项到手后照常渲染')
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 2, '开关打开时 Tab 条照常（精选 + 苏晚）')
+  await act(async () => root.unmount())
+})

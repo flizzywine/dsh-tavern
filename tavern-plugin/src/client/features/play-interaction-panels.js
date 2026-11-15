@@ -38,6 +38,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const [sendOnPick, setSendOnPick] = React.useState(false);
         const [added, setAdded] = React.useState([]);
         const [activeTab, setActiveTab] = React.useState("featured");
+        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）。必须留在下面「没有候选项就 return null」的早退之前：
+        // 早退那一版渲染不经过这里，hook 数就会在候选项到手时多出两个，React 会以 #310 崩掉整个输入区槽位。
+        const showTabs = typeof useCandidateTabPreference === "function" ? useCandidateTabPreference() === true : false;
         const expanded = Boolean(panel && panel.expanded);
         function setExpanded(value) {
             if (panel) setCandidatePanel(Object.assign({}, panel, { expanded: value }));
@@ -79,8 +82,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             return candidateTabs.normalizeCandidateChoice(choice, index, decode);
         });
         const tabState = buildCandidateTabs(items, isScript);
-        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）: off keeps the flat 精选 list and drops the tab strip.
-        const showTabs = typeof useCandidateTabPreference === "function" ? useCandidateTabPreference() === true : false;
+        // 开关已在函数顶部读好（hook 不能落在早退之后）：关闭时退回精选平铺，不渲染 Tab 条。
         const tabs = showTabs || !tabState.hasTabs ? tabState : { hasTabs: false, tabs: [], current: { key: "featured", kind: "featured", items: tabState.tabs[0].items } };
         const currentTab = tabs.hasTabs ? (tabs.tabs.find(function (tab) { return tab.key === activeTab; }) || tabs.tabs[0]) : tabs.current;
         const visibleItems = currentTab.items;
