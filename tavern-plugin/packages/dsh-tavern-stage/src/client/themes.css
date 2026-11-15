@@ -94,6 +94,7 @@
 .fork-clip-track { position: absolute; left: 0; bottom: 0; height: 2px; width: calc(var(--clip-progress, 0) * 100%); background: var(--mood-color); transition: width .1s linear; }
 /* ---------- Galgame stage ---------- */
 .fork-gal-mount { position: fixed; inset: 0; z-index: 2147483000; }
+.fork-gal-handover { position: fixed; inset: 0; z-index: 2147483000; background: #000; }
 [data-fork-gal-stage] body { overflow: hidden; }
 /* The opaque stage is a body portal. galCoverChat marks only the covered session roots
    and pins their boxes: content-visibility keeps the transcript's styles, boxes and scroll
@@ -430,12 +431,6 @@
 /* Long options wrap to balanced centred lines. A scene jump (time skip / change of place) is drawn exactly like any
    other choice (no tag). */
 .fork-gal-choice-text { min-width: 0; text-wrap: balance; }
-.fork-gal-choice-tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 2px var(--gal-ui-ribbon-fade) 4px; }
-.fork-gal-stage .fork-gal-choice-tab { display: inline-flex; align-items: center; gap: .38em; padding: .28em .82em; border: 1px solid color-mix(in srgb, var(--gal-ui-accent) 34%, transparent); border-radius: 999px; background: var(--gal-ui-veil); color: var(--gal-ui-muted); font: 600 var(--gal-ui-meta-size)/1.35 var(--gal-ui-font); letter-spacing: .03em; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
-.fork-gal-stage .fork-gal-choice-tab:hover:not(:disabled) { border-color: var(--gal-ui-accent); background: linear-gradient(var(--gal-ui-hover), var(--gal-ui-hover)), var(--gal-ui-veil); color: var(--gal-ui-ink); }
-.fork-gal-stage .fork-gal-choice-tab.is-active { border-color: var(--gal-ui-accent); background: linear-gradient(var(--gal-ui-active), var(--gal-ui-active)), var(--gal-ui-veil); color: var(--gal-ui-ink); }
-.fork-gal-stage .fork-gal-choice-tab:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
-.fork-gal-choice-tab-count { font-size: .86em; opacity: .78; }
 .fork-gal-choice-badge { margin-right: .22em; color: var(--gal-ui-accent); font-weight: 600; }
 .fork-gal-choice-badge.is-route { color: #34a882; font-weight: 700; }
 /* The ✎ of a story choice: a round quiet icon at the ribbon's right, inside the solid part. With a mouse it shows while
@@ -6605,17 +6600,18 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu-hover]:not(.is-film) .fork-gal-menu-item:is(.is-active, :active)::after { content: ""; position: absolute; z-index: -1; inset: auto;
     left: calc(-1 * var(--art-mt-hover-l) * var(--u)); right: calc(-1 * var(--art-mt-hover-r) * var(--u)); top: calc(-1 * var(--art-mt-hover-t) * var(--u)); bottom: calc(-1 * var(--art-mt-hover-b) * var(--u));
     width: auto; height: auto; border-radius: 0; background: var(--art-mt-hover-img) 0 0 / 100% 100% no-repeat; transform: none; transition: none; pointer-events: none; }
-  /* Per action: its tile images (the menu's own ids). */
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="resume"] { --ti: var(--art-mt-resume, var(--art-mt-plain, none)); --tf: var(--art-mt-resume-focus, var(--ti)); --tw: var(--art-mt-resume-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-resume-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="backlog"] { --ti: var(--art-mt-backlog, var(--art-mt-plain, none)); --tf: var(--art-mt-backlog-focus, var(--ti)); --tw: var(--art-mt-backlog-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-backlog-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="auto"] { --ti: var(--art-mt-auto, var(--art-mt-plain, none)); --tf: var(--art-mt-auto-focus, var(--ti)); --tw: var(--art-mt-auto-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-auto-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="skip"] { --ti: var(--art-mt-skip, var(--art-mt-plain, none)); --tf: var(--art-mt-skip-focus, var(--ti)); --tw: var(--art-mt-skip-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-skip-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="gallery"] { --ti: var(--art-mt-gallery, var(--art-mt-plain, none)); --tf: var(--art-mt-gallery-focus, var(--ti)); --tw: var(--art-mt-gallery-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-gallery-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="latest"] { --ti: var(--art-mt-latest, var(--art-mt-regenerate, var(--art-mt-plain, none))); --tf: var(--art-mt-latest-focus, var(--art-mt-regenerate-focus, var(--ti))); --tw: var(--art-mt-latest-w, var(--art-mt-regenerate-w, var(--art-mt-plain-w, 0))); --th: var(--art-mt-latest-h, var(--art-mt-regenerate-h, var(--art-mt-plain-h, 0))); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="regenerate"] { --ti: var(--art-mt-regenerate, var(--art-mt-plain, none)); --tf: var(--art-mt-regenerate-focus, var(--ti)); --tw: var(--art-mt-regenerate-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-regenerate-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="config"] { --ti: var(--art-mt-config, var(--art-mt-plain, none)); --tf: var(--art-mt-config-focus, var(--ti)); --tw: var(--art-mt-config-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-config-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="keys"] { --ti: var(--art-mt-keys, var(--art-mt-plain, none)); --tf: var(--art-mt-keys-focus, var(--ti)); --tw: var(--art-mt-keys-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-keys-h, var(--art-mt-plain-h, 0)); }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="leave"] { --ti: var(--art-mt-leave, var(--art-mt-plain, none)); --tf: var(--art-mt-leave-focus, var(--ti)); --tw: var(--art-mt-leave-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-leave-h, var(--art-mt-plain-h, 0)); }
+  /* Per action: its tile images (the menu's own ids); an action without its own art takes plain and plainFocus like any other
+     row (owner 11-15: 「回到舞台」 lit up under focus and 「履历」 did not). */
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="resume"] { --ti: var(--art-mt-resume, var(--art-mt-plain, none)); --tf: var(--art-mt-resume-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-resume-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-resume-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="backlog"] { --ti: var(--art-mt-backlog, var(--art-mt-plain, none)); --tf: var(--art-mt-backlog-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-backlog-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-backlog-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="auto"] { --ti: var(--art-mt-auto, var(--art-mt-plain, none)); --tf: var(--art-mt-auto-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-auto-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-auto-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="skip"] { --ti: var(--art-mt-skip, var(--art-mt-plain, none)); --tf: var(--art-mt-skip-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-skip-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-skip-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="gallery"] { --ti: var(--art-mt-gallery, var(--art-mt-plain, none)); --tf: var(--art-mt-gallery-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-gallery-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-gallery-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="latest"] { --ti: var(--art-mt-latest, var(--art-mt-regenerate, var(--art-mt-plain, none))); --tf: var(--art-mt-latest-focus, var(--art-mt-regenerate-focus, var(--art-mt-plain-focus, var(--ti)))); --tw: var(--art-mt-latest-w, var(--art-mt-regenerate-w, var(--art-mt-plain-w, 0))); --th: var(--art-mt-latest-h, var(--art-mt-regenerate-h, var(--art-mt-plain-h, 0))); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="regenerate"] { --ti: var(--art-mt-regenerate, var(--art-mt-plain, none)); --tf: var(--art-mt-regenerate-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-regenerate-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-regenerate-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="config"] { --ti: var(--art-mt-config, var(--art-mt-plain, none)); --tf: var(--art-mt-config-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-config-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-config-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="keys"] { --ti: var(--art-mt-keys, var(--art-mt-plain, none)); --tf: var(--art-mt-keys-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-keys-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-keys-h, var(--art-mt-plain-h, 0)); }
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item[data-item="leave"] { --ti: var(--art-mt-leave, var(--art-mt-plain, none)); --tf: var(--art-mt-leave-focus, var(--art-mt-plain-focus, var(--ti))); --tw: var(--art-mt-leave-w, var(--art-mt-plain-w, 0)); --th: var(--art-mt-leave-h, var(--art-mt-plain-h, 0)); }
   /* An action at its own place (at): out of the grid, its image at its natural size there, not scaled with the grid. */
   .fork-gal-stage[data-fk-skin-art-menu-at~="resume"]:not(.is-film) .fork-gal-menu-item[data-item="resume"],
   .fork-gal-stage[data-fk-skin-art-menu-at~="backlog"]:not(.is-film) .fork-gal-menu-item[data-item="backlog"],
@@ -6689,7 +6685,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   @media (hover: hover) {
     .fork-gal-stage[data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog:has(> :is(.fork-gal-backlog-list, .fork-gal-backlog-bar):hover) .fork-gal-backlog-row.is-here:not(:hover, :focus-visible)::before { opacity: 0; transition: none; }
   }
-  .fork-gal-stage[data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row.is-jump:is(:hover, :focus-visible)::after { color: var(--art-backlog-ink, var(--gal-ui-ink)); }
+  /* The stain already says the row can be pressed (its tooltip names it): no 「↺ 回到这里」 words in its corner, where a skin's own
+     replay control often stands (owner 11-15「跳转按钮和声音重叠了」). */
+  .fork-gal-stage[data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row.is-jump:is(:hover, :focus-visible)::after { content: none; }
 
   /* Pickers as the original's drop-down bar. */
   .fork-gal-stage[data-fk-skin-art-config-parts~="select"]:not(.is-film) .fork-gal-config-control :is(.fork-font-trigger, .fork-gal-skin-trigger) { min-height: calc(var(--art-cf-sel-h) * var(--mu)); width: calc(var(--art-cf-sel-w) * var(--mu)); max-width: 100%; justify-content: flex-start;
@@ -6753,6 +6751,18 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { left: auto; right: calc(var(--bl-text) - var(--bl-voice-at) - var(--bl-voice-w)); }
 }
 /* ==== end art backlog glyph tiles ==== */
+
+/* ==== art backlog inline name ==== */
+@media (min-width: 641px) {
+/* Wide stages (a phone sets its log on the shared sheet). art.backlog.name.head 0: the name stands on the text's first line, in the column before the text (from name.x to text[0]).
+   A long name never runs into the text (owner 11-15「log里人名长了会有问题啊」): it shrinks to fit that column (its width in em
+   from backlog-view nameEm, a gap of .3 em kept), down to .6 of its size, and past that is cut with an ellipsis. */
+  .fork-gal-stage[data-fk-skin-art-backlog-name-inline][data-fk-skin-art-backlog-parts~="name"]:not([data-fk-skin-art-backlog-letter], .is-film) .fork-gal-backlog-name:not(.is-narrator) {
+    --bl-name-col: calc((var(--art-bl-text-l) - var(--art-bl-name-x) - var(--art-bl-name-font) * .3) * var(--mu)); max-width: var(--bl-name-col); }
+  .fork-gal-stage[data-fk-skin-art-backlog-name-inline][data-fk-skin-art-backlog-parts~="name"]:not([data-fk-skin-art-backlog-letter], .is-film) .fork-gal-backlog-name:not(.is-narrator) > b {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: max(.6em, min(1em, var(--bl-name-col) / var(--bl-name-em, 1))); }
+}
+/* ==== end art backlog inline name ==== */
 
 /* ==== art backlog avatar ==== */
 /*

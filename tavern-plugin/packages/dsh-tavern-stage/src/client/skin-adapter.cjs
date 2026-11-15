@@ -766,6 +766,8 @@ function stageSkinArt(document, files, entry = '') {
             // name.letter / align (C2): the name as glyph tiles, its right edge on the text column (theme.css 「art backlog glyph tiles」).
             if (b.name.letter) marks['data-fk-skin-art-backlog-letter']=b.name.letter;
             if (b.name.align) marks['data-fk-skin-art-backlog-name-align']=b.name.align;
+            // head 0: the name shares the text's first line, so it keeps to the column before the text (theme.css 「art backlog inline name」).
+            if (!b.name.head) marks['data-fk-skin-art-backlog-name-inline']='';
         }
         if (b.plates?.divider?.letter) marks['data-fk-skin-art-backlog-divider-letter']=b.plates.divider.letter;
         // avatar (C3): the face column's box (design px), its window mask, frame, cut-out edge and tone as --art-bl-av-* and

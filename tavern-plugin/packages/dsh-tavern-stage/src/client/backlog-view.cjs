@@ -16,6 +16,9 @@ function schedule(map,start,callback,delay){
 }
 const setTimeout=(fn,ms)=>schedule(timers,hostSetTimeout,fn,ms),clearTimeout=id=>{timers.delete(id);hostClearTimeout(id);};
 const requestAnimationFrame=fn=>schedule(frames,hostRequestFrame,fn),cancelAnimationFrame=id=>{frames.delete(id);hostCancelFrame(id);};
+// A name's width in em (CJK and full-width 1, Latin, digits and spaces about 0.6): an inline name (theme.css「art backlog inline name」)
+// shrinks by it to keep within its column.
+const nameEm = name => [...name].reduce((sum, ch) => sum + (/[\x20-\x7e]/.test(ch) ? .6 : 1), 0);
 const BACKLOG_LIST = {layout:'list', close:'head', roles:{speech:{look:'row'}, player:{look:'row'}, narration:{look:'row'}, notice:{look:'row'}, divider:{look:'rule'}}, style:{}};
 
 // ---------- Backlog view ----------
@@ -411,7 +414,7 @@ function GalBacklog(props) {
         const go = event => { if (!pick(pos, event)) props.onJump(entry.page, entry.turn, entry.targetPara); };
         // The voice control follows the speaker's name in every look;
         // narration has no name: its narrator voice (旁白配音) stands alone in the name's place.
-        const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name" }, looks.letter?.name ? h("b", { "data-text": name }, lettered(name, true)) : h("b", { "data-figure-ink": "4.5", "data-text": name },
+        const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name", style: { "--bl-name-em": nameEm(name) } }, looks.letter?.name ? h("b", { "data-text": name }, lettered(name, true)) : h("b", { "data-figure-ink": "4.5", "data-text": name },
                     props.nameParts ? props.nameParts(name, entry).map((text, index) => text ? h("i", { key: index, "data-np": ["lead", "rest", "given-lead", "given-rest"][index] }, text) : null) : name), voice ? h(VoiceButton, { voice, glyph: "speaker" }) : null, entry.thought ? h("span", { className: "fork-gal-backlog-tag" }, "心声") : null, badgePlace === "name" ? badge : null);
         const wrap = looks.roles[role]?.wrap;
         const text = h("p", { className: "fork-gal-backlog-text" }, badgePlace === "text" ? badge : null, look === "band" && wrap ? [wrap[0], markedText(index, entry.text), wrap[1]] : props.quote && line && look === "row" ? markedText(index, entry.text, galQuoted(entry.text, entry.pending)) : markedText(index, entry.text), entry.pending ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null);
