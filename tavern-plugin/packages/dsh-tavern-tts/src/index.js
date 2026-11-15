@@ -145,6 +145,7 @@ export function apply(ctx, config = {}) {
       case 'searchFishVoices': return services.searchFishVoices(args)
       case 'fishSample': return services.fishSample(args)
       case 'voicePilot': return services.voicePilot(args)
+      case 'voiceSynth': return services.voiceSynth(args)
       case 'credentialNames': return services.credentialNames()
       case 'voiceModelStatus': return services.voiceModelStatus(args)
       case 'validateVoiceModel': return services.validateVoiceModel(args)
