@@ -337,6 +337,25 @@ export function skeletonizeForSafetyFallback({ stateSnapshot, posture, userText,
   ].filter(Boolean).join('\n')
 }
 
+// 通用决策输入的 R18 分级脱敏：full（词汇替换） -> skeleton（动作尺度标签化） -> digest（纯结构节拍摘要，彻底剥离原文）
+function buildGenericJudgeLadder(rawInput) {
+  const fullText = desensitizeForDecisionJudge(rawInput)
+  const beats = summarizeBeatsForDecisionJudge(rawInput)
+  const skeletonMasked = fullText
+    .replace(/[\u4e00-\u9fa5A-Za-z]{0,2}(?:逼迫|强行|按住|锁门|撕开|解开|跪下|按倒|压住|掐住|扯住|推倒)[\u4e00-\u9fa5A-Za-z]{0,2}/g, '[强势肢体尝试]')
+    .slice(0, 4000)
+  const skeletonText = [
+    skeletonMasked,
+    beats.summary ? `【结构特征】${beats.summary}` : ''
+  ].filter(Boolean).join('\n')
+  const digestText = [
+    '【判定素材 · 结构化脱敏摘要（自然语言原文已剥离，仅保留判定所需结构与风险强度特征）】',
+    beats.lines.length ? beats.lines.join('\n') : 'S1｜类别=常规交互｜强度=低｜指向他角色=无｜含台词=无',
+    beats.summary ? `【结构特征汇总】${beats.summary}` : ''
+  ].filter(Boolean).join('\n')
+  return { full: fullText, skeleton: skeletonText, digest: digestText }
+}
+
 export function isExplicitSceneShiftInput(userText) {
   return /^\s*(?:「场景变化」|【场景变化】|\[场景变化\]|\(场景变化\)|（场景变化）)/u.test(str(userText))
 }
@@ -1608,7 +1627,7 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       return { available: true, provider: config.provider, model: config.model, capabilities }
     },
 
-    // 供开放插件复用的通用决策判定接口，沿用阻尼器的提供方配置、凭据、脱敏与安全拒绝识别
+    // 供开放插件复用的通用决策判定接口，沿用阻尼器的提供方配置、凭据、R18 分级脱敏与安全拒绝降级重试
     async judge({ input, questions, desensitize, signal, timeoutMs } = {}) {
       const rawInput = str(input).trim()
       if (!rawInput || rawInput.length > 24000) {
@@ -1628,10 +1647,20 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         throw error('DAMPER_NO_KEY', '尚未配置决策模型 API Key')
       }
       const useDesensitize = desensitize === undefined ? config.desensitizeR18 !== false : Boolean(desensitize)
-      const material = useDesensitize ? desensitizeForDecisionJudge(rawInput) : rawInput
-      const request = buildPluginDecisionRequest(config, material, normalizedQuestions)
-      if (!request) {
-        throw error('DAMPER_INVALID_CONFIG', '决策接口地址无效')
+      let attempts
+      if (useDesensitize) {
+        const ladder = buildGenericJudgeLadder(rawInput)
+        const risk = damperInputRiskScore(rawInput)
+        let startTier = damperProjectionTier(risk, { desensitizeR18: true })
+        const stickyKey = `${config.provider}:${config.model}:${config.baseUrl}`
+        const stickyActive = (Number(safetySticky.get(stickyKey)) || 0) > Date.now()
+        if (stickyActive && risk >= 1) {
+          startTier = startTier === 'full' ? 'skeleton' : 'digest'
+        }
+        const startIndex = Math.max(0, DAMPER_INPUT_TIERS.indexOf(startTier))
+        attempts = DAMPER_INPUT_TIERS.slice(startIndex).map(tier => ({ tier, material: ladder[tier] }))
+      } else {
+        attempts = [{ tier: 'full', material: rawInput }]
       }
       const requestedTimeout = Number(timeoutMs)
       const budgetMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
@@ -1643,9 +1672,32 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
       if (signal && typeof signal.addEventListener === 'function') {
         signal.addEventListener('abort', onExternalAbort, { once: true })
       }
+      const blockedTiers = []
+      let judgeTier = attempts[0].tier
       try {
-        const body = await sendAttempt(request, apiKey, budgetMs, controller)
-        const answers = parsePluginDecisionResponse(request.protocol, body, normalizedQuestions)
+        let body = null
+        for (let index = 0; index < attempts.length; index++) {
+          const item = attempts[index]
+          judgeTier = item.tier
+          const request = buildPluginDecisionRequest(config, item.material, normalizedQuestions)
+          if (!request) throw error('DAMPER_INVALID_CONFIG', '决策接口地址无效')
+          try {
+            const perAttemptBudget = Math.min(30000, budgetMs + index * 1200)
+            body = await sendAttempt(request, apiKey, perAttemptBudget, controller)
+            break
+          } catch (cause) {
+            const canEscalate = cause?.code === 'DAMPER_SAFETY_BLOCKED'
+              && index < attempts.length - 1
+              && !controller.signal.aborted
+            if (!canEscalate) throw cause
+            blockedTiers.push(item.tier)
+          }
+        }
+        if (!body) throw error('DAMPER_SAFETY_BLOCKED', '决策请求触发输入敏感词拦截')
+        if (blockedTiers.length) {
+          safetySticky.set(`${config.provider}:${config.model}:${config.baseUrl}`, Date.now() + 90_000)
+        }
+        const answers = parsePluginDecisionResponse(protocol, body, normalizedQuestions)
         const usage = extractDecisionUsage(body)
         const latencyMs = Math.round(performance.now() - start)
         log({
@@ -1654,6 +1706,8 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           model: config.model,
           code: 'OK',
           latencyMs,
+          judgeTier,
+          ...(blockedTiers.length ? { safetyBlockedTiers: blockedTiers } : {}),
           questionCount: normalizedQuestions.length,
           ...(usage ? { usage } : {})
         })
@@ -1661,6 +1715,8 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
           provider: config.provider,
           model: config.model,
           latencyMs,
+          judgeTier,
+          ...(blockedTiers.length ? { safetyBlockedTiers: blockedTiers, retriedSafetyFallback: true } : {}),
           answers,
           ...(usage ? { usage } : {})
         }
@@ -1670,12 +1726,18 @@ export function createNarrativeDamper({ getConfig, credentials, fetch: send = gl
         const known = ['DAMPER_TIMEOUT', 'DAMPER_NO_KEY', 'DAMPER_SAFETY_BLOCKED', 'DAMPER_AUTH_ERROR', 'DAMPER_RATE_LIMIT', 'DAMPER_HTTP_ERROR', 'DAMPER_INVALID_RESPONSE', 'DAMPER_UNSUPPORTED_QUESTION_TYPE', 'DAMPER_INVALID_CONFIG', 'DAMPER_INVALID_INPUT']
         const code = isAborted ? 'DAMPER_ABORTED' : (known.includes(cause?.code) ? cause.code : 'DAMPER_ERROR')
         const latencyMs = Math.round(performance.now() - start)
+        const safeBlockedTiers = cause?.code === 'DAMPER_SAFETY_BLOCKED' ? blockedTiers.concat(judgeTier) : blockedTiers
+        if (safeBlockedTiers.length) {
+          safetySticky.set(`${config.provider}:${config.model}:${config.baseUrl}`, Date.now() + 90_000)
+        }
         log({
           kind: 'decision-judge',
           provider: config.provider,
           model: config.model,
           code,
           latencyMs,
+          judgeTier,
+          ...(safeBlockedTiers.length ? { safetyBlockedTiers: safeBlockedTiers } : {}),
           questionCount: normalizedQuestions.length
         })
         if (isAborted) throw error('DAMPER_ABORTED', '决策请求已取消')

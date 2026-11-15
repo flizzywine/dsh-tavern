@@ -486,7 +486,7 @@ const status = await ctx.tavern.decisionJudgeStatus()
 提交一段待判定上下文 `input`（1–24000 字符）和 1–16 道题目 `questions`：
 
 - `gameId`：全局/宿主插件可省略；卡内插件**必须**传入其所在人物卡的 `gameId`（否则报错 `TAVERN_PLUGIN_SCOPE`）。传入时还会核对本局未停用该插件。
-- `desensitize`：布尔值，省略时沿用玩家的 `desensitizeR18` 设置；显式传 `true` / `false` 可覆盖是否先对高敏词句脱敏。
+- `desensitize`：布尔值，省略时沿用玩家的 `desensitizeR18` 设置；开启时会按输入风险自动执行 **R18 三级语义分级脱敏（词汇置换 `full` → 尺度标签化骨架 `skeleton` → 纯结构节拍摘要 `digest`）**，遇到远端内容安全拦截时自动降级重试，并记录短时记忆以跳过易被拦层级。显式传 `false` 可跳过脱敏与分级重试。
 - `signal` / `timeoutMs`：支持传入 `AbortSignal` 取消请求，或指定毫秒超时（限定在 `500–30000` ms，默认沿用阻尼器超时配置）。
 - `questions` 每项为：
   - `{ id, type: 'noul', instructions }`：是非概率题，返回 `{ type: 'noul', probability, confidence? }`（`0 <= probability <= 1`）。所有协议均支持（`type` 默认 `'noul'`）。
@@ -511,7 +511,7 @@ const questions = status.capabilities.choice
     }]
 
 const res = await ctx.tavern.judgeDecision({ gameId, input: contextText, questions })
-// res => { provider, model, latencyMs, answers: { dc_tier: { type: 'choice', choice: 'moderate', ... } }, usage? }
+// res => { provider, model, latencyMs, judgeTier, answers: { dc_tier: { type: 'choice', choice: 'moderate', ... } }, usage? }
 ```
 
 ### 错误码

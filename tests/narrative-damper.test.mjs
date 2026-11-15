@@ -1407,3 +1407,38 @@ test('judge：jev/openai 协议支持 noul、拦截非 noul 题型并响应 Abor
   await assert.rejects(() => pending, err => err.code === 'DAMPER_ABORTED')
 })
 
+test('judge：R18 送审语义分级脱敏在安全拦截时自动降级到纯结构摘要，并触发短时粘性直降', async () => {
+  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'gm-r18' })
+  const config = { ...defaultNarrativeDamperConfig(), enabled: false, provider: 'gemini', desensitizeR18: true }
+  const sent = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body)
+      sent.push(body.input)
+      if (!body.input.includes('【判定素材 · 结构化脱敏摘要')) {
+        return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'blocked' } } } }
+      }
+      return { ok: true, status: 200, async json() { return { answers: { need: { noul: 0.9 } } } } }
+    }
+  })
+
+  const questions = [{ id: 'need', type: 'noul', instructions: '是否需要动作检定？' }]
+  // 单高敏词先走 full（词表置换），依次遭遇拦截后经 skeleton 降级到 digest 并成功
+  const first = await damper.judge({ input: '我按住她强迫她交出抽屉里的钥匙，她的乳头擦过衣料。', questions })
+  assert.equal(first.answers.need.probability, 0.9)
+  assert.equal(first.judgeTier, 'digest')
+  assert.equal(first.retriedSafetyFallback, true)
+  assert.deepEqual(first.safetyBlockedTiers, ['full', 'skeleton'])
+  assert.equal(sent.length, 3)
+  assert.equal(sent[2].includes('乳头'), false, 'digest 纯结构摘要彻底剥离原文')
+
+  // 短时间内再次送审中等风险文本（>=2 个命中词）：粘性记忆生效，直接从 skeleton 跳到 digest，零拦截一次成功
+  const second = await damper.judge({ input: '我压住她揉搓她的乳头和阴蒂，想逼她开口。', questions })
+  assert.equal(second.judgeTier, 'digest')
+  assert.equal(second.retriedSafetyFallback, undefined)
+  assert.equal(sent.length, 4)
+})
+
+
