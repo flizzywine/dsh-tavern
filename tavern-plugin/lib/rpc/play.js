@@ -156,7 +156,8 @@ export function createPlayHandlers(deps) {
         sessionId: args?.sessionId,
         scope: args?.scope,
         guidance: args?.guidance,
-        wait: args?.wait === true
+        wait: args?.wait === true,
+        fresh: args?.fresh === true
       })
     },
     async cancelPlotCompass(args) {

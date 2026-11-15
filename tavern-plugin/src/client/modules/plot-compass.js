@@ -141,6 +141,7 @@ function TavernPlotCompassTab(props) {
     const [modelCatalog, setModelCatalog] = React.useState([]);
     const [catalogLoading, setCatalogLoading] = React.useState(false);
     const [modelReasoning, setModelReasoning] = React.useState({ key: "", value: null, error: "" });
+    const confirmFresh = useTavernConfirm("plot-compass-fresh:" + sessionId);
 
     const compass = (view && view.plotCompass) || {
         pace: "natural", blindBox: false, customDirective: "", autoUpdateInterval: 0,
@@ -261,20 +262,29 @@ function TavernPlotCompassTab(props) {
         }
     }
 
-    async function runGenerate(scope, customGuidance) {
+    async function runGenerate(scope, customGuidance, options) {
         if (!sessionId || isRunning || busyAction) return;
+        const fresh = Boolean(options && options.fresh);
         setBusyAction("generate:" + scope);
         setLocalError("");
         setLocalNotice("");
         try {
             const text = customGuidance !== undefined ? customGuidance : guidance;
-            await rpc("generatePlotCompass", { scope: scope || "all", guidance: String(text || "").trim() }, sessionId);
+            await rpc("generatePlotCompass", { scope: scope || "all", guidance: String(text || "").trim(), fresh: fresh }, sessionId);
             liveTavernView.invalidate(sessionId);
         } catch (err) {
             setLocalError(String(err && err.message || err));
         } finally {
             setBusyAction("");
         }
+    }
+
+    // 全新生成：不把盘面上的旧路线喂给模型，落盘时点亮标记一并清空。
+    async function startFreshGenerate() {
+        if (!sessionId || isRunning || busyAction) return;
+        const accepted = await confirmFresh("全新生成会作废当前盘面上的今期 / 中期 / 长期全部路线和点亮标记，模型也看不到这些旧内容，只会依据当前剧情重新推演一套独立方向。已归档的历史记录会保留。确定继续？", { confirmText: "全新生成", cancelText: "取消" });
+        if (!accepted) return;
+        await runGenerate("all", undefined, { fresh: true });
     }
 
     async function sendCompassChat(overrideText) {
@@ -668,7 +678,16 @@ function TavernPlotCompassTab(props) {
                 compassEnabled ? (
                     isRunning
                         ? h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busyAction === "cancel", onClick: cancelGenerate }, "取消推演")
-                        : h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: Boolean(busyAction), onClick: function () { runGenerate("all"); } }, hasAnyRoutes ? "全局演进刷新" : "✦ 推演多路线")
+                        : h(React.Fragment, null,
+                            hasAnyRoutes ? h("button", {
+                                type: "button",
+                                className: "dsh-tavern-btn",
+                                disabled: Boolean(busyAction),
+                                title: "作废当前全部路线与点亮标记，模型看不到旧路线，只按当前剧情重新推演一套独立方向",
+                                onClick: function () { startFreshGenerate(); }
+                            }, "✦ 全新生成") : null,
+                            h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: Boolean(busyAction), onClick: function () { runGenerate("all"); } }, hasAnyRoutes ? "全局演进刷新" : "✦ 推演多路线")
+                        )
                 ) : null
             )
         ),

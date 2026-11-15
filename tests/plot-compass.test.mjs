@@ -2238,4 +2238,87 @@ test('前端浏览器交互：剧情罗盘侧栏支持设置自动更新间隔�
   }
 })
 
+test('全新生成：素材不注入旧路线、落盘清空点亮标记且不写归档', async () => {
+  const chat = { mode: 'story', macroState: { userName: '陆沉' }, messages: [{ role: 'user', turn: 1, text: '大人深夜传唤所为何事？' }] }
+  const first = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat })
+  let compass = mergePlotCompassUpdate(null, first, { scope: 'all', turn: 2, now: 1000 })
+  compass = applyPlotCompassPin(compass, { horizon: 'shortTerm', routeId: 'st-bell', now: 1100 })
+  compass = applyPlotCompassPin(compass, { horizon: 'longTerm', routeId: 'lt-overturn', now: 1100 })
+  const legacyChat = { ...chat, plotCompass: compass }
 
+  // 常规演进仍把旧盘面交给模型；全新生成必须完全看不到
+  assert.match(buildPlotCompassMaterial({ chat: legacyChat, card: SAMPLE_CARD }), /<existing_plot_compass>/)
+  const freshMaterial = buildPlotCompassMaterial({ chat: legacyChat, card: SAMPLE_CARD, fresh: true, scope: 'all' })
+  assert.doesNotMatch(freshMaterial, /<existing_plot_compass>/)
+  assert.doesNotMatch(freshMaterial, /st-bell/)
+  assert.match(freshMaterial, /FRESH REBUILD/)
+
+  const rebuilt = parsePlotCompassSubmission({
+    ...sampleSubmission(),
+    shortTerm: [
+      { id: 'st-fresh-a', tag: '雨夜换囚', title: '雨夜换囚', summary: '彻底另起的开局', beats: [{ text: '买通狱吏' }, { text: '替换囚车' }] },
+      { id: 'st-fresh-b', tag: '朝堂反咬', title: '朝堂反咬', summary: '当廷抖出密信', beats: [{ text: '当廷递折' }, { text: '反咬主使' }] }
+    ],
+    divergedNote: '玩家要求全新推演，旧路线整体作废'
+  }, { scope: 'all', card: SAMPLE_CARD, chat })
+  const afterFresh = mergePlotCompassUpdate(compass, rebuilt, { scope: 'all', turn: 6, now: 2000, fresh: true })
+  assert.equal(afterFresh.pinned.shortTerm, null)
+  assert.equal(afterFresh.pinned.midTerm, null)
+  assert.equal(afterFresh.pinned.longTerm, null)
+  assert.equal(afterFresh.archived.length, 0, '全新生成不应把旧路线写进归档')
+  assert.equal(afterFresh.shortTerm[0].title, '雨夜换囚')
+  assert.equal(afterFresh.basedOnTurn, 6)
+
+  // 服务端链路：fresh 透传到提示词，写回后点亮标记清空
+  let served = {
+    id: 'chat-fresh',
+    sessionId: 'sess-fresh',
+    mode: 'story',
+    backgroundTasks: { plotCompass: true },
+    cardPath: 'cards/shen.json',
+    cardName: '沈清弦',
+    messages: [{ role: 'user', turn: 1, text: '大人深夜传唤所为何事？' }, { role: 'assistant', turn: 1, text: '沈清弦将一封火漆密信推过桌面。' }],
+    plotCompass: compass
+  }
+  let seenTaskText = ''
+  const service = createPlotCompassService({
+    store: {
+      chatForSession: async () => structuredClone(served),
+      readChat: async () => structuredClone(served),
+      updateChat: async (_id, mutator) => {
+        const next = await mutator(structuredClone(served))
+        if (next) served = next
+        return structuredClone(served)
+      },
+      readCard: async () => SAMPLE_CARD,
+      readScript: async () => null
+    },
+    worldBooks: { bound: async () => ({ view: { entries: [] } }), constantContext: async () => '' },
+    scripts: null,
+    prompt,
+    selection: () => ({ provider: 'mock', model: 'mock-planner' }),
+    runAgent: async input => {
+      seenTaskText = input.taskText
+      await input.onToolCall({ name: PLOT_COMPASS_SUBMIT_TOOL_NAME, arguments: sampleSubmission() })
+      return { text: '', traceSessionId: 'trace-fresh' }
+    }
+  })
+
+  const result = await service.generate({ sessionId: 'sess-fresh', scope: 'all', fresh: true, wait: true })
+  assert.equal(result.status, 'done')
+  assert.doesNotMatch(seenTaskText, /<existing_plot_compass>/)
+  const saved = readPlotCompass(served.plotCompass)
+  assert.equal(saved.pinned.shortTerm, null)
+  assert.equal(saved.pinned.longTerm, null)
+  assert.equal(saved.shortTerm.length, 2)
+  assert.equal(saved.archived.length, 0)
+})
+
+test('前端构建产物包含全新生成入口并以 fresh 透传', async () => {
+  const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  // 按钮入口、二次确认文案与 RPC 参数三者必须同时存在于打包产物里。
+  assert.match(clientSource, /✦ 全新生成/)
+  assert.match(clientSource, /全新生成会作废当前盘面上的今期/)
+  assert.match(clientSource, /generatePlotCompass", \{ scope: scope \|\| "all", guidance: String\(text \|\| ""\)\.trim\(\), fresh: fresh \}/)
+  assert.match(clientSource, /startFreshGenerate/)
+})

@@ -140,7 +140,7 @@ export function createPlotCompassService({
     }
   }
 
-  async function executeGeneration({ chatId, sessionId, expectedBranchId, scope, guidance, model, controller }) {
+  async function executeGeneration({ chatId, sessionId, expectedBranchId, scope, guidance, model, controller, fresh = false }) {
     let submitted = null
     let submissionError = null
     let runResult = null
@@ -158,7 +158,8 @@ export function createPlotCompassService({
         constantWorldbookText,
         scriptWindow,
         scope,
-        guidance
+        guidance,
+        fresh
       })
 
       controller.signal.throwIfAborted()
@@ -215,7 +216,8 @@ export function createPlotCompassService({
         current.plotCompass = mergePlotCompassUpdate(current.plotCompass, submitted, {
           scope,
           turn: latestStoryTurnOf(current) || basedOnTurn,
-          now: now()
+          now: now(),
+          fresh
         })
         current.plotCompassTask = {
           status: 'done',
@@ -368,7 +370,7 @@ export function createPlotCompassService({
     }
   }
 
-  async function generate({ sessionId, scope = 'all', guidance = '', wait = false } = {}) {
+  async function generate({ sessionId, scope = 'all', guidance = '', wait = false, fresh = false } = {}) {
     const normalizedScope = PLOT_COMPASS_SCOPES.includes(scope) ? scope : 'all'
     const chat = await requirePlayChat(sessionId)
     if (!isPlotCompassEnabled(chat)) throw new Error('剧情罗盘已关闭，请先开启后再推演')
@@ -394,7 +396,8 @@ export function createPlotCompassService({
       scope: normalizedScope,
       guidance: str(guidance).trim().slice(0, 800),
       model,
-      controller
+      controller,
+      fresh: fresh === true
     }).catch(onError).finally(() => {
       if (jobs.get(chat.id) === entry) jobs.delete(chat.id)
     })

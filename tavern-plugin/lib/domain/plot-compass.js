@@ -465,12 +465,14 @@ export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat 
   }
 }
 
-export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', turn = 0, now = Date.now() } = {}) {
+export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', turn = 0, now = Date.now(), fresh = false } = {}) {
   const prev = readPlotCompass(previousRaw)
   const next = copy(prev)
   next.updatedAt = now
   next.basedOnTurn = Math.max(0, Number(turn) || 0)
   next.lastCheckedTurn = Math.max(next.basedOnTurn, Number(prev.lastCheckedTurn) || 0)
+  // 全新生成：旧路线整体作废，点亮标记一并清空（不做 id/标题匹配，也不写入 archived）。
+  if (fresh) next.pinned = { shortTerm: null, midTerm: null, longTerm: null }
   if (submitted.situationDigest) next.situationDigest = submitted.situationDigest
   if (submitted.playArchetypes?.length) {
     const merged = [...prev.customArchetypes]
@@ -486,7 +488,7 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
   const updateHorizon = horizon => {
     const incoming = submitted[horizon]
     if (!Array.isArray(incoming) || incoming.length === 0) return
-    const prevPinnedId = prev.pinned[horizon]
+    const prevPinnedId = fresh ? null : prev.pinned[horizon]
     const prevPinnedRoute = prevPinnedId ? prev[horizon].find(item => item.id === prevPinnedId) : null
     next[horizon] = incoming
     if (prevPinnedId) {
@@ -890,7 +892,7 @@ export function extractSceneFreezeSnapshot(chat) {
 /**
  * Assemble compact, high-signal context material for the background Plot Compass Agent.
  */
-export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, scope = 'all', guidance = '', includeRequest = true }) {
+export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, scope = 'all', guidance = '', includeRequest = true, fresh = false }) {
   const compass = readPlotCompass(chat?.plotCompass)
   const blocks = []
 
@@ -968,8 +970,8 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
     blocks.push(promptSection('recent_story', recentLines.join('\n\n')))
   }
 
-  // Existing Plot Compass (for incremental evolution or scoped reroll)
-  if (compass.shortTerm.length || compass.midTerm.length || compass.longTerm.length || compass.customArchetypes.length) {
+  // Existing Plot Compass (for incremental evolution or scoped reroll); skipped entirely on a fresh rebuild.
+  if (!fresh && (compass.shortTerm.length || compass.midTerm.length || compass.longTerm.length || compass.customArchetypes.length)) {
     blocks.push(promptSection('existing_plot_compass', JSON.stringify({
       refreshScope: scope,
       playerCustomArchetypes: compass.customArchetypes,
@@ -983,6 +985,9 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
 
   if (includeRequest) {
     const requestLines = [
+      fresh
+        ? 'This is a FRESH REBUILD explicitly requested by the player: no previous compass board is provided on purpose. Do NOT reconstruct, rename or echo any earlier route, ticked beat or pinned direction mentioned in the story text; derive brand-new diverging directions only from current story facts, play archetypes, worldbook hooks and variables.'
+        : '',
       `Target refresh scope: "${scope}" (${scope === 'all' ? 'generate or evolve all 3 horizons: shortTerm, midTerm, longTerm' : `focus fresh divergent routes on "${scope}" while keeping the other two horizons consistent`}).`,
       compass.customArchetypes.length > 0
         ? `Player-specified Play Archetypes (MUST honor and build routes around these): ${compass.customArchetypes.join('、')}`
