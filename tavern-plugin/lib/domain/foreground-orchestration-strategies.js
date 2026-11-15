@@ -13,8 +13,7 @@ import {
   STORY_SUBMIT_PROMPT_STRICT,
   STORY_SUBMIT_THINK_NOTE,
   STORY_SUBMIT_TOOL_NAME,
-  buildStorySubmitWireSchema,
-  withStorySubmitAck
+  buildStorySubmitWireSchema
 } from './story-tool-submission.js'
 import { NO_FOREGROUND_TOOLS_PROMPT, normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { projectEnvelopeRequest, projectHistoryAsToolCalls } from './history-tool-call.js'
@@ -496,13 +495,6 @@ export function createNativePlayOrchestrationStrategy(options) {
       }
       const labelled = labelPresetFront(request.messages, frontTexts.get(sessionId))
       if (labelled !== request.messages) request = Object.assign({}, request, { messages: labelled })
-      // A real assistant turn placed before the current player input, not after
-      // it: providers still see the player's message last, and the model reads its
-      // own submission commitment right before answering.
-      if (staged.storyOutputToolCall === true) {
-        const acknowledged = withStorySubmitAck(request.messages, staged.turn)
-        if (acknowledged !== request.messages) request = Object.assign({}, request, { messages: acknowledged })
-      }
     }
 
     if (staged.storyOutputToolCall === true || staged.historyToolCall === true) {

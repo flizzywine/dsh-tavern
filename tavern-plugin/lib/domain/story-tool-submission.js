@@ -3,8 +3,6 @@ import { getCapturedThoughtSignature } from './tool-protocol-enforcement.js'
 import { randomUUID, createHash } from 'node:crypto'
 import { sessionEvents } from './session-events.js'
 import { createSessionSurfaceMutator } from './session-surface-mutations.js'
-import { producerSource } from './message-source.js'
-import { isTurnInput } from './session-turn-input.js'
 import { toolResultsOf } from './tool-result-message.js'
 
 export const STORY_SUBMIT_TOOL_NAME = 'submit_story'
@@ -45,11 +43,6 @@ export const STORY_INPUT_ONLY_PROMPT = [
   '</output_method>'
 ].join('\n')
 
-// A real assistant turn before the input, not a trailing prefill: the model
-// sees its own accepted commitment, while the request still ends on the player's
-// message. Request-only; never written to the save.
-export const STORY_SUBMIT_ACK_TEXT = '收到。本轮所有面向玩家的输出都通过工具调用完成，最终输出放入 submit_story 的 content，不直接输出普通文本。'
-
 export function buildStorySubmitWireSchema({ includeThink = false, extraParts = [] } = {}) {
   const properties = {}
   const order = []
@@ -75,29 +68,11 @@ export function buildStorySubmitWireSchema({ includeThink = false, extraParts = 
   return { order, required, properties }
 }
 
-export function withStorySubmitAck(messages, turn) {
-  if (!Array.isArray(messages)) return messages
-  let inputIndex = -1
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (isTurnInput(messages[index])) { inputIndex = index; break }
-  }
-  // No room before the input (or it is the very first message): leave the
-  // request alone rather than making the provider start on an assistant turn.
-  if (inputIndex <= 0) return messages
-  const ack = {
-    id: 'tavern-submit-ack:' + (Number(turn) || 0),
-    role: 'assistant',
-    source: producerSource('dsh-tavern', { form: 'submit-ack' }),
-    content: [{ type: 'text', text: STORY_SUBMIT_ACK_TEXT }]
-  }
-  return [...messages.slice(0, inputIndex), ack, ...messages.slice(inputIndex)]
-}
-
 // Appended after third-party sections so the last instruction in the system
-// prompt is still the submission contract, regardless of how long they are.
+// prompt is the submission contract without rewriting the message history.
 export const STORY_SUBMIT_REMINDER = [
   '<output_method_reminder>',
-  '提醒：本轮输出放进 submit_story 的 content 提交；上面那句确认不用重复。',
+  '请通过 submit_story 提交本轮完整正文，将写给玩家的全部内容放进 content 参数。',
   '</output_method_reminder>'
 ].join('\n')
 

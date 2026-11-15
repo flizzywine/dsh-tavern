@@ -223,6 +223,33 @@ test('历史正文走工具调用：开关打开时请求里的旧正文变成�
   assert.equal(on.messages[5].content[0].text, '第二次', '本轮玩家输入保持原样')
 })
 
+test('工具提交正文时，相邻轮次只在上一轮请求末尾追加新消息', async () => {
+  const run = strategies({ nativePlay: {
+    async modeFor() { return 'story' },
+    filterMessages(messages) { return messages },
+    async resolvePreset() { return null },
+    async prepareTurn({ userText }) { return { frame: { userInput: { projectedText: userText } } } },
+    appendFrame({ messages }) { return { messages, receipt: {} } },
+    recordFrame() {},
+    async visibleTools() { return ['submit_story'] },
+    async storyOutputToolCall() { return true }
+  } })
+  const chat = run.chats.get('native')
+  const tools = [{ name: 'submit_story' }]
+  const request = async (turn, messages) => {
+    await run.value.prepareStep({ sessionId: 'native', chat, payload: { turn, step: 1, messages }, decision: { messages } })
+    return run.value.projectRequest({ sessionId: 'native', provider: 'zen', model: 'gemini-4-carbon', system: '提交正文', tools, messages })
+  }
+  const firstMessages = [userMessage('开场'), userMessage('走过石桥')]
+  const first = await request(2, firstMessages)
+  const story = { role: 'assistant', source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' }, content: [{ type: 'text', text: '你走到了桥头。' }] }
+  const next = await request(3, [...firstMessages, story, userMessage('举起灯')])
+
+  assert.equal(first.toolChoice, 'any')
+  assert.equal(next.toolChoice, 'any')
+  assert.deepEqual(next.messages.slice(0, first.messages.length), first.messages)
+})
+
 test('Anthropic：去掉本轮输入之前各轮回复的签名思考块，本轮工具循环里的保留', async () => {
   const { projectAnthropicPriorThinking } = await import('../tavern-plugin/lib/domain/foreground-orchestration-strategies.js')
   const replay = blocks => ({ response: { kind: 'pi-ai', version: 2, api: 'anthropic-messages', provider: 'opencode', model: 'claude-opus-5-5' }, blocks })
