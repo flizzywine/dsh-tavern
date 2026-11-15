@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4b45aeda38a0f31286a24d87dd2bd18ce2859b8b",
-  "releaseSequence": 1657,
+  "revision": "8300ef32a5824c582847a97fc6a8d0ef2a18e9d2",
+  "releaseSequence": 1658,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "28ee421878cdf369420cabc596a24bda560401c6d6184ef8aeb67b5019fb935e",
-      "size": 6454775
+      "sha256": "cc282992e6c10f6c2da05d8d0e11ac39bbff8399a08ab8039ffcea853811126d",
+      "size": 6456269
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2226,8 +2226,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/legacy-chat-journal.js",
-      "sha256": "a638e0d5c4322d11395dad1025e5e7a1e83ddd30608eedc6cfaf8583ded3681e",
-      "size": 14580
+      "sha256": "39d7a36fc964c99f1bfc5f4aa9bff9ec609e522152598bb992f036dfd2f721c3",
+      "size": 14941
     },
     {
       "path": "tavern-plugin/lib/domain/legacy-compatible-storage.js",
@@ -9271,9 +9271,9 @@
     }
   ],
   "archive": {
-    "commit": "77462cdcbd31682bf27dcdf06e3adcecdd0fcfe4",
+    "commit": "52c00d77e54fa16b87458d2070a99dff352a2672",
     "path": "runtime.zip",
-    "sha256": "f716603c88ea16097f64ec461b429fcffdc9a06b12065d66dd6848ab5169fb14",
-    "size": 16587845
+    "sha256": "a88b85d1de482358839a5e5295cbaa223506647f21adec857f12fd66bf792381",
+    "size": 16588386
   }
 }
