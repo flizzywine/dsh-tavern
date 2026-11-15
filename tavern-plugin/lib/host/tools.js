@@ -64,6 +64,13 @@ export async function useNativeTools(agentCtx) {
   agentCtx.tools.setExecutor(new NativeToolExecutor(agentCtx))
 }
 
+// 0.2.0-0.2.1 select the presentation per scope with tools.presentAs(); 0.2.2
+// removed it. There the Agent's preset already mounted useNativeTools above, so
+// nothing is left to select.
+export function presentNativeTools(agentCtx) {
+  if (typeof agentCtx.tools?.presentAs === 'function') agentCtx.tools.presentAs('native')
+}
+
 export const name = 'tavern-native-tools'
 export const inject = ['tools']
 export { useNativeTools as apply }

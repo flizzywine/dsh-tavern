@@ -1,4 +1,4 @@
-import { createHostToolPolicy } from './host/tools.js'
+import { createHostToolPolicy, presentNativeTools } from './host/tools.js'
 import { backgroundRequestTemperature } from './domain/background-request-temperature.js'
 import { withWorldbookFileInstructions } from './domain/worldbook-virtual-surface.js'
 import { createBackgroundProgress } from './domain/background-progress.js'
@@ -201,7 +201,7 @@ export function createBackgroundAgentTask(options) {
       const director = state.input.task === 'stage-director'
       // The preset mount is still required (DSH agent wiring); tools and prompt are narrowed below.
       if (setupAgent !== null) await setupAgent(childCtx)
-      if (director) childCtx.tools.presentAs('native')
+      if (director) presentNativeTools(childCtx)
       state.ctx = childCtx
       if (typeof options.resolveSharedTaskAnchor === 'function') {
         childCtx.on('llm/stream', function (request, next) {
