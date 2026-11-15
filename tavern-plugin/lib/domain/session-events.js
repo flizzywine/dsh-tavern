@@ -70,6 +70,22 @@ export function releaseOpeningTurn(session, agent) {
 // step), per session: not the player's.
 const surfaceEditTurns = new WeakMap()
 
+// Released V4 refuses a turn that opens or closes while a between-turns compaction is
+// still summarizing ("turn/start crosses an open compaction"), and the live Session
+// does not: the write succeeds and the next resume finds the whole log unreadable. A
+// compaction a restart cut short is closed by the session/end-seed the next resume
+// writes. Tavern therefore opens no turn of its own until the compaction has ended.
+export function compactionOpen(events) {
+  let open = false
+  for (const event of events) {
+    if (event.type === 'compaction/start') open = true
+    else if (event.type === 'compaction/end' || event.type === 'session/end-seed') open = false
+  }
+  return open
+}
+
+export const COMPACTION_OPEN_MESSAGE = '上下文正在压缩，请等压缩完成后再试'
+
 /** Note a turn Tavern opens only to carry its own write; call before its turn/start. */
 export function markSurfaceEditTurn(session, turn) {
   const marked = surfaceEditTurns.get(session) || new Set()
@@ -87,6 +103,7 @@ export function withSurfaceEditTurn(session, agent, write) {
   let turn = current.turn
   let step = current.step
   if (opened) {
+    if (compactionOpen(sessionEvents(session))) throw new Error(COMPACTION_OPEN_MESSAGE)
     turn = sessionEvents(session).reduce((highest, event) =>
       event.type === 'turn/start' ? Math.max(highest, Number(event.data?.turn) || 0) : highest, 0) + 1
     step = 1
