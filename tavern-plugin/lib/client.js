@@ -10137,7 +10137,7 @@ window.__ModuleLoader__.load({
 		  const VOICE_BACKEND_LINK='去语音后端设置 ›';
 		  const VOICE_GUIDANCE_MAX=60,VOICE_GUIDANCE_HELP='自动素材的舞台助手给人物找声音时，会在所有已安装素材包的声音里，按「名称」和这句话搜关键词。写这个声音适合什么样的人，如「适合中年男性」「毒舌少女」，助手才搜得到、挑得对。';
 		  const VOICE_LANGUAGE_HELP='不是中文时，AI 会为这个角色额外写一句这门语言的台词用来配音，画面上仍显示中文。';
-		  const pickVoiceLanguage=(list,fallback='ja')=>(list||[]).map(l=>String(l).toLowerCase()).find(l=>VOICE_LANGUAGE_TAG.test(l))||fallback;
+		  const pickVoiceLanguage=(list,fallback='zh')=>(list||[]).map(l=>String(l).toLowerCase()).find(l=>VOICE_LANGUAGE_TAG.test(l))||fallback;
 		  const figureVoiceSpec=(pack,figure)=>figure.voice?pack.manifest.voiceLibrary?.voices?.[figure.voice.voice]||null:null;
 		  const voiceSourceId=(spec,binding)=>binding?.source===null?null:binding?.source??spec.defaultSource;
 		  const voiceUsers=(pack,voiceId)=>Object.values(pack.figures||{}).filter(f=>f.voice?.voice===voiceId);
@@ -10474,14 +10474,14 @@ window.__ModuleLoader__.load({
 		    // a way chosen for a figure that already has a voice joins that voice (its other sources, clips and
 		    // model stay) and becomes the figure's source; a figure without a voice, or whose voice is only this one way, gets the
 		    // ready-made voice as its own new pack voice (the old one stays in the pack) — unless that one way was only chosen, not
-		    // set up yet: then the pick fills it in, name and all.
+		    // set up yet: then the pick fills it in, name and language and all (the placeholder's language was only the page's).
 		    async function useSource(made){
 		      const [hint,src]=Object.entries(made.sources)[0],spec=figure.voice?pack.manifest.voiceLibrary?.voices?.[figure.voice.voice]:null;
 		      const only=!!spec&&Object.values(spec.sources).every(s=>s.kind===src.kind),fill=only&&Object.values(spec.sources).some(voiceSourceUnset);
 		      if(!spec||only&&!fill)return createVoice(made);
 		      // A new pick from the same provider keeps the model chosen for the old one (模型 is a field of its own row).
 		      return placeSource(next=>{const found=Object.entries(next.sources).find(([,s])=>s.kind===src.kind),old=found?.[1];
-		        const sid=found?found[0]:freeSourceId(next,hint);next.sources[sid]=old?.model&&!src.model&&old.provider===src.provider?{...src,model:old.model}:src;if(fill)next.name=made.name;return sid;});
+		        const sid=found?found[0]:freeSourceId(next,hint);next.sources[sid]=old?.model&&!src.model&&old.provider===src.provider?{...src,model:old.model}:src;if(fill){next.name=made.name;next.language=made.language;}return sid;});
 		    }
 		    // `place` edits a copy of the figure's voice and returns the source id the figure then speaks with.
 		    async function placeSource(place){
@@ -10621,7 +10621,7 @@ window.__ModuleLoader__.load({
 		    const packId=pack.manifest.id,voice=figure.voice||null,spec=figureVoiceSpec(pack,figure),sourceId=spec?voiceSourceId(spec,voice):null;
 		    const active=spec&&sourceId?spec.sources[sourceId]||null:null;
 		    const head=React.useRef(null),services=useVoiceServices(binding),readiness=useVoiceReadiness(binding),clips=useAudioPreview(binding,packId,speech);
-		    const language=spec?effectiveVoiceLanguage(voice.language,spec.language):'ja';
+		    const language=effectiveVoiceLanguage(voice?.language,spec?.language);
 		    const ways=voiceSourceRows(readiness.services,active);
 		    const activeRow=!spec?null:sourceId===null?OFF_ROW:ways.find(w=>w.provider&&rowHolds(w,active))||null,activeWay=activeRow?.id||null;
 		    // '@auto': the row in use is open until a row is opened or closed by hand. `modes`: a Fish row's 生成方式 shown.
@@ -10683,7 +10683,7 @@ window.__ModuleLoader__.load({
 		          row.ways.length>1&&h(InlineRow,{label:'生成方式'},h(Segmented,{label:'生成方式',value:way.id,options:row.ways.map(w=>[w.id,w.name]),onChange:id=>pickMode(row,id)})),
 		          found&&models.length>0&&h(InlineRow,{label:'模型'},h(VoiceOptionPick,{label:'模型',value:model,options:models.map(m=>({id:m.id,label:m.label})),onPick:id=>writer.setSourceModel(found[0],id)}))),
 		        way.id==='clone'?h(VoiceReferences,{...common,way:row,entry:found,clips,language}):
-		          h(VoiceFishLibrary,{...common,way:row,state:recommended,currentId:found?.[1].voiceId||null}));
+		          h(VoiceFishLibrary,{...common,way:row,state:recommended,currentId:found?.[1].voiceId||null,language}));
 		    };
 		    // m6 (owner 11-08): 配音来源's title row says nothing is set up in 语音后端 yet; 'no source chosen for this figure' is a row of
 		    // its own under that title, above the sources (the title on one line, the hint on the next, on every width).
@@ -10721,7 +10721,7 @@ window.__ModuleLoader__.load({
 		  // Which source speaks is the radio below (配音来源); the hero does not repeat it, nor who else uses the voice (the shared-voice
 		  // dialog says so when it matters).
 		  function VoiceHero({binding,pack,figure,spec,voice,sourceId,status,preview,rows,writer,notice,setNotice,readiness,openSettings,activeRow:way,pickId,onOthers,onFix}) {
-		    const [renaming,setRenaming]=React.useState(false),language=spec?effectiveVoiceLanguage(voice.language,spec.language):'ja',[text,setText]=React.useState(null),[mood,setMood]=React.useState('calm');
+		    const [renaming,setRenaming]=React.useState(false),language=effectiveVoiceLanguage(voice?.language,spec?.language),[text,setText]=React.useState(null),[mood,setMood]=React.useState('calm');
 		    const othersItem=close=>h(MenuItem,{onClick:()=>{close();onOthers();}},'换成本包其他声音或模板…');
 		    const pointers=useReadingPointers(binding),self={packId:pack.manifest.id,figureId:figure.id};
 		    const uses=READING_ROLES.filter(r=>samePointer(pointers.value?.[r.id]?.figure,self));
@@ -10853,8 +10853,10 @@ window.__ModuleLoader__.load({
 		  // 「显示更多」 runs out); a pasted voice ID is looked up instead (private / unlisted IDs can still be used). Popular rows play the
 		  // voice's official sample (never a synthesis); search rows preview through the billing-aware synthesis. Nothing autoplays.
 		  // Every Fish call and every pick of a row goes to that row's own service (`way.serviceId`).
-		  function VoiceFishLibrary({binding,figure,spec:boundSpec,way,preview,candidate,choose,state,currentId}) {
+		  function VoiceFishLibrary({binding,figure,spec:boundSpec,way,preview,candidate,choose,state,currentId,language}) {
 		    const [query,setQuery]=React.useState(''),[result,setResult]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),asked=React.useRef(0);
+		    // Fish's search answers in one language (it assumes Japanese when none is named): the figure's 配音语言.
+		    const speakLang=primaryLanguage(language);
 		    const fish=way.serviceId,q=query.trim(),idLike=/^[A-Za-z0-9_-]{24,160}$/.test(q)&&!/\s/.test(q),needle=voiceNeedle(q);
 		    const answer=result&&result.query===q?result:null;
 		    const paging=useVoicePaging(answer?'fish:'+answer.ask:'popular:'+needle);
@@ -10869,7 +10871,7 @@ window.__ModuleLoader__.load({
 		          catch(e){if(voiceCode(e)!=='VOICE_NOT_FOUND')throw e;setResult({kind:'id',query:q,ask,voice:null,missing:true});}
 		        }else{
 		          if(!fish)throw voiceFailure('SERVICE_REQUIRED');
-		          const r=await voiceTts(binding).call('searchFishVoices',{serviceId:fish,query:q,page});
+		          const r=await voiceTts(binding).call('searchFishVoices',{serviceId:fish,query:q,language:speakLang,page});
 		          setResult(prev=>({kind:'search',query:q,ask,page:r.page,hasMore:!!r.hasMore,windowLimited:!!r.windowLimited,voices:page>1&&prev?.kind==='search'?[...prev.voices,...(r.voices||[])]:r.voices||[]}));
 		        }
 		      }catch(e){setError(voiceCode(e)==='SERVICE_REQUIRED'?'还没有配置 Fish Audio 服务，不能搜索':voiceErrorText(e));}finally{setBusy(false);}
@@ -10906,7 +10908,7 @@ window.__ModuleLoader__.load({
 		      list=shown.length?h(React.Fragment,null,h('ul',{className:'ap-voice-rows','aria-label':'推荐声音'},shown.slice(0,paging.n).map(popularRow)),shown.length>paging.n&&h(VoiceMore,{onClick:paging.more})):
 		        idLike?null:q?h(EmptyState,{compact:true,noun:'声音',query:q,plain:true,onClear:clear}):h(EmptyState,{compact:true,noun:'推荐声音'});
 		    }
-		    return h(VoiceLibraryBox,{label:'搜索 Fish 声音',placeholder:'搜名字、标签或语言，或粘贴声音编号',query,onQuery:v=>{setQuery(v);setError('');},clear,
+		    return h(VoiceLibraryBox,{label:'搜索 Fish 声音',placeholder:'在'+voiceLanguageName(speakLang)+'声音里搜名字或标签，或粘贴声音编号',query,onQuery:v=>{setQuery(v);setError('');},clear,
 		      onFind:()=>find(),findLabel:idLike?'查找编号':'搜索',canFind:!!q,busy,error},list);
 		  }
 		  // The 声音库 box every voice library shares (Fish 声音库, MiniMax 音色): one search box on top of one list of VoiceRow —
@@ -11000,7 +11002,7 @@ window.__ModuleLoader__.load({
 		    const useModel=model||(custom?models[0]?.id||'':'');
 		    const lang=primaryLanguage(language),speaks=v=>!(v.languages||[]).length||v.languages.some(l=>primaryLanguage(l)===lang);
 		    const sid=custom?'custom':provider;
-		    const spec1=v=>({name:v.label||v.id,language:pickVoiceLanguage(browser?(v.languages||[]).map(primaryLanguage):v.languages,figure.voice?'ja':'zh'),defaultSource:sid,sources:{[sid]:rowSource(row,{kind:'preset',provider,voiceName:v.id,...(useModel?{model:useModel}:{})})}});
+		    const spec1=v=>({name:v.label||v.id,language:pickVoiceLanguage(browser?(v.languages||[]).map(primaryLanguage):v.languages),defaultSource:sid,sources:{[sid]:rowSource(row,{kind:'preset',provider,voiceName:v.id,...(useModel?{model:useModel}:{})})}});
 		    const goSet=openSettings&&state?.setup&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider,custom||row.bind?{id:serviceId}:undefined)},state.missing?VOICE_BACKEND_LINK:'去设置');
 		    // The row's own status (right of its title) already says why it cannot speak; the body adds only what that cannot.
 		    const warn=list.value?.status==='credentials-required'?h(VoiceWarn,{action:goSet},name+' 缺少 API Key'):null;
@@ -11098,7 +11100,7 @@ window.__ModuleLoader__.load({
 		  // With no clips the dashed ＋ is highlighted as the next step.
 		  // A new list made under a row of one of several Fish services names that service; clips added to a list never rename it.
 		  function VoiceReferences({binding,pack,figure,spec,voice,writer,preview,way,entry,clips}) {
-		    const [sid,source]=entry||[],language=spec?effectiveVoiceLanguage(voice?.language,spec.language):'ja',refs=source?.references||[];
+		    const [sid,source]=entry||[],language=effectiveVoiceLanguage(voice?.language,spec?.language),refs=source?.references||[];
 		    const add=files=>writer.addClips(files,{language,create:refs=>{const made=cloneSpec(figure,language,refs);made.sources.fish=rowSource(way,made.sources.fish);return made;},
 		      place:(s,refs)=>{const found=Object.entries(s.sources).find(([,x])=>x.kind==='reference-list');if(found){found[1].references=[...found[1].references,...refs];return;}
 		        s.sources[freeSourceId(s,'fish','reference')]=rowSource(way,{kind:'reference-list',provider:'fish-audio',references:refs});}});

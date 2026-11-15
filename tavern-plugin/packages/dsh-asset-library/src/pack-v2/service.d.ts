@@ -164,6 +164,8 @@ export interface AssetPackService extends CatalogueService {
     readContext(input: {path: string}): Promise<AutomaticReadContext & {detached: boolean; target: AutomaticWriteInput['target']}>;
     /** 全库搜索 over every installed pack; read only. */
     searchLibrary(input: {query: string; limit?: number}): Promise<LibrarySearchResult>;
+    /** Every installed pack's voices (search rows), for a caster that reads them all. */
+    listLibraryVoices(input?: {limit?: number}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
     /** Context is ephemeral host evidence (e.g. canonical body), never receipt data. */
     authorize(input: AutomaticWriteInput, source: AutomaticSource, context?: Context): AutomaticWriteAuthority;
     dispose(): void;
