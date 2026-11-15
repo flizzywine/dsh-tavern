@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d32fa9e11f8e65c3e8a7ae2cfc52f5ecb60a38a5",
-  "releaseSequence": 1663,
+  "revision": "913f401a4d87671d5351bb922ff825c288e29637",
+  "releaseSequence": 1664,
   "version": "3.3.0",
   "files": [
     {
@@ -3141,8 +3141,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-events.js",
-      "sha256": "14896e3ff13cbec59d675f8b1cb005ee507bd8e44aaeb34e0b3fdeef155fcafd",
-      "size": 8043
+      "sha256": "a1ce6bb3cab357d62ded810270e3523510cd77b50fbeab477184ebf127388b25",
+      "size": 8917
     },
     {
       "path": "tavern-plugin/lib/domain/session-inventory.js",
@@ -3156,8 +3156,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-log-repair.js",
-      "sha256": "f45d6af636aafe47565f015696c013246f92d431249d6a99996ecffe80b559b1",
-      "size": 16670
+      "sha256": "24405f3234321703314d3e2c5dd19e45d9eee8cb59ce61486852bb4b3bd840b3",
+      "size": 19076
     },
     {
       "path": "tavern-plugin/lib/domain/session-message-index.js",
@@ -3196,8 +3196,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-surface-mutations.js",
-      "sha256": "15cb93c4b3e27cb76150246f305e6badef3e5793cc832c2b7ab9369383880770",
-      "size": 10997
+      "sha256": "b0eea934f91c45e2ae07f656084948fee8f936fd8eff1fab2c35a147d9d401bf",
+      "size": 11322
     },
     {
       "path": "tavern-plugin/lib/domain/session-turn-input.js",
@@ -9276,9 +9276,9 @@
     }
   ],
   "archive": {
-    "commit": "8c5b7890103bd6a384718d58232f0ba3df3e11f1",
+    "commit": "f6b83bc262d966a9638979da4eca513242186a61",
     "path": "runtime.zip",
-    "sha256": "96ed3cf000cf4e161ca9241a585942a9abccc29faf6673c1145766828727f775",
-    "size": 16592631
+    "sha256": "ab247cd598d8f6d35cdc95de4b149c9318f56e0dacc89e6945e722952f944414",
+    "size": 16593660
   }
 }
