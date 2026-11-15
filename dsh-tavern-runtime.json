@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1190c3d4ab8f568bc75a6c8c58282ade97de9003",
-  "releaseSequence": 1654,
+  "revision": "f8e6716c8884bd6043fdd70736874d931c720a9f",
+  "releaseSequence": 1655,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "f76c39bb716514d426065fd3f3b26f0711c3eedb3c5a81a3e8362d861149a5f9",
-      "size": 446260
+      "sha256": "a28b748f8bfc8df73b088f91378d7ca603db1293956707e7189c5856b44048a4",
+      "size": 452913
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ede9375d2fe1f8f17887d0afdeaa078382bbacdc914dd85e47775754667c50ca",
-      "size": 6424712
+      "sha256": "28ee421878cdf369420cabc596a24bda560401c6d6184ef8aeb67b5019fb935e",
+      "size": 6454775
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1926,8 +1926,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-worldbook.js",
-      "sha256": "9dd6d08eae7c08b0641189418207b6b9cc43577f6286fd5144f7b3efb6b72acf",
-      "size": 17132
+      "sha256": "60f3efc48fa3da008173952183a83814c9cccf6092ab79c8972ae40aaaaeaa23",
+      "size": 17198
     },
     {
       "path": "tavern-plugin/lib/domain/frame-sizing.js",
@@ -2686,13 +2686,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plot-compass-service.js",
-      "sha256": "5e3e7b55c9c0c240996f2ad2849a0b53e904b3e0d0f87106ac27a1c9b8e594ae",
-      "size": 18606
+      "sha256": "5206844c5babae260fd20f22bc211bf014e5296d9263445c9cdffe5ae6d5a06a",
+      "size": 28994
     },
     {
       "path": "tavern-plugin/lib/domain/plot-compass.js",
-      "sha256": "bb35e3ff5732eff05960f1f06443251705a7c958c3f6cf61cf66a8735284912d",
-      "size": 38173
+      "sha256": "dbe4816efd41abbdd0b3c5c6164d2aadb60856f70d5be96d8e9407cfdffc1b62",
+      "size": 61868
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-assets.js",
@@ -4121,8 +4121,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "991ecfa6e8ac7f2e6848406e6fa0407001dcea3a4ac3fa5ba3a48471693177f6",
-      "size": 310497
+      "sha256": "cc7fa1d494e0554ee1a1ebb522a83b1d44be4ea79c8244dea47e02fd5266d385",
+      "size": 310648
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4246,8 +4246,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
-      "sha256": "c1307f5315af5857767117541bcd5d3dd4121eaa12b99199062dfbc454530bc3",
-      "size": 26941
+      "sha256": "9e47a8d48fade80a68c6747aa797d8796d25e121541a97ad1426ed386e4d814c",
+      "size": 27606
     },
     {
       "path": "tavern-plugin/lib/rpc/plugins.js",
@@ -9066,8 +9066,8 @@
     },
     {
       "path": "tavern-plugin/prompts/plot-compass.md",
-      "sha256": "b35b1c6a5d3c0f69f58b069302aa137702d597f73a205cb9698ed7894468cf9e",
-      "size": 6138
+      "sha256": "03185ecc63229c968dd398d3360ec1203b448023eb6949c497fa5f6d4608a811",
+      "size": 8239
     },
     {
       "path": "tavern-plugin/prompts/polish-guidance.md",
@@ -9271,9 +9271,9 @@
     }
   ],
   "archive": {
-    "commit": "395d3d731f79fbac0c9d71d52645591253547c7f",
+    "commit": "63ba90514054d71dc3b70f70a82c36be084ae625",
     "path": "runtime.zip",
-    "sha256": "870adc7cc5e26c7a32e3560d3abe8a3d3ee16f9f71146bbc34b311a6f820fbb2",
-    "size": 16571509
+    "sha256": "6800da630d1fd2b0984ecc83fe0418a94f04323930f795363a2a69eab06fd02f",
+    "size": 16587691
   }
 }
