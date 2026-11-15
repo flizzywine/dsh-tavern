@@ -63,6 +63,53 @@ test('也认没有 memo 包裹的 ReasoningRow', () => {
   delete globalThis.localStorage
 })
 
+test('压缩宿主（0.2.2-rc.2+）：无空白的 useDisclosure 声明切在语句边界，补丁后语法合法', () => {
+  // rc.3 真实形状：整段无空白、反引号字符串，声明是 const{expanded,toggle}=useDisclosure();
+  // 前后都有其他语句，切点落错会当场造成 SyntaxError。
+  const minified = 'var css_default={"root":"x"};const ReasoningRow=(0,react.memo)(function ReasoningRow({text:rawText,running,textInteractionSource=false,usePresentation,useDisclosure,renderSlot,t}){const{expanded,toggle}=useDisclosure();const{text,hidden}=(0,react.useMemo)(()=>({text:rawText,hidden:false}),[rawText]);return{expanded,toggle}});const next=1;'
+  const result = patchReasoningChatSource(minified)
+  assert.equal(result.status, 'applied')
+  const react = { memo: fn => fn, useSyncExternalStore: (subscribe, snapshot) => snapshot(), useMemo: fn => fn() }
+  const ReasoningRow = new Function('react', result.text + '\nreturn ReasoningRow;')(react)
+  const useDisclosure = () => ({ expanded: false, toggle: () => {} })
+  globalThis.localStorage = { getItem: () => null }
+  assert.equal(ReasoningRow({ running: true, useDisclosure }).expanded, true)
+  assert.equal(ReasoningRow({ running: false, useDisclosure }).expanded, false)
+  delete globalThis.localStorage
+  assert.equal(patchReasoningChatSource(result.text).status, 'patched')
+})
+
+test('非字符串输入与缺少 running prop 的宿主保持原样', () => {
+  assert.equal(patchReasoningChatSource(null).status, 'unmatched')
+  assert.equal(patchReasoningChatSource(undefined).status, 'unmatched')
+  // 重写引用 running prop：宿主改名时宁可跳过，不得在渲染时 ReferenceError
+  const noRunning = 'const ReasoningRow=(0,react.memo)(function ReasoningRow({useDisclosure}){const{expanded,toggle}=useDisclosure();return expanded});'
+  assert.equal(patchReasoningChatSource(noRunning).status, 'unmatched')
+  assert.equal(patchReasoningChatSource(noRunning).text, noRunning)
+})
+
+test('running 被别名解构时不打补丁；同名别名与默认值仍是 running 绑定', () => {
+  // running: isRunning 绑定的是 isRunning，注入代码引用 running 会 ReferenceError
+  const aliased = 'const ReasoningRow=(0,react.memo)(function ReasoningRow({text:rawText,running:isRunning,useDisclosure}){const{expanded,toggle}=useDisclosure();return expanded});'
+  const result = patchReasoningChatSource(aliased)
+  assert.equal(result.status, 'unmatched')
+  assert.equal(result.text, aliased)
+  const aliasedSpaced = aliased.replace('running:isRunning', 'running : isRunning')
+  assert.equal(patchReasoningChatSource(aliasedSpaced).status, 'unmatched')
+  const useDisclosure = () => ({ expanded: false, toggle: () => {} })
+  for (const params of ['running:running$1', 'running:$running', 'running:isRunning, label="a, running, b"', 'running:isRunning/* running */']) {
+    const source = SHIPPED.replace('text: rawText, running', params)
+    const skipped = patchReasoningChatSource(source)
+    assert.equal(load(skipped.text)({ running: true, useDisclosure }).expanded, false, params)
+    assert.deepEqual(skipped, { status: 'unmatched', text: source })
+  }
+  for (const params of ['running:running', 'running=false', 'label="a, b", running']) {
+    const patched = patchReasoningChatSource(SHIPPED.replace('text: rawText, running', params))
+    assert.equal(patched.status, 'applied', params)
+    assert.equal(load(patched.text)({ running: true, useDisclosure }).expanded, true, params)
+  }
+})
+
 test('页面补丁脚本同时带上两条改写规则', () => {
   const script = chatAnswerBootScript()
   assert.ok(script.includes('dsh-tavern:answer-step'))

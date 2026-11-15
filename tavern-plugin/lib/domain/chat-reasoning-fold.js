@@ -20,17 +20,25 @@ export function patchReasoningChatSource(text) {
   const MARKER = '/* dsh-tavern:reasoning-stream */'
   const PREF_KEY = 'dsh-tavern.reasoningStreamOnly'
   const EVENT = 'dsh-tavern-reasoning-stream'
-  const DISCLOSURE = 'const { expanded, toggle } = useDisclosure();'
+  if (typeof text !== 'string') return { status: 'unmatched', text: String(text ?? '') }
   if (text.includes(MARKER)) return { status: 'patched', text }
   // The shipped bundle memoizes the row: `const ReasoningRow = (0, react.memo)(function
-  // ReasoningRow(props) { … })`. Match that statement first — helper declarations cannot
-  // live inside the memo() argument — and fall back to a bare function declaration.
-  const memoized = /const\s+ReasoningRow\s*=\s*\(0,\s*react\.memo\)\(function\s+ReasoningRow\s*\(\s*\{[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
-  const plain = /(?:^|\n)([\t ]*)function\s+ReasoningRow\s*\(\s*\{[^{}]*\}\s*\)\s*\{\s*const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
-  const match = memoized.exec(text) ?? plain.exec(text)
+  // ReasoningRow(props) { … })`. Capture that entire prefix so the helpers land
+  // outside memo(). A bare declaration uses the same parameter and disclosure shape.
+  const row = /((?:const\s+ReasoningRow\s*=\s*\(0,\s*react\.memo\)\(|(?:^|\n)[\t ]*)function\s+ReasoningRow\s*\(\s*\{([^{}]*)\}\s*\)\s*\{\s*)const\s*\{\s*expanded\s*,\s*toggle\s*\}\s*=\s*useDisclosure\(\);/
+  const match = row.exec(text)
   if (!match) return { status: 'unmatched', text }
-  const cut = match[0].lastIndexOf(DISCLOSURE)
-  const before = match[0].slice(0, cut)
+  const [, before, parameters] = match
+  // Verify the flat destructuring list used by the bundled hosts. Match complete
+  // properties so an alias, a comment or a quoted default cannot impersonate a binding.
+  const property = /\s*([$A-Z_a-z][\w$]*)\s*(?::\s*([$A-Z_a-z][\w$]*)\s*)?(?:=\s*(?:[$A-Z_a-z][\w$]*|-?\d+(?:\.\d+)?|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')\s*)?(?:,\s*|$)/gy
+  let matchedThrough = 0
+  let bindsRunning = false
+  for (const field of parameters.matchAll(property)) {
+    matchedThrough = field.index + field[0].length
+    bindsRunning ||= (field[2] ?? field[1]) === 'running'
+  }
+  if (!bindsRunning || matchedThrough !== parameters.length) return { status: 'unmatched', text }
   // Leading newline + indentation stay in front of the inserted declarations.
   const lead = /^\n?[ \t]*/.exec(before)[0]
   const head = before.slice(lead.length)
