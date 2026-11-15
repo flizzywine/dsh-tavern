@@ -598,9 +598,13 @@ export function createAssetPackService(options) {
       for (const pack of packs) {
         if (pack.error) { errors.push(pack); continue }
         if (pack.privateConfig) continue
+        // `users`: the figures speaking with it; `previewFigureId`: the figure of that pack a preview of it speaks as (its
+        // reference audio is read from that pack).
+        const figures = pack.manifest.figures.map(id => pack.figures[id])
         for (const [voiceId, voiceSpec] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
+          const users = figures.filter(f => f.voice?.voice === voiceId).map(f => ({id:f.id, name:f.name, ...(f.imageColor ? {imageColor:f.imageColor} : {})}))
           voices.push({ref:{packId:pack.manifest.id,voiceId}, name:voiceSpec.name, packName:pack.manifest.name,
-            revision:pack.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}})
+            revision:pack.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}, users, ...(figures[0] ? {previewFigureId:(users[0] || figures[0]).id} : {})})
         }
       }
       for (const item of templates) voices.push({ref:{templateId:item.templateId}, name:item.name,

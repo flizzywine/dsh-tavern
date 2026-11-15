@@ -17,7 +17,7 @@ const source=await readFile(new URL('../tavern-plugin/src/client/asset-pack-voic
 const h=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(Boolean)})
 const nodes=tree=>tree&&typeof tree==='object'?[tree,...(tree.children||[]).flatMap(nodes)]:[]
 function ui(){
-  const ctx={h,structuredClone,React:{Fragment:'fragment',useState:v=>[v,()=>{}],useRef:v=>({current:v}),useEffect:()=>{}},Button:'button',Glyph:'glyph',Spinner:'spinner',SearchBox:'search',Segmented:'segmented',Popover:'popover',InlineRow:'inline-row',InlineGrid:'inline-grid',InlineField:'inline-field',EmptyState:'empty',sessionStorage:{setItem:()=>{}}}
+  const ctx={h,structuredClone,React:{Fragment:'fragment',useState:v=>[v,()=>{}],useRef:v=>({current:v}),useEffect:()=>{}},Button:'button',Glyph:'glyph',Spinner:'spinner',SearchBox:'search',Segmented:'segmented',Popover:'popover',InlineRow:'inline-row',InlineGrid:'inline-grid',InlineField:'inline-field',EmptyState:'empty',Help:'help',sessionStorage:{setItem:()=>{}}}
   vm.createContext(ctx);vm.runInContext(source,ctx)
   vm.runInContext('useVoiceModelStatus=()=>({value:{issues:[]}});useVoiceLoad=()=>({value:{voices:testVoices,models:[]}});this.rows=voiceSourceRows;this.catalogServices=catalogServices;',ctx)
   return ctx
@@ -55,17 +55,14 @@ for(const kind of ['minimax','qwen'])test(`${kind} only: new figure -> online vo
   const figureId=pack.manifest.figures[0]
   assert.equal(pack.figures[figureId].voice,undefined)
   const ctx=ui(),voiceId=kind==='minimax'?'female-shaonv':'Cherry'
-  // Run the actual source radio handler: opening online must not create a default provider.
   const serviceId=kind==='minimax'?'mm':'qw'
-  ctx.heldOf=()=>null;ctx.spec=null;ctx.sourceId=null;ctx.preview={stop:()=>{}};ctx.setOpen=id=>assert.equal(id,'service:'+serviceId)
-  ctx.writer={useSource:()=>assert.fail('online selection must wait for a voice')}
-  vm.runInContext(source.slice(source.indexOf('  const use=row=>{'),source.indexOf('  // 生成方式 of a Fish row'))+"\nuse({id:'service:"+serviceId+"',ways:[]});",ctx)
   ctx.testVoices=[{id:voiceId,label:'少女',languages:['zh']},{id:kind==='minimax'?'female-yujie':'Serena',label:'御姐',languages:['zh']}]
   const writer=ctx.useVoiceWriter({binding:{service:library},pack,figure:pack.figures[figureId],setError:message=>assert.equal(message,''),commitVoice:async job=>{const result=await job(pack);pack=result.snapshot;return result}})
-  const tree=ctx.VoiceProviderVoices({binding:{},figure:pack.figures[figureId],language:'zh',row:{id:'service:'+serviceId,kind,name:kind,serviceId,service:{voiceList:'preset'},ways:[]},preview:{state:null,of:()=>null},choose:made=>writer.useSource(made)})
-  // 音色 is a filterable pick (MiniMax: the 声音库 list's 使用): picking 少女 is what the figure then speaks with.
-  if(kind==='minimax')await nodes(tree).find(n=>n.type===ctx.VoiceMinimaxLibrary).props.onUse(ctx.testVoices[0])
-  else await nodes(tree).find(n=>n.type===ctx.VoiceFilterPick&&n.props.label==='音色').props.onPick(voiceId)
+  // a service tab's 使用 makes a new voice of the pack (choose → createVoice); opening the tab writes nothing.
+  const tree=ctx.VoiceProviderVoices({binding:{},figure:pack.figures[figureId],language:'zh',row:{id:'service:'+serviceId,kind,name:kind,serviceId,service:{voiceList:'preset'},ways:[]},preview:{state:null,of:()=>null},choose:made=>writer.createVoice(made)})
+  assert.equal((await library.getPackSnapshot({packId:pack.manifest.id})).figures[figureId].voice,undefined,'nothing is written before 使用')
+  // the service's voices are one list (VoiceServiceVoices); 使用 少女 is what the figure then speaks with.
+  await nodes(tree).find(n=>n.type===ctx.VoiceServiceVoices).props.onUse(ctx.testVoices[0])
   const saved=await library.getPackSnapshot({packId:pack.manifest.id}),binding=saved.figures[figureId].voice,spec=saved.manifest.voiceLibrary.voices[binding.voice]
   assert.equal(spec.sources[binding.source??spec.defaultSource].provider,kind)
   assert.equal(spec.sources[binding.source??spec.defaultSource].voiceName,voiceId)
@@ -82,18 +79,15 @@ for(const kind of ['minimax','qwen'])test(`${kind} only: new figure -> online vo
   api.close({scope:preview.scope})
 })
 
-// m6: with nothing set up in 语音后端 the 配音来源 title row says so beside 「语音后端 ›」; a set-up service is a row of its own.
-test('配音来源 title hints: nothing set up, and a service row by its own name',async()=>{
+// 选声音's tabs: a service set up in 语音后端 is a tab of its own by its own name, then 浏览器朗读; 浏览器朗读 alone is no service.
+test('选声音 tabs: a service tab by its own name, then 浏览器朗读',async()=>{
   const ctx=ui()
   assert.equal(ctx.catalogServices({services:[{id:'browser',kind:'browser',sources:['preset']}]}).length,0)
-  assert.match(source,/noServices&&h\(VoiceWarn,null,'还没有设置自定义语音服务'\)/)
-  assert.match(source,/noSource&&h\(VoiceWarn,null,'还没有选择配音来源'\)/)
   for(const kind of ['minimax','qwen']){
-    const rows=ctx.rows({services:[{id:'one',kind,label:kind==='qwen'?'通义千问':'MiniMax',sources:['preset'],state:'configured'}]},null)
-    assert.deepEqual(JSON.parse(JSON.stringify(rows.map(r=>r.id))),['service:one','browser','off'])
+    const rows=ctx.rows({services:[{id:'one',kind,label:kind==='qwen'?'通义千问':'MiniMax',sources:['preset'],state:'configured'}]})
+    assert.deepEqual(JSON.parse(JSON.stringify(rows.map(r=>[r.id,r.title]))),[['service:one',kind==='qwen'?'通义千问':'MiniMax'],['browser','浏览器朗读']])
   }
 })
-
 test('preview warning is per failed audition, not the selected provider',()=>{
   const ctx=ui()
   const failed=ctx.VoicePlay({state:{phase:'error',error:'账户余额不足'},label:'少女'})

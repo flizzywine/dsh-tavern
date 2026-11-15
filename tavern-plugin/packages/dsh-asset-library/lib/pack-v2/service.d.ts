@@ -69,7 +69,7 @@ export type AutomaticWriteAuthority = object;
 export interface VoiceTemplate {templateId:string; revision:string; name:string; voiceSpec:VoiceSpec; binding:Voice}
 /** 通用声音 (`general`), 旁白 (`narrator`) or a card's own 旁白 (`narrator:<cardId>`): a pack-voice-shaped voice with its binding (voice 'voice'). */
 export type VoiceCatalogueRef = {packId:string; voiceId:string} | {templateId:string};
-export interface VoiceCatalogueEntry {ref:VoiceCatalogueRef; name:string; packName?:string; revision:string; voiceSpec:VoiceSpec; binding:Voice}
+export interface VoiceCatalogueEntry {ref:VoiceCatalogueRef; name:string; packName?:string; revision:string; voiceSpec:VoiceSpec; binding:Voice; users?:Array<{id:string; name:string; imageColor?:string}>; previewFigureId?:string}
 export interface PackRemoval { status: 'removed'; packId: string }
 export interface PackMutation { status: 'installed' | 'updated' | 'noop'; snapshot: PackSnapshot }
 export interface FigureDelivery {
@@ -164,6 +164,8 @@ export interface AssetPackService extends CatalogueService {
     readContext(input: {path: string}): Promise<AutomaticReadContext & {detached: boolean; target: AutomaticWriteInput['target']}>;
     /** 全库搜索 over every installed pack; read only. */
     searchLibrary(input: {query: string; limit?: number}): Promise<LibrarySearchResult>;
+    /** Every installed pack's voices (search rows), for a caster that reads them all. */
+    listLibraryVoices(input?: {limit?: number}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
     /** Context is ephemeral host evidence (e.g. canonical body), never receipt data. */
     authorize(input: AutomaticWriteInput, source: AutomaticSource, context?: Context): AutomaticWriteAuthority;
     dispose(): void;
@@ -213,6 +215,8 @@ export interface AssetPackService extends CatalogueService {
   saveVoiceTemplate(input: {templateId?:string; expectedRevision:string|null; packId:string; packRevision:string; voiceId:string; binding?:Voice}): Promise<VoiceTemplate>;
   deleteVoiceTemplate(input: {templateId:string; expectedRevision:string}): Promise<{deleted:true}>;
   assignVoiceTemplate(input: PackWrite & {templateId:string; templateRevision:string; figureId:string}): Promise<PackMutation & {voiceId:string}>;
+  assignPackVoiceCopy(input: PackWrite & {sourcePackId:string; voiceId:string; figureId:string}): Promise<PackMutation & {voiceId:string}>;
+  deletePackVoice(input: PackWrite & {voiceId:string}): Promise<PackMutation & {affectedFigures:Array<{id:string;name:string}>}>;
   /** Host-only, one-time: 通用声音 / 旁白's voices kept before they became figure pointers (tts.reading .figure). */
   legacyReadingVoices(): Promise<Array<{id:string; voiceSpec:VoiceSpec; binding:Voice} | {id:string; link:{packId:string; figureId:string}}>>;
   assignLegacyReadingVoice(input: PackWrite & {readingId:string; figureId:string}): Promise<PackMutation & {voiceId:string}>;

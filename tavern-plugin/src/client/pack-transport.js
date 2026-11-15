@@ -86,7 +86,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000} = {}) {
     }
     const methods = ['listAutomaticWrites','reviewAutomaticWrite','undoAutomaticWrite','listPackSummaries','getPackSnapshot','createPack','patchPack','removePack','putBlob','removeBlob','putBundle','removeBundle','createFigure','patchFigure','removeFigure','removeFigureEmotion','setFigureEmotionFallback','createSimpleSprite','setFigureAvatarCrop','copyFigure','copyItems','resolveAssets','resolveFigures','inspectImport','applyImport','exportPack','exportPacks','exportCardBundle','inspectCardBundle','previewCardBundleDecisions','applyCardBundle','leaseMedia','leaseBundle',
         // the figure voice page writes through the same carrier.
-        'savePackVoice','saveFigureVoiceBinding','createAndAssignPackVoice','savePackVoiceVariant','deletePackVoiceVariant','listVoiceCatalogue','listVoiceTemplates','saveVoiceTemplate','deleteVoiceTemplate','assignVoiceTemplate',
+        'savePackVoice','saveFigureVoiceBinding','createAndAssignPackVoice','savePackVoiceVariant','deletePackVoiceVariant','listVoiceCatalogue','listVoiceTemplates','saveVoiceTemplate','deleteVoiceTemplate','assignVoiceTemplate','assignPackVoiceCopy','deletePackVoice',
         // same authenticated control port; offered by the UI only with 'url-install'.
         'inspectCardBundleUrl','catalogueSettings','saveCatalogueSettings','refreshCatalogue','checkPackUpdates','startPackDownload','getPackDownload','controlPackDownload',
         // 舞台设定向导, offered by the UI only with 'stage-setup-v1'.
