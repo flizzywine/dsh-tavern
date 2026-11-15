@@ -3815,7 +3815,16 @@ html[data-dsh-tavern-prose-indent] .dsh-tavern-assistant :is(.dsh-tavern-colored
 .dsh-tavern-user-plugins-folder { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding-top: 14px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-user-plugins-folder span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .dsh-tavern-user-plugins-folder .dsh-tavern-btn { flex: none; height: 30px; padding: 0 12px; }
-@media (max-width: 640px) { .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin { flex-wrap: wrap; } .dsh-tavern-user-plugins-install input { flex-basis: 100%; } }
+/* 手机上卡片内宽只剩两百多像素，而「启用 / 更新 / 删除」三个按钮自己就要一百五十多像素：
+   .dsh-tavern-user-plugin-copy 的 flex-basis 是 0，被按钮压成几十像素的文字列，插件名和说明
+   逐字换行成竖条，卡片被撑到几百像素高。正文和动作各占一行，正文先占满整宽。 */
+@media (max-width: 640px) {
+  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin { flex-wrap: wrap; }
+  .dsh-tavern-user-plugins-install input { flex-basis: 100%; }
+  .dsh-tavern-user-plugin { gap: 10px; align-items: flex-start; }
+  .dsh-tavern-user-plugin-copy { flex: 1 1 100%; }
+  .dsh-tavern-user-plugin-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
 
 /* Card workbench guides: a plugin's folded question, and its block above the input box. */
 .dsh-tavern-assistant-fold { appearance: none; display: flex; gap: 8px; align-items: center; max-width: 100%; margin: 0; padding: 6px 12px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, .06)); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer; }

@@ -80,3 +80,36 @@ test('插件列表可以手动检查更新', async t => {
   assert.equal(checks().length, 4)
   assert.equal(checks()[3].args?.fresh, true)
 })
+
+// 手机宽度下卡片内宽只剩两百多像素，「启用 / 更新 / 删除」三个按钮自己就要一百五十多像素：
+// 正文的 flex-basis 是 0，会被压成几十像素宽的文字列，插件名和说明逐字换行成一根竖条，
+// 卡片被撑到几百像素高。正文独占一行，动作按钮换到下一行。
+test('手机宽度下插件卡片的正文不被按钮挤成逐字换行', async t => {
+  const plugins = [{
+    folder: 'pet', name: 'dsh-tavern-desktop-pet', version: '0.5.0',
+    description: '把 Live2D 桌宠搬到 Tavern 里，跟着剧情吐槽、换表情、念台词；在卡片工作台里当建卡引导员。',
+    source: { kind: 'github', repo: 'bigmalove/dsh-tavern-desktop-pet', resolved: 'main' },
+    enabled: false, state: 'disabled', reason: '',
+  }]
+  const { page } = await openTavernSettings(t, {
+    respond: method => method === 'listUserPlugins' ? { plugins, dir: '/tmp/tavern/plugins' } : undefined,
+    section: 'dsh-tavern: plugins settings section',
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  const card = page.locator('.dsh-tavern-user-plugin')
+  await card.getByRole('button', { name: '启用', exact: true }).waitFor()
+  const layout = await card.evaluate(element => {
+    const copy = element.querySelector('.dsh-tavern-user-plugin-copy')
+    const actions = element.querySelector('.dsh-tavern-user-plugin-actions')
+    const rect = node => node.getBoundingClientRect()
+    return {
+      card: rect(element).width, copyWidth: rect(copy).width, copyHeight: rect(copy).height,
+      copyBottom: rect(copy).bottom, actionsTop: rect(actions).top,
+      pageWidth: document.documentElement.scrollWidth,
+    }
+  })
+  assert.ok(layout.copyWidth > layout.card * 0.75, `正文应占满卡片整宽，实际 ${layout.copyWidth}/${layout.card}`)
+  assert.ok(layout.copyHeight < 200, `正文应只占几行，实际 ${layout.copyHeight}px 高`)
+  assert.ok(layout.actionsTop >= layout.copyBottom - 1, '动作按钮应换到正文下一行')
+  assert.ok(layout.pageWidth <= 390, '不应把页面撑出横向滚动')
+})
