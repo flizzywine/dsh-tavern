@@ -2256,11 +2256,10 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-ui details > summary { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); cursor: pointer; }
 
 /* Dialogs: the only second-level container; dividers inside. */
-/* starts below the window's own top band (--fork-safe-top): a dialog that fills a narrow window keeps its ⋯ and ✕ clear of the native window buttons */
-.ap-modal-scrim { position: fixed; inset: 0; z-index: 10000; top: var(--fork-safe-top, 0px); display: grid; place-items: center; background: var(--fk-s-modal-veil); padding: 16px; }
+.ap-modal-scrim { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: var(--fk-s-modal-veil); padding: 16px; }
 /* a dialog that takes focus itself never shows a ring for it. */
 .ap-modal:focus, .ap-modal:focus-visible { outline: none; }
-.ap-modal { width: min(720px,100%); max-height: calc(100dvh - 32px - var(--fork-safe-top, 0px)); overflow: auto; padding: 22px 24px; border: .5px solid var(--ap-border-strong); border-radius: 14px; background: linear-gradient(var(--fork-surface, transparent), var(--fork-surface, transparent)), Canvas; box-shadow: 0 18px 60px #0000003d; }
+.ap-modal { width: min(720px,100%); max-height: calc(100dvh - 32px); overflow: auto; padding: 22px 24px; border: .5px solid var(--ap-border-strong); border-radius: 14px; background: linear-gradient(var(--fork-surface, transparent), var(--fork-surface, transparent)), Canvas; box-shadow: 0 18px 60px #0000003d; }
 .ap-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
 .ap-modal > header h2 { font-size: 16px; }
 /* 展开大屏 / 放大面板 (ui/frame-sheet.js): the card frame is laid over .dsh-tavern-frame-sheet-body. The scrim is a

@@ -110,6 +110,39 @@ function useOverlay(open, nodes, close) {
         return overlayPush({ nodes: () => latest.current.nodes() || [], close: reason => latest.current.close(reason) });
     }, [open]);
 }
+// useWindowFullscreen(open, {onLost, topLayer}) — a layer whose backdrop covers the whole window (a dialog scrim, the image
+// viewer) is shown in full screen on the Windows Desktop while `open`: the native minimise / maximise / close are drawn over
+// the top of the window above any page layer and hidden only in full screen, so its own close is the only one. The layer
+// that entered full screen leaves it when it closes; one opened over something already full screen (the stage, another
+// dialog) changes nothing. Esc is kept for the page (Keyboard Lock) so it closes the topmost layer as before; `onLost` runs
+// if full screen is left anyway (a held Esc). `topLayer()` returns a popover the page's full screen would cover, shown again
+// on top of it. Plain browsers (no data-windows-titlebar) are untouched.
+function useWindowFullscreen(open, options) {
+    const latest = React.useRef(null);
+    latest.current = options || {};
+    React.useEffect(function () {
+        const html = typeof document === "undefined" ? null : document.documentElement;
+        if (!open || !html || !html.hasAttribute("data-windows-titlebar") || document.fullscreenElement || !html.requestFullscreen) return undefined;
+        const keyboard = typeof navigator !== "undefined" ? navigator.keyboard : null;
+        let entered = false, gone = false;
+        const onChange = () => { if (entered && !document.fullscreenElement) { entered = false; if (latest.current.onLost) latest.current.onLost(); } };
+        document.addEventListener("fullscreenchange", onChange);
+        html.requestFullscreen().then(() => {
+            if (gone) { document.exitFullscreen().catch(() => {}); return; }
+            entered = true;
+            if (keyboard && keyboard.lock) keyboard.lock(["Escape"]).catch(() => {});
+            const node = latest.current.topLayer && latest.current.topLayer();
+            try { if (node && node.matches(":popover-open")) { node.hidePopover(); node.showPopover(); node.focus({ preventScroll: true }); } } catch (_) {}
+        }, () => {});
+        return () => {
+            gone = true;
+            document.removeEventListener("fullscreenchange", onChange);
+            if (!entered) return;
+            if (keyboard && keyboard.unlock) keyboard.unlock();
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        };
+    }, [open]);
+}
 function useInlinePopup() {
     const [open, setOpen] = React.useState(false), [place, setPlace] = React.useState(null), root = React.useRef(null), trigger = React.useRef(null), pop = React.useRef(null);
     const close = refocus => { setOpen(false); setPlace(null); if (refocus && trigger.current && trigger.current.focus) trigger.current.focus(); };
