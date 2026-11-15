@@ -530,7 +530,7 @@ export function extractDormantWorldbookHooks(entries = [], chat = {}, { limit = 
 }
 
 export function isPlotCompassEnabled(chat) {
-  return chat?.backgroundTasks?.plotCompass !== false
+  return chat?.backgroundTasks?.plotCompass === true
 }
 
 /**

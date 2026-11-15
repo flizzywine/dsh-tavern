@@ -44,7 +44,7 @@ function PlotCompassDockButton(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
     const view = props.view;
-    if (!sessionId || !view || !isPlayMode(view.mode) || view.plotCompassEnabled === false) return null;
+    if (!sessionId || !view || !isPlayMode(view.mode) || view.plotCompassEnabled !== true) return null;
     const compass = view.plotCompass;
     const task = view.plotCompassTask || {};
     const isRunning = task.status === "running";
@@ -112,7 +112,7 @@ function TavernPlotCompassTab(props) {
         shortTerm: [], midTerm: [], longTerm: [],
         pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], basedOnTurn: 0
     };
-    const compassEnabled = !(view && view.plotCompassEnabled === false);
+    const compassEnabled = Boolean(view && view.plotCompassEnabled === true);
     const task = (view && view.plotCompassTask) || { status: "idle", scope: "all", error: "" };
     const isRunning = task.status === "running";
     const active = activeCompassSummaryOf(compass);

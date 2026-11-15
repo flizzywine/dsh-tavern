@@ -196,7 +196,7 @@ test('防抢跑漏斗注入：未锚定时零正文注入；锚定后正文隐�
   const unpinnedCompass = mergePlotCompassUpdate(null, parsed, { scope: 'all', turn: 2 })
 
   // 1. 未点亮任何路线时：正文 0 注入，但候选项可获得今期路线标签做灵感分流
-  const unpinnedChat = { id: 'c1', mode: 'story', plotCompass: unpinnedCompass, messages: [] }
+  const unpinnedChat = { id: 'c1', mode: 'story', backgroundTasks: { plotCompass: true }, plotCompass: unpinnedCompass, messages: [] }
   const bodyPlanUnpinned = await planner.plan({ purpose: 'body', card: SAMPLE_CARD, chat: unpinnedChat, worldBookContext: '' })
   assert.doesNotMatch(bodyPlanUnpinned.text, /<plot_compass>/)
   assert.equal(plotCompassCompactionNote(unpinnedChat), '')
@@ -209,7 +209,7 @@ test('防抢跑漏斗注入：未锚定时零正文注入；锚定后正文隐�
   let pinnedCompass = applyPlotCompassPin(unpinnedCompass, { horizon: 'shortTerm', routeId: 'st-bell' })
   pinnedCompass = applyPlotCompassPin(pinnedCompass, { horizon: 'midTerm', routeId: 'mt-alliance' })
   pinnedCompass = applyPlotCompassPin(pinnedCompass, { horizon: 'longTerm', routeId: 'lt-overturn' })
-  const pinnedChat = { id: 'c1', mode: 'story', plotCompass: pinnedCompass, messages: [] }
+  const pinnedChat = { id: 'c1', mode: 'story', backgroundTasks: { plotCompass: true }, plotCompass: pinnedCompass, messages: [] }
 
   const bodyPlanPinned = await planner.plan({ purpose: 'body', card: SAMPLE_CARD, chat: pinnedChat, worldBookContext: '' })
   assert.match(bodyPlanPinned.text, /<plot_compass>/)
@@ -287,6 +287,7 @@ test('后台剧情罗盘服务、步骤勾选、时间线跨轮保留与回滚�
     sessionId: 'sess-compass',
     _storageRevision: 1,
     mode: 'story',
+    backgroundTasks: { plotCompass: true },
     cardPath: 'cards/shen.json',
     cardName: '沈清弦',
     messages: [
@@ -386,7 +387,7 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
   const parsed = parsePlotCompassSubmission(sampleSubmission(), { scope: 'all', card: SAMPLE_CARD, chat: { mode: 'story' } })
   let currentCompass = mergePlotCompassUpdate(null, parsed, { scope: 'all', turn: 2, now: 1000 })
   let currentTask = { status: 'done', scope: 'all', error: '' }
-  let compassEnabled = true
+  let compassEnabled = false
 
   await page.route('http://tavern.test/**', async route => {
     const url = route.request().url()
@@ -501,6 +502,12 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
     createRoot(document.querySelector('#compass-tab')).render(React.createElement(CompassComponent, { scope: {} }))
   })
 
+  // 0. 默认关闭态：显示关闭说明卡片并隐藏底部操作栏按钮
+  await page.locator('.dsh-tavern-compass-disabled-card').waitFor()
+  assert.equal(await page.locator('.dsh-tavern-compass-dock-btn').count(), 0)
+  await page.getByRole('button', { name: '开启剧情罗盘' }).click()
+  assert.ok(calls.some(c => c.method === 'setPlotCompassEnabled' && c.args.enabled === true))
+
   // 1. 验证侧栏面板正常渲染路线卡片，无 ctx is not defined 等任何 pageerror
   await page.getByText('半真半假亮出密信残页').waitFor()
   assert.deepEqual(errors, [])
@@ -522,16 +529,11 @@ test('前端浏览器真实挂载：剧情罗盘侧栏面板与底部操作栏�
   await page.getByRole('tab', { name: /长期/ }).click()
   await page.getByText('携手掀翻棋盘共掌新局').waitFor()
 
-  // 5. 关闭剧情罗盘：触发 setPlotCompassEnabled(false)，隐藏底部 dock 按钮并保留路线提示，随后可一键重新开启
+  // 5. 再次通过顶栏开关关闭剧情罗盘：触发 setPlotCompassEnabled(false)，隐藏底部 dock 按钮并保留路线提示
   await page.locator('#compass-tab .dsh-tavern-settings-switch').click()
   await page.locator('.dsh-tavern-compass-disabled-card').waitFor()
   assert.ok(calls.some(c => c.method === 'setPlotCompassEnabled' && c.args.enabled === false))
   assert.equal(await page.locator('.dsh-tavern-compass-dock-btn').count(), 0)
-
-  await page.getByRole('button', { name: '开启剧情罗盘' }).click()
-  await page.getByText('半真半假亮出密信残页').waitFor()
-  assert.ok(calls.some(c => c.method === 'setPlotCompassEnabled' && c.args.enabled === true))
-  await page.locator('.dsh-tavern-compass-dock-btn').waitFor()
   assert.deepEqual(errors, [])
 })
 
@@ -556,6 +558,7 @@ test('真实 DSH 原生后台运行时：plotCompassService.generate 正常序�
     id: 'chat-native',
     sessionId: 'scene-parent',
     mode: 'story',
+    backgroundTasks: { plotCompass: true },
     cardPath: 'cards/shen.json',
     cardName: '沈清弦',
     messages: [
@@ -600,6 +603,7 @@ test('回合结算后自动勾选节拍，且点亮的今期路线节拍全部�
     id: 'chat-auto-step',
     sessionId: 'sess-auto-step',
     mode: 'story',
+    backgroundTasks: { plotCompass: true },
     cardPath: 'cards/shen.json',
     cardName: '沈清弦',
     messages: [
@@ -708,10 +712,11 @@ test('剧情罗盘关闭后停止一切注入与自动演进，并保留原有�
     ]
   }
 
-  assert.equal(isPlotCompassEnabled(chat), true)
-  assert.ok(plotCompassBodySection(chat))
-  assert.ok(plotCompassCandidateSection(chat))
-  assert.ok(plotCompassCompactionNote(chat))
+  // 未配置 backgroundTasks 时默认关闭：零注入且不可推演
+  assert.equal(isPlotCompassEnabled(chat), false)
+  assert.equal(plotCompassBodySection(chat), null)
+  assert.equal(plotCompassCandidateSection(chat), null)
+  assert.equal(plotCompassCompactionNote(chat), '')
 
   let aborted = false
   let modelCalls = 0
@@ -755,6 +760,14 @@ test('剧情罗盘关闭后停止一切注入与自动演进，并保留原有�
     },
     onStatus: (sid, patch) => statusEvents.push({ sid, patch })
   })
+
+  // 显式开启后，提示词注入与推演功能激活
+  const firstOn = await service.setEnabled({ sessionId: 'sess-toggle', enabled: true })
+  assert.equal(firstOn.enabled, true)
+  assert.equal(isPlotCompassEnabled(chat), true)
+  assert.ok(plotCompassBodySection(chat))
+  assert.ok(plotCompassCandidateSection(chat))
+  assert.ok(plotCompassCompactionNote(chat))
 
   // 启动一次推演后再立即关闭开关：进行中的后台任务应被中止且任务态归位 idle，原有路线数据保留
   const started = await service.generate({ sessionId: 'sess-toggle', scope: 'all' })

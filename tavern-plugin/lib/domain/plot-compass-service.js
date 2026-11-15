@@ -404,7 +404,8 @@ export function createPlotCompassService({
     const targetSessionId = str(sessionId || hintChat?.sessionId)
     if (!targetSessionId) return null
     const baseChat = hintChat?.id ? hintChat : await store.chatForSession(targetSessionId)
-    if (!isPlayableChat(baseChat) || !isPlotCompassEnabled(baseChat) || progressJobs.has(baseChat.id) || jobs.has(baseChat.id)) return null
+    if (!isPlayableChat(baseChat) || progressJobs.has(baseChat.id) || jobs.has(baseChat.id)) return null
+    if (baseChat.backgroundTasks !== undefined && !isPlotCompassEnabled(baseChat)) return null
 
     const freshChat = await store.readChat(baseChat.id)
     if (!isPlayableChat(freshChat) || !isPlotCompassEnabled(freshChat)) return null

@@ -228,7 +228,7 @@ export function presentPromptSets(document) {
 
 export function normalizeBackgroundTasks(value) {
   const tasks = object(value)
-  return { posture: tasks.posture !== false, characterDesign: false, variables: tasks.variables !== false, ledger: false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, plotCompass: tasks.plotCompass !== false, preset: tasks.preset === true, worldbookScreening: false }
+  return { posture: tasks.posture !== false, characterDesign: false, variables: tasks.variables !== false, ledger: false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, plotCompass: tasks.plotCompass === true, preset: tasks.preset === true, worldbookScreening: false }
 }
 
 

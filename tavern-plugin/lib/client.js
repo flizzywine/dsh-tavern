@@ -56968,7 +56968,7 @@ function createConversationSettingsModule({
         const h = React.createElement;
         const [catalog, setCatalog] = React.useState([]);
         const [selection, setSelection] = React.useState(null);
-        const [tasks, setTasks] = React.useState({ variables: true, posture: true, plotCompass: true });
+        const [tasks, setTasks] = React.useState({ variables: true, posture: true, plotCompass: false });
         const [features, setFeatures] = React.useState({ webSearchEnabled: false, mvuCard: false });
         const [loaded, setLoaded] = React.useState(false);
         const [busy, setBusy] = React.useState(false);
@@ -57026,7 +57026,7 @@ function createConversationSettingsModule({
                         options: [{ value: "", label: key ? "模型默认" : "跟随前台" }, ...efforts.map(item => ({ value: item.id, label: item.name || item.id }))] })),
             h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。", tasks.posture, checked => ({ backgroundTasks: { posture: checked } })),
-                toggle("plotCompass", "剧情罗盘", "推演短期、中期、长期多路线剧情发展灵感；关闭后不注入提示词且不自动演进，已保存的路线数据会保留。", tasks.plotCompass !== false, checked => ({ backgroundTasks: { plotCompass: checked } })),
+                toggle("plotCompass", "剧情罗盘", "推演短期、中期、长期多路线剧情发展灵感；关闭后不注入提示词且不自动演进，已保存的路线数据会保留。", tasks.plotCompass === true, checked => ({ backgroundTasks: { plotCompass: checked } })),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", tasks.foregroundCandidates === true, checked => ({ backgroundTasks: { foregroundCandidates: checked } })),
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、罗盘、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
@@ -57600,7 +57600,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const running = props.useSession(function (snapshot) { return snapshot.running; });
         const latestMessageId = props.useChat(latestTavernAssistantMessageId);
         const liveState = typeof useLiveTavernView === "function" ? useLiveTavernView(props.sessionId) : null;
-        const compassEnabled = !(liveState && liveState.view && liveState.view.plotCompassEnabled === false);
+        const compassEnabled = Boolean(liveState && liveState.view && liveState.view.plotCompassEnabled === true);
         const compass = compassEnabled && liveState && liveState.view ? liveState.view.plotCompass : null;
         const pinnedShortRoute = compass && compass.pinned && compass.pinned.shortTerm && Array.isArray(compass.shortTerm)
             ? compass.shortTerm.find(function (r) { return r && r.id === compass.pinned.shortTerm; }) || null
@@ -59372,7 +59372,7 @@ function createStoryFloorRail(root, options) {
 		            h("nav", { className: "dsh-tavern-status-resource-links", "aria-label": "本局资料" },
 		                h("button", { type: "button", disabled: !view.card.path, onClick: () => p.props.openStyleTab("dsh-tavern:cards", { cardPath: view.card.path }) }, "打开人物卡 ↗"),
 		                h("button", { type: "button", disabled: !view.card.path || p.resourceLinkBusy || !p.currentResourceBinding || p.noWorldBook || p.unavailableWorldBook, onClick: p.openWorldBookDetail }, "打开世界书 ↗"),
-		                h("button", { type: "button", onClick: () => p.props.openStyleTab("dsh-tavern:plot-compass") }, view.plotCompassEnabled === false ? "剧情罗盘（已关闭） ↗" : "剧情罗盘 ↗")),
+		                h("button", { type: "button", onClick: () => p.props.openStyleTab("dsh-tavern:plot-compass") }, view.plotCompassEnabled === true ? "剧情罗盘 ↗" : "剧情罗盘（已关闭） ↗")),
 		            p.resourceLinkError ? h("p", { role: "status" }, p.resourceLinkError) : null,
 		            update ? h("div", { className: "fork-status-alert", "data-kind": update.kind },
 		                h("span", { title: "保留剧情和数值，替换本局人物卡与世界书" }, update.text),
@@ -60729,7 +60729,7 @@ function createStoryFloorRail(root, options) {
             const h = React.createElement;
             const sessionId = props.sessionId;
             const view = props.view;
-            if (!sessionId || !view || !isPlayMode(view.mode) || view.plotCompassEnabled === false) return null;
+            if (!sessionId || !view || !isPlayMode(view.mode) || view.plotCompassEnabled !== true) return null;
             const compass = view.plotCompass;
             const task = view.plotCompassTask || {};
             const isRunning = task.status === "running";
@@ -60797,7 +60797,7 @@ function createStoryFloorRail(root, options) {
                 shortTerm: [], midTerm: [], longTerm: [],
                 pinned: { shortTerm: null, midTerm: null, longTerm: null }, archived: [], basedOnTurn: 0
             };
-            const compassEnabled = !(view && view.plotCompassEnabled === false);
+            const compassEnabled = Boolean(view && view.plotCompassEnabled === true);
             const task = (view && view.plotCompassTask) || { status: "idle", scope: "all", error: "" };
             const isRunning = task.status === "running";
             const active = activeCompassSummaryOf(compass);
