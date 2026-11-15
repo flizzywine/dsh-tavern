@@ -378,6 +378,13 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-side-row-expand:hover { background: var(--dsw-alias-interactive-bg-hover); color: inherit; }
 .dsh-tavern-history-panel { min-width: 26px; }
 .dsh-tavern-side-empty { padding: 18px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; text-align: center; }
+/* 选卡到开局准备之间、以及游戏初始化时的加载示意：转轮加一行状态。此前这里只有一句裸文字，
+   点完卡什么都不动，看起来像卡住了（spinner.js 的 .fork-spinner 是唯一的加载指示器）。 */
+.dsh-tavern-picker-loading { display: flex; align-items: flex-start; gap: 12px; padding: 28px 12px; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 1.6; }
+.dsh-tavern-picker-loading > .fork-spinner { --fork-spinner-size: 20px; flex: none; margin-top: 1px; color: var(--dsw-alias-label-primary); }
+.dsh-tavern-picker-loading small { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-loading-line { display: inline-flex; align-items: center; gap: 8px; text-align: left; color: var(--dsw-alias-label-primary); }
+.dsh-tavern-loading-line > .fork-spinner { --fork-spinner-size: 16px; flex: none; }
 .dsh-tavern-update { flex: none; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-update-identity { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.45; }
 /* 手机侧栏窄：版本行只留「v3.3.0 · 构建 → 目标构建」，放得下目标构建才不用单开一行状态。 */

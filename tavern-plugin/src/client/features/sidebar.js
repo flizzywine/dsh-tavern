@@ -97,6 +97,11 @@
             const [updateResult, setUpdateResult] = React.useState(null);
             const updateInput = React.useRef(null);
 			const [busy, setBusy] = React.useState(false);
+			// 选卡到开局准备页之间要读人物卡、预热脚本、问舞台设置，这几秒面板一直停在卡片列表上，
+			// 看不出点中了什么。openingCardName 记住正在打开的那张卡，列表区换成带转轮的进度提示。
+			const [openingCardName, setOpeningCardName] = React.useState("");
+			// 第一次打开选卡面板时 listCards 还没回来，原先直接画「还没有人物卡」的空态。
+			const [cardsLoading, setCardsLoading] = React.useState(false);
 			const [cardImportStatus, setCardImportStatus] = React.useState("");
 			const cardImporting = React.useRef(false);
 			const cardBatch = useCardBatchDeletion(cards, busy, setBusy, refresh, props.archiveSession);
@@ -598,10 +603,12 @@
 				setError("");
 				setCardImportStatus("");
 				setPicking(true);
+				setCardsLoading(true);
 				// Agent tools and external file edits do not emit browser-local data events.
 				void call("listCards").then(function (result) {
 					setCards(result.cards || []); tavernErrorHub.resolve("左侧栏人物卡");
-				}, function (error) { tavernErrorHub.report("左侧栏人物卡", error); });
+				}, function (error) { tavernErrorHub.report("左侧栏人物卡", error); })
+					.finally(function () { setCardsLoading(false); });
 				void call("preparePlayStart").catch(function (error) { console.warn("dsh-tavern: 游戏启动资源预热失败，将在开始时读取", error); });
 			}
 			function closePicker() {
@@ -1004,21 +1011,28 @@
 					setOpeningPicker({ card: card, openings: [], importOnly: true });
 					return;
 				}
-				if (card.hasOpeningForm && await stageOpens(card)) {
-					// the card's own opening page on the stage takes the place of the 游戏准备: the chat made here is the
-					// never-played game the page completes (and replaces). The stage client loads only while an open session
-					// needs it (none may be open yet, e.g. a fresh install): it is held until the new game is entered.
-					const release = galStageHold();
-					let entering = false;
-					try {
-						return await newConversation(card, null, undefined, undefined, undefined, { onCreated: function (created) {
-							entering = true;
-							whenStageAvailable(function () { release(); galEnter(created.sessionId, toOpening ? { page: card.openingPage } : undefined); });
-						} });
-					} finally { if (!entering) release(); }
-				}
-				if (card.hasOpeningForm) return preparePlayConversation(card);
-				return newConversation(card);
+				// 点中卡片就立刻给反馈：读卡、问舞台设置、预热脚本都在下面的 await 里，之前这段时间面板
+				// 一动不动，看起来像点了没反应。busy 也一起举起来，避免这中间被重复点选或关掉面板。
+				setOpeningCardName(card.name || "这张人物卡");
+				setBusy(true);
+				setError("");
+				try {
+					if (card.hasOpeningForm && await stageOpens(card)) {
+						// the card's own opening page on the stage takes the place of the 游戏准备: the chat made here is the
+						// never-played game the page completes (and replaces). The stage client loads only while an open session
+						// needs it (none may be open yet, e.g. a fresh install): it is held until the new game is entered.
+						const release = galStageHold();
+						let entering = false;
+						try {
+							return await newConversation(card, null, undefined, undefined, undefined, { onCreated: function (created) {
+								entering = true;
+								whenStageAvailable(function () { release(); galEnter(created.sessionId, toOpening ? { page: card.openingPage } : undefined); });
+							} });
+						} finally { if (!entering) release(); }
+					}
+					if (card.hasOpeningForm) return await preparePlayConversation(card);
+					return await newConversation(card);
+				} finally { setOpeningCardName(""); setBusy(false); }
 			}
 			// The card declares an opening page, the server stage is ready and the card's 舞台模式 is effective.
 			async function stageOpens(card) {
@@ -1597,7 +1611,9 @@
 						busy ? (importProgress || "正在导入…") : (chatImport.entries.length === 1 ? "导入并打开" : "导入这 " + chatImport.entries.length + " 份")))) : null;
 			const openingChoice = openingPicker && !openingPicker.importOnly ? h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: discardOpening }, "放弃开局"), h("span", null, openingPicker.card.name + " · 游戏准备"), h("button", { className: "dsh-tavern-btn", "aria-expanded": !openingSettingsCollapsed, onClick: function () { openingSettingsManual.current = true; setOpeningSettingsCollapsed(function (value) { return !value; }); } }, openingSettingsCollapsed ? "展开设置" : "折叠设置"), h("span", { className: "dsh-tavern-spacer" }), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: closePicker }, "暂时收起")),
-				busy ? h("div", { className: "dsh-tavern-session-switching", role: "status", "aria-live": "polite" }, openingPicker.preparing ? "正在准备开场与脚本资源…" : "正在完成游戏初始化…", openingPicker.preparing ? h("div", { style: { marginTop: "8px", fontSize: "13px" } }, "首次打开可能需要下载资源，请稍候；后续打开通常更快。") : null) : null,
+				busy ? h("div", { className: "dsh-tavern-session-switching", role: "status", "aria-live": "polite" },
+					h("span", { className: "dsh-tavern-loading-line" }, h(Spinner, {}), h("span", null, openingPicker.preparing ? "正在准备开场与脚本资源…" : "正在完成游戏初始化…")),
+					openingPicker.preparing ? h("div", { style: { marginTop: "8px", fontSize: "13px" } }, "首次打开可能需要下载资源，请稍候；后续打开通常更快。") : null) : null,
 					// an opening form owns the player name; no second field here.
 					selectedOpening && !selectedOpening.openingSetup ? h("div", { hidden: openingSettingsCollapsed },
 						h("label", { className: "dsh-tavern-player-name" }, h("span", null, "故事中的玩家称呼（可选）"), h("input", { value: openingPicker.userName ?? "", maxLength: 80, placeholder: openingPicker.defaultPlayerName || "你", disabled: busy, onChange: function (event) { const userName = event.target.value; setOpeningPicker(function (current) { return current ? Object.assign({}, current, { userName: userName }) : current; }); } })),
@@ -1655,7 +1671,11 @@
 				cardImportNotice,
 				pendingChatImport ? h("div", { className: "dsh-tavern-side-empty", role: "status", style: { padding: "4px 6px", display: "flex", alignItems: "center", gap: "8px" } }, h("span", null, "选择这份 SillyTavern 聊天记录对应的人物卡" + (pendingChatImport.characterName ? "（记录里的角色：" + pendingChatImport.characterName + "）" : "")), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setPendingChatImport(null); } }, "取消")) : null,
 				organization.toolbar(h('button', { className: 'dsh-tavern-btn', disabled: busy || cardBatch.paths.length !== 1, title: '选中一张人物卡后上传新版替换', onClick: function () { if (cardBatch.paths.length !== 1) return; setUpdateTarget(cardBatch.paths[0]); setUpdateFile(null); setUpdateNotice(''); setUpdateError(''); setUpdateResult(null); setUpdatingCard(true); } }, '更新')),
-				organization.visible.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), h(TavernCardList, { place: "play", cards: organization.visible, batch: cardBatch, busy: busy, open: function (card) { if (!card.readError) openPlayCard(card); } })) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡",
+				(openingCardName || cardsLoading) ? h("div", { className: "dsh-tavern-picker-loading", role: "status", "aria-live": "polite" },
+					h(Spinner, {}),
+					h("div", null,
+						h("div", null, openingCardName ? "正在打开「" + openingCardName + "」…" : "正在读取人物卡…"),
+						h("small", null, openingCardName ? "正在准备开场白、脚本与世界书；首次打开可能还需要下载资源，后续通常会快很多。" : "人物卡较多时首次载入需要几秒，请稍候。"))) : organization.visible.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), h(TavernCardList, { place: "play", cards: organization.visible, batch: cardBatch, busy: busy, open: function (card) { if (!card.readError) openPlayCard(card); } })) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡",
 					action: cardZip ? h("div", { className: "dsh-tavern-empty-actions" }, h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || cardZip.busy, onClick: cardZip.openUrl }, "从网址导入卡")) : null })
 			));
 

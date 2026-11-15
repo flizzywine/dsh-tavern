@@ -1010,7 +1010,8 @@
                     item.setAttribute(attribute, "");
                     return function () { item.removeAttribute(attribute); };
                 }, [recentFloor, eagerFloor, floorShown]);
-                const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")] : waitingForHistory ? [React.createElement("div", {key:"history",role:"status"}, "正在读取历史内容…")] : deferredFloor ? [] : renderTavernAssistantBlocks({
+                const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" },
+                    React.createElement("span", { className: "dsh-tavern-loading-line" }, React.createElement(Spinner, {}), React.createElement("span", null, "正在完成游戏初始化…")))] : waitingForHistory ? [React.createElement("div", {key:"history",role:"status"}, "正在读取历史内容…")] : deferredFloor ? [] : renderTavernAssistantBlocks({
 					// Publish native identity and this node's regeneration decision, not the whole view.
 					forkStageSource,
 					codeLabels,
