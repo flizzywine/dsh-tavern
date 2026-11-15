@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1916f472fe830e439ad7eaaee116fc0a45d1bac5",
-  "releaseSequence": 1648,
+  "revision": "a90e52e0c15b1f1f0acc56023561b2552200fbcb",
+  "releaseSequence": 1649,
   "version": "3.3.0",
   "files": [
     {
@@ -101,8 +101,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "b724ea5968e70b588b220894ed9dfb21750599c2b4c3278eceeec78a841e3693",
-      "size": 26669
+      "sha256": "a01d2a3ddc8d4c1c55ed4109c29b003ee0f432849cc373d223fc1a2f731970e3",
+      "size": 26539
     },
     {
       "path": "bin/build-image-client.mjs",
@@ -531,8 +531,8 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "795646f6af3b6ec679c4a0642eb482b966218bcce8440006cec03fca8a65e800",
-      "size": 121773
+      "sha256": "45ed7395da1cb14ad2eb680399aa9c3d9093e52c1a08d039dab23cbed92377d5",
+      "size": 121992
     },
     {
       "path": "install.sh",
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "37cc3aa85dcbd9d3fd8d0839678c03047771649b4937518ade60004a8f5f3aab",
-      "size": 6422900
+      "sha256": "1f27b62d190e76bb3a5f73c4c838ef96425a13668cd8d0d84fd6cca6309b53c2",
+      "size": 6422999
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3466,8 +3466,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript-reader.js",
-      "sha256": "c1e3120331a666fd5d2aacc6487583f49deaffe3f8629645f410d6d23d552665",
-      "size": 5092
+      "sha256": "f439bf9371be970dada5800df57baab5711f80c5236477a9b553c2c9da00318a",
+      "size": 5484
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript.js",
@@ -9271,9 +9271,9 @@
     }
   ],
   "archive": {
-    "commit": "e344c7175b455ddd4d4428a41de11a6be0086fd3",
+    "commit": "b3ccc2949d4c717250c1fd8516a8128972ccaa30",
     "path": "runtime.zip",
-    "sha256": "d2234cd971897eaf0f9af69fd258d84944329d4ad69d716aeaf00649f268d3e8",
-    "size": 16568010
+    "sha256": "c2f85a5e516019a3e1232fbac52fd87427f235f0410bca4309861a2bff5d5006",
+    "size": 16568187
   }
 }
