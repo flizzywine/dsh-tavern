@@ -110,6 +110,12 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
     if (chat === undefined) {
       // An interrupted first write may have left only staging files/directories.
       if (snapshots.length === 0 && journals.length === 0) return null
+      // Every snapshot is newer than the requested revision: that history was compacted away.
+      if (eligible.length === 0 && targetRevision !== Number.POSITIVE_INFINITY) {
+        const error = new Error('Chat Journal 已清理 revision ' + targetRevision + ': ' + paths.id)
+        error.code = 'DSH_TAVERN_REVISION_NOT_FOUND'
+        throw error
+      }
       throw new Error('Chat Journal 缺少可用 snapshot: ' + paths.id)
     }
     let revision = selected ? selected.revision : revisionOf(chat)

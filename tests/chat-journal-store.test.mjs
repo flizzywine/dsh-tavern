@@ -69,6 +69,17 @@ test('损坏快照缺少完整重放链时拒绝静默退回旧状态', async t 
   await assert.rejects(store.read('chat'), /snapshot|快照|revision/)
 })
 
+test('旧存档只留下最新快照时，更早的 revision 报「已清理」，导出存档照常跳过', async t => {
+  const root = await temporary()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(path.join(root, 'chats/chat/snapshots'), { recursive: true })
+  await mkdir(path.join(root, 'chats/chat/journals'), { recursive: true })
+  await writeFile(path.join(root, 'chats/chat/snapshots/000000000005.json'), JSON.stringify({ id: 'chat', _storageRevision: 5, counter: 5 }))
+  const store = createChatJournalStore({ dataRoot: root })
+  assert.equal((await store.readRevision('chat', 5)).counter, 5)
+  await assert.rejects(store.readRevision('chat', 3), { code: 'DSH_TAVERN_REVISION_NOT_FOUND' })
+})
+
 for (const compressed of [false, true]) for (const phase of ['create', 'migrate', 'rotate']) test(`快照发布前进程中断可恢复：${phase}, compressed=${compressed}`, { timeout: 10000 }, async t => {
   const root = await temporary()
   t.after(() => rm(root, { recursive: true, force: true }))
