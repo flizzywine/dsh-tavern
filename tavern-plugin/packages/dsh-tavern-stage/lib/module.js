@@ -27,7 +27,7 @@ import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
 import {createFigureVoiceAuthoring, countServiceUsers} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
-import {foldAssetPackEntries} from './domain/stage-asset-pack-director.js'
+import {stageImageOutfits} from './domain/stage-image-outfits.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
 import {createCardPagesService} from './domain/status-panel-service.js'
@@ -309,8 +309,14 @@ export async function createStageModule(core) {
       const castCard = async gameId => autoCast && (await core.chatHeaderForSession(gameId, ['cardPath']))?.cardPath
       ctx.effect(() => deps.pluginApi.imageGates({
         async beforePlan({gameId, turn, signal}) { const cardPath = await castCard(gameId); if (cardPath) await autoCast.awaitCast(cardPath, gameId, turn, signal) },
-        async awaitReferences({gameId, figures, signal}) { const cardPath = await castCard(gameId); return cardPath ? autoCast.awaitSettei(cardPath, figures, signal) : {unavailable:[]} }
-      }), 'dsh-tavern: CG waits for 自动素材')
+        async awaitReferences({gameId, figures, signal}) { const cardPath = await castCard(gameId); return cardPath ? autoCast.awaitSettei(cardPath, figures, signal) : {unavailable:[]} },
+        // Dress each picture at its anchor paragraph, using the recorded stage, running preview or carried baseline.
+        async wearing({gameId, turn, anchor}) {
+          const chat = await deps.chatForSession(gameId)
+          if (!chat || chat.mode === 'card') return []
+          return stageImageOutfits(await stageDirector.get(chat, turn, null, {readOnly:true}), anchor)
+        }
+      }), 'dsh-tavern: CG waits for 自动素材, dressed as the stage')
       const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport,autoCastSettings,
         autoCastStatus:async path => path && autoCast ? autoCast.status(path) : null})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')

@@ -269,6 +269,31 @@ test('beforeImageGenerate: the host releases each picture with its subjects, or 
     if (skip) assert.ok(JSON.stringify(result.body).includes('not ready yet'), 'the reason reaches the turn warnings')
   })
 })
+test('beforeImageGenerate: inherit omitted outfits at the picture anchor, preserving explicit empty and selected outfits', async t => {
+  for (const mode of ['inherit', 'empty', 'explicit', 'legacy']) await t.test(mode, async t => {
+    const calls = [], asked = []
+    const subject = { characterId: 'lin', ...(mode === 'empty' ? { outfitId: '' } : mode === 'explicit' ? { outfitId: 'shirt' } : {}) }
+    const output = '<images><image><regex>林月坐在桥边。</regex><prompts>【人物】\n林月\n\n【动作】\n坐在桥边。</prompts>' + (mode === 'legacy' ? '' : '<subjects>' + JSON.stringify([subject]) + '</subjects>') + '</image></images>'
+    globalThis.fetch = atlasMock(calls)
+    const tavern = { async beforeImageGenerate(input) { asked.push(input); return { outfits: { lin: 'kimono' } } } }
+    const fixture = await imagePluginFixture(t, { tavern, config: { generationMode: 'reference', promptMode: 'structured' }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+    const runtime = await fixture.start()
+    const upload = async name => (await runtime.request('reference-image', { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name })).body.referenceImage
+    const identity = await upload('设定图.png'), kimono = await upload('和服设定图.png')
+    const dressed = { ...structuredClone(character), referenceImage: identity, outfits: [...character.outfits, { id: 'kimono', name: '红和服', upper: 'red kimono', characterOutfitImage: kimono }] }
+    assert.equal((await runtime.request('definitions', { definitions: { characters: [dressed], outfits: [], settings: [], props: [] } })).status, 200)
+    const result = await runtime.request('plan', { text: '林月坐在桥边。', messageId: 'turn-worn', count: 1, manual: true, sessionId: 'game-1', turn: 2 })
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    const job = await runtime.terminal(result.body.plans[0].jobId)
+    assert.equal(job.state, 'done', job.error)
+    const inherited = mode === 'inherit' || mode === 'legacy'
+    assert.deepEqual(job.references.map(reference => reference.image.id), [inherited ? kimono.id : identity.id])
+    if (inherited) assert.match(job.submittedPrompt, /林月／红和服/)
+    else assert.doesNotMatch(job.submittedPrompt, /红和服|red kimono/)
+    assert.equal(asked[0].anchor, '林月坐在桥边。')
+    assert.equal(asked[0].turn, 2)
+  })
+})
 test('beforeImageGenerate: a plan that names its people only by roster macro, without <subjects>, still waits for them', async t => {
   const calls = [], asked = []
   let runtime, referenceImage

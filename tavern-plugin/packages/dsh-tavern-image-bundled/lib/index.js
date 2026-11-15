@@ -3157,9 +3157,15 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (sessionId && typeof deps.tavern?.beforeImageGenerate === 'function') {
               // 规划没写 <subjects> 时，出图会按这张图的文字认人（resolveImageReferences）；把同样认出的人告诉宿主，宿主才知道要等谁。
               const gateSubjects = image.subjects ?? resolveImageReferences({ text: sceneText, characters: planCharacters, definitions: scoped }).subjects
-              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: gateSubjects, manual: Boolean(manual), signal: task.controller.signal })
+              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, anchor: image.mount, subjects: gateSubjects, manual: Boolean(manual), signal: task.controller.signal })
               task.controller.signal.throwIfAborted()
               if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
+              // 省略 outfitId 才沿用舞台；明确的空字符串表示不选图库服装（例如裸露或只用文字描述）。
+              const worn = answer?.outfits
+              const inherit = subject => (subject.outfitId === undefined || image.subjects === undefined && !subject.outfitId) && worn?.[subject.characterId]
+              if (gateSubjects.some(inherit)) {
+                image = { ...image, subjects: gateSubjects.map(subject => inherit(subject) ? { ...subject, outfitId: worn[subject.characterId] } : subject) }
+              }
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
