@@ -13,7 +13,7 @@ test('choices send through host and cancel delayed picks when unloaded',async()=
  globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
  const h=React.createElement,document=dom.window.document,sends=[],timers=new Map();let id=0,delay=0
  const getComputedStyle=()=>({getPropertyValue:()=>String(delay)})
- const view=createStageChoices({React,window:dom.window,document,layout:createStageChoiceLayout({React,getComputedStyle}),sounds:{play(){}},useSounds(){},episode:()=>({first:0,start:0}),waitLines:['wait'],TextArea:()=>h('textarea'),Icon:()=>null,StageWaitStop:()=>null,StageWaitLines:()=>null,getComputedStyle,setTimeout(fn){timers.set(++id,fn);return id},clearTimeout(id){timers.delete(id)},requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
+ const view=createStageChoices({React,window:dom.window,document,layout:createStageChoiceLayout({React,getComputedStyle}),playEvents:{emit(){},editChars:()=>0},sounds:{play(){}},useSounds(){},episode:()=>({first:0,start:0}),waitLines:['wait'],TextArea:()=>h('textarea'),Icon:()=>null,StageWaitStop:()=>null,StageWaitLines:()=>null,getComputedStyle,setTimeout(fn){timers.set(++id,fn);return id},clearTimeout(id){timers.delete(id)},requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
  const root=createRoot(document.getElementById('root')),fallbackRef={current:null}
  const props={sessionId:'s',messageId:'m',panel:{phase:'ready',choices:[{text:'hello|world'}]},running:false,decode:String,commands:{clear(){},generate(){},stop(){}},executeSlash:async(...args)=>sends.push(args),fallbackRef}
  try{
@@ -31,7 +31,7 @@ test('choices send through host and cancel delayed picks when unloaded',async()=
   ;[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=previous
  }
 })
-test('multi-actor choices default to featured tab and switch across actor and global tabs',async()=>{
+test('multi-actor choices are listed flat, with no tabs',async()=>{
  const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'})
  const previous=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
  globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
@@ -50,20 +50,16 @@ test('multi-actor choices default to featured tab and switch across actor and gl
  const props={sessionId:'s',messageId:'m2',panel:{phase:'ready',choices},running:false,decode:String,commands:{clear(){},generate(){},stop(){}},executeSlash:async(...args)=>sends.push(args)}
  try{
   await act(async()=>root.render(h(view.Choices,props)))
-  const tabs=[...document.querySelectorAll('.fork-gal-choice-tab')]
-  assert.deepEqual(tabs.map(el=>el.querySelector('.fork-gal-choice-tab-label').textContent),['精选','凛','我','全局'])
-  assert.equal(tabs[0].getAttribute('aria-selected'),'true')
+  assert.equal(document.querySelectorAll('.fork-gal-choice-tab').length,0)
   assert.equal(document.querySelectorAll('.fork-gal-choice[data-index]').length,6)
-  await act(async()=>tabs[3].click())
-  assert.equal(document.querySelectorAll('.fork-gal-choice[data-index]').length,2)
-  await act(async()=>document.querySelector('[data-index="0"] .fork-gal-choice-main').click())
+  await act(async()=>document.querySelector('[data-index="4"] .fork-gal-choice-main').click())
   assert.deepEqual(sends,[['/send 【突发事件】走廊尽头传来脚步声|/trigger','s']])
  }finally{
   await act(async()=>root.unmount());view.dispose();dom.window.close()
   ;[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=previous
  }
 })
-test('AI featured combos replace round-robin in stage featured tab with multi-badges and scene prefix',async()=>{
+test('AI featured combos replace round-robin in the stage list with multi-badges and scene prefix',async()=>{
  const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'})
  const previous=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
  globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
@@ -84,9 +80,7 @@ test('AI featured combos replace round-robin in stage featured tab with multi-ba
  const props={sessionId:'s',messageId:'m3',panel:{phase:'ready',choices},running:false,decode:String,commands:{clear(){},generate(){},stop(){}},executeSlash:async(...args)=>sends.push(args)}
  try{
   await act(async()=>root.render(h(view.Choices,props)))
-  const tabs=[...document.querySelectorAll('.fork-gal-choice-tab')]
-  assert.deepEqual(tabs.map(el=>el.querySelector('.fork-gal-choice-tab-label').textContent),['精选','凛','我','全局'])
-  assert.equal(tabs[0].getAttribute('aria-selected'),'true')
+  assert.equal(document.querySelectorAll('.fork-gal-choice-tab').length,0)
   const items=[...document.querySelectorAll('.fork-gal-choice[data-index]')]
   assert.equal(items.length,2)
   assert.equal(items[0].getAttribute('data-actor'),'凛,我')
