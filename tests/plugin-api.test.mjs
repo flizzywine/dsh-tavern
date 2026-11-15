@@ -1893,6 +1893,27 @@ test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases 
   await tavern.beforeImagePlan({ gameId: 'g', turn: 4 })
   assert.equal(asked.length, 3)
 })
+test('beforeImageGenerate: each linked person is dressed in the outfit the stage has them wear in that turn', async () => {
+  const api = createTavernPluginApi({ logger: { warn() {} }, imageCharactersSettled: async () => {}, cardScope: async () => new Map(),
+    runningUserPlugins: new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]]) })
+  const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect(setup) { return setup() } } })
+  const records = [
+    { id: 'c-lin', name: '林月', figureId: 'f-k', figurePackId: 'p', referenceImage: { id: 'r' }, outfits: [{ id: 'k01' }, { id: 'k06' }] },
+    { id: 'c-xin', name: '阿新', figureId: 'f-i', figurePackId: 'p', referenceImage: { id: 'r' }, outfits: [{ id: 'i01' }] },
+    { id: 'c-free', name: '路人' },
+  ]
+  const find = ({ characterId }) => records.find(c => c.id === characterId)
+  tavern.registerImageLibrary({ id: 'definitions', label: '人物库', schemaVersion: 4, characters: () => [],
+    getCharacter: input => ({ version: 4, character: structuredClone(find(input)) }), async patchCharacter() {}, async createCharacter() {}, async putReferenceImage() {} })
+  const asked = []
+  api.imageGates({ async beforePlan() {}, async awaitReferences() { return { unavailable: [] } },
+    async wearing(input) { asked.push(input); return [{ packId: 'p', figureId: 'f-k', outfitKey: 'k06' }, { packId: 'p', figureId: 'f-i', outfitKey: 'i09' }] } })
+  const subjects = ['c-lin', 'c-xin', 'c-free'].map(characterId => ({ characterId }))
+  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, subjects }), { outfits: { 'c-lin': 'k06' } }, 'an outfit the record does not have is not named')
+  assert.deepEqual(asked, [{ gameId: 'g', turn: 2 }])
+  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, subjects: [{ characterId: 'c-free' }] }), {}, 'no linked person, no stage read')
+  assert.equal(asked.length, 1)
+})
 
 test('插件轮次读取：传入 regexScripts 时 text 经过显示正则投影，source 原文仍保留给插件解析', async t => {
   const { mkdtemp, rm } = await import('node:fs/promises')

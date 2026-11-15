@@ -309,8 +309,18 @@ export async function createStageModule(core) {
       const castCard = async gameId => autoCast && (await core.chatHeaderForSession(gameId, ['cardPath']))?.cardPath
       ctx.effect(() => deps.pluginApi.imageGates({
         async beforePlan({gameId, turn, signal}) { const cardPath = await castCard(gameId); if (cardPath) await autoCast.awaitCast(cardPath, gameId, turn, signal) },
-        async awaitReferences({gameId, figures, signal}) { const cardPath = await castCard(gameId); return cardPath ? autoCast.awaitSettei(cardPath, figures, signal) : {unavailable:[]} }
-      }), 'dsh-tavern: CG waits for 自动素材')
+        async awaitReferences({gameId, figures, signal}) { const cardPath = await castCard(gameId); return cardPath ? autoCast.awaitSettei(cardPath, figures, signal) : {unavailable:[]} },
+        // What each actor wears in the turn's stage (its record's end, a running director's preview, or the end it carries
+        // in), so a picture dresses them as their sprite is.
+        async wearing({gameId, turn}) {
+          const chat = await deps.chatForSession(gameId)
+          if (!chat || chat.mode === 'card') return []
+          const direction = await stageDirector.get(chat, turn, null, {readOnly:true}), checked = direction.record || direction.preview
+          const state = checked ? foldAssetPackEntries(checked) : direction.baseline
+          return Object.values(state?.actors || {}).filter(actor => actor.figure?.figureId && actor.outfitKey)
+            .map(actor => ({packId:actor.figure.packId, figureId:actor.figure.figureId, outfitKey:actor.outfitKey}))
+        }
+      }), 'dsh-tavern: CG waits for 自动素材, dressed as the stage')
       const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport,autoCastSettings,
         autoCastStatus:async path => path && autoCast ? autoCast.status(path) : null})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')

@@ -3160,6 +3160,11 @@ function createRuntime(ctx, overrides, logger, deps) {
               const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: gateSubjects, manual: Boolean(manual), signal: task.controller.signal })
               task.controller.signal.throwIfAborted()
               if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
+              // 宿主说了这些人此刻穿哪套（answer.outfits：人物 id → 服装 id）：规划没写服装的人用它，参考图和服装文字跟着那套走。
+              const worn = answer?.outfits
+              if (worn && gateSubjects.some(subject => !subject.outfitId && worn[subject.characterId])) {
+                image = { ...image, subjects: gateSubjects.map(subject => !subject.outfitId && worn[subject.characterId] ? { ...subject, outfitId: worn[subject.characterId] } : subject) }
+              }
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null

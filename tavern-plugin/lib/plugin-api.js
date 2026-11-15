@@ -568,7 +568,9 @@ export function createTavernPluginApi(deps) {
     // The image plugin's gates (its optional host hooks): it plans a settled turn once beforeImagePlan returns, and draws a
     // picture once beforeImageGenerate does, skipping it on {skip, reason}. Tavern releases a turn once its new people are
     // written (their 人物库 records exist, with their 外貌), and a picture once each of its people linked to a pack figure
-    // without a 参考图 has one: their 人设图 is drawn first; at once when nothing is being prepared.
+    // without a 参考图 has one: their 人设图 is drawn first; at once when nothing is being prepared. The answer's
+    // `outfits` ({[characterId]: outfitId}) names the outfit the stage has each linked person wear in that turn (a record's
+    // outfit ids are its figure's outfit keys): the stage is the one authority on what a person wears now.
     async beforeImagePlan({ gameId, turn, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Number.isSafeInteger(turn)) throw new TypeError('beforeImagePlan 需要 gameId 与整数 turn')
       if (!imageGateProvider) return
@@ -576,20 +578,27 @@ export function createTavernPluginApi(deps) {
       // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
       await deps.imageCharactersSettled?.()
     },
-    async beforeImageGenerate({ gameId, subjects, signal } = {}) {
+    async beforeImageGenerate({ gameId, turn, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
       if (!imageGateProvider) return {}
       const ids = [...new Set(subjects.map(subject => subject?.characterId).filter(id => typeof id === 'string' && id))]
       const libraries = ids.length ? await imageCatalog.recordLibraries({}) : []
       const records = (await Promise.all(ids.flatMap(characterId => libraries.map(({ providerId }) => imageCatalog.record('getCharacter', {}, { providerId, characterId })
         .then(found => found.character, error => { if (error.code === 'NOT_FOUND') return null; throw error }))))).filter(Boolean)
-      const figures = records.filter(record => record.figureId && record.figurePackId && !record.referenceImage)
+      const linked = records.filter(record => record.figureId && record.figurePackId)
+      const worn = linked.length && Number.isSafeInteger(turn) ? await imageGateProvider.wearing({ gameId, turn }) : []
+      const outfits = Object.fromEntries(linked.flatMap(record => {
+        const row = worn.find(item => item.packId === record.figurePackId && item.figureId === record.figureId)
+        return row && record.outfits?.some(outfit => outfit.id === row.outfitKey) ? [[record.id, row.outfitKey]] : []
+      }))
+      const answer = Object.keys(outfits).length ? { outfits } : {}
+      const figures = linked.filter(record => !record.referenceImage)
         .map(record => ({ packId: record.figurePackId, figureId: record.figureId, name: record.name }))
-      if (!figures.length) return {}
+      if (!figures.length) return answer
       const { unavailable } = await imageGateProvider.awaitReferences({ gameId, figures: figures.map(({ packId, figureId }) => ({ packId, figureId })), signal })
       await deps.imageCharactersSettled?.()
       const missing = figures.filter(figure => unavailable.some(ref => ref.packId === figure.packId && ref.figureId === figure.figureId))
-      return missing.length ? { skip: true, reason: '「' + missing.map(figure => figure.name).join('、') + '」的人设图没有画出来，有他们的图这次没有出' } : {}
+      return missing.length ? { skip: true, reason: '「' + missing.map(figure => figure.name).join('、') + '」的人设图没有画出来，有他们的图这次没有出' } : answer
     },
 
     // A moment of the event table, Tavern's (玩家发送, 正文开始, 正文写完, 本轮结算完, 回合作废,
@@ -1623,7 +1632,7 @@ export function createTavernPluginApi(deps) {
     pictureObservers.add(observer)
     return () => pictureObservers.delete(observer)
   }
-  /** Host-only: the stage's 自动素材 answers tavern.beforeImagePlan / beforeImageGenerate ({beforePlan, awaitReferences}). */
+  /** Host-only: the stage answers tavern.beforeImagePlan / beforeImageGenerate ({beforePlan, awaitReferences, wearing}). */
   function imageGates(provider) {
     imageGateProvider = provider
     return () => { if (imageGateProvider === provider) imageGateProvider = null }
