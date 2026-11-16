@@ -691,6 +691,8 @@ function AutoCastVoices({ctx}) {
   const {binding}=ctx,[error,setError]=React.useState('');
   const list=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding],{keep:true}),preview=useVoicePreview(binding,null);
   const rows=list.value?defaultCastVoices(list.value):null;
+  // Two voices of one name (each pack may have its own 「通用男性声音」) are told apart by their pack.
+  const shared=new Set((rows||[]).map(v=>v.name).filter((name,i,all)=>all.indexOf(name)!==i));
   const save=async(v,text)=>{
     setError('');
     try{
@@ -700,14 +702,14 @@ function AutoCastVoices({ctx}) {
       list.reload();
     }catch(e){setError(voiceErrorText(e));}
   };
-  const row=v=>{const key='auto:'+v.ref.packId+':'+v.ref.voiceId,spec=v.voiceSpec,src=spec.sources?.[spec.defaultSource];
+  const row=v=>{const key='auto:'+v.ref.packId+':'+v.ref.voiceId,spec=v.voiceSpec,src=spec.sources?.[spec.defaultSource],pack=shared.has(v.name)?v.packName:'';
     const play=src?.provider==='browser'?()=>preview.playBrowser(key,{voice:src.voiceName,language:spec.language,text:sampleText(spec.language)}):
       v.previewFigureId?()=>preview.play(key,{packId:v.ref.packId,figureId:v.previewFigureId,expectedRevision:v.revision,voiceSpec:spec},{label:v.name}):null;
     return h('li',{key,className:'ap-vx-auto-row'},
       h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+v.name+'」',disabled:!play||!binding.tts||!!voiceSourceUnset(src||{}),onClick:play||(()=>{})}),
       h('div',{className:'ap-vx-auto-main'},
-        h('div',{className:'ap-vx-auto-name'},h('span',{className:'ap-vx-row-name'},v.name),h(VoiceLangChip,{tag:spec.language})),
-        h(CommitInput,{className:'ap-vx-auto-guidance','aria-label':v.name+'：使用情景',value:spec.guidance||'',placeholder:'适合什么样的人',maxLength:60,onCommit:text=>save(v,text.trim())})));};
+        h('div',{className:'ap-vx-auto-name'},h('span',{className:'ap-vx-row-name'},v.name),h(VoiceLangChip,{tag:spec.language}),pack&&h('span',{className:'ap-vx-row-meta'},pack)),
+        h(CommitInput,{className:'ap-vx-auto-guidance','aria-label':v.name+(pack?'（'+pack+'）':'')+'：使用情景',value:spec.guidance||'',placeholder:'适合什么样的人',maxLength:60,onCommit:text=>save(v,text.trim())})));};
   const presets=h(VoiceOptionPick,{label:'可选声音预设',value:'default',options:[{id:'default',label:'默认'}],onPick:()=>{}});
   return h(StageSection,{title:'可选声音',meta:rows?.length||undefined,foldKey:'auto-cast/voices',help:AUTO_CAST_VOICES_HELP,action:presets,className:'ap-vx-auto'},
     error&&h('p',{className:'ap-alert',role:'alert'},error),

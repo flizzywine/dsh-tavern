@@ -75,6 +75,22 @@ test('voice catalogue projects installed pack voices and reference templates wit
 
 })
 
+test('voice catalogue reads figures but never the sprite documents of a pack', async t => {
+  const {service,root,assetRoot} = await fixture(t), initial = snap(await install(service,root))
+  const voiceId = initial.figures[FIGURE_ID].voice.voice
+  // A second service starts without metadata; an unreadable sprite document would fail any full read.
+  for (const name of Object.values(initial.manifest.sprites)) await writeFile(await checkedPath(assetRoot,`packs/${PACK_ID}/${name}`),'not json')
+  const fresh = createAssetPackService({assetRoot, authorizeLease:async () => true})
+  t.after(() => fresh.dispose())
+  const result = await fresh.listVoiceCatalogue()
+  assert.deepEqual(result.errors,[])
+  const row = result.voices.find(v => v.ref.packId === PACK_ID && v.ref.voiceId === voiceId)
+  assert.equal(row.revision,initial.revision); assert.equal(row.packName,initial.manifest.name)
+  assert.deepEqual(row.users.map(u => u.id),[FIGURE_ID]); assert.equal(row.previewFigureId,FIGURE_ID)
+  assert.ok(Object.keys(initial.manifest.sprites).length)
+  await assert.rejects(fresh.getPackSnapshot({packId:PACK_ID}))
+})
+
 test('music loop seconds survive CAS, noop and a ZIP installation on another service', async t => {
   const {service,root} = await fixture(t), initial = snap(await install(service,root))
   const assets = structuredClone(initial.manifest.assets), music = assets.find(asset => asset.kind === 'music')
