@@ -1708,6 +1708,22 @@ window.__ModuleLoader__.load({
             }
             return patch;
         }
+        // The frame's own alpha at the size it is painted (cached per atlas image, frame and size).
+        const layeredSpriteFrameAlphas = new WeakMap();
+        function layeredSpriteFrameAlpha(atlas, f, w, h) {
+            let alphas = layeredSpriteFrameAlphas.get(atlas);
+            if (!alphas) { alphas = new Map(); layeredSpriteFrameAlphas.set(atlas, alphas); }
+            const key = [f.x, f.y, f.w, f.h, w, h].join(',');
+            let alpha = alphas.get(key);
+            if (!alpha) {
+                const work = document.createElement('canvas'); work.width = w; work.height = h;
+                const wctx = work.getContext('2d');
+                if (f.w === w && f.h === h) wctx.drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, w, h);
+                else wctx.drawImage(layeredSpriteFramePatch(atlas, f), 0, 0, f.w, f.h, 0, 0, w, h);
+                alpha = wctx.getImageData(0, 0, w, h).data; alphas.set(key, alpha);
+            }
+            return alpha;
+        }
         // Replacement masks store straight RGBA, not opacity to stack over the same coverage.
         // Cache the small decoded mask; transparent pixels (including tear exclusions) keep the base.
         const blinkPixels = new WeakMap();
@@ -1738,8 +1754,22 @@ window.__ModuleLoader__.load({
             const before = v.mouthOcclusionMask ? ctx.getImageData(r.x, r.y, r.w, r.h) : null;
             // clear only explicitly authored replacement patches.
             if (f.replace) ctx.clearRect(r.x, r.y, r.w, r.h);
+            const under = f.replace ? null : before || ctx.getImageData(r.x, r.y, r.w, r.h);
             if (f.w === r.w && f.h === r.h) ctx.drawImage(atlas, f.x, f.y, f.w, f.h, r.x, r.y, r.w, r.h);
             else ctx.drawImage(layeredSpriteFramePatch(atlas, f), 0, 0, f.w, f.h, r.x, r.y, r.w, r.h);
+            // An overlay frame keeps the larger of its own and the base's alpha. Plain source-over lifts a near-opaque
+            // frame (alpha 253) on a near-opaque base to 255, a faint box against the stage; a frame filling a hole in
+            // the base (alpha 0 there) must still show.
+            if (under) {
+                const over = ctx.getImageData(r.x, r.y, r.w, r.h), b = under.data, o = over.data;
+                let a = null, lifted = false;
+                for (let i = 3; i < o.length; i += 4) if (b[i] && b[i] < 255 && o[i] > b[i]) {
+                    a ||= layeredSpriteFrameAlpha(atlas, f, r.w, r.h);
+                    const keep = Math.max(b[i], a[i]);
+                    if (o[i] > keep) { o[i] = keep; lifted = true; }
+                }
+                if (lifted) ctx.putImageData(over, r.x, r.y);
+            }
             if (before) {
                 const mask = images.get(v.mouthOcclusionMask);
                 if (!mask || mask.width !== v.width || mask.height !== v.height) throw new Error('分层遮挡 mask 尺寸不匹配');
