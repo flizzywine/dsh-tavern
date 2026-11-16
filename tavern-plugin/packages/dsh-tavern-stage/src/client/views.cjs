@@ -83,6 +83,11 @@ function StagePortal(props) {
             galCoverChat();
             document.addEventListener("fullscreenchange", onFullscreen);
             window.addEventListener("resize", onResize);
+            // The stage is shown in full screen on the Windows Desktop whenever it stands, also when it comes back without a click (a
+            // reload): there the native minimise / maximise / close are hidden and only the stage's own controls remain.
+            // The Desktop grants it without a user gesture; a plain browser asks on the opening click (galOpen).
+            const root = document.documentElement;
+            if (!wasFull && root.hasAttribute("data-windows-titlebar") && root.requestFullscreen) root.requestFullscreen().catch(() => {});
             galEscapeLock(wasFull);
             setTarget(mount);
             return release;
