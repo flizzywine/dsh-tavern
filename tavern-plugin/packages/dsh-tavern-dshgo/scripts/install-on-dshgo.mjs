@@ -32,6 +32,7 @@ export const LOCAL_PACKAGES = Object.freeze({
   'dsh-asset-library': 'tavern-plugin/packages/dsh-asset-library',
   'dsh-tavern-stage': 'tavern-plugin/packages/dsh-tavern-stage',
   'dsh-tavern-tts': 'tavern-plugin/packages/dsh-tavern-tts',
+  'dsh-tavern-plot-compass': 'tavern-plugin/packages/dsh-tavern-plot-compass',
 })
 
 /** 打补丁的 npm 包：版本号必须和 patches/ 里的文件名对齐，否则 pnpm 不会套补丁。 */

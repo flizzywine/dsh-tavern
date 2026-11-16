@@ -56,7 +56,8 @@
         "dsh-tavern-remote",
         "dsh-asset-library",
         "dsh-tavern-stage",
-        "dsh-tavern-tts"
+        "dsh-tavern-tts",
+        "dsh-tavern-plot-compass"
       ]
     }
   },
@@ -74,7 +75,8 @@
     "dsh-asset-library": "link:./tavern-plugin/packages/dsh-asset-library",
     "esbuild": "0.25.12",
     "dsh-tavern-stage": "link:./tavern-plugin/packages/dsh-tavern-stage",
-    "dsh-tavern-tts": "link:./tavern-plugin/packages/dsh-tavern-tts"
+    "dsh-tavern-tts": "link:./tavern-plugin/packages/dsh-tavern-tts",
+    "dsh-tavern-plot-compass": "link:./tavern-plugin/packages/dsh-tavern-plot-compass"
   },
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "engines": {

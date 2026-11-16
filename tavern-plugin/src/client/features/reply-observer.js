@@ -178,15 +178,22 @@
 				const sessionId = String(props.sessionId || "");
 				const live = useLiveTavernView(sessionId, "composer-slot", [["mode"]]);
 				const mode = live && live.view && typeof live.view.mode === "string" ? live.view.mode : "";
-				const slot = mode === "" ? null : tavernUiExtensions.composerSlotFor(mode);
+				const matchingSlots = mode === ""
+					? []
+					: tavernUiExtensions.composerSlots().filter(function (slot) {
+						return (slot.modes.indexOf(mode) >= 0 || (mode === "story" || mode === "script") && slot.modes.indexOf("play") >= 0) &&
+							tavernPluginAllowed(slot.owner, sessionId);
+					});
 				const busy = props.useSession(function (snapshot) { return snapshot.running === true; });
 
-				if (sessionId === "" || !slot || !tavernPluginAllowed(slot.owner, sessionId)) return null;
+				if (sessionId === "" || matchingSlots.length === 0) return null;
 				const h = React.createElement;
-				const fallback = h("div", { className: "dsh-tavern-plugin-slot-error" }, "插件 " + slot.owner + " 的界面出错了");
-				return h(React.Fragment, null, h("div", { className: "dsh-tavern-composer-slot", "data-plugin": slot.owner },
-					h(tavernPluginBoundary(), { owner: slot.owner, fallback: fallback },
-						h(slot.render, { sessionId: sessionId, busy: busy === true }))));
+				return h(React.Fragment, null, matchingSlots.map(function (slot) {
+					const fallback = h("div", { className: "dsh-tavern-plugin-slot-error" }, "插件 " + slot.owner + " 的界面出错了");
+					return h("div", { key: slot.key || slot.owner, className: "dsh-tavern-composer-slot", "data-plugin": slot.owner },
+						h(tavernPluginBoundary(), { owner: slot.owner, fallback: fallback },
+							h(slot.render, { sessionId: sessionId, busy: busy === true })));
+				}));
 			}
 
 			function register(input) {

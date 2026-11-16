@@ -116,7 +116,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
       cardContextSnapshot: '[偏好正文]\n\n[人物卡正文]',
       cardContextRevision: 1,
       backgroundModelSelection: { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' },
-      backgroundTasks: { variables: true, posture: false, plotCompass: true, styleReference: false, foregroundCandidates: true, preset: true },
+      backgroundTasks: { variables: true, posture: false, styleReference: false, foregroundCandidates: true, preset: true },
       webSearchEnabled: true,
       storyGenerationMode: 'plugin-direct',
       storyGenerationProvider: 'gen:one',
@@ -228,9 +228,6 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
     invalidateTavernSkills: () => { skillsInvalidated += 1 }
   })
 
-  const initialDefaults = await readTavernSettings()
-  assert.equal(initialDefaults.defaultPlaySettings.backgroundTasks.plotCompass, false)
-
   const saveRes = await handlers.saveConversationSettingsAsDefaultTemplate({ sessionId: 's1' })
   assert.equal(saveRes.saved, true)
   assert.deepEqual(saveRes.warnings, [])
@@ -239,7 +236,6 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   const savedSettings = await readTavernSettings()
   assert.equal(savedSettings.defaultPlaySettings.playerName, '旅人')
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.posture, false)
-  assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.plotCompass, true)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.styleReference, false)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.foregroundCandidates, true)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.preset, true)
@@ -260,7 +256,6 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(restored.userProfileId, 'p1')
   assert.deepEqual(restored.backgroundModelSelection, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.equal(restored.backgroundTasks.posture, false)
-  assert.equal(restored.backgroundTasks.plotCompass, true)
   assert.equal(restored.backgroundTasks.styleReference, false)
   assert.equal(restored.backgroundTasks.foregroundCandidates, true)
   assert.equal(restored.backgroundTasks.preset, true)
@@ -303,7 +298,6 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(publishedChat.runtimePresetPath, 'presets/reborn.json')
   assert.deepEqual(publishedChat.backgroundModelSelection, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.equal(publishedChat.backgroundTasks.posture, false)
-  assert.equal(publishedChat.backgroundTasks.plotCompass, true)
   assert.equal(publishedChat.backgroundTasks.styleReference, false)
   assert.equal(publishedChat.backgroundTasks.foregroundCandidates, true)
   assert.equal(publishedChat.backgroundTasks.preset, true)
@@ -323,152 +317,6 @@ test('后台任务附加预设默认关闭且校验布尔类型', async () => {
   assert.throws(() => applyTavernSettingsPatch({}, { defaultPlaySettings: { backgroundTasks: { preset: 'yes' } } }), /必须为布尔值/)
   const patched = applyTavernSettingsPatch({}, { defaultPlaySettings: { backgroundTasks: { preset: true } } })
   assert.equal(patched.defaultPlaySettings.backgroundTasks.preset, true)
-})
-
-test('剧情罗盘模型默认跟随后台，支持跟随前台和独立模型且随默认模板继承', async () => {
-  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
-  const { createSettingsHandlers } = await import('../tavern-plugin/lib/rpc/settings.js')
-  const { createConversationInitialization } = await import('../tavern-plugin/lib/domain/conversation-initialization.js')
-
-  assert.equal(presentTavernSettings({}, {}).plotCompassModel, 'background')
-  assert.throws(() => applyTavernSettingsPatch({}, { plotCompassModel: 'other' }), /剧情罗盘模型配置无效/)
-  const fgDoc = applyTavernSettingsPatch({}, { plotCompassModel: 'foreground' })
-  assert.equal(presentTavernSettings(fgDoc, {}).plotCompassModel, 'foreground')
-  const indModel = { provider: 'openai', model: 'gpt-5', reasoningEffort: 'high' }
-  const indDoc = applyTavernSettingsPatch({}, { plotCompassModel: indModel })
-  assert.deepEqual(presentTavernSettings(indDoc, {}).plotCompassModel, indModel)
-
-  let settingsDoc = {}
-  const chats = new Map([
-    ['s1', { id: 'c1', sessionId: 's1', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: indModel, backgroundTasks: {}, disabledForegroundTools: [], disabledWritingSkills: [], messages: [] }],
-    ['s2', { id: 'c2', sessionId: 's2', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: 'background', backgroundTasks: {}, disabledForegroundTools: [], disabledWritingSkills: [], messages: [] }]
-  ])
-  const readTavernSettings = async () => presentTavernSettings(settingsDoc, {})
-  const updateTavernSettings = async patch => {
-    settingsDoc = applyTavernSettingsPatch(settingsDoc, patch)
-    return presentTavernSettings(settingsDoc, {})
-  }
-  const handlers = createSettingsHandlers({
-    str: v => v == null ? '' : String(v),
-    groupOfMode: mode => mode === 'card' ? 'card' : 'play',
-    chatForSession: async sid => chats.get(sid),
-    chatHeaderForSession: async sid => chats.get(sid),
-    updateChat: async (chatId, updater) => {
-      for (const [sid, chat] of chats.entries()) {
-        if (chat.id === chatId) {
-          const next = updater({ ...chat })
-          chats.set(sid, next)
-          return next
-        }
-      }
-      throw new Error('missing chat')
-    },
-    readTavernSettings,
-    updateTavernSettings,
-    llm: { resolveCallConfig: async () => ({}) }
-  })
-
-  await handlers.saveConversationSettingsAsDefaultTemplate({ sessionId: 's1' })
-  assert.deepEqual((await readTavernSettings()).plotCompassModel, indModel)
-  await handlers.restoreConversationSettingsFromDefaultTemplate({ sessionId: 's2' })
-  assert.deepEqual(chats.get('s2').plotCompassModelSelection, indModel)
-
-  let publishedChat = null
-  const init = createConversationInitialization({
-    id: prefix => prefix + '-new',
-    timeline: { apply: ({ chat }) => ({ chat }) },
-    cards: {
-      read: async () => ({ path: 'cards/a.json', name: '卡', first_mes: '开场' }),
-      extensions: async () => ({}),
-      script: async () => undefined
-    },
-    chats: { resolve: async () => undefined, publish: async chat => { publishedChat = chat } },
-    snapshots: { prepare: async () => {} },
-    presets: { fullSnapshot: async () => null },
-    settings: readTavernSettings,
-    emptyCardWorkspace: () => ({}),
-    present: async chat => chat
-  })
-  await init.start({ cardPath: 'cards/a.json', mode: 'story' })
-  assert.deepEqual(publishedChat.plotCompassModelSelection, indModel)
-})
-
-test('剧情罗盘自动更新间隔支持全局开局默认配置、校验与默认模板保存恢复及新局继承', async () => {
-  const { applyTavernSettingsPatch, normalizePlayDefaults, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
-  const { createSettingsHandlers } = await import('../tavern-plugin/lib/rpc/settings.js')
-  const { createConversationInitialization } = await import('../tavern-plugin/lib/domain/conversation-initialization.js')
-  const { applyPlotCompassPreferences, readPlotCompass } = await import('../tavern-plugin/lib/domain/plot-compass.js')
-
-  assert.equal(normalizePlayDefaults({}).plotCompassAutoUpdateInterval, 0)
-  for (const invalid of [-1, 101, 2.5, '', null, true, 'abc']) {
-    assert.throws(() => applyTavernSettingsPatch({}, { defaultPlaySettings: { plotCompassAutoUpdateInterval: invalid } }), /剧情罗盘自动更新间隔须为/)
-  }
-  const patched = applyTavernSettingsPatch({}, { defaultPlaySettings: { plotCompassAutoUpdateInterval: 5 } })
-  assert.equal(presentTavernSettings(patched, {}).defaultPlaySettings.plotCompassAutoUpdateInterval, 5)
-
-  let settingsDoc = {}
-  const chats = new Map([
-    ['s1', {
-      id: 'c1', sessionId: 's1', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: 'background',
-      backgroundTasks: { plotCompass: true }, disabledForegroundTools: [], disabledWritingSkills: [], messages: [],
-      plotCompass: applyPlotCompassPreferences(null, { pace: 'climax', autoUpdateInterval: 4 })
-    }],
-    ['s2', {
-      id: 'c2', sessionId: 's2', mode: 'story', backgroundModelSelection: null, plotCompassModelSelection: 'background',
-      backgroundTasks: {}, disabledForegroundTools: [], disabledWritingSkills: [], messages: [],
-      plotCompass: applyPlotCompassPreferences(null, { blindBox: true, autoUpdateInterval: 0 })
-    }]
-  ])
-  const readTavernSettings = async () => presentTavernSettings(settingsDoc, {})
-  const updateTavernSettings = async patch => {
-    settingsDoc = applyTavernSettingsPatch(settingsDoc, patch)
-    return presentTavernSettings(settingsDoc, {})
-  }
-  const handlers = createSettingsHandlers({
-    str: v => v == null ? '' : String(v),
-    groupOfMode: mode => mode === 'card' ? 'card' : 'play',
-    chatForSession: async sid => chats.get(sid),
-    chatHeaderForSession: async sid => chats.get(sid),
-    updateChat: async (chatId, updater) => {
-      for (const [sid, chat] of chats.entries()) {
-        if (chat.id === chatId) {
-          const next = updater({ ...chat })
-          chats.set(sid, next)
-          return next
-        }
-      }
-      throw new Error('missing chat')
-    },
-    readTavernSettings,
-    updateTavernSettings,
-    llm: { resolveCallConfig: async () => ({}) }
-  })
-
-  await handlers.saveConversationSettingsAsDefaultTemplate({ sessionId: 's1' })
-  assert.equal((await readTavernSettings()).defaultPlaySettings.plotCompassAutoUpdateInterval, 4)
-
-  await handlers.restoreConversationSettingsFromDefaultTemplate({ sessionId: 's2' })
-  assert.equal(readPlotCompass(chats.get('s2').plotCompass).autoUpdateInterval, 4)
-  assert.equal(readPlotCompass(chats.get('s2').plotCompass).blindBox, true)
-
-  let publishedChat = null
-  const init = createConversationInitialization({
-    id: prefix => prefix + '-new',
-    timeline: { apply: ({ chat }) => ({ chat }) },
-    cards: {
-      read: async () => ({ path: 'cards/a.json', name: '卡', first_mes: '开场' }),
-      extensions: async () => ({}),
-      script: async () => undefined
-    },
-    chats: { resolve: async () => undefined, publish: async chat => { publishedChat = chat } },
-    snapshots: { prepare: async () => {} },
-    presets: { fullSnapshot: async () => null },
-    settings: readTavernSettings,
-    emptyCardWorkspace: () => ({}),
-    present: async chat => chat
-  })
-  await init.start({ cardPath: 'cards/a.json', mode: 'story' })
-  assert.equal(readPlotCompass(publishedChat.plotCompass).autoUpdateInterval, 4)
 })
 
 

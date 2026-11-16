@@ -949,7 +949,6 @@
 		}
 
         // @include modules/background-wait.js
-        // @include modules/plot-compass.js
 
 		function TavernStopBackgroundAction(props) {
 			const [busy, setBusy] = React.useState(false);
@@ -1155,7 +1154,6 @@
 				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
 				h("div", { className: "dsh-tavern-dock-actions-primary" },
 					isPlayMode(sessionMode) ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
-					isPlayMode(sessionMode) && live.view ? React.createElement(PlotCompassDockButton, { sessionId: ownerSessionId, view: live.view, onOpen: props.openPlotCompass }) : null,
 					isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
 				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
 				React.createElement(MobileComposerStatsToggle),
@@ -1366,6 +1364,15 @@
 			const ctx = input.ctx;
 			const slots = input.slots;
 			installTavernAssetLaunchers(ctx, slots);
+			ctx.effect(function () {
+				return tavernUiExtensions.attachCandidateRunner(async function (sessionId, guidance) {
+					const snap = liveTavernView.snapshot(sessionId);
+					const msgId = String((snap && snap.view && snap.view.latestAssistantMessageId) || "");
+					await submitCandidateTask(sessionId, msgId, String(guidance || ""));
+					liveTavernView.invalidate(sessionId);
+					tavernCoordination.invalidate(sessionId);
+				});
+			}, "dsh-tavern: plugin candidate runner");
 			const uiConversation = ctx.get("uiConversation") || ctx.get("conversation");
 			const executeSlash = createTavernFrameSlashExecutor(ctx);
             ctx.effect(() => registerTab(ctx.betterSidebar, {
@@ -1452,8 +1459,6 @@
 					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: uiConversation, sessionId: props.scope.sessionId, executeSlash: executeSlash, openStyleTab: function (type, meta) { openTavernSidebarTab(ctx, { type: type, meta: meta }, { sessionId: props.scope.sessionId }); } });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
-			ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:plot-compass", title: "剧情罗盘", order: 7, single: true,
-				component: props => React.createElement(TavernPlotCompassTab, { sessions: ctx.sessions, sessionId: props.scope && props.scope.sessionId }) }), "dsh-tavern: plot compass tab");
 			ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:background-tasks", title: "后台任务", order: 7, single: true,
 				component: props => React.createElement(TavernBackgroundTasksTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: background tasks tab");
 			ctx.effect(() => slots.inject("conversation.chat.assistant-actions", () => slots.register(
@@ -1466,7 +1471,6 @@
                     !ctx.sessions.subagentAddress(props.sessionId) && React.createElement(tavernReplyObserverFeature.GamePage, { sessionId: props.sessionId }),
                     React.createElement(CandidateDockActions, Object.assign({}, props, {
 					sessions: ctx.sessions,
-					openPlotCompass: function (targetSessionId) { openTavernSidebarTab(ctx, { type: "dsh-tavern:plot-compass" }, { sessionId: targetSessionId || props.sessionId }); },
 					executeCompact: function (sessionId) { return ctx.remote.commands.execute(sessionId, "/compact", []); }
 				}))); }
 			)), "dsh-tavern: candidate dock actions");
@@ -1476,8 +1480,7 @@
 					React.createElement(SupersededTurnErrors, Object.assign({}, props, { key: props.sessionId })),
 					React.createElement(TurnHistoryProjection, Object.assign({}, props, { key: "history:" + props.sessionId })),
 					React.createElement(CandidateQuestion, Object.assign({}, props, {
-						sessions: ctx.sessions,
-						openPlotCompass: function () { openTavernSidebarTab(ctx, { type: "dsh-tavern:plot-compass" }, { sessionId: props.sessionId }); }
+						sessions: ctx.sessions
 					}))
 				); }
 			)), "dsh-tavern: candidate question panel");

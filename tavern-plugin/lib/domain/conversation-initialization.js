@@ -5,9 +5,8 @@ import { cardOpeningChoices, resolveCardOpening } from './card-openings.js'
 import { projectAgentContent, projectOpeningCommit } from './runtime-content-projection.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
-import { normalizeBackgroundModel, normalizePlotCompassModel } from './background-model-selection.js'
+import { normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
-import { applyPlotCompassPreferences } from './plot-compass.js'
 import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
 import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
@@ -64,7 +63,6 @@ export function createConversationInitialization(options) {
       userProfileContextSnapshot: '',
       webSearchEnabled: false,
       backgroundModelSelection: null,
-      plotCompassModelSelection: 'background',
       macroState: { userName: '你', local: {}, global: {} },
       settleStatus: 'idle',
       settleError: null,
@@ -206,7 +204,6 @@ export function createConversationInitialization(options) {
     if (groupOfMode(chat.mode) === 'play') chat.worldbookStrategy = defaults.worldbookStrategy
     chat.conversationFeaturesVersion = 1
     chat.backgroundModelSelection = groupOfMode(chat.mode) === 'play' ? normalizeBackgroundModel(currentSettings.defaultBackgroundModel) : null
-    chat.plotCompassModelSelection = groupOfMode(chat.mode) === 'play' ? (normalizePlotCompassModel(currentSettings.plotCompassModel) || 'background') : 'background'
     chat.disabledWritingSkills = groupOfMode(chat.mode) === 'play' ? [...(currentSettings.defaultDisabledWritingSkills || [])] : []
     chat.disabledForegroundTools = groupOfMode(chat.mode) === 'play' ? normalizeDisabledForegroundTools(currentSettings.defaultDisabledForegroundTools) : []
     if (groupOfMode(chat.mode) === 'play') {
@@ -219,9 +216,6 @@ export function createConversationInitialization(options) {
     }
     chat.backgroundConfigVersion = 1
     chat.backgroundTasks = normalizeConfiguredBackgroundTasks(groupOfMode(chat.mode) === 'play' ? defaults.backgroundTasks : {})
-    if (groupOfMode(chat.mode) === 'play' && defaults.plotCompassAutoUpdateInterval > 0) {
-      chat.plotCompass = applyPlotCompassPreferences(chat.plotCompass, { autoUpdateInterval: defaults.plotCompassAutoUpdateInterval })
-    }
     chat.mvu = usesMvu ? {
       enabled: true,
       owner: 'official',

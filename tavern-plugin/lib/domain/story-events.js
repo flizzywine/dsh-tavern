@@ -21,7 +21,9 @@ export const STORY_EVENTS = Object.freeze({
   'story-rewound': '剧情回退或改写',
   // { sessionId, task, plugin, member, status, turn }: a background run ended
   // (status: completed / failed / cancelled).
-  'task-finished': '任务完成'
+  'task-finished': '任务完成',
+  // { sessionId }: foreground story context finished compaction/summarization.
+  'context-compacted': '上下文归卷'
 })
 
 // A plugin's own moment: its name, a colon, the moment's name.

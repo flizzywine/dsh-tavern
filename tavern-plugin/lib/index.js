@@ -151,7 +151,6 @@ import { userMessageForTurn, requestIdForTurn, requestIdForMessages } from './do
 import { createStoryReconciliation } from './domain/story-reconciliation.js'
 import { sessionOpeningDescriptor } from './domain/session-opening.js'
 import { scriptPromptScanText } from './domain/tavern-script-prompts.js'
-import { plotCompassWorldbookScanText } from './domain/plot-compass.js'
 import { createOpeningPreparation } from './domain/opening-preparation.js'
 import { createChatHistoryImportService } from './domain/chat-history-import-service.js'
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
@@ -225,7 +224,6 @@ import {
 import { createLedgerEditor } from './domain/ledger-editor.js'
 import { LEDGER_SUBMIT_TOOL } from './domain/story-ledger.js'
 import { createManualLedger } from './domain/manual-ledger.js'
-import { createPlotCompassService } from './domain/plot-compass-service.js'
 import { POSTURE_SUBMIT_TOOL } from './domain/posture-submission.js'
 import { bubbleCastLines } from './domain/cast-annotation.js'
 import { createPolishRecords } from './domain/polish-records.js'
@@ -978,7 +976,7 @@ export async function apply(ctx) {
   // ---------- 模型调用 ----------
   const helperGenerationTasks = createHelperGenerationTasks()
   ctx.effect(() => () => helperGenerationTasks.dispose())
-  const { modelSelection, backgroundModelSelection, plotCompassModelSelection, tavernModelCatalog, callModel } = createModelCalls({
+  const { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel } = createModelCalls({
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
   function scoringCatalog() {return [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model}))}
@@ -2249,7 +2247,6 @@ export async function apply(ctx) {
     cardViewOf,
     projectLedgerTask: chat => manualLedger.project(chat),
     projectCharacterDesignTask: chat => manualCharacterDesign.project(chat),
-    projectPlotCompassTask: chat => plotCompassService.projectTask(chat),
 
     readPromptTemplateGlobalVariables,
     sessionStore,
@@ -2401,11 +2398,17 @@ export async function apply(ctx) {
       return result
     }
   })
+  let pluginApi = null
   const projectBuiltinWorldbook = createForegroundWorldbook({
     bound: (cardPath, card, chat) => playWorldBook(chat, card),
     runtime: promptTemplateRuntime,
     globalVariables: readPromptTemplateGlobalVariables,
-    scanText: chat => [scriptPromptScanText(chat), plotCompassWorldbookScanText(chat)].filter(Boolean).join('\n')
+    scanText: async chat => {
+      const extras = typeof pluginApi?.worldbookScanTexts === 'function'
+        ? await pluginApi.worldbookScanTexts({ gameId: chat.sessionId }).catch(() => [])
+        : []
+      return [scriptPromptScanText(chat), ...extras].filter(Boolean).join('\n')
+    }
   })
   ctx.effect(() => () => projectBuiltinWorldbook.dispose())
   const worldbookStrategies = createWorldbookStrategies({
@@ -2692,7 +2695,7 @@ export async function apply(ctx) {
   // ownModel (keep the selection it brings), webSearch: false, cardContext: false (no card/worldbook injection),
   // frozenContext(input) → a frozen shared context {worldbook, stablePrefix, stablePrefixRevision} or null.
   // The stage module declares its director's; 精修 brings its own model.
-  const backgroundTaskPolicies = new Map([['polish', { ownModel: true }], ['plot-compass', { ownModel: true }]])
+  const backgroundTaskPolicies = new Map([['polish', { ownModel: true }]])
   const taskPolicy = input => backgroundTaskPolicies.get(input?.task) || {}
   const frozenContext = input => taskPolicy(input).frozenContext?.(input) || null
   const contextHost = createContextHost({ pluginApi: { resolveReadCapability: input => pluginApi.resolveReadCapability(input) }, chatForSession, recallHistoryForSession, callModel, runner: () => backgroundAgentRunner })
@@ -2865,28 +2868,6 @@ export async function apply(ctx) {
       if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
     },
     onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
-  })
-  const plotCompassService = createPlotCompassService({
-    store: {
-      chatForSession,
-      readChat,
-      updateChat,
-      readCard: (cardPath, chat) => chat ? readChatCard(chat) : readCard(cardPath),
-      readScript
-    },
-    worldBooks: {
-      bound: (cardPath, card, chat) => worldBooks.bound(cardPath, card, chat),
-      constantContext: async chat => (await candidateWorldbookPreparation?.get(chat.sessionId))?.context || ''
-    },
-    scripts: scriptContinuity,
-    prompt: runtimePrompt,
-    selection: plotCompassModelSelection,
-    runAgent: input => backgroundAgentRunner.run(input),
-    callModel,
-    ensureSession: async sessionId => {
-      if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
-    },
-    onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'plot-compass:' + Date.now() }) }
   })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
@@ -3126,18 +3107,35 @@ export async function apply(ctx) {
   // A plugin's one-off task: a fresh background Session, never the resident one settlement uses.
   // A member with a prefix of its own (`system`): that prefix, and the prompt as the task's one
   // message; the plugin hands it whatever story it needs.
-  async function runPluginTask({ gameId, owner, prompt, tools, call, signal, member = '', system, id = '', rewindTo, rewindFormatVersion, resolvePersistentSessionId, onPersistentSessionReady }) {
-    const selection = backgroundModelSelection(await backgroundConfigForSession(gameId))
+  async function runPluginTask({ gameId, owner, prompt, tools, call, signal, member = '', system, selection: customSelection, temperature, maxToolCalls, stopToolsWhen, acceptWithoutText, id = '', rewindTo, rewindFormatVersion, resolvePersistentSessionId, onPersistentSessionReady }) {
+    const selection = customSelection || backgroundModelSelection(await backgroundConfigForSession(gameId))
     if (!selection) throw new Error('这局没有可用的后台模型')
     const chat = await storyContext({ sessionId: gameId })
     const recent = (chat?.messages || []).filter(message => message && !message.greeting && ['user', 'assistant'].includes(message.role)).slice(-2)
       .map(message => ({ role: message.role, content: [{ type: 'text', text: pluginSource(message).slice(-2400) }] }))
     // With a plugin member, its resident Session (one per game) instead of a fresh one.
     const own = system !== undefined ? { ownPrefix: true, system, taskText: prompt, messages: [] } : { system: prompt, messages: recent }
-    return await backgroundAgentRunner.run({ task: 'plugin', pluginName: id ? owner + '/' + id : owner, member, persistent: Boolean(member), sessionId: gameId, selection, signal,
-      rewindTo, rewindFormatVersion, resolvePersistentSessionId, onPersistentSessionReady,
-      turn: Number(chat?.messages?.at(-1)?.turn) || 0, ...own, tools, maxToolCalls: 16,
-      onToolCall: request => call(request.name, typeof request.arguments === 'string' ? JSON.parse(request.arguments || '{}') : request.arguments) })
+    return await backgroundAgentRunner.run({
+      task: 'plugin',
+      pluginName: id ? owner + '/' + id : owner,
+      member,
+      persistent: Boolean(member),
+      sessionId: gameId,
+      selection,
+      signal,
+      rewindTo,
+      rewindFormatVersion,
+      resolvePersistentSessionId,
+      onPersistentSessionReady,
+      turn: Number(chat?.messages?.at(-1)?.turn) || 0,
+      ...own,
+      tools,
+      maxToolCalls: Number.isSafeInteger(Number(maxToolCalls)) ? Math.max(1, Math.min(32, Number(maxToolCalls))) : 16,
+      ...(typeof temperature === 'number' && Number.isFinite(temperature) ? { temperature } : {}),
+      ...(typeof stopToolsWhen === 'function' ? { stopToolsWhen } : {}),
+      ...(typeof acceptWithoutText === 'function' ? { acceptWithoutText } : acceptWithoutText === true ? { acceptWithoutText: () => true } : {}),
+      onToolCall: request => call(request.name, typeof request.arguments === 'string' ? JSON.parse(request.arguments || '{}') : request.arguments)
+    })
   }
   const resolveGalleryContext = async sessionId => {
     const id = str(sessionId)
@@ -3146,7 +3144,7 @@ export async function apply(ctx) {
     return header ? { sessionId: id, cardPath: str(header.cardPath) } : null
   }
   const gameForegroundQueues = new Map()
-  const pluginApi = createTavernPluginApi({
+  pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     replyStreamRewriters,
     logger: console,
@@ -3203,6 +3201,65 @@ export async function apply(ctx) {
     ...pluginTurns,
     resolveGalleryContext,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
+    foregroundModel: async sessionId => {
+      const id = str(sessionId)
+      if (!id) return null
+      if (!agentRegistry.get(id)?.session) await agentRegistry.resume({ resumeSessionId: id }).catch(() => {})
+      return modelSelection(id)
+    },
+    async readPlayMaterial(sessionId) {
+      const chat = await chatForSession(str(sessionId))
+      if (!chat) return null
+      const cardPath = str(chat.cardPath || chat.cardId)
+      const card = await readChatCard(chat).catch(() => null)
+      let worldbookEntries = []
+      let constantWorldbookText = ''
+      try {
+        const bound = card ? await playWorldBook(chat, card) : null
+        worldbookEntries = Array.isArray(bound?.view?.entries)
+          ? bound.view.entries.map(entry => ({
+              title: str(entry?.title || entry?.comment).trim(),
+              keys: Array.isArray(entry?.primaryKeys) ? entry.primaryKeys : (Array.isArray(entry?.keys) ? entry.keys : []),
+              constant: entry?.constant === true,
+              enabled: entry?.enabled !== false,
+              channel: entry?.channel,
+              content: str(entry?.content)
+            }))
+          : []
+        constantWorldbookText = str((await candidateWorldbookPreparation?.get(str(chat.sessionId)))?.context || '')
+      } catch {}
+      const activatedTitles = new Set()
+      for (const item of Array.isArray(chat?.lastWorldBookRecall?.activated) ? chat.lastWorldBookRecall.activated : []) {
+        const title = str(typeof item === 'string' ? item : item?.title || item?.comment || item?.uid).trim()
+        if (title) activatedTitles.add(title)
+      }
+      for (const item of Array.isArray(chat?.preparedWorldBook?.activated) ? chat.preparedWorldBook.activated : []) {
+        const title = str(typeof item === 'string' ? item : item?.title || item?.comment || item?.uid).trim()
+        if (title) activatedTitles.add(title)
+      }
+      if (chat?.worldBookReads && typeof chat.worldBookReads === 'object') {
+        for (const key of Object.keys(chat.worldBookReads)) activatedTitles.add(str(key).trim())
+      }
+      let scriptWindow = null
+      if ((chat.mode || 'story') === 'script' && cardPath) {
+        try {
+          const rawScript = await readScript(cardPath)
+          const script = scriptForState(rawScript, chat.scriptState)
+          if (script && Array.isArray(script.chunks) && script.chunks.length > 0) {
+            scriptWindow = scriptContinuity.inspect({ script, state: chat.scriptState, request: { kind: 'choice' } })
+          }
+        } catch {}
+      }
+      return {
+        posture: str(chat.posture),
+        guides: Array.isArray(chat.guides) ? chat.guides.map(g => str(g?.text ?? g).trim()).filter(Boolean) : [],
+        ledger: chat.ledger && typeof chat.ledger === 'object' ? chat.ledger : null,
+        constantWorldbookText,
+        worldbookEntries,
+        activatedWorldbookTitles: Array.from(activatedTitles).filter(Boolean),
+        scriptWindow
+      }
+    },
     decisionJudge: {
       status: () => narrativeDamper.judgeStatus(),
       judge: input => narrativeDamper.judge(input)
@@ -3411,7 +3468,7 @@ export async function apply(ctx) {
   autoCompaction = createAutoCompaction({
     readChat: chatForSession, readState: sessionStateForSession, readMetadata: taskStateReader.forSession, updateChat,
     onState: (id, chat) => { const sessionId = String(chat?.sessionId || ''); if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'compaction:' + Date.now() }) },
-    onForegroundCompacted: sessionId => plotCompassService.autoEvolveAfterCompaction(sessionId),
+    onForegroundCompacted: sessionId => { if (sessionId) storyEvents.emit('context-compacted', { sessionId }) },
     policy: async () => (await readTavernSettings()).contextCompaction,
     activity: chat => backgroundTasks.activity(chat),
     exclusive: backgroundTasks.exclusive,
@@ -3983,7 +4040,7 @@ export async function apply(ctx) {
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
   registerBackgroundTasks(workflow, { readTavernSettings, polishPrereview, announceCast,
-    gameTitles, saveMaintenance, pluginApi, candidateWorldbookPreparation, plotCompassService, backgroundTasks, queueSettlement, settlementJobs, settlementRun })
+    gameTitles, saveMaintenance, pluginApi, candidateWorldbookPreparation, backgroundTasks, queueSettlement, settlementJobs, settlementRun })
   const foregroundHandoff = createForegroundHandoff({
     turns: turnOrchestrator,
     scriptDispatch: tavernScriptDispatch,
@@ -4324,7 +4381,7 @@ export async function apply(ctx) {
     replaceCard, importCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,
-    modelRequestLog, mvuDiagnostics, narrativeDamper, notifyPluginTimeline, openingPreparation, pagesInFront, plotCompassService,
+    modelRequestLog, mvuDiagnostics, narrativeDamper, notifyPluginTimeline, openingPreparation, pagesInFront,
     playCardSnapshots, pluginApi, pluginBodyGeneration, pluginDataStore, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns,
     pluginSettlementProgress, prepareConversationFork, preparedSaveSessions, presentSystemPrompts, promptDocuments, transferExports,
     presentUserPreferenceProfile, presetLibrary, previewPreset, profileData, projectOpeningWindow,

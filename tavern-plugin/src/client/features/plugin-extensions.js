@@ -41,6 +41,8 @@
 			const listeners = new Set();
 			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
 			let host = null;
+			let panelOpener = null;
+			let candidateRunner = null;
 			let version = 0;
 			function changed() { version += 1; Array.from(listeners).forEach(function (listener) { listener(); }); }
 			function ownerOf(service) {
@@ -928,12 +930,44 @@
 						if (cardListViews.some(function (view) { return view.key === entry.key; })) throw new Error("人物卡列表视图 " + input.id + " 已注册");
 						return addTo(cardListViews, entry);
 					}, "tavernUi.registerCardListView()");
+				},
+				openPanel(panelId, gameId) {
+					if (typeof panelId !== "string" || !panelId.trim()) return Promise.reject(new TypeError("openPanel 需要 panelId"));
+					const owner = ownerOf(this);
+					const tabId = panelId.indexOf(":") >= 0 ? panelId.trim() : "tavern-plugin:" + owner + ":" + panelId.trim();
+					if (typeof panelOpener === "function") return Promise.resolve(panelOpener(tabId, String(gameId || "")));
+					if (host && host.betterSidebar && typeof host.betterSidebar.openTab === "function") {
+						try { host.betterSidebar.openTab({ type: tabId }, { sessionId: String(gameId || "") }); return Promise.resolve(true); }
+						catch (err) { return Promise.reject(err); }
+					}
+					return Promise.resolve(false);
+				},
+				regenerateCandidates(gameId, guidance) {
+					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("regenerateCandidates 需要 gameId"));
+					if (typeof candidateRunner !== "function") return Promise.reject(new Error("当前界面暂不支持从插件触发候选项重生成"));
+					return Promise.resolve(candidateRunner(gameId, typeof guidance === "string" ? guidance : ""));
+				},
+				forkGame(gameId, options) {
+					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("forkGame 需要 gameId"));
+					const req = options && typeof options === "object" ? options : {};
+					return Promise.resolve(tavernConversationForkRequests.request({
+						sessionId: gameId,
+						turn: Number(req.turn) || 0,
+						...(typeof req.titleSuffix === "string" && req.titleSuffix ? { titleSuffix: req.titleSuffix } : {})
+					})).then(function (targetSessionId) {
+						return { gameId: String(targetSessionId || "") };
+					});
 				}
 			};
 			Object.defineProperty(service, Symbol.for("cordis.tracker"), { value: { associate: "tavernUi", property: "ctx" } });
 			return {
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
+				attachPanelOpener: function (fn) { panelOpener = typeof fn === "function" ? fn : null; },
+				attachCandidateRunner: function (fn) {
+					candidateRunner = typeof fn === "function" ? fn : null;
+					return function () { if (candidateRunner === fn) candidateRunner = null; };
+				},
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return version; },
 				mediaRenderer: function (kind) { return mediaRenderers.get(kind); },

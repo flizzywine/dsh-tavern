@@ -318,7 +318,7 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   await act(async () => root.unmount())
 })
 
-test('候选项面板展示剧情罗盘态势与节拍进度，并支持填入/直发模式切换', async t => {
+test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   dom.window.matchMedia = () => ({ matches: false })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
@@ -328,31 +328,13 @@ test('候选项面板展示剧情罗盘态势与节拍进度，并支持填入/�
   const signals = createSessionSignalTransport()
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ task: {}, view: {} }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
-  const compassView = {
-    plotCompassEnabled: true,
-    plotCompass: {
-      version: 1,
-      situationDigest: '诏狱夜审僵局，密信真伪待核',
-      pinned: { shortTerm: 'st-bell', midTerm: null, longTerm: null },
-      shortTerm: [{
-        id: 'st-bell',
-        tag: '顺势破防',
-        title: '半真半假亮出密信残页',
-        beats: [
-          { text: '亮出烧焦残角试探沈清弦', done: true },
-          { text: '追问驿丞失踪当夜去向', done: false }
-        ]
-      }]
-    }
-  }
   const playEvents = []
-  const openedCompass = []
   const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} },
     rpc: async () => ({}), window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
-    useLiveTavernView: () => ({ view: compassView }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
   vm.runInContext(source, context)
   const usePanel = store => () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const panels = context.createPlayInteractionPanels({ interactions, useCandidatePanel: usePanel(interactions.candidates),
@@ -369,8 +351,7 @@ test('候选项面板展示剧情罗盘态势与节拍进度，并支持填入/�
     inputActions: {
       setDraft: value => { draft = value },
       submit: mode => { submits.push({ mode, draft }) }
-    },
-    openPlotCompass: () => { openedCompass.push(true) }
+    }
   })
   const root = createRoot(dom.window.document.querySelector('main'))
   interactions.candidates.set({
@@ -382,14 +363,8 @@ test('候选项面板展示剧情罗盘态势与节拍进度，并支持填入/�
   })
   await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
 
-  const pill = dom.window.document.querySelector('.dsh-tavern-question-compass-pill')
-  assert.ok(pill.textContent.includes('顺势破防'))
-  assert.ok(pill.textContent.includes('1/2'))
-  const bar = dom.window.document.querySelector('.dsh-tavern-question-compass-bar')
-  assert.ok(bar, '应渲染罗盘态势与节拍提示条')
-  assert.ok(bar.textContent.includes('追问驿丞失踪当夜去向'))
-  await act(async () => bar.click())
-  assert.equal(openedCompass.length, 1)
+  const routeBadge = dom.window.document.querySelector('.dsh-tavern-question-tag-route')
+  assert.ok(routeBadge && routeBadge.textContent.includes('顺势破防'))
 
   const modeBtn = dom.window.document.querySelector('.dsh-tavern-question-mode-pill')
   assert.ok(modeBtn.textContent.includes('填入'))

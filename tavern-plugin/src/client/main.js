@@ -1162,6 +1162,9 @@ function clipReplayCore() {
 			// with "Failed to load plugins".
 			tavernUiExtensions.service.ctx = ctx;
 			tavernUiExtensions.attachHost(ctx);
+			tavernUiExtensions.attachPanelOpener(function (tabId, sessionId) {
+				return openTavernSidebarTab(ctx, { type: tabId }, { sessionId: sessionId });
+			});
 			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
 			// The asset workbench is a plain render endpoint this plugin owns (the library tab body).
 			// Provide it here as well: `dsh-asset-library` injects it, and when only the play session

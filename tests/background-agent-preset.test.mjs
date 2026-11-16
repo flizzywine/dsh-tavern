@@ -118,8 +118,8 @@ test('开启后台预设开关后，全部后台 Agent 任务（共享上下文�
       acceptWithoutText: () => true
     })
     await runner.run({
-      sessionId: 'parent', persistent: false, task: 'plot-compass', ownPrefix: true,
-      selection: { provider: 'p', model: 'm' }, system: '罗盘系统提示', taskText: '推演剧情路线',
+      sessionId: 'parent', persistent: false, task: 'plugin', ownPrefix: true,
+      selection: { provider: 'p', model: 'm' }, system: '插件系统提示', taskText: '推演剧情路线',
       acceptWithoutText: () => true
     })
     await runner.run({
@@ -134,7 +134,7 @@ test('开启后台预设开关后，全部后台 Agent 任务（共享上下文�
       acceptWithoutText: () => true
     })
 
-    assert.deepEqual(resolved.map(r => r.operation), ['settlement', 'polish', 'plot-compass', 'stage-director'])
+    assert.deepEqual(resolved.map(r => r.operation), ['settlement', 'polish', 'plugin', 'stage-director'])
     assert.equal(staged.length, 4)
     for (const entry of staged) {
       assert.equal(entry.scope, 'background')

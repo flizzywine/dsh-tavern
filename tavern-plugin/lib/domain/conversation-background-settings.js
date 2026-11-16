@@ -1,5 +1,5 @@
 import { patchConversationBackground } from './conversation-background.js'
-import { normalizeBackgroundModel, normalizePlotCompassModel } from './background-model-selection.js'
+import { normalizeBackgroundModel } from './background-model-selection.js'
 import { SETTINGS_BOUND_STORY_TOOLS, foregroundToolCatalog, normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
@@ -13,7 +13,6 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
   }
   function present(chat) {
     return { backgroundModel: chat.backgroundModelSelection || null,
-      plotCompassModel: normalizePlotCompassModel(chat.plotCompassModelSelection) || 'background',
       worldbookStrategy: (!chat.worldbookStrategy || chat.worldbookStrategy === 'legacy') ? 'native-skills' : chat.worldbookStrategy,
       backgroundTasks: normalizeConfiguredBackgroundTasks(chat.backgroundTasks), webSearchEnabled: chat.webSearchEnabled === true,
       disabledForegroundTools: normalizeDisabledForegroundTools(chat.disabledForegroundTools) }
@@ -49,11 +48,6 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
     const chat = requirePlay(await readChat(sessionId))
     if (Object.hasOwn(args, 'worldbookStrategy') && args.worldbookStrategy !== 'legacy' && !await worldbookStrategies.has(args.worldbookStrategy)) throw new Error('世界书策略不可用')
     if (Object.hasOwn(args, 'backgroundModel')) await checkModel(args.backgroundModel, '后台模型')
-    if (Object.hasOwn(args, 'plotCompassModel')) {
-      const normalized = normalizePlotCompassModel(args.plotCompassModel)
-      if (!normalized) throw new Error('剧情罗盘模型配置无效')
-      if (typeof normalized === 'object') await checkModel(normalized, '剧情罗盘模型')
-    }
     const saved = await updateChat(chat.id, current => patchConversationBackground(current, args), { source: 'background-model.switch-conversation' })
     return present(saved)
   }

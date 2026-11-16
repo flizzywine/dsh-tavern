@@ -60,7 +60,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
       const executionKey = String(requestKey ?? `${turn}:${purpose}:${virtualHash(userText || '')}`)
       const preparationScope = String(preparationKey ?? executionKey)
       const scope = virtualScope(chat)
-      const resolvedScanText = scanText(chat)
+      const resolvedScanText = await scanText(chat)
       const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText])
       const previous = requests.get(scope)
       if (previous?.version === version) return await previous.result

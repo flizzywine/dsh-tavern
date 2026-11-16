@@ -1313,10 +1313,6 @@
 						messageIndex: plan.messageIndex, messageUid: plan.messageUid
 					});
 					forkCreated = true;
-					if (target && target.plotCompassPin) {
-						try { await call("pinPlotCompassRoute", Object.assign({ sessionId: targetSessionId }, target.plotCompassPin)); }
-						catch (pinError) { console.warn("dsh-tavern: 分叉已创建，但锚定剧情路线失败", pinError); }
-					}
 					const titleSuffix = target && typeof target.titleSuffix === "string" && target.titleSuffix ? target.titleSuffix : " · 分支";
 					const forkTitle = (currentTitle || item.cardName + "的新对话") + titleSuffix;
 					try { await (isPlayMode(item.mode || "story") ? props.renameChat : props.renameSession)(targetSessionId, forkTitle); }
@@ -1324,12 +1320,14 @@
 					const pending = { sessionId: targetSessionId, targetMode: item.mode };
 					setPendingOpen(pending);
 					await finishPendingOpen(pending);
+					return targetSessionId;
 				} catch (err) {
 					if (targetSessionId && !forkCreated) {
 						try { await props.archiveSession(targetSessionId); }
 						catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) console.warn("dsh-tavern: 清理分叉目标 Session 失败", archiveError); }
 					}
 					setError("分叉对话失败：" + String(err && err.message || err));
+					throw err;
 				} finally { setBusy(false); }
 			}
 			React.useEffect(function () {

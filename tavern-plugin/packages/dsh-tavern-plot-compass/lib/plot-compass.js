@@ -1,9 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { promptSection } from './prompt-section.js'
-import { classifyWorldbookEntry } from './worldbook-entry-classification.js'
-import { currentVariableSnapshot } from './read-variables.js'
-import { readLedger } from './story-ledger.js'
-import { decodeLiteralUnicodeEscapes } from './candidate-generation.js'
 
 export const PLOT_COMPASS_SUBMIT_TOOL_NAME = 'plot_compass_submit'
 export const PLOT_COMPASS_HORIZONS = Object.freeze(['shortTerm', 'midTerm', 'longTerm'])
@@ -18,18 +13,6 @@ const MAX_ARCHIVED = 8
 const MAX_CUSTOM_DIRECTIVE_LENGTH = 240
 const MAX_COMPASS_CHAT_MESSAGES = 16
 
-function normalizePlotCompassPace(value) {
-  return PLOT_COMPASS_PACES.includes(value) ? value : 'natural'
-}
-
-export function normalizePlotCompassAutoUpdateInterval(value) {
-  if (value === undefined || value === null || value === '' || value === false) return 0
-  if (typeof value === 'boolean') return null
-  const n = Number(value)
-  if (!Number.isSafeInteger(n) || n < 0) return null
-  return Math.min(PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL, n)
-}
-
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -42,8 +25,37 @@ function copy(value) {
   return value === undefined ? undefined : structuredClone(value)
 }
 
-function cleanText(value, { card, chat, maxLength = 240 } = {}) {
-  const userName = str(chat?.macroState?.userName).trim() || '你'
+export function promptSection(tag, text) {
+  return text === '' ? '' : `<${tag}>\n${text}\n</${tag}>`
+}
+
+export function decodeLiteralUnicodeEscapes(value) {
+  const text = str(value)
+  if (!/\\u[0-9a-fA-F]{4}/.test(text)) return text
+  return text.replace(/(?:\\u[0-9a-fA-F]{4})+/g, run => {
+    try {
+      const decoded = JSON.parse('"' + run + '"')
+      return typeof decoded.isWellFormed !== 'function' || decoded.isWellFormed() ? decoded : run
+    } catch {
+      return run
+    }
+  })
+}
+
+function normalizePlotCompassPace(value) {
+  return PLOT_COMPASS_PACES.includes(value) ? value : 'natural'
+}
+
+export function normalizePlotCompassAutoUpdateInterval(value) {
+  if (value === undefined || value === null || value === '' || value === false) return 0
+  if (typeof value === 'boolean') return null
+  const n = Number(value)
+  if (!Number.isSafeInteger(n) || n < 0) return null
+  return Math.min(PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL, n)
+}
+
+function cleanText(value, { card, chat, playerName, maxLength = 240 } = {}) {
+  const userName = str(playerName || chat?.macroState?.userName).trim() || '你'
   const charName = str(card?.name).trim()
   const decoded = decodeLiteralUnicodeEscapes(str(value)).replace(/\{\{\s*(user|char)\s*\}\}/gi, (_match, name) =>
     String(name).toLowerCase() === 'user' ? userName : charName
@@ -423,9 +435,9 @@ export const PLOT_COMPASS_CHAT_SUBMIT_TOOL = Object.freeze({
   })
 })
 
-export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat } = {}) {
+export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat, playerName } = {}) {
   const payload = parseJsonLenient(rawArgs)
-  const opts = { card, chat }
+  const opts = { card, chat, playerName }
   const requestedTarget = PLOT_COMPASS_SCOPES.includes(payload.targetScope) ? payload.targetScope : ''
   const effectiveScope = scope === 'chat'
     ? (requestedTarget || 'all')
@@ -492,7 +504,7 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
     const prevPinnedRoute = prevPinnedId ? prev[horizon].find(item => item.id === prevPinnedId) : null
     next[horizon] = incoming
     if (prevPinnedId) {
-      // Match by preserved id first, then by matching tag or title if the model regenerated ids.
+      // 优先按保留 id 匹配；若模型重生成了 id，则按同标签或同标题对齐。
       const matched = incoming.find(item => item.id === prevPinnedId) ||
         (prevPinnedRoute && incoming.find(item => item.title === prevPinnedRoute.title || item.tag === prevPinnedRoute.tag))
       if (matched) {
@@ -642,13 +654,24 @@ export function activePlotCompassRoutes(compassRaw) {
   }
 }
 
+export function isPlotCompassEnabled(source) {
+  if (!source || typeof source !== 'object') return false
+  if (typeof source.enabled === 'boolean') return source.enabled
+  return source?.backgroundTasks?.plotCompass === true
+}
+
 /**
  * 仅从当前已点亮的剧情罗盘路线中提取纯剧情语义片段用于世界书关键词扫描，
  * 不含任何系统引导语，防止指令词误触绿灯条目。
  */
-export function plotCompassWorldbookScanText(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return ''
-  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
+export function plotCompassWorldbookScanText(source) {
+  if (!source) return ''
+  const compassRaw = source.compass ?? source.plotCompass ?? source
+  if (Object.hasOwn(source, 'enabled') || Object.hasOwn(source, 'backgroundTasks')) {
+    if (!isPlotCompassEnabled(source)) return ''
+  }
+  if (source.mode && !['story', 'script'].includes(source.mode)) return ''
+  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
   if (!shortTerm && !midTerm && !longTerm) return ''
   const snippets = []
   if (longTerm) {
@@ -674,28 +697,43 @@ export function plotCompassWorldbookScanText(chat) {
   return snippets.join('\n')
 }
 
+function isNativeFallbackWorldbookEntry(entry = {}) {
+  const body = str(entry.content)
+  const comment = str(entry.comment || entry.title)
+  if (/^@@/m.test(body) || /\[(?:GENERATE:|RENDER:|InitialVariables|Preprocessing)|@INJECT/.test(body + '\n' + comment)) return true
+  if (/<%|%>/.test(body) || /<script\b|```\s*(?:javascript|js|typescript|ts|ejs)\b/i.test(body)) return true
+  if (/\[(?:initvar|initialvariables|mvu[_ -](?!plot\]))/i.test(comment)) return true
+  if (entry.constant === true && /\[mvu[_ -]plot\]/i.test(comment)) return true
+  if (entry.mvu === true || /^\[?(?:mvu|变量更新)/i.test(comment)) return true
+  return false
+}
+
 /**
- * Extract untriggered, non-constant static/lore worldbook entries as inspiration seeds
- * so the Plot Compass planner can offer mysterious Teaser Hooks without spoiling secrets.
+ * 提取未触发、非常驻的静态/背景设定世界书条目作为暗线灵感种子。
  */
-export function extractDormantWorldbookHooks(entries = [], chat = {}, { limit = 8 } = {}) {
+export function extractDormantWorldbookHooks(entries = [], context = {}, { limit = 8 } = {}) {
   if (!Array.isArray(entries) || entries.length === 0) return []
   const triggeredTitles = new Set()
-  const recall = object(chat?.lastWorldBookRecall) || object(chat?.preparedWorldBook)
+  if (Array.isArray(context?.activatedWorldbookTitles)) {
+    for (const title of context.activatedWorldbookTitles) {
+      const name = str(title).trim()
+      if (name) triggeredTitles.add(name.toLowerCase())
+    }
+  }
+  const recall = object(context?.lastWorldBookRecall) || object(context?.preparedWorldBook)
   for (const item of Array.isArray(recall?.activated) ? recall.activated : []) {
     const name = str(typeof item === 'string' ? item : item?.title || item?.comment || item?.uid).trim()
     if (name) triggeredTitles.add(name.toLowerCase())
   }
-  const reads = object(chat?.worldBookReads)
+  const reads = object(context?.worldBookReads)
   for (const key of Object.keys(reads || {})) triggeredTitles.add(key.toLowerCase())
 
   const candidates = []
   for (const entry of entries) {
     if (!entry || entry.enabled === false || entry.constant === true || entry.channel === 'prefix') continue
-    const classified = classifyWorldbookEntry(entry)
-    if (classified.nativeFallback) continue
+    if (isNativeFallbackWorldbookEntry(entry)) continue
     const title = str(entry.title || entry.comment).trim()
-    const keys = (Array.isArray(entry.primaryKeys) ? entry.primaryKeys : [])
+    const keys = (Array.isArray(entry.primaryKeys) ? entry.primaryKeys : (Array.isArray(entry.keys) ? entry.keys : []))
       .map(k => str(k).trim())
       .filter(Boolean)
       .slice(0, 4)
@@ -709,10 +747,6 @@ export function extractDormantWorldbookHooks(entries = [], chat = {}, { limit = 
     })
   }
   return candidates.slice(0, Math.max(1, limit))
-}
-
-export function isPlotCompassEnabled(chat) {
-  return chat?.backgroundTasks?.plotCompass === true
 }
 
 const PACE_GUIDANCE = Object.freeze({
@@ -730,13 +764,11 @@ function arcPhaseRoleLabel(index, total) {
 }
 
 /**
- * Soft-guidance section for foreground story body (`purpose === 'body'`).
- * Zero injection when disabled or nothing is pinned. Strictly hides long-term ending spoilers!
+ * 为前台正文生成软引导段落文本（未开启或无锚定路线时返回空字符串）。严格隐藏远期终局剧透。
  */
-export function plotCompassBodySection(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
-  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
-  if (!shortTerm && !midTerm && !longTerm) return null
+export function plotCompassBodyText(compassRaw) {
+  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
+  if (!shortTerm && !midTerm && !longTerm) return ''
 
   const lines = [
     'Active Plot Compass (soft narrative direction chosen by the player; weave naturally into pacing and foreshadowing, NEVER rush future milestones in a single turn, obey concrete causal grounding, and always yield to the player\'s immediate turn input if they pivot):',
@@ -767,22 +799,21 @@ export function plotCompassBodySection(chat) {
   if (compass.customDirective) {
     lines.push(`- Player micro-directive (adjust emphasis/nuance toward this preference whenever consistent with scene reality): ${compass.customDirective}`)
   }
+  return promptSection('plot_compass', lines.join('\n'))
+}
 
-  return {
-    kind: 'plot-compass',
-    required: false,
-    text: promptSection('plot_compass', lines.join('\n'))
-  }
+export function plotCompassBodySection(chat) {
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
+  const text = plotCompassBodyText(chat.plotCompass)
+  return text ? { kind: 'plot-compass', required: false, text } : null
 }
 
 /**
- * Dynamic section for candidate choice generation (`purpose === 'candidate'`).
- * Feeds short-term route beats & diverse entry hooks so next-turn choices span real arcs and carry `routeTag` badges!
+ * 为候选项生成任务提供路线角标与软引导段落。
  */
-export function plotCompassCandidateSection(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
-  const { compass, shortTerm: pinnedShort, midTerm: pinnedMid, longTerm: pinnedLong } = activePlotCompassRoutes(chat.plotCompass)
-  if (compass.shortTerm.length === 0 && !pinnedMid) return null
+export function plotCompassCandidateText(compassRaw) {
+  const { compass, shortTerm: pinnedShort, midTerm: pinnedMid, longTerm: pinnedLong } = activePlotCompassRoutes(compassRaw)
+  if (compass.shortTerm.length === 0 && !pinnedMid) return ''
 
   const lines = [
     'Plot Compass routes are available for this session. Align distinct candidate choices with these routes where natural (respecting current physical constraints and causal plausibility), and attach the matching short `routeTag` (2–6 chars) on `actors[].routeTags` or `featured[].routeTag` so the player sees which arc each choice advances:'
@@ -808,35 +839,76 @@ export function plotCompassCandidateSection(chat) {
   } else if (pinnedLong?.diegeticOmen) {
     lines.push(`- [Long-Term In-World Omen] tag="${pinnedLong.tag}": ambient whisper "${pinnedLong.diegeticOmen}"`)
   }
-  return {
-    kind: 'plot-compass',
-    required: false,
-    text: promptSection('plot_compass_candidates', lines.join('\n'))
-  }
+  return promptSection('plot_compass_candidates', lines.join('\n'))
+}
+
+export function plotCompassCandidateSection(chat) {
+  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
+  const text = plotCompassCandidateText(chat.plotCompass)
+  return text ? { kind: 'plot-compass', required: false, text } : null
 }
 
 /**
- * Compaction preservation note so volume summaries never drop clues tied to active mid/long-term arcs.
+ * 归卷压缩摘要保留说明：防止压缩丢失与锚定路线相关的伏笔。
  */
-export function plotCompassCompactionNote(chat) {
-  if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return ''
-  const { shortTerm, midTerm, longTerm } = activePlotCompassRoutes(chat.plotCompass)
+export function plotCompassCompactionNote(source) {
+  if (!source) return ''
+  const compassRaw = source.compass ?? source.plotCompass ?? source
+  if (Object.hasOwn(source, 'enabled') || Object.hasOwn(source, 'backgroundTasks')) {
+    if (!isPlotCompassEnabled(source)) return ''
+  }
+  if (source.mode && !['story', 'script'].includes(source.mode)) return ''
+  const { shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
   if (!shortTerm && !midTerm && !longTerm) return ''
   const items = []
   if (shortTerm) items.push(`近期锚定方向「${shortTerm.title}」：${shortTerm.summary}`)
   if (midTerm) items.push(`中期锚定篇章「${midTerm.title}」：${midTerm.summary}`)
   if (longTerm) items.push(`长期基调方向「${longTerm.title}」（${longTerm.tone || '远期伏脉'}）`)
-  return `玩家当前在剧情罗盘中点亮了以下发展方向，压缩摘要时务必在 Foreshadowing and promises / Relationships 中完整保留与之相关的伏笔、约定与暗线线索（但只记录已发生的剧情事实，不要把未发生的规划当成既成事实写进摘要）：\n- ` + items.join('\n- ')
+  return '玩家当前在剧情罗盘中点亮了以下发展方向，压缩摘要时务必在 Foreshadowing and promises / Relationships 中完整保留与之相关的伏笔、约定与暗线线索（但只记录已发生的剧情事实，不要把未发生的规划当成既成事实写进摘要）：\n- ' + items.join('\n- ')
+}
+
+function normalizeLedger(raw) {
+  const src = object(raw) || {}
+  const npcs = (Array.isArray(src.npcs) ? src.npcs : [])
+    .filter(n => n && str(n.name).trim())
+    .map(n => ({ name: str(n.name).trim(), relation: str(n.relation).trim(), condition: str(n.condition).trim() }))
+  const items = (Array.isArray(src.items) ? src.items : [])
+    .filter(i => i && str(i.name).trim())
+    .map(i => ({ name: str(i.name).trim(), desc: str(i.desc).trim() }))
+  return {
+    location: str(src.location).trim(),
+    npcs,
+    items
+  }
+}
+
+function extractVariablesSnapshot({ variables, chat } = {}) {
+  const direct = object(variables)
+  if (direct) {
+    return object(direct.stat_data) || direct
+  }
+  const chatVars = object(chat?.variables)
+  if (chatVars) {
+    return object(chatVars.stat_data) || chatVars
+  }
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (!msg || msg.role !== 'assistant') continue
+    const list = Array.isArray(msg.variables) ? msg.variables : []
+    const entry = object(list[Math.max(0, Number(msg.swipeId) || 0)]) || object(msg.variables)
+    if (entry) return object(entry.stat_data) || entry
+  }
+  return null
 }
 
 const PASSIVE_CONSTRAINT_RE = /囚禁|关押|软禁|挟持|被擒|捆绑|束缚|锁链|铁链|镣铐|手铐|重伤|昏迷|晕倒|濒死|动弹不得|瘫痪|无力反抗|受制|押解|监禁|restrained|bound|imprisoned|captive|unconscious|paralyzed|incapacitated|cornered/i
 
 /**
- * Extract the exact end-of-turn freeze frame, physical location, posture, and passive-constraint signal
- * so long-prose clipping in `<recent_story>` never misleads route planning about where characters are.
+ * 提取最新回合末尾定格、现场地点、姿态与被动受限信号，避免长文截断导致地点或约束失真。
  */
-export function extractSceneFreezeSnapshot(chat) {
-  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+export function extractSceneFreezeSnapshot(input) {
+  const messages = Array.isArray(input?.messages) ? input.messages : []
   let latestAssistant = null
   let latestUser = null
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -852,8 +924,8 @@ export function extractSceneFreezeSnapshot(chat) {
     if (latestAssistant && latestUser) break
   }
 
-  const posture = str(chat?.posture).trim()
-  const ledger = readLedger(chat?.ledger)
+  const posture = str(input?.posture).trim()
+  const ledger = normalizeLedger(input?.ledger)
   const parts = []
   if (posture) parts.push(`当前现场姿态 / 处境（Posture）：\n${posture.slice(0, 600)}`)
   if (ledger.location) parts.push(`当前地点：${ledger.location}`)
@@ -890,10 +962,31 @@ export function extractSceneFreezeSnapshot(chat) {
 }
 
 /**
- * Assemble compact, high-signal context material for the background Plot Compass Agent.
+ * 组装供剧情罗盘推演使用的紧凑高信噪比上下文素材。
  */
-export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, scope = 'all', guidance = '', includeRequest = true, fresh = false }) {
-  const compass = readPlotCompass(chat?.plotCompass)
+export function buildPlotCompassMaterial({
+  chat,
+  card,
+  messages: explicitMessages,
+  variables: explicitVariables,
+  posture: explicitPosture,
+  ledger: explicitLedger,
+  guides: explicitGuides,
+  compass: explicitCompass,
+  worldbookEntries = [],
+  constantWorldbookText = '',
+  activatedWorldbookTitles = [],
+  scriptWindow = null,
+  scope = 'all',
+  guidance = '',
+  includeRequest = true,
+  fresh = false
+}) {
+  const compass = readPlotCompass(explicitCompass ?? chat?.plotCompass)
+  const messages = Array.isArray(explicitMessages) ? explicitMessages : (Array.isArray(chat?.messages) ? chat.messages : [])
+  const posture = explicitPosture !== undefined ? str(explicitPosture) : str(chat?.posture)
+  const ledgerRaw = explicitLedger !== undefined ? explicitLedger : chat?.ledger
+  const guidesRaw = explicitGuides !== undefined ? explicitGuides : chat?.guides
   const blocks = []
 
   const cardSummary = [
@@ -909,7 +1002,10 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
     blocks.push(promptSection('world_rules', str(constantWorldbookText).slice(0, 5000)))
   }
 
-  const dormantHooks = extractDormantWorldbookHooks(worldbookEntries, chat, { limit: 8 })
+  const dormantHooks = extractDormantWorldbookHooks(worldbookEntries, {
+    ...(chat || {}),
+    activatedWorldbookTitles
+  }, { limit: 8 })
   if (dormantHooks.length > 0) {
     const hookLines = dormantHooks.map((hook, index) =>
       `${index + 1}. [${hook.title}]${hook.keys.length ? ` (triggers: ${hook.keys.join(', ')})` : ''}: ${hook.snippet}`
@@ -924,35 +1020,31 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
       `Bound Script Mode (cursor ${Math.min((scriptWindow.cursor || 0) + 1, scriptWindow.total || 1)} / ${scriptWindow.total || 1}). Offer BOTH canonical script-aligned routes (sourceHook="原著主线") AND 1–2 creative What-If divergence routes (sourceHook="IF偏离"):\n` + scriptText))
   }
 
-  // Scene freeze snapshot (never clipped out by long middle prose)
-  const freezeSnapshot = extractSceneFreezeSnapshot(chat)
+  const freezeSnapshot = extractSceneFreezeSnapshot({ messages, posture, ledger: ledgerRaw })
   if (freezeSnapshot.text) {
     blocks.push(promptSection('latest_scene_snapshot', freezeSnapshot.text))
   }
 
-  // Variables, Posture, Guides & Ledger
   const stateParts = []
-  if (chat?.posture) stateParts.push(`Current Posture / Scene State:\n${str(chat.posture).slice(0, 1200)}`)
-  const { snapshot: vars } = currentVariableSnapshot(chat)
+  if (posture) stateParts.push(`Current Posture / Scene State:\n${posture.slice(0, 1200)}`)
+  const vars = extractVariablesSnapshot({ variables: explicitVariables, chat })
   if (vars && Object.keys(vars).length > 0) {
     stateParts.push(`Current MVU Variables (stat_data):\n${JSON.stringify(vars).slice(0, 3500)}`)
   }
-  const ledger = readLedger(chat?.ledger)
+  const ledger = normalizeLedger(ledgerRaw)
   if (ledger.location || ledger.npcs.length || ledger.items.length) {
     stateParts.push(`Story Ledger Snapshot:\n${JSON.stringify({
       location: ledger.location,
-      npcs: ledger.npcs.slice(0, 8).map(n => ({ name: n.name, relation: n.relation, condition: n.condition })),
-      items: ledger.items.slice(0, 10).map(i => ({ name: i.name, desc: i.desc }))
+      npcs: ledger.npcs.slice(0, 8),
+      items: ledger.items.slice(0, 10)
     })}`)
   }
-  const guides = (Array.isArray(chat?.guides) ? chat.guides : []).map(g => str(g?.text).trim()).filter(Boolean)
+  const guides = (Array.isArray(guidesRaw) ? guidesRaw : []).map(g => str(typeof g === 'string' ? g : g?.text).trim()).filter(Boolean)
   if (guides.length > 0) {
-    stateParts.push(`Player Active Guides:\n` + guides.map((g, i) => `${i + 1}. ${g}`).join('\n'))
+    stateParts.push('Player Active Guides:\n' + guides.map((g, i) => `${i + 1}. ${g}`).join('\n'))
   }
   if (stateParts.length > 0) blocks.push(promptSection('settled_state', stateParts.join('\n\n')))
 
-  // Recent Story Turns (up to latest 8 rounds, ~12000 chars budget)
-  const messages = Array.isArray(chat?.messages) ? chat.messages : []
   const recentLines = []
   let charUsed = 0
   for (let i = messages.length - 1; i >= 0 && recentLines.length < 16; i--) {
@@ -970,7 +1062,6 @@ export function buildPlotCompassMaterial({ chat, card, worldbookEntries = [], co
     blocks.push(promptSection('recent_story', recentLines.join('\n\n')))
   }
 
-  // Existing Plot Compass (for incremental evolution or scoped reroll); skipped entirely on a fresh rebuild.
   if (!fresh && (compass.shortTerm.length || compass.midTerm.length || compass.longTerm.length || compass.customArchetypes.length)) {
     blocks.push(promptSection('existing_plot_compass', JSON.stringify({
       refreshScope: scope,
@@ -1011,17 +1102,15 @@ export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
   '4) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
 ].join('\n')
 
-export function buildPlotCompassBrainstormPrompt({ chat, card, worldbookEntries = [], constantWorldbookText = '', scriptWindow = null, message = '' }) {
+export function buildPlotCompassBrainstormPrompt(params) {
+  const { compass: explicitCompass, chat, message = '' } = params
+  const compass = readPlotCompass(explicitCompass ?? chat?.plotCompass)
   const base = buildPlotCompassMaterial({
-    chat,
-    card,
-    worldbookEntries,
-    constantWorldbookText,
-    scriptWindow,
+    ...params,
+    compass,
     scope: 'chat',
     includeRequest: false
   })
-  const compass = readPlotCompass(chat?.plotCompass)
   const historyLines = compass.chatHistory.map(item =>
     `[${item.role === 'user' ? '玩家' : '罗盘助手'}${item.scopeApplied ? ` · 已更新${item.scopeApplied}` : ''}]\n${item.text}`
   )
@@ -1059,8 +1148,10 @@ export function extractStoryProseForGrounding(text) {
     .trim()
 }
 
-export function collectAssistantProseForGrounding(chat, { maxMessages = 4 } = {}) {
-  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+export function collectAssistantProseForGrounding(messagesOrChat, { maxMessages = 4 } = {}) {
+  const messages = Array.isArray(messagesOrChat)
+    ? messagesOrChat
+    : (Array.isArray(messagesOrChat?.messages) ? messagesOrChat.messages : [])
   const chunks = []
   for (let i = messages.length - 1; i >= 0 && chunks.length < maxMessages; i--) {
     const msg = messages[i]
@@ -1135,8 +1226,10 @@ export function collectTrackableCompassRoutes(compassRaw) {
   return routes
 }
 
-export function buildPlotCompassProgressPrompt(chat, pendingSteps, { fromTurn = 0, compass = null } = {}) {
-  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+export function buildPlotCompassProgressPrompt(messagesOrChat, pendingSteps, { fromTurn = 0, compass = null } = {}) {
+  const messages = Array.isArray(messagesOrChat)
+    ? messagesOrChat
+    : (Array.isArray(messagesOrChat?.messages) ? messagesOrChat.messages : [])
   const turnBlocks = []
   for (let i = messages.length - 1; i >= 0 && turnBlocks.length < 6; i--) {
     const msg = messages[i]

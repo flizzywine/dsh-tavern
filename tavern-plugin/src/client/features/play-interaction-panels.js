@@ -25,15 +25,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const sessionMode = useTavernSessionMode(props.sessionId);
         const running = props.useSession(function (snapshot) { return snapshot.running; });
         const latestMessageId = props.useChat(latestTavernAssistantMessageId);
-        const liveState = typeof useLiveTavernView === "function" ? useLiveTavernView(props.sessionId) : null;
-        const compassEnabled = Boolean(liveState && liveState.view && liveState.view.plotCompassEnabled === true);
-        const compass = compassEnabled && liveState && liveState.view ? liveState.view.plotCompass : null;
-        const pinnedShortRoute = compass && compass.pinned && compass.pinned.shortTerm && Array.isArray(compass.shortTerm)
-            ? compass.shortTerm.find(function (r) { return r && r.id === compass.pinned.shortTerm; }) || null
-            : null;
-        const pinnedBeats = pinnedShortRoute && Array.isArray(pinnedShortRoute.beats) ? pinnedShortRoute.beats : [];
-        const pinnedBeatDone = pinnedBeats.filter(function (b) { return b && b.done; }).length;
-        const pinnedNextBeat = pinnedBeats.find(function (b) { return b && !b.done; });
         const canDirectSend = Boolean(props.inputActions && typeof props.inputActions.submit === "function");
         const [sendOnPick, setSendOnPick] = React.useState(false);
         const [added, setAdded] = React.useState([]);
@@ -123,22 +114,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             const buttons = event.currentTarget.querySelectorAll("[role='tab']");
             if (buttons[nextIndex]) buttons[nextIndex].focus();
         }
-        const compassDigestText = compass && compass.situationDigest ? String(compass.situationDigest) : "";
-        const compassBarTitle = pinnedShortRoute
-            ? ("🧭 " + pinnedShortRoute.title + (pinnedBeats.length > 0 ? " (" + pinnedBeatDone + "/" + pinnedBeats.length + ")" : ""))
-            : "🧭 剧情态势";
-        const compassBarDetail = pinnedNextBeat
-            ? ("当前节拍：" + pinnedNextBeat.text)
-            : compassDigestText;
         return h("div", { className: "dsh-tavern-question dsh-tavern-candidate-question" + (expanded ? "" : " collapsed") },
             h("div", { className: "dsh-tavern-question-head", role: "button", tabIndex: 0, "aria-expanded": expanded ? "true" : "false", onClick: function () { setExpanded(!expanded); }, onKeyDown: function (event) { if (event.target === event.currentTarget && !event.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setExpanded(!expanded); } } },
                 h("span", null, heading),
-                pinnedShortRoute ? h("button", {
-                    type: "button",
-                    className: "dsh-tavern-question-compass-pill",
-                    title: "当前近期锚定目标：" + pinnedShortRoute.title + (pinnedBeats.length > 0 ? "（已完成 " + pinnedBeatDone + "/" + pinnedBeats.length + " 节拍）" : "") + "，点击打开剧情罗盘",
-                    onClick: function (event) { event.stopPropagation(); if (typeof props.openPlotCompass === "function") props.openPlotCompass(); }
-                }, "🧭 " + (pinnedShortRoute.tag || pinnedShortRoute.title) + (pinnedBeats.length > 0 ? " " + pinnedBeatDone + "/" + pinnedBeats.length : "")) : null,
                 canDirectSend ? h("button", {
                     type: "button",
                     className: "dsh-tavern-question-mode-pill" + (sendOnPick ? " is-send" : ""),
@@ -148,15 +126,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 }, sendOnPick ? "⚡ 直发" : "✎ 填入") : null,
                 h("span", { className: "dsh-tavern-question-sub" }, summary),
                 h("button", { type: "button", className: "dsh-tavern-question-close", title: expanded ? "收起行动列表" : "展开行动列表", "aria-label": expanded ? "收起行动列表" : "展开行动列表", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
-            expanded && compassEnabled && (pinnedShortRoute || compassDigestText) ? h("button", {
-                type: "button",
-                className: "dsh-tavern-question-compass-bar",
-                title: "点击打开剧情罗盘查看或切换路线",
-                onClick: function () { if (typeof props.openPlotCompass === "function") props.openPlotCompass(); }
-            },
-                h("span", { className: "dsh-tavern-question-compass-bar-title" }, compassBarTitle),
-                compassBarDetail ? h("span", { className: "dsh-tavern-question-compass-bar-detail" }, compassBarDetail) : null
-            ) : null,
             expanded && panel.phase === "loading" ? h("div", { className: "dsh-tavern-question-sub" }, "正在生成候选项…") : null,
             expanded && tabs.hasTabs ? h("div", { className: "dsh-tavern-question-tabs", role: "tablist", "aria-label": "行动视角切换", onKeyDown: onTabKeyDown }, tabs.tabs.map(function (tab) {
                 const isSelectedTab = tab.key === currentTab.key;

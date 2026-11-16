@@ -1,0 +1,1352 @@
+/* ------------------------------------------------------------------ *
+ * panel.js —— 剧情罗盘浏览器端工作台面板、输入栏挂载与状态卡
+ * 所有 UI 控件均自包含实现，仅依赖宿主注入的 React 与 tavernUi 接口
+ * ------------------------------------------------------------------ */
+
+const PC_PANEL_ID = 'plot-compass'
+const PC_PLUGIN_ID = 'dsh-tavern-plot-compass'
+
+const PC_PRESET_ARCHETYPES = Object.freeze([
+  '情感拉扯', '修罗场', '权谋博弈', '悬疑调查',
+  '奇幻冒险', '副本闯关', '经营养成', '群像势力',
+  '高自由沙盒', '日常治愈', '禁忌共犯', '同人IF破局'
+])
+
+const PC_HORIZON_META = Object.freeze([
+  {
+    key: 'shortTerm',
+    label: '今期',
+    span: '2–5 轮',
+    subtitle: '当前幕破局方向与小高潮节拍（联动下一步候选项角标）'
+  },
+  {
+    key: 'midTerm',
+    label: '中期',
+    span: '5–20 轮',
+    subtitle: '篇章弧转折、隐藏支线与阶段里程碑'
+  },
+  {
+    key: 'longTerm',
+    label: '长期',
+    span: '终局蓝图',
+    subtitle: '多结局命运假想（点亮仅注入无剧透暗流基调，不抢跑结局）'
+  }
+])
+
+const PC_PACE_OPTIONS = Object.freeze([
+  { key: 'foreshadow', label: '只铺垫', title: '侧重氛围感官、暗流铺垫与可逆试探，本轮暂不急着引爆拐点' },
+  { key: 'natural', label: '自然推进', title: '顺应角色性格与现场因果自然向前推进（默认）' },
+  { key: 'climax', label: '尽快引爆', title: '提高戏剧张力，推动当前节拍或篇章冲突正面对撞' }
+])
+
+const PC_MODEL_OPTIONS = Object.freeze([
+  { key: 'background', label: '跟随后台', title: '使用本局或全局后台模型' },
+  { key: 'foreground', label: '跟随前台', title: '使用当前对话前台模型' },
+  { key: 'independent', label: '独立', title: '单独为剧情罗盘指定独立模型' }
+])
+
+const PC_AUTO_UPDATE_PRESETS = Object.freeze([
+  { value: 0, label: '关闭' },
+  { value: 3, label: '每 3 楼' },
+  { value: 5, label: '每 5 楼' },
+  { value: 10, label: '每 10 楼' }
+])
+
+function pcEmptyCompass() {
+  return {
+    pace: 'natural',
+    blindBox: false,
+    customDirective: '',
+    autoUpdateInterval: 0,
+    playArchetypes: [],
+    customArchetypes: [],
+    situationDigest: '',
+    shortTerm: [],
+    midTerm: [],
+    longTerm: [],
+    pinned: { shortTerm: null, midTerm: null, longTerm: null },
+    archived: [],
+    chatHistory: [],
+    basedOnTurn: 0
+  }
+}
+
+function pcMidPhaseLabel(index, total) {
+  if (total <= 1) return ''
+  if (index === total - 1) return '高潮'
+  if (total >= 3 && index === total - 2) return '抉择'
+  if (index === 0) return '入线'
+  return '升级'
+}
+
+function pcActiveCompassSummary(compass) {
+  if (!compass || typeof compass !== 'object') {
+    return { shortTerm: null, midTerm: null, longTerm: null, any: null, count: 0 }
+  }
+  const pinned = compass.pinned || {}
+  const find = key => {
+    const id = pinned[key]
+    if (!id || !Array.isArray(compass[key])) return null
+    return compass[key].find(item => item && item.id === id) || null
+  }
+  const shortTerm = find('shortTerm')
+  const midTerm = find('midTerm')
+  const longTerm = find('longTerm')
+  const count = (shortTerm ? 1 : 0) + (midTerm ? 1 : 0) + (longTerm ? 1 : 0)
+  return { shortTerm, midTerm, longTerm, any: shortTerm || midTerm || longTerm, count }
+}
+
+async function pcCall(ui, name, args) {
+  if (!ui || typeof ui.callHost !== 'function') {
+    throw new Error('当前宿主版本不支持插件后端调用')
+  }
+  const res = await ui.callHost(name, args || {})
+  if (res && typeof res === 'object' && res.ok === false) {
+    throw new Error(res.error || '操作失败')
+  }
+  return res || {}
+}
+
+function PcSwitch({ label, checked, disabled, onChange }) {
+  return h('button', {
+    type: 'button',
+    role: 'switch',
+    'aria-label': label,
+    'aria-checked': checked ? 'true' : 'false',
+    disabled: Boolean(disabled),
+    className: 'dsh-tavern-compass-switch' + (checked ? ' is-checked' : ''),
+    onClick: () => {
+      if (!disabled && typeof onChange === 'function') onChange(!checked)
+    }
+  }, h('span', { className: 'dsh-tavern-compass-switch-thumb' }))
+}
+
+function PcSpinner({ className }) {
+  return h('span', {
+    className: 'dsh-tavern-compass-spinner' + (className ? ' ' + className : ''),
+    'aria-hidden': 'true'
+  })
+}
+
+function usePlotCompassState(ui, gameId) {
+  const id = gameId ? String(gameId) : ''
+  const [state, setState] = useState({
+    loaded: false,
+    enabled: false,
+    modelSelection: 'background',
+    plotCompass: pcEmptyCompass(),
+    plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+    latestAssistantTurn: 0
+  })
+
+  useEffect(() => {
+    if (!ui || !id) {
+      setState({
+        loaded: false,
+        enabled: false,
+        modelSelection: 'background',
+        plotCompass: pcEmptyCompass(),
+        plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+        latestAssistantTurn: 0
+      })
+      return
+    }
+
+    let cancelled = false
+    const applyPayload = data => {
+      if (cancelled || !data || typeof data !== 'object') return
+      setState(prev => ({
+        loaded: true,
+        enabled: typeof data.enabled === 'boolean' ? data.enabled : prev.enabled,
+        modelSelection: data.modelSelection || prev.modelSelection,
+        plotCompass: data.plotCompass ? data.plotCompass : prev.plotCompass,
+        plotCompassTask: data.plotCompassTask ? data.plotCompassTask : prev.plotCompassTask,
+        latestAssistantTurn: typeof data.latestAssistantTurn === 'number'
+          ? data.latestAssistantTurn
+          : prev.latestAssistantTurn
+      }))
+    }
+
+    pcCall(ui, 'plot-compass:state', { gameId: id }).then(applyPayload).catch(() => {
+      if (!cancelled) setState(prev => ({ ...prev, loaded: true }))
+    })
+
+    const unsubState = typeof ui.watchState === 'function'
+      ? ui.watchState(id, 'compass', applyPayload)
+      : null
+    const unsubTurn = typeof ui.watchTurnState === 'function'
+      ? ui.watchTurnState(id, turnState => {
+          if (cancelled || !turnState || typeof turnState !== 'object') return
+          if (typeof turnState.turn === 'number') {
+            setState(prev => ({
+              ...prev,
+              latestAssistantTurn: Math.max(prev.latestAssistantTurn || 0, Number(turnState.turn) || 0)
+            }))
+          }
+          if (turnState.settled) {
+            pcCall(ui, 'plot-compass:state', { gameId: id }).then(applyPayload).catch(() => {})
+          }
+        })
+      : null
+
+    return () => {
+      cancelled = true
+      if (typeof unsubState === 'function') unsubState()
+      if (typeof unsubTurn === 'function') unsubTurn()
+    }
+  }, [ui, id])
+
+  const refresh = () => {
+    if (!ui || !id) return Promise.resolve(null)
+    return pcCall(ui, 'plot-compass:state', { gameId: id }).then(data => {
+      if (data && typeof data === 'object') {
+        setState(prev => ({
+          loaded: true,
+          enabled: typeof data.enabled === 'boolean' ? data.enabled : prev.enabled,
+          modelSelection: data.modelSelection || prev.modelSelection,
+          plotCompass: data.plotCompass || prev.plotCompass,
+          plotCompassTask: data.plotCompassTask || prev.plotCompassTask,
+          latestAssistantTurn: typeof data.latestAssistantTurn === 'number'
+            ? data.latestAssistantTurn
+            : prev.latestAssistantTurn
+        }))
+      }
+      return data
+    }).catch(() => null)
+  }
+
+  return { state, setState, refresh }
+}
+
+function PlotCompassComposerDock({ ui, gameId, sessionId }) {
+  const id = String(sessionId || gameId || '')
+  const { state } = usePlotCompassState(ui, id)
+  if (!id || state.enabled !== true) return null
+
+  const compass = state.plotCompass || pcEmptyCompass()
+  const task = state.plotCompassTask || {}
+  const isRunning = task.status === 'running'
+  const active = pcActiveCompassSummary(compass)
+  const totalRoutes = (compass.shortTerm?.length || 0) + (compass.midTerm?.length || 0) + (compass.longTerm?.length || 0)
+
+  const titleParts = []
+  if (active.shortTerm) titleParts.push('今期：' + active.shortTerm.title)
+  if (active.midTerm) titleParts.push('中期：' + active.midTerm.title)
+  if (active.longTerm) titleParts.push('长期：' + active.longTerm.title)
+
+  const title = isRunning
+    ? '正在推演今期/中期/长期多路线剧情规划…'
+    : titleParts.length > 0
+      ? '当前锚定路线 — ' + titleParts.join(' ｜ ') + '（点击打开剧情罗盘）'
+      : '打开剧情罗盘：查看或推演今期、中期、长期多路线剧情灵感'
+
+  const label = isRunning
+    ? '罗盘推演中…'
+    : active.any
+      ? '罗盘 · ' + (active.any.tag || active.any.title)
+      : totalRoutes > 0
+        ? '剧情罗盘 (' + totalRoutes + ')'
+        : '剧情罗盘'
+
+  return h('div', { className: 'dsh-tavern-compass-composer-wrap' },
+    h('button', {
+      type: 'button',
+      className: 'dsh-tavern-btn dsh-tavern-compass-dock-btn' + (active.any ? ' is-pinned' : '') + (isRunning ? ' is-running' : ''),
+      title,
+      'aria-label': title,
+      onClick: () => {
+        if (ui && typeof ui.openPanel === 'function') {
+          ui.openPanel(PC_PANEL_ID, id)
+        }
+      }
+    },
+      isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, '🧭'),
+      h('span', null, label)
+    )
+  )
+}
+
+function PlotCompassStatusSection({ ui, gameId }) {
+  const id = String(gameId || '')
+  const { state } = usePlotCompassState(ui, id)
+  if (!id) {
+    return h('div', { className: 'dsh-tavern-compass-status-box' },
+      h('p', { className: 'dsh-tavern-compass-desc' }, '打开游玩会话后可在此查看当前锚定路线。')
+    )
+  }
+  const compass = state.plotCompass || pcEmptyCompass()
+  const active = pcActiveCompassSummary(compass)
+  const task = state.plotCompassTask || {}
+
+  return h('div', { className: 'dsh-tavern-compass-status-box' },
+    h('p', { className: 'dsh-tavern-compass-desc' },
+      state.enabled
+        ? (task.status === 'running'
+          ? '状态：后台推演中…'
+          : (compass.basedOnTurn > 0 ? '状态：已开启（基于第 ' + compass.basedOnTurn + ' 轮）' : '状态：已开启，尚未推演'))
+        : '状态：本局未开启剧情罗盘'
+    ),
+    state.enabled && active.count > 0
+      ? h('div', { className: 'dsh-tavern-compass-funnel-items' },
+          active.shortTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip' }, '今期：' + active.shortTerm.title) : null,
+          active.midTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip' }, '中期：' + active.midTerm.title) : null,
+          active.longTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip' }, '长期：' + active.longTerm.title) : null
+        )
+      : null,
+    ui && typeof ui.openPanel === 'function'
+      ? h('div', null,
+          h('button', {
+            type: 'button',
+            className: 'dsh-tavern-btn',
+            onClick: () => ui.openPanel(PC_PANEL_ID, id)
+          }, '打开剧情罗盘面板')
+        )
+      : null
+  )
+}
+
+function PlotCompassPanel({ ui, gameId }) {
+  const sessionId = String(gameId || '')
+  const { state, setState, refresh } = usePlotCompassState(ui, sessionId)
+
+  const [activeHorizon, setActiveHorizon] = useState('shortTerm')
+  const [guidance, setGuidance] = useState('')
+  const [editingArchetypes, setEditingArchetypes] = useState(false)
+  const [archetypeDraft, setArchetypeDraft] = useState('')
+  const [selectedArchetypes, setSelectedArchetypes] = useState([])
+  const [editingDirective, setEditingDirective] = useState(false)
+  const [directiveDraft, setDirectiveDraft] = useState('')
+  const [peekedCards, setPeekedCards] = useState({})
+  const [chatOpen, setChatOpen] = useState(false)
+  const [confirmingFresh, setConfirmingFresh] = useState(false)
+  const [busyAction, setBusyAction] = useState('')
+  const [localError, setLocalError] = useState('')
+  const [localNotice, setLocalNotice] = useState('')
+  const [pickingIndependentModel, setPickingIndependentModel] = useState(false)
+  const [modelCatalog, setModelCatalog] = useState([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [modelReasoning, setModelReasoning] = useState({ key: '', value: null, error: '' })
+  const [customIntervalOpen, setCustomIntervalOpen] = useState(false)
+  const [intervalDraft, setIntervalDraft] = useState('')
+
+  const compass = state.plotCompass || pcEmptyCompass()
+  const compassEnabled = state.enabled === true
+  const compassModel = state.modelSelection || 'background'
+  const compassModelIsObject = Boolean(compassModel && typeof compassModel === 'object')
+  const compassModelMode = compassModelIsObject ? 'independent' : (compassModel === 'foreground' ? 'foreground' : 'background')
+  const compassModelKey = compassModelIsObject ? JSON.stringify({ provider: compassModel.provider, model: compassModel.model }) : ''
+  const task = state.plotCompassTask || { status: 'idle', scope: 'all', error: '' }
+  const isRunning = task.status === 'running'
+  const active = pcActiveCompassSummary(compass)
+  const hasAnyRoutes = (compass.shortTerm?.length || 0) > 0 || (compass.midTerm?.length || 0) > 0 || (compass.longTerm?.length || 0) > 0
+  const currentPace = compass.pace || 'natural'
+  const blindBox = compass.blindBox === true
+  const customDirective = String(compass.customDirective || '')
+  const autoUpdateInterval = Number.isInteger(Number(compass.autoUpdateInterval)) && Number(compass.autoUpdateInterval) >= 0
+    ? Math.min(100, Number(compass.autoUpdateInterval))
+    : 0
+  const isPresetAutoUpdateInterval = PC_AUTO_UPDATE_PRESETS.some(opt => opt.value === autoUpdateInterval)
+  const latestTurn = Number(state.latestAssistantTurn) || 0
+  const basedOnTurn = Number(compass.basedOnTurn) || 0
+  const sinceBaseTurns = Math.max(0, latestTurn - basedOnTurn)
+  const remainingAutoUpdateFloors = Math.max(0, autoUpdateInterval - sinceBaseTurns)
+  const autoUpdateHint = !compassEnabled
+    ? '当前罗盘已关闭，暂不触发'
+    : (remainingAutoUpdateFloors === 0
+      ? '下轮结算后立即全局刷新'
+      : '还差 ' + remainingAutoUpdateFloors + ' 楼全局刷新')
+  const chatHistory = Array.isArray(compass.chatHistory) ? compass.chatHistory : []
+
+  useEffect(() => {
+    setLocalError('')
+    setLocalNotice('')
+    setEditingArchetypes(false)
+    setEditingDirective(false)
+    setConfirmingFresh(false)
+    setPeekedCards({})
+    setChatOpen(false)
+    setPickingIndependentModel(false)
+    setCustomIntervalOpen(false)
+  }, [sessionId])
+
+  useEffect(() => {
+    setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
+    setCustomIntervalOpen(autoUpdateInterval > 0 && !PC_AUTO_UPDATE_PRESETS.some(opt => opt.value === autoUpdateInterval))
+  }, [autoUpdateInterval, sessionId])
+
+  useEffect(() => {
+    if (!compassEnabled || (!pickingIndependentModel && !compassModelIsObject)) return
+    let activeEffect = true
+    setCatalogLoading(true)
+    pcCall(ui, 'plot-compass:model-catalog', {}).then(result => {
+      if (!activeEffect) return
+      setModelCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : [])
+      setCatalogLoading(false)
+    }, () => {
+      if (activeEffect) setCatalogLoading(false)
+    })
+    return () => { activeEffect = false }
+  }, [ui, compassEnabled, pickingIndependentModel, compassModelIsObject])
+
+  useEffect(() => {
+    if (!compassEnabled || !compassModelKey) return
+    let activeEffect = true
+    const parsed = JSON.parse(compassModelKey)
+    pcCall(ui, 'plot-compass:model-reasoning', parsed).then(result => {
+      if (activeEffect) setModelReasoning({ key: compassModelKey, value: result.reasoning || null, error: '' })
+    }, err => {
+      if (activeEffect) setModelReasoning({ key: compassModelKey, value: null, error: String(err && err.message || err) })
+    })
+    return () => { activeEffect = false }
+  }, [ui, compassEnabled, compassModelKey, sessionId])
+
+  useEffect(() => {
+    if (chatHistory.length > 0 && task.scope === 'chat') {
+      setChatOpen(true)
+    }
+  }, [chatHistory.length, task.scope])
+
+  useEffect(() => {
+    setDirectiveDraft(customDirective)
+  }, [customDirective, sessionId])
+
+  async function saveCompassModel(nextModel, message) {
+    if (!sessionId || busyAction) return
+    setBusyAction('model')
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:set-model', { gameId: sessionId, model: nextModel })
+      if (res.modelSelection) {
+        setState(prev => ({ ...prev, modelSelection: res.modelSelection }))
+      }
+      await refresh()
+      setPickingIndependentModel(false)
+      if (message) setLocalNotice(message)
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function toggleEnabled(nextEnabled) {
+    if (!sessionId || busyAction) return
+    setBusyAction('toggleEnabled')
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      await pcCall(ui, 'plot-compass:set-enabled', { gameId: sessionId, enabled: Boolean(nextEnabled) })
+      setState(prev => ({ ...prev, enabled: Boolean(nextEnabled) }))
+      await refresh()
+      setLocalNotice(nextEnabled ? '已开启剧情罗盘。' : '已关闭剧情罗盘，本局将不再注入提示词或自动演进，已有路线已保留。')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function runGenerate(scope, customGuidance, options) {
+    if (!sessionId || isRunning || busyAction) return
+    const fresh = Boolean(options && options.fresh)
+    setConfirmingFresh(false)
+    setBusyAction('generate:' + scope)
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      const text = customGuidance !== undefined ? customGuidance : guidance
+      await pcCall(ui, 'plot-compass:generate', {
+        gameId: sessionId,
+        scope: scope || 'all',
+        guidance: String(text || '').trim(),
+        fresh
+      })
+      await refresh()
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function sendCompassChat(overrideText) {
+    const text = String(overrideText !== undefined ? overrideText : guidance).trim()
+    if (!text || !sessionId || isRunning || busyAction) return
+    setBusyAction('chat')
+    setLocalError('')
+    setLocalNotice('')
+    setChatOpen(true)
+    if (overrideText === undefined) setGuidance('')
+    try {
+      await pcCall(ui, 'plot-compass:chat', { gameId: sessionId, message: text })
+      await refresh()
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function clearCompassChatHistory() {
+    if (!sessionId || isRunning || busyAction) return
+    setBusyAction('clearChat')
+    setLocalError('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:clear-chat', { gameId: sessionId })
+      if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
+      setChatOpen(false)
+      await refresh()
+      setLocalNotice('已清空脑暴对话记录。')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function applyBrainstormIdea(scope, ideaText) {
+    const target = scope === 'shortTerm' ? 'shortTerm' : 'all'
+    const promptText = '请严格围绕我们刚才在罗盘对话里讨论通过的以下思路，直接生成并更新正式的多分支路线规划：\n' + String(ideaText || '').slice(0, 680)
+    if (target === 'shortTerm') setActiveHorizon('shortTerm')
+    await runGenerate(target, promptText)
+  }
+
+  async function cancelGenerate() {
+    if (!sessionId) return
+    setBusyAction('cancel')
+    setLocalError('')
+    try {
+      await pcCall(ui, 'plot-compass:cancel', { gameId: sessionId })
+      await refresh()
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function togglePin(horizon, route) {
+    if (!sessionId || busyAction) return
+    setBusyAction('pin:' + route.id)
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      const wasPinned = compass.pinned && compass.pinned[horizon] === route.id
+      const res = await pcCall(ui, 'plot-compass:pin', { gameId: sessionId, horizon, routeId: route.id })
+      if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
+      await refresh()
+      setLocalNotice(wasPinned ? '已取消锚定「' + route.title + '」' : '已点亮「' + route.title + '」，将在后续候选与正文中软引导铺垫。')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function toggleStep(horizon, routeId, stepIndex) {
+    if (!sessionId || busyAction) return
+    setBusyAction('step:' + routeId + ':' + stepIndex)
+    setLocalError('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:toggle-step', { gameId: sessionId, horizon, routeId, stepIndex })
+      if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
+      await refresh()
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function forkWithRoute(horizon, route) {
+    if (!sessionId || isRunning || busyAction) return
+    if (!ui || typeof ui.forkGame !== 'function') {
+      setLocalError('当前宿主版本暂不支持从插件触发分叉试玩。')
+      return
+    }
+    setBusyAction('fork:' + route.id)
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      const forked = await ui.forkGame(sessionId, {
+        turn: Number(state.latestAssistantTurn) || 0,
+        titleSuffix: ' · ' + (route.tag || route.title)
+      })
+      const targetId = typeof forked === 'string' ? forked : String(forked?.gameId || '')
+      if (targetId) {
+        await pcCall(ui, 'plot-compass:pin', { gameId: targetId, horizon, routeId: route.id, exact: true })
+        setLocalNotice('已分叉平行存档，并点亮「' + route.title + '」。')
+      }
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function drillDownRoute(fromHorizon, route) {
+    const targetScope = fromHorizon === 'longTerm' ? 'midTerm' : 'shortTerm'
+    const targetName = targetScope === 'midTerm' ? '中期篇章' : '今期节拍'
+    const promptText = '围绕已选定的方向「' + route.title + '」（' + (route.vision || route.summary || '') + '），拆解出 3–4 条不同切入角度的' + targetName + '路线。'
+    setActiveHorizon(targetScope)
+    await runGenerate(targetScope, promptText)
+  }
+
+  async function refreshCandidatesFromCompass() {
+    if (!sessionId || busyAction) return
+    if (!ui || typeof ui.regenerateCandidates !== 'function') {
+      setLocalError('当前宿主版本暂不支持直接从罗盘触发候选项重生成。')
+      return
+    }
+    setBusyAction('candidates')
+    setLocalError('')
+    setLocalNotice('')
+    try {
+      await ui.regenerateCandidates(sessionId, '')
+      setLocalNotice('已提交候选项生成，新候选项将携带当前罗盘路线角标。')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  function openArchetypeEditor() {
+    const initial = (compass.customArchetypes && compass.customArchetypes.length)
+      ? compass.customArchetypes
+      : (compass.playArchetypes || [])
+    setSelectedArchetypes(initial.slice(0, 5))
+    setArchetypeDraft('')
+    setEditingArchetypes(true)
+  }
+
+  function togglePresetArchetype(tag) {
+    setSelectedArchetypes(prev => {
+      if (prev.includes(tag)) return prev.filter(item => item !== tag)
+      if (prev.length >= 5) return prev
+      return prev.concat(tag)
+    })
+  }
+
+  function addCustomArchetypeChip() {
+    const text = String(archetypeDraft || '').trim().slice(0, 16)
+    if (!text) return
+    setSelectedArchetypes(prev => {
+      if (prev.includes(text) || prev.length >= 5) return prev
+      return prev.concat(text)
+    })
+    setArchetypeDraft('')
+  }
+
+  async function saveArchetypes(andRegenerate) {
+    if (!sessionId || busyAction) return
+    setBusyAction('archetypes')
+    setLocalError('')
+    try {
+      const pendingText = String(archetypeDraft || '').trim().slice(0, 16)
+      const finalTags = pendingText && !selectedArchetypes.includes(pendingText) && selectedArchetypes.length < 5
+        ? selectedArchetypes.concat(pendingText)
+        : selectedArchetypes
+      const res = await pcCall(ui, 'plot-compass:set-archetypes', { gameId: sessionId, archetypes: finalTags })
+      if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
+      setEditingArchetypes(false)
+      setArchetypeDraft('')
+      await refresh()
+      if (andRegenerate) {
+        setBusyAction('')
+        await runGenerate('all')
+        return
+      }
+      setLocalNotice(finalTags.length ? '已锁定游玩类型标签：' + finalTags.join('、') : '已恢复自动识别游玩类型')
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function savePreferences(patch, noticeText) {
+    if (!sessionId || busyAction) return
+    setBusyAction('preferences')
+    setLocalError('')
+    try {
+      const res = await pcCall(ui, 'plot-compass:set-preferences', { gameId: sessionId, ...patch })
+      if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
+      await refresh()
+      if (noticeText) setLocalNotice(noticeText)
+    } catch (err) {
+      setLocalError(String(err && err.message || err))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  function commitCustomInterval() {
+    const trimmed = String(intervalDraft || '').trim()
+    if (!trimmed) {
+      setCustomIntervalOpen(false)
+      setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
+      return
+    }
+    const parsed = Number(trimmed)
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+      setLocalError('自动更新间隔须为 0–100 的整数（0 表示关闭）')
+      return
+    }
+    if (parsed === autoUpdateInterval) {
+      if (PC_AUTO_UPDATE_PRESETS.some(opt => opt.value === parsed)) {
+        setCustomIntervalOpen(false)
+      }
+      return
+    }
+    savePreferences(
+      { autoUpdateInterval: parsed },
+      parsed > 0 ? '已设置每 ' + parsed + ' 楼自动全局刷新剧情罗盘。' : '已关闭剧情罗盘定期自动更新。'
+    )
+  }
+
+  function toggleCardPeek(horizon, routeId) {
+    const key = horizon + ':' + routeId
+    setPeekedCards(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  if (!sessionId) {
+    return h('aside', { className: 'dsh-tavern-status dsh-tavern-compass-panel' },
+      h('div', { className: 'dsh-tavern-status-head' }, h('div', { className: 'dsh-tavern-status-title' }, '剧情罗盘')),
+      h('div', { className: 'dsh-tavern-status-body' },
+        h('p', { className: 'dsh-tavern-compass-desc' }, '请先打开一局游玩对话，即可推演今期、中期、长期的多路线剧情发展灵感。')
+      )
+    )
+  }
+
+  if (!state.loaded) {
+    return h('aside', { className: 'dsh-tavern-status dsh-tavern-compass-panel' },
+      h('div', { className: 'dsh-tavern-status-head' }, h('div', { className: 'dsh-tavern-status-title' }, '剧情罗盘')),
+      h('div', { className: 'dsh-tavern-status-body' },
+        h('p', { className: 'dsh-tavern-compass-desc' }, '正在读取当前对局…')
+      )
+    )
+  }
+
+  const activeMeta = PC_HORIZON_META.find(m => m.key === activeHorizon) || PC_HORIZON_META[0]
+  const currentRoutes = Array.isArray(compass[activeHorizon]) ? compass[activeHorizon] : []
+  const currentPinnedId = compass.pinned ? compass.pinned[activeHorizon] : null
+  const displayArchetypes = (compass.customArchetypes && compass.customArchetypes.length)
+    ? compass.customArchetypes
+    : (compass.playArchetypes || [])
+
+  function onHorizonKeyDown(event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const at = PC_HORIZON_META.findIndex(m => m.key === activeHorizon)
+    const nextAt = (at + (event.key === 'ArrowRight' ? 1 : PC_HORIZON_META.length - 1)) % PC_HORIZON_META.length
+    setActiveHorizon(PC_HORIZON_META[nextAt].key)
+  }
+
+  function renderRouteCard(horizon, route) {
+    const isPinned = currentPinnedId === route.id
+    const steps = horizon === 'shortTerm' ? (route.beats || []) : horizon === 'midTerm' ? (route.milestones || []) : []
+    const doneCount = steps.filter(s => s && s.done).length
+    const peekKey = horizon + ':' + route.id
+    const isPeeked = Boolean(peekedCards[peekKey])
+    const isMasked = blindBox && !isPeeked
+
+    return h('article', {
+      key: route.id,
+      className: 'dsh-tavern-compass-card' + (isPinned ? ' is-pinned' : '') + (isMasked ? ' is-blindbox' : ''),
+      'data-horizon': horizon
+    },
+      h('header', { className: 'dsh-tavern-compass-card-head' },
+        h('div', { className: 'dsh-tavern-compass-card-titles' },
+          h('span', { className: 'dsh-tavern-compass-route-tag' }, '〔' + route.tag + '〕'),
+          h('h4', { className: 'dsh-tavern-compass-card-title' }, route.title)
+        ),
+        h('div', { className: 'dsh-tavern-compass-card-badges' },
+          route.direction || route.tone ? h('span', { className: 'dsh-tavern-compass-pill is-direction' }, route.direction || route.tone) : null,
+          route.sourceHook ? h('span', { className: 'dsh-tavern-compass-pill is-hook', title: '灵感来源' }, route.sourceHook) : null,
+          isPinned ? h('span', { className: 'dsh-tavern-compass-pill is-active' }, '★ 已锚定') : null
+        )
+      ),
+      isMasked
+        ? h('div', { className: 'dsh-tavern-compass-blindbox-mask' },
+            h('p', { className: 'dsh-tavern-compass-blindbox-hint' },
+              route.diegeticOmen
+                ? '🎁 盲盒防剧透已开启（已隐藏走向与节点）：' + route.diegeticOmen
+                : '🎁 盲盒防剧透已开启：详细节拍、因果依据与终局剧透已遮罩，仅保留方向基调，放心在正文中探索未知。'
+            ),
+            steps.length > 0 ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle' }, '当前进度：' + doneCount + '/' + steps.length + ' 阶段已完成') : null,
+            h('button', {
+              type: 'button',
+              className: 'dsh-tavern-compass-link-btn',
+              onClick: () => toggleCardPeek(horizon, route.id)
+            }, '👀 临时查看此卡剧透')
+          )
+        : h(Fragment, null,
+            blindBox ? h('div', { className: 'dsh-tavern-compass-peek-bar' },
+              h('button', {
+                type: 'button',
+                className: 'dsh-tavern-compass-link-btn',
+                onClick: () => toggleCardPeek(horizon, route.id)
+              }, '🙈 收起剧透（恢复盲盒遮罩）')
+            ) : null,
+            h('p', { className: 'dsh-tavern-compass-card-summary' }, horizon === 'longTerm' ? route.vision : route.summary),
+            route.causalBasis && horizon !== 'longTerm' ? h('p', { className: 'dsh-tavern-compass-meta-line is-causal' },
+              h('strong', null, '因果依据：'), route.causalBasis
+            ) : null,
+            horizon === 'midTerm' && route.entryHook ? h('div', { className: 'dsh-tavern-compass-callout' },
+              h('strong', null, '入线契机：'),
+              h('span', null, route.entryHook)
+            ) : null,
+            steps.length > 0 ? h('div', { className: 'dsh-tavern-compass-steps' },
+              h('div', { className: 'dsh-tavern-compass-steps-head' },
+                h('span', null, (horizon === 'shortTerm' ? '推进节拍' : '篇章里程碑') + ' · 随新回合自动打勾（也可手动点选）'),
+                h('span', null, doneCount + '/' + steps.length)
+              ),
+              h('ul', { className: 'dsh-tavern-compass-step-list' }, steps.map((step, idx) => {
+                const checked = Boolean(step && step.done)
+                const roleLabel = horizon === 'midTerm' ? pcMidPhaseLabel(idx, steps.length) : ''
+                return h('li', { key: idx, className: checked ? 'is-done' : '' },
+                  h('button', {
+                    type: 'button',
+                    className: 'dsh-tavern-compass-step-btn',
+                    disabled: Boolean(busyAction),
+                    'aria-pressed': checked ? 'true' : 'false',
+                    title: checked ? '标记为未完成' : '标记为已达成',
+                    onClick: () => toggleStep(horizon, route.id, idx)
+                  },
+                    h('span', { className: 'dsh-tavern-compass-check', 'aria-hidden': true }, checked ? '✓' : '○'),
+                    roleLabel ? h('span', { className: 'dsh-tavern-compass-phase-tag' }, roleLabel) : null,
+                    h('span', { className: 'dsh-tavern-compass-step-text' }, step.text)
+                  )
+                )
+              }))
+            ) : null,
+            horizon === 'midTerm' && route.stakes ? h('p', { className: 'dsh-tavern-compass-meta-line' },
+              h('strong', null, '收益与风险：'), route.stakes
+            ) : null,
+            horizon === 'longTerm' && Array.isArray(route.prerequisites) && route.prerequisites.length > 0 ? h('div', { className: 'dsh-tavern-compass-steps' },
+              h('div', { className: 'dsh-tavern-compass-steps-head' }, h('span', null, '达成前置拐点')),
+              h('ul', { className: 'dsh-tavern-compass-prereq-list' }, route.prerequisites.map((req, idx) => h('li', { key: idx }, req)))
+            ) : null,
+            horizon === 'longTerm' && route.toneGuidance ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle', title: '点亮此终局后，前台正文只会收到这句暗流基调，不会剧透或抢跑结局' },
+              h('strong', null, '防剧透暗流指引：'), route.toneGuidance
+            ) : null,
+            route.diegeticOmen && horizon !== 'shortTerm' ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle', title: '点亮此路线时，正文可通过传闻/异象自然透出此风声（不剧透）' },
+              h('strong', null, '世界内预兆：'), route.diegeticOmen
+            ) : null
+          ),
+      h('footer', { className: 'dsh-tavern-compass-card-actions' },
+        h('button', {
+          type: 'button',
+          className: 'dsh-tavern-btn' + (isPinned ? ' primary' : ''),
+          disabled: Boolean(busyAction),
+          onClick: () => togglePin(horizon, route)
+        }, isPinned ? '✓ 已点亮（取消）' : '点亮此路线'),
+        horizon !== 'shortTerm' ? h('button', {
+          type: 'button',
+          className: 'dsh-tavern-btn',
+          disabled: isRunning || Boolean(busyAction),
+          title: horizon === 'longTerm' ? '围绕此终局推演配套的中期篇章路线' : '围绕此篇章推演眼前的今期节拍路线',
+          onClick: () => drillDownRoute(horizon, route)
+        }, horizon === 'longTerm' ? '拆解中期 ↘' : '拆解今期 ↘') : null,
+        ui && typeof ui.forkGame === 'function' ? h('button', {
+          type: 'button',
+          className: 'dsh-tavern-btn',
+          disabled: isRunning || Boolean(busyAction),
+          title: '从当前回合克隆出一个独立平行存档，并自动点亮此路线',
+          onClick: () => forkWithRoute(horizon, route)
+        }, '分叉试玩 ⑂') : null
+      )
+    )
+  }
+
+  return h('aside', { className: 'dsh-tavern-status dsh-tavern-compass-panel' },
+    h('div', { className: 'dsh-tavern-status-head' },
+      h('div', { className: 'dsh-tavern-status-title' }, '剧情罗盘'),
+      h('div', { className: 'dsh-tavern-compass-head-actions' },
+        compassEnabled && compass.basedOnTurn > 0 ? h('span', { className: 'dsh-tavern-compass-turn-badge' }, '第 ' + compass.basedOnTurn + ' 轮') : null,
+        h('div', { className: 'dsh-tavern-compass-switch-wrap', title: compassEnabled ? '关闭本局剧情罗盘' : '开启本局剧情罗盘' },
+          h('span', { className: 'dsh-tavern-compass-switch-text' }, compassEnabled ? '已开启' : '已关闭'),
+          h(PcSwitch, { label: '剧情罗盘', checked: compassEnabled, disabled: Boolean(busyAction), onChange: toggleEnabled })
+        ),
+        compassEnabled ? (
+          isRunning
+            ? h('button', { type: 'button', className: 'dsh-tavern-btn danger', disabled: busyAction === 'cancel', onClick: cancelGenerate }, '取消推演')
+            : h(Fragment, null,
+                hasAnyRoutes ? h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-btn',
+                  disabled: Boolean(busyAction),
+                  title: '作废当前全部路线与点亮标记，模型看不到旧路线，只按当前剧情重新推演一套独立方向',
+                  onClick: () => setConfirmingFresh(!confirmingFresh)
+                }, '✦ 全新生成') : null,
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-btn primary',
+                  disabled: Boolean(busyAction),
+                  onClick: () => runGenerate('all')
+                }, hasAnyRoutes ? '全局演进刷新' : '✦ 推演多路线')
+              )
+        ) : null
+      )
+    ),
+    !compassEnabled
+      ? h('div', { className: 'dsh-tavern-status-body dsh-tavern-compass-body' },
+          localError ? h('div', { className: 'dsh-tavern-compass-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
+          localNotice ? h('p', { className: 'dsh-tavern-compass-notice', role: 'status' }, localNotice) : null,
+          h('div', { className: 'dsh-tavern-compass-disabled-card' },
+            h('strong', null, '剧情罗盘已关闭'),
+            h('p', { className: 'dsh-tavern-compass-desc' },
+              hasAnyRoutes
+                ? '当前对局已关闭剧情罗盘，后台推演/自动演进与提示词软引导已暂停，已生成的路线数据会为您安全保留，重新开启后可立即恢复使用。'
+                : '开启后，剧情罗盘会结合人设、剧情与世界书为您推演今期/中期/长期多路线分支方向，并支持点亮软引导与一键分叉试玩。'
+            ),
+            h('button', {
+              type: 'button',
+              className: 'dsh-tavern-btn primary',
+              disabled: Boolean(busyAction),
+              onClick: () => toggleEnabled(true)
+            }, busyAction === 'toggleEnabled' ? '正在开启...' : '开启剧情罗盘')
+          )
+        )
+      : h('div', { className: 'dsh-tavern-status-body dsh-tavern-compass-body' },
+          confirmingFresh ? h('div', { className: 'dsh-tavern-compass-confirm', role: 'dialog', 'aria-label': '确认全新生成' },
+            h('span', null, '全新生成会作废当前盘面上的今期 / 中期 / 长期全部路线和点亮标记，模型也看不到这些旧内容，只会依据当前剧情重新推演一套独立方向。已归档的历史记录会保留。确定继续？'),
+            h('div', { className: 'dsh-tavern-compass-confirm-actions' },
+              h('button', { type: 'button', className: 'dsh-tavern-btn', onClick: () => setConfirmingFresh(false) }, '取消'),
+              h('button', { type: 'button', className: 'dsh-tavern-btn primary', disabled: Boolean(busyAction), onClick: () => runGenerate('all', undefined, { fresh: true }) }, '全新生成')
+            )
+          ) : null,
+
+          h('section', { className: 'dsh-tavern-compass-top' },
+            h('div', { className: 'dsh-tavern-compass-archetypes-row' },
+              h('span', { className: 'dsh-tavern-compass-label' }, '游玩类型：'),
+              displayArchetypes.length > 0
+                ? displayArchetypes.map(tag => h('span', { key: tag, className: 'dsh-tavern-compass-archetype-chip' }, tag))
+                : h('span', { className: 'dsh-tavern-compass-muted' }, '推演时自动识别，或手动指定'),
+              h('button', {
+                type: 'button',
+                className: 'dsh-tavern-compass-link-btn',
+                disabled: Boolean(busyAction),
+                onClick: () => { editingArchetypes ? setEditingArchetypes(false) : openArchetypeEditor() }
+              }, editingArchetypes ? '收起' : '定制标签')
+            ),
+            editingArchetypes ? h('div', { className: 'dsh-tavern-compass-archetype-editor' },
+              h('p', { className: 'dsh-tavern-compass-desc' }, '选择或输入 1–5 个游玩题材/流派标签，AI 将按对应戏剧维度发散不同路线：'),
+              h('div', { className: 'dsh-tavern-compass-preset-tags' }, PC_PRESET_ARCHETYPES.map(tag => {
+                const on = selectedArchetypes.includes(tag)
+                return h('button', {
+                  key: tag,
+                  type: 'button',
+                  className: 'dsh-tavern-compass-preset-tag' + (on ? ' is-selected' : ''),
+                  onClick: () => togglePresetArchetype(tag)
+                }, (on ? '✓ ' : '+ ') + tag)
+              })),
+              selectedArchetypes.length > 0 ? h('div', { className: 'dsh-tavern-compass-selected-tags' },
+                selectedArchetypes.map(tag => h('span', { key: tag, className: 'dsh-tavern-compass-archetype-chip is-removable' },
+                  tag,
+                  h('button', {
+                    type: 'button',
+                    'aria-label': '移除 ' + tag,
+                    onClick: () => setSelectedArchetypes(selectedArchetypes.filter(t => t !== tag))
+                  }, '×')
+                ))
+              ) : null,
+              h('div', { className: 'dsh-tavern-compass-custom-row' },
+                h('input', {
+                  type: 'text',
+                  className: 'dsh-tavern-compass-input',
+                  maxLength: 16,
+                  placeholder: '自定义流派（如：克苏鲁调查、赛博跑团）',
+                  value: archetypeDraft,
+                  onChange: e => setArchetypeDraft(e.target.value),
+                  onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomArchetypeChip() } }
+                }),
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-btn',
+                  disabled: !archetypeDraft.trim() || selectedArchetypes.length >= 5,
+                  onClick: addCustomArchetypeChip
+                }, '添加')
+              ),
+              h('div', { className: 'dsh-tavern-compass-editor-actions' },
+                h('button', { type: 'button', className: 'dsh-tavern-btn primary', disabled: Boolean(busyAction), onClick: () => saveArchetypes(true) }, '保存并立即重推路线'),
+                h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: () => saveArchetypes(false) }, '仅保存'),
+                selectedArchetypes.length > 0 ? h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: () => setSelectedArchetypes([]) }, '清空') : null
+              )
+            ) : null,
+
+            compass.situationDigest ? h('p', { className: 'dsh-tavern-compass-digest' }, compass.situationDigest) : null,
+
+            h('div', { className: 'dsh-tavern-compass-prefs-row' },
+              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '推进节奏' },
+                h('span', { className: 'dsh-tavern-compass-label' }, '推进节奏：'),
+                h('div', { className: 'dsh-tavern-compass-pace-pills' }, PC_PACE_OPTIONS.map(opt => {
+                  const selected = currentPace === opt.key
+                  return h('button', {
+                    key: opt.key,
+                    type: 'button',
+                    className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
+                    disabled: Boolean(busyAction),
+                    'aria-pressed': selected ? 'true' : 'false',
+                    title: opt.title,
+                    onClick: () => {
+                      if (!selected) savePreferences({ pace: opt.key }, '推进节奏已切换为「' + opt.label + '」')
+                    }
+                  }, opt.label)
+                }))
+              ),
+              h('button', {
+                type: 'button',
+                className: 'dsh-tavern-compass-blindbox-toggle' + (blindBox ? ' is-active' : ''),
+                disabled: Boolean(busyAction),
+                'aria-pressed': blindBox ? 'true' : 'false',
+                title: blindBox ? '盲盒防剧透已开启：隐藏路线详情与终局剧透，点击切回明牌' : '开启盲盒防剧透模式：隐藏节拍/终局剧透详情，仅凭标题与预兆风声游玩',
+                onClick: () => savePreferences({ blindBox: !blindBox }, !blindBox ? '已开启盲盒防剧透模式，卡片剧透详情已遮罩。' : '已切回明牌模式。')
+              }, blindBox ? '🎁 盲盒防剧透：开' : '👁 明牌模式')
+            ),
+
+            h('div', { className: 'dsh-tavern-compass-interval-row' },
+              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '剧情罗盘自动更新间隔' },
+                h('span', { className: 'dsh-tavern-compass-label' }, '自动更新：'),
+                h('div', { className: 'dsh-tavern-compass-pace-pills' },
+                  PC_AUTO_UPDATE_PRESETS.map(opt => {
+                    const selected = !customIntervalOpen && autoUpdateInterval === opt.value
+                    return h('button', {
+                      key: opt.value,
+                      type: 'button',
+                      className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
+                      disabled: Boolean(busyAction),
+                      'aria-pressed': selected ? 'true' : 'false',
+                      title: opt.value === 0 ? '仅手动推演或归卷时更新' : '每隔 ' + opt.value + ' 楼回合结算后自动全层刷新路线',
+                      onClick: () => {
+                        setCustomIntervalOpen(false)
+                        if (autoUpdateInterval !== opt.value) {
+                          savePreferences({ autoUpdateInterval: opt.value }, opt.value > 0 ? '已设置每 ' + opt.value + ' 楼自动全局刷新剧情罗盘。' : '已关闭剧情罗盘定期自动更新。')
+                        }
+                      }
+                    }, opt.label)
+                  }),
+                  h('button', {
+                    key: 'custom',
+                    type: 'button',
+                    className: 'dsh-tavern-compass-pace-btn' + ((customIntervalOpen || !isPresetAutoUpdateInterval) ? ' is-active' : ''),
+                    disabled: Boolean(busyAction),
+                    'aria-pressed': (customIntervalOpen || !isPresetAutoUpdateInterval) ? 'true' : 'false',
+                    title: '自定义每隔多少楼自动全层刷新（1–100 楼，0 为关闭）',
+                    onClick: () => {
+                      setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
+                      setCustomIntervalOpen(true)
+                    }
+                  }, !isPresetAutoUpdateInterval && autoUpdateInterval > 0 ? '自定义(' + autoUpdateInterval + '楼)' : '自定义')
+                )
+              ),
+              (customIntervalOpen || !isPresetAutoUpdateInterval) ? h('div', { className: 'dsh-tavern-compass-interval-custom' },
+                h('input', {
+                  type: 'number',
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  className: 'dsh-tavern-compass-input dsh-tavern-compass-interval-input',
+                  'aria-label': '自定义自动更新楼数',
+                  placeholder: '1–100',
+                  value: intervalDraft,
+                  disabled: Boolean(busyAction),
+                  onChange: e => setIntervalDraft(e.target.value),
+                  onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commitCustomInterval() } }
+                }),
+                h('span', { className: 'dsh-tavern-compass-label' }, '楼'),
+                h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: commitCustomInterval }, '应用')
+              ) : null,
+              autoUpdateInterval > 0 ? h('span', { className: 'dsh-tavern-compass-interval-hint' }, autoUpdateHint) : null
+            ),
+
+            h('div', { className: 'dsh-tavern-compass-model-row' },
+              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '剧情罗盘模型' },
+                h('span', { className: 'dsh-tavern-compass-label' }, '推演模型：'),
+                h('div', { className: 'dsh-tavern-compass-pace-pills' }, PC_MODEL_OPTIONS.map(opt => {
+                  const activeMode = pickingIndependentModel ? 'independent' : compassModelMode
+                  const selected = activeMode === opt.key
+                  return h('button', {
+                    key: opt.key,
+                    type: 'button',
+                    className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
+                    disabled: Boolean(busyAction),
+                    'aria-pressed': selected ? 'true' : 'false',
+                    title: opt.title,
+                    onClick: () => {
+                      if (opt.key === 'independent') {
+                        setPickingIndependentModel(true)
+                        return
+                      }
+                      setPickingIndependentModel(false)
+                      if (compassModelMode !== opt.key) {
+                        saveCompassModel(opt.key, '剧情罗盘模型已切换为「' + opt.label + '」。')
+                      }
+                    }
+                  }, opt.label)
+                }))
+              ),
+              (compassModelIsObject || pickingIndependentModel) ? (() => {
+                const compassEfforts = modelReasoning.key === compassModelKey ? (modelReasoning.value && modelReasoning.value.efforts) || [] : []
+                const compassKnown = !compassModelIsObject || modelCatalog.some(group =>
+                  group.provider === compassModel.provider && Array.isArray(group.models) && group.models.some(m => m.id === compassModel.model)
+                )
+                const fallbackName = compassModelIsObject ? (compassModel.provider + ' / ' + compassModel.model) : ''
+                const effortVal = compassModelIsObject ? (compassModel.reasoningEffort || '') : ''
+                return h('div', { className: 'dsh-tavern-compass-model-pickers' },
+                  h('select', {
+                    className: 'dsh-tavern-compass-select',
+                    'aria-label': '剧情罗盘独立模型',
+                    value: compassModelKey,
+                    disabled: Boolean(busyAction) || catalogLoading,
+                    onChange: e => {
+                      const val = e.target.value
+                      if (!val) return
+                      saveCompassModel(JSON.parse(val), '已切换剧情罗盘独立模型。')
+                    }
+                  },
+                    !compassModelIsObject ? h('option', { value: '' }, catalogLoading ? '正在加载模型…' : '选择独立模型') : null,
+                    !compassKnown && compassModelIsObject ? h('option', { value: compassModelKey }, fallbackName + '（当前不可用）') : null,
+                    modelCatalog.map(group => h('optgroup', {
+                      key: group.provider,
+                      label: group.providerName || group.provider
+                    }, (group.models || []).map(model => h('option', {
+                      key: group.provider + '/' + model.id,
+                      value: JSON.stringify({ provider: group.provider, model: model.id })
+                    }, model.name || model.id))))
+                  ),
+                  compassModelKey ? h('select', {
+                    className: 'dsh-tavern-compass-select',
+                    'aria-label': '剧情罗盘推理强度',
+                    value: effortVal,
+                    disabled: Boolean(busyAction) || !compassEfforts.length,
+                    onChange: e => {
+                      const next = { provider: compassModel.provider, model: compassModel.model }
+                      if (e.target.value) next.reasoningEffort = e.target.value
+                      saveCompassModel(next, '已更新剧情罗盘推理强度。')
+                    }
+                  },
+                    h('option', { value: '' }, '模型默认'),
+                    effortVal && !compassEfforts.some(item => item.id === effortVal) ? h('option', { value: effortVal }, effortVal) : null,
+                    compassEfforts.map(item => h('option', { key: item.id, value: item.id }, item.name || item.id))
+                  ) : null
+                )
+              })() : null
+            ),
+
+            h('div', { className: 'dsh-tavern-compass-chat-wrap' },
+              chatHistory.length > 0 ? h('div', { className: 'dsh-tavern-compass-chat-bar' },
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-compass-link-btn',
+                  onClick: () => setChatOpen(!chatOpen)
+                }, (chatOpen ? '▾ 收起' : '▸ 展开') + '脑暴对话（' + chatHistory.length + '）'),
+                chatOpen ? h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-compass-link-btn',
+                  disabled: isRunning || Boolean(busyAction),
+                  onClick: clearCompassChatHistory
+                }, '清空记录') : null
+              ) : null,
+              chatOpen && chatHistory.length > 0 ? h('div', { className: 'dsh-tavern-compass-chat-thread', 'aria-label': '剧情罗盘脑暴对话记录' },
+                chatHistory.map(msg => {
+                  const isUser = msg.role === 'user'
+                  const scopeBadge = msg.scopeApplied === 'shortTerm' ? '今期'
+                    : msg.scopeApplied === 'midTerm' ? '中期'
+                    : msg.scopeApplied === 'longTerm' ? '长期'
+                    : msg.scopeApplied === 'all' ? '全部' : ''
+                  return h('div', { key: msg.id, className: 'dsh-tavern-compass-chat-msg ' + (isUser ? 'is-user' : 'is-assistant') },
+                    h('div', { className: 'dsh-tavern-compass-chat-bubble' }, msg.text),
+                    !isUser ? h('div', { className: 'dsh-tavern-compass-chat-msg-foot' },
+                      scopeBadge
+                        ? h('button', {
+                            type: 'button',
+                            className: 'dsh-tavern-compass-pill is-active',
+                            onClick: () => {
+                              if (msg.scopeApplied && msg.scopeApplied !== 'all') setActiveHorizon(msg.scopeApplied)
+                            }
+                          }, '★ 已按此对话更新「' + scopeBadge + '」路线')
+                        : h('div', { className: 'dsh-tavern-compass-chat-apply-row' },
+                            h('button', {
+                              type: 'button',
+                              className: 'dsh-tavern-compass-apply-btn',
+                              disabled: isRunning || Boolean(busyAction),
+                              title: '将上面讨论的方案立即生成并更新今期路线卡片',
+                              onClick: () => applyBrainstormIdea('shortTerm', msg.text)
+                            }, '✨ 应用为今期'),
+                            h('button', {
+                              type: 'button',
+                              className: 'dsh-tavern-compass-apply-btn',
+                              disabled: isRunning || Boolean(busyAction),
+                              title: '将上面讨论的方案同步规划进今/中/长期全部路线',
+                              onClick: () => applyBrainstormIdea('all', msg.text)
+                            }, '✦ 应用为全局')
+                          )
+                    ) : null
+                  )
+                })
+              ) : null,
+              h('div', { className: 'dsh-tavern-compass-guidance-box' },
+                h('input', {
+                  type: 'text',
+                  className: 'dsh-tavern-compass-input',
+                  maxLength: 400,
+                  disabled: isRunning,
+                  placeholder: '聊聊剧情点子或指定发展方向（回车对话商量，不覆盖当前路线）',
+                  value: guidance,
+                  onChange: e => setGuidance(e.target.value),
+                  onKeyDown: e => {
+                    if (e.key === 'Enter' && !e.isComposing && !isRunning) {
+                      e.preventDefault()
+                      sendCompassChat()
+                    }
+                  }
+                }),
+                h('div', { className: 'dsh-tavern-compass-guidance-actions' },
+                  h('button', {
+                    type: 'button',
+                    className: 'dsh-tavern-btn primary',
+                    disabled: isRunning || Boolean(busyAction) || !guidance.trim(),
+                    title: '与剧情罗盘多轮讨论灵感（仅当你在对话里明确要求改路线时才会更新卡片）',
+                    onClick: () => sendCompassChat()
+                  }, isRunning && task.scope === 'chat' ? '思考中…' : '💬 发送'),
+                  guidance.trim() ? h('button', {
+                    type: 'button',
+                    className: 'dsh-tavern-btn',
+                    disabled: isRunning || Boolean(busyAction),
+                    title: '不经对话，直接按输入框方向全局重推今/中/长期路线',
+                    onClick: () => runGenerate('all')
+                  }, '✨ 直接重推') : null
+                )
+              )
+            )
+          ),
+
+          active.count > 0 ? h('section', { className: 'dsh-tavern-compass-funnel', 'aria-label': '当前锚定漏斗' },
+            h('div', { className: 'dsh-tavern-compass-funnel-head' },
+              h('strong', null, '🧭 当前激活方向'),
+              h('div', { className: 'dsh-tavern-compass-funnel-actions' },
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-compass-link-btn',
+                  disabled: Boolean(busyAction),
+                  title: '在不重推路线的前提下，补充或微调前台正文软引导的侧重点',
+                  onClick: () => setEditingDirective(!editingDirective)
+                }, editingDirective ? '收起微调' : (customDirective ? '✏️ 已设微调引导' : '✏️ 微调引导')),
+                ui && typeof ui.regenerateCandidates === 'function' ? h('button', {
+                  type: 'button',
+                  className: 'dsh-tavern-btn',
+                  disabled: Boolean(busyAction),
+                  title: '按当前罗盘路线重新生成下一步行动候选项（带路线角标）',
+                  onClick: refreshCandidatesFromCompass
+                }, busyAction === 'candidates' ? '提交中…' : '生成联动候选项') : null
+              )
+            ),
+            h('div', { className: 'dsh-tavern-compass-funnel-items' },
+              active.shortTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip', onClick: () => setActiveHorizon('shortTerm') }, '今期：' + active.shortTerm.title) : null,
+              active.midTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip', onClick: () => setActiveHorizon('midTerm') }, '中期：' + active.midTerm.title) : null,
+              active.longTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip', onClick: () => setActiveHorizon('longTerm') }, '长期：' + active.longTerm.title) : null
+            ),
+            (editingDirective || customDirective) ? h('div', { className: 'dsh-tavern-compass-directive-box' },
+              editingDirective
+                ? h('div', { className: 'dsh-tavern-compass-directive-edit' },
+                    h('input', {
+                      type: 'text',
+                      className: 'dsh-tavern-compass-input',
+                      maxLength: 240,
+                      placeholder: '微调后台软引导语气或侧重点（如：本段多给对话交锋与误会，先别点破真相）',
+                      value: directiveDraft,
+                      onChange: e => setDirectiveDraft(e.target.value),
+                      onKeyDown: e => {
+                        if (e.key === 'Enter' && !e.isComposing) {
+                          e.preventDefault()
+                          savePreferences({ customDirective: directiveDraft }, directiveDraft.trim() ? '已更新微调引导（无需重推路线，下轮立即生效）' : '已清空微调引导').then(() => setEditingDirective(false))
+                        }
+                      }
+                    }),
+                    h('button', {
+                      type: 'button',
+                      className: 'dsh-tavern-btn primary',
+                      disabled: Boolean(busyAction),
+                      onClick: () => savePreferences({ customDirective: directiveDraft }, directiveDraft.trim() ? '已更新微调引导（无需重推路线，下轮立即生效）' : '已清空微调引导').then(() => setEditingDirective(false))
+                    }, '应用'),
+                    customDirective ? h('button', {
+                      type: 'button',
+                      className: 'dsh-tavern-btn',
+                      disabled: Boolean(busyAction),
+                      onClick: () => {
+                        setDirectiveDraft('')
+                        savePreferences({ customDirective: '' }, '已清空微调引导').then(() => setEditingDirective(false))
+                      }
+                    }, '清空') : null
+                  )
+                : h('p', { className: 'dsh-tavern-compass-meta-line is-subtle' }, h('strong', null, '微调引导：'), customDirective)
+            ) : null
+          ) : null,
+
+          isRunning ? h('div', { className: 'dsh-tavern-compass-alert is-info', role: 'status' },
+            h('div', { className: 'dsh-tavern-compass-alert-left' },
+              h(PcSpinner),
+              h('span', null, task.scope === 'chat'
+                ? '脑暴灵感助手正在结合人设、现场定格与世界书暗线构思回复…'
+                : '后台正在结合人物卡、变量状态与世界书暗线推演' + (task.scope === 'shortTerm' ? '今期' : task.scope === 'midTerm' ? '中期' : task.scope === 'longTerm' ? '长期' : '今期 / 中期 / 长期') + '路线…（不影响继续对话）')
+            )
+          ) : null,
+          task.status === 'failed' && task.error ? h('div', { className: 'dsh-tavern-compass-alert is-error', role: 'alert' },
+            h('span', null, task.error),
+            task.scope !== 'chat' ? h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: isRunning || Boolean(busyAction), onClick: () => runGenerate(task.scope || 'all') }, '重试') : null
+          ) : null,
+          localError ? h('div', { className: 'dsh-tavern-compass-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
+          localNotice ? h('p', { className: 'dsh-tavern-compass-notice', role: 'status' }, localNotice) : null,
+
+          h('div', { className: 'dsh-tavern-compass-tabs', role: 'tablist', 'aria-label': '剧情规划时间跨度', onKeyDown: onHorizonKeyDown },
+            PC_HORIZON_META.map(meta => {
+              const selected = meta.key === activeHorizon
+              const count = Array.isArray(compass[meta.key]) ? compass[meta.key].length : 0
+              const hasPin = Boolean(compass.pinned && compass.pinned[meta.key])
+              return h('button', {
+                key: meta.key,
+                type: 'button',
+                role: 'tab',
+                'aria-selected': selected ? 'true' : 'false',
+                tabIndex: selected ? 0 : -1,
+                className: 'dsh-tavern-compass-tab' + (selected ? ' is-active' : '') + (hasPin ? ' has-pin' : ''),
+                onClick: () => setActiveHorizon(meta.key)
+              },
+                h('span', { className: 'dsh-tavern-compass-tab-title' }, (hasPin ? '★ ' : '') + meta.label),
+                h('small', null, count > 0 ? meta.span + ' · ' + count : meta.span)
+              )
+            })
+          ),
+
+          h('div', { className: 'dsh-tavern-compass-section-bar' },
+            h('p', { className: 'dsh-tavern-compass-desc' }, activeMeta.subtitle),
+            hasAnyRoutes && !isRunning ? h('button', {
+              type: 'button',
+              className: 'dsh-tavern-compass-link-btn',
+              disabled: Boolean(busyAction),
+              onClick: () => runGenerate(activeHorizon)
+            }, '↻ 仅换一批' + activeMeta.label) : null
+          ),
+
+          currentRoutes.length > 0
+            ? h('div', { className: 'dsh-tavern-compass-cards' }, currentRoutes.map(route => renderRouteCard(activeHorizon, route)))
+            : !isRunning
+              ? h('div', { className: 'dsh-tavern-compass-empty' },
+                  h('p', null, '尚未生成' + activeMeta.label + '路线规划。'),
+                  h('p', { className: 'dsh-tavern-compass-desc' }, '点击上方「✦ 推演多路线」，AI 将基于本卡题材玩法、已埋伏笔与未触发的世界书暗线，提供多条截然不同的近/中/长期发展路线供你挑选灵感或一键分叉试玩。'),
+                  h('button', { type: 'button', className: 'dsh-tavern-btn primary', disabled: Boolean(busyAction), onClick: () => runGenerate('all') }, '✦ 立即推演今期 / 中期 / 长期路线')
+                )
+              : null,
+
+          Array.isArray(compass.archived) && compass.archived.length > 0 ? h('details', { className: 'dsh-tavern-compass-archived' },
+            h('summary', null, '已偏离/归档的旧路线（' + compass.archived.length + '）'),
+            compass.archived.map((item, idx) => h('p', { key: idx, className: 'dsh-tavern-compass-desc' },
+              '【第 ' + (item.turn || '?') + ' 轮 · ' + item.title + '】' + (item.reason || '剧情已走向新分支')
+            ))
+          ) : null
+        )
+  )
+}

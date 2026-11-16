@@ -293,26 +293,21 @@ function createConversationSettingsModule({
         const h = React.createElement;
         const [catalog, setCatalog] = React.useState([]);
         const [selection, setSelection] = React.useState(null);
-        const [plotCompassModel, setPlotCompassModel] = React.useState("background");
-        const [tasks, setTasks] = React.useState({ variables: true, posture: true, plotCompass: false });
+        const [tasks, setTasks] = React.useState({ variables: true, posture: true });
         const [features, setFeatures] = React.useState({ webSearchEnabled: false, mvuCard: false });
         const [loaded, setLoaded] = React.useState(false);
         const [busy, setBusy] = React.useState(false);
         const [error, setError] = React.useState("");
         const [notice, setNotice] = React.useState("");
         const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
-        const [compassReasoning, setCompassReasoning] = React.useState({ key: "", value: null, error: "" });
         const [slotState, setSlotState] = React.useState({slots:[],values:{},scoringCatalog:[]});
         const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
-        const compassIsModel = Boolean(plotCompassModel && typeof plotCompassModel === "object");
-        const compassMode = typeof plotCompassModel === "string" ? plotCompassModel : "background";
-        const compassKey = compassIsModel ? JSON.stringify({ provider: plotCompassModel.provider, model: plotCompassModel.model }) : "";
         async function load() {
             setError("");
             try {
                 const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
                 setSlotState({slots:result.modModelSlots || [],values:result.modModels || {},scoringCatalog:result.scoringCatalog || []});
-                setCatalog(result.modelCatalog || []); setSelection(result.backgroundModel); setPlotCompassModel(result.plotCompassModel || "background");
+                setCatalog(result.modelCatalog || []); setSelection(result.backgroundModel);
                 setTasks(result.backgroundTasks); setFeatures({ webSearchEnabled: result.webSearchEnabled === true, mvuCard: result.mvuCard === true }); setLoaded(true);
             } catch (err) { setError(String(err.message || err)); }
         }
@@ -324,30 +319,21 @@ function createConversationSettingsModule({
             }, err => { if (active) setReasoning({ key, value: null, error: String(err.message || err) }); });
             return () => { active = false; };
         }, [key]);
-        React.useEffect(() => {
-            let active = true;
-            if (compassKey) rpc("getBackgroundModelReasoning", JSON.parse(compassKey), props.sessionId).then(result => {
-                if (active) setCompassReasoning({ key: compassKey, value: result.reasoning, error: "" });
-            }, err => { if (active) setCompassReasoning({ key: compassKey, value: null, error: String(err.message || err) }); });
-            return () => { active = false; };
-        }, [compassKey]);
         async function save(patch) {
             if (busy || !loaded) return;
             setBusy(true); setError(""); setNotice("");
             try {
                 const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId, backgroundModel: selection }, patch), props.sessionId));
                 setSlotState(current=>({...current,values:result.modModels || {}}));
-                setSelection(result.backgroundModel); setPlotCompassModel(result.plotCompassModel || "background"); setTasks(result.backgroundTasks); setFeatures({ ...features, webSearchEnabled: result.webSearchEnabled });
+                setSelection(result.backgroundModel); setTasks(result.backgroundTasks); setFeatures({ ...features, webSearchEnabled: result.webSearchEnabled });
                 setNotice("已保存");
                 invalidateView(props.sessionId);
             } catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
         const efforts = reasoning.key === key ? reasoning.value?.efforts || [] : [];
-        const compassEfforts = compassReasoning.key === compassKey ? compassReasoning.value?.efforts || [] : [];
         const modelOptions = () => catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: (group.providerName || group.provider) + " · " + (model.name || model.id) })));
         const known = !selection || catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
-        const compassKnown = !compassIsModel || catalog.some(group => group.provider === plotCompassModel.provider && group.models.some(model => model.id === plotCompassModel.model));
         const toggle = (name, title, description, checked, patch, disabled = false) => h("label", { key: name, className: "dsh-tavern-background-task" },
             h("span", null, title, h("span", { className: "dsh-tavern-settings-desc" }, description)),
             h(Switch, { label: title, checked, disabled: !loaded || busy || disabled, onChange: value => save(patch(value)) }));
@@ -363,22 +349,13 @@ function createConversationSettingsModule({
                 h(InlineField, { kind: "menu", label: "本局后台推理强度", value: selection?.reasoningEffort || "", disabled: !key || !efforts.length || busy,
                         onCommit: value => { const next = { ...selection }; if (value) next.reasoningEffort = value; else delete next.reasoningEffort; return save({ backgroundModel: next }); },
                         options: [{ value: "", label: key ? "模型默认" : "跟随前台" }, ...efforts.map(item => ({ value: item.id, label: item.name || item.id }))] })),
-            h("section", { className: "dsh-local-section" }, h("h3", null, "剧情罗盘模型"),
-                h("p", { className: "dsh-tavern-settings-desc" }, "仅影响本局剧情罗盘推演、脑暴对话和每轮节拍核对；可选择跟随后台、跟随前台或独立指定模型。"),
-                h(InlineField, { kind: "menu", label: "本局剧情罗盘模型", value: compassIsModel ? compassKey : compassMode, disabled: !loaded || busy,
-                        onCommit: value => save({ plotCompassModel: value === "background" || value === "foreground" ? value : JSON.parse(value) }),
-                        options: [{ value: "background", label: "跟随后台" }, { value: "foreground", label: "跟随前台" }, ...(!compassKnown ? [{ value: compassKey, label: backgroundModelLabel(plotCompassModel, catalog) + "（当前不可用）" }] : []), ...modelOptions()] }),
-                h(InlineField, { kind: "menu", label: "本局剧情罗盘推理强度", value: compassIsModel ? (plotCompassModel.reasoningEffort || "") : "", disabled: !compassKey || !compassEfforts.length || busy,
-                        onCommit: value => { const next = { ...plotCompassModel }; if (value) next.reasoningEffort = value; else delete next.reasoningEffort; return save({ plotCompassModel: next }); },
-                        options: [{ value: "", label: compassKey ? "模型默认" : (compassMode === "foreground" ? "跟随前台" : "跟随后台") }, ...compassEfforts.map(item => ({ value: item.id, label: item.name || item.id }))] })),
             h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。", tasks.posture, checked => ({ backgroundTasks: { posture: checked } })),
-                toggle("plotCompass", "剧情罗盘", "推演短期、中期、长期多路线剧情发展灵感；关闭后不注入提示词且不自动演进，已保存的路线数据会保留。", tasks.plotCompass === true, checked => ({ backgroundTasks: { plotCompass: checked } })),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", tasks.foregroundCandidates === true, checked => ({ backgroundTasks: { foregroundCandidates: checked } })),
-                toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、罗盘、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
+                toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
                 toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", features.webSearchEnabled, checked => ({ webSearchEnabled: checked }))),
-            error || (key && reasoning.key === key && reasoning.error) || (compassKey && compassReasoning.key === compassKey && compassReasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || reasoning.error || compassReasoning.error) : null,
+            error || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || reasoning.error) : null,
             notice ? h("p", { role: "status" }, notice) : null,
             !loaded && error ? h("button", { className: "dsh-tavern-btn", onClick: load }, "重试") : null,
             h("div", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : ""));

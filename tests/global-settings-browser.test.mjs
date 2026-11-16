@@ -203,46 +203,6 @@ test('开局默认功能区包含“后台任务附加预设”开关，默认�
   )
 })
 
-test('全局默认模型区支持设置剧情罗盘默认模型：跟随后台、跟随前台与独立模型', async t => {
-  const backend = fixture()
-  const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
-  const trigger = page.locator('button[aria-label^="默认剧情罗盘模型："]')
-  await page.waitForFunction(() => document.querySelector('button[aria-label^="默认剧情罗盘模型："]')?.disabled === false)
-  await trigger.click()
-  await page.getByRole('menuitemradio', { name: '跟随前台' }).click()
-  await page.getByRole('button', { name: /^默认剧情罗盘模型：.*跟随前台/ }).waitFor()
-  assert.deepEqual(
-    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
-    { plotCompassModel: 'foreground' }
-  )
-
-  await trigger.click()
-  await page.getByRole('menuitemradio', { name: 'm' }).click()
-  await page.getByRole('button', { name: /^默认剧情罗盘模型：.*m/ }).waitFor()
-  assert.deepEqual(
-    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
-    { plotCompassModel: { provider: 'p', model: 'm' } }
-  )
-})
-
-test('开局默认功能区支持设置剧情罗盘自动更新间隔并保存进 defaultPlaySettings', async t => {
-  const backend = fixture()
-  const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
-  const input = page.getByLabel('剧情罗盘自动更新', { exact: true })
-  await input.waitFor()
-  assert.equal(await input.inputValue(), '0')
-  await input.fill('6')
-  await input.press('Enter')
-  await page.waitForFunction(() => document.querySelector('input[aria-label="剧情罗盘自动更新"]')?.value === '6')
-  assert.deepEqual(
-    calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch,
-    { defaultPlaySettings: { plotCompassAutoUpdateInterval: 6 } }
-  )
-})
-
-
-
-
 test('候选多角色 / 全局 Tab 在高级里默认关闭，打开后只保存这一项', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})

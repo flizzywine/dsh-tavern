@@ -49,11 +49,6 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
             h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
-                toggle("plotCompass", "剧情罗盘", "推演短期、中期、长期多路线剧情发展灵感，并在点亮路线后软引导正文与候选项。", true),
-                h(TavernSettingRow, { title: "剧情罗盘自动更新", help: "每隔 N 轮在回合结算后自动执行一次全局演进刷新；填 0 表示关闭，仅手动或压缩归卷时刷新。" },
-                    h(InlineField, { kind: "number", integer: true, min: 0, max: 100, unit: "楼", label: "剧情罗盘自动更新", hideLabel: true, disabled,
-                        value: Number.isInteger(data?.plotCompassAutoUpdateInterval) ? data.plotCompassAutoUpdateInterval : 0,
-                        onCommit: value => save({ plotCompassAutoUpdateInterval: value }) })),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
@@ -62,11 +57,11 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
     }
 
     function TavernSettingsSection({ renderSlot }) {
-        const [state, setState] = React.useState({ loading: true, busy: false, defaultForegroundModel: null, defaultBackgroundModel: null, defaultWorkbenchModel: null, plotCompassModel: "background", notice: "", settings: null, modelCatalog: [], modModelSlots: [], error: "" });
+        const [state, setState] = React.useState({ loading: true, busy: false, defaultForegroundModel: null, defaultBackgroundModel: null, defaultWorkbenchModel: null, notice: "", settings: null, modelCatalog: [], modModelSlots: [], error: "" });
         React.useEffect(function () {
             let active = true;
             rpc("getTavernSettings").then(function (result) {
-                if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, plotCompassModel: result.settings?.plotCompassModel || "background", notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
+                if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
             }, function (error) {
                 if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
             });
@@ -114,7 +109,6 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             React.createElement(TavernDefaultModelSetting, { label: "默认前台模型", title: "前台模型", description: "写正文、扮演角色，直接决定剧情质量", fallback: "使用 DSH 默认模型", selection: state.defaultForegroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultForegroundModel", selection) }),
             React.createElement(TavernDefaultModelSetting, { label: "默认后台模型", title: "后台模型", description: "变量结算、世界书筛选、候选回复、手机消息等幕后任务", fallback: "跟随前台", selection: state.defaultBackgroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultBackgroundModel", selection) }),
             React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
-            React.createElement(TavernDefaultModelSetting, { label: "默认剧情罗盘模型", title: "剧情罗盘模型", description: "剧情罗盘推演、脑暴对话与节拍核对；可选择跟随后台、跟随前台或独立指定模型", modeOptions: [{ value: "background", label: "跟随后台" }, { value: "foreground", label: "跟随前台" }], selection: state.plotCompassModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("plotCompassModel", selection) }),
             null),
                 h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.modId !== 'dsh.stage'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
             group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",

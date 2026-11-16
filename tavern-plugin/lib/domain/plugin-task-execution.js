@@ -61,7 +61,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
     return byName
   }
 
-  async function runTaskAs(owner, { gameId, prompt, tools = [], signal, member } = {}) {
+  async function runTaskAs(owner, { gameId, prompt, tools = [], signal, member, selection, system, temperature, maxToolCalls, stopToolsWhen, acceptWithoutText } = {}) {
     const game = await requireGame(gameId)
     // A member of this plugin only (tavern.member): its resident Session, its queue.
     const memberId = member === undefined ? '' : pluginMemberId(owner, String(member))
@@ -69,16 +69,19 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
     if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
     if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('prompt 必须是非空字符串')
     if (prompt.length > MAX_TASK_PROMPT) throw new Error('prompt 不能超过 20000 字')
+    if (system !== undefined && typeof system !== 'string') throw new TypeError('system 必须是字符串')
     // A member with a prefix of its own answers with its own tools: they sit in that prefix, so
     // a task brings none (the prefix stays the same for every task, and cached).
     const prefix = memberId ? pluginMemberPrefix(memberId) : null
     if (prefix && tools.length) throw new Error('成员 ' + member + ' 有自己的系统提示词和工具，任务里不能再传 tools')
+    if (prefix && system !== undefined) throw new Error('成员 ' + member + ' 已有自己的系统提示词，任务里不能覆盖 system')
     const byName = prefix ? prefix.tools : checkTools(tools)
+    const callLimit = Number.isSafeInteger(Number(maxToolCalls)) ? Math.max(1, Math.min(32, Number(maxToolCalls))) : MAX_TOOL_CALLS_PER_TASK
     let calls = 0
     const call = async (name, args) => {
       const tool = byName.get(name)
       if (!tool) return JSON.stringify({ ok: false, error: '没有这个工具：' + name })
-      if (++calls > MAX_TOOL_CALLS_PER_TASK) return JSON.stringify({ ok: false, error: '工具调用次数已达上限，请直接给出结果' })
+      if (++calls > callLimit) return JSON.stringify({ ok: false, error: '工具调用次数已达上限，请直接给出结果' })
       try {
         const value = await bounded(tool.execute(structuredClone(args ?? {})), '插件工具 ' + name)
         return (typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })).slice(0, MAX_TOOL_RESULT)
@@ -88,10 +91,33 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
       }
     }
     try {
-      const result = await bounded(runTask({ gameId: game.sessionId, owner, prompt: prompt.trim(),
+      const systemPrompt = prefix ? prefix.system : system
+      const modelOverride = selection && typeof selection === 'object' && selection.provider && selection.model
+        ? {
+            provider: String(selection.provider),
+            model: String(selection.model),
+            ...(selection.reasoningEffort ? { reasoningEffort: String(selection.reasoningEffort) } : {})
+          }
+        : undefined
+      const result = await bounded(runTask({
+        gameId: game.sessionId,
+        owner,
+        prompt: prompt.trim(),
         tools: Array.from(byName.values()).map(tool => ({ name: tool.name, description: tool.description.trim(), parameters: structuredClone(tool.parameters) })),
-        call, signal, member: memberId, ...(prefix ? { system: prefix.system } : {}) }), '后台任务', TASK_TIMEOUT_MS)
-      return { text: String(result?.text || '') }
+        call,
+        signal,
+        member: memberId,
+        ...(systemPrompt !== undefined ? { system: systemPrompt } : {}),
+        ...(modelOverride ? { selection: modelOverride } : {}),
+        ...(typeof temperature === 'number' && Number.isFinite(temperature) ? { temperature } : {}),
+        ...(Number.isSafeInteger(Number(maxToolCalls)) ? { maxToolCalls: callLimit } : {}),
+        ...(typeof stopToolsWhen === 'function' ? { stopToolsWhen } : {}),
+        ...(typeof acceptWithoutText === 'function' ? { acceptWithoutText } : acceptWithoutText === true ? { acceptWithoutText: () => true } : {})
+      }), '后台任务', TASK_TIMEOUT_MS)
+      return {
+        text: String(result?.text || ''),
+        ...(result?.traceSessionId ? { traceSessionId: String(result.traceSessionId) } : {})
+      }
     } catch (error) {
       if (!signal?.aborted) recordError(game.sessionId, owner, '后台任务', error)
       throw error

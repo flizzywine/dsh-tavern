@@ -1,9 +1,8 @@
 import { compactionPolicy } from './auto-compaction.js'
-import { normalizeBackgroundModel, normalizePlotCompassModel } from './background-model-selection.js'
+import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from './narrative-damper.js'
-import { PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL, normalizePlotCompassAutoUpdateInterval } from './plot-compass.js'
 
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
@@ -229,7 +228,7 @@ export function presentPromptSets(document) {
 
 export function normalizeBackgroundTasks(value) {
   const tasks = object(value)
-  return { posture: tasks.posture !== false, characterDesign: false, variables: tasks.variables !== false, ledger: false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, plotCompass: tasks.plotCompass === true, preset: tasks.preset === true, worldbookScreening: false }
+  return { posture: tasks.posture !== false, characterDesign: false, variables: tasks.variables !== false, ledger: false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true, worldbookScreening: false }
 }
 
 
@@ -246,7 +245,6 @@ export function normalizePlayDefaults(value) {
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
     // New games get 文风联想 unless the defaults turn it off; an existing game without the key stays off.
     backgroundTasks: { ...normalizeConfiguredBackgroundTasks(input.backgroundTasks), styleReference: object(input.backgroundTasks).styleReference !== false },
-    plotCompassAutoUpdateInterval: normalizePlotCompassAutoUpdateInterval(input.plotCompassAutoUpdateInterval),
     webSearchEnabled: input.webSearchEnabled === true }
 }
 
@@ -267,17 +265,7 @@ export function applyTavernSettingsPatch(current, patch) {
     if (Object.hasOwn(patch, 'webSearchEnabled') && typeof patch.webSearchEnabled !== 'boolean') throw new Error('默认开关必须为布尔值')
     if (Object.hasOwn(patch, 'playerName') && (typeof patch.playerName !== 'string' || patch.playerName.length > 80)) throw new Error('玩家称呼最多 80 字')
     if (Object.hasOwn(patch, 'statusBarPlacement') && !['body', 'sidebar'].includes(patch.statusBarPlacement)) throw new Error('状态栏位置无效')
-    if (Object.hasOwn(patch, 'plotCompassAutoUpdateInterval')) {
-      const rawInterval = patch.plotCompassAutoUpdateInterval
-      if (rawInterval === null || typeof rawInterval === 'boolean' || (typeof rawInterval === 'string' && !rawInterval.trim())) {
-        throw new Error(`剧情罗盘自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
-      }
-      const interval = Number(rawInterval)
-      if (!Number.isInteger(interval) || interval < 0 || interval > PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL) {
-        throw new Error(`剧情罗盘自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
-      }
-    }
-    for (const key of ['posture', 'styleReference', 'foregroundCandidates', 'plotCompass', 'preset']) if (Object.hasOwn(object(patch.backgroundTasks), key) && typeof patch.backgroundTasks[key] !== 'boolean') throw new Error('默认结算开关必须为布尔值')
+    for (const key of ['posture', 'styleReference', 'foregroundCandidates', 'preset']) if (Object.hasOwn(object(patch.backgroundTasks), key) && typeof patch.backgroundTasks[key] !== 'boolean') throw new Error('默认结算开关必须为布尔值')
     const current = normalizePlayDefaults(next.defaultPlaySettings)
     next.defaultPlaySettings = normalizePlayDefaults({ ...current, ...patch, backgroundTasks: { ...current.backgroundTasks, ...object(patch.backgroundTasks) } })
   }
@@ -316,11 +304,6 @@ export function applyTavernSettingsPatch(current, patch) {
     const selection = normalizeBackgroundModel(input[name])
     if (input[name] !== null && !selection) throw new Error('默认模型配置无效')
     next[name] = selection
-  }
-  if (Object.hasOwn(input, 'plotCompassModel')) {
-    const selection = normalizePlotCompassModel(input.plotCompassModel)
-    if (!selection) throw new Error('剧情罗盘模型配置无效')
-    next.plotCompassModel = selection
   }
   if (Object.hasOwn(input, 'modModelSelection')) {
     const {modId,slotId,selection}=object(input.modModelSelection)
@@ -530,7 +513,6 @@ export function presentTavernSettings(document, defaults) {
     defaultBackgroundModel: normalizeBackgroundModel(object(document).defaultBackgroundModel),
     polishModel: normalizeBackgroundModel(object(document).polishModel),
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
-    plotCompassModel: normalizePlotCompassModel(object(document).plotCompassModel) || 'background',
     contextCompaction: compactionPolicy(object(document).contextCompaction),
     showPlayProcess: object(document).showPlayProcess === true,
     hideContextAndReasoning: object(document).hideContextAndReasoning === true,

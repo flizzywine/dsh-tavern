@@ -261,6 +261,7 @@ export function createTavernPluginApi(deps) {
   const settlementTools = new Map()
   const worldbookSources = new Map()
   const worldbookPools = new Map()
+  const worldbookScanSections = new Map()
   const castSources = new Map()
   const handlers = new Map()
   const candidateSections = new Map()
@@ -1404,6 +1405,24 @@ export function createTavernPluginApi(deps) {
       }
     },
 
+    // 当前对局正在使用的前台对话模型（供插件遵循「跟随前台」选项）。
+    async foregroundModel({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      const selection = await deps.foregroundModel?.(game.sessionId)
+      if (!selection || !selection.provider || !selection.model) return null
+      return {
+        provider: String(selection.provider),
+        model: String(selection.model),
+        ...(selection.reasoningEffort ? { reasoningEffort: String(selection.reasoningEffort) } : {})
+      }
+    },
+
+    // 读取当前对局的现场态势、指南、台账、世界书常量/全量条目及剧本窗口快照（只读）。
+    async getPlayMaterial({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      return structuredClone((await deps.readPlayMaterial?.(game.sessionId)) ?? null)
+    },
+
     // 查询决策判定模型的当前可用性与支持的题型，不暴露密钥、键名或地址
     async decisionJudgeStatus() {
       ownerOf(this)
@@ -1686,6 +1705,13 @@ export function createTavernPluginApi(deps) {
       sectionName(name)
       if (typeof entries !== 'function') throw new TypeError('entries 必须是函数')
       return register.call(this, worldbookPools, owner + '\u0000' + name, { owner, name, entries }, 'tavern.worldbookEntries()', '世界书条目来源 ' + name + ' 已注册')
+    },
+
+    // 插件可提供追加到前台世界书关键词召回扫描串的补充文本。
+    worldbookScanText({ name, text } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name); textOrFunction(text)
+      return register.call(this, worldbookScanSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.worldbookScanText()', '世界书扫描文本 ' + name + ' 已注册')
     }
   }
   // Every call naming a game or a card passes the card-plugin scope check first.
@@ -2096,6 +2122,13 @@ export function createTavernPluginApi(deps) {
     return collectSections(compactionSections, { gameId }, '压缩说明段落', (await choicesFor(gameId)).disabled)
   }
 
+  /** Seam: extra scan text strings plugins contribute to foreground worldbook recall. */
+  async function worldbookScanTexts({ gameId }) {
+    const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
+    const items = await collectSections(worldbookScanSections, { gameId }, '世界书扫描文本', disabled)
+    return items.map(item => item.text).filter(Boolean)
+  }
+
   /** Seam: the characters plugins offer to a game's cast, checked; a failing source is skipped. */
   async function castAssetSources({ gameId }) {
     const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
@@ -2336,6 +2369,6 @@ export function createTavernPluginApi(deps) {
       return register.call({ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
     },
-    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
+    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, worldbookScanTexts, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, resetGamePluginSettings, pluginGameSettings })
 }

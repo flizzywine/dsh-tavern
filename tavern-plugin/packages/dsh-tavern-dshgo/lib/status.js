@@ -19,6 +19,7 @@ export const TAVERN_BUNDLES = Object.freeze([
   'dsh-asset-library',
   'dsh-tavern-stage',
   'dsh-tavern-tts',
+  'dsh-tavern-plot-compass',
 ])
 
 /**

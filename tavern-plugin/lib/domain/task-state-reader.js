@@ -4,7 +4,7 @@
 export const taskStateFields = Object.freeze([
   'title', 'createdAt', 'lastOpenedAt', 'backgroundHistoryIds',
   'id', 'sessionId', '_storageRevision', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion', 'backgroundTasks',
-  'regenInProgress', 'contextCompaction', 'cardPath', 'cardName', 'requestMode', 'candidates', 'plotCompass', 'plotCompassTask', 'taskMailbox', 'candidateAgent', 'updatedAt',
+  'regenInProgress', 'contextCompaction', 'cardPath', 'cardName', 'requestMode', 'candidates', 'taskMailbox', 'candidateAgent', 'updatedAt',
   ...['schemaVersion','branchId','revision','operations','participants','updatedAt'].map(key=>'timeline.'+key),
 ])
 const needsStory = chat => Object.values(chat?.timeline?.operations || {}).some(operation =>
