@@ -50,6 +50,14 @@ export function apply(ctx, options = {}) {
   const tavern = ctx?.tavern
   if (!tavern || typeof tavern !== 'object') return
 
+  // Cordis 把 apply 的返回值当 effect 处理：只能是清理函数或空值。顺手把各家注册返回的
+  // disposer 收起来，插件被停用/重载时一起撤掉，而不是留一堆指向已卸载插件的处理函数。
+  const disposers = []
+  const keep = value => {
+    if (typeof value === 'function') disposers.push(value)
+    return value
+  }
+
   let runtimeLlm = options?.llm || null
   if (!runtimeLlm && typeof ctx?.inject === 'function') {
     try {
@@ -341,7 +349,7 @@ export function apply(ctx, options = {}) {
 
   // ── 提示词与世界书扩展点 ──────────────────────────────────────────
   if (typeof tavern.turnSection === 'function') {
-    tavern.turnSection({
+    keep(tavern.turnSection({
       name: 'plot-compass',
       position: 'after',
       target: 'story',
@@ -351,11 +359,11 @@ export function apply(ctx, options = {}) {
         if (!record.enabled) return ''
         return plotCompassBodyText(record.compass)
       }
-    })
+    }))
   }
 
   if (typeof tavern.candidateSection === 'function') {
-    tavern.candidateSection({
+    keep(tavern.candidateSection({
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
@@ -363,11 +371,11 @@ export function apply(ctx, options = {}) {
         if (!record.enabled) return ''
         return plotCompassCandidateText(record.compass)
       }
-    })
+    }))
   }
 
   if (typeof tavern.compactionSection === 'function') {
-    tavern.compactionSection({
+    keep(tavern.compactionSection({
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
@@ -375,11 +383,11 @@ export function apply(ctx, options = {}) {
         if (!record.enabled) return ''
         return plotCompassCompactionNote(record)
       }
-    })
+    }))
   }
 
   if (typeof tavern.worldbookScanText === 'function') {
-    tavern.worldbookScanText({
+    keep(tavern.worldbookScanText({
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
@@ -387,42 +395,42 @@ export function apply(ctx, options = {}) {
         if (!record.enabled) return ''
         return plotCompassWorldbookScanText(record)
       }
-    })
+    }))
   }
 
   // ── 回合结算、压缩与生命周期监听 ───────────────────────────────────
   if (typeof tavern.onTurnSettled === 'function') {
-    tavern.onTurnSettled(async ({ gameId, turn } = {}) => {
+    keep(tavern.onTurnSettled(async ({ gameId, turn } = {}) => {
       if (!gameId) return
       await service.onTurnSettled({ gameId, turn })
-    })
+    }))
   }
 
   if (typeof tavern.on === 'function') {
     try {
-      tavern.on('context-compacted', async ({ gameId } = {}) => {
+      keep(tavern.on('context-compacted', async ({ gameId } = {}) => {
         if (!gameId) return
         await service.autoEvolveAfterCompaction(gameId)
-      })
+      }))
     } catch {}
   }
 
   if (typeof tavern.onTimelineChanged === 'function') {
-    tavern.onTimelineChanged(({ gameId } = {}) => {
+    keep(tavern.onTimelineChanged(({ gameId } = {}) => {
       if (!gameId) return
       gameCache.delete(str(gameId))
       void publishCompassState(gameId)
-    })
+    }))
   }
 
   if (typeof tavern.onGameRemoved === 'function') {
-    tavern.onGameRemoved(({ gameId } = {}) => {
+    keep(tavern.onGameRemoved(({ gameId } = {}) => {
       if (!gameId) return
       const id = str(gameId)
       service.clearMemory(id)
       gameCache.delete(id)
       gameLocks.delete(id)
-    })
+    }))
   }
 
   if (typeof tavern.gameSettings === 'function') {
@@ -477,7 +485,7 @@ export function apply(ctx, options = {}) {
 
   // ── 浏览器侧 RPC 处理 ─────────────────────────────────────────────
   function handle(rpcName, fn) {
-    if (typeof tavern.handle === 'function') tavern.handle(rpcName, fn)
+    if (typeof tavern.handle === 'function') keep(tavern.handle(rpcName, fn))
   }
 
   handle('plot-compass:state', async ({ gameId } = {}) => {
@@ -583,11 +591,11 @@ export function apply(ctx, options = {}) {
     }
   })
 
-  return Object.freeze({
-    service,
-    readGame,
-    publishCompassState
-  })
+  return () => {
+    for (const dispose of disposers.splice(0)) {
+      try { dispose() } catch {}
+    }
+  }
 }
 
 export default { name, inject, apply }
