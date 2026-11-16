@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "590b51c5a0fd37c6bca496dd22bc2ff81588cbc6",
-  "releaseSequence": 1715,
+  "revision": "634e3a202254bbc705c6d6fe308a2127adea6e7e",
+  "releaseSequence": 1716,
   "version": "3.3.0",
   "files": [
     {
@@ -8261,8 +8261,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/card-page-assets.js",
-      "sha256": "a89cb871fb3b8280e7249ef14819eadf580600df4a6fa3be916e65176db41370",
-      "size": 2312
+      "sha256": "78c63ae2067fb8de289c5bec731d62317f598aafe2bec10734667d7bf30effaa",
+      "size": 3849
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/cg-played-receipt.js",
@@ -9346,9 +9346,9 @@
     }
   ],
   "archive": {
-    "commit": "41479eee1d133a3020e802fc2d2cf3d2b9f2005d",
+    "commit": "f0b976685df4a707d571f5a8a672adb1811c92f4",
     "path": "runtime.zip",
-    "sha256": "6df20c15404897cd26a7b46fb5a5a4ee7266e31dde103bdb08e0a3f431a4e621",
-    "size": 16629244
+    "sha256": "06859a6210526e3432dcda881b0a308e930536b66a03f2bc59e06f489fbb30c9",
+    "size": 16629674
   }
 }
