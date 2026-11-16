@@ -142,7 +142,7 @@ function cellMenuTrigger({open,toggle,onPrimary=null,onMenu=null}) {
 }
 function MenuItem({onClick,disabled,title,danger,children}) { return h('button',{type:'button',role:'menuitem',className:'ap-menu-item'+(danger?' is-danger':''),disabled,title,onClick},children); }
 // 删除 asks first, unless 「不再显示此提示」 was ticked once: one machine-wide UI preference (localStorage, like the voice preview's),
-// shared by every single-entry 删除; the pack's ⋯ 「删除条目前确认」 turns it back on. askDelete shows `spec` (a ConfirmDialog's props) or runs at once.
+// shared by every 删除 (one entry, the 多选 删除); the pack's ⋯ 「删除条目前确认」 turns it back on. askDelete shows `spec` (a ConfirmDialog's props) or runs at once.
 const DELETE_ASK_KEY='dsh-tavern:asset-delete-ask';
 const deleteAsk={
   get(){try{return localStorage.getItem(DELETE_ASK_KEY)!=='off';}catch(_){return true;}},
