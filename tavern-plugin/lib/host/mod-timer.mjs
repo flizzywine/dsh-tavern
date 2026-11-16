@@ -32,10 +32,10 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var require_activity = __commonJS({
   "tavern-plugin/mods/timer/activity.cjs"(exports, module) {
     "use strict";
-    function timerActivityRuns2(timer, activity) {
+    function timerActivityRuns(timer, activity) {
       return !!timer && timer.status === "running" && !timer.suspended && activity.live === true && activity.stageOpen !== false && !activity.playerPaused;
     }
-    if (typeof module !== "undefined" && typeof window === "undefined") module.exports = { timerIsActive: timerActivityRuns2 };
+    if (typeof module !== "undefined" && typeof window === "undefined") module.exports = { timerIsActive: timerActivityRuns };
   }
 });
 
@@ -43,7 +43,10 @@ var require_activity = __commonJS({
 var require_state = __commonJS({
   "tavern-plugin/mods/timer/state.cjs"(exports, module) {
     "use strict";
-    var timerActivityOwner = typeof module !== "undefined" && typeof window === "undefined" ? require_activity() : { timerIsActive: (timer, activity) => timerActivityRuns(timer, activity) };
+    function timerActivityRuns(timer, activity) {
+      return !!timer && timer.status === "running" && !timer.suspended && activity.live === true && activity.stageOpen !== false && !activity.playerPaused;
+    }
+    var timerActivityOwner = typeof module !== "undefined" && typeof window === "undefined" ? require_activity() : { timerIsActive: timerActivityRuns };
     var timerIsActive = (timer, activity) => timerActivityOwner.timerIsActive(timer, activity);
     var TIMER_MOD_ID = "dsh.timer";
     var TIMER_MAX_MS = 864e5;

@@ -1,7 +1,13 @@
 'use strict';
 
+// The browser never reaches require(), so that branch cannot borrow a name that only exists inside
+// activity.cjs; keep the same hold rule inline instead of referencing it.
+function timerActivityRuns(timer, activity) {
+    return !!timer && timer.status === 'running' && !timer.suspended && activity.live === true &&
+        activity.stageOpen !== false && !activity.playerPaused;
+}
 const timerActivityOwner = typeof module !== 'undefined' && typeof window === 'undefined'
-    ? require('./activity.cjs') : {timerIsActive:(timer, activity) => timerActivityRuns(timer, activity)};
+    ? require('./activity.cjs') : {timerIsActive:timerActivityRuns};
 const timerIsActive = (timer, activity) => timerActivityOwner.timerIsActive(timer, activity);
 const TIMER_MOD_ID = 'dsh.timer';
 const TIMER_MAX_MS = 86400000;
