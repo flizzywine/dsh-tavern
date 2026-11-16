@@ -9,7 +9,35 @@
 
 - 前台工具：`tools.js` 默认导出两个工具（`lib/mod-tools.js`）。工具的 core 里有 `readCard(chat)`（这局游戏用的卡，开局时冻结）和 `results(exec)`（本工具在这局当前分支上的历史结果文本，`lib/domain/surface-tool-results.js`）。
 - 提示词：`mod.json` 的 `rules`（只讲 `tavern_roll`）。`tavern_check` 不加提示词：用法写在工具说明里，每张卡的规则用 `action: "status"` 读。
-- 本体客户端部件：`client/core.js` 把 `roll.js`（`tavern_roll` 的卡片与 3D 掷骰）和 `check.js`（`tavern_check` 的记录卡）放进聊天楼层与舞台文本框上沿；舞台叠层是 `throw.js`（掷骰飞入）和 `show.js`（检定结果的演出，见下文 `show`；画面在 `show-art.js`，声音在 `show-sound.js`）。
+- 本体客户端部件：`client/core.js` 把 `roll.js`（`tavern_roll` 的卡片）和 `check.js`（`tavern_check` 的记录卡）放进聊天楼层与舞台文本框上沿；舞台叠层是 `throw.js`（`tavern_roll` 的百分骰掷骰）、`check-throw.js`（`tavern_check` 的掷骰）和 `show.js`（检定结果的演出，见下文 `show`；画面在 `show-art.js`，声音在 `show-sound.js`）。
+
+## 三维骰子（`client/dice3d.js`）
+
+所有掷骰共用的基础效果：真实的四面、六面、八面、十面、十二面、二十面骰；百分骰是一颗十位十面骰（00–90）加一颗个位十面骰；二面、三面骰用六面骰（数字各重复）；别的面数不掷，只在记录卡上显示。动画是关键帧，不做物理模拟：引擎先掷出结果，每颗骰子的旋转衰减到结果朝上（四面骰是结果那个角朝上）、数字正对镜头，同时沿弹跳曲线落到停点；碰桌、滑停和骰子相撞的音效按同一套关键帧算出时刻（`diceContacts`）。Three.js 用舞台已有的内置运行库，第一次掷骰时才载入。
+
+- `tavern_roll`：两颗十面骰落定后数字飞进大数字，盖结果印章；暗骰被骰盅扣住（`throw.js`）。
+- `tavern_check`：实时到达的记录走一条时间线（`check-throw.js`；记录的读法、结果页和效果点在 `check-result.js`）：① 骰子上方一行「标题 · 动作名 · 标签」（规则的 `tags`）；② 骰子按各自形状掷进文本框上方，落成一排；③ 逐颗读骰：计入的发光（规则标记的面 `faces.mark` 用标记色 `faces.markColor`，不写用主题强调色），不计的（`flags` 是 `dropped`）变暗；被玩家的选择翻过的骰子（`changed`）先跳一下翻到新的面；然后骰子下方亮出主数字和目标（`report` 的 `main`/`target`）；④ 等玩家选择的记录（有玩家的选择）打开结果页：在骰子那块地方，列出标题和标签、带状态的骰子、主数字和目标、「现在」的结果，以及每个选择的按钮（每个值会变成什么结果、花什么，按钮前的圆点是那个结果的颜色）；点了就把答案作为玩家的下一句发出，结果页关上；按 Esc 把它收回文本框上的记录卡（卡上是同样的按钮）；点别处、跳过动画都不会跳过它；⑤ 了结的记录把结果名盖章（颜色按结果的 `tone`），列出改了什么，然后整体缩进文本框上的记录卡。记录卡在这期间隐藏，所以结果和选项不会先于骰子出现。结算记录（`of`）的等待记录掷过时不再掷：骰子一开始就停在原处，翻过的骰子翻面，然后盖章。带演出（`show`）的记录由演出自己排骰，不另掷。只演实时到达的记录：重新载入、翻历史、回复没在跑时不演；点一下或按 Esc 直接出结果（要问玩家的记录直接出结果页）；减少动态时不演动画，结果页照常出。声音同百分骰（舞台音效总线）；模组选项 `sound` 关掉就无声，`rollSound`（皮肤素材）换成皮肤自己的一声。
+- 效果点（`checkCues`，`check-result.js`）：时间线的每一拍都报一个效果点——`declare`、`throw`、`land`、`rest`、`count`、`drop`、`headline`、`tier`、`ask`、`choose`、`resolve`、`change`、`file`，各带这条记录和这一拍的内容（哪颗骰、它在舞台上的位置、结果和 `tone`、选了什么、哪一条变化）。内置画面和皮肤的效果都挂在这些点上。
+- 记录卡（聊天楼层和舞台文本框上的同一张）：不计的骰子变暗，翻过的骰子显示新的面并带虚线框，主数字放大并按结果的 `tone` 上色、目标写在旁边；暗骰（`hidden`）只写「暗骰」，不显示骰面、主数字和变化。
+
+## 皮肤选项（规则检定的外观和效果）
+
+规则说「是什么意思」（骰组的 `look`、`order`、结果的 `tone`、特殊面 `mark`），皮肤说「长什么样」：都在皮肤的 `mods["dsh.dice"].options`，图和声音是皮肤的素材键（`assets`；对象和列表里的素材键同样在安装时核对，缺了整项不生效）。都可以不写。
+
+- `dice.<身份名>`：一套骰子的外观——`body`（骰身色）、`ink`（数字色）、`markInk`（特殊面的颜色，取代规则的 `markColor`）、`texture`（铺在每个面上的花纹图）、`faces`（`{"20": 素材键}`：这个面画图案不画数字）。不写就是舞台主题色。
+- `tones`：`{great, good, mixed, bad, terrible}` 各档的颜色（`#rrggbb`），不写用舞台的 `--gal-check-tone-*`。
+- `toneSounds`：各档定案时的音效，等于每档一条 `{at: "resolve", tone, sound}` 的挂点。
+- `shows.<演出名>`：内置演出的配色（现在是 `shows.converge`：`paper` 底色、`ink` 字色、`mark` 标记色，不写 `mark` 用规则的 `markColor`）。
+- `result`：`seal`（结果名的样子：`stamp` 印章、`plain` 只有字、`none` 不显示）、`frame`（结果页的底图）。
+- `cues`：效果挂点，按顺序匹配，同一个效果点可以命中多条。每条写 `at`（效果点，见上），条件只对规则已经给出的语义：`action`、`outcome`（结果 id）、`tone`、`look`、`mark`（是不是特殊面）、`state`（`kept` / `dropped` / `changed`）、`choice`（选的哪个：`id` 或 `id:值`）；要更细的条件就在规则里多分一个结果或多标一个特殊面。播的东西：`effect`（舞台核心效果：`shake-1`–`3`、`flash`、`flash-red`、`glitch`、`shock`、`heartbeat`、`blackout`，经舞台的安全设置）、`sound`（素材键，走舞台音效总线）、`show`（内置演出，现在是 `converge`）。`hold: true` 的演出播完时间线才往下走。代码里每种「播的东西」是 `check-result.js` `CHECK_CUE_PLAYS` 的一项：加一种就是在那里登记一项、在 `mod.json` 的 `cues` 里加它的字段。
+
+```jsonc
+"mods": { "dsh.dice": { "options": {
+  "dice": { "main": { "body": "#151515", "ink": "#f2f0eb", "markInk": "#c8202f" }, "sponsor": { "body": "#c9993f", "ink": "#1a1208" } },
+  "toneSounds": { "great": "se-great" },
+  "cues": [ { "at": "count", "mark": true, "sound": "se-three" }, { "at": "resolve", "tone": "terrible", "effect": "shake-2" } ]
+} } }
+```
 
 ## 持久状态
 
@@ -63,6 +91,14 @@
 - 公式比 v1 多三个函数：`get(表, 键, 缺省)`、`join(…)`（拼条目名）、`keys(表)`。公式最长 2000 字、嵌套最多 40 层，规则文件最大 256 KB。
 - 工具：`op=status`（现在可用的动作、参数和当前值）、`op=act`（`action`、`params`、一句 `reason`）、`op=choose`（`choice`，空对象取默认）。记录编号是「轮次-序号」（`7-2`），一条回复最多 16 次裁定。旧写法（`action: status|roll|settle`、`check`）继续接受，v1 的卡也能用新写法。
 - `report` 的一行可以带 `secret: true`：只给模型看（下一季的捷径、察觉的计数），玩家的记录卡上不显示。
+- 给舞台的语义（都可以不写，不写记录就和以前一样；只说「是什么意思」，长什么样由皮肤定）：
+  - 骰组的读法 `read`（只用于 `{count, sides}` 的骰组）：`sum`（求和）、`highest` / `lowest`（只留一颗：同点取第一颗）、`{count: [3]}`（数面在列表里的骰子）、`{count: ">= 8"}`（数满足比较的骰子，右边是公式，可读参数）。公式里 `read(骰组)` 是这样读出的值；记录 `faces.<骰组>` 带 `read`（读法）、`value`（读出的值）和 `flags`（和骰子等长，`kept` 计入 / `dropped` 不计）。不写 `read` 的骰组照旧（`count(d, 3)`、`max(d)` 继续能用，只是画面不知道哪颗不计）。
+  - `adjusted`（只用于 `{count: [面]}` 的读法）：玩家的选择改完之后这组骰子数到几个（公式，在 `then` 之后算）。差几个就翻几颗：不计的骰子从前往后翻成列表里的第一个面，计入的从后往前翻成最小的不计的面；了结的记录里被翻的骰子标 `changed`，`faces.<骰组>.after` 是翻过之后的各面。`dice` 仍是掷出的原样（记录照种子重放）。三角机构花素质保证改骰就是这样写的。
+  - 骰组的 `look`（皮肤里一套骰子外观的名字，不写是 `main`）和 `order`（1–9：同一个数一起掷，小的先掷），原样进记录的 `faces`。
+  - 结果的 `tone`：`great` / `good` / `mixed` / `bad` / `terrible`（大成功 / 成功 / 有代价 / 失败 / 大失败），决定舞台上的颜色、盖章和音效；记录的 `outcome` 带上它。等待中的记录在结果已定、且这个动作的结果写了 `tone` 时带 `decided`（`{id, label, tone}`）。
+  - `report` 的一行写 `main: true` 是这次检定的主数字（最多一行），可带 `target {label, value, need}`（`need` 是 `>=` `>` `<=` `<` `==`：主数字要怎样比目标）；记录里这一行带 `main` 和算好的 `target`。主数字要等玩家的选择才算得出时，等待记录里这一行只有名字和 `pending: true`，选择的每个预览带 `main`（选这个值主数字是多少），舞台按默认值的预览亮出它。
+  - 动作的 `tags`（最多 6 个模板，如 `["难度 {dc}"]`）：骰子上方的情境标签，渲染后为空的不显示；记录带 `tags`。动作的 `hidden`（`true` 或公式）：成立时这是一次暗骰，记录带 `hidden: true`，玩家看不到骰面和结果，模型照常读到。
+- 预览：等待中的选择带 `preview`（每个值会变成什么结果、`tone` 和变化）：整数范围不超过 13 个值时每个值都有；更宽的（最多 201 个值，如花幸运 0–99）每种结果只留离默认值最近的那个值（最便宜的走法）；选项、集合和是/否每一项都有；`by: gm` 的条件没有。
 - 记录：了结的记录只带骰面、结果、文字、`stop`、`report` 和变化行（`{path, label, from?, to?, secret?}`：没有 `from` 是新增条目，没有 `to` 是删除），不带全部资源的快照。聊天里：掷骰和等玩家选的记录是一张卡；不掷骰的裁定只在有玩家能看的变化时出一行小字（「嘉奖 +1」），保密的变化不显示。
 - 补记：v2 的卡，回复的变量结算里后台模型也能用 `tavern_check`（`CHECK_BACKFILL`，只有 `op=act`/`status`）：正文里发生了、这条回复却没提交的动作由它补上，和这条回复的记录一起由宿主写入。掷骰的动作、要玩家选的动作不补；前提不满足被拒的，记进结算诊断「正文与规则不一致」。补记的记录带 `backfill: true`，只在这次结算里，下一轮从变量读到。
 - 卡检查：卡保存时的格式校验（`lib/domain/card-validation.js`）调用 `tools.js` 的 `checkCard`：规则编译一次，错误带路径。
@@ -114,5 +150,6 @@
 ## 测试
 
 - `tests/dice.test.mjs`、`tests/fork-dice-mod.test.mjs`、`tests/fork-dice-roll-browser.test.mjs`、`tests/fork-dice-throw-browser.test.mjs`、`tests/fork-dice-throw-live-stage-browser.test.mjs`：`tavern_roll`。
+- `tests/fork-check-throw-live-stage-browser.test.mjs`：检定记录的三维掷骰在真实舞台上：六颗四面骰、一个表达式里的六面/二十面/百分骰按记录的面落定（从模型读回），卡片等骰子落定才出现；带演出的记录、已掷过的结算记录、回复没在跑、减少动态都不掷；点击结束。
 - `tests/fork-check-show-live-stage-browser.test.mjs`：结果演出在真实舞台上：live 记录播一次、卡片等演出结束才出现、结算记录与无演出记录不播、历史不播、点击结束、减少动态定格；`DSH_CHECK_SHOW_SHOTS=<目录>` 另存逐帧审阅图。
 - `tests/dice-check.test.mjs`：公式、规则校验、结果演出（`show` 的校验，等选择的记录何时带上）、两类规则（2d6 加属性三档、数六的骰池，骰面标记）、等选择与结算、同种子重放、工具记录折叠、资源放在变量里（轮间读变量、轮内接记录、形状不对报路径）、本体读取当前分支的工具结果。

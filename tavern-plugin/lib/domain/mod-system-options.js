@@ -34,6 +34,17 @@ export function resolveModOptions({manifest,skin={},global={},card={},assetAvail
   return {values,options}
 }
 
+// The skin asset names an option value uses: the value itself when its schema is x-skin-asset, and any string inside an
+// object or list whose schema there is (a dice look's texture, a tone's sound), through properties, additionalProperties
+// and items.
+export function skinAssetKeys(schema,value,keys=[]) {
+  if(!schema || value==null || value==='')return keys
+  if(schema['x-skin-asset']){if(typeof value==='string')keys.push(value);return keys}
+  if(Array.isArray(value)){for(const item of value)skinAssetKeys(schema.items,item,keys);return keys}
+  if(typeof value==='object')for(const [key,item] of Object.entries(value))skinAssetKeys(schema.properties?.[key] ?? (typeof schema.additionalProperties==='object'?schema.additionalProperties:null),item,keys)
+  return keys
+}
+
 // Only install/write callers invoke this. Unknown mods/options and unavailable
 // media are dropped individually, so optional presentation never blocks a skin.
 export function validateSkinModOptions(mods,{manifests,assets={}}) {
@@ -53,7 +64,7 @@ export function validateSkinModOptions(mods,{manifests,assets={}}) {
       const schema=Object.hasOwn(schemas,key)?schemas[key]:null
       if(!schema){skip(modId,key,'unknown-option');continue}
       try {assertSchema(schema,value)} catch {skip(modId,key,'invalid-value');continue}
-      if(schema['x-skin-asset'] && value!=='' && !Object.hasOwn(assets,value)){skip(modId,key,'missing-asset');continue}
+      if(skinAssetKeys(schema,value).some(name=>!Object.hasOwn(assets,name))){skip(modId,key,'missing-asset');continue}
       Object.defineProperty(options,key,{value:structuredClone(value),enumerable:true,writable:true,configurable:true})
     }
     const locks=[...new Set(input.locks || [])].filter(key=>Object.hasOwn(options,key))

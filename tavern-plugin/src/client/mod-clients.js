@@ -5,7 +5,8 @@
 //            input = modClients.input(executeSlash, sessionId): {submit(text)} sends text as the player's next message,
 //            the way the stage's own choices do; floor and page parts get it, so a record can hand over an answer by a click
 //   overlay: component({sessionId, useChat, nativeTurn, running, following, device, rootRef, calm, safety, veiled,
-//            replay, live}) over the stage, after the text box
+//            replay, live, input, screen}) over the stage, after the text box (input as for page parts: a result page answers by a click;
+//            screen(name) plays a core stage effect by its director name, stage-effects.cjs STAGE_EFFECT_BEATS)
 //   backlog: {kind, use(useChat), entries(rows, value, nativeTurnOf, rowOf), line(h, record)}: 履历 rows of the
 //            performance kind `kind`, merged into the rows by entries(); line() writes one row's words
 //   source:  {beat(direction, para), protocol}: a mod whose director mark shows a page on its own surface (source-beat.cjs; the
