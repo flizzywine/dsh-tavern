@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d5f9f69b9c0af605666310f10d64930f7846502a",
-  "releaseSequence": 1691,
+  "revision": "702d31bc41b9ba8a725aab401ab75bf75dbf7334",
+  "releaseSequence": 1692,
   "version": "3.3.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "c9bab1cc53b06532ae7ceb47f488e123468c20631f552bd05712a6fae5898169",
-      "size": 6559824
+      "sha256": "bd290585ffe9bbc122abc1cb125da4081dcdbc37ec44055fc833ff42fb88e616",
+      "size": 6559962
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -9221,8 +9221,8 @@
     },
     {
       "path": "tavern-plugin/shared/sprite-emotions.cjs",
-      "sha256": "8121048d3e48d8cffda84653e3a21014fab5ec7431c14cc948cba7b4ec9a4cce",
-      "size": 2773
+      "sha256": "448ff4ee88323c7f9c4bacfb3c344864e7e09986eeb30310488b27a4e8f8ea37",
+      "size": 2909
     },
     {
       "path": "tavern-plugin/shared/sprite-images.cjs",
@@ -9306,9 +9306,9 @@
     }
   ],
   "archive": {
-    "commit": "925e96a5d7b593321795482c3f07648be29a536f",
+    "commit": "8f4918bbdcb20e0388aef51e26b8ca902f859969",
     "path": "runtime.zip",
-    "sha256": "3635c147c89c2bb227f771751bf5a988a927efb7e7b741bb914528a1c71c02ce",
-    "size": 16675869
+    "sha256": "c9588853cc9fb4375d64de1aaea8b1f5465fb17e89434ead40572440929e8339",
+    "size": 16675952
   }
 }
