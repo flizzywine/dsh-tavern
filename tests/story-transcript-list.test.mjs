@@ -545,3 +545,58 @@ test('长故事只挂读者附近的楼层，其余楼层留同样标记的空�
 	await act(async () => { active = ''; for (const fn of listeners) fn() })
 	assert.deepEqual(held(), ['1', '2', '4', '5', '6'])
 })
+
+test('切回后台生成新楼层的会话时，旧 liveTavernView 快照不得覆盖新楼层的 Helper 上下文', async t => {
+	const staleHelper = { stateRevision: 1, messages: [{ message_id: 0, role: 'assistant', message: '旧楼层' }] }
+	const freshHelper = {
+		stateRevision: 3,
+		messages: [
+			{ message_id: 0, role: 'assistant', message: '旧楼层' },
+			{ message_id: 1, role: 'user', message: '行动' },
+			{ message_id: 2, role: 'assistant', message: '后台新楼层 HTML' }
+		],
+		turnMessageIds: { '1': 0, '2': 2 }
+	}
+	const staleLiveView = {
+		mode: 'story',
+		storageRevision: 1,
+		tavernRuntimePolicy: { trustedCardMode: true },
+		tavernHelper: staleHelper
+	}
+	let capturedHelper = null
+	let capturedReaderHelper = null
+	const page = createPage(t, {
+		isPlayMode: mode => mode === 'story',
+		useLiveTavernView: () => ({ view: staleLiveView }),
+		liveTavernView: { getSnapshot: () => ({ view: staleLiveView }) }
+	})
+	const saved = story([
+		{ role: 'assistant', greeting: true, turn: 1, text: '旧楼层' },
+		{ role: 'user', text: '行动' },
+		{ role: 'assistant', turn: 2, text: '<div>后台新楼层 HTML</div>', displayMode: 'html', displayParts: [{ kind: 'html', content: '<div>后台新楼层 HTML</div>' }] }
+	], 3)
+	const freshStoryView = {
+		mode: 'story',
+		storageRevision: 3,
+		tavernRuntimePolicy: { trustedCardMode: true },
+		tavernHelper: freshHelper,
+		replyProjections: [
+			{ version: 2, turn: 1, mode: 'markdown', text: '旧楼层' },
+			{ version: 2, turn: 2, mode: 'html', parts: [{ kind: 'html', content: '<div>后台新楼层 HTML</div>' }] }
+		]
+	}
+	const feature = page.context.createTavernStoryTranscriptFeature({
+		renderProjection: (projection, options) => {
+			if (options.turn === 2) {
+				capturedHelper = options.helperContext
+				capturedReaderHelper = options.helperContextReader()
+			}
+			return React.createElement('div', { 'data-turn': String(options.turn) }, 'card-frame')
+		}
+	})
+	await mount(page, React.createElement(feature.StoryTranscriptList, {
+		transcript: saved, view: freshStoryView, sessionId: 's-bg-card'
+	}))
+	assert.equal(capturedHelper, freshHelper, '新楼层首次渲染必须直接拿到包含最新楼层的 storyView.tavernHelper')
+	assert.equal(capturedReaderHelper, freshHelper, '卡片挂载读取器不得回退到滞后的 liveTavernView 快照')
+})

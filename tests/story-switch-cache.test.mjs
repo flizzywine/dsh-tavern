@@ -211,3 +211,86 @@ test('未注册 / 未包含预取模块时侧栏调用安全返回 null', async 
 	const data = loadDataModule()
 	assert.equal(data.prefetch('s1'), null)
 })
+
+test('已缓存会话在后台生成新楼层后，侧栏预取仍带旧签名重验并更新缓存', async () => {
+	const data = loadDataModule()
+	let s1Revision = 1
+	const calls = []
+	const store = data.create({ rpc: async () => ({}) }).createStoryTranscriptStore({
+		load: async (id, options) => {
+			calls.push({ id, options })
+			if (id === 's1') {
+				return {
+					transcript: transcriptFor('s1-rev-' + s1Revision, s1Revision),
+					view: { storageRevision: s1Revision },
+					revision: s1Revision,
+					storySignature: 'sig-s1-' + s1Revision
+				}
+			}
+			return { transcript: transcriptFor(id, 1), view: { storageRevision: 1 }, revision: 1, storySignature: 'sig-' + id }
+		}
+	})
+	await store.read('s1', {})
+	await store.read('s2', {})
+	// s1 在非当前对话状态下完成了新一轮生成
+	s1Revision = 2
+	let publishes = 0
+	const unsubscribe = store.subscribe(() => { publishes += 1 })
+	const prefetched = await data.prefetch('s1')
+	assert.equal(publishes, 0, '在 s2 浏览期间预取 s1 不得改动当前可见快照')
+	assert.equal(calls.at(-1).options.knownRevision, 1)
+	assert.equal(calls.at(-1).options.knownStorySignature, 'sig-s1-1')
+	assert.equal(prefetched.revision, 2)
+	assert.equal(store.snapshotFor('s1', null).transcript.messages[0].message.text, 's1-rev-2', '切回首帧即可直接拿到后台新楼层')
+	unsubscribe()
+})
+
+test('预取仍在途时切入同一会话，首读直接复用在途预取而不重复请求', async () => {
+	const data = loadDataModule()
+	let loads = 0
+	let resolveLoad
+	const pending = new Promise(resolve => { resolveLoad = resolve })
+	const store = data.create({ rpc: async () => ({}) }).createStoryTranscriptStore({
+		load: () => { loads += 1; return pending }
+	})
+	const prefetchPromise = data.prefetch('s-bg')
+	await new Promise(resolve => setImmediate(resolve))
+	assert.equal(loads, 1)
+	const readPromise = store.read('s-bg', {})
+	assert.equal(loads, 1, '挂载首读应复用已在途的预取请求')
+	resolveLoad({ transcript: transcriptFor('后台新楼层', 5), view: { storageRevision: 5 }, revision: 5, storySignature: 'sig-5' })
+	await Promise.all([prefetchPromise, readPromise])
+	assert.equal(loads, 1)
+	assert.equal(store.getSnapshot().revision, 5)
+	assert.equal(store.getSnapshot().transcript.messages[0].message.text, '后台新楼层')
+})
+
+test('切回会话首读在途时，带目标版本的跟进刷新复用同一在途请求而不自相中断', async () => {
+	let loads = 0
+	const signals = []
+	let resolveFirst
+	const firstLoad = new Promise(resolve => { resolveFirst = resolve })
+	const store = storeFixture((id, options) => {
+		loads += 1
+		signals.push(options && options.signal)
+		if (id === 's2') return Promise.resolve({ transcript: transcriptFor('s2', 1), view: {}, revision: 1, storySignature: 'sig-s2' })
+		if (loads === 1) return Promise.resolve({ transcript: transcriptFor('s1-old', 1), view: {}, revision: 1, storySignature: 'sig-1' })
+		return firstLoad
+	})
+	await store.read('s1', {})
+	await store.read('s2', {})
+	// 切回 s1：首读先发出（先上屏旧缓存 rev=1，后台补读在途）
+	const initialSwitchRead = store.read('s1', {})
+	await new Promise(resolve => setImmediate(resolve))
+	assert.equal(loads, 3)
+	// 紧接着 liveView / tavern-state 告知最新 storageRevision=3，触发带 minimumRevision 的强制刷新
+	const controller = new AbortController()
+	const followUpRefresh = store.read('s1', { force: true, signal: controller.signal, minimumRevision: 3 })
+	assert.equal(signals.at(-1).aborted, false, '同一目标的跟进刷新不得掐断已在途的首读')
+	assert.equal(loads, 3, '不得重复发起第二次 getStoryTranscript')
+	resolveFirst({ transcript: transcriptFor('s1-latest-floor', 3), view: { storageRevision: 3 }, revision: 3, storySignature: 'sig-3' })
+	await Promise.all([initialSwitchRead, followUpRefresh])
+	assert.equal(loads, 3)
+	assert.equal(store.getSnapshot().revision, 3)
+	assert.equal(store.getSnapshot().transcript.messages[0].message.text, 's1-latest-floor')
+})

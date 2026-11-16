@@ -15196,7 +15196,22 @@ window.__ModuleLoader__.load({
 				schedule(record, durationMs)
 				prune()
 			}
+			let observedMain = mainSessionId(sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list.getSnapshot() : null)
+			// 从宿主原生会话栏切走时不会经过 compat.open：若切走的那局仍在后台生成，立刻补挂
+			// tavern:recent，保证切回来时能直接拿到热事件流与流式尾部。
+			const unsubscribeList = sessions.list && typeof sessions.list.subscribe === 'function'
+				? sessions.list.subscribe(function () {
+					const nextMain = mainSessionId(sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list.getSnapshot() : null)
+					if (nextMain === observedMain) return
+					const previousMain = observedMain
+					observedMain = nextMain
+					if (previousMain && previousMain !== nextMain && snapshotRow(previousMain) && busy(previousMain)) {
+						hold(previousMain)
+					}
+				})
+				: null
 			function dispose() {
+				if (typeof unsubscribeList === 'function') unsubscribeList()
 				for (const id of Array.from(records.keys())) release(id)
 				TAVERN_RECENT_SESSION_RETENTIONS.delete(sessions)
 			}
@@ -42313,23 +42328,28 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 		// Local invalidations have no revision. Remember any that arrive during a read.
 		let requestedRead = 0, acceptedRead = 0
 		const snapshot = () => store.snapshotFor(sessionId, historyFrom)
-		const reached = read => (read.status === 'ready' || read.status === 'empty') && read.revision >= wantedRevision
+		const reached = (read, target = wantedRevision) => (read.status === 'ready' || read.status === 'empty')
+			&& (target <= 0 || (Number.isSafeInteger(read.revision) && read.revision >= target))
 		const refresh = createSessionRefreshController({
 			loadTimeoutMs: 10000,
 			retryDelaysMs: TAVERN_PROJECTION_RETRY_DELAYS_MS,
 			async load({ signal }) {
 				const requested = requestedRead
-				if (requested !== acceptedRead || !reached(snapshot())) {
-					await store.read(sessionId, { historyFrom, force: true, signal, minimumRevision: wantedRevision })
+				const targetRevision = wantedRevision
+				if (requested !== acceptedRead || !reached(snapshot(), targetRevision)) {
+					await store.read(sessionId, { historyFrom, force: true, signal, minimumRevision: targetRevision })
 				}
-				return requested
+				return { requested, targetRevision }
 			},
-			onResult(requested) {
+			onResult(outcome) {
 				const read = snapshot()
-				if (!reached(read)) {
+				if (!reached(read, outcome.targetRevision)) {
 					throw read.error || new Error('故事历史尚未读到已提交版本')
 				}
-				acceptedRead = requested
+				acceptedRead = outcome.requested
+				if (requestedRead !== acceptedRead || !reached(read, wantedRevision)) {
+					return { delay: 0 }
+				}
 			},
 			onError() {}
 		})
@@ -42337,7 +42357,8 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 		function request(revision, committed = false) {
 			if (revision === undefined) requestedRead++
 			else {
-				if (!Number.isSafeInteger(revision) || revision <= snapshot().revision || revision < wantedRevision) return
+				const currentRevision = snapshot().revision
+				if (!Number.isSafeInteger(revision) || (Number.isSafeInteger(currentRevision) && revision <= currentRevision) || revision < wantedRevision) return
 				if (revision === wantedRevision && !committed) return
 				wantedRevision = revision
 				// A durable commit can overtake a read started while the model was still finishing.
@@ -42353,9 +42374,11 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 		const unsubscribe = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'story-regenerated', signal => {
 			request(Number(signal.version), true)
 		})
+		// tavern-state 也会因后台结算、姿态、候选和模板同步持续推进 storageRevision：
+		// 排队跟进而不强行中断当前读取，避免切回刚生成完的会话时反复打断首屏正文读取。
 		const unsubscribeState = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'tavern-state', signal => {
 			const revision = Number(signal && signal.snapshot && signal.snapshot.storageRevision)
-			if (Number.isSafeInteger(revision) && revision > 0) request(revision, true)
+			if (Number.isSafeInteger(revision) && revision > 0) request(revision, false)
 		})
 		return function () {
 			requestRefresh.current = null
@@ -42477,9 +42500,47 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// 都要重新走一遍 getStoryTranscript（整条正文重传 + 重投影）。
 		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 12
 		const cache = new Map()
+		const prefetches = new Map()
 		let ticket = 0
 		let inflight = null
 		let state = IDLE
+
+		function requestTargetKey(id, historyFrom, includeToolCalls) {
+			return JSON.stringify([id, historyFrom, Boolean(includeToolCalls)])
+		}
+		function linkAbortSignal(externalSignal, controller) {
+			if (!externalSignal || !controller) return function () {}
+			if (externalSignal.aborted) {
+				try { controller.abort() } catch (_) {}
+				return function () {}
+			}
+			if (typeof externalSignal.addEventListener !== 'function') return function () {}
+			const listener = function () { try { controller.abort() } catch (_) {} }
+			externalSignal.addEventListener('abort', listener)
+			return function () {
+				try { externalSignal.removeEventListener('abort', listener) } catch (_) {}
+			}
+		}
+		function raceAbortSignal(promise, signal) {
+			if (!signal) return promise
+			if (signal.aborted) {
+				return Promise.reject(Object.assign(new Error('故事读取已取消'), { name: 'AbortError' }))
+			}
+			if (typeof signal.addEventListener !== 'function') return promise
+			return new Promise(function (resolve, reject) {
+				const onAbort = function () {
+					reject(Object.assign(new Error('故事读取已取消'), { name: 'AbortError' }))
+				}
+				signal.addEventListener('abort', onAbort, { once: true })
+				Promise.resolve(promise).then(function (value) {
+					signal.removeEventListener('abort', onAbort)
+					resolve(value)
+				}, function (error) {
+					signal.removeEventListener('abort', onAbort)
+					reject(error)
+				})
+			})
+		}
 
 		// 快速连切时，上一局还没回来的读已经没有意义：直接中断，别让它继续占着主线程
 		// 和内存。取消只发生在客户端；服务端故事窗口缓存照旧命中，下次切换是毫秒级的。
@@ -42487,27 +42548,30 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const previous = inflight
 			inflight = null
 			if (!previous) return
-			try { previous.abort() } catch (_) {}
+			try { previous.controller && previous.controller.abort() } catch (_) {}
 		}
-		// 外部传了 signal 就跟着外部取消，没传就由内部接管；新一次读会抢占上一次。
-		function beginRequest(externalSignal) {
-			if (typeof AbortController !== 'function') return { signal: externalSignal, done: function () {} }
-			abortInflight()
-			const controller = new AbortController()
-			inflight = controller
-			let listener = null
-			if (externalSignal) {
-				if (externalSignal.aborted) { try { controller.abort() } catch (_) {} }
-				else if (typeof externalSignal.addEventListener === 'function') {
-					listener = function () { try { controller.abort() } catch (_) {} }
-					externalSignal.addEventListener('abort', listener)
+		// 外部传了 signal 就跟着外部取消，没传就由内部接管；切换会话或显式强制重读抢占旧请求。
+		function beginRequest(externalSignal, targetKey, baseline) {
+			if (typeof AbortController !== 'function') {
+				const fallbackEntry = { controller: null, targetKey: targetKey, baseline: baseline || null, loadPromise: null }
+				inflight = fallbackEntry
+				return {
+					entry: fallbackEntry,
+					signal: externalSignal,
+					done: function () { if (inflight === fallbackEntry) inflight = null }
 				}
 			}
+			abortInflight()
+			const controller = new AbortController()
+			const entry = { controller: controller, targetKey: targetKey, baseline: baseline || null, loadPromise: null }
+			inflight = entry
+			const unlink = linkAbortSignal(externalSignal, controller)
 			return {
+				entry: entry,
 				signal: controller.signal,
 				done: function () {
-					if (listener) { try { externalSignal.removeEventListener('abort', listener) } catch (_) {} }
-					if (inflight === controller) inflight = null
+					unlink()
+					if (inflight === entry) inflight = null
 				}
 			}
 		}
@@ -42598,25 +42662,61 @@ function createTavernStoryTranscriptDataModule(deps) {
 					ticket: current
 				})
 			}
-			const pendingRequest = beginRequest(readOptions?.signal)
-			const signal = pendingRequest.signal
+			const targetKey = requestTargetKey(id, historyFrom, includeToolCalls)
+			const minimumRevision = Number.isSafeInteger(readOptions?.minimumRevision) && readOptions.minimumRevision > 0
+				? readOptions.minimumRevision : 0
+			let pendingRequest = null
+			let unlinkJoined = null
 			try {
-				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
-					...(includeToolCalls ? { includeToolCalls: true } : {}),
-					// 缓存命中时把上次的版本与窗口签名带回去：服务端据此判定正文没变就只回
-					// { unchanged: true }，既不重投影也不整条重传。
-					...(cacheHit && Number.isSafeInteger(cacheHit.revision) && cacheHit.revision >= 0 ? { knownRevision: cacheHit.revision } : {}),
-					...(cacheHit && typeof cacheHit.storySignature === 'string' && cacheHit.storySignature !== '' ? { knownStorySignature: cacheHit.storySignature } : {}),
-					...(signal ? { signal } : {}) })
+				let result
+				let effectiveHit = cacheHit
+				let signal = readOptions?.signal
+				// 切换会话时首读已经在途，随后视图或信号带着目标版本跟进：同一目标直接复用这趟在途读，
+				// 避免刚发出去的请求被自己打断重发；若返回版本仍低于目标版本再补读一次。
+				const joinable = force && minimumRevision > 0 && inflight && inflight.targetKey === targetKey
+					&& inflight.loadPromise && !(inflight.controller && inflight.controller.signal && inflight.controller.signal.aborted)
+					? inflight : null
+				if (joinable) {
+					unlinkJoined = linkAbortSignal(readOptions?.signal, joinable.controller)
+					signal = joinable.controller ? joinable.controller.signal : readOptions?.signal
+					const joined = await raceAbortSignal(joinable.loadPromise, signal)
+					unlinkJoined()
+					unlinkJoined = null
+					if (current !== ticket) return state
+					signal?.throwIfAborted()
+					if (joined && Number.isSafeInteger(joined.revision) && joined.revision >= minimumRevision) {
+						result = joined
+						effectiveHit = cacheHit || joinable.baseline
+					}
+				}
+				if (result === undefined) {
+					pendingRequest = beginRequest(readOptions?.signal, targetKey, cacheHit)
+					signal = pendingRequest.signal
+					const activePrefetch = !force ? prefetches.get(targetKey) : null
+					const loadWork = activePrefetch && activePrefetch.baseline === cacheHit
+						? activePrefetch.loadPromise
+						: load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
+							...(includeToolCalls ? { includeToolCalls: true } : {}),
+							// 缓存命中时把上次的版本与窗口签名带回去：服务端据此判定正文没变就只回
+							// { unchanged: true }，既不重投影也不整条重传。
+							...(cacheHit && Number.isSafeInteger(cacheHit.revision) && cacheHit.revision >= 0 ? { knownRevision: cacheHit.revision } : {}),
+							...(cacheHit && typeof cacheHit.storySignature === 'string' && cacheHit.storySignature !== '' ? { knownStorySignature: cacheHit.storySignature } : {}),
+							...(signal ? { signal } : {}) })
+					pendingRequest.entry.loadPromise = loadWork
+					result = await raceAbortSignal(loadWork, signal)
+				}
 				if (current !== ticket) return state
 				signal?.throwIfAborted()
-				if (readOptions?.minimumRevision && !(result?.revision >= readOptions.minimumRevision)) {
+				if (minimumRevision > 0 && !(result?.revision >= minimumRevision)) {
 					throw new Error('故事历史尚未读到已提交版本')
 				}
-				if (result && result.unchanged === true && cacheHit) {
+				if (result && result.unchanged === true && effectiveHit) {
 					// 屏幕上这份就是服务端当前这份：只把它放回 LRU 前排，不重新 publish，
 					// 免得一次切回白白触发整棵故事列表重绘。
-					remember(key, cacheHit)
+					remember(key, effectiveHit)
+					if (state.sessionId !== id || state.historyFrom !== historyFrom || state.revision !== effectiveHit.revision || state.status !== effectiveHit.status) {
+						publish(Object.assign({}, effectiveHit, { ticket: current }))
+					}
 					return state
 				}
 				const transcript = result && result.transcript ? result.transcript : null
@@ -42641,48 +42741,71 @@ function createTavernStoryTranscriptDataModule(deps) {
 					view: preserve ? state.view : null, revision: preserve ? state.revision : null,
 					storySignature: preserve ? state.storySignature : null, error: error, ticket: current })
 			} finally {
-				pendingRequest.done()
+				if (unlinkJoined) unlinkJoined()
+				if (pendingRequest) pendingRequest.done()
 			}
 			return state
 		}
 
-		// 点击会话的那一刻先把正文读起来（不 publish、不动当前可见状态），切过去时
-		// 服务端与本地窗口缓存都已经热了，不用再等 getSession 落地才发第一次读。
+		// 点击会话或后台会话结束生成时先把正文读起来（后台会话不改可见状态），切过去时
+		// 服务端与本地窗口缓存都已经拿到最新楼层，不用再等 getSession 落地才发第一次读。
 		async function prefetch(sessionId, prefetchOptions) {
 			const id = String(sessionId || '')
 			if (id === '') return null
 			const historyFrom = tavernStoryTranscriptHistoryFrom(prefetchOptions && prefetchOptions.historyFrom)
+			const includeToolCalls = showPlayProcess()
 			const key = cacheKey(id, historyFrom)
-			if (state.sessionId === id && state.historyFrom === historyFrom && state.transcript) return state
+			if (state.sessionId === id && state.historyFrom === historyFrom && state.transcript
+				&& (!includeToolCalls || state.includeToolCalls)) return state
+			const targetKey = requestTargetKey(id, historyFrom, includeToolCalls)
+			const existingPrefetch = prefetches.get(targetKey)
+			if (existingPrefetch) return existingPrefetch.promise
 			const known = cache.get(key)
-			if (known && known.status === 'ready') return known
-			try {
-				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
-					...(showPlayProcess() ? { includeToolCalls: true } : {}),
-					...(known && Number.isSafeInteger(known.revision) && known.revision >= 0 ? { knownRevision: known.revision } : {}),
-					...(known && typeof known.storySignature === 'string' && known.storySignature !== '' ? { knownStorySignature: known.storySignature } : {}) })
-				if (result && result.unchanged === true) return known || null
+			const baseline = known && (!includeToolCalls || known.includeToolCalls) ? known : null
+			const loadPromise = Promise.resolve().then(function () {
+				return load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
+					...(includeToolCalls ? { includeToolCalls: true } : {}),
+					...(baseline && Number.isSafeInteger(baseline.revision) && baseline.revision >= 0 ? { knownRevision: baseline.revision } : {}),
+					...(baseline && typeof baseline.storySignature === 'string' && baseline.storySignature !== '' ? { knownStorySignature: baseline.storySignature } : {}) })
+			})
+			const entry = { baseline: baseline, loadPromise: loadPromise, promise: null }
+			entry.promise = loadPromise.then(function (result) {
+				if (result && result.unchanged === true) {
+					if (baseline) remember(key, baseline)
+					return baseline || null
+				}
 				const transcript = result && result.transcript ? result.transcript : null
 				if (!transcript) return null
 				const next = {
-					sessionId: id, historyFrom: historyFrom, includeToolCalls: showPlayProcess(),
+					sessionId: id, historyFrom: historyFrom, includeToolCalls: includeToolCalls,
 					status: 'ready', transcript: transcript,
 					view: result && result.view ? result.view : null,
 					revision: result && result.revision !== undefined ? result.revision : null,
 					storySignature: result && typeof result.storySignature === 'string' ? result.storySignature : null,
 					error: null, ticket: ticket
 				}
-				// 预取只写缓存，不抢可见槽位；比它新的读已经落盘时以新的为准。
+				// 预取只写缓存，不抢其他会话的可见槽位；比它新的读已经落盘时以新的为准。
 				const current = cache.get(key)
 				if (current && Number.isSafeInteger(current.revision) && Number.isSafeInteger(next.revision)
 					&& current.revision > next.revision) return current
 				remember(key, next)
+				if (state.sessionId === id && state.historyFrom === historyFrom
+					&& (!includeToolCalls || state.includeToolCalls === includeToolCalls)
+					&& (!state.transcript || (Number.isSafeInteger(next.revision) && (!Number.isSafeInteger(state.revision) || next.revision > state.revision)))) {
+					const shown = ++ticket
+					publish(Object.assign({}, next, { ticket: shown }))
+				}
 				return next
-			} catch (_) { return null }
+			}, function () { return null }).finally(function () {
+				if (prefetches.get(targetKey) === entry) prefetches.delete(targetKey)
+			})
+			prefetches.set(targetKey, entry)
+			return entry.promise
 		}
 		function reset() {
 			ticket += 1
 			abortInflight()
+			prefetches.clear()
 			cache.clear()
 			publish(IDLE)
 		}
@@ -43289,7 +43412,12 @@ function createTavernStoryTranscriptFeature(deps) {
 			helperContextReader: function () {
 				const current = typeof liveTavernView !== 'undefined' && liveTavernView && typeof liveTavernView.getSnapshot === 'function'
 					? liveTavernView.getSnapshot(String(props.sessionId || '')).view : null
-				return current && current.tavernHelper || props.helperView && props.helperView.tavernHelper
+				const currentRevision = Number(current && (current.storageRevision ?? (current.tavernHelper && current.tavernHelper.stateRevision)))
+				const fallbackRevision = Number(props.helperView && (props.helperView.storageRevision ?? (props.helperView.tavernHelper && props.helperView.tavernHelper.stateRevision)))
+				if (current && current.tavernHelper && !(Number.isSafeInteger(currentRevision) && Number.isSafeInteger(fallbackRevision) && currentRevision < fallbackRevision)) {
+					return current.tavernHelper
+				}
+				return (props.helperView && props.helperView.tavernHelper) || (current && current.tavernHelper)
 			},
 			frameSizing: props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.frameSizing,
 			trustedCardMode: trustedCardMode,
@@ -43490,9 +43618,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		const liveDamper = typeof useTavernStoryLiveDamper === 'function' ? useTavernStoryLiveDamper(sessionId) : null
 		const liveView = live && live.view ? live.view : null
 		const storyBusy = props.running === true || Boolean(liveView && liveView.activity && liveView.activity.busy)
-		const helperView = liveView || props.view
 		const liveRevision = Number(liveView && (liveView.storageRevision ?? (liveView.tavernHelper && liveView.tavernHelper.stateRevision)))
 		const storyRevision = Number(transcript && transcript.revision)
+		const liveViewStale = Boolean(liveView && props.view && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision < storyRevision)
+		const helperView = liveViewStale ? (props.view || liveView) : (liveView || props.view)
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
@@ -43823,6 +43952,85 @@ function createTavernStoryTranscriptFeature(deps) {
 				}))
 			})
 		}, 'dsh-tavern: story transcript flow')
+		if (ctx.sessions && ctx.sessions.list && typeof ctx.sessions.list.subscribe === 'function') ctx.effect(function () {
+			const list = ctx.sessions.list
+			const runningStates = new Map()
+			const prepareTimers = new Map()
+			let lastCurrentId = ''
+			const setTimer = typeof window !== 'undefined' && window && typeof window.setTimeout === 'function' ? window.setTimeout.bind(window) : setTimeout
+			const clearTimer = typeof window !== 'undefined' && window && typeof window.clearTimeout === 'function' ? window.clearTimeout.bind(window) : clearTimeout
+			function activeSessionId(snapshot) {
+				if (typeof tavernMainSessionId === 'function') return tavernMainSessionId(ctx.sessions)
+				if (snapshot && typeof snapshot.current === 'string' && snapshot.current) return String(snapshot.current)
+				const items = Object.values((snapshot && snapshot.byId) || {})
+				for (let index = 0; index < items.length; index += 1) {
+					const item = items[index]
+					if (item && item.retainedBy && (item.retainedBy.mainView ?? 0) > 0) return String(item.id || '')
+				}
+				return ''
+			}
+			function warmBackgroundSession(id) {
+				const store = options.store || storyTranscriptStore
+				if (!store || typeof store.peek !== 'function' || typeof store.prefetch !== 'function') return
+				if (!store.peek(id) || mountedStories.has(id)) return
+				if (typeof liveTavernView !== 'undefined' && liveTavernView && typeof liveTavernView.evict === 'function') {
+					try { liveTavernView.evict(id) } catch (_) {}
+				}
+				void store.prefetch(id)
+			}
+			function schedulePrepareWarm(id) {
+				if (!id || prepareTimers.has(id)) return
+				const store = options.store || storyTranscriptStore
+				if (!store || typeof store.peek !== 'function' || !store.peek(id)) return
+				prepareTimers.set(id, setTimer(function () {
+					prepareTimers.delete(id)
+					warmBackgroundSession(id)
+				}, 250))
+			}
+			function syncBackgroundSessions() {
+				const snapshot = typeof list.getSnapshot === 'function' ? list.getSnapshot() : null
+				const byId = (snapshot && snapshot.byId) || {}
+				const currentId = activeSessionId(snapshot)
+				const previousCurrentId = lastCurrentId
+				lastCurrentId = currentId
+				if (previousCurrentId && previousCurrentId !== currentId && byId[previousCurrentId] && byId[previousCurrentId].running === true) {
+					schedulePrepareWarm(previousCurrentId)
+				}
+				const seen = new Set()
+				const ids = Object.keys(byId)
+				for (let index = 0; index < ids.length; index += 1) {
+					const id = ids[index]
+					const row = byId[id]
+					const running = Boolean(row && row.running === true)
+					const previous = runningStates.get(id)
+					runningStates.set(id, running)
+					seen.add(id)
+					if (!id || id === currentId || mountedStories.has(id) || previous === undefined) continue
+					if (previous === true && !running) {
+						const pendingTimer = prepareTimers.get(id)
+						if (pendingTimer !== undefined) { clearTimer(pendingTimer); prepareTimers.delete(id) }
+						warmBackgroundSession(id)
+					} else if (previous === false && running) {
+						schedulePrepareWarm(id)
+					}
+				}
+				runningStates.forEach(function (_, id) {
+					if (!seen.has(id)) {
+						runningStates.delete(id)
+						const pendingTimer = prepareTimers.get(id)
+						if (pendingTimer !== undefined) { clearTimer(pendingTimer); prepareTimers.delete(id) }
+					}
+				})
+			}
+			syncBackgroundSessions()
+			const unsubscribe = list.subscribe(syncBackgroundSessions)
+			return function () {
+				if (typeof unsubscribe === 'function') unsubscribe()
+				prepareTimers.forEach(function (timer) { clearTimer(timer) })
+				prepareTimers.clear()
+				runningStates.clear()
+			}
+		}, 'dsh-tavern: warm background story transcripts')
 	}
 
 	return Object.freeze({

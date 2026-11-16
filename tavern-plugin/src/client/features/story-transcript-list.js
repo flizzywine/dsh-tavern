@@ -399,7 +399,12 @@ function createTavernStoryTranscriptFeature(deps) {
 			helperContextReader: function () {
 				const current = typeof liveTavernView !== 'undefined' && liveTavernView && typeof liveTavernView.getSnapshot === 'function'
 					? liveTavernView.getSnapshot(String(props.sessionId || '')).view : null
-				return current && current.tavernHelper || props.helperView && props.helperView.tavernHelper
+				const currentRevision = Number(current && (current.storageRevision ?? (current.tavernHelper && current.tavernHelper.stateRevision)))
+				const fallbackRevision = Number(props.helperView && (props.helperView.storageRevision ?? (props.helperView.tavernHelper && props.helperView.tavernHelper.stateRevision)))
+				if (current && current.tavernHelper && !(Number.isSafeInteger(currentRevision) && Number.isSafeInteger(fallbackRevision) && currentRevision < fallbackRevision)) {
+					return current.tavernHelper
+				}
+				return (props.helperView && props.helperView.tavernHelper) || (current && current.tavernHelper)
 			},
 			frameSizing: props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.frameSizing,
 			trustedCardMode: trustedCardMode,
@@ -600,9 +605,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		const liveDamper = typeof useTavernStoryLiveDamper === 'function' ? useTavernStoryLiveDamper(sessionId) : null
 		const liveView = live && live.view ? live.view : null
 		const storyBusy = props.running === true || Boolean(liveView && liveView.activity && liveView.activity.busy)
-		const helperView = liveView || props.view
 		const liveRevision = Number(liveView && (liveView.storageRevision ?? (liveView.tavernHelper && liveView.tavernHelper.stateRevision)))
 		const storyRevision = Number(transcript && transcript.revision)
+		const liveViewStale = Boolean(liveView && props.view && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision < storyRevision)
+		const helperView = liveViewStale ? (props.view || liveView) : (liveView || props.view)
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
@@ -933,6 +939,85 @@ function createTavernStoryTranscriptFeature(deps) {
 				}))
 			})
 		}, 'dsh-tavern: story transcript flow')
+		if (ctx.sessions && ctx.sessions.list && typeof ctx.sessions.list.subscribe === 'function') ctx.effect(function () {
+			const list = ctx.sessions.list
+			const runningStates = new Map()
+			const prepareTimers = new Map()
+			let lastCurrentId = ''
+			const setTimer = typeof window !== 'undefined' && window && typeof window.setTimeout === 'function' ? window.setTimeout.bind(window) : setTimeout
+			const clearTimer = typeof window !== 'undefined' && window && typeof window.clearTimeout === 'function' ? window.clearTimeout.bind(window) : clearTimeout
+			function activeSessionId(snapshot) {
+				if (typeof tavernMainSessionId === 'function') return tavernMainSessionId(ctx.sessions)
+				if (snapshot && typeof snapshot.current === 'string' && snapshot.current) return String(snapshot.current)
+				const items = Object.values((snapshot && snapshot.byId) || {})
+				for (let index = 0; index < items.length; index += 1) {
+					const item = items[index]
+					if (item && item.retainedBy && (item.retainedBy.mainView ?? 0) > 0) return String(item.id || '')
+				}
+				return ''
+			}
+			function warmBackgroundSession(id) {
+				const store = options.store || storyTranscriptStore
+				if (!store || typeof store.peek !== 'function' || typeof store.prefetch !== 'function') return
+				if (!store.peek(id) || mountedStories.has(id)) return
+				if (typeof liveTavernView !== 'undefined' && liveTavernView && typeof liveTavernView.evict === 'function') {
+					try { liveTavernView.evict(id) } catch (_) {}
+				}
+				void store.prefetch(id)
+			}
+			function schedulePrepareWarm(id) {
+				if (!id || prepareTimers.has(id)) return
+				const store = options.store || storyTranscriptStore
+				if (!store || typeof store.peek !== 'function' || !store.peek(id)) return
+				prepareTimers.set(id, setTimer(function () {
+					prepareTimers.delete(id)
+					warmBackgroundSession(id)
+				}, 250))
+			}
+			function syncBackgroundSessions() {
+				const snapshot = typeof list.getSnapshot === 'function' ? list.getSnapshot() : null
+				const byId = (snapshot && snapshot.byId) || {}
+				const currentId = activeSessionId(snapshot)
+				const previousCurrentId = lastCurrentId
+				lastCurrentId = currentId
+				if (previousCurrentId && previousCurrentId !== currentId && byId[previousCurrentId] && byId[previousCurrentId].running === true) {
+					schedulePrepareWarm(previousCurrentId)
+				}
+				const seen = new Set()
+				const ids = Object.keys(byId)
+				for (let index = 0; index < ids.length; index += 1) {
+					const id = ids[index]
+					const row = byId[id]
+					const running = Boolean(row && row.running === true)
+					const previous = runningStates.get(id)
+					runningStates.set(id, running)
+					seen.add(id)
+					if (!id || id === currentId || mountedStories.has(id) || previous === undefined) continue
+					if (previous === true && !running) {
+						const pendingTimer = prepareTimers.get(id)
+						if (pendingTimer !== undefined) { clearTimer(pendingTimer); prepareTimers.delete(id) }
+						warmBackgroundSession(id)
+					} else if (previous === false && running) {
+						schedulePrepareWarm(id)
+					}
+				}
+				runningStates.forEach(function (_, id) {
+					if (!seen.has(id)) {
+						runningStates.delete(id)
+						const pendingTimer = prepareTimers.get(id)
+						if (pendingTimer !== undefined) { clearTimer(pendingTimer); prepareTimers.delete(id) }
+					}
+				})
+			}
+			syncBackgroundSessions()
+			const unsubscribe = list.subscribe(syncBackgroundSessions)
+			return function () {
+				if (typeof unsubscribe === 'function') unsubscribe()
+				prepareTimers.forEach(function (timer) { clearTimer(timer) })
+				prepareTimers.clear()
+				runningStates.clear()
+			}
+		}, 'dsh-tavern: warm background story transcripts')
 	}
 
 	return Object.freeze({

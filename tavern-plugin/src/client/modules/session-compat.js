@@ -111,7 +111,22 @@ function createTavernRecentSessionRetention(sessions, options) {
 		schedule(record, durationMs)
 		prune()
 	}
+	let observedMain = mainSessionId(sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list.getSnapshot() : null)
+	// 从宿主原生会话栏切走时不会经过 compat.open：若切走的那局仍在后台生成，立刻补挂
+	// tavern:recent，保证切回来时能直接拿到热事件流与流式尾部。
+	const unsubscribeList = sessions.list && typeof sessions.list.subscribe === 'function'
+		? sessions.list.subscribe(function () {
+			const nextMain = mainSessionId(sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list.getSnapshot() : null)
+			if (nextMain === observedMain) return
+			const previousMain = observedMain
+			observedMain = nextMain
+			if (previousMain && previousMain !== nextMain && snapshotRow(previousMain) && busy(previousMain)) {
+				hold(previousMain)
+			}
+		})
+		: null
 	function dispose() {
+		if (typeof unsubscribeList === 'function') unsubscribeList()
 		for (const id of Array.from(records.keys())) release(id)
 		TAVERN_RECENT_SESSION_RETENTIONS.delete(sessions)
 	}

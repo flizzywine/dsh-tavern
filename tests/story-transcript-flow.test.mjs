@@ -461,3 +461,155 @@ test('无 tavernHelper 的写作模式在生成中等待首字阶段，经 taver
 	assert.match(placeholderRow.textContent, /正在生成/)
 })
 
+test('切换到后台已生成会话时，连续到达的 tavern-state 不会打断在途补读或触发退避等待', async t => {
+	const p = page(t)
+	const clock = syncClock(), signals = createSessionSignalTransport()
+	const createRefresh = p.context.createSessionRefreshController
+	p.context.createSessionRefreshController = options => createRefresh({ ...options, ...clock })
+	p.context.tavernSessionSignals = signals
+
+	const oldMessages = [{ role: 'assistant', greeting: true, turn: 1, text: '开场' }]
+	const bgReplyMessages = [
+		...oldMessages,
+		{ role: 'user', text: '后台行动' },
+		{ role: 'assistant', turn: 2, text: '后台生成的最新楼层正文' }
+	]
+	let stage = 'initial'
+	let switchRead = null
+	const observedSignals = []
+	let s1Reads = 0
+	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async (_method, _args, id, options) => {
+		if (id === 's2') return { storyTranscript: transcript(oldMessages, 1), view: { mode: 'story', storageRevision: 1 }, revision: 1, storySignature: 's2-1' }
+		s1Reads += 1
+		observedSignals.push(options?.signal)
+		if (stage === 'initial') {
+			return { storyTranscript: transcript(oldMessages, 1), view: { mode: 'story', storageRevision: 1 }, revision: 1, storySignature: 's1-1' }
+		}
+		if (stage === 'switch') {
+			switchRead = Promise.withResolvers()
+			return switchRead.promise
+		}
+		return { storyTranscript: transcript(bgReplyMessages, 4), view: { mode: 'story', storageRevision: 4 }, revision: 4, storySignature: 's1-4' }
+	} })
+	const store = data.createStoryTranscriptStore()
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const flow = sessionId => React.createElement(feature.StoryTranscriptFlow, {
+		store, sessionId, renderNative: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	})
+
+	const root = await mount(p, flow('s1'))
+	assert.equal(s1Reads, 1)
+	await act(async () => root.render(flow('s2')))
+
+	// s1 在后台生成了新楼层（revision=3），随后后台结算又推进到 revision=4
+	stage = 'switch'
+	await act(async () => root.render(flow('s1')))
+	assert.equal(s1Reads, 2, '切回 s1 时立即发出首趟补读')
+	assert.ok(switchRead, '首趟补读在途')
+
+	await act(async () => {
+		signals.publish('s1', { kind: 'tavern-state', version: '3', snapshot: { storageRevision: 3 } })
+		await clock.advance(0)
+		signals.publish('s1', { kind: 'tavern-state', version: '4', snapshot: { storageRevision: 4 } })
+		await clock.advance(0)
+	})
+	assert.equal(observedSignals.at(-1)?.aborted ?? false, false, '连续后台结算信号不得中断切回时的首趟正文读取')
+	assert.equal(s1Reads, 2, '在途首读完成前不重复叠加请求')
+
+	stage = 'settled'
+	await act(async () => {
+		switchRead.resolve({
+			storyTranscript: transcript(bgReplyMessages, 3),
+			view: { mode: 'story', storageRevision: 3 },
+			revision: 3,
+			storySignature: 's1-3'
+		})
+	})
+	// 首趟返回即刻把后台生成的最新楼层画上屏，不等后续版本或 500ms 重试定时器
+	assert.match(p.dom.window.document.querySelector('main').textContent, /后台生成的最新楼层正文/)
+	assert.deepEqual(clock.delays().filter(ms => ms >= 500), [], '不得进入 500ms 错误退避')
+	await act(async () => clock.advance(0))
+	assert.equal(store.getSnapshot().revision, 4, '紧接 0ms 跟进到最新结算版本')
+})
+
+test('非当前会话在后台完成生成时自动预热缓存，切回首帧立即显示最新楼层', async t => {
+	const p = page(t)
+	const { context } = p
+	const oldMessages = [{ role: 'assistant', greeting: true, turn: 1, text: '开场' }]
+	const finishedMessages = [
+		...oldMessages,
+		{ role: 'user', text: '后台行动' },
+		{ role: 'assistant', turn: 2, text: '后台自动预热的最新楼层' }
+	]
+	let bgCommitted = false
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async (_method, _args, id) => {
+		if (id === 's-bg' && bgCommitted) {
+			return { storyTranscript: transcript(finishedMessages, 2), view: { mode: 'story', storageRevision: 2 }, revision: 2, storySignature: 'bg-2' }
+		}
+		return { storyTranscript: transcript(oldMessages, 1), view: { mode: 'story', storageRevision: 1 }, revision: 1, storySignature: id + '-1' }
+	} })
+	const store = data.createStoryTranscriptStore()
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, store })
+	const listListeners = new Set()
+	let listSnapshot = {
+		current: 's-bg',
+		byId: {
+			's-bg': { id: 's-bg', running: true, retainedBy: { mainView: 1 } },
+			's-fg': { id: 's-fg', running: false, retainedBy: {} }
+		}
+	}
+	const cleanups = []
+	feature.register({
+		ctx: {
+			effect: run => { const c = run(); if (typeof c === 'function') cleanups.push(c) },
+			get: () => undefined,
+			sessions: {
+				list: {
+					getSnapshot: () => listSnapshot,
+					subscribe: fn => { listListeners.add(fn); return () => listListeners.delete(fn) }
+				}
+			}
+		},
+		slots: { inject: () => () => {}, register: () => () => {}, entries: () => [], subscribe: () => () => {} }
+	})
+	t.after(() => { for (const cleanup of cleanups) cleanup() })
+
+	const flow = sessionId => React.createElement(feature.StoryTranscriptFlow, {
+		store, sessionId, renderNative: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	})
+	const root = await mount(p, flow('s-bg'))
+	// 切到前台会话 s-fg，s-bg 留在后台继续生成
+	listSnapshot = {
+		current: 's-fg',
+		byId: {
+			's-bg': { id: 's-bg', running: true, retainedBy: {} },
+			's-fg': { id: 's-fg', running: false, retainedBy: { mainView: 1 } }
+		}
+	}
+	await act(async () => {
+		for (const fn of listListeners) fn()
+		root.render(flow('s-fg'))
+	})
+	// s-bg 在后台完成生成：落盘并翻转 running -> false
+	bgCommitted = true
+	listSnapshot = {
+		current: 's-fg',
+		byId: {
+			's-bg': { id: 's-bg', running: false, retainedBy: {} },
+			's-fg': { id: 's-fg', running: false, retainedBy: { mainView: 1 } }
+		}
+	}
+	await act(async () => {
+		for (const fn of listListeners) fn()
+		await Promise.resolve()
+		await Promise.resolve()
+	})
+	assert.equal(store.snapshotFor('s-bg', null).revision, 2, '未切回前缓存已自动预热到新版本')
+
+	// 切回 s-bg 时同步首帧直接画出最新楼层，无需等待二次网络往返
+	await act(async () => root.render(flow('s-bg')))
+	assert.match(p.dom.window.document.querySelector('main').textContent, /后台自动预热的最新楼层/)
+})
+

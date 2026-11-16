@@ -102,6 +102,34 @@ test('sessionListAdapters：新建但未 retain 的会话立即就绪（修复�
   assert.equal(typeof compat.binding('session-fresh'), 'undefined', '未 retain 时真 binding 仍为空')
 })
 
+test('从宿主原生会话栏切离仍在后台生成的会话时自动补挂 tavern:recent', async function (t) {
+  const host = host2020()
+  const listeners = new Set()
+  host.rows['session-main'] = {
+    id: 'session-main', blank: false, running: true,
+    retainedBy: Object.freeze(Object.assign(Object.create(null), { mainView: 1 }))
+  }
+  host.sessions.list.subscribe = function (listener) {
+    listeners.add(listener)
+    return function () { listeners.delete(listener) }
+  }
+  const compat = client.createSessionCompat(host.sessions, host.uiWorkspace)
+  t.after(function () { compat.disposeRecentRetention() })
+
+  // 模拟玩家从宿主原生侧栏直接切换到 session-blank（不经过 compat.open）
+  host.rows['session-main'] = {
+    id: 'session-main', blank: false, running: true,
+    retainedBy: Object.freeze(Object.create(null))
+  }
+  host.rows['session-blank'] = {
+    id: 'session-blank', blank: true, running: false,
+    retainedBy: Object.freeze(Object.assign(Object.create(null), { mainView: 1 }))
+  }
+  for (const listener of listeners) listener()
+
+  assert.deepEqual(host.retained, [['session-main', 'tavern:recent']], '后台生成中的会话切走后应自动保活事件流')
+})
+
 // 真实故障：点旧存档时宿主列表基线尚未返回，replaceMain 的 retain 同步抛
 // 「sessions.retain: unknown session」。recovery 的 refresh 是 single-flight，
 // 轮询拉不回新基线，8 秒后必然超时。open() 因此先补拉一次基线再打开。
