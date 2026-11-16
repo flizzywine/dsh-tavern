@@ -92,15 +92,21 @@ function createTransferFeatureModule() {
 		// 最后生成的包，供「重新下载」复用。服务端在 token 有效期内允许多次下载，所以
 		// 第一次没弹出保存界面（内嵌 WebView 常见）时，用户可以直接再点一次。
 		const exportRef = React.useRef(null)
+		const catalogPendingRef = React.useRef(null)
 
 		const refresh = React.useCallback(function () {
-			return rpc("getTransferCatalog", {}, sessionId).then(function (value) {
+			if (catalogPendingRef.current) return catalogPendingRef.current
+			const pending = rpc("getTransferCatalog", {}, sessionId).then(function (value) {
 				setCatalog(value && value.parts ? value : { parts: [], groups: [] })
 				return value
 			}, function (err) {
 				setError(String(err && err.message || err))
 				return null
+			}).finally(function () {
+				if (catalogPendingRef.current === pending) catalogPendingRef.current = null
 			})
+			catalogPendingRef.current = pending
+			return pending
 		}, [sessionId, setError])
 
 		useVisibleDataRefresh(props.visible, function (event) { return tavernDataChangeAffects(event, ["cards", "worldbooks", "presets", "sessions"], "transfer") }, refresh, sessionId)

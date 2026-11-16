@@ -89,7 +89,20 @@ export function inspectSillyTavernChatItem(content) {
  * `.jsonl` chat histories packed by the migration helper (`importChatHistoryText`).
  */
 export function createTransferChats(deps) {
-  const { listSessions, readChat, exportSave, importSave, updateChat, importChatHistory, fileResources } = deps
+  const { listSessions, readChat, readRecentSummaries, readChatHeader, exportSave, importSave, updateChat, importChatHistory, fileResources } = deps
+
+  async function mapConcurrent(entries, limit, worker) {
+    const out = new Array(entries.length)
+    let cursor = 0
+    const runners = Array.from({ length: Math.min(limit, entries.length) }, async () => {
+      while (cursor < entries.length) {
+        const index = cursor++
+        out[index] = await worker(entries[index], index)
+      }
+    })
+    await Promise.all(runners)
+    return out
+  }
 
   // A save is one playthrough. A chat in SillyTavern mode is the imported line itself, not a game.
   async function games() {
@@ -106,13 +119,26 @@ export function createTransferChats(deps) {
     return map
   }
 
-  async function turns(chat) {
-    let record
-    try { record = await readChat(str(chat.id) || str(chat.chatId)) } catch { return UNKNOWN_TURNS }
-    if (!record || !Array.isArray(record.messages)) return UNKNOWN_TURNS
+  function countAssistantTurns(messages) {
     let count = 0
-    for (const message of record.messages) if (message && message.role === 'assistant') count += 1
+    for (const message of messages) if (message && message.role === 'assistant') count += 1
     return count + ' 轮'
+  }
+
+  async function turns(chat) {
+    const chatId = str(chat.id) || str(chat.chatId)
+    if (typeof readRecentSummaries === 'function') {
+      try {
+        const summary = await readRecentSummaries(chatId)
+        if (summary && Array.isArray(summary.messages)) return countAssistantTurns(summary.messages)
+      } catch {
+        return UNKNOWN_TURNS
+      }
+    }
+    let record
+    try { record = await readChat(chatId) } catch { return UNKNOWN_TURNS }
+    if (!record || !Array.isArray(record.messages)) return UNKNOWN_TURNS
+    return countAssistantTurns(record.messages)
   }
 
   function metaOf(turnsText, chat) {
@@ -122,11 +148,13 @@ export function createTransferChats(deps) {
 
   // Size stays 0: only exporting knows how big a save really is, so the list does not claim one.
   async function list() {
-    const items = []
-    for (const [key, chat] of await games()) {
-      items.push({ key, title: titleOf(chat), meta: metaOf(await turns(chat), chat), bytes: 0 })
-    }
-    return items
+    const entries = [...(await games()).entries()]
+    return await mapConcurrent(entries, 4, async ([key, chat]) => ({
+      key,
+      title: titleOf(chat),
+      meta: metaOf(await turns(chat), chat),
+      bytes: 0
+    }))
   }
 
   function wanted(keys) {
@@ -168,14 +196,21 @@ export function createTransferChats(deps) {
   // A save imported from a bundle remembers its content hash, so the same package twice is a skip.
   async function importedHashes() {
     const hashes = new Set()
-    for (const chat of (await games()).values()) {
+    const entries = [...(await games()).values()]
+    await mapConcurrent(entries, 4, async chat => {
+      const chatId = str(chat.id) || str(chat.chatId)
       let record
-      try { record = await readChat(str(chat.id) || str(chat.chatId)) } catch { continue }
+      try {
+        record = typeof readChatHeader === 'function' ? await readChatHeader(chatId) : undefined
+        if (!record) record = await readChat(chatId)
+      } catch {
+        return
+      }
       const hash = str(record && record.importedSave && record.importedSave.sourceHash)
       if (hash) hashes.add(hash)
       const digest = str(record && record.importHistory && record.importHistory.digest)
       if (digest) hashes.add(digest)
-    }
+    })
     return hashes
   }
 

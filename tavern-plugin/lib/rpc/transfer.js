@@ -38,9 +38,17 @@ function stamp() {
 export function createTransferHandlers(deps) {
   const { dataRoot, uploads, fileResources, worldBooks, presetLibrary, promptDocuments, userPreferenceProfile,
     regexManager, readTavernSettings, updateTavernSettings, importCard, importPreset, readCardWorkspace,
-    cardPreparation, TAVERN_PACKAGE_VERSION, listTavernSessions, readChat, exportGameSave, importGameSave,
+    cardPreparation, TAVERN_PACKAGE_VERSION, listTavernSessions, readChat, chatPersistence, exportGameSave, importGameSave,
     importChatHistoryText, userPluginInstaller, pluginDataStore, tavernSkills, transferExports, exportTavernLogs,
     deleteCard, deletePreset, deleteResource, readRawTavernSettings, updateChat, assetLibrary, profileData } = deps
+
+  let sessionsInFlight = null
+  function listSessionsShared() {
+    if (!sessionsInFlight) {
+      sessionsInFlight = Promise.resolve().then(() => listTavernSessions()).finally(() => { sessionsInFlight = null })
+    }
+    return sessionsInFlight
+  }
 
   async function writeBackup(name, text) {
     const directory = path.join(dataRoot, '..', 'backups', 'transfer', stamp())
@@ -51,8 +59,14 @@ export function createTransferHandlers(deps) {
   }
 
   const chats = createTransferChats({
-    listSessions: listTavernSessions,
+    listSessions: listSessionsShared,
     readChat,
+    readRecentSummaries: chatPersistence?.readRecentSummaries
+      ? chatId => chatPersistence.readRecentSummaries(chatId, Number.MAX_SAFE_INTEGER)
+      : undefined,
+    readChatHeader: chatPersistence?.readSlice
+      ? async chatId => (await chatPersistence.readSlice(chatId, []))?.chat
+      : undefined,
     exportSave: exportGameSave,
     importSave: importGameSave,
     updateChat,
@@ -72,10 +86,10 @@ export function createTransferHandlers(deps) {
     })
   }
   const pluginData = createTransferPluginData({ pluginDataStore, listPlugins: pluginDataEntries })
-  const logs = createTransferLogs({ listSessions: listTavernSessions, exportLogs: exportTavernLogs })
+  const logs = createTransferLogs({ listSessions: listSessionsShared, exportLogs: exportTavernLogs })
   const skills = createTransferSkills({ skillsDir: path.join(dataRoot, 'skills'), listSkills: () => tavernSkills.list() })
   // 召回记录和存档一样放在 profile 数据根下（worldbook-recalls/<chatId>/），由 profileData 读写。
-  const memory = profileData ? createTransferMemory({ store: profileData, listSessions: listTavernSessions }) : null
+  const memory = profileData ? createTransferMemory({ store: profileData, listSessions: listSessionsShared }) : null
   // 素材库的根在 tavern dataRoot 旁边（index.js 里建 assetLibrary 用的是同一个路径）。
   const assets = assetLibrary ? createTransferAssets({ root: path.join(path.dirname(dataRoot), 'asset-packs'), library: assetLibrary }) : null
 
@@ -137,10 +151,14 @@ export function createTransferHandlers(deps) {
   }
 
   const undo = createTransferUndo({ hashOf: (kind, path) => fileHash(path), remove: removeCreated })
+  let catalogInFlight = null
 
   return {
     async getTransferCatalog() {
-      return await catalog.listParts()
+      if (!catalogInFlight) {
+        catalogInFlight = Promise.resolve().then(() => catalog.listParts()).finally(() => { catalogInFlight = null })
+      }
+      return await catalogInFlight
     },
 
     async exportSillyTavernMigrationScript() {

@@ -83,15 +83,24 @@ export function createTransferCatalog(deps) {
   }
 
   async function listCards() {
-    const items = []
-    for (const cardPath of await fileResources.list('card').catch(() => [])) {
-      let title = stemOf(cardPath)
-      const text = await fileResources.readText(cardPath).catch(() => undefined)
-      if (text !== undefined) {
-        try { const value = JSON.parse(text); title = str(value && value.name) || title } catch { /* keep the file name */ }
+    const paths = await fileResources.list('card').catch(() => [])
+    const items = new Array(paths.length)
+    let cursor = 0
+    await Promise.all(Array.from({ length: Math.min(8, paths.length) }, async () => {
+      while (cursor < paths.length) {
+        const index = cursor++
+        const cardPath = paths[index]
+        let title = stemOf(cardPath)
+        const [text, bytes] = await Promise.all([
+          fileResources.readText(cardPath).catch(() => undefined),
+          sizeOf(cardPath)
+        ])
+        if (text !== undefined) {
+          try { const value = JSON.parse(text); title = str(value && value.name) || title } catch { /* keep the file name */ }
+        }
+        items[index] = { key: cardPath, title, meta: cardPath, bytes }
       }
-      items.push({ key: cardPath, title, meta: cardPath, bytes: await sizeOf(cardPath) })
-    }
+    }))
     return items.sort(function (left, right) { return left.title.localeCompare(right.title, 'zh-CN') })
   }
 
@@ -166,17 +175,15 @@ export function createTransferCatalog(deps) {
   if (memory) LISTS.memory = () => memory.list()
 
   async function listParts() {
-    const parts = []
-    for (const def of PART_DEFS) {
+    const parts = await Promise.all(PART_DEFS.map(async def => {
       // 依赖没接上（测试或裁剪过的宿主）时按「本机没有」处理，不去调用不存在的列表。
       if (!def.supported || typeof LISTS[def.kind] !== 'function') {
-        parts.push(Object.assign({}, def, { items: [], bytes: 0 }))
-        continue
+        return Object.assign({}, def, { items: [], bytes: 0 })
       }
       let items = []
       try { items = await LISTS[def.kind]() } catch (error) { console.warn('dsh-tavern: 读取导出板块失败', def.kind, str(error && error.message || error)) }
-      parts.push(Object.assign({}, def, { items, bytes: items.reduce(function (sum, item) { return sum + item.bytes }, 0) }))
-    }
+      return Object.assign({}, def, { items, bytes: items.reduce(function (sum, item) { return sum + item.bytes }, 0) })
+    }))
     return { parts, groups: TRANSFER_GROUPS, tavern: str(tavernVersion) }
   }
 
