@@ -20,15 +20,55 @@ function createStoryFloorRail(root, options) {
 	// 里有刻度、下一次会话却一直没有。所以每次都重新解析一次，旧节点失效就回到当前会话的那个
 	// 滚动容器。
 	const resolveScope = (options && options.resolveScope) || null;
+	const targetSessionId = options && typeof options.sessionId === "string" && options.sessionId ? options.sessionId : "";
+	function isVisibleStyle(node) {
+		if (!host || typeof host.getComputedStyle !== "function" || !node || node.nodeType !== 1) return true;
+		const style = host.getComputedStyle(node);
+		return !style || (style.display !== "none" && style.visibility !== "hidden");
+	}
 	function isVisibleBox(node) {
 		if (!node || typeof node.getBoundingClientRect !== "function") return false;
 		const rect = node.getBoundingClientRect();
-		return rect.width > 0 && rect.height > 0;
+		return rect.width > 0 && rect.height > 0 && isVisibleStyle(node);
+	}
+	function isRenderableScope(node) {
+		if (!node || typeof node.getBoundingClientRect !== "function") return false;
+		const rect = node.getBoundingClientRect();
+		return rect.width > 0 && rect.height > 96 && isVisibleStyle(node);
+	}
+	function sessionOwnerOf(node) {
+		if (!node || typeof node.closest !== "function") return null;
+		const owner = node.closest("[data-conversation-session]");
+		return owner ? (owner.getAttribute("data-conversation-session") || "") : null;
+	}
+	function isEmbeddedScope(node) {
+		if (!node || typeof node.closest !== "function") return false;
+		const content = node.closest("[data-conversation-content]");
+		return !!(content && content.className && String(content.className).indexOf("embedded") >= 0);
+	}
+	function scopeMatchesTarget(node) {
+		if (!node || node.isConnected === false) return false;
+		if (!targetSessionId) return true;
+		const owner = sessionOwnerOf(node);
+		if (owner !== null) return owner === targetSessionId;
+		return !(doc && typeof doc.querySelector === "function" && doc.querySelector("[data-conversation-session]"));
 	}
 	function pickScrollContainer() {
 		if (!doc || typeof doc.querySelectorAll !== "function") return null;
-		const list = Array.from(doc.querySelectorAll("[data-conversation-scroll]")).filter(node => node && node.isConnected !== false);
+		let list = Array.from(doc.querySelectorAll("[data-conversation-scroll]")).filter(node => node && node.isConnected !== false);
 		if (!list.length) return null;
+		if (targetSessionId) {
+			const hasSessionMarkers = list.some(node => sessionOwnerOf(node) !== null);
+			if (hasSessionMarkers) {
+				const owned = list.filter(node => sessionOwnerOf(node) === targetSessionId);
+				if (!owned.length) return null;
+				const primaryOwned = owned.filter(node => !isEmbeddedScope(node));
+				list = primaryOwned.length ? primaryOwned : owned;
+			}
+		} else {
+			const primary = list.filter(node => !isEmbeddedScope(node));
+			if (primary.length) list = primary;
+		}
 		const visible = list.filter(isVisibleBox);
 		const visibleWithRows = visible.find(node => node.querySelector("[data-story-row][data-floor]"));
 		if (visibleWithRows) return visibleWithRows;
@@ -37,21 +77,24 @@ function createStoryFloorRail(root, options) {
 	}
 	function findScope() {
 		const resolved = resolveScope ? resolveScope() : null;
-		if (resolved && resolved.isConnected !== false) {
+		if (resolved && scopeMatchesTarget(resolved)) {
 			if (isVisibleBox(resolved)) return resolved;
 			return pickScrollContainer() || resolved;
 		}
 		const matched = root && root.isConnected !== false
 			? (root.closest ? root.closest("[data-conversation-scroll]") : null)
 			: null;
-		if (matched && matched.isConnected !== false) {
+		if (matched && scopeMatchesTarget(matched)) {
 			if (isVisibleBox(matched)) return matched;
 			return pickScrollContainer() || matched;
 		}
 		const live = pickScrollContainer();
 		if (live) return live;
-		if (root && root.isConnected !== false) return root;
-		return (doc && doc.body) || null;
+		if (targetSessionId && doc && typeof doc.querySelector === "function" && doc.querySelector("[data-conversation-session]")) {
+			return null;
+		}
+		if (root && scopeMatchesTarget(root)) return root;
+		return targetSessionId ? null : ((doc && doc.body) || null);
 	}
 	let scope = findScope();
 	const hiddenAttribute = "data-dsh-tavern-rail-hidden";
@@ -66,12 +109,47 @@ function createStoryFloorRail(root, options) {
 	const compactTicks = (options && options.compactTicks) || 14;
 	const flashMs = 700, undoMs = 1800;
 	// 窄屏要点两下才跳：第一下只是「选定这一层」，这个窗口内再点同一下才真的跳。
-	const armMs = (options && options.armMs) || 350;
+	// 1500ms 留够阅读「再点一下 · 第 N 楼」并落第二指的时间，不再因 350ms 过短导致反复只闪不跳。
+	const armMs = (options && options.armMs) || 1500;
 	const hintLabel = (options && options.hintLabel) || "再点一下 · 第 {floor} 楼";
 	let rail = null, frame = 0, floorsKey = "", compact = false;
 	let undoBox = null, undoTimer = 0, flashTimer = 0, undoFrom = 0, undoRow = null;
-	let hintBox = null, armTimer = 0, armedFloor = null;
+	let hintBox = null, armTimer = 0, armedFloor = null, armedScrollTop = 0;
 	let retryTimer = 0, retries = 0;
+	let jumpSeq = 0, settleRaf1 = 0, settleRaf2 = 0, settleTimer = 0;
+	function cancelJumpSettle() {
+		if (settleRaf1 && host && typeof host.cancelAnimationFrame === "function") host.cancelAnimationFrame(settleRaf1);
+		if (settleRaf2 && host && typeof host.cancelAnimationFrame === "function") host.cancelAnimationFrame(settleRaf2);
+		if (settleTimer && host) host.clearTimeout(settleTimer);
+		settleRaf1 = 0; settleRaf2 = 0; settleTimer = 0;
+	}
+	// 刻度列挂在 body 上，不在 [data-conversation-scroll] 内，宿主的 READING_INTENTS 监听收不到这次点击：
+	// 若宿主处于 followingTail 跟尾态，程序化滚动或楼层按需展开触发 ResizeObserver 时会被宿主拉回底部。
+	// 主动向滚动容器派发 beforematch + scroll/scrollend，让宿主立即中断跟尾并落定新位置。
+	function notifyHostScrollIntent(target) {
+		if (!target || typeof target.dispatchEvent !== "function" || !host || typeof host.Event !== "function") return;
+		try { target.dispatchEvent(new host.Event("beforematch")); } catch (_) {}
+	}
+	function flushHostScrollEnd(target) {
+		if (!target || typeof target.dispatchEvent !== "function" || !host || typeof host.Event !== "function") return;
+		try {
+			target.dispatchEvent(new host.Event("scroll"));
+			target.dispatchEvent(new host.Event("scrollend"));
+		} catch (_) {}
+	}
+	function alignRowToScopeTop(targetScope, row) {
+		if (!targetScope || !row || typeof row.getBoundingClientRect !== "function" || typeof targetScope.getBoundingClientRect !== "function") return false;
+		const maxScroll = (Number(targetScope.scrollHeight) || 0) - (Number(targetScope.clientHeight) || 0);
+		if (!(maxScroll > 0)) return false;
+		const delta = row.getBoundingClientRect().top - targetScope.getBoundingClientRect().top;
+		if (Math.abs(delta) < 1) return true;
+		const nextTop = Math.max(0, Math.min(maxScroll, Math.round((targetScope.scrollTop || 0) + delta)));
+		if (nextTop !== targetScope.scrollTop) {
+			targetScope.scrollTop = nextTop;
+			return true;
+		}
+		return false;
+	}
 	// 收到「暂时看不见」之后自己补几次迟到的复查：容器某一刻量到 0 宽、不到 96 高（切会话、
 	// 开合面板、窗口一度藏起来）时先收起；这类状态未必带着新的尺寸变化或滚动事件，不复查就会
 	// 一直藏着，等人滚一下才回来。
@@ -92,7 +170,9 @@ function createStoryFloorRail(root, options) {
 	}
 	function rowOf(floor) {
 		const tick = ticks.get(floor);
-		if (tick && tick.row && tick.row.isConnected) return tick.row;
+		if (tick && tick.row && tick.row.isConnected
+			&& (!scope || typeof scope.contains !== "function" || scope.contains(tick.row))
+			&& floorOf(tick.row) === floor) return tick.row;
 		return rows().find(row => floorOf(row) === floor) || null;
 	}
 	// 跳到的楼层闪一层浅底：点歪了也立刻看出跳到哪，知道该不该撤回。
@@ -122,8 +202,23 @@ function createStoryFloorRail(root, options) {
 		button.textContent = undoLabel;
 		button.addEventListener("click", function (event) {
 			event.stopPropagation();
-			if (typeof scope.scrollTo === "function") scope.scrollTo({ top: undoFrom, behavior: "smooth" });
-			else scope.scrollTop = undoFrom;
+			cancelJumpSettle();
+			const live = findScope() || scope;
+			if (live) {
+				scope = live;
+				if (typeof live.setAttribute === "function") live.setAttribute("data-story-jump-token", String(++jumpSeq));
+				notifyHostScrollIntent(live);
+				if (typeof live.scrollTo === "function") {
+					try { live.scrollTo({ top: undoFrom, behavior: "instant" }); }
+					catch (_) { live.scrollTop = undoFrom; }
+				} else {
+					live.scrollTop = undoFrom;
+				}
+				if ((Number(live.scrollHeight) || 0) > (Number(live.clientHeight) || 0)) {
+					live.scrollTop = undoFrom;
+					flushHostScrollEnd(live);
+				}
+			}
 			hideUndo();
 		});
 		undoBox = button;
@@ -142,6 +237,7 @@ function createStoryFloorRail(root, options) {
 	function arm(floor, button) {
 		disarm();
 		armedFloor = floor;
+		armedScrollTop = scope ? (scope.scrollTop || 0) : 0;
 		button.setAttribute("data-armed", "");
 		const hint = doc.createElement("span");
 		hint.className = "dsh-tavern-turn-rail-hint";
@@ -153,13 +249,47 @@ function createStoryFloorRail(root, options) {
 		armTimer = host.setTimeout(disarm, armMs);
 	}
 	function jump(floor) {
+		cancelJumpSettle();
 		disarm();
+		const next = findScope();
+		if (next && next !== scope) { scope = next; floorsKey = ""; watch(scope); }
 		const row = rowOf(floor);
-		if (!row) return;
+		if (!row || !scope) return;
 		const from = scope.scrollTop || 0;
+		const token = String(++jumpSeq);
+		if (typeof scope.setAttribute === "function") scope.setAttribute("data-story-jump-token", token);
+		notifyHostScrollIntent(scope);
 		flash(row);
-		try { row.scrollIntoView({ block: "start", behavior: "smooth" }); }
+		// 直接即时落位并对齐 scrollTop：smooth 平滑滚动跨越按需收起楼层时，第一帧就会触发
+		// IntersectionObserver 锚点写 scrollTop 而被浏览器中途打断，且跟尾态下容易被拉回底部。
+		try { row.scrollIntoView({ block: "start", behavior: "instant" }); }
 		catch (error) { row.scrollIntoView(true); }
+		if (alignRowToScopeTop(scope, row)) {
+			flushHostScrollEnd(scope);
+		} else if ((Number(scope.scrollHeight) || 0) > (Number(scope.clientHeight) || 0)) {
+			flushHostScrollEnd(scope);
+		}
+		const settle = function () {
+			if (!scope || (typeof scope.getAttribute === "function" && scope.getAttribute("data-story-jump-token") !== token)) return;
+			const liveRow = rowOf(floor);
+			if (liveRow && alignRowToScopeTop(scope, liveRow)) {
+				flushHostScrollEnd(scope);
+			}
+			mirror(rows());
+		};
+		if (host && typeof host.requestAnimationFrame === "function") {
+			settleRaf1 = host.requestAnimationFrame(function () {
+				settleRaf1 = 0;
+				settle();
+				settleRaf2 = host.requestAnimationFrame(function () {
+					settleRaf2 = 0;
+					settle();
+				});
+			});
+		}
+		if (host && (Number(scope.scrollHeight) || 0) > (Number(scope.clientHeight) || 0)) {
+			settleTimer = host.setTimeout(function () { settleTimer = 0; settle(); }, 60);
+		}
 		offerUndo(from);
 	}
 	// 当前层：最后一个已经滚过顶部（或正好在顶部）的楼层。行按楼层顺序排，第一根落在
@@ -199,7 +329,7 @@ function createStoryFloorRail(root, options) {
 			// 固定层里的按钮收不到宿主的滚动手势（固定定位不在滚动容器里，浏览器不会把这次
 			// 滑动交给正文，等于一块吃手的死区），所以触屏滑动由我们自己按位移滚正文：
 			// 手感还是跟着手指走，抬手也不跳。
-			let startY = null, lastY = 0, dragged = false, panning = false, pressed = false, pressTouch = false;
+			let startY = null, lastY = 0, dragged = false, panning = false, pressed = false, pressTouch = false, touchPending = false;
 			// 手指（触屏、笔）要点两下；鼠标一下就到 —— 判断看输入方式，不看窗口宽度：
 			// 手机上就算量到了宽布局，也不会退回单击跳。
 			function activate(touch) {
@@ -210,9 +340,11 @@ function createStoryFloorRail(root, options) {
 			button.addEventListener("pointerdown", function (event) {
 				pressed = true;
 				pressTouch = event.pointerType === "touch" || event.pointerType === "pen";
+				touchPending = pressTouch;
 				startY = typeof event.clientY === "number" ? event.clientY : null;
 				lastY = startY || 0;
 				dragged = false;
+				panning = false;
 			});
 			// 「点」以 pointerup 为准，不看 click：click 是浏览器合成的，个别手机内核一次抬手会
 			// 发两下（detail 也不一定是 1），双击逻辑会在同一次点击里被自己喂饱 —— 表现就是
@@ -220,6 +352,7 @@ function createStoryFloorRail(root, options) {
 			button.addEventListener("pointerup", function () {
 				if (!pressed) return;
 				pressed = false;
+				touchPending = false;
 				const moved = dragged;
 				dragged = false;
 				startY = null;
@@ -230,7 +363,9 @@ function createStoryFloorRail(root, options) {
 				if (startY === null || typeof event.clientY !== "number") return;
 				if (Math.abs(event.clientY - startY) > tapSlop) dragged = true;
 			});
-			button.addEventListener("pointercancel", function () { pressed = false; startY = null; dragged = false; });
+			// 移动端微小手抖（< tapSlop）有时会被内核抢发 pointercancel 吃掉 pointerup；
+			// 保留 touchPending 由 touchend 兜底补救，不再出现按了有高亮却没算一次点击。
+			button.addEventListener("pointercancel", function () { pressed = false; });
 			// 键盘 / 读屏走 keydown：原生按钮的 Enter、空格会合成一个 click，这里直接跳，不等第二下。
 			button.addEventListener("keydown", function (event) {
 				if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") { event.preventDefault(); jump(floor); }
@@ -238,8 +373,11 @@ function createStoryFloorRail(root, options) {
 			// 兜底：没有 Pointer Events 的老内核只能靠 click，那就按 click 次数数双击。
 			if (!host || !host.PointerEvent) button.addEventListener("click", function () { if (!dragged) activate(true); dragged = false; });
 			button.addEventListener("touchstart", function (event) {
+				const next = findScope();
+				if (next && next !== scope) { scope = next; floorsKey = ""; watch(scope); }
 				const touch = event.touches && event.touches[0];
-				startY = touch ? touch.clientY : null;
+				touchPending = true;
+				startY = touch ? touch.clientY : startY;
 				lastY = startY || 0;
 				dragged = false;
 				panning = false;
@@ -251,11 +389,29 @@ function createStoryFloorRail(root, options) {
 					if (Math.abs(touch.clientY - startY) <= tapSlop) return;
 					panning = true;
 					dragged = true;
+					touchPending = false;
+					if (scope) notifyHostScrollIntent(scope);
 				}
 				event.preventDefault();
-				scope.scrollTop = (scope.scrollTop || 0) - (touch.clientY - lastY);
+				if (scope) scope.scrollTop = (scope.scrollTop || 0) - (touch.clientY - lastY);
 				lastY = touch.clientY;
 			}, { passive: false });
+			button.addEventListener("touchend", function () {
+				if (touchPending && !pressed && !dragged && !panning) {
+					touchPending = false;
+					startY = null;
+					activate(true);
+					return;
+				}
+				touchPending = false;
+				panning = false;
+			}, { passive: true });
+			button.addEventListener("touchcancel", function () {
+				touchPending = false;
+				panning = false;
+				dragged = false;
+				startY = null;
+			}, { passive: true });
 			ticks.set(floor, { button, row });
 			box.appendChild(button);
 		}
@@ -276,7 +432,7 @@ function createStoryFloorRail(root, options) {
 		const rect = scope.getBoundingClientRect();
 		// 窄屏不收起，换紧凑版（data-compact）：贴右边一行细线，热区按手指放大。
 		const roomy = rect.width > narrow;
-		const visible = rect.width > 0 && rect.height > 96;
+		const visible = isRenderableScope(scope);
 		rail.hidden = !visible;
 		// `hidden` 只是 UA 的 display:none，class 上那条 display:flex 会把它压回去；
 		// 二者一起写，没被定位的刻度才不会停在 body 末尾 —— 手机上的左下角。
@@ -315,9 +471,15 @@ function createStoryFloorRail(root, options) {
 	}
 	function sync() {
 		if (frame && host) { host.clearTimeout(frame); frame = 0; }
-		// 宿主换过滚动容器就跟着换：观察对象与刻度列一起落到新节点上。
+		// 宿主换过滚动容器（或常驻容器切去了别的会话）就跟着切换观察对象。
 		const next = findScope();
-		if (next && next !== scope) { scope = next; floorsKey = ""; watch(scope); }
+		if (next !== scope) {
+			if (observer) observer.disconnect();
+			if (resize) resize.disconnect();
+			scope = next;
+			floorsKey = "";
+			if (scope) watch(scope);
+		}
 		if (!scope) {
 			if (rail) { rail.remove(); rail = null; }
 			hideUndo(); disarm();
@@ -339,6 +501,13 @@ function createStoryFloorRail(root, options) {
 			if (rail) rail.remove();
 			rail = list.length ? build(list) : null;
 			if (rail && doc && doc.body) doc.body.appendChild(rail);
+		} else if (rail) {
+			// React 原地复用 <article> 或收起/挂回楼层时节点可能替换，保持 floor -> row 引用常新。
+			for (const row of list) {
+				const floor = floorOf(row);
+				const tick = floor === null ? null : ticks.get(floor);
+				if (tick && tick.row !== row) tick.row = row;
+			}
 		}
 		if (rail) { mirror(list); place(); }
 		else { hideUndo(); disarm(); }
@@ -346,29 +515,42 @@ function createStoryFloorRail(root, options) {
 	function isOwnNode(node) {
 		if (!node) return false;
 		if (node === rail || node === undoBox || node === hintBox) return true;
-		return !!(node.classList && (node.classList.contains("dsh-tavern-turn-rail") || node.classList.contains("dsh-tavern-turn-rail-undo") || node.classList.contains("dsh-tavern-turn-rail-hint")));
+		if (rail && typeof rail.contains === "function" && rail.contains(node)) return true;
+		return false;
 	}
 	function hasScopeChange(mutations) {
 		if (!doc || !mutations || !mutations.length) return false;
 		// 已排了一次同步：sync() 会重新 findScope() 并读实时 DOM，不必再扫这批变更。
 		if (frame) return false;
 		const scopeAlive = !!(scope && scope !== doc.body && scope.isConnected !== false);
-		const scopeVisible = scopeAlive && isVisibleBox(scope);
+		const scopeRenderable = scopeAlive && isRenderableScope(scope);
+		const railHidden = !rail || rail.hidden || rail.style.display === "none";
 		for (let i = 0; i < mutations.length; i++) {
 			const m = mutations[i];
-			if (scopeAlive && typeof scope.contains === "function" && scope.contains(m.target)) continue;
 			if (isOwnNode(m.target)) continue;
+			if (m.type === "attributes") {
+				const attr = m.attributeName;
+				if (attr === "data-conversation-session" || attr === "data-content-phase") return true;
+				if (scopeAlive && m.target !== scope && typeof scope.contains === "function" && scope.contains(m.target)) continue;
+				if (railHidden || !scopeRenderable) return true;
+				if (m.target === doc.documentElement || m.target === doc.body
+					|| (scopeAlive && m.target && typeof m.target.contains === "function" && m.target.contains(scope))) return true;
+				continue;
+			}
+			if (scopeAlive && typeof scope.contains === "function" && scope.contains(m.target)) continue;
 			const touched = Array.from(m.addedNodes || []).concat(Array.from(m.removedNodes || []));
 			for (let j = 0; j < touched.length; j++) {
 				const node = touched[j];
 				if (!node || isOwnNode(node)) continue;
-				if (!scopeVisible) return true;
+				// MutationObserver 在 DOM 变更生效之后回调：抽屉/遮罩移除时 scope 可能刚刚恢复可见，
+				// 但 rail 仍停在上一轮的 hidden，因此也要看 railHidden 而不能只看 !scopeRenderable。
+				if (railHidden || !scopeRenderable) return true;
 				// 流式正文往气泡里塞的是文本和行内节点：文本永远匹配不到滚动容器。
 				if (node.nodeType !== 1) continue;
-				if (node.matches && node.matches("[data-conversation-scroll]")) return true;
+				if (node.matches && (node.matches("[data-conversation-scroll]") || node.matches("[data-conversation-session]"))) return true;
 				// 没有元素子树的节点，querySelector 必然落空。
 				if (!node.childElementCount) continue;
-				if (node.querySelector && node.querySelector("[data-conversation-scroll]")) return true;
+				if (node.querySelector && node.querySelector("[data-conversation-scroll], [data-conversation-session]")) return true;
 			}
 		}
 		return false;
@@ -382,19 +564,56 @@ function createStoryFloorRail(root, options) {
 	const resize = host && typeof host.ResizeObserver === "function" ? new host.ResizeObserver(schedule) : null;
 	function watch(target) {
 		if (!target) return;
-		if (observer) { observer.disconnect(); observer.observe(target, { subtree: true, childList: true }); }
-		if (resize) { resize.disconnect(); resize.observe(target); }
+		if (observer) {
+			observer.disconnect();
+			observer.observe(target, {
+				subtree: true,
+				childList: true,
+				attributes: true,
+				attributeFilter: ["data-floor", "data-story-row", "hidden"]
+			});
+		}
+		if (resize) {
+			resize.disconnect();
+			resize.observe(target);
+			if (target.parentElement) resize.observe(target.parentElement);
+			if (doc && doc.documentElement && doc.documentElement !== target) resize.observe(doc.documentElement);
+		}
 	}
 	watch(scope);
-	if (bodyObserver && doc && doc.body) {
-		bodyObserver.observe(doc.body, { subtree: true, childList: true });
+	const bodyRoot = doc && (doc.documentElement || doc.body);
+	if (bodyObserver && bodyRoot) {
+		bodyObserver.observe(bodyRoot, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			attributeFilter: ["data-conversation-session", "data-content-phase", "hidden", "class", "style"]
+		});
 	}
-	const onScroll = function () { schedule(); };
+	const onScroll = function (event) {
+		if (armedFloor !== null && scope && (!event || event.target === scope)) {
+			if (Math.abs((scope.scrollTop || 0) - armedScrollTop) > tapSlop) disarm();
+		}
+		schedule();
+	};
+	const onUserInterrupt = function (event) {
+		if (scope && event && event.target && !isOwnNode(event.target) && typeof scope.contains === "function" && scope.contains(event.target)) {
+			cancelJumpSettle();
+		}
+	};
+	const onTransitionEnd = function () {
+		if (!rail || rail.hidden || rail.style.display === "none") schedule();
+	};
+	const onStoryRendered = function (event) {
+		const id = event && event.detail && event.detail.sessionId ? String(event.detail.sessionId) : "";
+		if (!targetSessionId || !id || id === targetSessionId) schedule();
+	};
 	const onWake = function () { if (!doc || !doc.hidden) schedule(); };
 	const viewport = host && host.visualViewport ? host.visualViewport : null;
 	if (host) {
 		host.addEventListener("scroll", onScroll, true);
 		host.addEventListener("resize", onScroll);
+		host.addEventListener("dsh-tavern-story-floors-rendered", onStoryRendered);
 	}
 	if (viewport && typeof viewport.addEventListener === "function") {
 		viewport.addEventListener("resize", onScroll);
@@ -402,6 +621,9 @@ function createStoryFloorRail(root, options) {
 	}
 	if (doc && typeof doc.addEventListener === "function") {
 		doc.addEventListener("visibilitychange", onWake);
+		doc.addEventListener("transitionend", onTransitionEnd, true);
+		doc.addEventListener("touchstart", onUserInterrupt, { passive: true, capture: true });
+		doc.addEventListener("wheel", onUserInterrupt, { passive: true, capture: true });
 	}
 	return {
 		apply: function () { retries = 0; floorsKey = ""; sync(); },
@@ -413,6 +635,7 @@ function createStoryFloorRail(root, options) {
 			if (host) {
 				host.removeEventListener("scroll", onScroll, true);
 				host.removeEventListener("resize", onScroll);
+				host.removeEventListener("dsh-tavern-story-floors-rendered", onStoryRendered);
 			}
 			if (viewport && typeof viewport.removeEventListener === "function") {
 				viewport.removeEventListener("resize", onScroll);
@@ -420,20 +643,68 @@ function createStoryFloorRail(root, options) {
 			}
 			if (doc && typeof doc.removeEventListener === "function") {
 				doc.removeEventListener("visibilitychange", onWake);
+				doc.removeEventListener("transitionend", onTransitionEnd, true);
+				doc.removeEventListener("touchstart", onUserInterrupt, true);
+				doc.removeEventListener("wheel", onUserInterrupt, true);
 			}
 			if (frame) { host.clearTimeout(frame); frame = 0; }
 			if (retryTimer) { host.clearTimeout(retryTimer); retryTimer = 0; }
+			cancelJumpSettle();
 			hideUndo();
 			disarm();
 			if (flashTimer) { host.clearTimeout(flashTimer); flashTimer = 0; }
 			if (undoRow) { undoRow.removeAttribute("data-floor-flash"); undoRow = null; }
-			for (const nav of hiddenHostNavs) nav.removeAttribute(hiddenAttribute);
+			for (const nav of hiddenHostNavs) {
+				if (!targetSessionId || scopeMatchesTarget(nav)) nav.removeAttribute(hiddenAttribute);
+			}
 			hiddenHostNavs.clear();
-			if (scope && typeof scope.querySelectorAll === "function") {
+			if (scope && typeof scope.querySelectorAll === "function" && (!targetSessionId || scopeMatchesTarget(scope))) {
 				for (const nav of Array.from(scope.querySelectorAll("[" + hiddenAttribute + "]"))) nav.removeAttribute(hiddenAttribute);
 			}
 			if (rail) rail.remove();
 			rail = null; ticks.clear(); floorsKey = "";
+		}
+	};
+}
+
+const storyFloorRailLeases = typeof WeakMap === "function" ? new WeakMap() : null;
+
+function acquireStoryFloorRail(sessionId, options) {
+	const id = String(sessionId || "");
+	const win = (options && options.window) || (typeof window !== "undefined" ? window : null);
+	const doc = (win && win.document) || (typeof document !== "undefined" ? document : null);
+	if (!id || !doc || !storyFloorRailLeases) {
+		const direct = createStoryFloorRail(null, Object.assign({}, options, id ? { sessionId: id } : {}));
+		direct.apply();
+		return { sync: direct.sync, apply: direct.apply, release: direct.dispose };
+	}
+	let bySession = storyFloorRailLeases.get(doc);
+	if (!bySession) {
+		bySession = new Map();
+		storyFloorRailLeases.set(doc, bySession);
+	}
+	let entry = bySession.get(id);
+	if (!entry) {
+		const rail = createStoryFloorRail(null, Object.assign({}, options, { window: win, sessionId: id }));
+		entry = { refs: 0, rail: rail };
+		bySession.set(id, entry);
+		rail.apply();
+	} else {
+		entry.rail.apply();
+	}
+	entry.refs += 1;
+	let released = false;
+	return {
+		sync: entry.rail.sync,
+		apply: entry.rail.apply,
+		release: function () {
+			if (released) return;
+			released = true;
+			entry.refs -= 1;
+			if (entry.refs <= 0) {
+				if (bySession.get(id) === entry) bySession.delete(id);
+				entry.rail.dispose();
+			}
 		}
 	};
 }

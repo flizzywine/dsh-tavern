@@ -45,9 +45,10 @@ function createTavernStoryRowWindow(notify) {
 	function capture() {
 		if (anchor || !root || !root.isConnected) return
 		const top = root.getBoundingClientRect().top
+		const jumpToken = typeof root.getAttribute === 'function' ? (root.getAttribute('data-story-jump-token') || '') : ''
 		for (const row of root.querySelectorAll('[data-story-row][data-row-key]')) {
 			const box = row.getBoundingClientRect()
-			if (box.bottom > top) { anchor = { key: row.getAttribute('data-row-key'), offset: box.top - top }; return }
+			if (box.bottom > top) { anchor = { key: row.getAttribute('data-row-key'), offset: box.top - top, jumpToken: jumpToken }; return }
 		}
 	}
 	function changed() {
@@ -126,6 +127,8 @@ function createTavernStoryRowWindow(notify) {
 			const held = anchor
 			anchor = null
 			if (!held || !root || !root.isConnected) return
+			const jumpToken = typeof root.getAttribute === 'function' ? (root.getAttribute('data-story-jump-token') || '') : ''
+			if (jumpToken !== held.jumpToken) return
 			const row = root.querySelector('[data-row-key="' + CSS.escape(held.key) + '"]')
 			if (!row) return
 			const delta = row.getBoundingClientRect().top - root.getBoundingClientRect().top - held.offset
@@ -875,6 +878,17 @@ function createTavernStoryTranscriptFeature(deps) {
 				storyExternalHistory?.refresh(sessionId)
 			}
 		}, [sessionId, ownsHistory])
+		React.useEffect(function () {
+			if (!sessionId || !storyActive || typeof acquireStoryFloorRail !== 'function') return undefined
+			const lease = acquireStoryFloorRail(sessionId)
+			return function () { lease.release() }
+		}, [sessionId, storyActive])
+		React.useEffect(function () {
+			if (!sessionId || !ownsHistory || typeof window === 'undefined' || typeof window.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return
+			window.dispatchEvent(new CustomEvent('dsh-tavern-story-floors-rendered', {
+				detail: { sessionId: sessionId, floorCount: Number(transcript && transcript.floorCount) || 0 }
+			}))
+		}, [sessionId, ownsHistory, transcript && transcript.revision, transcript && transcript.floorCount, transcript && transcript.from])
 		React.useEffect(function () {
 			if (view && typeof view.mode === 'string' && typeof publishSessionMode === 'function') publishSessionMode(sessionId, view.mode)
 		}, [sessionId, view && view.mode])

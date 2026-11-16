@@ -1288,11 +1288,18 @@
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
 		}
 		// 楼层刻度列挂载在常驻会话层：不受 input.dock 卸载或 running/revision 变化影响，
-		// 即使初始时刻滚动容器尚未挂载，也能在容器出现与重挂时自动接管并保持显示。
+		// 并按 sessionId 绑定到所属会话容器，与故事流列表共享同一租约，避免跨会话错绑或重复挂载。
 		function StoryFloorRailHost(props) {
 			React.useEffect(function () {
+				const sessionId = String(props.sessionId || "");
+				if (!sessionId) return undefined;
+				if (typeof acquireStoryFloorRail === "function") {
+					const lease = acquireStoryFloorRail(sessionId);
+					return function () { lease.release(); };
+				}
+				if (typeof createStoryFloorRail !== "function") return undefined;
 				const root = document.querySelector("[data-conversation-scroll]") || null;
-				const rail = createStoryFloorRail(root);
+				const rail = createStoryFloorRail(root, { sessionId: sessionId });
 				rail.apply();
 				return function () { rail.dispose(); };
 			}, [props.sessionId]);
@@ -1495,7 +1502,10 @@
 			)), "dsh-tavern: long press send key");
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-tavern-story-floor-rail", order: -104, label: "楼层跳转刻度列" },
-				function (props) { return React.createElement(StoryFloorRailHost, { sessionId: props.sessionId }); }
+				function (props) {
+					if (ctx.sessions && typeof ctx.sessions.subagentAddress === "function" && ctx.sessions.subagentAddress(props.sessionId)) return null;
+					return React.createElement(StoryFloorRailHost, { sessionId: props.sessionId });
+				}
 			)), "dsh-tavern: story floor rail");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },

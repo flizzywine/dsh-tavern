@@ -1004,6 +1004,7 @@ window.__ModuleLoader__.load({
 // @include features/story-transcript-data.js
 // @include modules/story-external-history.js
 // @include host/chat-flow.js
+// @include modules/turn-rail.js
 // @include features/story-transcript-list.js
 
 // @include features/card-list.js
@@ -1057,7 +1058,6 @@ window.__ModuleLoader__.load({
 // @include features/conversation-header.js
 // @include-domain play-interaction-flow.js
 // @include features/play-interaction-panels.js
-// @include modules/turn-rail.js
 // @include features/play-controls.js
 
 // @include features/request-context.js

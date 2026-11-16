@@ -4031,7 +4031,7 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
    热区 24×12 —— 缝隙和列外的 pointer-events 都是 none，手指落在上面直接滑正文，不会被刻度
    接走。最多 14 根（turn-rail.js 隔层取样），整列永远不滚，右边缘的上下滑也就不会被吃掉。 */
 .dsh-tavern-turn-rail[data-compact] { gap: 6px; max-height: none; overflow: visible; pointer-events: none; }
-.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 24px; height: 12px; pointer-events: auto; touch-action: manipulation; }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 24px; height: 12px; pointer-events: auto; touch-action: none; }
 .dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick::before { width: 16px; background: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, .58)); background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 58%, transparent); transform: translateY(-50%) scaleX(1); }
 .dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-active]::before { width: 20px; height: 3px; background: var(--dsw-alias-label-primary); }
 /* 双击的第一步「选定」：线变长变深，配上「再点一下」的提示，一眼看出在等你点第二下。 */

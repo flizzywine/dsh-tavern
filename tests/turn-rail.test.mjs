@@ -408,3 +408,195 @@ test('存在隐藏的 0×0 滚动容器时，优先选中可见的滚动容器',
   rail.dispose()
 })
 
+// 常驻 [data-conversation-scroll] 来回切换会话（A -> B -> A），且 React 原地复用 <article> 修改 data-floor、
+// 或 header 与故事流同时持有 acquireStoryFloorRail 租约时：刻度列不重影、不错绑旧会话、切回后不消失。
+test('常驻滚动容器来回切换会话与原地复用楼层节点时，刻度列始终保留且归属正确', async t => {
+  const dom = new JSDOM(
+    `<body><style>${railCss}</style>` +
+    '<div data-conversation-content="" data-conversation-session="session-a">' +
+    '<div data-conversation-scroll=""><nav aria-label="轮次导航"><button class="_9dNBWq_mark" aria-label="跳转到第 1 轮"></button></nav>' +
+    '<article data-story-row data-floor="1" data-role="assistant">A1</article>' +
+    '<article data-story-row data-floor="2" data-role="assistant">A2</article>' +
+    '<article data-story-row data-floor="3" data-role="assistant">A3</article>' +
+    '</div></div></body>',
+    { pretendToBeVisual: true }
+  )
+  t.after(() => dom.window.close())
+  const { document } = dom.window
+  const content = document.querySelector('[data-conversation-content]')
+  const scope = document.querySelector('[data-conversation-scroll]')
+  scope.getBoundingClientRect = () => ({ left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 })
+  const wireRowRects = () => {
+    let idx = 0
+    for (const row of scope.querySelectorAll('[data-story-row]')) {
+      const top = 40 + (idx++) * 120
+      row.getBoundingClientRect = () => ({ left: 0, right: 360, top, bottom: top + 100, width: 360, height: 100 })
+      row.scrollIntoView = () => { scope.dataset.scrolledTo = row.getAttribute('data-floor') || '' }
+    }
+  }
+  wireRowRects()
+  const context = vm.createContext({ window: dom.window, document })
+  vm.runInContext(source, context)
+
+  // header 插槽与故事列表同时申请同一会话租约：只创建一条刻度列。
+  const headerLeaseA = context.acquireStoryFloorRail('session-a')
+  const flowLeaseA = context.acquireStoryFloorRail('session-a')
+  assert.equal(document.querySelectorAll('.dsh-tavern-turn-rail').length, 1, '同一会话多租约不产生重复刻度列')
+  assert.deepEqual(tickFloors(document), [1, 2, 3])
+  assert.equal(document.querySelector('nav[aria-label="轮次导航"]').hasAttribute('data-dsh-tavern-rail-hidden'), true)
+
+  // 切去 session-b：常驻容器只改 data-conversation-session 属性，且假设旧会话 A 的第二个租约稍晚释放。
+  content.setAttribute('data-conversation-session', 'session-b')
+  const articles = [...scope.querySelectorAll('[data-story-row]')]
+  articles[0].setAttribute('data-floor', '1')
+  articles[1].removeAttribute('data-floor') // 原地复用了节点（变成用户行）
+  articles[2].setAttribute('data-floor', '2')
+  headerLeaseA.release()
+  const flowLeaseB = context.acquireStoryFloorRail('session-b')
+  await new Promise(resolve => dom.window.setTimeout(resolve, 160))
+  flowLeaseA.release()
+
+  assert.equal(document.querySelectorAll('.dsh-tavern-turn-rail').length, 1, '旧会话退场不留残余也不误删新会话刻度列')
+  assert.deepEqual(tickFloors(document), [1, 2], '原地改 data-floor 属性也能重算新会话楼层')
+  assert.equal(document.querySelector('nav[aria-label="轮次导航"]').hasAttribute('data-dsh-tavern-rail-hidden'), true, '旧会话释放不把新会话的宿主导航还原出来')
+
+  // 再切回 session-a（模拟缓存命中原地恢复 data-floor + 派发故事渲染事件，且无滚动事件）。
+  content.setAttribute('data-conversation-session', 'session-a')
+  articles[0].setAttribute('data-floor', '1')
+  articles[1].setAttribute('data-floor', '2')
+  articles[2].setAttribute('data-floor', '3')
+  flowLeaseB.release()
+  const backLeaseA = context.acquireStoryFloorRail('session-a')
+  dom.window.dispatchEvent(new dom.window.CustomEvent('dsh-tavern-story-floors-rendered', { detail: { sessionId: 'session-a', floorCount: 3 } }))
+  await new Promise(resolve => dom.window.setTimeout(resolve, 160))
+
+  const nav = document.querySelector('.dsh-tavern-turn-rail')
+  assert.ok(nav, '来回切回会话 A 后刻度列仍在')
+  assert.equal(nav.hasAttribute('hidden'), false, '刻度列保持可见，不随机消失')
+  assert.deepEqual(tickFloors(document), [1, 2, 3])
+  backLeaseA.release()
+})
+
+// 移动端抽屉/遮罩长时间覆盖超过 6 次重试后，关闭抽屉时 MutationObserver 在容器已恢复尺寸之后才回调：
+// 过去 hasScopeChange 因 scopeVisible 已为 true 而漏掉唤醒，现在看 railHidden 状态能立即恢复显示。
+test('抽屉遮挡耗尽重试后，关闭抽屉触发 DOM/属性变更时刻度列无需滚动立即恢复', async t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140]], { narrow: true })
+  t.after(() => dom.window.close())
+
+  let rect = { left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 }
+  scope.getBoundingClientRect = () => rect
+  const backdrop = document.createElement('div')
+  backdrop.className = 'mobile-drawer-backdrop'
+  document.body.appendChild(backdrop)
+
+  const rail = create(scope)
+  rail.apply()
+  const nav = document.querySelector('.dsh-tavern-turn-rail')
+  assert.equal(nav.hasAttribute('hidden'), false)
+
+  // 遮挡期间耗尽全部 6 次 400ms 复查（这里缩短用假时钟排空）
+  const realSetTimeout = dom.window.setTimeout.bind(dom.window)
+  const realClearTimeout = dom.window.clearTimeout.bind(dom.window)
+  let nextId = 1
+  const timers = new Map()
+  dom.window.setTimeout = (fn, delay) => { const id = nextId++; timers.set(id, fn); return id }
+  dom.window.clearTimeout = id => { timers.delete(id) }
+  const flush = () => { const fns = [...timers.values()]; timers.clear(); for (const fn of fns) fn() }
+
+  rect = { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }
+  rail.sync()
+  for (let i = 0; i < 8; i++) flush()
+  assert.equal(nav.hasAttribute('hidden'), true, '重试耗尽后处于隐藏态')
+  assert.equal(timers.size, 0)
+
+  dom.window.setTimeout = realSetTimeout
+  dom.window.clearTimeout = realClearTimeout
+
+  // 关闭抽屉：浏览器先恢复容器布局尺寸，再投递遮罩节点移除的 MutationObserver 回调（无 scroll / resize）。
+  rect = { left: 0, right: 390, top: 40, bottom: 640, width: 390, height: 600 }
+  backdrop.remove()
+  await new Promise(resolve => realSetTimeout(resolve, 180))
+  assert.equal(nav.hasAttribute('hidden'), false, '关闭抽屉后无需手动滑动即可恢复显示')
+  assert.equal(nav.style.display, '')
+  rail.dispose()
+})
+
+// 移动端首次未手动滑动对话时点击楼层跳转：
+// 1) 默认双击确认窗口（1500ms）容纳正常人类阅读提示再点的间隔（如 600ms）；
+// 2) 第二指微抖触发 pointercancel 时由 touchend 兜底，不吞点击；
+// 3) 主动向滚动容器派发 beforematch + scroll/scrollend 中断宿主 followingTail 跟尾锁，直接落位 scrollTop，
+//    并在按需展开楼层撑高上方内容后自动二次对齐目标楼层。
+test('移动端未手动滑动对话时点击楼层跳转：中断跟尾锁、容忍微抖 pointercancel 并精准落位目标楼层', async t => {
+  const { dom, document, scope, create } = page([[1, 0], [2, 600], [3, 1800], [4, 3400]], { narrow: true })
+  t.after(() => dom.window.close())
+
+  Object.defineProperty(scope, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(scope, 'clientHeight', { configurable: true, value: 600 })
+  let scrollHeight = 4000
+  let currentScrollTop = 3400
+  Object.defineProperty(scope, 'scrollTop', {
+    configurable: true,
+    get: () => currentScrollTop,
+    set: value => { currentScrollTop = value }
+  })
+
+  // 各楼层文档纵向偏移：第 1 层展开后会从 200px 涨到 900px，推动第 2 层从 200 下移到 900。
+  const offsets = new Map([[1, 0], [2, 200], [3, 1800], [4, 3400]])
+  for (const floor of [1, 2, 3, 4]) {
+    const row = scope.querySelector(`[data-floor="${floor}"]`)
+    row.getBoundingClientRect = () => {
+      const top = 40 + offsets.get(floor) - currentScrollTop
+      return { left: 0, right: 360, top, bottom: top + 120, width: 360, height: 120 }
+    }
+    // 模拟移动端 smooth scrollIntoView 被按需挂载打断或未滚动外层容器。
+    row.scrollIntoView = () => {}
+  }
+
+  // 模拟宿主跟尾锁：未收到 READING_INTENTS (beforematch) 与 scrollend 前，布局变化会把 scrollTop 拉回底部。
+  let followingTail = true
+  let sawIntent = false
+  scope.addEventListener('beforematch', () => { sawIntent = true })
+  scope.addEventListener('scrollend', () => {
+    if (currentScrollTop < scrollHeight - 600 - 25) followingTail = false
+  })
+  const hostOnResize = () => {
+    if (followingTail) currentScrollTop = scrollHeight - 600
+  }
+
+  const rafQueue = []
+  dom.window.requestAnimationFrame = fn => { rafQueue.push(fn); return rafQueue.length }
+  dom.window.cancelAnimationFrame = () => {}
+
+  const rail = create(scope)
+  rail.apply()
+  const tick2 = document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
+
+  // 第一下触摸点击：进入选定态，经过 600ms 仍未过期（旧版 350ms 已失效导致怎么点都只闪不跳）。
+  tap(dom.window, tick2, { pointerType: 'touch', clientY: 220 })
+  assert.equal(tick2.hasAttribute('data-armed'), true, '第一下进入选定态')
+  await new Promise(resolve => dom.window.setTimeout(resolve, 600))
+  assert.equal(tick2.hasAttribute('data-armed'), true, '600ms 后选定态仍在，够读完提示再点第二下')
+
+  // 第二下触摸：手指微移 4px（<= 8px tapSlop）但内核抢发了 pointercancel，松手触发 touchend。
+  pointer(dom.window, tick2, 'pointerdown', { pointerType: 'touch', clientY: 220 })
+  const touchStart = new dom.window.Event('touchstart', { bubbles: true })
+  Object.defineProperty(touchStart, 'touches', { value: [{ clientY: 220 }] })
+  tick2.dispatchEvent(touchStart)
+  pointer(dom.window, tick2, 'pointermove', { pointerType: 'touch', clientY: 224 })
+  pointer(dom.window, tick2, 'pointercancel', { pointerType: 'touch', clientY: 224 })
+  tick2.dispatchEvent(new dom.window.Event('touchend', { bubbles: true }))
+
+  assert.equal(sawIntent, true, '主动通知宿主中断跟尾动画')
+  assert.equal(followingTail, false, '未手动滑动对话也已解除宿主跟尾锁')
+  assert.equal(currentScrollTop, 200, '首次点击确认后直接落到第 2 楼开头')
+
+  // 模拟第 1 楼按需挂载展开（+700px）并触发宿主 ResizeObserver：既不被拉回底部，也会二次对齐到新的第 2 楼顶部。
+  offsets.set(2, 900)
+  scrollHeight = 4700
+  hostOnResize()
+  while (rafQueue.length) rafQueue.shift()()
+  assert.equal(currentScrollTop, 900, '上方收起楼层展开后仍精准停在第 2 楼开头')
+  rail.dispose()
+})
+
+

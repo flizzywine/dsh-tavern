@@ -544,6 +544,22 @@ test('长故事只挂读者附近的楼层，其余楼层留同样标记的空�
 	assert.deepEqual(held(), ['1', '2', '3', '4', '5', '6'])
 	await act(async () => { active = ''; for (const fn of listeners) fn() })
 	assert.deepEqual(held(), ['1', '2', '4', '5', '6'])
+
+	// 楼层跳转期间若跳转前已有挂起的旧锚点（jumpToken 已推进），restore() 不得把 scrollTop 拉回旧楼层。
+	const scroller = doc.querySelector('[data-conversation-scroll]')
+	scroller.scrollTop = 2400
+	scroller.getBoundingClientRect = () => ({ top: 40, bottom: 640, left: 0, right: 390, width: 390, height: 600 })
+	floor(7).getBoundingClientRect = () => ({ top: 50, bottom: 350, left: 0, right: 390, width: 390, height: 300 })
+	const floor2 = floor(2)
+	await act(async () => {
+		const io = observed.get(floor2.getAttribute('data-row-key'))
+		// 先在 jumpToken 变化前触发一次收起/挂回捕获旧锚点（第 7 层），紧接着发生楼层跳转改写 data-story-jump-token。
+		io.callback([{ target: floor2, isIntersecting: true }])
+		scroller.setAttribute('data-story-jump-token', '1')
+		scroller.scrollTop = 180
+		await Promise.resolve()
+	})
+	assert.equal(scroller.scrollTop, 180, '跨楼层跳转推进 jumpToken 后，旧视口锚点不得把滚动条拉回底部')
 })
 
 test('切回后台生成新楼层的会话时，旧 liveTavernView 快照不得覆盖新楼层的 Helper 上下文', async t => {
