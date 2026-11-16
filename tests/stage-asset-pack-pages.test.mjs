@@ -8,7 +8,7 @@ import {createRequire} from 'node:module'
 const require = createRequire(import.meta.url)
 const read = file => readFile(new URL('../tavern-plugin/' + file, import.meta.url), 'utf8').then(source => source.replace(/\r\n/g, '\n'))
 const list = text => text.split(',').map(name => name.trim()).filter(Boolean)
-const PAGES = ['StagePanel', 'StagePage', 'EnginePage', 'FigureGenTab', 'GenPromptSettings', 'ReadingsEditor', 'ModManager', 'ModManagerEntry']
+const PAGES = ['StagePanel', 'StagePage', 'EnginePage', 'FigureGenTab', 'ReadingsEditor', 'ModManager', 'ModManagerEntry']
 
 test('the asset-pack pages ship in the stage client; their shared widgets stay in the core', async () => {
   const [core, stage] = await Promise.all([read('lib/client.js'), read('packages/dsh-tavern-stage/lib/client.js')])

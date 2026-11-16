@@ -16,7 +16,7 @@ import {coverImageType, coverImageAsPng} from './card-cover-image.js'
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json', CHANNELS = ROOT + 'channels.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const clone = value => structuredClone(value)
-import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, assetStyleUse, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
+import {renderAssetTemplate, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, assetStyleUse, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
 export {renderAssetTemplate} from './asset-production-contract.js'
 const fail = (code, message, extra = {}) => { throw Object.assign(new Error(message), {code, ...extra}) }
 const assert = (condition, code, message) => { if (!condition) fail(code, message) }
@@ -150,28 +150,6 @@ export function composeAssetPrompt(template, values) {
   const base = renderAssetTemplate(template.replace(USER_NOTES_LINE, ''), {...values, userPrompt:''})
   return values.userPrompt ? values.userPrompt + '\n\n' + base : base
 }
-// 设置 → 生图 replaces a whole-image template for every character (one global
-// override per kind; the template file stays the default, read at run time). An override keeps the default's {{slots}}:
-// they carry the character, the outfit, the 差分 and the cell's own prompt. CG has no in-app generator, so no override;
-// mouth / blink / redraw-note are local patches. No override → the template bytes, unchanged.
-export const ASSET_PROMPT_KINDS = Object.freeze(['sprite','avatar','avatar-sheet','settei','identity-settei','background'])
-const PROMPTS = ROOT + 'prompts.json', PROMPT_MAX = 12000
-const slotsOf = text => [...new Set([...text.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]))]
-// The same prompt as composeAssetPrompt, cut into parts: lines of an override that are not lines of the default (by
-// longest common subsequence) are `edited`, so 「查看全文」 can mark what 设置 → 生图 changed.
-export function assetPromptParts(template, defaultTemplate, values) {
-  const notes = USER_NOTES_LINE.test(template), strip = t => USER_NOTES_LINE.test(t) ? t.replace(USER_NOTES_LINE, '') : t
-  const lines = assetStyleLines(strip(template), values).split('\n'), base = assetStyleLines(strip(defaultTemplate), values).split('\n'), n = lines.length, m = base.length
-  const table = Array.from({length:n + 1}, () => new Uint16Array(m + 1))
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) table[i][j] = lines[i] === base[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1])
-  const kept = new Set()
-  for (let i = 0, j = 0; i < n && j < m;) { if (lines[i] === base[j]) { kept.add(i); i++; j++ } else if (table[i + 1][j] >= table[i][j + 1]) i++; else j++ }
-  const parts = [], push = (text, edited) => { const last = parts.at(-1); if (last && !!last.edited === edited) last.text += text; else parts.push(edited ? {text, edited} : {text}) }
-  if (notes && values.userPrompt) push(values.userPrompt + '\n\n', false)
-  const filled = notes ? {...values, userPrompt:''} : values
-  lines.forEach((line, i) => push(renderAssetTemplate(line, filled) + (i < n - 1 ? '\n' : ''), !kept.has(i)))
-  return parts
-}
 // Freeze authority separately from pack revision: unrelated edits may proceed, changed parents may not.
 // key order is not authority — a figure rewritten by patchFigure (e.g. the adoption record)
 // stores the same identity board with its keys in another order, which must not fail the next adoption.
@@ -197,17 +175,11 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
   const plans = new Map(), pendingBytes = new Map(), controllers = new Map(), tasks = new Set()
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
-  const readPrompts = async () => await store.readJson(PROMPTS) || {revision:0,overrides:{}}
   // The models that answered a transparent request with a background ({opaque:{[model]:at}}). Theirs, and those whose
   // status says `transparent: false`, are keyed from then on; `transparent: true` (OpenAI's own gpt-image) never is.
   const keyFor = async (status, prompt) => status.transparent === true ? null
     : status.transparent === false || (await store.readJson(CHANNELS))?.opaque?.[status.model] ? keyColour(prompt) : null
   const noteOpaque = model => store.updateJson(CHANNELS, current => ({opaque:{...current?.opaque, [model]:now()}}))
-  // cost: what every picture drawn so far cost (asset-generation-cost.js), shown beside the prompts in 设置 → 舞台 → 素材生图.
-  const promptView = async ({revision, overrides}) => ({revision, cost:await store.readJson(COSTS) || null, kinds:await Promise.all(ASSET_PROMPT_KINDS.map(async kind => {
-    const base = await readTemplate(kind)
-    return {kind, text:overrides[kind] ?? base, edited:Object.hasOwn(overrides, kind), required:slotsOf(base)}
-  }))})
   const library = () => { const service = getLibrary(); assert(service, 'ASSET_UNAVAILABLE', '舞台素材未启用'); return service }
   // A received picture is paid for whatever happens to it next: price it (from the reply's usage, else the request) and add it to the total.
   async function charge(reply, model, request) {
@@ -421,10 +393,9 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(input.style === undefined || validGenStyle(input.style), 'INVALID_ARGUMENT', '未知的画风')
       const style = target.kind === 'background' && pack.manifest.backgroundStyle ? 'no-style' : packGenStyle(input.style ?? pack.manifest.genStyle), use = assetStyleUse(target.kind)
       if (!preview && source.presets) assert(source.presets().some(item => item.id === style), 'INVALID_ARGUMENT', '这个画风不在了：配图插件里找不到「' + style + '」，请另选一个画风')
-      const own = (await readPrompts()).overrides[target.kind], values = assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,figure:ctx.figure,outfit:ctx.outfit,
+      const values = assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,figure:ctx.figure,outfit:ctx.outfit,
         emotions:ctx.emotions,emotion:ctx.emotion,userPrompt,references:refs})
-      let prompt = composeAssetPrompt(own ?? await readTemplate(target.kind), values)
-      const parts = preview && own !== undefined && !input.redrawOf ? assetPromptParts(own, await readTemplate(target.kind), values) : null
+      let prompt = composeAssetPrompt(await readTemplate(target.kind), values)
       let basePrompt = prompt, backgroundName = [...(userPrompt.split(/[\n，。；！？、,.;!?]/).map(s => s.trim()).find(Boolean) || '')].slice(0,16).join('') || '新背景'
       if (input.redrawOf) {
         const original = find(input.redrawOf), note = text(input.note,1000)
@@ -441,7 +412,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         basePrompt = original.basePrompt || original.prompt
         if (target.kind === 'background' && (pack.manifest.backgroundStyle || original.references?.some(ref => ref.purpose === 'background-style'))) {
           for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
-          basePrompt = composeAssetPrompt(own ?? await readTemplate(target.kind), assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,userPrompt:original.userPrompt || userPrompt,references:refs}))
+          basePrompt = composeAssetPrompt(await readTemplate(target.kind), assetPromptValues({kind:target.kind,backgroundStyle:pack.manifest.backgroundStyle,userPrompt:original.userPrompt || userPrompt,references:refs}))
         }
         prompt = basePrompt + '\n' + (await readTemplate('redraw-note')).replace('<note>',note)
         if (input.useCandidateReference === true) {
@@ -458,7 +429,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         : `当前生图渠道不能带参考图，${target.kind === 'avatar-sheet' ? '八个头像要照立绘或设定图一起画' : '这张素材要照 ' + images.length + ' 张参考图画'}；请在 设置 → 配图 换一个支持参考图的渠道`)
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
-      if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),style:{id:style,use},references:refs,output})
+      if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),style:{id:style,use},references:refs,output})
       const key = output.background === 'transparent' ? await keyFor(status, prompt) : null
       if (key) { prompt = keyedPrompt(prompt, key); output.background = 'opaque'; output.key = key }
       const planId = randomUUID(), provider = {label:source.label, model:status.model, ...(status.transparent === true ? {transparent:true} : {})}
@@ -539,42 +510,20 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
           cost:await charge(reply, status.model, {prompt, width, height, quality, references:images})}
       } finally { controllers.delete(key) }
     },
-    // 自动选角 (auto cast): the prompt and output of one automatic picture, from the same editable templates as
-    // the asset pictures (设置 → 生图). figure {ref, name, emotions}: its 外貌 is its 配图 人物库 record's (方案甲), else `appearance`
+    // 自动选角 (auto cast): the prompt and output of one automatic picture, from the same templates as the asset pictures. figure {ref, name, emotions}: its 外貌 is its 配图 人物库 record's (方案甲), else `appearance`
     // (the text the 选角助理 wrote, before the record has it). fromSettei: the one image sent is the figure's 人设图.
     async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', style}) {
       assert(['identity-settei','sprite'].includes(kind), 'INVALID_ARGUMENT', '未知素材类型')
-      const own = (await readPrompts()).overrides[kind], linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
+      const linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
       const emotion = emotionId === undefined ? undefined : matchBubbleMood(emotionId, figure.emotions || []) || figure.emotions?.find(row => row.id === emotionId)
       const values = assetPromptValues({kind, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
         emotion, userPrompt, references:fromSettei ? [{role:roles.identity}] : []})
-      return {prompt:composeAssetPrompt(own ?? await readTemplate(kind), values), output:assetOutput(kind), promptPreset:packGenStyle(style), usage:assetStyleUse(kind)}
+      return {prompt:composeAssetPrompt(await readTemplate(kind), values), output:assetOutput(kind), promptPreset:packGenStyle(style), usage:assetStyleUse(kind)}
     },
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
     autoCheck: (data, kind) => pictureChecks(data, kind),
-    // 设置 → 生图: every kind's effective text, whether it is edited, and the {{slots}} an edit must keep.
-    prompts: () => serial(async () => promptView(await readPrompts())),
     // The image plugin's style presets for the 画风 menu (id, name, stable/experimental, the uses with their own text).
     styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:imageProvider()?.presets?.() ?? []}),
-    // One kind, CAS on the file's revision. `text: null`, or the default's own text, removes the override.
-    setPrompt: ({kind, text, expectedRevision}) => serial(async () => {
-      assert(ASSET_PROMPT_KINDS.includes(kind), 'INVALID_ARGUMENT', '未知的生图类型')
-      const current = await readPrompts()
-      assert(expectedRevision === current.revision, 'REVISION_CONFLICT', '生图提示词已在别处修改，已重新读取')
-      const base = await readTemplate(kind), overrides = {...current.overrides}
-      if (text === null || typeof text === 'string' && text.trim() === base.trim()) delete overrides[kind]
-      else {
-        assert(typeof text === 'string' && text.trim() && text.length <= PROMPT_MAX, 'INVALID_ARGUMENT', '提示词不能为空，最多 ' + PROMPT_MAX + ' 字')
-        const used = slotsOf(text), missing = slotsOf(base).filter(v => !used.includes(v))
-        const unknown = used.filter(v => { try { renderAssetTemplate('{{' + v + '}}', {}); return false } catch { return true } })
-        assert(!unknown.length, 'INVALID_ARGUMENT', '没有这个占位符：' + unknown.map(v => '{{' + v + '}}').join(' '))
-        assert(!missing.length, 'INVALID_ARGUMENT', '请保留 ' + missing.map(v => '{{' + v + '}}').join(' '))
-        overrides[kind] = text
-      }
-      const next = {revision:current.revision + 1, overrides}
-      await store.updateJson(PROMPTS, () => next)
-      return promptView(next)
-    }),
     get: ({jobId}) => serial(() => publicJob(find(jobId))),
     list: ({packId}) => serial(() => { validateUuid(packId); return Object.values(jobs).filter(j => j.target.packId === packId).map(publicJob) }),
     read: ({jobId,emotionId,forImport = false}) => serial(async () => {

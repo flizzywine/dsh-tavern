@@ -42,7 +42,7 @@
   // 服装描述), else nothing yet — then 生成 waits for one (the tile menu offers the ways to make it).
   function genBasis(figure,outfit,look){return outfit?.settei||figure?.identitySettei?'image':genSaid(look?.face)||genSaid(outfit&&look?.upper(outfit.key))?'text':'';}
   // The prompt a 差分 starts from: its name and 使用情景; a cell's 「存为默认」 (outfit.genPrompts, owner U4) replaces it for
-  // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 舞台 → 素材生图 (GenPromptSettings).
+  // that figure × outfit × 差分 only. The shared fixed layer is the template file (presets/asset-gen/templates).
   const genBuiltPrompt=row=>row?row.label+'的表情'+(genSaid(row.guidance)?'，'+row.guidance.trim():'')+'。':'';
   const genPromptFor=(outfit,kind,row)=>outfit?.genPrompts?.[kind]?.[row?.id]||genBuiltPrompt(row);
   // The latest group of a target left an unconfirmed request: the next one goes through the gate.
@@ -398,18 +398,18 @@
   }
   const genCheck=(on,set,text)=>h('button',{type:'button',role:'checkbox','aria-checked':on,className:'ap-check-row ap-gd-check',onClick:()=>set(v=>!v)},
     h('span',{className:'ap-check-mark','aria-hidden':true},on&&h(Glyph,{name:'check'})),h('span',null,text));
-  // The footer's quiet 「查看完整提示词」: the exact text a request would send (lines edited in 设置 → 舞台 → 素材生图 marked), read on
+  // The footer's quiet 「查看完整提示词」: the exact text a request would send, read on
   // demand before the popover opens so it places itself once with its real height.
   const GEN_STYLE_USES={figure:'透明底人物',sheet:'设定图',background:'空背景',scene:'场景'};
   function GenPeek({load,styleName}) {
     const [shown,setShown]=React.useState(null);
     return h(Popover,{label:'完整提示词',className:'ap-gd-peek',float:true,limit:520,
       trigger:({toggle,open})=>h(IconButton,{icon:'note',label:'查看完整提示词',className:'ap-icon-button ap-gd-peek-btn','aria-haspopup':'dialog','aria-expanded':open,'aria-busy':shown?.busy||undefined,
-        onClick:()=>{if(open){toggle();return;}setShown({busy:true});load().then(p=>{setShown({text:p.prompt,parts:p.parts,style:p.style});toggle();},e=>{setShown({error:errorText(e)});toggle();});}}),
+        onClick:()=>{if(open){toggle();return;}setShown({busy:true});load().then(p=>{setShown({text:p.prompt,style:p.style});toggle();},e=>{setShown({error:errorText(e)});toggle();});}}),
       content:()=>h('div',{className:'ap-gd-peek-body'},!shown||shown.busy?h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在读取…'):
         shown.error?h('p',{className:'ap-field-error',role:'alert'},h(Glyph,{name:'warning'}),shown.error):
-        h(React.Fragment,null,shown.style&&shown.style.id!=='no-style'&&h('p',{className:'ap-gen-prompt-legend'},'配图插件会在末尾加上画风「'+styleName(shown.style.id)+'」用于'+(GEN_STYLE_USES[shown.style.use]||shown.style.use)+'的文字'),shown.parts?.some(p=>p.edited)&&h('p',{className:'ap-gen-prompt-legend'},h('mark',{className:'ap-gen-prompt-edited'},'标出'),'的部分是在「设置 → 舞台 → 素材生图」里改过的'),
-          h('pre',{className:'ap-gen-prompt-text ap-gd-peek-text',tabIndex:0,'aria-label':'将发送的提示词'},shown.parts?shown.parts.map((p,i)=>p.edited?h('mark',{key:i,className:'ap-gen-prompt-edited'},p.text):p.text):shown.text)))});
+        h(React.Fragment,null,shown.style&&shown.style.id!=='no-style'&&h('p',{className:'ap-gen-prompt-legend'},'配图插件会在末尾加上画风「'+styleName(shown.style.id)+'」用于'+(GEN_STYLE_USES[shown.style.use]||shown.style.use)+'的文字'),
+          h('pre',{className:'ap-gen-prompt-text ap-gd-peek-text',tabIndex:0,'aria-label':'将发送的提示词'},shown.text)))});
   }
   function GenDialog({gen,binding,pack,commitFigure,importSettei,saveStyle}) {
     const d=gen.dialog,packId=pack.manifest.id,figure=pack.figures?.[d.target.figureId]||null,mode=d.mode||'gen',adding=mode==='outfit';
@@ -835,47 +835,4 @@
       h('div',{className:'ap-gw-wall',role:'list','aria-label':'差分',onClickCapture:endCoach},rows.map(r=>h(GenWallCard,{key:r.id,c,row:r,
         coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
     return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs);
-  }
-  // ---------- 设置 → 舞台 → 素材生图: the shared layer of every whole-image request, for all characters ----------
-  // One folded section per kind with its template text (asset-generation.js prompts / setPrompt; the default stays in the
-  // template file). The {{slots}} carry the character, the outfit, the 差分 and the cell's own prompt, so an edit keeps
-  // them (checked here as the field's own validation and again on write). Enter or leaving the field saves (Shift+Enter: a
-  // new line); a blue dot marks an edited kind and ⟲ 恢复默认 drops the edit. CG has no in-app generator, so no section.
-  const GEN_PROMPT_KINDS={sprite:'立绘',avatar:'头像','avatar-sheet':'八个表情',settei:'服装设定图','identity-settei':'人物设定图',background:'背景'};
-  const GEN_PROMPT_USE={sprite:'生成立绘',avatar:'生成单个头像','avatar-sheet':'一次生成八个表情',settei:'生成服装设定图','identity-settei':'生成人物设定图',background:'生成背景'};
-  const genSlots=text=>[...new Set([...String(text).matchAll(/\{\{(\w+)\}\}/g)].map(m=>m[1]))];
-  // What the pictures drawn so far cost (asset-generation-cost.js): exact when the channel returned usage, else estimated from the request.
-  const genCostText=c=>'已生成 '+c.images+' 张图，约花费 '+c.usd.toFixed(2)+' 美元'+(c.estimated?'（其中 '+c.estimated+' 张按请求估算）':'')+(c.unpriced?'；'+c.unpriced+' 张所用模型没有价目，未计入':'')+'。';
-  function GenPromptSettings({call}) {
-    const [data,setData]=React.useState(null),[error,setError]=React.useState(''),[alert,setAlert]=React.useState(''),[saving,setSaving]=React.useState(''),[confirm,setConfirm]=React.useState(null),[epoch,setEpoch]=React.useState(0);
-    const current=React.useRef(null),queue=React.useRef(Promise.resolve());
-    const accept=value=>{current.current=value;setData(value);};
-    const load=()=>call('getAssetGenPrompts').then(r=>{accept(r.data);setError('');},e=>setError(errorText(e)));
-    React.useEffect(()=>{load();},[call]);
-    // Serial writes on the newest revision; a refused one shows the stored text again with the reason.
-    const write=(kind,text)=>{const task=queue.current.then(async()=>{
-      setSaving('saving');setAlert('');
-      try{accept((await call('setAssetGenPrompt',{kind,text,expectedRevision:current.current.revision})).data);setSaving('saved');}
-      catch(e){setSaving('');setAlert(e?.code==='REVISION_CONFLICT'?e.message:errorText(e));if(e?.code==='REVISION_CONFLICT')await load();setEpoch(n=>n+1);}
-    });queue.current=task.catch(()=>{});return task;};
-    const known=new Set((data?.kinds||[]).flatMap(k=>k.required));
-    const problem=k=>text=>{
-      const used=genSlots(text),unknown=used.filter(v=>!known.has(v)),missing=k.required.filter(v=>!used.includes(v));
-      return !text.trim()?'不能为空':unknown.length?'没有这个占位符：'+unknown.map(v=>'{{'+v+'}}').join(' '):missing.length?'请保留 '+missing.map(v=>'{{'+v+'}}').join(' '):'';
-    };
-    const section=k=>{const name=GEN_PROMPT_KINDS[k.kind];
-      return h(StageSection,{key:k.kind,title:name,meta:k.edited?h(OverrideDot,{label:'已改'}):undefined,foldKey:'gen-prompt:'+k.kind,defaultFolded:true,
-        help:GEN_PROMPT_USE[k.kind]+'时附上的固定要求，所有人物共用。{{…}} 是每次填入的内容，要保留。',
-        action:k.edited&&h(IconButton,{icon:'reset',label:'恢复默认',onClick:()=>setConfirm(k.kind)})},
-        h(InlineField,{key:k.kind+'/'+epoch,kind:'text',multiline:true,lines:true,wide:true,hideLabel:true,label:name,className:'ap-gen-prompt-field',
-          value:k.text.trimEnd(),maxLength:12000,validate:problem(k),onCommit:text=>write(k.kind,text)}));};
-    return h('div',{className:'ap-ui ap-gen-prompts'},
-      h('p',{className:'ap-save-state',role:'status'},saving==='saving'?'正在保存…':saving==='saved'?'已保存':''),
-      data?.cost&&h('p',{className:'ap-gen-cost'},genCostText(data.cost)),
-      !data&&!error&&h(Loading,{shape:'fields',count:4}),
-      h(ErrorBox,{error,reload:load}),
-      alert&&h('p',{className:'ap-alert',role:'alert'},h(Glyph,{name:'warning'}),alert),
-      data&&data.kinds.filter(k=>GEN_PROMPT_KINDS[k.kind]).map(section),
-      confirm&&h(ConfirmDialog,{title:'恢复默认',body:'「'+GEN_PROMPT_KINDS[confirm]+'」改过的内容会丢失。',confirmLabel:'恢复默认',onClose:()=>setConfirm(null),
-        onConfirm:()=>write(confirm,null)}));
   }
