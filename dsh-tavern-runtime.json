@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "743593514d8d0f60f19dd1e9d2ec1e4c790bed60",
-  "releaseSequence": 1713,
+  "revision": "a4d3758d67f36be700418e0075a148b47c2d2894",
+  "releaseSequence": 1714,
   "version": "3.3.0",
   "files": [
     {
@@ -7866,8 +7866,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/client.js",
-      "sha256": "5773e82997b9f5daff22feda339c08b2852ba2a4bf770860c26e8937109758ad",
-      "size": 90717
+      "sha256": "bdc6e92742f455eae1c1c1ee60126601c19427fa3025385d40ae445f2258e620",
+      "size": 91628
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/cordis.patch.yml",
@@ -9346,9 +9346,9 @@
     }
   ],
   "archive": {
-    "commit": "ddddd8202e3bbc39abd9f8dc40fed4d58e82ec3a",
+    "commit": "65a91d155176f5142ac3cf5c76b6c0db9aed1127",
     "path": "runtime.zip",
-    "sha256": "192c171fe5e34d282504980384860f3edbe6b5d93f218b2248a24ef7adbe4c26",
-    "size": 16628334
+    "sha256": "218e84052a58d909ef5f3df025bfa81ecdd9f2e852dc58bcf8121476b6487f75",
+    "size": 16628697
   }
 }
