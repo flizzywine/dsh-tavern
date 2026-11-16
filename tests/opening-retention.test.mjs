@@ -41,6 +41,7 @@ test('会话打开后立即挂载，最近打开排序在后台写入并刷新',
   let releaseMark
   const ctx = vm.createContext({
     window: { setTimeout() {} },
+    prefetchStoryOnSwitch() {},
     sessionListRecoveryRef: { current: { open: async id => { calls.push(['open', id]) } } },
     call: async method => { calls.push([method]); await new Promise(resolve => { releaseMark = resolve }) },
     refresh: async groups => { calls.push(['refresh', groups]) },
