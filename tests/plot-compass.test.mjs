@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createStoryEvents } from '../tavern-plugin/lib/domain/story-events.js'
 import { apply as applyPlotCompass } from '../tavern-plugin/packages/dsh-tavern-plot-compass/lib/index.js'
@@ -30,6 +31,14 @@ test('内置剧情罗盘插件包 client.js 与源码保持同步', async () => 
   const packageRoot = new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/', import.meta.url)
   const res = await buildPlotCompassClient({ check: true, packageRoot })
   assert.equal(res.changed, false)
+})
+
+test('剧情罗盘输入栏入口在窄屏只显示图标', async () => {
+  const text = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  // 文字节点必须带独立 class，否则下面的窄屏规则无从命中。
+  assert.match(text, /className: 'dsh-tavern-compass-dock-label'/)
+  assert.match(text, /@media \(max-width: 1023px\) \{[\s\S]{0,800}?\.dsh-tavern-compass-dock-label \{\s*display: none;/)
+  assert.match(text, /@media \(max-width: 1023px\) \{[\s\S]{0,800}?\.dsh-tavern-compass-dock-btn,[\s\S]{0,200}?min-width: 30px;/)
 })
 
 test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落注入、世界书扫描、归卷事件、模型解析与 RPC 全链路', async () => {

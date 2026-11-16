@@ -86,6 +86,29 @@ const PC_CSS_TEXT = `
   font-size: 12px;
   line-height: 1;
 }
+/* 窄屏（与宿主手机布局断点一致）：入口默认只留图标，文字改成可访问名称，
+   按钮同步放大到能稳定点中的触摸目标。 */
+@media (max-width: 1023px) {
+  .dsh-tavern-compass-dock-btn,
+  .dsh-tavern-compass-dock-btn.is-pinned {
+    gap: 0;
+    justify-content: center;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 5px 7px;
+  }
+  .dsh-tavern-compass-dock-label {
+    display: none;
+  }
+  .dsh-tavern-compass-dock-glyph {
+    font-size: 15px;
+    line-height: 1;
+  }
+  .dsh-tavern-compass-dock-btn .dsh-tavern-compass-spinner {
+    width: 14px;
+    height: 14px;
+  }
+}
 .dsh-tavern-compass-spinner {
   display: inline-block;
   width: 12px;
@@ -1102,7 +1125,7 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
       }
     },
       isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, '🧭'),
-      h('span', null, label)
+      h('span', { className: 'dsh-tavern-compass-dock-label' }, label)
     )
   )
 }

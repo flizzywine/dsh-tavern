@@ -261,7 +261,7 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
       }
     },
       isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, '🧭'),
-      h('span', null, label)
+      h('span', { className: 'dsh-tavern-compass-dock-label' }, label)
     )
   )
 }
