@@ -27,6 +27,135 @@ function TavernStoryMarkdown(props) {
 	return React.createElement('div', { className: 'dsh-tavern-story-markdown', style: { whiteSpace: 'pre-wrap' } }, text)
 }
 
+// 故事楼层的按需挂载。长故事一层正文就有上千个节点（一轮几十个对话气泡，各带头像、名字和配音按钮），
+// 几十层全挂着时，页面只为读者看不到的楼层就占掉几百 MB，舞台盖住正文时也一样。
+// 这里只让读者附近（滚动区上下各约一屏半）的楼层挂着；其余楼层留一个同样标记、同样高度的空楼层
+// （量过的按量到的高度，没挂过的按字数估），滚到附近再挂回来。舞台盖住这一局时，被盖住的楼层全部收起。
+// 宿主的滚动锚点、楼层跳转（turn-rail.js）照旧认 data-chat-anchor-key / data-story-row / data-floor，空楼层都带着。
+// 楼层挂上或收起时，读者眼前那一行留在原处（宿主的滚动区关了浏览器自带的滚动锚定）。
+// 没有 IntersectionObserver 的环境不收楼层。
+
+const TAVERN_STORY_ROW_MARGIN = '150% 0px'
+
+function createTavernStoryRowWindow(notify) {
+	const near = new Set(), measured = new Map(), estimated = new Map(), chars = new Map(), elements = new Map(), refs = new Map()
+	let observer = null, root = null, resizer = null, pending = false, disposed = false, anchor = null
+	const supported = typeof IntersectionObserver === 'function' && typeof ResizeObserver === 'function'
+	// 读者眼前的那一行（滚动区顶边下的第一行）和它离顶边多远。
+	function capture() {
+		if (anchor || !root || !root.isConnected) return
+		const top = root.getBoundingClientRect().top
+		for (const row of root.querySelectorAll('[data-story-row][data-row-key]')) {
+			const box = row.getBoundingClientRect()
+			if (box.bottom > top) { anchor = { key: row.getAttribute('data-row-key'), offset: box.top - top }; return }
+		}
+	}
+	function changed() {
+		capture()
+		if (pending || disposed) return
+		pending = true
+		Promise.resolve().then(function () { pending = false; if (!disposed) notify() })
+	}
+	function observeAll() {
+		observer = new IntersectionObserver(function (entries) {
+			let moved = false
+			for (const entry of entries) {
+				const key = entry.target.getAttribute('data-row-key')
+				if (!key || elements.get(key) !== entry.target) continue
+				if (entry.isIntersecting !== near.has(key)) {
+					moved = true
+					if (entry.isIntersecting) near.add(key)
+					else near.delete(key)
+				}
+			}
+			if (moved) changed()
+		}, { root: root, rootMargin: TAVERN_STORY_ROW_MARGIN })
+		for (const element of elements.values()) observer.observe(element)
+	}
+	function onResize(entries) {
+		const first = measured.size === 0
+		for (const entry of entries) {
+			const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
+			const key = entry.target.getAttribute('data-row-key')
+			// 被舞台盖住、或所在面板收起时量到 0，不当真。
+			if (key && height > 0 && elements.get(key) === entry.target) measured.set(key, Math.round(height))
+		}
+		// 第一次量到真实楼层后，没挂过的楼层按量到的每字高度重估一次（之前是按默认值估的）。
+		if (first && measured.size) { estimated.clear(); changed() }
+	}
+	function watch(key, element) {
+		const previous = elements.get(key)
+		if (previous === element) return
+		if (previous) { observer?.unobserve(previous); resizer?.unobserve(previous) }
+		if (!element) { elements.delete(key); return }
+		elements.set(key, element)
+		// 宿主的滚动区：隐式视口根会被滚动区的裁剪抵消掉 rootMargin（bubbles.js 同理）。
+		const scroller = element.closest('[data-conversation-scroll]')
+		if (!observer || scroller !== root) {
+			observer?.disconnect()
+			root = scroller
+			observeAll()
+		} else observer.observe(element)
+		if (!element.hasAttribute('data-story-held')) {
+			resizer ||= new ResizeObserver(onResize)
+			resizer.observe(element)
+		}
+	}
+	return {
+		supported: supported,
+		refFor(key) {
+			if (!refs.has(key)) refs.set(key, function (element) { if (!disposed) watch(key, element) })
+			return refs.get(key)
+		},
+		near(key) { return near.has(key) },
+		// 收起的楼层的高度：量过的用量到的；没量过的按已量楼层每字多高来估（一层都没量过时每字 1.5px），
+		// 估过一次就不再随别的楼层变，免得每次重绘都挪动读者上方的内容。
+		height(key, text) {
+			if (measured.has(key)) return measured.get(key)
+			if (!estimated.has(key)) {
+				let height = 0, count = 0
+				for (const [row, value] of measured) if (chars.has(row)) { height += value; count += chars.get(row) }
+				estimated.set(key, Math.max(120, Math.round(text.length * (count > 0 ? height / count : 1.5))))
+			}
+			chars.set(key, text.length)
+			return estimated.get(key)
+		},
+		remember(key, text) { chars.set(key, text.length) },
+		// 提交之后、绘制之前：把读者眼前那一行挪回原来的位置。
+		restore() {
+			const held = anchor
+			anchor = null
+			if (!held || !root || !root.isConnected) return
+			const row = root.querySelector('[data-row-key="' + CSS.escape(held.key) + '"]')
+			if (!row) return
+			const delta = row.getBoundingClientRect().top - root.getBoundingClientRect().top - held.offset
+			if (Math.abs(delta) >= 1) root.scrollTop += delta
+		},
+		dispose() {
+			disposed = true
+			observer?.disconnect()
+			resizer?.disconnect()
+			elements.clear(); near.clear()
+		}
+	}
+}
+
+function useTavernStoryRowWindow(sessionId) {
+	const [, setVersion] = React.useState(0)
+	const holder = React.useRef(null)
+	if (!holder.current || holder.current.sessionId !== sessionId) {
+		holder.current?.window.dispose()
+		holder.current = { sessionId: sessionId, window: createTavernStoryRowWindow(function () { setVersion(function (value) { return value + 1 }) }) }
+	}
+	React.useEffect(function () { return function () { holder.current?.window.dispose() } }, [])
+	React.useLayoutEffect(function () { holder.current.window.restore() })
+	// 舞台盖住这一局时（gal-stage-active.cjs），被盖住的楼层收起；离开舞台时按读者位置挂回。
+	const covered = React.useSyncExternalStore(
+		typeof galActive === 'undefined' ? function () { return function () {} } : galActive.subscribe,
+		function () { return Boolean(sessionId) && typeof galActive !== 'undefined' && galActive.get() === sessionId })
+	return { window: holder.current.window, covered: covered }
+}
+
 // liveTavernView 只提供 Helper、变量和后台状态，不参与正文行的显隐。
 
 function createTavernStoryTranscriptFeature(deps) {
@@ -302,6 +431,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			? tavernDamperOutcomeForMessage(row.message)
 			: null
 		return h('article', Object.assign({}, attributes, {
+			ref: props.windowRef,
 			className: 'dsh-tavern-story-transcript-row dsh-tavern-assistant dsh-tavern-story-floor' + (row.streaming ? ' dsh-tavern-story-streaming' : ''),
 			'aria-live': row.streaming ? 'polite' : undefined
 		}),
@@ -593,6 +723,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
 			? JSON.stringify([false, tavernStoryReadAloudId(latest), latest.text, latest.floorNo]) : null
 		const readAloudState = replyActions ? replyActions.useReadAloudState(sessionId, readAloudSignal) : null
+		const rowWindow = useTavernStoryRowWindow(sessionId)
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
@@ -604,9 +735,25 @@ function createTavernStoryTranscriptFeature(deps) {
 		// A failed round keeps its input as the last row; the reason stands right under it
 		// (its withdraw and regenerate actions are the tail buttons below the transcript).
 		const failure = !generating && rows.at(-1)?.role === 'user' && props.view?.foregroundError?.message
+		// Only floors near the reader stay mounted (createTavernStoryRowWindow); the latest two floors and a streaming one always do.
+		const floorCount = Number(transcript && transcript.floorCount) || 0
+		const windowed = function (row) {
+			return rowWindow.window.supported && row.role === 'assistant' && !row.streaming && row !== latest
+				&& Number(row.floorNo) > 0 && floorCount - Number(row.floorNo) >= 2
+		}
 		return h(React.Fragment, null, rows.map(function (row) {
 			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
-			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
+			const text = String(row.text || '')
+			if (windowed(row) && (rowWindow.covered || !rowWindow.window.near(row.key))) {
+				return h('article', Object.assign({}, rowAttributes(row, transcript), {
+					key: renderKey, ref: rowWindow.window.refFor(row.key), 'data-story-held': '',
+					className: 'dsh-tavern-story-transcript-row dsh-tavern-assistant dsh-tavern-story-floor dsh-tavern-story-held',
+					style: { height: rowWindow.window.height(row.key, text) + 'px' }
+				}), h('div', { className: 'dsh-tavern-story-floor-head' },
+					h('span', { className: 'dsh-tavern-story-floor-no' }, '第 ' + String(row.floorNo) + ' 楼')))
+			}
+			if (windowed(row)) rowWindow.window.remember(row.key, text)
+			return h(StoryTranscriptRow, { windowRef: windowed(row) ? rowWindow.window.refFor(row.key) : undefined, key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus,
 				latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
