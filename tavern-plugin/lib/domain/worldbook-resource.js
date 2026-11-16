@@ -47,7 +47,7 @@ function identifyDocument(document) {
   throw new Error('无法识别世界书：需要 entries 对象、character_book，或 entries 数组')
 }
 
-function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto') {
+function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto', summaryOnly = false) {
   const embedded = format !== 'sillytavern-worldbook'
   // A book-wide channel applies to every entry that does not pin one; the entry
   // only owns a channel once someone overrides it there.
@@ -58,7 +58,7 @@ function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto') 
   const enabled = embedded ? entry.enabled !== false : entry.disable !== true
   const order = numberOr(embedded ? entry.insertion_order : entry.order, 100)
   const displayIndex = numberOr(embedded ? extensionValue(entry, ['display_index', 'displayIndex'], index) : entry.displayIndex, index)
-  return {
+  const projection = {
     ref: sourceRef,
     sourceUid: embedded ? (entry.id ?? index) : (entry.uid ?? sourceRef.replace(/^entry:/, '')),
     sourcePath: embedded ? 'entries/' + index : 'entries/' + sourceRef.replace(/^entry:/, ''),
@@ -94,8 +94,11 @@ function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto') 
     sticky: embedded ? extensionValue(entry, ['sticky'], null) : (entry.sticky ?? null),
     cooldown: embedded ? extensionValue(entry, ['cooldown'], null) : (entry.cooldown ?? null),
     delay: embedded ? extensionValue(entry, ['delay'], null) : (entry.delay ?? null),
-    rawEntry: clone(entry),
   }
+  // A summary projection is only ever read for identity and counts, so the source
+  // entry copy is dead weight: an 18 MB book otherwise pays that clone twice.
+  if (!summaryOnly) projection.rawEntry = clone(entry)
+  return projection
 }
 
 function diagnosticsOf(book, format, entries) {
@@ -123,12 +126,13 @@ export function worldBookDisplayName(document, options = {}) {
 export function inspectWorldBookDocument(document, options = {}) {
   const identified = identifyDocument(document)
   const book = identified.book
+  const summaryOnly = options && options.summaryOnly === true
   const records = identified.format === 'sillytavern-worldbook'
     ? Object.entries(book.entries).map(function ([key, entry], index) { return { ref: 'entry:' + key, entry: object(entry) || {}, index } })
     : array(book.entries).map(function (entry, index) { return { ref: 'entry:' + index, entry: object(entry) || {}, index } })
   const channel = worldBookDefaultChannel(book)
-  const entries = records.map(function (record) { return entryProjection(record.entry, record.ref, identified.format, record.index, channel) })
-  return {
+  const entries = records.map(function (record) { return entryProjection(record.entry, record.ref, identified.format, record.index, channel, summaryOnly) })
+  const view = {
     format: identified.format,
     displayName: worldBookDisplayName(document, options),
     description: str(book.description),
@@ -140,23 +144,54 @@ export function inspectWorldBookDocument(document, options = {}) {
     enabledCount: entries.filter(function (entry) { return entry.enabled }).length,
     entries,
     diagnostics: diagnosticsOf(book, identified.format, entries),
-    raw: clone(book),
   }
+  // `raw` duplicates the whole source book; a summary view (catalog rows, the
+  // switcher's list) never consumes it.
+  if (!summaryOnly) view.raw = clone(book)
+  return view
 }
 
 // The view carries two server-side copies of the same text: the untouched source entry
 // (`rawEntry`, used by activation, bubble sync and character-design bookkeeping) and the whole
 // source book (`raw`). Neither is rendered, so a large book sent to the client triples the
 // payload — drop both at the RPC boundary instead of the view builder.
-export function worldBookViewForWire(view) {
+// Both projections are pure functions of one immutable view, so each is built once and
+// the wire object is reused until that view is replaced. Callers must treat the result
+// as read-only; every RPC response wraps it in a fresh outer record.
+const wireViews = new WeakMap()
+const wireSummaries = new WeakMap()
+
+function summaryWireEntry(entry) {
+  if (!entry || typeof entry !== 'object') return entry
+  const { rawEntry, content, ...rest } = entry
+  const text = str(content)
+  // `content` stays a string: an older panel calling entry.content.includes() must not
+  // throw on the lightweight payload.
+  return Object.assign({}, rest, { content: '', contentOmitted: true, contentLength: text.length })
+}
+
+export function worldBookViewForWire(view, options = {}) {
   if (!view || typeof view !== 'object') return view
+  if (options && options.summaryOnly === true) {
+    const cached = wireSummaries.get(view)
+    if (cached !== undefined) return cached
+    const entries = Array.isArray(view.entries) ? view.entries.map(summaryWireEntry) : view.entries
+    const { raw, ...rest } = view
+    const wire = Object.assign({}, rest, { entries })
+    wireSummaries.set(view, wire)
+    return wire
+  }
+  const cached = wireViews.get(view)
+  if (cached !== undefined) return cached
   const entries = Array.isArray(view.entries) ? view.entries.map(function (entry) {
     if (!entry || typeof entry !== 'object') return entry
     const { rawEntry, ...rest } = entry
     return rest
   }) : view.entries
   const { raw, ...rest } = view
-  return Object.assign({}, rest, { entries })
+  const wire = Object.assign({}, rest, { entries })
+  wireViews.set(view, wire)
+  return wire
 }
 
 function standaloneEntryFromEmbedded(value, index) {
@@ -359,8 +394,31 @@ function assignKnownPatch(entry, patch, format) {
   return entry
 }
 
+// An edit rewrites one entry, so the book is copied only along the path to it: a fresh
+// top-level object, a fresh entry list, and a fresh copy of each patched entry. The input
+// document is never touched, and an 18 MB book no longer pays a full deep clone per toggle.
+function editableEntries(entries) {
+  if (Array.isArray(entries)) return entries.slice()
+  if (object(entries)) return Object.assign({}, entries)
+  return entries
+}
+
+function editableDocument(document) {
+  const raw = object(document)
+  if (raw === null) throw new Error('世界书必须是 JSON 对象')
+  if (object(raw.data) && object(raw.data.character_book)) {
+    const book = Object.assign({}, raw.data.character_book, { entries: editableEntries(raw.data.character_book.entries) })
+    return Object.assign({}, raw, { data: Object.assign({}, raw.data, { character_book: book }) })
+  }
+  if (object(raw.character_book)) {
+    const book = Object.assign({}, raw.character_book, { entries: editableEntries(raw.character_book.entries) })
+    return Object.assign({}, raw, { character_book: book })
+  }
+  return Object.assign({}, raw, { entries: editableEntries(raw.entries) })
+}
+
 export function updateWorldBookDocument(document, request = {}) {
-  const source = clone(document)
+  const source = editableDocument(document)
   const identified = identifyDocument(source)
   const book = identified.book
   if (Object.prototype.hasOwnProperty.call(request, 'name')) book.name = str(request.name)
@@ -411,7 +469,7 @@ export function updateWorldBookDocument(document, request = {}) {
       const key = str(operation.ref).replace(/^entry:/, '')
       if (!Object.prototype.hasOwnProperty.call(book.entries, key)) throw new Error('世界书条目不存在: ' + operation.ref)
       if (op === 'delete') { delete book.entries[key]; continue }
-      if (op === 'update') { book.entries[key] = assignKnownPatch(object(book.entries[key]) || {}, object(operation.patch) || {}, identified.format); continue }
+      if (op === 'update') { book.entries[key] = assignKnownPatch(clone(object(book.entries[key]) || {}), object(operation.patch) || {}, identified.format); continue }
     } else {
       if (op === 'add') {
         const id = operation.uid === undefined ? nextId(book.entries, 'id') : operation.uid
@@ -423,7 +481,7 @@ export function updateWorldBookDocument(document, request = {}) {
       const index = Number(str(operation.ref).replace(/^entry:/, ''))
       if (!Number.isInteger(index) || index < 0 || index >= book.entries.length) throw new Error('世界书条目不存在: ' + operation.ref)
       if (op === 'delete') { book.entries.splice(index, 1); continue }
-      if (op === 'update') { book.entries[index] = assignKnownPatch(object(book.entries[index]) || {}, object(operation.patch) || {}, identified.format); continue }
+      if (op === 'update') { book.entries[index] = assignKnownPatch(clone(object(book.entries[index]) || {}), object(operation.patch) || {}, identified.format); continue }
     }
     throw new Error('未知世界书操作: ' + op)
   }

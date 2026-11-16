@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { access, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 const str = value => value == null ? '' : String(value)
@@ -9,35 +9,58 @@ async function exists(target) { try { await access(target); return true } catch 
 export function createResourceBindings({ dataRoot, durableFiles, absolute, list, normalizeResourcePath }) {
   const bindingsPath = path.join(dataRoot, '.material-bindings.json')
   const worldBookBindingsPath = path.join(dataRoot, '.worldbook-bindings.json')
-  async function readBindings() {
+  // A card-library scan asks for the same binding table once per card, and every ask was
+  // an open + read of an unchanged file. The text is kept against the file fingerprint and
+  // parsed per call, so callers keep their own mutable copy; every write path drops it.
+  const textCache = new Map()
+  async function fingerprint(target) {
     try {
-      const source = await durableFiles.read(bindingsPath)
-      if (source === undefined) return {}
-      const value = JSON.parse(source.toString('utf8'))
-      return value !== null && typeof value === 'object' ? value : {}
+      const value = await stat(target, { bigint: true })
+      return [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':')
     } catch (error) {
-      if (error && error.code === 'ENOENT') return {}
+      if (error.code === 'ENOENT') return null
       throw error
     }
   }
+  function forgetText(target) { textCache.delete(target) }
+  async function readText(target) {
+    const before = await fingerprint(target)
+    const cached = textCache.get(target)
+    if (before !== null && cached !== undefined && cached.revision === before) return cached.text
+    try {
+      const source = await durableFiles.read(target)
+      if (source === undefined) { textCache.delete(target); return undefined }
+      const text = source.toString('utf8')
+      // An edit during the read must not be cached under the old fingerprint.
+      if (before !== null && before === await fingerprint(target)) textCache.set(target, { revision: before, text })
+      else textCache.delete(target)
+      return text
+    } catch (error) {
+      if (error && error.code === 'ENOENT') { textCache.delete(target); return undefined }
+      throw error
+    }
+  }
+  async function readBindings() {
+    const text = await readText(bindingsPath)
+    if (text === undefined) return {}
+    const value = JSON.parse(text)
+    return value !== null && typeof value === 'object' ? value : {}
+  }
 
   async function writeBindings(bindings) {
+    forgetText(bindingsPath)
     await durableFiles.write(bindingsPath, JSON.stringify(bindings, null, 2))
   }
 
   async function readWorldBookBindings() {
-    try {
-      const source = await durableFiles.read(worldBookBindingsPath)
-      if (source === undefined) return {}
-      const value = JSON.parse(source.toString('utf8'))
-      return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    } catch (error) {
-      if (error && error.code === 'ENOENT') return {}
-      throw error
-    }
+    const text = await readText(worldBookBindingsPath)
+    if (text === undefined) return {}
+    const value = JSON.parse(text)
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
   }
 
   async function writeWorldBookBindings(bindings) {
+    forgetText(worldBookBindingsPath)
     await durableFiles.write(worldBookBindingsPath, JSON.stringify(bindings, null, 2))
   }
 
@@ -239,7 +262,10 @@ export function createResourceBindings({ dataRoot, durableFiles, absolute, list,
       }
     }
     return async plan => {
-      if (worldBookBindingsChanged) await plan.write(worldBookBindingsPath, JSON.stringify(worldBookBindings, null, 2))
+      if (worldBookBindingsChanged) {
+        forgetText(worldBookBindingsPath)
+        await plan.write(worldBookBindingsPath, JSON.stringify(worldBookBindings, null, 2))
+      }
     }
   }
   async function prepareRename(oldPath, newPath, kind) {
@@ -282,8 +308,8 @@ export function createResourceBindings({ dataRoot, durableFiles, absolute, list,
       }
     }
     return async plan => {
-      if (bindingsChanged) await plan.write(bindingsPath, JSON.stringify(bindings, null, 2))
-      if (worldBookBindingsChanged) await plan.write(worldBookBindingsPath, JSON.stringify(worldBookBindings, null, 2))
+      if (bindingsChanged) { forgetText(bindingsPath); await plan.write(bindingsPath, JSON.stringify(bindings, null, 2)) }
+      if (worldBookBindingsChanged) { forgetText(worldBookBindingsPath); await plan.write(worldBookBindingsPath, JSON.stringify(worldBookBindings, null, 2)) }
     }
   }
   let tail = Promise.resolve()

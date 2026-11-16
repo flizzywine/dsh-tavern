@@ -67,7 +67,7 @@ export function createWorldBookLibrary(options = {}) {
     })
   }
 
-  async function readRecord(locator, suppliedCard, templateOnly = false) {
+  async function readRecord(locator, suppliedCard, templateOnly = false, summaryOnly = false) {
     const source = sourceOf(locator)
     if (source.kind === 'card') {
       const card = suppliedCard ?? await cards.read(source.cardPath)
@@ -78,7 +78,7 @@ export function createWorldBookLibrary(options = {}) {
       return {
         source: { kind: 'card', cardPath: source.cardPath, cardName: card.name },
         document,
-        view: inspectWorldBookDocument(document, { filename: card.name })
+        view: inspectWorldBookDocument(document, { filename: card.name, summaryOnly })
       }
     }
     const text = await resources.readText(source.path)
@@ -89,7 +89,7 @@ export function createWorldBookLibrary(options = {}) {
     return {
       source,
       document,
-      view: inspectWorldBookDocument(document, { filename: source.path.split('/').pop() })
+      view: inspectWorldBookDocument(document, { filename: source.path.split('/').pop(), summaryOnly })
     }
   }
 
@@ -108,29 +108,49 @@ export function createWorldBookLibrary(options = {}) {
 
   async function globalSources() { return resources.globalSources ? await resources.globalSources() : [] }
 
-  async function setGlobal(locator, enabled) {
+  async function setGlobal(locator, enabled, { lean = false } = {}) {
     const source = sourceOf(locator)
     if (source.kind !== 'standalone') throw new Error('只有独立世界书支持全局生效')
     if (typeof enabled !== 'boolean') throw new Error('全局生效开关必须为布尔值')
     if (!resources.setGlobal) throw new Error('全局世界书存储不可用')
-    if (enabled) await readRecord(source)
+    // The switch writes the binding table, never the book: reuse the parsed record
+    // instead of re-reading and re-projecting a multi-megabyte document.
+    const record = enabled ? await readSource(source) : null
     await resources.setGlobal(source.path, enabled)
+    if (lean === true) {
+      const revision = record?.revision ?? await sourceRevision(source).catch(() => null)
+      return { source, revision: revision === undefined ? null : revision, globalEnabled: enabled }
+    }
     return await get(source)
   }
 
+  // Catalog rows only read identity and counts, so the projection skips the two source
+  // copies (`raw`, `rawEntry`) a full view keeps for the editor.
   async function standaloneSummary(path) {
-    const record = await readRecord({ kind: 'standalone', path })
+    const record = await readRecord({ kind: 'standalone', path }, undefined, false, true)
     return { path: record.source.path, name: record.view.displayName, entryCount: record.view.entryCount,
       enabledCount: record.view.enabledCount, diagnostics: record.view.diagnostics.length }
   }
   async function cardSummary(cardPath) {
     const card = await cards.read(cardPath)
     if (!card || !card.character_book || typeof card.character_book !== 'object') return { hasBook: false }
-    const view = inspectWorldBookDocument(card.character_book, { filename: card.name })
+    const view = inspectWorldBookDocument(card.character_book, { filename: card.name, summaryOnly: true })
     return { hasBook: true, cardName: card.name, name: view.displayName, entryCount: view.entryCount,
       enabledCount: view.enabledCount, diagnostics: view.diagnostics.length }
   }
-  async function catalog() {
+  // The panel and the switcher may ask for the catalog in the same tick, and a catalog
+  // walks every card on disk: concurrent callers share one pass.
+  let catalogFlight = null
+  function catalog() {
+    if (catalogFlight === null) {
+      const operation = buildCatalog()
+      catalogFlight = operation
+      const release = () => { if (catalogFlight === operation) catalogFlight = null }
+      operation.then(release, release)
+    }
+    return catalogFlight
+  }
+  async function buildCatalog() {
     const globals = new Set((await globalSources()).map(source => source.path))
     const standaloneResults = await Promise.all((await resources.list('worldbook')).map(async function (path) {
       try {
@@ -150,11 +170,11 @@ export function createWorldBookLibrary(options = {}) {
     }))
     const embeddedResults = await Promise.all((await cards.listPaths()).map(async function (cardPath) {
       try {
-        const [summary, metadata] = await Promise.all([
-          summaries.card(cardPath, cardSummary),
-          typeof cards.metadata === 'function' ? cards.metadata(cardPath) : null
-        ])
+        // A plain card has no embedded book: its summary is the whole answer, and the
+        // card metadata probe (readdir + stat on the working copy) is wasted work.
+        const summary = await summaries.card(cardPath, cardSummary)
         if (!summary.hasBook) return {}
+        const metadata = typeof cards.metadata === 'function' ? await cards.metadata(cardPath) : null
         return { row: {
           kind: 'card', cardPath, cardName: summary.cardName, name: summary.name,
           entryCount: summary.entryCount, enabledCount: summary.enabledCount, diagnostics: summary.diagnostics,
@@ -171,6 +191,30 @@ export function createWorldBookLibrary(options = {}) {
     return { standalone, embedded, diagnostics }
   }
 
+  // A binding row needs the source identity and its display name, not the book. Reading
+  // through the revision-cached catalog summaries keeps a scan over a full card library
+  // from parsing every bound book; a caller that supplies its own `read` (the resolver's
+  // per-read cache, a template read) keeps that cache authoritative.
+  function cardDescriptor(cardPath, card) {
+    if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    return { source: { kind: 'card', cardPath, cardName: card.name },
+      name: worldBookDisplayName(embeddedDocument(card), { filename: card.name }) }
+  }
+  async function descriptorOf(source, suppliedCard, read) {
+    if (read !== readRecord) {
+      const record = await read(source)
+      return { source: record.source, name: record.view.displayName }
+    }
+    if (source.kind === 'card') {
+      if (suppliedCard !== undefined) return cardDescriptor(source.cardPath, suppliedCard)
+      const summary = await summaries.card(source.cardPath, cardSummary)
+      if (summary.hasBook) return { source: { kind: 'card', cardPath: source.cardPath, cardName: summary.cardName }, name: summary.name }
+      return cardDescriptor(source.cardPath, await cards.read(source.cardPath))
+    }
+    const summary = await summaries.standalone(source.path, standaloneSummary)
+    return { source: { kind: 'standalone', path: summary.path }, name: summary.name }
+  }
+
   async function binding(cardPath, { card: suppliedCard, read = readRecord } = {}) {
     const normalized = normalizePath(cardPath, 'card')
     const card = suppliedCard ?? await cards.read(normalized)
@@ -181,8 +225,8 @@ export function createWorldBookLibrary(options = {}) {
         const source = sourceOf(item.kind === 'embedded' ? { kind: 'card', cardPath: item.cardPath } : item)
         const kind = source.kind === 'card' ? 'embedded' : 'standalone'
         if (!item.available) return { kind, source, name: '', available: false }
-        const record = await read(source)
-        return { kind, source: record.source, name: record.view.displayName, available: true }
+        const descriptor = await descriptorOf(source, source.kind === 'card' ? card : undefined, read)
+        return { kind, source: descriptor.source, name: descriptor.name, available: true }
       }))
       if (books.length === 0) return { kind: 'none', source: null, name: '', available: true }
       if (books.length === 1) return books[0]
@@ -193,8 +237,8 @@ export function createWorldBookLibrary(options = {}) {
       const source = { kind: 'standalone', path: stored.path }
       if (stored.available !== true) return { kind: 'standalone', source, name: '', available: false }
       try {
-        const record = await read(source)
-        return { kind: 'standalone', source, name: record.view.displayName, available: true }
+        const descriptor = await descriptorOf(source, undefined, read)
+        return { kind: 'standalone', source, name: descriptor.name, available: true }
       } catch (error) {
         if (/世界书不存在/.test(str(error && error.message))) return { kind: 'standalone', source, name: '', available: false }
         throw error
@@ -204,16 +248,16 @@ export function createWorldBookLibrary(options = {}) {
       const source = { kind: 'card', cardPath: stored.cardPath }
       if (stored.available !== true) return { kind: 'embedded', source, name: '', available: false }
       try {
-        const record = await read(source)
-        return { kind: 'embedded', source: record.source, name: record.view.displayName, available: true }
+        const descriptor = await descriptorOf(source, undefined, read)
+        return { kind: 'embedded', source: descriptor.source, name: descriptor.name, available: true }
       } catch (error) {
         if (/人物卡不存在/.test(str(error && error.message))) return { kind: 'embedded', source, name: '', available: false }
         throw error
       }
     }
     if (card.character_book && typeof card.character_book === 'object') {
-      const record = await read({ kind: 'card', cardPath: normalized })
-      return { kind: 'embedded', source: record.source, name: record.view.displayName, available: true }
+      const descriptor = await descriptorOf({ kind: 'card', cardPath: normalized }, card, read)
+      return { kind: 'embedded', source: descriptor.source, name: descriptor.name, available: true }
     }
     return { kind: 'none', source: null, name: '', available: true }
   }
@@ -227,21 +271,38 @@ export function createWorldBookLibrary(options = {}) {
     return current.kind === 'standalone' && current.source.path === source.path
   }
 
+  // Bounded parallelism over the card library: the binding panel used to walk it one card
+  // at a time, twice reading each file. The card read here is handed to the binding.
+  const ASSOCIATION_CONCURRENCY = 8
+  async function mapLimited(items, limit, work) {
+    const results = new Array(items.length)
+    let cursor = 0
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async function () {
+      while (cursor < items.length) {
+        const index = cursor
+        cursor += 1
+        results[index] = await work(items[index], index)
+      }
+    })
+    await Promise.all(runners)
+    return results
+  }
+
   async function associations(locator) {
     const source = sourceOf(locator)
     const cardPaths = await cards.listPaths()
-    const cardRows = []
-    for (const cardPath of cardPaths) {
+    const rows = await mapLimited(cardPaths, ASSOCIATION_CONCURRENCY, async function (cardPath) {
       const card = await cards.read(cardPath)
-      if (card === undefined) continue
-      const current = await binding(cardPath)
-      cardRows.push({
+      if (card === undefined) return null
+      const current = await binding(cardPath, { card })
+      return {
         path: cardPath,
         name: str(card.name),
         bound: bindingMatchesSource(current, source),
         binding: current
-      })
-    }
+      }
+    })
+    const cardRows = rows.filter(Boolean)
     const boundCards = cardRows.filter(function (card) { return card.bound }).map(function (card) {
       return { path: card.path, name: card.name }
     })

@@ -51448,8 +51448,13 @@ function TavernWorldbookInspector(props) {
 				// Entries paint as soon as the book is read: the association scan walks the whole
 				// card library for the binding panel below, so it must not hold the book open.
 				const loadId = ++loadSequence.current;
-				const bookRequest = rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) {
+				// 已经拿着同一本书的 revision 时走条件读取：文件没改就复用本地这份，
+				// 不再把整本文档取回来再解析一遍。
+				const known = record && record.source && JSON.stringify(record.source) === JSON.stringify(source) ? record.revision : null;
+				const bookArgs = known === undefined || known === null ? { source: source } : { source: source, ifRevision: known };
+				const bookRequest = rpcWithTimeout("getWorldBook", bookArgs, props.scope.sessionId).then(function (result) {
 					if (loadSequence.current !== loadId) return;
+					if (result && result.unchanged === true) { setRecordLoading(false); return; }
 					setRecord(result);
 					setRecordLoading(false);
 				}, function (err) {
@@ -51681,6 +51686,15 @@ function createWorldBookSwitcherFeatureModule() {
 		const books = cache && cache.books;
 		return books && key && books[key] ? books[key] : null;
 	}
+	// localStorage 为空（换设备、清缓存）时，目录里默认那本书已经在内存缓存里：
+	// 直接拿它首屏渲染，不必再空等一次冷加载。
+	function cachedDefaultBook() {
+		const cache = readSwitcherCache();
+		const rows = cache && cache.catalog && Array.isArray(cache.catalog.all) ? cache.catalog.all : null;
+		if (!rows || rows.length === 0) return null;
+		const row = wbPickDefault(rows, readWbSwitcherSelected());
+		return row ? cachedBook(row.key) : null;
+	}
 	// 每本缓存都带着整份条目正文，只留最近几本，避免长期运行越攒越大。
 	const SWITCHER_BOOK_CACHE_LIMIT = 6;
 	function rememberBook(cacheKey, book) {
@@ -51752,7 +51766,7 @@ function createWorldBookSwitcherFeatureModule() {
 		const state = props.state;
 		const sessionId = state.sessionId;
 		const cache = readSwitcherCache();
-		const initialBook = cachedBook(readWbSwitcherSelected());
+		const initialBook = cachedBook(readWbSwitcherSelected()) || cachedDefaultBook();
 		const [catalog, setCatalog] = React.useState(cache && cache.catalog ? cache.catalog : null);
 		const [book, setBook] = React.useState(initialBook);
 		const [loading, setLoading] = React.useState(!initialBook);
@@ -51760,6 +51774,7 @@ function createWorldBookSwitcherFeatureModule() {
 		const [query, setQuery] = React.useState("");
 		const [geometry, setGeometry] = React.useState(null);
 		const rootRef = React.useRef(null);
+		const fullBookFetch = React.useRef(false);
 
 		async function selectRow(row, options) {
 			if (!row) return;
@@ -51769,7 +51784,8 @@ function createWorldBookSwitcherFeatureModule() {
 			if (!(options && options.quiet) && held) setBook(Object.assign({}, held, { key: row.key, source: row.source }));
 			try {
 				const ifRevision = held && held.revision !== undefined ? held.revision : null;
-				const record = await rpcWithTimeout("getWorldBook", { source: row.source, ifRevision: ifRevision }, sessionId);
+				// 列表只需要条目名和开关：先取摘要视图（几 KB），正文等用户搜索时再补。
+				const record = await rpcWithTimeout("getWorldBook", { source: row.source, ifRevision: ifRevision, summaryOnly: true }, sessionId);
 				if (record && record.unchanged === true) {
 					if (held) setBook(Object.assign({}, held, { key: row.key, source: row.source }));
 				} else {
@@ -51862,6 +51878,19 @@ function createWorldBookSwitcherFeatureModule() {
 		}
 
 		const allEntries = book && book.view && Array.isArray(book.view.entries) ? book.view.entries : [];
+		// 摘要视图只带元数据：一旦开始搜索，就补拉一次整本，保证正文全文搜索可用。
+		React.useEffect(function () {
+			if (!query.trim() || !book || book.summaryOnly !== true || fullBookFetch.current) return;
+			const key = book.key, source = book.source;
+			fullBookFetch.current = true;
+			rpcWithTimeout("getWorldBook", { source: source }, sessionId).then(function (record) {
+				fullBookFetch.current = false;
+				if (!record || record.unchanged === true) return;
+				const restored = Object.assign({}, record, { key: key, source: source });
+				setBook(function (current) { return current && current.key === key ? restored : current; });
+				rememberBook(key, restored);
+			}, function () { fullBookFetch.current = false; });
+		}, [query, book]);
 		const needle = query.trim().toLocaleLowerCase();
 		const entries = needle ? allEntries.filter(function (entry) {
 			return [entry.title, entry.comment, entry.content].concat(entry.primaryKeys || [], entry.secondaryKeys || [])

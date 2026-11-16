@@ -18,11 +18,17 @@ import { createSessionSliceReader } from './session-view-reader.js'
 export function createChatReads({ links, persistence, whole, allow = (_reason, operation) => operation() }) {
   const chatIdOf = async sessionId => (await links())[String(sessionId ?? '')]
   async function header(sessionId, fields) {
+    const requested = Array.isArray(fields) ? fields : []
     const chatId = await chatIdOf(sessionId)
     const chat = chatId && (await persistence.readSlice(chatId, [], [
-      'id', 'sessionId', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion', ...fields
+      'id', 'sessionId', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion', ...requested
     ]))?.chat
-    if (chat && chat.sessionId === sessionId && chat.backgroundConfigVersion === 1 && chat.conversationFeaturesVersion === 1) return chat
+    if (chat && chat.sessionId === sessionId) {
+      if (chat.backgroundConfigVersion === 1 && chat.conversationFeaturesVersion === 1) return chat
+      // A caller naming its fields wants header fields only: a legacy save without the
+      // configuration markers must not pull the whole history back through the full reader.
+      if (requested.length > 0) return chat
+    }
     // Alias recovery and configuration adoption still require the original reader.
     return allow('存档配置升级', () => whole(sessionId))
   }

@@ -339,8 +339,13 @@
 				// Entries paint as soon as the book is read: the association scan walks the whole
 				// card library for the binding panel below, so it must not hold the book open.
 				const loadId = ++loadSequence.current;
-				const bookRequest = rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) {
+				// 已经拿着同一本书的 revision 时走条件读取：文件没改就复用本地这份，
+				// 不再把整本文档取回来再解析一遍。
+				const known = record && record.source && JSON.stringify(record.source) === JSON.stringify(source) ? record.revision : null;
+				const bookArgs = known === undefined || known === null ? { source: source } : { source: source, ifRevision: known };
+				const bookRequest = rpcWithTimeout("getWorldBook", bookArgs, props.scope.sessionId).then(function (result) {
 					if (loadSequence.current !== loadId) return;
+					if (result && result.unchanged === true) { setRecordLoading(false); return; }
 					setRecord(result);
 					setRecordLoading(false);
 				}, function (err) {
