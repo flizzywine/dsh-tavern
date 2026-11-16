@@ -565,7 +565,9 @@
             }
             const stateLabel = { loaded: "已启用", pending: "刷新后生效", restart: "重启 DSH 后生效", failed: "加载失败", skipped: "未加载", disabled: "已停用" };
             const sourceLabel = function (source) { return source.kind === "builtin" ? "内置插件 · 默认启用，随酒馆更新，不可删除" : source.kind === "github" ? "GitHub · " + source.repo + (source.resolved ? " · " + source.resolved : "") : source.kind === "zip" ? "ZIP 上传" : source.kind === "managed" ? (source.builtin ? "内置舞台模组 · 随酒馆提供" : "舞台模组 · 由模组管理器维护") : source.kind === "card" ? "人物卡附带 · 由人物卡管理，不可在此删除" : "手动放入"; };
-            const plugins = (data?.plugins || []).filter(plugin => plugin.source.kind !== "builtin" && !(plugin.source.kind === "managed" && plugin.source.builtin));
+            // 内置插件（随酒馆发行、装进 plugins/ 的那几个）照常列出：可停用、随酒馆更新、不可删除。
+            // 只有内置舞台模组不进这个列表——它们在「管理模组」里。
+            const plugins = (data?.plugins || []).filter(plugin => !(plugin.source.kind === "managed" && plugin.source.builtin));
             return h("div", { className: "dsh-tavern-settings-group dsh-tavern-user-plugins" },
                 h("div", { className: "dsh-tavern-user-plugins-install" },
                     // the shared inline text field; Enter keeps the address, 安装 installs it.

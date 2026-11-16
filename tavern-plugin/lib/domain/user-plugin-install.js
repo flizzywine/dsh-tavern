@@ -390,7 +390,14 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const restart = problem || disabled.includes(folder) ? null : await readJson(path.join(dir, RESTART_FILE))
         const card = await readJson(path.join(dir, CARD_MARKER))
         const isDisabled = disabled.includes(folder)
-        const source = pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' } : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: ['dsh.dice','dsh.phone','dsh.textcard','dsh.timer'].includes(card.modId) } : { kind: 'card' }) : await readJson(path.join(dir, SOURCE_FILE)) || { kind: 'folder' }
+        // 随酒馆发行的内置插件在安装时写了 .tavern-source.json：它们和其它插件一样躺在 plugins/，
+        // 只是代码由酒馆更新、不能删除，插件页据此把它们标成「内置插件」。
+        const recorded = await readJson(path.join(dir, SOURCE_FILE))
+        const source = recorded?.kind === 'builtin'
+          ? { kind: 'builtin', bundled: true, version: String(recorded.version || '') }
+          : pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' }
+            : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: ['dsh.dice', 'dsh.phone', 'dsh.textcard', 'dsh.timer'].includes(card.modId) } : { kind: 'card' })
+              : recorded || { kind: 'folder' }
         // Install sources from before the replaced flag: infer a past replacement from the backup's load record.
         const replacedBefore = !isDisabled && !problem && source.replaced === undefined && !status && !restart && (source.kind === 'github' || source.kind === 'zip')
           ? await replacedLoadedPlugin(folder)
@@ -489,6 +496,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         if (existsSync(path.join(paths.plugins, name, CARD_MARKER))) fail('这是人物卡自带的插件，请在人物卡库里停用')
         const pkg = await readJson(path.join(paths.plugins, name, 'package.json'))
         if (pkg?.name === 'dsh-tavern-image') fail('这是内置配图插件，随酒馆提供，不可删除')
+        if ((await readJson(path.join(paths.plugins, name, SOURCE_FILE)))?.kind === 'builtin') fail('这是随酒馆提供的内置插件，不可删除；需要关掉时用「停用」')
         const kept = await backup(name)
         // The plugin's own data goes into the same backup, so reinstalling from there brings it back by hand.
         const data = pluginDataFile(dataRoot, String(pkg?.name || name))

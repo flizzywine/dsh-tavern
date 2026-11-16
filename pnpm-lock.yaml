@@ -80,9 +80,6 @@ importers:
       dsh-pocket:
         specifier: 2.12.0
         version: 2.12.0(patch_hash=1b0fac9bc15853908a97cd3cd9cea13aa17484e649ce423b5f9bcbecd61ef42e)
-      dsh-tavern-plot-compass:
-        specifier: link:./tavern-plugin/packages/dsh-tavern-plot-compass
-        version: link:tavern-plugin/packages/dsh-tavern-plot-compass
       dsh-tavern-plugin:
         specifier: link:./tavern-plugin
         version: link:tavern-plugin

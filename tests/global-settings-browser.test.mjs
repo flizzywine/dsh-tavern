@@ -176,7 +176,9 @@ test('舞台设置可以只加载本次运行而不改启动偏好', async t => 
     [['setStageLoadOnStartup', false], ['setStageEnabled', true]])
 })
 
-test('插件列表隐藏内置配图与模组，保留用户安装的插件', async t => {
+// 内置插件（随酒馆发行、装在 plugins/ 里的那几个）照样列出来：可停用、随酒馆更新、不可删除。
+// 只有内置舞台模组不进这个列表——它们在「管理模组」里。
+test('插件列表列出内置插件，内置舞台模组留给「管理模组」', async t => {
   const {page}=await openTavernSettings(t,{section:'dsh-tavern: plugins settings section',respond(method){
     if(method==='listUserPlugins')return {plugins:[
       {folder:'dice',name:'dsh-tavern-mod-dice',state:'loaded',enabled:true,source:{kind:'managed',builtin:true,modId:'dsh.dice'}},
@@ -184,9 +186,14 @@ test('插件列表隐藏内置配图与模组，保留用户安装的插件', as
       {folder:'custom',name:'custom-plugin',state:'loaded',enabled:true,source:{kind:'folder'}}]}
   }})
   await page.locator('.dsh-tavern-user-plugin').filter({hasText:'custom-plugin'}).waitFor()
-  assert.equal(await page.locator('.dsh-tavern-user-plugin').count(),1)
-  assert.equal(await page.getByText('dsh-tavern-stage',{exact:true}).count(),0)
-  await page.getByRole('button',{name:'删除',exact:true}).waitFor()
+  assert.equal(await page.locator('.dsh-tavern-user-plugin').count(),2)
+  assert.equal(await page.getByText('dsh-tavern-mod-dice',{exact:true}).count(),0)
+  const builtin = page.locator('.dsh-tavern-user-plugin').filter({hasText:'dsh-tavern-image'})
+  assert.match(await builtin.innerText(), /内置插件 · 默认启用，随酒馆更新，不可删除/)
+  assert.equal(await builtin.getByRole('button',{name:'删除',exact:true}).count(),0)
+  await builtin.getByRole('button',{name:'停用',exact:true}).waitFor()
+  // 用户自己装的插件照旧能删除。
+  await page.locator('.dsh-tavern-user-plugin').filter({hasText:'custom-plugin'}).getByRole('button',{name:'删除',exact:true}).waitFor()
 })
 
 test('开局默认功能区包含“后台任务附加预设”开关，默认关闭且保存进 defaultPlaySettings', async t => {
