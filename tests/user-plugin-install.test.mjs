@@ -91,33 +91,6 @@ test('上传 ZIP 安装、列表、删除进备份', async t => {
   await assert.rejects(installer.remove('../x'), /不存在/)
 })
 
-test('随酒馆发行的酒馆插件按「内置插件」列出：只认声明 Tavern API 的包，且是只读行', async t => {
-  const { root, installer } = await setup(t)
-  const profile = path.join(root, 'profiles', 'tavern')
-  await mkdir(path.join(profile, 'node_modules', 'dsh-tavern-plot-compass'), { recursive: true })
-  await mkdir(path.join(profile, 'node_modules', 'dsh-tavern-stage'), { recursive: true })
-  await writeFile(path.join(profile, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [
-    '@deepseek-ai/dsh-base', 'dsh-tavern-plugin', 'dsh-tavern-stage', 'dsh-tavern-plot-compass'] } } }))
-  await writeFile(path.join(profile, 'node_modules', 'dsh-tavern-plot-compass', 'package.json'), JSON.stringify({
-    name: 'dsh-tavern-plot-compass', version: '1.0.0', description: '剧情罗盘', dsh: { compatibility: { tavernApiVersion: 8 } } }))
-  // 舞台是 DSH 宿主插件：不在插件页里冒充酒馆内置插件。
-  await writeFile(path.join(profile, 'node_modules', 'dsh-tavern-stage', 'package.json'), JSON.stringify({ name: 'dsh-tavern-stage', version: '1.0.0' }))
-
-  const listed = await installer.list()
-  assert.deepEqual(listed.map(item => item.name), ['dsh-tavern-plot-compass'])
-  const [row] = listed
-  assert.equal(row.source.kind, 'bundle')
-  assert.equal(row.source.tavernApiVersion, 8)
-  assert.equal(row.version, '1.0.0')
-  assert.equal(row.description, '剧情罗盘')
-  assert.equal(row.state, 'loaded')
-  assert.equal(row.readOnly, true)
-
-  // 用户自己装的插件仍然跟在后面，次序不乱。
-  await installer.installFromZip(hello(), 'dsh-tavern-hello.zip')
-  assert.deepEqual((await installer.list()).map(item => item.name), ['dsh-tavern-plot-compass', 'dsh-tavern-hello'])
-})
-
 test('旧版本留下的更新状态：备份里有过加载记录就提示重启；删除后重装不误判', async t => {
   const { installer, plugins } = await setup(t)
   await installer.installFromZip(hello('1.0.0'), 'hello.zip')
