@@ -274,8 +274,11 @@ function TileCheck({checked}) { return h('span',{className:'ap-check-mark ap-til
 // 舞台设置 › 开场; the data rule — first enabled outfit — is unchanged); in the grid's delete mode (`picking`) the tile is a
 // checkbox with the round check, its lamp a plain dot. Memoised: switching outfits re-renders the two tiles whose selection
 // changed, not all of them (the callbacks are stable, keyed by the outfit).
-const FigureOutfitTile=(React.memo||(c=>c))(function FigureOutfitTile({binding,pack,figure,outfit,selected,picking=false,checked=false,onSelect,onFlip,upload,onLamp}) {
+// `menuFor(key, close)`: the tile's own menu (useContextMenu: right click, Shift+F10, a long press; opening it selects the
+// outfit, the way a 差分 tile's does) — none in the delete mode.
+const FigureOutfitTile=(React.memo||(c=>c))(function FigureOutfitTile({binding,pack,figure,outfit,selected,picking=false,checked=false,onSelect,onFlip,upload,onLamp,menuFor=null}) {
   outfit=figureOutfitView(figure,outfit);
+  const tileMenu=useContextMenu({label:outfit.label+' 操作',content:!picking&&menuFor?close=>menuFor(outfit.key,close):null,onMenu:()=>onSelect(outfit.key)});
   const packId=pack.manifest.id,manifest=pack.sprites?.[outfit.sprite?.manifestKey],bust=outfitHead(outfit,manifest);
   const face=!bust&&!outfit.live2d?selectPackAvatar({outfit,manifest,emotion:outfit.defaultEmotion}):null;
   const identity=live2dIdentity(pack,outfit),ref=React.useRef(null);
@@ -284,8 +287,9 @@ const FigureOutfitTile=(React.memo||(c=>c))(function FigureOutfitTile({binding,p
   const art=bust?h(BustArt,{binding,packId,bust,figure}):face?h(Thumb,{binding,packId,hash:face.hash,crop:face.crop,label:outfit.label,className:'ap-outfit-face-art'}):
     url?h(RevealImg,{src:url,alt:'',draggable:false,className:'is-snapshot'}):ref.current.source&&shots.status==='loading'?h(Spinner,{key:identity,fill:true}):h(Silhouette,{figure});
   const lamp=outfitLamp(outfit),empty=!outfit.sprite&&!outfit.live2d&&!outfit.spine&&!face;
-  return h('span',{className:'ap-outfit-cell','data-selected':!picking&&selected||undefined},
-    h('button',{type:'button',role:picking?'checkbox':'radio','aria-checked':picking?checked:selected,className:'ap-outfit-face','data-disabled':!outfit.enabled||undefined,title:outfit.label+' · '+OUTFIT_LAMPS[lamp],onClick:()=>picking?onFlip(outfit.key):onSelect(outfit.key)},
+  return h('span',{className:'ap-outfit-cell','data-selected':!picking&&selected||undefined,...tileMenu.target},
+    tileMenu.layer,
+    h('button',{type:'button',role:picking?'checkbox':'radio','aria-checked':picking?checked:selected,className:'ap-outfit-face','aria-keyshortcuts':tileMenu.trigger['aria-keyshortcuts'],'data-disabled':!outfit.enabled||undefined,title:outfit.label+' · '+OUTFIT_LAMPS[lamp],onClick:()=>picking?onFlip(outfit.key):onSelect(outfit.key)},
       // r5: one tile language with the 差分 faces — same corner radius, ring and selected ring.
       h('span',{className:'ap-outfit-art','data-kind':bust?'bust':face?'face':url?'live2d':'none'},art,
         picking&&h(TileCheck,{checked}),
@@ -1171,18 +1175,31 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const modelTools=isModelKind(kind)&&!!importModel&&!!outfit&&!pickGrid&&h('span',{className:'ap-gen-tools'},
     h(Button,{className:'ap-manage ap-gen-fill',disabled:!!upload.busy,onClick:()=>setModelOpen(true)},h(Glyph,{name:'upload'}),'导入模型'));
   if(figure.emotions?.length===1 && figure.emotions[0].label!==undefined)kindExtras.push({icon:'reset',label:'设为无差分',onClick:()=>write(f=>({emotions:[{id:f.emotions[0].id}]}))});
-  if(isModelKind(kind)&&outfit&&(outfit.live2d||outfit.spine)&&figureActions?.removeModel)kindExtras.push({icon:'remove',label:'删除模型',menu:'删除模型…',danger:true,
-    onClick:()=>setConfirm({title:'删除「'+outfit.label+'」的模型？',body:'这套服装的 '+(outfit.live2d?'Live2D':'Spine')+' 模型会被移除；立绘和头像保留。',confirmLabel:'删除',danger:true,
-      onConfirm:()=>figureActions.removeModel(outfit.key)})});
+  // 「删除模型…」 of one outfit — the 模型 heading's ⋯, the outfit tile's menu and the model preview's menu ask the same.
+  const askRemoveModel=o=>setConfirm({title:'删除「'+o.label+'」的模型？',body:'这套服装的 '+(o.live2d?'Live2D':'Spine')+' 模型会被移除；立绘和头像保留。',confirmLabel:'删除',danger:true,
+    onConfirm:()=>figureActions.removeModel(o.key)});
+  const modelRemovable=o=>!!o&&!!(o.live2d||o.spine)&&!!figureActions?.removeModel;
+  if(isModelKind(kind)&&modelRemovable(outfit))kindExtras.push({icon:'remove',label:'删除模型',menu:'删除模型…',danger:true,onClick:()=>askRemoveModel(outfit)});
   const tool=h(PreviewActions,{key:(outfit?.key||'')+':'+kind+':'+picked.id,actions:viewActions,disabled:!!upload.busy});
   // deleting outfits is the 服装 grid's delete mode, entered from its heading's
   // ⋯ 「删除服装…」: tap tiles to check them, then 「删除」 asks (ConfirmDialog) and writes one commitFigure.
   const pickIn=()=>outfitSel.ids,flip=id=>outfitSel.flip(id);
   const pickedOutfits=list.filter(o=>outfitSel.ids?.has(o.key));
   const names=items=>items.map(x=>'「'+x.label+'」').join('');
-  const deleteOutfits=()=>{const chosen=pickedOutfits,keys=new Set(chosen.map(o=>o.key));if(!chosen.length)return;
+  const askRemoveOutfits=chosen=>{const keys=new Set(chosen.map(o=>o.key));if(!chosen.length)return;
     setConfirm({title:chosen.length===1?'删除服装「'+chosen[0].label+'」？':'删除 '+chosen.length+' 套服装？',body:(chosen.length>1?names(chosen)+' 将':'')+'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
       onConfirm:async()=>{await commitFigure(figure.id,f=>figureOutfitRemoval(f,keys));setPicking(null);}});};
+  const deleteOutfits=()=>askRemoveOutfits(pickedOutfits);
+  // An outfit tile's right click / long press (it selects the outfit first): 导入模型… (the 模型 heading's sheet, for this
+  // outfit), 删除模型… and 删除服装… — the same confirmations as the heading's ⋯ and the grid's delete mode.
+  const outfitMenu=(key,close,whole=true)=>{const o=list.find(x=>x.key===key);if(!o)return null;const run=fn=>()=>{close();fn();},busy=!!upload.busy;
+    return h(React.Fragment,null,
+      importModel&&h(MenuItem,{disabled:busy,onClick:run(()=>{setKindChoice('model');setModelOpen(true);})},(o.live2d||o.spine)?'替换模型…':'导入模型…'),
+      (modelRemovable(o)||whole)&&h('div',{className:'ap-menu-sep',role:'separator'}),
+      modelRemovable(o)&&h(MenuItem,{danger:true,disabled:busy,onClick:run(()=>askRemoveModel(o))},'删除模型…'),
+      whole&&h(MenuItem,{danger:true,disabled:busy,onClick:run(()=>askRemoveOutfits([o]))},'删除服装…'));};
+  // The model preview's own menu (模型 view with a model): 替换模型… / 删除模型… of the outfit on show.
+  const modelMenu=useContextMenu({label:'模型操作',content:tab==='edit'&&isModelKind(kind)&&modelRemovable(outfit)?close=>outfitMenu(outfit.key,close,false):null});
   const pickTools=()=>h(SelectBar,{count:pickedOutfits.length,action:'删除',danger:true,busy:!!upload.busy,onCancel:()=>setPicking(null),onAction:deleteOutfits});
   const kindMenu=h(FigureViewMenu,{kind,isDefault:look===kind,onDefault:()=>write(()=>({appearance:kind})),extras:kindExtras,disabled:!!upload.busy});
   // Leaving the editing page (生图, 声音) or the figure ends the mode; entering focuses 取消, leaving returns to the ⋯.
@@ -1196,9 +1213,10 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // r7: set from each tile's own lamp dot (OutfitLamp), for that outfit — not only the selected one.
   const setLamp=(key,mode)=>write(f=>({outfits:f.outfits.map(o=>o.key!==key?o:mode==='off'?{...o,enabled:false}:{...o,enabled:true,recall:{...(o.recall||{keywords:[]}),mode}})}));
   // Stable tile callbacks (FigureOutfitTile is memoised; the latest handlers are read through a ref).
-  const tileLatest=React.useRef(null);tileLatest.current={pickOutfit,setLamp,pick,flip};
+  const tileLatest=React.useRef(null);tileLatest.current={pickOutfit,setLamp,pick,flip,outfitMenu};
   const tileStable=React.useRef(null);
-  if(!tileStable.current)tileStable.current={select:k=>tileLatest.current.pickOutfit(k),lamp:(k,mode)=>tileLatest.current.setLamp(k,mode),flip:k=>tileLatest.current.flip(k),pick:(target,file)=>tileLatest.current.pick('sprite',target.defaultEmotion,file,target),upload:null};
+  if(!tileStable.current)tileStable.current={select:k=>tileLatest.current.pickOutfit(k),lamp:(k,mode)=>tileLatest.current.setLamp(k,mode),flip:k=>tileLatest.current.flip(k),pick:(target,file)=>tileLatest.current.pick('sprite',target.defaultEmotion,file,target),
+    menu:(k,close)=>tileLatest.current.outfitMenu(k,close),upload:null};
   const tileCalls=tileStable.current;
   if(!importFigureImage)tileCalls.upload=null;else if(tileCalls.upload?.disabled!==!!upload.busy)tileCalls.upload={disabled:!!upload.busy,pick:tileCalls.pick};
   const tileUpload=tileCalls.upload;
@@ -1218,7 +1236,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     narrow&&tabs,
     automaticReview&&h(AutomaticWriteReview,{binding,packId:pack.manifest.id,figureId:figure.id,onClose:()=>setAutomaticReview(false),onChanged}),
     h('div',{className:'ap-figure-stage'},
-      h('div',{className:'ap-stand-wrap','data-form':kind,'data-empty':previewEmpty||undefined,'data-stand-in':standStill?true:undefined,'data-speaking':speaking||undefined},
+      h('div',{className:'ap-stand-wrap','data-form':kind,'data-empty':previewEmpty||undefined,'data-stand-in':standStill?true:undefined,'data-speaking':speaking||undefined,...modelMenu.target},
+        modelMenu.layer,
         // While a voice plays the 差分 label stays shown; a picture without a mouth only gets this small waveform (no fake mouth).
         h('span',{className:'ap-stage-mood','data-speaking':speaking||undefined},picked.label,speaking&&!lipSynced&&h('span',{className:'ap-stage-voice','aria-hidden':true},[0,1,2].map(i=>h('i',{key:i})))),
         standStill&&h('span',{className:'ap-stage-standin'},h(Glyph,{name:'fallback'}),h('span',null,'回退为「'+standRow.label+'」')),
@@ -1262,7 +1281,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
         // v3.1 r2: one add language — the grid ends with a dashed ＋ tile (no 「＋ 添加服装」 pill in the header); none in the delete mode.
         h('div',{className:'ap-outfit-faces'},
           list.length>0&&h('div',{className:'ap-outfit-radios',role:pickIn('outfits')?'group':'radiogroup','aria-label':pickIn('outfits')?'选择要删除的服装':'服装'},list.map(o=>h(FigureOutfitTile,{key:o.key,binding,pack,figure,outfit:o,selected:o.key===outfit?.key,onSelect:tileCalls.select,
-            picking:!!pickIn('outfits'),checked:!!pickIn('outfits')?.has(o.key),onFlip:tileCalls.flip,onLamp:tileCalls.lamp,upload:tileUpload}))),
+            picking:!!pickIn('outfits'),checked:!!pickIn('outfits')?.has(o.key),onFlip:tileCalls.flip,onLamp:tileCalls.lamp,upload:tileUpload,menuFor:tileCalls.menu}))),
           !pickIn('outfits')&&h('span',{className:'ap-outfit-cell'},h('button',{type:'button',className:'ap-outfit-add','aria-label':'添加服装',title:'添加服装',onClick:addOutfit},h('span',{className:'ap-outfit-art'},h(Glyph,{name:'plus'}))))),
         // r7: the selected outfit's 触发词 are their own inline row under the tiles — 「触发词」, the chips,
         // a dashed ＋ (the figure 触发词 row's language). Outfit polish: the block is the selected outfit's whole detail —

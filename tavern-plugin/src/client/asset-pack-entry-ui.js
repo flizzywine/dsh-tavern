@@ -288,6 +288,8 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // one place that changes it: drag a row with the mouse, long-press then drag on touch, or Alt+↑ / Alt+↓ on a focused row.
   // useListReorder({ids, enabled, onMove}) → row(id): props for that row's <li>, and `dragging` for the list. onMove(id,
   // beforeId) moves `id` in front of `beforeId` (null = to the end) — the caller writes it (one CAS write per drop).
+  // A touch hold released without moving is the row's long press: it reaches the row as a contextmenu event, so the row's
+  // menu (useContextMenu with hold:false) opens.
   const REORDER_HOLD_MS=400,REORDER_SLOP=6,REORDER_EDGE=36;
   function useListReorder({ids,enabled,onMove}) {
     const [drag,setDrag]=React.useState(null),live=React.useRef(null);
@@ -300,8 +302,8 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     function down(e,id) {
       if(!enabled||live.current||e.button!==0||e.target?.closest?.('[aria-haspopup],input,textarea'))return;
       const list=e.currentTarget.closest('[role=listbox]');if(!list)return;
-      const touch=e.pointerType!=='mouse',pointer=e.pointerId,x0=e.clientX,y0=e.clientY,scroller=scrollRoot(list),doc=list.ownerDocument,win=doc.defaultView;
-      const s={active:false,before:undefined,y:y0,timer:0,frame:0};
+      const touch=e.pointerType!=='mouse',pointer=e.pointerId,x0=e.clientX,y0=e.clientY,scroller=scrollRoot(list),doc=list.ownerDocument,win=doc.defaultView,rowEl=e.currentTarget;
+      const s={active:false,moved:false,before:undefined,y:y0,timer:0,frame:0};
       const begin=()=>{s.active=true;s.timer=0;win.getSelection?.()?.removeAllRanges?.();setDrag({id,before:undefined});
         // Near the scroll box's top / bottom edge the list scrolls while the row is held there.
         const tick=()=>{const r=scroller?.getBoundingClientRect();if(r){const d=s.y<r.top+REORDER_EDGE?-1:s.y>r.bottom-REORDER_EDGE?1:0;if(d){scroller.scrollTop+=d*8;aim();}}s.frame=win.requestAnimationFrame(tick);};
@@ -309,14 +311,16 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
       const aim=()=>{const before=beforeAt(list,s.y),shown=changes(id,before)?before:undefined;if(shown!==s.before){s.before=shown;setDrag({id,before:shown});}};
       const move=ev=>{if(ev.pointerId!==pointer)return;s.y=ev.clientY;
         if(!s.active){if(Math.hypot(ev.clientX-x0,ev.clientY-y0)<=REORDER_SLOP)return;if(touch)return stop();begin();}
+        if(Math.hypot(ev.clientX-x0,ev.clientY-y0)>REORDER_SLOP)s.moved=true;
         ev.preventDefault();aim();};
       // Once a touch drag runs the page must not scroll under it; before that a swipe scrolls as usual (and cancels the hold).
       const touchmove=ev=>{if(s.active)ev.preventDefault();};
       const noMenu=ev=>{if(s.active||s.timer)ev.preventDefault();};
-      const up=ev=>{if(ev.pointerId!==pointer)return;const {active,before}=s;stop();if(!active)return;
+      const up=ev=>{if(ev.pointerId!==pointer)return;const {active,before,moved}=s;stop();if(!active)return;
         // The release must not also click the row (select it) or whatever it ends over.
         const swallow=c=>{c.stopPropagation();c.preventDefault();};win.addEventListener('click',swallow,{capture:true,once:true});win.setTimeout(()=>win.removeEventListener('click',swallow,true),0);
-        if(before!==undefined)onMove(id,before);};
+        if(touch&&!moved)rowEl.dispatchEvent(new win.MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:x0,clientY:y0}));
+        else if(before!==undefined)onMove(id,before);};
       const cancel=ev=>{if(ev.pointerId===pointer)stop();};
       const stop=()=>{win.clearTimeout(s.timer);win.cancelAnimationFrame(s.frame);live.current=null;setDrag(null);
         doc.removeEventListener('pointermove',move);doc.removeEventListener('pointerup',up);doc.removeEventListener('pointercancel',cancel);
@@ -362,8 +366,11 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // `onPreview` makes the thumbnail its own button that opens the large view (the row's
   // check and name still toggle it).
   // `reorder`: the row's drag / Alt+↑↓ props from useListReorder, when its list can be reordered.
-  function EntryItem({binding,pack,kind,item,focused,checked,audio,ctx,onSelect,onLamp,onPreview,reorder}) {
+  // `menu(close)`: the row's own menu (useContextMenu: right click, Shift+F10, a long press — which on a reorderable row
+  // is the hold released without dragging); the click still opens the entry.
+  function EntryItem({binding,pack,kind,item,focused,checked,audio,ctx,onSelect,onLamp,onPreview,reorder,menu=null}) {
     const packId=pack.manifest.id,figure=kind==='figures';
+    const rowMenu=useContextMenu({label:item.name+' 操作',content:checked===null?menu:null,hold:!reorder?.['data-reorder-id']});
     // Library thumbnails describe stored art, including disabled figures/outfits.
     const thumbnail=figure?{...item,enabled:true,outfits:item.outfits.map(o=>({...o,enabled:true}))}:null;
     // an 物品 without its own picture shows its pack's icon of its deepest tag (assetTags.icon).
@@ -372,11 +379,12 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
       kind==='skins'?h(SkinSample,{skin:pack.skins?.[item.id],label:item.name,compact:true}):h('span',{className:'ap-item-glyph'},h(KindIcon,{kind}));
     // a figure row is one line — face and name; no second meta row. r6 (owner
     // 2026-10): no outfit count either (the figure page lists its outfits).
-    return h('li',{role:'option','aria-selected':checked===null?focused:checked,className:'ap-item'+(checked!==null?' is-picking':'')+(figure?' is-figure':''),'data-checked':checked||undefined,'data-disabled':item.enabled===false||undefined,onClick:onSelect,...reorder},
+    return h('li',{role:'option','aria-selected':checked===null?focused:checked,className:'ap-item'+(checked!==null?' is-picking':'')+(figure?' is-figure':''),'data-checked':checked||undefined,'data-disabled':item.enabled===false||undefined,onClick:onSelect,...mergeProps(reorder,rowMenu.target)},
+      rowMenu.layer,
       h('span',{className:'ap-item-lead-box'},
         onPreview?h('button',{type:'button',className:'ap-item-lead','aria-label':'查看大图 '+item.name,title:'查看大图',onClick:e=>{e?.stopPropagation?.();onPreview();}},lead):lead,
         checked!==null&&h('span',{className:'ap-check-mark','aria-hidden':true},checked&&h(Glyph,{name:'check'}))),
-      h('button',{type:'button',className:'ap-item-main',onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name)),
+      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name)),
       // the list dot is the same 蓝灯 / 绿灯 / 关闭 (启用 / 关闭 for 演出风格).
       // the dot is a quick menu (LampMenu) — no need to open the entry.
       !figure&&item.recall&&!STATELESS_KINDS.includes(kind)&&(onLamp?h(LampMenu,{mode:entryLamp(item,LAMPLESS_KINDS.includes(kind)),onOff:LAMPLESS_KINDS.includes(kind),choices:lampChoices(kind),label:item.name+(LAMPLESS_KINDS.includes(kind)?' 的状态':' 的触发策略'),

@@ -710,16 +710,18 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h(ErrorBox,{error})),
       undo&&h(ConfirmDialog,{title:'撤销自动变更',body:'只撤销这次自动写入；后续手动修改会被保留，遇到冲突不会删除人物。',confirmLabel:'撤销',danger:true,onClose:()=>setUndo(null),onConfirm:()=>write('undoAutomaticWrite',undo)}));
   }
-  function PackRow({id,pack,scope,kind,onOpen,control,badge,lead,aside,tail,previews}) {
+  // `menu(close)`: the row's right click / long press menu (useContextMenu; the 素材库 list: 打开 · 导出 · 复制 · 删除…).
+  function PackRow({id,pack,scope,kind,onOpen,control,badge,lead,aside,tail,previews,menu=null}) {
+    const rowMenu=useContextMenu({label:(pack?.manifest.name||'')+' 操作',content:pack?menu:null});
     // identify an uninstalled binding instead of hiding its identity behind a generic warning.
     // UI standard R2: never the raw id as a name — an unknown, uninstalled pack reads 「未知素材包」, its id only in the tooltip.
     const name=pack?.manifest.name||scope.ctx?.writer?.pack?.(id)?.manifest?.name||'未知素材包',users=previews?[]:scope.users(id),compact=control==='static';
     const faces=users.filter(a=>{const info=stageFigure(scope.ctx,a);return !!info.figure&&figureHasFace(info.pack,info.figure);}).slice(0,PACK_FACES_MAX);
     const open=()=>onOpen(id,kind||undefined);
-    return h('li',{className:'ap-pack-row'+(pack?' is-openable':' is-missing')+(compact?' is-compact':''),'data-state':scope.stateOf(id),onClick:pack?packRowClick(open):undefined},
-      lead||null,
+    return h('li',{className:'ap-pack-row'+(pack?' is-openable':' is-missing')+(compact?' is-compact':''),'data-state':scope.stateOf(id),onClick:pack?packRowClick(open):undefined,...rowMenu.target},
+      rowMenu.layer,lead||null,
       h('span',{className:'ap-pack-title'},
-        pack?h('button',{type:'button',className:'ap-pack-name','aria-label':'打开 '+name,title:name,onClick:e=>{e?.stopPropagation?.();open();}},name):h('span',{className:'ap-pack-name is-missing',title:name==='未知素材包'?id:name},h(Glyph,{name:'warning'}),name),
+        pack?h('button',{type:'button',className:'ap-pack-name','aria-label':'打开 '+name,title:name,'aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();open();}},name):h('span',{className:'ap-pack-name is-missing',title:name==='未知素材包'?id:name},h(Glyph,{name:'warning'}),name),
         pack?.diagnostics?.length>0&&h('span',{className:'ap-hint-mark',role:'status',title:'有模组不可用；其它素材不受影响'},h(Glyph,{name:'warning'})),
         pack?.automatic&&h('span',{className:'ap-state-tag','aria-label':'自动素材包'},'自动'),
         badge||null,
@@ -846,7 +848,13 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       !state.value?(!state.error&&h(Loading,{count:8})):!list.length?h(EmptyState,{noun:'素材包'}):h(React.Fragment,null,
         h(PackList,{ids:orderPacks(ids.filter(pass),{byId,rank,sort,kind}),empty:h(EmptyState,{noun:'素材包',query,filter:kind&&kinds[kind],
           text:!query.trim()&&kind?'没有含「'+kinds[kind]+'」的素材包':undefined,onClear:()=>{setQuery('');setKind('');}}),
-          render:id=>{const pack=byId.get(id);return h(PackRow,{key:id,id,pack,scope,kind,badge:catalogue.badge(id),lead:lead(id,pack),aside:aside(id,pack),onOpen:(packId,k)=>onOpen({packId,kind:k})});}}),
+          render:id=>{const pack=byId.get(id);return h(PackRow,{key:id,id,pack,scope,kind,badge:catalogue.badge(id),lead:lead(id,pack),aside:aside(id,pack),onOpen:(packId,k)=>onOpen({packId,kind:k}),
+            menu:!picking&&pack&&(close=>{const run=fn=>()=>{close();fn();};return h(React.Fragment,null,
+              h(MenuItem,{onClick:run(()=>onOpen({packId:id,kind:kind||undefined}))},'打开'),
+              h(MenuItem,{disabled:busy,onClick:run(()=>actions.exportPack(pack))},'导出'),
+              h(MenuItem,{disabled:busy,onClick:run(()=>actions.copyPack(pack))},'复制'),
+              h('div',{className:'ap-menu-sep',role:'separator'}),
+              h(MenuItem,{danger:true,disabled:busy,onClick:run(()=>actions.askRemove(pack))},'删除…'));})});}}),
         broken.length>0&&h('ul',{className:'ap-pack-list is-broken'},broken.map(p=>h('li',{key:p.packId,className:'ap-pack-row is-broken'},h('span',{className:'ap-pack-name is-missing'},h(Glyph,{name:'warning'}),'无法读取的素材包'),h(ErrorBox,{error:errorText(p.error),reload:state.reload}))))),
       actions.dialogs,
       getting&&h(PackGetSheet,{binding,packs,catalogueReady:catalogue.ready,onClose:()=>setGetting(false),onSources:catalogue.openSources,onInstalled:catalogue.installed,
@@ -872,6 +880,15 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         h(Button,{className:'ap-solid-pill',disabled:!name.trim(),onClick:make},createLabel)),
       packs.length>8&&h(PackSearchBox,{label:'搜索素材包',value:query,onChange:setQuery,className:'is-compact'}),
       list.length>0&&h('div',{className:'ap-target-list'},list.map(p=>h('button',{key:p.manifest.id,type:'button',role:'menuitem',className:'ap-menu-item',onClick:()=>{close();onPick({packId:p.manifest.id,name:p.manifest.name});}},p.manifest.name))));
+  }
+  // A library list row's own menu (EntryItem `menu`): the 多选 bar's 复制到… and 删除 for this one entry — the same copyItems and
+  // removal with the same confirmation (askDelete, 「不再显示此提示」 included).
+  function EntryRowMenu({packs,packId,busy,close,onCopy,remove}) {
+    const [copying,setCopying]=React.useState(false);
+    if(copying)return h(PackTargetMenu,{packs,exclude:packId,close,onPick:onCopy});
+    return h(React.Fragment,null,
+      h(MenuItem,{disabled:busy,onClick:()=>setCopying(true)},'复制到…'),
+      h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
   }
   // Every still-image picker: explicit extensions, so the system file dialog lists them all; prepareImage decodes any of
   // them and re-encodes what the pack does not store (PNG / WebP) — a GIF becomes its first frame.
@@ -1154,6 +1171,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     });
     const removeEntry=(k,id)=>removeEntries(k,[id]),removeStyle=id=>removeEntries('directions',[id]);
     const [confirm,setConfirm]=React.useState(null);
+    // a list row's right click / long press: 复制到… and 删除… of that one entry (EntryRowMenu).
+    const rowMenu=item=>close=>h(EntryRowMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),
+      remove:current==='figures'?(done=>h(MenuItem,{danger:true,disabled:work.busy,onClick:()=>{done();
+          askDelete(setConfirm,{title:'删除人物「'+item.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},()=>removeEntries('figures',[item.id]));}},'删除人物…')):
+        entryRemoveItem({asset:item,pack,remove:removeEntry,ask:setConfirm,onError:text=>setNotice({text})})});
     const askRemovePicked=()=>{const ids=all.filter(a=>picked.has(a.id)).map(a=>a.id);
       askDelete(setConfirm,{title:'删除选中的 '+ids.length+' 项'+kinds[current]+'？',body:'从素材包「'+pack.manifest.name+'」中删除它们和它们的文件，无法恢复。用到它们的卡会少掉这些素材，不会自动换成别的。',confirmLabel:'删除 '+ids.length+' 项',danger:true},()=>removeEntries(current,ids));};    // 新建条目 — the one way an entry comes into the pack (the strip's 「＋ 新建」, a tab's 「＋ 新建<种类>」, the empty pack's
     // buttons and a dropped file). A blank entry is written first, whatever is missing (library contract: media kinds
@@ -1307,7 +1329,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       // the list and the opened entry each fail alone (PanelBoundary, §三.38).
       h(PanelBoundary,{name:'entry-list',resetKey:current+'@'+pack.revision},
       shown.length?h(WindowedItems,{className:'ap-items',blockClassName:'ap-items-block',multi:selecting,label:kinds[current],items:shown,
-          render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),
+          render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),menu:rowMenu(item),
             onLamp:mode=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,mode)))}),
           head:NEW_NAMES[current]&&!selecting&&h('li',{key:'@new',role:'none',className:'ap-item-add-row'},h('button',{type:'button',className:'ap-item-add ap-item-new','aria-label':newKindLabel(current),title:newKindLabel(current),disabled:work.busy,onClick:()=>createBlankEntry(current)},
             h('span',{className:'ap-item-add-mark'},h(Glyph,{name:'plus'}))))}):

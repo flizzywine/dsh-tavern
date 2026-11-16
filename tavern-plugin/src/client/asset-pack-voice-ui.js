@@ -398,27 +398,19 @@ function VoiceMarked({text,query}) {
   return h(React.Fragment,null,text.slice(0,at),h('mark',null,text.slice(at,at+query.length)),text.slice(at+query.length));
 }
 // The one voice row (选择声音, 添加声音, 可选声音): ▶ · name · 语言 square · meta · end (heat, faces, ✓). A click on the row
-// picks it (`onPick`); ▶ only plays. `menu` (R9): the row's own menu — right click, Shift+F10, or a long press on touch.
-const VOICE_LONG_PRESS_MS=500;
+// picks it (`onPick`); ▶ only plays. `menu` (R9): the row's own menu — right click, Shift+F10, or a long press on touch
+// (useContextMenu, the library's one row menu).
 function VoiceListRow({name,query,lang,meta,end,current,picked,play,onPick,menu,label}) {
-  const pressed=React.useRef(null),fired=React.useRef(false);
-  const main=(open,toggle)=>{
-    const show=()=>{if(!open)toggle?.();};
-    return h('button',{type:'button',className:'ap-vx-row-main','aria-label':label||name,'aria-current':current||undefined,'aria-pressed':picked===undefined?undefined:!!picked,
-      ...(menu?{'aria-haspopup':'menu','aria-keyshortcuts':'Shift+F10 ContextMenu',
-        onContextMenu:e=>{e.preventDefault();show();},
-        onKeyDown:e=>{if(e.key==='ContextMenu'||e.key==='F10'&&e.shiftKey){e.preventDefault();show();}},
-        onPointerDown:e=>{fired.current=false;if(e.pointerType!=='touch')return;clearTimeout(pressed.current);pressed.current=setTimeout(()=>{fired.current=true;show();},VOICE_LONG_PRESS_MS);},
-        onPointerUp:()=>clearTimeout(pressed.current),onPointerLeave:()=>clearTimeout(pressed.current),onPointerCancel:()=>clearTimeout(pressed.current)}:{}),
-      onClick:()=>{if(fired.current){fired.current=false;return;}if(open)toggle();onPick?.();}},
+  const rowMenu=useContextMenu({label:name+' 操作',content:menu||null});
+  return h('li',{className:'ap-vx-row','data-current':current||undefined,'data-picked':picked||undefined},
+    play||h('span',{className:'ap-vx-row-pad','aria-hidden':true}),
+    h('button',{type:'button',className:'ap-vx-row-main','aria-label':label||name,'aria-current':current||undefined,'aria-pressed':picked===undefined?undefined:!!picked,
+      ...mergeProps(rowMenu.target,rowMenu.trigger),onClick:()=>onPick?.()},
       // ✓ follows the name, so the faces at the end line up row to row.
       h('span',{className:'ap-vx-row-name'},h(VoiceMarked,{text:name,query})),current&&h('span',{className:'ap-vx-row-check','aria-hidden':true},h(Glyph,{name:'check'})),
       lang&&h(VoiceLangChip,{tag:lang}),meta&&h('span',{className:'ap-vx-row-meta'},meta),
-      h('span',{className:'ap-vx-row-end'},end||null));
-  };
-  return h('li',{className:'ap-vx-row','data-current':current||undefined,'data-picked':picked||undefined},
-    play||h('span',{className:'ap-vx-row-pad','aria-hidden':true}),
-    menu?h(Popover,{label:name+' 操作',float:true,className:'ap-vx-row-anchor',trigger:({open,toggle})=>main(open,toggle),content:menu}):main(false,null));
+      h('span',{className:'ap-vx-row-end'},end||null)),
+    rowMenu.layer);
 }
 // ▶ in a row: a small round button (the row's play, not the hero's).
 function VoiceRowPlay({state,label,onClick,disabled}) {
