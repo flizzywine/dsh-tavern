@@ -133,12 +133,78 @@ function cellTouchInput(event) {
   if(type)return type==='touch';
   return typeof window!=='undefined'&&!!window.matchMedia?.('(pointer: coarse)')?.matches;
 }
+const menuKey=event=>event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey;
 function cellMenuTrigger({open,toggle,onPrimary=null,onMenu=null}) {
   const show=()=>{onMenu?.();if(!open)toggle();};
   return {'aria-haspopup':'menu','aria-expanded':open,'aria-keyshortcuts':'Shift+F10 ContextMenu',
     onClick:event=>{if(!onPrimary||cellTouchInput(event)){onMenu?.();toggle();return;}if(open)toggle();onPrimary();},
-    onContextMenu:event=>{event?.preventDefault?.();show();},
-    onKeyDown:event=>{if(event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey){event.preventDefault();show();}}};
+    onContextMenu:event=>{event?.preventDefault?.();event?.stopPropagation?.();show();},
+    onKeyDown:event=>{if(menuKey(event)){event.preventDefault();event.stopPropagation();show();}}};
+}
+// The one right-click / long-press menu of something that has a click of its own (a library list row, a pack row, an
+// outfit tile, the model preview, a voice row): its click (and a tap) keeps doing that; the menu opens on right click
+// anywhere on it, Shift+F10 / the menu key, or a long press on touch (the click that ends the press is swallowed and the
+// system's text selection does not start: [data-hold-menu] in theme.css). The browser's own menu is replaced there only.
+// useContextMenu({label, content(close), onMenu, hold, disabled}) → {target, trigger, layer}: spread `target` on that
+// element, `trigger` on its focusable button, render `layer` anywhere (it is portalled; events in it stay inside). The
+// menu opens at the pointer (keyboard: under the element's left edge), floats in the top layer, ↑↓ move between its items,
+// and it closes like every popup (useOverlay: outside press; Esc returns focus) or on a scroll outside it.
+// `hold:false`: the caller owns the long press — a reorderable row turns a hold that did not drag into a contextmenu event.
+const MENU_HOLD_MS=500,MENU_HOLD_SLOP=8;
+function useContextMenu({label,content,onMenu=null,hold=true,disabled=false,limit=420}) {
+  const [at,setAt]=React.useState(null),[place,setPlace]=React.useState(null),menu=React.useRef(null),press=React.useRef({timer:0,fired:false,touch:false,x:0,y:0});
+  const off=disabled||!content;
+  const close=()=>{setAt(null);setPlace(null);};
+  const back=()=>{const node=at?.focus?.isConnected?at.focus:at?.el?.querySelector?.('[aria-keyshortcuts]');node?.focus?.({preventScroll:true});};
+  const open=(el,x,y)=>{const active=typeof document!=='undefined'?document.activeElement:null;onMenu?.();setPlace(null);setAt({el,x,y,focus:active&&el.contains(active)?active:null});};
+  useOverlay(!!at,()=>[menu.current],reason=>{close();if(reason==='escape')back();});
+  React.useEffect(()=>{if(off&&at)close();},[off]);
+  React.useEffect(()=>()=>clearTimeout(press.current.timer),[]);
+  React.useLayoutEffect(()=>{
+    if(!at||typeof window==='undefined')return;
+    const update=()=>{const node=menu.current;if(!node)return;
+      const r=at.x===undefined?at.el.getBoundingClientRect():null,x=r?r.left+12:at.x;
+      const next=popoverPlace({left:x,right:x,width:0,top:r?r.top:at.y,bottom:r?r.bottom:at.y},{width:node.offsetWidth,height:Math.min(limit,Math.max(node.offsetHeight,node.scrollHeight))},{width:window.innerWidth,height:window.innerHeight},true);
+      setPlace(p=>p&&p.top===next.top&&p.left===next.left&&p.maxHeight===next.maxHeight?p:next);};
+    const scrolled=event=>{if(!menu.current?.contains?.(event.target))close();};
+    const observer=typeof ResizeObserver==='function'&&menu.current?new ResizeObserver(update):null;observer?.observe(menu.current);
+    update();window.addEventListener('resize',update);window.addEventListener('scroll',scrolled,true);
+    return()=>{observer?.disconnect();window.removeEventListener('resize',update);window.removeEventListener('scroll',scrolled,true);};
+  },[at]);
+  const placed=!!place;
+  React.useEffect(()=>{if(placed)menu.current?.querySelector?.('button:not(:disabled),input')?.focus?.({preventScroll:true});},[placed]);
+  const clear=()=>{clearTimeout(press.current.timer);press.current.timer=0;};
+  const target=off?{}:{'data-hold-menu':true,
+    // A touch browser may answer a long press itself with contextmenu (and cancel the pointer): that is the same long press
+    // — it opens the menu once, whichever comes first, and the click that may follow is swallowed.
+    onContextMenu:event=>{event.preventDefault();event.stopPropagation();const p=press.current;
+      if(p.touch&&event.nativeEvent?.isTrusted!==false){if(p.fired)return;clear();p.fired=true;}
+      open(event.currentTarget,event.clientX,event.clientY);},
+    onKeyDown:event=>{if(!menuKey(event))return;event.preventDefault();event.stopPropagation();open(event.currentTarget);},
+    onPointerDown:event=>{const p=press.current;p.touch=event.pointerType==='touch';p.fired=false;clear();if(!hold||!p.touch)return;
+      const el=event.currentTarget;p.x=event.clientX;p.y=event.clientY;
+      p.timer=setTimeout(()=>{p.timer=0;p.fired=true;window.getSelection?.()?.removeAllRanges?.();open(el,p.x,p.y);},MENU_HOLD_MS);},
+    onPointerMove:event=>{const p=press.current;if(p.timer&&Math.hypot(event.clientX-p.x,event.clientY-p.y)>MENU_HOLD_SLOP)clear();},
+    onPointerUp:clear,onPointerCancel:clear,
+    onClickCapture:event=>{if(!press.current.fired)return;press.current.fired=false;event.preventDefault();event.stopPropagation();}};
+  const trigger=off?{}:{'aria-haspopup':'menu','aria-expanded':!!at,'aria-keyshortcuts':'Shift+F10 ContextMenu'};
+  const keys=event=>{event.stopPropagation();
+    if(event.key==='Escape'){event.preventDefault();close();back();return;}
+    if((event.key!=='ArrowDown'&&event.key!=='ArrowUp')||event.target?.closest?.('input,textarea'))return;
+    const items=[...menu.current.querySelectorAll('button:not(:disabled)')],i=items.indexOf(document.activeElement);
+    if(!items.length)return;event.preventDefault();items[(i+(event.key==='ArrowDown'?1:-1)+items.length)%items.length].focus();};
+  const stop=event=>event.stopPropagation();
+  const layer=at&&!off&&h(TopLayer,null,h('div',{className:'ap-popover-anchor is-floating',onClick:stop,onPointerDown:stop,onContextMenu:event=>{event.preventDefault();stop(event);},onKeyDown:keys},
+    h('div',{ref:menu,className:'ap-popover is-floating ap-context-menu',role:'menu','aria-label':label,'data-placement':place?.up?'top':'bottom',
+      style:place?{top:place.top+'px',left:place.left+'px',maxHeight:Math.min(limit,place.maxHeight)+'px'}:{top:'0px',left:'0px',visibility:'hidden'}},content(close))));
+  return {target,trigger,layer};
+}
+// Props of one element from several sources (a row's reorder and its menu): handlers of the same event run in turn.
+function mergeProps(...list) {
+  const out={};
+  for(const props of list)for(const [key,value] of Object.entries(props||{})){
+    const prev=out[key];out[key]=typeof prev==='function'&&typeof value==='function'&&/^on[A-Z]/.test(key)?event=>{prev(event);value(event);}:value;}
+  return out;
 }
 function MenuItem({onClick,disabled,title,danger,children}) { return h('button',{type:'button',role:'menuitem',className:'ap-menu-item'+(danger?' is-danger':''),disabled,title,onClick},children); }
 // 删除 asks first, unless 「不再显示此提示」 was ticked once: one machine-wide UI preference (localStorage, like the voice preview's),

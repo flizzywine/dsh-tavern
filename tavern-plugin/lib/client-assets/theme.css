@@ -2360,6 +2360,8 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-pill { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--fork-accent-soft, var(--fk-current-selected, var(--fork-accent-soft, Canvas))); color: var(--fork-accent); font-size: var(--fork-fs-meta); font-weight: 600; letter-spacing: .04em; }
 .ap-ui button.ap-more { width: 28px; height: 28px; font-size: 16px; letter-spacing: .05em; }
 .ap-popover-anchor { position: relative; display: inline-block; }
+/* useContextMenu: a long press opens the row's / tile's own menu, so it never starts the system's text selection or callout. */
+.ap-ui [data-hold-menu], .ap-ui [data-hold-menu] * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .ap-popover { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; min-width: 200px; max-width: min(340px, 86vw); max-height: 320px; overflow: auto; padding: 4px;
   border: .5px solid var(--ap-border-strong); border-radius: 10px; background: linear-gradient(var(--fork-surface, transparent), var(--fork-surface, transparent)), Canvas; box-shadow: 0 10px 32px #0000002e; }
 .ap-ui .ap-menu-item { display: flex; justify-content: flex-start; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; font-size: var(--fork-fs-body); }
@@ -5122,7 +5124,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-row { display: flex; align-items: center; gap: 4px; min-height: 38px; padding: 0 4px; border-radius: var(--fork-radius); }
 .ap-vx-row:hover { background: var(--fork-hover); }
 .ap-vx-row[data-picked] { background: var(--fork-accent-soft); }
-.ap-vx-row > .ap-popover-anchor { display: flex; flex: 1; min-width: 0; }
 .ap-ui button.ap-vx-row-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; min-height: 36px; padding: 0 4px; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); text-align: left; cursor: pointer; }
 .ap-ui button.ap-vx-row-play { display: grid; place-items: center; flex: none; width: 28px; height: 28px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fork-ink-2); cursor: pointer; --fork-spinner-size: 14px; }
 .ap-ui button.ap-vx-row-play .ap-glyph { width: 14px; height: 14px; }
