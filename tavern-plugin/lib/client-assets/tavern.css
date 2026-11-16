@@ -5439,8 +5439,11 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 }
 .dsh-tavern-compass-chat-msg.is-user .dsh-tavern-compass-chat-bubble {
   border-color: var(--dsh-tavern-accent);
-  background: var(--dsw-tavern-accent);
-  color: #fff;
+  /* 变量名曾误写成 dsw 前缀（那个 token 不存在），整条 background 声明失效，
+     气泡只剩白字贴在浅色面板上，脑暴对话里自己那条消息几乎看不清。 */
+  background: var(--dsh-tavern-accent);
+  /* 主题自己的「品牌色上的文字」：浅色主题给白、深色主题给深墨，不再固定 #fff（暖陶土深色下白字几乎糊在底色里）。 */
+  color: var(--dsw-alias-brand-text, #fff);
 }
 .dsh-tavern-compass-chat-msg-foot,
 .dsh-tavern-compass-chat-apply-row {

@@ -2322,3 +2322,15 @@ test('前端构建产物包含全新生成入口并以 fresh 透传', async () =
   assert.match(clientSource, /generatePlotCompass", \{ scope: scope \|\| "all", guidance: String\(text \|\| ""\)\.trim\(\), fresh: fresh \}/)
   assert.match(clientSource, /startFreshGenerate/)
 })
+
+test('脑暴对话用户气泡底色走真实 accent token，白字不再落在透明底上', async () => {
+  const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+  const block = css.match(/\.dsh-tavern-compass-chat-msg\.is-user \.dsh-tavern-compass-chat-bubble \{[^}]*\}/)
+  assert.ok(block, '用户气泡规则必须存在')
+  // 变量前缀写错时整条 background 声明会被丢弃：气泡变成透明底上的白字，浅色主题下几乎看不清。
+  assert.match(block[0], /background:\s*var\(--dsh-tavern-accent\)/)
+  assert.doesNotMatch(block[0], /var\(--dsw-tavern-/)
+  const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  assert.match(clientSource, /background: var\(--dsh-tavern-accent\);\\n  \/\* 主题自己的/)
+  assert.doesNotMatch(clientSource, /background: var\(--dsw-tavern-accent\)/)
+})
