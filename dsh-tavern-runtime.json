@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f3d15d1852c683675579d6f9c1fb27e09d7daff3",
-  "releaseSequence": 1700,
+  "revision": "53ebac923492e6d0882259c4eebc3f1b47e4737f",
+  "releaseSequence": 1701,
   "version": "3.3.0",
   "files": [
     {
@@ -4076,8 +4076,8 @@
     },
     {
       "path": "tavern-plugin/lib/host/mod-timer.mjs",
-      "sha256": "77741f5e71495786f8f40e17422c7887743f2778b50d9ab496f23343def56afc",
-      "size": 23725
+      "sha256": "ac754e75eab2d5f57180875350ba2408cb9f31cd3efd200a28fbe7db171a7d60",
+      "size": 23897
     },
     {
       "path": "tavern-plugin/lib/host/sessions.js",
@@ -6156,8 +6156,8 @@
     },
     {
       "path": "tavern-plugin/mods/timer/state.cjs",
-      "sha256": "b9f03c3845ee130a881f5ead30116cac7760d398a40be183030763340aaf614d",
-      "size": 5530
+      "sha256": "9a46a9e7197ece65bef9d33c463f9ab2c6cea4388f5acb22fbee6a007a91258c",
+      "size": 5877
     },
     {
       "path": "tavern-plugin/mods/timer/timer-clock.cjs",
@@ -9306,9 +9306,9 @@
     }
   ],
   "archive": {
-    "commit": "49326e110e74fdc213d797bfa3a9326abbad4b07",
+    "commit": "d20da39511bbfa6698f5b5ede92119aeabd6073b",
     "path": "runtime.zip",
-    "sha256": "fb0c5669c76e9d89d8c2ff1c33e7ea71487b9264b3e68e58734c1b8d77f61a4a",
-    "size": 16683564
+    "sha256": "68648c153b3a1e3b0c18f5c1bf41449725e151e17b8943f932e00fc426752805",
+    "size": 16683707
   }
 }
