@@ -10,6 +10,9 @@ const file = id => {
   if (!CARD_ID.test(id || '')) throw new Error('Invalid card identity')
   return `stage/cg-gallery/${id}.json`
 }
+// An entry deleted from its pack (the pack still exists, the entry does not) is gone for good; an entry that is only
+// disabled, unbound or in an uninstalled pack may come back, so its unlock stays.
+const entryDeleted = (pack,ref) => !!pack && !pack.manifest.assets.some(asset => asset.kind === 'cg' && asset.id === ref.assetId)
 export function createCgGallery({profileData,cardStorage,resolveCard,chatForSession,assets,readDirection,readSettings,now=Date.now}) {
   // ephemeral display capabilities, never serialized into story/playback.
   const receipts = new Map()
@@ -25,6 +28,18 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
     if (data.schemaVersion !== 1 || !Array.isArray(data.unlocked)) throw new Error('Invalid CG gallery data')
     // Each ref was checked when ack wrote it; a read keeps fields this version does not know.
     return data.unlocked
+  }
+  // A pack the library no longer has keeps its unlocks (it may be installed again); only entries gone from an existing pack are dropped.
+  async function prune(service,packId) {
+    const pack = await service.getPackSnapshot({packId}).catch(() => null)
+    if (!pack) return
+    for (const {name,directory} of await profileData.list('stage/cg-gallery')) if (!directory && name.endsWith('.json')) {
+      const cardId = name.slice(0,-5)
+      await cardStorage.withCardLock(cardId,async () => {
+        const unlocked = await read(cardId), rest = unlocked.filter(ref => ref.packId !== packId || !entryDeleted(pack,ref))
+        if (rest.length !== unlocked.length) await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked:rest})
+      })
+    }
   }
   return {
     async project({sessionId,turn,cgDisplay},project) {
@@ -45,14 +60,14 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid gallery limit')
       const {chat,cardId} = await session(sessionId), revision = assets.revision
       const unlocked = await read(cardId), keys = new Set(unlocked.map(assetRefKey))
-      const snapshot = await assets.snapshot(chat.cardPath), rows = []
+      const snapshot = await assets.snapshot(chat.cardPath), rows = [], packs = new Map(snapshot?.snapshots.map(pack => [pack.manifest.id,pack]))
       for (const pack of snapshot?.snapshots || []) for (const asset of pack.manifest.assets) {
         if (asset.kind !== 'cg' || !asset.enabled || snapshot.assetStatus[assetRefKey({packId:pack.manifest.id,kind:'cg',assetId:asset.id})]?.available !== true) continue
         const ref = {packId:pack.manifest.id,kind:'cg',assetId:asset.id}
         rows.push({ref,unlocked:keys.has(assetRefKey(ref)),available:true,asset})
       }
       const present = new Set(rows.map(row => assetRefKey(row.ref)))
-      for (const ref of unlocked) if (!present.has(assetRefKey(ref))) rows.push({ref,unlocked:true,available:false})
+      for (const ref of unlocked) if (!present.has(assetRefKey(ref)) && !entryDeleted(packs.get(ref.packId),ref)) rows.push({ref,unlocked:true,available:false})
       const stamp = digest([cardId,snapshot?.cardRevision,snapshot?.snapshots.map(pack => [pack.manifest.id,pack.revision]),unlocked])
       let start = 0
       if (cursor) {
@@ -119,6 +134,10 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
       if (rest.length !== unlocked.length) await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked:rest})
     }),
     unlocked:read,
+    // Every library write that removes a CG entry (an editor delete, an import, a pack replace) drops that entry's unlock on every card; returns the unsubscribe.
+    watch:service => service.subscribe(event => {
+      if (event.revision !== null && event.kinds.includes('cg')) prune(service,event.packId).catch(error => console.warn('dsh-tavern: 回想解锁清理失败:',error.message))
+    }),
     // scene-cg.js relocate: unlocks follow pictures that moved to another pack ([from, to] ref pairs).
     move:(cardId,pairs) => cardStorage.withCardLock(cardId,async () => {
       const to = new Map(pairs.map(([from,next]) => [assetRefKey(from),next])), seen = new Set(), unlocked = []
