@@ -81,6 +81,17 @@ const keys = pack => new Set([
   ...Object.values(pack.figures || {}).flatMap(f => ['figure/' + f.id, ...f.outfits.map(outfit => 'outfit/' + f.id + '/' + outfit.key)])
 ])
 const contentSnapshot = pack => ({manifest:pack.manifest, figures:pack.figures, sprites:pack.sprites, widgets:pack.widgets || {}, ...(pack.variantDocuments ? {variantDocuments:pack.variantDocuments} : {}), ...(pack.skins && Object.keys(pack.skins).length ? {skins:pack.skins} : {}), ...(pack.performances && Object.keys(pack.performances).length ? {performances:pack.performances} : {})})
+// One pack's rows of the voice catalogue. `users`: the figures speaking with it; `previewFigureId`: the figure of that pack a
+// preview of it speaks as (its reference audio is read from that pack).
+function voiceRows(pack) {
+  if (!pack || isModConfigPack(pack)) return null
+  const figures = pack.manifest.figures.map(id => pack.figures[id])
+  return {voices:Object.entries(pack.manifest.voiceLibrary?.voices || {}).map(([voiceId, voiceSpec]) => {
+    const users = figures.filter(f => f.voice?.voice === voiceId).map(f => ({id:f.id, name:f.name, ...(f.imageColor ? {imageColor:f.imageColor} : {})}))
+    return {ref:{packId:pack.manifest.id,voiceId}, name:voiceSpec.name, packName:pack.manifest.name,
+      revision:pack.local.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}, users, ...(figures[0] ? {previewFigureId:(users[0] || figures[0]).id} : {})}
+  })}
+}
 const snapshot = pack => pack && freezeSnapshot({...(pack.local.autoWrite?{automatic:true}:{}),...(isModConfigPack(pack)?{privateConfig:true}:{}),...contentSnapshot(pack), ...(pack.diagnostics?.length ? {diagnostics:pack.diagnostics} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt, ...(pack.local.distribution ? {distribution:pack.local.distribution} : {})})
 // what a list row reads — name, revision, counts, size and a few picture refs.
 // No files, blobs, sprites, figure or widget documents (the full list was 19 MB for 30 packs); details are per pack.
@@ -205,10 +216,12 @@ export function createAssetPackService(options) {
     const old = metadataCache.get(id)
     if (old) { metadataBytes -= old.size; metadataCache.delete(id) }
   }
-  // 'manifest' serves media without hydrating figure/sprite documents; true is list-summary only.
+  // 'manifest' serves media without hydrating figure/sprite documents; 'figures' adds the figure documents only (the voice
+  // catalogue: Live2D sprite documents are most of an installation's JSON); true is list-summary only.
+  const covers = (have, want) => want === true || !have || have === want || have === 'figures' && want === 'manifest'
   async function metadata(id, summaryOnly = false) {
     const signature = await storage.stamp(id), cached = metadataCache.get(id)
-    if (cached?.signature === signature && (summaryOnly === true || !cached.summaryOnly || summaryOnly === 'manifest' && cached.summaryOnly === 'manifest')) {
+    if (cached?.signature === signature && covers(cached.summaryOnly, summaryOnly)) {
       metadataCache.delete(id); metadataCache.set(id, cached)
       return cached.pack
     }
@@ -251,11 +264,11 @@ export function createAssetPackService(options) {
     // List rows need the manifest, not every installed figure/sprite. Hydrate those
     // documents only for a detail read; keep widget projection diagnostics in both tiers.
     const figures = {}, sprites = {}, skins = {}, performances = {}
-    if (!summaryOnly) {
+    if (!summaryOnly || summaryOnly === 'figures') {
       const names = [...new Set([
         ...manifest.figures.map(figureId => `figures/${figureId}.json`),
-        ...Object.values(manifest.sprites),
-        ...manifest.assets.filter(a => ['skins','performances'].includes(a.kind)).flatMap(a => assetContents(a).map(c => 'bundles/' + c.bundleKey + '/' + c.entry))
+        ...summaryOnly ? [] : [...Object.values(manifest.sprites),
+          ...manifest.assets.filter(a => ['skins','performances'].includes(a.kind)).flatMap(a => assetContents(a).map(c => 'bundles/' + c.bundleKey + '/' + c.entry))]
       ])]
       let next = 0
       // Bound cold hydration I/O; drain all workers before releasing the publication gate.
@@ -265,9 +278,11 @@ export function createAssetPackService(options) {
       const failed = reads.find(result => result.status === 'rejected')
       if (failed) throw failed.reason
       for (const figureId of manifest.figures) figures[figureId] = storedDocument(await documentBytes(`figures/${figureId}.json`))
-      for (const [key, name] of Object.entries(manifest.sprites)) sprites[key] = storedDocument(await documentBytes(name))
-      for (const asset of manifest.assets.filter(a => a.kind === 'skins')) skins[asset.id] = storedDocument(await documentBytes('bundles/' + assetContent(asset).bundleKey + '/' + assetContent(asset).entry))
-      for (const asset of manifest.assets.filter(a => a.kind === 'performances')) performances[asset.id] = storedDocument(await documentBytes('bundles/' + assetContent(asset).bundleKey + '/' + assetContent(asset).entry))
+      if (!summaryOnly) {
+        for (const [key, name] of Object.entries(manifest.sprites)) sprites[key] = storedDocument(await documentBytes(name))
+        for (const asset of manifest.assets.filter(a => a.kind === 'skins')) skins[asset.id] = storedDocument(await documentBytes('bundles/' + assetContent(asset).bundleKey + '/' + assetContent(asset).entry))
+        for (const asset of manifest.assets.filter(a => a.kind === 'performances')) performances[asset.id] = storedDocument(await documentBytes('bundles/' + assetContent(asset).bundleKey + '/' + assetContent(asset).entry))
+      }
     }
     const widgets = {}, variantDocuments = {}
     for (const asset of manifest.assets.filter(a => a.kind === 'widgets')) {
@@ -294,7 +309,7 @@ export function createAssetPackService(options) {
     check(signature === await storage.stamp(id), '$.packId', 'Pack changed during validation', 'REVISION_CONFLICT')
     // Inline voice transcripts are already retained in the figure document.
     // Summary entries retain only the projection, not megabytes of manifest indexes.
-    const retained = summaryOnly === true ? {summary:packSummary({manifest, diagnostics, local})} : {manifest, figures, sprites, skins, performances, widgets, variantDocuments, diagnostics, local, documents, files:new Map()}
+    const retained = summaryOnly === true ? {summary:packSummary({manifest, diagnostics, local})} : {manifest, figures, sprites, skins, performances, widgets, variantDocuments, diagnostics, local, documents:summaryOnly === 'figures' ? new Map() : documents, files:new Map()}
     const size = Buffer.byteLength(signature) + Buffer.byteLength(JSON.stringify(summaryOnly === true ? retained : {manifest, figures, sprites, skins, performances, widgets, variantDocuments, diagnostics, local})) + (summaryOnly ? 0 : [...documents.values()].reduce((sum, bytes) => sum + bytes.length, 0))
     if (size <= 32 * 1024 ** 2) {
       evictMetadata(id)
@@ -592,21 +607,22 @@ export function createAssetPackService(options) {
       }
       return entries
     }),
+    // Reads manifests and figure documents only (metadata 'figures'), never the Live2D sprite documents a full snapshot hydrates.
     async listVoiceCatalogue() {
-      const [packs, {templates}] = await Promise.all([service.listPacks(), service.listVoiceTemplates()])
-      const voices = [], errors = []
-      for (const pack of packs) {
-        if (pack.error) { errors.push(pack); continue }
-        if (pack.privateConfig) continue
-        // `users`: the figures speaking with it; `previewFigureId`: the figure of that pack a preview of it speaks as (its
-        // reference audio is read from that pack).
-        const figures = pack.manifest.figures.map(id => pack.figures[id])
-        for (const [voiceId, voiceSpec] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
-          const users = figures.filter(f => f.voice?.voice === voiceId).map(f => ({id:f.id, name:f.name, ...(f.imageColor ? {imageColor:f.imageColor} : {})}))
-          voices.push({ref:{packId:pack.manifest.id,voiceId}, name:voiceSpec.name, packName:pack.manifest.name,
-            revision:pack.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}, users, ...(figures[0] ? {previewFigureId:(users[0] || figures[0]).id} : {})})
-        }
-      }
+      const read = readRun([], async () => {
+        const ids = await storage.listIds(), rows = new Array(ids.length)
+        let next = 0
+        await Promise.all(Array.from({length:Math.min(8, ids.length)}, async () => {
+          while (next < ids.length) {
+            const index = next++, packId = ids[index]
+            try { rows[index] = voiceRows(await metadata(packId, 'figures')) }
+            catch (error) { rows[index] = {error:{packId, error:{code:error.code || 'ASSET_UNAVAILABLE', message:error.message || String(error)}}} }
+          }
+        }))
+        return rows
+      })
+      const [rows, {templates}] = await Promise.all([read, service.listVoiceTemplates()])
+      const voices = rows.flatMap(row => row?.voices || []), errors = rows.filter(row => row?.error).map(row => row.error)
       for (const item of templates) voices.push({ref:{templateId:item.templateId}, name:item.name,
         revision:item.revision, voiceSpec:item.voiceSpec, binding:item.binding})
       return {voices, errors}
