@@ -96,7 +96,9 @@ exports.apply = function(ctx) {
   ctx.effect(() => {
     const events = new EventSource('/api/dsh-tts/v1/enabled')
     events.onmessage = event => { void setEnabled(JSON.parse(event.data).enabled) }
-    events.onerror = () => { void setEnabled(false) }
+    // EventSource reconnects by itself (readyState CONNECTING) and the server then resends the
+    // current state, so only a closed stream means the service is gone; a reconnect keeps playback.
+    events.onerror = () => { if (events.readyState === EventSource.CLOSED) void setEnabled(false) }
     return () => {
       events.close(); void setEnabled(false); active = false; stateListeners.clear(); managementListeners.clear()
     }

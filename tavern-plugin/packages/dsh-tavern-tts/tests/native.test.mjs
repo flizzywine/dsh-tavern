@@ -80,6 +80,17 @@ test('native enabled setting withdraws and restores service; management and live
   await ctx.fiber.dispose()
 })
 
+test('enabled stream sends a comment heartbeat every 30 s so idle cut-offs do not drop it',async t => {
+  const f=await profile(t),{ctx,routes,plugin}=f
+  t.mock.timers.enable({apis:['setInterval']})
+  const response = await routes.get('/api/dsh-tts/v1/enabled').fetch(new Request('http://localhost/api/dsh-tts/v1/enabled',{headers:{Origin:'http://localhost'}}))
+  const reader = response.body.getReader(), read = async () => new TextDecoder().decode((await reader.read()).value)
+  assert.match(await read(),/"enabled":true/)
+  for (let i = 0; i < 10; i++) { t.mock.timers.tick(30e3); assert.equal(await read(),':\n\n') }
+  await reader.cancel()
+  await plugin.dispose(); await ctx.fiber.dispose()
+})
+
 test('saved enabled=false never exposes consumer service after activation',async t => {
   const f=await profile(t,{legacy:{tts:{enabled:false}}}),{ctx,plugin}=f
   await tick(); assert.equal(f.value('tts').enabled,false); assert.equal(ctx.get('tts'),undefined)
