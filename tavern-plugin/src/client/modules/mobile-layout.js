@@ -224,11 +224,29 @@ function installVisualViewportPin(doc) {
         schedule();
     }
     // 会话切换会替换 seat；只在结构锚点变化时重新测量，不遍历流式正文。
+    // 流式生成每帧都会往气泡里塞文本和行内节点：先按最便宜的条件出局，再只对
+    // 「含元素子树的新增节点」做锚点扫描，锚点已经失效时直接交给 rebind() 的实时查询。
+    const TAVERN_SHELL_ANCHORS = '[data-composer-seat], [data-composer-card], header';
+    function anchorsIntroduced(records) {
+        for (let index = 0; index < records.length; index += 1) {
+            const added = records[index].addedNodes;
+            for (let node = 0; node < added.length; node += 1) {
+                const item = added[node];
+                // 文本/注释节点不可能是锚点，流式正文的绝大多数新增都属于这一类。
+                if (!item || item.nodeType !== 1) continue;
+                if (item.matches('[data-composer-seat], [data-composer-card], header')) return true;
+                // 行内排版节点没有元素子树，querySelector 必然落空。
+                if (!item.childElementCount) continue;
+                if (item.querySelector(TAVERN_SHELL_ANCHORS)) return true;
+            }
+        }
+        return false;
+    }
     const mutations = typeof view.MutationObserver === "function" && doc.body ? new view.MutationObserver(records => {
         if (!narrow.matches && !touch.matches) return;
-        if ((seat && !seat.isConnected) || (card && !card.isConnected) || (header && !header.isConnected) || records.some(record =>
-            Array.from(record.addedNodes).some(node => node.nodeType === 1 &&
-                (node.matches('[data-composer-seat], [data-composer-card], header') || node.querySelector('[data-composer-seat], [data-composer-card], ' + TAVERN_HEADER_SELECTOR))))) markDirtyAndSchedule();
+        // 已经排了一帧测量：rebind() 读的是实时 DOM，不需要再扫这批变更。
+        if (frame) return;
+        if ((seat && !seat.isConnected) || (card && !card.isConnected) || (header && !header.isConnected) || anchorsIntroduced(records)) markDirtyAndSchedule();
     }) : null;
     mutations?.observe(doc.body, { childList: true, subtree: true });
     for (const name of ["resize", "orientationchange", "pageshow"]) view.addEventListener(name, immediate);

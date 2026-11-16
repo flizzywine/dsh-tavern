@@ -4,6 +4,12 @@ function createTavernSessionRetention(options) {
     const host = options.window;
     const now = options.now || Date.now;
     const duration = options.durationMs === undefined ? 10 * 60 * 1000 : options.durationMs;
+    // Every held session keeps one iframe plus its blob URLs alive. A phone that walks
+    // through the chat history cannot be allowed to accumulate them, so background
+    // sessions beyond this cap are released oldest-first instead of at the deadline.
+    const deviceMemory = Number(host && host.navigator && host.navigator.deviceMemory) || 0;
+    const defaultRetained = deviceMemory > 0 && deviceMemory <= 4 ? 3 : 4;
+    const maxRetained = options.maxRetained === undefined ? defaultRetained : Math.max(0, Math.floor(Number(options.maxRetained) || 0));
     const records = new Map(), leaveListeners = new Set(), selectListeners = new Set();
     let selected = "", managed = false;
     function record(id) {
@@ -22,6 +28,16 @@ function createTavernSessionRetention(options) {
         records.delete(id); cancel(item);
         for (const dispose of item.resources.values()) dispose();
         item.resources.clear();
+    }
+    // Only background sessions are candidates: anything mounted or selected is in use.
+    // Busy sessions are working (generation/settlement) and keep their resources too.
+    function enforceLimit() {
+        if (!maxRetained) return;
+        const idle = [];
+        for (const item of records.values()) if (!active(item) && !busy(item)) idle.push(item);
+        if (idle.length <= maxRetained) return;
+        idle.sort((left, right) => left.leftAt - right.leftAt);
+        for (let index = 0; index < idle.length - maxRetained; index += 1) release(idle[index].id);
     }
     function schedule(item) {
         cancel(item);
@@ -53,6 +69,7 @@ function createTavernSessionRetention(options) {
                 item.mounts--;
                 if (!managed && item.mounts === 0) item.leftAt = now();
                 schedule(item);
+                enforceLimit();
             };
         },
         select: function (id) {
@@ -65,6 +82,7 @@ function createTavernSessionRetention(options) {
             }
             if (previous) for (const listener of Array.from(leaveListeners)) listener(previous);
             for (const listener of Array.from(selectListeners)) listener(id);
+            enforceLimit();
         },
         onSelect: function (listener) { selectListeners.add(listener); return () => selectListeners.delete(listener); },
         onLeave: function (listener) { leaveListeners.add(listener); return function () { leaveListeners.delete(listener); }; },

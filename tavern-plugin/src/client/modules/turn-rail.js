@@ -350,6 +350,8 @@ function createStoryFloorRail(root, options) {
 	}
 	function hasScopeChange(mutations) {
 		if (!doc || !mutations || !mutations.length) return false;
+		// 已排了一次同步：sync() 会重新 findScope() 并读实时 DOM，不必再扫这批变更。
+		if (frame) return false;
 		const scopeAlive = !!(scope && scope !== doc.body && scope.isConnected !== false);
 		const scopeVisible = scopeAlive && isVisibleBox(scope);
 		for (let i = 0; i < mutations.length; i++) {
@@ -361,9 +363,12 @@ function createStoryFloorRail(root, options) {
 				const node = touched[j];
 				if (!node || isOwnNode(node)) continue;
 				if (!scopeVisible) return true;
-				if (node.nodeType === 1 && ((node.matches && node.matches("[data-conversation-scroll]")) || (node.querySelector && node.querySelector("[data-conversation-scroll]")))) {
-					return true;
-				}
+				// 流式正文往气泡里塞的是文本和行内节点：文本永远匹配不到滚动容器。
+				if (node.nodeType !== 1) continue;
+				if (node.matches && node.matches("[data-conversation-scroll]")) return true;
+				// 没有元素子树的节点，querySelector 必然落空。
+				if (!node.childElementCount) continue;
+				if (node.querySelector && node.querySelector("[data-conversation-scroll]")) return true;
 			}
 		}
 		return false;
