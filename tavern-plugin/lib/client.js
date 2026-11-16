@@ -4406,7 +4406,8 @@ window.__ModuleLoader__.load({
 		    return entry ? {id:emotion, ...entry} : null;
 		}
 		// `fallbackTo` (outfit 缺图时用) names the canonical 差分 shown when the requested
-		// one has no state of its own; without one (or when it has none either) the outfit default stands in, as before.
+		// one has no state of its own; without one (or when it has none either) the outfit default stands in, and an outfit
+		// without the default's image rests at its calm picture before anything falls to the avatar.
 		function resolveSpriteEmotion(manifest, requested, order, fallbackEmotions = [], fallbackTo = {}) {
 		    // Callers with a figure supply its declarations, headed by the outfit default.
 		    const unrestricted = order === undefined;
@@ -4414,7 +4415,7 @@ window.__ModuleLoader__.load({
 		    requested ??= order[0];
 		    const own = unrestricted || order.includes(requested) ? spriteEmotionState(manifest,requested) : null;
 		    const id = order[0];
-		    const state = own || fallbackTo?.[requested] && spriteEmotionState(manifest,fallbackTo[requested]) || spriteEmotionState(manifest,id);
+		    const state = own || fallbackTo?.[requested] && spriteEmotionState(manifest,fallbackTo[requested]) || spriteEmotionState(manifest,id) || spriteEmotionState(manifest,'calm');
 		    return {requestedEmotion:requested, resolvedEmotion:state?.id || null, missing:!own, intentionalFallback:!own && requested !== id && fallbackEmotions.includes(requested) && Boolean(state),
 		        reason:own ? 'own' : state ? 'missing-emotion' : 'missing-sprite', state};
 		}
