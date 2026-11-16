@@ -142,8 +142,8 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 	) + '\nTavernRollbackToTurnButton', page.context)
 	const feature = page.context.createTavernStoryTranscriptFeature({
 		replyActions: {
-			useReadAloudState: () => ({ auto: false }),
-			ReadAloud: props => button('朗读', props.source),
+			useSpeechVoiced: () => true,
+			Speech: props => props.voiced ? button('朗读', props.source) : null,
 			Illustrate: props => button('配图', props.turn),
 			Receipt: props => button('变量结算', props.storyTurn),
 			Latest: () => button('更多'),

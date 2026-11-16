@@ -112,7 +112,7 @@ test('旁白配音: an export reads each measured narration page\'s cached narra
   const pcm = Buffer.alloc(48000); for (let i = 0; i < 24000; i++) pcm.writeInt16LE(Math.round(9000 * Math.sin(i / 24000 * 523 * Math.PI * 2)), i * 2)
   const reads = []
   // 旁白 points at a figure of the pack whose voice speaks 中文.
-  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}, readAloud:{voice:null, auto:false}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
+  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
     registerVoiceSource:() => ({dispose() {}}), grantConsumer:() => ({grant:{}, dispose() {}}),
     async readCached(input) { reads.push([input.text, input.language]); return input.text === '雨下了一整夜。' ? {key:'narrator-page', audio:pcmWav(pcm), durationMs:1000, loudness:{version:1, gain:1, gainDb:0}} : null }}
   const figure = pack.figures[FIGURE_ID], withNarrator = {...pack, revision:'r1', figures:{...pack.figures, narrator:{...figure, id:'narrator', voice:{...figure.voice, language:'zh'}}}}
@@ -141,7 +141,7 @@ test('旁白配音 in another language: an export plans the whole translated par
   const pcm = Buffer.alloc(48000); for (let i = 0; i < 24000; i++) pcm.writeInt16LE(Math.round(9000 * Math.sin(i / 24000 * 523 * Math.PI * 2)), i * 2)
   const reads = []
   // 旁白 points at a figure of the pack whose voice speaks 中文.
-  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}, readAloud:{voice:null, auto:false}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
+  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
     registerVoiceSource:() => ({dispose() {}}), grantConsumer:() => ({grant:{}, dispose() {}}),
     async readCached(input) { reads.push([input.text, input.language]); return input.text === '一晩中雨が降った。' ? {key:'narrator-page', audio:pcmWav(pcm), durationMs:1000, loudness:{version:1, gain:1, gainDb:0}} : null }}
   const figure = pack.figures[FIGURE_ID], withNarrator = {...pack, revision:'r1', figures:{...pack.figures, narrator:{...figure, id:'narrator', voice:{...figure.voice, language:'zh'}}}}

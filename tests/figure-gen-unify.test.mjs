@@ -106,5 +106,5 @@ test('编辑 has no generation flow of its own: its heading tool and tile decisi
   const genUi = await read('packages/dsh-tavern-stage/src/client/asset-pack-gen-ui.js')
   const tab = genUi.slice(genUi.indexOf('function FigureGenTab('))
   assert.match(tab, /h\(GenOutfitTool,\{/)
-  assert.doesNotMatch(tab.slice(0, tab.indexOf('function GenPromptSettings(')), /gen\.batch\(/)
+  assert.doesNotMatch(tab, /gen\.batch\(/)
 })

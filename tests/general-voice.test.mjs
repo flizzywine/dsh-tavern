@@ -59,7 +59,7 @@ test('bubble config: an unbound enabled figure speaks the 通用声音, 「不�
 
 function speechFor(pack, {general = null, narrator = null} = {}, toggles = {}, narratorOn = false) {
   const reads = []
-  const tts = createTts({profileId:'general-voice-test', reading:() => ({general:{figure:general && at(general)}, narrator:{enabled:narratorOn, figure:narrator && at(narrator)}, readAloud:{voice:null, auto:false}})})
+  const tts = createTts({profileId:'general-voice-test', reading:() => ({general:{figure:general && at(general)}, narrator:{enabled:narratorOn, figure:narrator && at(narrator)}})})
   const library = {getPackSnapshot:async ({packId}) => packId === VOICE_PACK ? pack : null, readMedia:async input => { reads.push(input); return {bytes:audio} }}
   const presentation = {extension:withSwitches({}), subscribe:() => () => {}}
   return {tts, reads, speech:createAssetPackSpeech({presentation, getEngine:() => engineWith(toggles), getTts:() => tts, getLibrary:() => library, scope:'dsh-browser'})}

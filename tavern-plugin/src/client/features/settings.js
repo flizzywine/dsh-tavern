@@ -430,8 +430,6 @@
             return enabled;
         }
 
-        // the automatic candidate preference hook (its switch lives in 舞台设置 › 基础设置); no stage/bubble dependency.
-        // @include auto-choices-preference.js
 
         function CandidatePreferencesSettings() {
             const mode = useCandidatePreferences();
@@ -613,16 +611,8 @@
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
             CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
-            // both are stage package pages (asset-pack-gen-ui.js / mod-manager.js): drawn once the stage client binds them (StagePackView).
-            StageGenerationSettings: () => React.createElement(StagePackView, { view: ui => ui.GenPromptSettings, call: engineRpc }),
-            // 设置 › 舞台 › 模组管理 (mod-manager.js).
+            // 设置 › 舞台 › 模组管理 (mod-manager.js), a stage package page: drawn once the stage client binds it (StagePackView).
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
-            VoiceCataloguePicker:packUi.VoiceCataloguePicker, voiceKey:packUi.voiceKey, voiceFromKey:packUi.voiceFromKey,
-            useReadingBinding:() => {
-                usePackRevision(ttsClientAvailable);
-                const service = packClient(), tts = forkTtsScope?.get('ttsClient');
-                return React.useMemo(() => ({service,tts}), [service,tts]);
-            },
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
         });

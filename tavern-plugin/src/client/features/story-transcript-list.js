@@ -5,7 +5,7 @@
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
 
-function tavernStoryReadAloudId(row) {
+function tavernStorySpeechId(row) {
 	return JSON.stringify([row.messageUid || row.key, row.message?.swipeId])
 }
 
@@ -312,8 +312,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			row.role === 'user' ? editButton : copyButton,
 			row.role === 'user' ? copyButton : editButton,
 			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
-				h('span', { 'data-fork-turn': 'speech' }, h(replyActions.ReadAloud, {
-					sessionId: props.sessionId, messageId: tavernStoryReadAloudId(row), source: row.text, state: props.readAloudState
+				h('span', { 'data-fork-turn': 'speech' }, h(replyActions.Speech, {
+					sessionId: props.sessionId, messageId: tavernStorySpeechId(row), source: row.text, voiced: props.speechVoiced
 				})),
 				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
 				props.latest && props.host ? h(replyActions.Latest, {
@@ -493,7 +493,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,
 			inlineStatus,
 			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
-				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host, turnFooter: props.turnFooter }))
+				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, speechVoiced: props.speechVoiced, host: props.host, turnFooter: props.turnFooter }))
 	})
 
 	function StoryTurnReasoningBox({ text, live }) {
@@ -720,9 +720,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn, regenDamperOutcome, activeLiveDamper, draftDamperOutcome])
 		const latest = rows.findLast(row => row.role === 'assistant')
 		const generating = Boolean(props.partial || streamView?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
-		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
-			? JSON.stringify([false, tavernStoryReadAloudId(latest), latest.text, latest.floorNo]) : null
-		const readAloudState = replyActions ? replyActions.useReadAloudState(sessionId, readAloudSignal) : null
+		const speechVoiced = replyActions ? replyActions.useSpeechVoiced(sessionId) : false
 		const rowWindow = useTavernStoryRowWindow(sessionId)
 		if (!rows.length) {
 			return h('div', {
@@ -756,7 +754,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			return h(StoryTranscriptRow, { windowRef: windowed(row) ? rowWindow.window.refFor(row.key) : undefined, key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus,
-				latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
+				latest: row === latest, latestTurn: latest?.legacyTurn, speechVoiced,
 				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
 		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
 			h('span', null, '\u26a0 ' + failure)) : null)

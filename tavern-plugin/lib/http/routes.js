@@ -135,7 +135,7 @@ export function registerTavernHttpRoutes({
         // Voice grants and paid asset generation also refuse any cross-site browser marker.
         // The desktop app forwards authenticated requests without Origin or Sec-Fetch-Site.
         const figureVoiceRoute = /^\/api\/dsh-tavern\/(?:getFigureVoiceEditor|listFigureVoiceChoices|assignFigureVoice|previewFigureVoice|openFigureVoicePreview|closeFigureVoicePreview)$/.test(pathname)
-        const assetGenerationRoute = /^\/api\/dsh-tavern\/(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|getAssetGenPrompts|setAssetGenPrompt|listAssetGenStyles)$/.test(pathname)
+        const assetGenerationRoute = /^\/api\/dsh-tavern\/(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|listAssetGenStyles)$/.test(pathname)
         if ((figureVoiceRoute || assetGenerationRoute) && !isSameOriginRequest({ host: req.headers.host, origin, fetchSite: req.headers['sec-fetch-site'] })) {
           res.writeHead(403); res.end('forbidden'); return
         }
@@ -437,7 +437,7 @@ export function registerTavernHttpRoutes({
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             bodyBytes += bytes.length
             if (bodyBytes > rpcBodyLimit) throw new Error(method === 'pluginData' ? '插件数据请求超过 256 MiB 及封装大小限制' : 'RPC request exceeds 80 MiB')
-            if (assetGenerationRoute && bodyBytes > (method === 'prepareAssetGeneration' ? 45 * 1024 * 1024 : method === 'setAssetGenPrompt' ? 64 * 1024 : 16384)) throw new Error('素材生成请求过大')
+            if (assetGenerationRoute && bodyBytes > (method === 'prepareAssetGeneration' ? 45 * 1024 * 1024 : 16384)) throw new Error('素材生成请求过大')
             if (gameplayRoute && bodyBytes > 2 * 1024 * 1024) throw new Error('游戏 API 请求超过 2 MB')
             if (sceneImageRoute && bodyBytes > sceneImageBodyLimit) {
               throw new Error('图片请求数据超过 256 KB 大小限制，请减少一次批量删除的图片后重试。')

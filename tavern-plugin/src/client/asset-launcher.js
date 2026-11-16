@@ -4,8 +4,6 @@ const packUi = createAssetPackUI(React,{VoicePicker:BubbleLibraryPicker,AvatarIm
     live2d:typeof LIVE2D_PREVIEW_KIT==='object'?LIVE2D_PREVIEW_KIT:undefined,
     // the Spine importer's reader and live preview (spine-preview.js).
     spine:typeof forkSpineKit==='function'?forkSpineKit():undefined,
-    // 舞台设置 › 基础设置 「自动生成选项」 reads/writes through the one preference hook.
-    autoChoices:typeof useAutoChoicesPreference==='function'?useAutoChoicesPreference:undefined,
     // 开场画面 previews the stage's compensating background grade (same math as the live stage).
     timeGrade:projection=>{const grade=createPackSceneLayers()(projection).backgroundGrade;return galMatrix.isIdentity(grade)?null:grade;},
     emotions:{moods:BUBBLE_MOODS,max:CUSTOM_MOOD_MAX,colors:customMoodColors,upsert:(list,value)=>emotionUpsert(list,value)}});

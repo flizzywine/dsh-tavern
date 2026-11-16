@@ -17,8 +17,8 @@ async function profile(t) {
   return f
 }
 
-// tts.reading keeps which figure 通用声音 / 旁白 speak with (none = the browser default), 旁白配音's global switch and 全文朗读's reader.
-const FRESH = {general:{figure:null}, narrator:{enabled:false, figure:null}, readAloud:{voice:null, auto:false}}
+// tts.reading keeps which figure 通用声音 / 旁白 speak with (none = the browser default) and 旁白配音's global switch.
+const FRESH = {general:{figure:null}, narrator:{enabled:false, figure:null}}
 const FIGURE_REF = {packId:'11111111-1111-4111-8111-111111111111', figureId:'speaker-a'}
 test('fresh settings have narration off; the switch persists and fires readingChanged once per change', async t => {
   const f = await profile(t), tts = f.ctx.get('tts'), control = f.ctx.get('ttsControl')
@@ -51,24 +51,9 @@ test('an invalid reading patch is rejected with a readable message and nothing i
   const f = await profile(t), control = f.ctx.get('ttsControl')
   for (const patch of [{dialogueVoice:{browser:'Kyoko'}}, {narrator:{voice:{browser:'Kyoko'}}}, {narrator:{enabled:'yes'}}, {voice:{browser:'a'}},
     {general:{figure:{packId:'not-a-uuid', figureId:'speaker-a'}}}, {general:{figure:{packId:FIGURE_REF.packId, figureId:'../x'}}}, {general:{figure:{packId:FIGURE_REF.packId}}},
-    {narrator:{figure:'speaker-a'}}, {general:{voice:{browser:'a'}}},
-    {readAloud:{voice:{browser:''}}}, {readAloud:{voice:{serviceId:'Bad Id', voice:'v'}}}, {readAloud:{voice:{packId:'p', figureId:'f'}}}])
+    {narrator:{figure:'speaker-a'}}, {general:{voice:{browser:'a'}}}, {readAloud:{auto:true}}])
     await assert.rejects(control.call('setReading', patch), {code:'INVALID_READING_VOICE'})
   assert.match(describeTtsError('INVALID_READING_VOICE'), /朗读声音/)
   assert.equal(f.value('tts')?.reading, undefined)
   assert.deepEqual(f.ctx.get('tts').reading(), FRESH)
-})
-
-test('read-aloud owns its voice (browser, service, pack voice or template) and auto setting, one event per write', async t => {
-  const f = await profile(t), control = f.ctx.get('ttsControl'), events = []
-  f.ctx.get('tts').subscribe(event => { if (event.type === 'readingChanged') events.push(event) })
-  for (const voice of [{browser:'Kyoko'}, {serviceId:'fish-local',voice:'reader'}, {packId:'11111111-1111-4111-8111-111111111111',voiceId:'library-clone'}, {templateId:'33333333-3333-4333-8333-333333333333'}]) {
-    const before = events.length
-    const result = await control.call('setReading', {readAloud:{voice,auto:true}})
-    assert.deepEqual(result, {...FRESH, readAloud:{voice,auto:true}})
-    assert.deepEqual(f.value('tts').reading.readAloud,result.readAloud)
-    assert.equal(events.length,before + 1)
-  }
-  for (const voice of [{silent:true}, {packId:'bad',voiceId:'v'}, {templateId:'bad'}])
-    await assert.rejects(control.call('setReading',{readAloud:{voice}}),{code:'INVALID_READING_VOICE'})
 })

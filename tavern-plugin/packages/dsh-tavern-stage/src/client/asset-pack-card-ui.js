@@ -471,7 +471,6 @@ function StageSwitches({ctx}) {
     row('dialogue'),
     h(StageVoiceRow,{key:'voice',ctx}),
     row('stage',h(StageModeJump,{ctx}),ctx.onEngine?()=>ctx.onEngine():undefined),
-    h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
     h(StageAutoCastRow,{key:'auto-cast',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
@@ -612,23 +611,6 @@ function StageModeJump({ctx}) {
   const jump=React.useRef(null);
   React.useEffect(()=>{if(ctx.takeEngineFocus?.())jump.current?.focus?.();},[]);
   return ctx.onEngine?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'舞台模式设置',title:'舞台模式设置',onClick:()=>ctx.onEngine()},h(Glyph,{name:'chevRight'})):null;
-}
-// 「自动生成选项」 is a basic, every-card setting and lives only here (moved out of 酒馆设置 ›
-// 候选项 and the stage CONFIG): the global candidateAutoGenerate through the one hook (auto-choices-preference.js). Needs no stage
-// switch: it also serves the chat view. A save failure is the row's ⚠.
-const STAGE_AUTO_CHOICES_HELP='每轮正文完成后自动生成选项；不补生成旧回复，失败可手动重试。';
-// Four-state like the rest: the global layer is candidateAutoGenerate, the card layer stage.switches.autoChoices (the host
-// decides per chat with effectiveAutoChoices).
-function StageAutoChoicesRow({ctx}) {
-  if(typeof autoChoices!=='function')return null;
-  return h(StageAutoChoicesSwitch,{ctx});
-}
-function StageAutoChoicesSwitch({ctx}) {
-  const {enabled,loading,busy,error,save}=autoChoices('getTavernSettings');
-  const tag=h(StageSwitchTag,{name:'自动生成选项',global:enabled===true,card:ctx.ext?.stage?.switches?.autoChoices,busy,disabled:loading,
-    writeCard:value=>ctx.writer.write(ext=>stageSwitchPatch(ext,{autoChoices:value})),writeGlobal:value=>save(value)});
-  return h(SwitchRow,{label:'自动生成选项',icon:'select',help:STAGE_AUTO_CHOICES_HELP,tag,
-    status:error?h(HintLine,{compact:true,text:error}):null});
 }
 // 「自动素材 ›」: a stage core feature, not a mod. Four-state like the rest: the global layer is the stage's
 // tavern-auto-cast section (getAutoCastSettings), the card layer stage.switches.autoCast; the host decides with

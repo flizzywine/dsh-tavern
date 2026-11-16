@@ -138,7 +138,7 @@ test('host speech: the narrator key opens the figure it points at and never a ca
     resolveName:async () => assert.fail('the narrator is not a name'), resolveFigure:async () => assert.fail('a pointed figure is read from the library')}
   const library = {getPackSnapshot:async ({packId}) => packId === VOICES ? voicePack : null}
   const engine = validateAssetEngineSettings(stageEnabledEngineSettings()), registered = []
-  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:figure && {packId:VOICES, figureId:figure}}, readAloud:{voice:null, auto:false}}),
+  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:figure && {packId:VOICES, figureId:figure}}}),
     resolveVoiceService:async () => ({effective:{serviceId:'svc-1', serviceRevision:'1', capabilities:{}}, issues:[]}),
     registerVoiceSource:input => { registered.push(input); return {dispose() {}} }, grantConsumer:() => ({grant:{}, dispose() {}})}
   const speech = createAssetPackSpeech({presentation, getEngine:() => engine, getTts:() => tts, getLibrary:() => library, scope:'dsh-browser'})

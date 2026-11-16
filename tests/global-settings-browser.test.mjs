@@ -39,6 +39,19 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)
 })
 
+// 对话气泡 / 舞台模式 are switched only in 舞台设置 › 基础设置 (four-state); the generation templates and their cost
+// are not shown in the app.
+test('设置 › 舞台：没有基础设置和素材生图两组', async t => {
+  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: stage settings section', stageClient: true, respond(method) {
+    if (method === 'getStageRuntimeStatus') return { enabled: true, status: 'ready' }
+    if (method === 'getTavernSettings') return { settings: {}, modelCatalog: [], modModelSlots: [] }
+  } })
+  await page.locator('section[aria-label="舞台模型"]').waitFor()
+  assert.equal(await page.locator('section[aria-label="基础设置"], section[aria-label="素材生图"]').count(), 0)
+  assert.equal(await page.getByRole('switch', { name: '对话气泡' }).count(), 0)
+  assert.equal(calls.some(call => call.method === 'getAssetEngineSettings'), false)
+})
+
 test('皮肤：配色与 CSS 皮肤在同一排，一次只选一套', async t => {
   let index = { active: null, skins: [{ id: 'builtin:paper', name: '纸感', builtin: true }] }, css = ''
   const { page, calls } = await openInterfaceSkins(t, {
@@ -128,15 +141,15 @@ test('酒馆插件恢复为独立设置页，加载原有插件列表', async t 
   assert.ok(calls.some(call=>call.method==='listUserPlugins'))
 })
 
-test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async t => {
+// The stage's slots and its mods' (手机 › 通话模型) are on 设置 › 舞台; 设置 › DSH Tavern shows the core's own.
+test('舞台模型与模组的模型只在舞台设置展示，保存沿用原有模型槽', async t => {
   let settings = {defaultPlaySettings:{playerName:'你',backgroundTasks:{}},modModels:{'dsh.stage':{director:{provider:'p',model:'saved'}}}}
+  const slots = [{modId:'dsh.stage',modName:'舞台',id:'director',label:'导演模型',fallback:'foreground',owner:'dsh-tavern-stage'},
+    {modId:'dsh.phone',modName:'手机',id:'call',label:'通话模型',fallback:'foreground',owner:'dsh-tavern-stage-mods'}]
   const respond = (method,args) => {
     if (method === 'getBackgroundModelReasoning') return {reasoning:{efforts:[]}}
     if (method === 'getStageRuntimeStatus') return {enabled:true,status:'ready'}
-    if (method === 'getAssetGenPrompts') return {data:{kinds:[],revision:'fixture'}}
-    // the page's 基础设置 switches read the engine settings (stageToggles)
-    if (method === 'getAssetEngineSettings') return {revision:'e1',writable:true,values:{stageToggles:{}}}
-    if (method === 'getTavernSettings') return {settings, modelCatalog:[{provider:'p',models:[{id:'saved'},{id:'next'}]}], modModelSlots:[{modId:'dsh.stage',modName:'舞台',id:'director',label:'导演模型',fallback:'foreground'}]}
+    if (method === 'getTavernSettings') return {settings, modelCatalog:[{provider:'p',models:[{id:'saved'},{id:'next'}]}], modModelSlots:slots}
     if (method === 'updateTavernSettings') {
       const value=args.patch.modModelSelection
       settings={modModels:{'dsh.stage':{director:value.selection}}}
@@ -145,10 +158,11 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   }
   const general = await openTavernSettings(t,{respond})
   await general.page.locator('button[aria-label^="默认前台模型："]').waitFor()
-  assert.equal(await general.page.locator('button[aria-label^="导演模型："]').count(),0)
+  assert.equal(await general.page.locator('button[aria-label^="导演模型："], button[aria-label^="通话模型："]').count(),0)
   // 设置 › 舞台 is the stage package's page, loaded by the page's hold (stage-client-loader.cjs)
   const stage = await openTavernSettings(t,{respond,section:'dsh-tavern: stage settings section',stageClient:true})
   await stage.page.locator('button[aria-label^="导演模型："]').waitFor()
+  await stage.page.locator('section[aria-label="舞台模型"] button[aria-label="通话模型：跟随前台"]').waitFor()
   assert.equal(await stage.page.getByRole('button',{name:'停用',exact:true}).count(),0)
   assert.equal(await stage.page.getByRole('heading',{name:'舞台插件',exact:true}).count(),0)
   const picker=stage.page.locator('button[aria-label^="导演模型："]')

@@ -11,7 +11,8 @@ export function createModelSlotRegistry({warn = () => {}} = {}) {
     const result = await Promise.all([...providers].map(async([owner,provider]) => {
       try {
         const rows = await provider.rows()
-        return providers.get(owner) === provider ? structuredClone(rows) : []
+        // each row names the provider that registered it: a settings page lists the slots of its own owner.
+        return providers.get(owner) === provider ? structuredClone(rows).map(row => ({...row, owner})) : []
       } catch(error) {try{warn(error)}catch{};return []}
     }))
     return result.flat()

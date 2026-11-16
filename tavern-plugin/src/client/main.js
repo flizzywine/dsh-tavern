@@ -990,7 +990,6 @@ window.__ModuleLoader__.load({
 // @include features/reply-observer.js
 
 // @include features/speech.js
-// @include features/read-aloud.js
 
 // @include features/music.js
 
@@ -1081,8 +1080,8 @@ function clipReplayCore() {
 
 		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
 			replyActions: {
-				useReadAloudState: useTavernReadAloudState,
-				ReadAloud: TavernReplyReadAloudAction,
+				useSpeechVoiced: useTavernBodySpeechVoiced,
+				Speech: TavernReplySpeechAction,
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,

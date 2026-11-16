@@ -281,7 +281,7 @@ import { modStageContributions } from './domain/mods/stage-contributions.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {effectiveAutoChoices, activeStageSkin, cardStageVoicing} from './domain/card-stage-settings.js'
+import {activeStageSkin, cardStageVoicing} from './domain/card-stage-settings.js'
 import {ENGINE_SECTION} from './domain/asset-engine-settings.js'
 import {settingsSectionProvider} from './native-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
@@ -1045,8 +1045,7 @@ export async function apply(ctx) {
     preset: 'card-task-preset',
     'debug-play': 'card-task-debug-play'
   })
-  // A card's stage extension (null without stage settings): the card layer of its narrator and of its 自动生成候选项
-  // switch (effectiveAutoChoices).
+  // A card's stage extension (null without stage settings): the card layer of its narrator.
   async function cardStageExtension(cardPath) {
     const raw = (await readCardWorkspace(cardPath))?.raw
     return raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
@@ -3749,7 +3748,7 @@ export async function apply(ctx) {
   })
   // 自动生成候选项: fed by live turn ends only, submitting through candidateTasks like the button.
   const autoChoices = createAutoChoices({
-    enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && effectiveAutoChoices(await cardStageExtension(chat.cardPath), (await readTavernSettings()).candidateAutoGenerate),
+    enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && (await readTavernSettings()).candidateAutoGenerate === true,
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
@@ -4530,12 +4529,12 @@ export async function apply(ctx) {
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
   const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
-  rpcHandlers.readAloudLine = async args => speech.read({text:args?.text})
-  rpcHandlers.readAloudState = async args => {
+  // A reply's 🔊 is the stage voicing's replay: only where the stage voices this card (there is no separate 朗读).
+  rpcHandlers.bodySpeechState = async args => {
     const card = await castCardOf(str(args?.sessionId)).catch(() => null)
     const extension = card ? await cardStageExtension(card.path) : null
     const engine = settingsSectionProvider(ctx, ENGINE_SECTION)?.describe().find(row => row.ns === ENGINE_SECTION)?.value
-    return {stepAside:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine), auto:voiceService()?.reading().readAloud.auto === true}
+    return {voiced:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine)}
   }
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageLoadOnStartup = async args => stageSwitch.setLoadOnStartup(args?.enabled)
