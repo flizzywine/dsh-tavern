@@ -1121,7 +1121,11 @@ function GalStage(props) {
         return source && owner ? owner.acquire(descriptor,JSON.stringify([source.sessionId,source.authorityEpoch])) : Promise.reject(new Error('RESOURCE_UNAVAILABLE'));
     }, [sessionId]);
     const onStage = alias => members.some(member => member.id === alias);
-    const sceneEffects = shotHere ? shot.effects.concat(shot.emotes.filter(effect => onStage(effect.id))) : [];
+    // A mod overlay's screen beats (overlay prop screen(name): a core stage effect by its director name, e.g. a check
+    // outcome's shake), played by the scene like the director's, under the same safety policy.
+    const [modBeats, setModBeats] = React.useState([]), modBeatSerial = React.useRef(0);
+    const playModBeat = React.useCallback(name => { if (typeof name === 'string') setModBeats(old => old.slice(-3).concat({op:'beat',kind:'beat',value:name,nonce:'mod:' + (++modBeatSerial.current)})); }, []);
+    const sceneEffects = (shotHere ? shot.effects.concat(shot.emotes.filter(effect => onStage(effect.id))) : []).concat(modBeats);
     const faceEmoteCue = shotHere ? shot.emotes.find(effect => !onStage(effect.id)&&effect.id===speaker) : null;
     const faceEmote = faceEmoteCue ? {kind:faceEmoteCue.value,color:colorOf(speaker),nonce:faceEmoteCue.nonce} : debugEmote;
     // the viewport may show only part of the cast; this ranks who stays
@@ -1522,7 +1526,7 @@ function GalStage(props) {
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
         // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay.
         props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
-            veiled: !entryGate.visible,
+            veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
         // Reading done: the next move sits in the middle of the screen.

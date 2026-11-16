@@ -19,13 +19,10 @@
 // cup with the dice rattling inside - timed off the motion's own keyframes (diceContacts / diceCues), so the
 // player's SE volume and mute apply; a missing entry is simply silent.
 //
-// The motion is keyframed, not simulated: each die's spin decays onto the exact final orientation (result face up, its
-// number upright toward the camera) while a hop curve carries it to its rest point, lifted every frame so its lowest
-// vertex rests on the floor (it rolls over edges and corners on its own). No physics dependency. Three.js is the vendored
-// runtime asset the card stage already serves, imported on the first throw. One renderer serves every throw while the
-// stage is mounted and is disposed with it or after 20 s without a throw; the frame loop runs only while a throw plays.
+// The dice, their keyframed motion and the contacts the sound follows are the mod's shared 3D dice (dice3d.js); this file
+// is the d100 presentation over them. One renderer serves every throw while the stage is mounted and is disposed with it
+// or after 20 s without a throw; the frame loop runs only while a throw plays.
 
-const DICE_THREE = "/api/dsh-tavern/vendor/runtime-assets/three/";
 // Timeline (ms). Open: the dice spin down by `land` and rest by `settle`; their values fly into the number for `combine`;
 // the stamp falls for `stamp` and lands (a critical holds it `hitStop` before its burst), holds `hold`, then the throw
 // collapses into the card for `fade` (≈2.2 s in all). Hidden: the cup falls from `cupDrop`, slams at `slam`, the throw
@@ -38,8 +35,6 @@ const DICE_CUP = Object.freeze({ height: 4, hop: 0.16, rebound: 150 });
 const DICE_ZOOM = Object.freeze({ desktop: 1.3, "mobile-landscape": 1.1, "mobile-portrait": 1.15 });
 const DICE_TRAY = Object.freeze({ desktop: [860, 330], "mobile-landscape": [560, 180], "mobile-portrait": [390, 240] });
 const DICE_IDLE_MS = 20000;
-// Upper kites (around the top apex) read these; each lower kite reads 9 minus its opposite, as on a real d10.
-const D10_UPPER = [0, 4, 8, 2, 6];
 // The dice sound effects: entries of the 通用SE pack.
 const DICE_SE_PACK = "2f3f4666-0098-4a45-9d07-9ff0cc42d1b2";
 // Beat → [entry, dB under its normal level]: each table contact (`hit`, quieter by its drop, diceContacts), the skid
@@ -90,102 +85,6 @@ function diceKeyRolls(key) {
     const rolls = key.slice(key.indexOf("|") + 1);
     return rolls ? JSON.parse(rolls).map(row => Object.assign({ callId: row[0] }, JSON.parse(row[1]))) : [];
 }
-
-function diceRandom(seed) {
-    let a = 0x9e3779b9;
-    for (const ch of String(seed)) a = Math.imul(a ^ ch.charCodeAt(0), 2654435761) >>> 0;
-    return function () {
-        a = a + 0x6d2b79f5 >>> 0;
-        let t = Math.imul(a ^ a >>> 15, a | 1);
-        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-        return ((t ^ t >>> 14) >>> 0) / 4294967296;
-    };
-}
-const diceClamp = value => value < 0 ? 0 : value > 1 ? 1 : value;
-const diceOut = value => 1 - Math.pow(1 - value, 3);
-// The throw's overlay parts (stake line, number, stamp, burst, rays, cracks, dust) and its fade: transient
-// performance layers over the scene, never a control surface.
-function diceFade(node, value) { node.style.opacity = String(value); }
-
-// [three, its RoomEnvironment addon], imported once (the throw's first frame waits for them; a failure retries next time).
-let diceThreeModule = null;
-function diceLoadThree() {
-    const url = path => import(new URL(DICE_THREE + path, document.baseURI).href);
-    if (!diceThreeModule) diceThreeModule = Promise.all([url("build/three.module.js"), url("addons/environments/RoomEnvironment.js")]).catch(error => { diceThreeModule = null; throw error; });
-    return diceThreeModule;
-}
-
-// The pentagonal trapezohedron: 10 congruent planar kites. Each face: outward normal, the in-plane direction toward its
-// apex (the number's up), its label, and its outline in its texture cell (cells: 4 columns x 3 rows, by label).
-function d10Model(THREE) {
-    const H = 1, r = 0.9, c36 = Math.cos(Math.PI / 5), u = H * (1 - c36) / (1 + c36); // u keeps every kite planar
-    const ring = (deg, y) => new THREE.Vector3(r * Math.cos(deg * Math.PI / 180), y, r * Math.sin(deg * Math.PI / 180));
-    const T = new THREE.Vector3(0, H, 0), B = new THREE.Vector3(0, -H, 0);
-    const U = [0, 1, 2, 3, 4].map(k => ring(72 * k, u)), L = [0, 1, 2, 3, 4].map(k => ring(72 * k + 36, -u));
-    const kites = [];
-    for (let k = 0; k < 5; k++) kites.push({ apex: T, a: U[k], low: L[k], b: U[(k + 1) % 5] });
-    for (let k = 0; k < 5; k++) kites.push({ apex: B, a: L[k], low: U[(k + 1) % 5], b: L[(k + 1) % 5] });
-    const faces = kites.map(kite => {
-        const mid = kite.a.clone().add(kite.b).multiplyScalar(0.5);
-        const n = new THREE.Vector3().subVectors(kite.a, kite.apex).cross(new THREE.Vector3().subVectors(kite.low, kite.apex)).normalize();
-        if (n.dot(mid) < 0) n.negate();
-        const up = kite.apex.clone().sub(mid).normalize(), right = up.clone().cross(n);
-        return { kite, mid, n, up, right };
-    });
-    faces.forEach((face, i) => {
-        face.label = i < 5 ? D10_UPPER[i] : 9 - faces.slice(0, 5).reduce((best, other) => other.n.dot(face.n) < best.n.dot(face.n) ? other : best).label;
-    });
-    const at = (face, v) => [v.clone().sub(face.mid).dot(face.right), v.clone().sub(face.mid).dot(face.up)];
-    const top = at(faces[0], faces[0].kite.apex)[1], bottom = at(faces[0], faces[0].kite.low)[1], half = at(faces[0], faces[0].kite.b)[0];
-    const size = Math.max(2 * Math.abs(half), top - bottom) * 1.06, middle = (top + bottom) / 2;
-    const cell = ([x, y]) => [0.5 + x / size, 0.5 - (y - middle) / size]; // fractions of a cell, y down
-    const positions = [], normals = [], uvs = [];
-    for (const face of faces) {
-        const col = face.label % 4, row = Math.floor(face.label / 4), k = face.kite;
-        let tris = [[k.apex, k.a, k.low], [k.apex, k.low, k.b]];
-        if (new THREE.Vector3().subVectors(k.a, k.apex).cross(new THREE.Vector3().subVectors(k.low, k.apex)).dot(face.n) < 0) tris = [[k.apex, k.low, k.a], [k.apex, k.b, k.low]];
-        for (const v of tris.flat()) {
-            const [fx, fy] = cell(at(face, v));
-            positions.push(v.x, v.y, v.z); normals.push(face.n.x, face.n.y, face.n.z); uvs.push((col + fx) / 4, 1 - (row + fy) / 3);
-        }
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    const k0 = faces[0].kite;
-    return { geometry, faces, vertices: [T, B, ...U, ...L],
-        outline: [k0.apex, k0.a, k0.low, k0.b].map(v => cell(at(faces[0], v))), labelAt: cell([0, top * 0.26])[1] };
-}
-
-// One die's texture: ten cells in its body paint, each with its kite outline and number in its ink paint.
-function dicePaint(THREE, model, die, colors, cell, anisotropy) {
-    const canvas = document.createElement("canvas");
-    canvas.width = cell * 4; canvas.height = cell * 3;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = die === 0 ? colors.a : colors.b;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const ink = die === 0 ? colors.aInk : colors.bInk;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = "700 " + Math.round(cell * (die === 0 ? 0.3 : 0.36)) + "px " + colors.font;
-    for (let label = 0; label < 10; label++) {
-        const x0 = (label % 4) * cell, y0 = Math.floor(label / 4) * cell;
-        ctx.globalAlpha = 0.3; ctx.strokeStyle = ink; ctx.lineWidth = cell * 0.03; ctx.lineJoin = "round";
-        ctx.beginPath();
-        model.outline.forEach(([fx, fy], i) => ctx[i ? "lineTo" : "moveTo"](x0 + fx * cell, y0 + fy * cell));
-        ctx.closePath(); ctx.stroke();
-        ctx.globalAlpha = 1; ctx.fillStyle = ink;
-        const text = diceLabel(die, label), cx = x0 + cell / 2, cy = y0 + model.labelAt * cell;
-        ctx.fillText(text, cx, cy);
-        // 6 and 9 read the same upside down; a bar under them tells which way is up.
-        if (die === 1 && (label === 6 || label === 9)) ctx.fillRect(cx - cell * 0.08, cy + cell * 0.17, cell * 0.16, cell * 0.035);
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = anisotropy;
-    return texture;
-}
-
 
 // The 骰盅, mouth down: one lathe-turned profile (inner wall, flared lip, a tapered body, a shoulder ring, a domed top) in
 // red-black lacquered wood with a fine grain; brass bands at the lip, low on the body and round the shoulder, a brass knob;
@@ -254,69 +153,59 @@ function diceCupPaint(THREE, cup, colors, size, anisotropy) {
     cup.brass.color.setRGB(...colors.brassRgb, THREE.SRGBColorSpace);
 }
 
-// The renderer and the scene, built on the first throw and reused until dispose().
-function diceGl(THREE, RoomEnvironment) {
-    const canvas = document.createElement("canvas");
-    canvas.className = "fork-dice-throw-canvas";
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
-    renderer.setClearColor(0x000000, 0);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
-    const scene = new THREE.Scene();
-    // A soft studio room for image-based light: the lacquer's clearcoat and the brass need something to reflect.
-    const pmrem = new THREE.PMREMGenerator(renderer), room = new RoomEnvironment();
-    scene.environment = pmrem.fromScene(room, 0.04).texture;
-    scene.environmentIntensity = 0.55;
-    room.traverse(node => { node.geometry?.dispose(); node.material?.dispose(); });
-    pmrem.dispose();
-    const camera = new THREE.PerspectiveCamera(32, 1.5, 0.1, 50);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3048, 1.1));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-    sun.position.set(2.5, 8, 3.5);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 20 });
-    sun.shadow.radius = 4;
-    scene.add(sun);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 12), new THREE.ShadowMaterial({ opacity: 0.34 }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
-    const model = d10Model(THREE);
-    const dice = [0, 1].map(() => {
-        const mesh = new THREE.Mesh(model.geometry, new THREE.MeshStandardMaterial({ roughness: 0.38, metalness: 0.06 }));
-        mesh.castShadow = true;
-        scene.add(mesh);
-        return mesh;
-    });
+// The shared dice scene (dice3d.js) with this throw's two d10s (tens, ones) and the cup, reused until dispose().
+// The cup in a shared dice scene (also a hidden rule check's, check-throw.js), hidden until a hidden roll shows it.
+function diceAddCup(THREE, gl) {
     const cup = diceCup(THREE);
     // Its own envMap, so its lower envMapIntensity holds (scene.environmentIntensity would replace it): deep lacquer, not grey.
-    cup.lacquer.envMap = scene.environment;
-    scene.add(cup.group, cup.shadow);
+    cup.lacquer.envMap = gl.scene.environment;
+    gl.scene.add(cup.group, cup.shadow);
+    cup.group.visible = cup.shadow.visible = false;
+    return cup;
+}
+// The cup at throw-time t: it drops from DICE_T.cupDrop, accelerating, tilted a little; slams at DICE_T.slam (squash, a
+// small rebound hop, a rock that dies away) at z, with a puff of dust (the dust node) and a short shake of the band.
+// Returns the band's shake (a CSS translate, or "") and whether the cup is down.
+function diceCupPose(cup, t, dust, jolt, z = 0.55) {
+    const T = DICE_T, group = cup.group, fall = diceClamp((t - T.cupDrop) / (T.slam - T.cupDrop)), k = t - T.slam;
+    let y = DICE_CUP.height * (1 - Math.pow(fall, 2.4)), squash = 0, rock = 0.12 * (1 - fall), shake = "";
+    if (k >= 0) {
+        y = k < DICE_CUP.rebound ? DICE_CUP.hop * Math.sin(Math.PI * k / DICE_CUP.rebound) : 0;
+        squash = k < 110 ? 0.08 * Math.sin(Math.PI * k / 110) : 0;
+        rock = 0.035 * Math.exp(-k / 140) * Math.sin(k / 34);
+        shake = jolt(k, 240, 6);
+    }
+    group.visible = t >= T.cupDrop;
+    group.position.set(0, y, z);
+    group.rotation.set(rock, 0, rock * 0.6);
+    group.scale.set(1 + squash / 2, 1 - squash, 1 + squash / 2);
+    const near = 1 - Math.min(1, y / DICE_CUP.height);
+    cup.shadow.visible = group.visible;
+    cup.shadow.position.z = z;
+    cup.shadow.scale.setScalar(1.35 - 0.35 * near);
+    cup.shadow.material.opacity = 0.62 * near * near;
+    const d = diceClamp(k / 420);
+    diceFade(dust, k >= 0 ? 1 - d : 0);
+    dust.style.transform = "scale(" + (0.55 + 1.1 * diceOut(d)) + ")";
+    return { shake, covered: k >= 0 };
+}
+// A short decaying jitter (px) for shakes, stepped every 30 ms.
+const diceJolt = (k, span, size) => { const a = size * Math.max(0, 1 - k / span), n = Math.floor(k / 30); return a ? "translate(" + (Math.sin(n * 12.9898) * a).toFixed(1) + "px, " + (Math.sin(n * 78.233) * a * 0.6).toFixed(1) + "px)" : ""; };
+function diceGl(THREE, RoomEnvironment) {
+    const gl = diceScene(THREE, RoomEnvironment);
+    const cup = diceAddCup(THREE, gl);
+    gl.models = [diceModel(THREE, "d10t"), diceModel(THREE, "d10z")];
     let paintKey = "";
-    return {
-        THREE, renderer, canvas, scene, camera, model, dice, cup,
-        // Repaint the dice (theme paints) and the cup (skipped when unchanged).
+    return Object.assign(gl, { cup,
+        // Paint the dice (theme paints) and the cup (skipped when unchanged).
         paint(colors, cell) {
+            gl.dice = gl.place([{ kind: "d10t", look: { body: colors.a, ink: colors.aInk, font: colors.font } }, { kind: "d10z", look: { body: colors.b, ink: colors.bInk, font: colors.font } }], cell);
             const key = JSON.stringify([colors, cell]);
             if (key === paintKey) return;
             paintKey = key;
-            const anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-            dice.forEach((mesh, die) => {
-                mesh.material.map?.dispose();
-                mesh.material.map = dicePaint(THREE, model, die, colors, cell, anisotropy);
-                mesh.material.needsUpdate = true;
-            });
-            diceCupPaint(THREE, cup, colors, cell * 2, anisotropy);
-        },
-        dispose() {
-            scene.traverse(node => { node.geometry?.dispose(); node.material?.map?.dispose(); node.material?.dispose(); });
-            scene.environment.dispose();
-            renderer.dispose();
-            renderer.forceContextLoss();
-            canvas.remove();
+            diceCupPaint(THREE, cup, colors, cell * 2, Math.min(4, gl.renderer.capabilities.getMaxAnisotropy()));
         }
-    };
+    });
 }
 
 // The stage paints, resolved to computed colours (the canvas and Three.js cannot read var()).
@@ -391,101 +280,9 @@ function createDiceSounds() {
     return { prepare, reset() { entries = null; } };
 }
 
-// A die's keyframed path to its rest pose: `face` up, its number toward the camera (screen-up), a little yaw.
-function diePlan(gl, face, from, to, rand, delay) {
-    const { THREE, model } = gl;
-    const f = model.faces.find(row => row.label === face);
-    const tilt = new THREE.Quaternion().setFromUnitVectors(f.n, new THREE.Vector3(0, 1, 0));
-    const up = f.up.clone().applyQuaternion(tilt).setY(0).normalize();
-    const yaw = Math.atan2(up.x, -up.z) - (rand() - 0.5) * 0.4;
-    const final = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw).multiply(tilt);
-    const travel = new THREE.Vector3().subVectors(to, from).setY(0).normalize();
-    // Rolling along the travel direction, plus some sideways tumble.
-    const axis = travel.clone().cross(new THREE.Vector3(0, 1, 0)).negate().add(new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).multiplyScalar(0.9)).normalize();
-    const wobble = new THREE.Vector3(rand() - 0.5, 0, rand() - 0.5).normalize();
-    return { final, axis, wobble, from, to, delay, spin: (3 + rand() * 2) * Math.PI, height: 1.5 + rand() * 0.4 };
-}
-const DICE_HOPS = [[300, 560, 0.95], [560, 740, 0.36], [740, 840, 0.1]];
 // The stamp's tilt as it lands (°): 代价成功 more askew.
 const DICE_TURN = tier => tier === "costly" ? -9 : -6;
 const DICE_SCALE = 0.68;
-// Pose a die at dice-time td (ms).
-function diePose(gl, mesh, plan, td, scratch) {
-    const t = Math.max(0, td - plan.delay), s = diceClamp(t / DICE_T.land);
-    const q = mesh.quaternion.setFromAxisAngle(plan.axis, plan.spin * Math.pow(1 - s, 3)).multiply(plan.final);
-    if (t > DICE_T.land) { const k = t - DICE_T.land; q.premultiply(scratch.q.setFromAxisAngle(plan.wobble, 0.09 * Math.exp(-k / 45) * Math.sin(k / 16))); }
-    let hop = 0;
-    if (t < DICE_HOPS[0][0]) hop = plan.height * (1 - Math.pow(t / DICE_HOPS[0][0], 2));
-    else for (const [a, b, peak] of DICE_HOPS) if (t >= a && t < b) { const p = (t - a) / (b - a); hop = peak * 4 * p * (1 - p); }
-    const e = diceOut(s), scale = DICE_SCALE * (0.4 + 0.6 * diceOut(diceClamp(t / 90)));
-    let low = Infinity;
-    for (const v of gl.model.vertices) low = Math.min(low, scratch.v.copy(v).applyQuaternion(q).y);
-    mesh.scale.setScalar(scale);
-    mesh.position.set(plan.from.x + (plan.to.x - plan.from.x) * e, hop - low * scale, plan.from.z + (plan.to.z - plan.from.z) * e);
-}
-// The throw's contacts, read off the same keyframes that move the dice (no separate timeline). Floor: each die meets the
-// floor at the end of its fall and of each hop (DICE_HOPS, after its delay), as hard as the drop before it - impact
-// speed goes with √height, so dB = 10·log10(drop / first drop): 0, about -2.5, -6.7, -12. Skid: from a die's last
-// contact it slides and wobbles to rest (`land`). Clack: the moments the two posed meshes start to touch, sampled every
-// 8 ms - the d10 is convex, so they touch when no separating axis exists (each face normal, then each edge x edge),
-// tested only while their bounding spheres meet. Poses the meshes (the next frame re-poses them).
-function diceContacts(gl, plans, scratch) {
-    const floor = [], hops = DICE_HOPS;
-    plans.forEach((plan, die) => {
-        let drop = plan.height;
-        for (const [at, , peak] of hops) { floor.push({ at: plan.delay + at, die, db: 10 * Math.log10(drop / plan.height) }); drop = peak; }
-        floor.push({ at: plan.delay + hops[hops.length - 1][1], die, db: 10 * Math.log10(drop / plan.height) });
-    });
-    const skid = Math.min(...plans.map(plan => plan.delay + hops[hops.length - 1][1]));
-    const clacks = [], { vertices, faces } = gl.model;
-    // The d10's 20 edge directions (each kite edge is shared by two kites).
-    const local = [];
-    for (const { kite: k } of faces) for (const [p, q] of [[k.apex, k.a], [k.a, k.low], [k.low, k.b], [k.b, k.apex]]) {
-        const e = q.clone().sub(p).normalize();
-        if (!local.some(other => Math.abs(other.dot(e)) > 0.999)) local.push(e);
-    }
-    // Per die, flat world-space vertices / face normals / edges; an axis separates when the two spans miss by 0.01.
-    const world = [new Float64Array(vertices.length * 3), new Float64Array(vertices.length * 3)];
-    const normals = [new Float64Array(faces.length * 3), new Float64Array(faces.length * 3)], edges = [new Float64Array(local.length * 3), new Float64Array(local.length * 3)];
-    const v = scratch.v.clone();
-    const put = (out, i, vec) => { out[i * 3] = vec.x; out[i * 3 + 1] = vec.y; out[i * 3 + 2] = vec.z; };
-    const separates = (x, y, z) => {
-        const len = Math.hypot(x, y, z);
-        if (len < 1e-4) return false;
-        let lo0 = Infinity, hi0 = -Infinity, lo1 = Infinity, hi1 = -Infinity;
-        for (let i = 0; i < world[0].length; i += 3) {
-            const d0 = world[0][i] * x + world[0][i + 1] * y + world[0][i + 2] * z, d1 = world[1][i] * x + world[1][i + 1] * y + world[1][i + 2] * z;
-            if (d0 < lo0) lo0 = d0; if (d0 > hi0) hi0 = d0; if (d1 < lo1) lo1 = d1; if (d1 > hi1) hi1 = d1;
-        }
-        const gap = 0.01 * len;
-        return hi0 < lo1 - gap || hi1 < lo0 - gap;
-    };
-    const apartSat = () => {
-        for (const n of normals) for (let i = 0; i < n.length; i += 3) if (separates(n[i], n[i + 1], n[i + 2])) return true;
-        const [a, b] = edges;
-        for (let i = 0; i < a.length; i += 3) for (let j = 0; j < b.length; j += 3)
-            if (separates(a[i + 1] * b[j + 2] - a[i + 2] * b[j + 1], a[i + 2] * b[j] - a[i] * b[j + 2], a[i] * b[j + 1] - a[i + 1] * b[j])) return true;
-        return false;
-    };
-    const [m0, m1] = gl.dice, radius = Math.max(...vertices.map(p => p.length()));
-    let touching = false;
-    for (let t = 0; t <= Math.max(...plans.map(plan => plan.delay)) + DICE_T.land; t += 8) {
-        diePose(gl, m0, plans[0], t, scratch);
-        diePose(gl, m1, plans[1], t, scratch);
-        let apart = m0.position.distanceTo(m1.position) > radius * (m0.scale.x + m1.scale.x) + 0.01;
-        if (!apart) {
-            gl.dice.forEach((mesh, die) => {
-                vertices.forEach((p, i) => put(world[die], i, v.copy(p).applyQuaternion(mesh.quaternion).multiplyScalar(mesh.scale.x).add(mesh.position)));
-                faces.forEach((face, i) => put(normals[die], i, v.copy(face.n).applyQuaternion(mesh.quaternion)));
-                local.forEach((e, i) => put(edges[die], i, v.copy(e).applyQuaternion(mesh.quaternion)));
-            });
-            apart = apartSat();
-        }
-        if (!apart && !touching) clacks.push(t);
-        touching = !apart;
-    }
-    return { floor: floor.sort((a, b) => a.at - b.at), skid, clacks };
-}
 // The throw's sound cues [{ at ms, beat (DICE_SE), db }], in time order: the release, every contact, the skid and
 // any clack (diceContacts); then an open roll's stamp, the same for every tier, with a critical / fumble's tier cue
 // at the same moment (an empty slot, DICE_SE) (the combine is silent), or a hidden roll's cup: its slam with the dice
@@ -504,23 +301,6 @@ function diceCues(roll, contacts, times) {
     }
     return cues.sort((a, b) => a.at - b.at);
 }
-// The floor point (height y) under a band pixel [x, y px], through the camera.
-function diceFloorAt(gl, w, h, sx, sy, y = 0) {
-    const { THREE, camera } = gl, eye = camera.position;
-    const dir = new THREE.Vector3(sx / w * 2 - 1, 1 - sy / h * 2, 0.5).unproject(camera).sub(eye).normalize();
-    return eye.clone().addScaledVector(dir, (y - eye.y) / dir.y).setY(0);
-}
-// A die's box on the band at rest [left, top, width, height px]: its plan posed long after landing, every vertex projected.
-function dieRestBox(gl, mesh, plan, w, h, scratch) {
-    diePose(gl, mesh, plan, plan.delay + DICE_T.land + 1200, scratch);
-    mesh.updateMatrixWorld(true);
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const v of gl.model.vertices) {
-        const p = scratch.v.copy(v).applyMatrix4(mesh.matrixWorld).project(gl.camera), x = (p.x + 1) / 2 * w, y = (1 - p.y) / 2 * h;
-        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-    }
-    return [x0, y0, x1 - x0, y1 - y0];
-}
 // The open roll's layout on the band (the number sat on the dice): nothing crosses.
 // Top to bottom: the stake line; a row with the tens die, the number, the ones die (each value flies inward into its
 // half of the number); the seal row - the stamp in its seal box (the box the critical's burst spreads out to). The seal fits
@@ -532,17 +312,17 @@ function diceLayout(gl, tray, parts, w, h, plan, scratch, turn) {
     const lineBottom = parts.line.offsetTop + parts.line.offsetHeight, rowTop = lineBottom + gap;
     const numW = parts.num.offsetWidth, numH = parts.num.offsetHeight;
     // Dice first at a guess, then moved (twice, the perspective changes their size) beside the number, centred on its row.
-    let rest = [diceFloorAt(gl, w, h, w / 2 - numW / 2 - side - h * 0.18, rowTop + h * 0.18), diceFloorAt(gl, w, h, w / 2 + numW / 2 + side + h * 0.18, rowTop + h * 0.18)];
+    let rest = [diceFloorAt(gl.THREE, gl.camera, w, h, w / 2 - numW / 2 - side - h * 0.18, rowTop + h * 0.18), diceFloorAt(gl.THREE, gl.camera, w, h, w / 2 + numW / 2 + side + h * 0.18, rowTop + h * 0.18)];
     let plans = [], boxes = [], rowH = numH;
     for (let pass = 0; pass < 3; pass++) {
         plans = rest.map((to, die) => plan(die, to));
-        boxes = plans.map((p, die) => dieRestBox(gl, gl.dice[die], p, w, h, scratch));
+        boxes = plans.map((p, die) => dieRestBox(gl.camera, gl.dice[die], p, DICE_SCALE, w, h, scratch));
         rowH = Math.max(numH, ...boxes.map(box => box[3]));
         if (pass === 2) break;
         const cy = rowTop + rowH / 2, cx = [w / 2 - numW / 2 - side - boxes[0][2] / 2, w / 2 + numW / 2 + side + boxes[1][2] / 2];
         rest = rest.map((point, die) => {
             const p = point.clone().project(gl.camera), sx = (p.x + 1) / 2 * w, sy = (1 - p.y) / 2 * h, box = boxes[die];
-            return diceFloorAt(gl, w, h, sx + cx[die] - (box[0] + box[2] / 2), sy + cy - (box[1] + box[3] / 2));
+            return diceFloorAt(gl.THREE, gl.camera, w, h, sx + cx[die] - (box[0] + box[2] / 2), sy + cy - (box[1] + box[3] / 2));
         });
     }
     const rowBottom = rowTop + rowH;
@@ -563,17 +343,6 @@ function diceLayout(gl, tray, parts, w, h, plan, scratch, turn) {
     tray.dataset.diceBoxes = JSON.stringify(boxes.map(box => box.map(Math.round)));
     return { plans, fall };
 }
-// Which label faces up now (read from the mesh, not from the plan).
-function dieUp(gl, mesh, scratch) {
-    let best = null, height = -Infinity;
-    for (const face of gl.model.faces) {
-        const y = scratch.v.copy(face.n).applyQuaternion(mesh.quaternion).y;
-        if (y > height) { height = y; best = face; }
-    }
-    return best.label;
-}
-
-
 // The imperative player behind DiceThrow: a queue of rolls, one throw area, one renderer.
 // safety: the stage's one policy (stage-effects.cjs stageSafety) - the critical burst and the fumble's crack flash
 // are flashes: under 光敏保护 they count in the stage-wide three-a-second gate and draw at half strength (none when refused).
@@ -669,19 +438,19 @@ function createDiceThrower(tray, rootRef, device, safety = () => null, paused = 
             parts.word.textContent = diceTierWord(roll);
         }
         if (roll.hidden) {
-            current.plans = [0, 1].map(die => diePlan(gl, faces[die], throwFrom(die), rest[die], rand, die * 60));
+            current.plans = [0, 1].map(die => diePlan(gl.THREE, gl.models[die], faces[die], throwFrom(die), rest[die], rand, die * 60));
             // The dust ring at the cup's lip on the floor, sized from the projected lip.
             const [dx, dy] = project(new THREE.Vector3(0, 0, 0.55)), lip = project(new THREE.Vector3(1.53, 0, 0.55))[0] - dx;
             Object.assign(parts.dust.style, { left: dx + "px", top: dy + "px", width: Math.round(lip * 3.4) + "px" });
         } else {
-            const laid = diceLayout(gl, tray, parts, w, h, (die, to) => diePlan(gl, faces[die], throwFrom(die), to, diceRandom(roll.callId + ":" + die), die * 60), scratch, DICE_TURN(roll.tier));
+            const laid = diceLayout(gl, tray, parts, w, h, (die, to) => diePlan(gl.THREE, gl.models[die], faces[die], throwFrom(die), to, diceRandom(roll.callId + ":" + die), die * 60), scratch, DICE_TURN(roll.tier));
             current.plans = laid.plans;
             current.fall = laid.fall;
             parts.tens.textContent = diceLabel(0, faces[0]);
             parts.ones.textContent = diceLabel(1, faces[1]);
         }
         // The sound follows the motion's own contacts; the cue list is on the band for the tests and the review render.
-        current.cues = diceCues(roll, diceContacts(gl, current.plans, scratch), { landed, beat });
+        current.cues = diceCues(roll, diceContacts(gl.dice, current.plans, DICE_SCALE, scratch), { landed, beat });
         tray.dataset.cues = JSON.stringify(current.cues.map(cue => [Math.round(cue.at), cue.beat, Math.round(cue.db * 10) / 10]));
         const c = current;
         current.sound = sounds.prepare(current.cues, "dice:" + roll.callId, () => forkForeground.now() - c.t0);
@@ -692,46 +461,25 @@ function createDiceThrower(tray, rootRef, device, safety = () => null, paused = 
     function stopFrame() { if (frame) forkForeground.cancelAnimationFrame(frame); frame = 0; }
     function phase(name) { if (current.phase !== name) { current.phase = name; tray.dataset.phase = name; } }
 
-    // A short decaying jitter (px) for shakes, stepped every 30 ms.
-    const jolt = (k, span, size) => { const a = size * Math.max(0, 1 - k / span), n = Math.floor(k / 30); return a ? "translate(" + (Math.sin(n * 12.9898) * a).toFixed(1) + "px, " + (Math.sin(n * 78.233) * a * 0.6).toFixed(1) + "px)" : ""; };
+    const jolt = diceJolt;
     function tick() {
         frame = 0;
         if (!current) return;
         const c = current, t = c.t0 === null ? 0 : forkForeground.now() - c.t0, T = DICE_T, s = parts;
-        gl.dice.forEach((mesh, die) => diePose(gl, mesh, c.plans[die], t, scratch));
+        gl.dice.forEach((mesh, die) => diePose(mesh, c.plans[die], t, DICE_SCALE, scratch));
         // Each cue in the frame that reaches it; one a stalled frame skipped by more than DICE_SE_LATE is dropped.
         while (c.cues.length && c.cues[0].at <= t) { const cue = c.cues.shift(); if (t - cue.at <= DICE_SE_LATE) c.sound.play(cue); }
         diceFade(s.line, diceClamp(t / 180));
         if (t >= T.settle + 60 && !c.roll.hidden && !tray.hasAttribute("data-faces")) {
-            const up = gl.dice.map(mesh => dieUp(gl, mesh, scratch));
+            const up = gl.dice.map(mesh => dieUp(mesh, scratch));
             tray.dataset.faces = diceLabel(0, up[0]) + " " + diceLabel(1, up[1]);
             tray.dataset.value = String(diceValue(up[0], up[1]));
         }
         let shake = "";
         if (c.roll.hidden) {
-            // The cup drops, accelerating, tilted a little; slams at T.slam (squash, a small rebound hop, a rock that
-            // dies away), with a puff of dust and a short shake of the whole throw.
-            const cup = gl.cup.group, fall = diceClamp((t - T.cupDrop) / (T.slam - T.cupDrop)), k = t - T.slam;
-            let y = DICE_CUP.height * (1 - Math.pow(fall, 2.4)), squash = 0, rock = 0.12 * (1 - fall);
-            if (k >= 0) {
-                y = k < DICE_CUP.rebound ? DICE_CUP.hop * Math.sin(Math.PI * k / DICE_CUP.rebound) : 0;
-                squash = k < 110 ? 0.08 * Math.sin(Math.PI * k / 110) : 0;
-                rock = 0.035 * Math.exp(-k / 140) * Math.sin(k / 34);
-                shake = jolt(k, 240, 6);
-                tray.dataset.cup = "covered";
-            }
-            cup.visible = t >= T.cupDrop;
-            cup.position.set(0, y, 0.55);
-            cup.rotation.set(rock, 0, rock * 0.6);
-            cup.scale.set(1 + squash / 2, 1 - squash, 1 + squash / 2);
-            const near = 1 - Math.min(1, y / DICE_CUP.height);
-            gl.cup.shadow.visible = cup.visible;
-            gl.cup.shadow.position.z = 0.55;
-            gl.cup.shadow.scale.setScalar(1.35 - 0.35 * near);
-            gl.cup.shadow.material.opacity = 0.62 * near * near;
-            const d = diceClamp(k / 420);
-            diceFade(s.dust, k >= 0 ? 1 - d : 0);
-            s.dust.style.transform = "scale(" + (0.55 + 1.1 * diceOut(d)) + ")";
+            const pose = diceCupPose(gl.cup, t, s.dust, jolt);
+            shake = pose.shake;
+            if (pose.covered) tray.dataset.cup = "covered";
             phase(t < T.slam ? "throw" : t < c.end ? "seal" : "fade");
         } else {
             // The values fly into the number (silently) while the dice step back.

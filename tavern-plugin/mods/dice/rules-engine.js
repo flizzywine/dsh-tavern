@@ -17,6 +17,13 @@ const MAX_RULES_BYTES = 256 * 1024
 // Variable path segments the rules may not name: MVU's own data and prototype names.
 const FORBIDDEN_SEGMENTS = new Set(['schema', 'display_data', 'delta_data', '__proto__', 'prototype', 'constructor'])
 const ITEM_KINDS = 'int, options, table, set, pick, keyOf, text or type boolean'
+// How good an outcome is for the player (outcomes[].tone): its colour, seal and sound on the stage.
+export const TONES = Object.freeze(['great', 'good', 'mixed', 'bad', 'terrible'])
+const NEEDS = ['>=', '>', '<=', '<', '==']
+const READS = ['sum', 'highest', 'lowest']
+const LOOK = /^[A-Za-z][\w-]{0,31}$/
+// The read dice groups of a prepared action, beside its values (scope.read answers read(group) from them).
+const READ = Symbol('read')
 
 function fail(path, message) { throw new Error(path + ': ' + message) }
 function formula(path, source) {
@@ -218,11 +225,16 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     plain(at, spec)
     if (spec.mark !== undefined && (!Array.isArray(spec.mark) || !spec.mark.length || !spec.mark.every(face => Number.isInteger(face) && face >= 1 && face <= 1000))) fail(at + '.mark', 'must be a list of faces, e.g. [3]')
     if (spec.markColor !== undefined && (spec.mark === undefined || typeof spec.markColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(spec.markColor))) fail(at + '.markColor', 'must be a #rrggbb colour next to mark')
-    const look = { ...(spec.mark ? { mark: [...spec.mark] } : {}), ...(spec.markColor ? { markColor: spec.markColor } : {}) }
+    // What the stage is told about the group: its marked faces, its look (a set of dice the skin dresses) and its turn
+    // in the throw (order: the same number throws together, the smaller first).
+    if (spec.look !== undefined && (typeof spec.look !== 'string' || !LOOK.test(spec.look))) fail(at + '.look', 'must be a short name, e.g. "sponsor"')
+    if (spec.order !== undefined && !(Number.isInteger(spec.order) && spec.order >= 1 && spec.order <= 9)) fail(at + '.order', 'must be a whole number from 1 to 9')
+    const look = { ...(spec.mark ? { mark: [...spec.mark] } : {}), ...(spec.markColor ? { markColor: spec.markColor } : {}), ...(spec.look ? { look: spec.look } : {}), ...(spec.order ? { order: spec.order } : {}) }
     if (spec.roll !== undefined) {
       if (spec.count !== undefined || spec.sides !== undefined) fail(at, 'give either roll or count and sides')
+      if (spec.read !== undefined || spec.adjusted !== undefined) fail(at + '.read', 'a dice expression reads as its value; read belongs to a group of count and sides')
       dice[name] = { ...compileRoll(at + '.roll', spec.roll), ...look }
-    } else dice[name] = { count: formula(at + '.count', spec.count), sides: formula(at + '.sides', spec.sides), ...look }
+    } else dice[name] = { count: formula(at + '.count', spec.count), sides: formula(at + '.sides', spec.sides), ...look, ...compileRead(at, spec) }
   }
   // A step is ["name", "formula"], or a sum over entries: {name, each, sum, when?} adds `sum` up for each entry name of
   // `each` (read as `key`) for which `when` holds - e.g. revenue = the sales times the price of every product on sale.
@@ -262,9 +274,10 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     const at = path + '.outcomes.' + index
     plain(at, outcome)
     if (outcome.show !== undefined && !CHECK_SHOWS.includes(outcome.show)) fail(at + '.show', 'must be one of ' + CHECK_SHOWS.join(', '))
+    if (outcome.tone !== undefined && !TONES.includes(outcome.tone)) fail(at + '.tone', 'must be one of ' + TONES.join(', '))
     const when = optionalFormula(at + '.when', outcome.when)
     return { id: text(at + '.id', outcome.id), label: text(at + '.label', outcome.label), when, reads: when ? [...formulaNames(when)] : [],
-      text: template(at + '.text', outcome.text), stop: template(at + '.stop', outcome.stop), ...(outcome.show ? { show: outcome.show } : {}) }
+      text: template(at + '.text', outcome.text), stop: template(at + '.stop', outcome.stop), ...(outcome.show ? { show: outcome.show } : {}), ...(outcome.tone ? { tone: outcome.tone } : {}) }
   })
   if (outcomes.length && outcomes.at(-1).when !== null) fail(path + '.outcomes', 'the last outcome is the default and has no when')
   const effects = (row.effects || []).map((effect, index) => {
@@ -285,11 +298,25 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     const at = path + '.report.' + index
     plain(at, entry)
     const value = formula(at + '.value', entry.value), when = optionalFormula(at + '.when', entry.when)
-    return { id: text(at + '.id', entry.id), label: text(at + '.label', entry.label), value, when, secret: entry.secret === true, reads: [...[value, when].filter(Boolean).reduce((names, tree) => formulaNames(tree, names), new Set())] }
+    // The main line (main: true) is the number the check is about, told large; its target is what it is held against.
+    if (entry.main !== undefined && entry.main !== true) fail(at + '.main', 'is true or left out')
+    let target = null
+    if (entry.target !== undefined) {
+      if (entry.main !== true) fail(at + '.target', 'belongs to the main line (main: true)')
+      plain(at + '.target', entry.target)
+      if (!NEEDS.includes(entry.target.need)) fail(at + '.target.need', 'must be one of ' + NEEDS.join(' '))
+      target = { label: text(at + '.target.label', entry.target.label), value: formula(at + '.target.value', entry.target.value), need: entry.target.need }
+    }
+    return { id: text(at + '.id', entry.id), label: text(at + '.label', entry.label), value, when, secret: entry.secret === true, ...(entry.main ? { main: true } : {}), target,
+      reads: [...[value, when, target?.value].filter(Boolean).reduce((names, tree) => formulaNames(tree, names), new Set())] }
   })
+  if (report.filter(entry => entry.main).length > 1) fail(path + '.report', 'only one line is the main one')
+  if (row.tags !== undefined && (!Array.isArray(row.tags) || row.tags.length > 6)) fail(path + '.tags', 'must list at most 6 texts, e.g. ["难度 {dc}"]')
+  const tags = (row.tags || []).map((tag, index) => template(path + '.tags.' + index, tag))
+  const hidden = row.hidden === undefined || row.hidden === false ? null : formula(path + '.hidden', row.hidden)
   if (row.by !== undefined && !['player', 'gm'].includes(row.by)) fail(path + '.by', 'must be player or gm')
   const action = { id, path, label: text(path + '.label', row.label), title: template(path + '.title', row.title), summary: text(path + '.summary', row.summary, true), by: row.by || 'gm',
-    when: optionalFormula(path + '.when', row.when), params, dice, before, require, sequence, choices, after, ensure, outcomes, effects, report,
+    when: optionalFormula(path + '.when', row.when), params, dice, before, require, sequence, choices, after, ensure, outcomes, effects, report, tags, hidden,
     text: template(path + '.text', row.text), stop: template(path + '.stop', row.stop) }
   // Every name a formula reads must be declared; a typo is the author's to fix, found when the card is checked.
   const known = new Set([...global, ...own, 'key', 'outcome'])
@@ -299,12 +326,68 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     ...[...require, ...ensure].flatMap(rule => [[path + '.require', rule.when], ...templateTrees(rule.message).map(tree => [path + '.message', tree])]),
     ...outcomes.flatMap(outcome => [outcome.when, ...templateTrees(outcome.text), ...templateTrees(outcome.stop)].filter(Boolean).map(tree => [path + '.outcomes.' + outcome.id, tree])),
     ...effects.flatMap(effect => [effect.key, effect.each, effect.add, effect.set, effect.when].filter(Boolean).map(tree => [path + '.effects', tree])),
-    ...report.flatMap(entry => [entry.value, entry.when].filter(Boolean).map(tree => [path + '.report.' + entry.id, tree])),
-    ...[...templateTrees(action.text), ...templateTrees(action.stop), ...templateTrees(action.title)].map(tree => [path, tree]),
+    ...report.flatMap(entry => [entry.value, entry.when, entry.target?.value].filter(Boolean).map(tree => [path + '.report.' + entry.id, tree])),
+    ...[...templateTrees(action.text), ...templateTrees(action.stop), ...templateTrees(action.title), ...tags.flatMap(templateTrees), ...(hidden ? [hidden] : [])].map(tree => [path, tree]),
+    ...Object.entries(dice).flatMap(([name, spec]) => [spec.read?.than, spec.adjusted].filter(Boolean).map(tree => [path + '.dice.' + name, tree])),
     ...[...params, ...choices].flatMap(item => [item.when, item.min, item.max, item.default, ...templateTrees(item.hint)].filter(tree => tree && typeof tree === 'object').map(tree => [item.path, tree])),
     ...Object.values(dice).flatMap(spec => spec.terms ? [[path + '.dice', spec.roll], ...spec.terms.flatMap(term => [[path + '.dice', term.count], [path + '.dice', term.sides]])] : [[path + '.dice', spec.count], [path + '.dice', spec.sides]])
-  ]) check(at, tree, new Set([...known, ...Object.values(dice).flatMap(spec => (spec.terms || []).map((_, index) => ROLL_TERM + index))]))
+  ]) {
+    check(at, tree, new Set([...known, ...Object.values(dice).flatMap(spec => (spec.terms || []).map((_, index) => ROLL_TERM + index))]))
+    for (const call of readCalls(tree)) if (call.args.length !== 1 || call.args[0].n !== 'id' || !dice[call.args[0].v]?.read) fail(at, 'read() takes the name of one of this action\'s dice groups that has read' + (Object.keys(dice).some(name => dice[name].read) ? ': ' + Object.keys(dice).filter(name => dice[name].read).join(', ') : ''))
+  }
   return Object.freeze(action)
+}
+function readCalls(tree, calls = []) {
+  if (tree.n === 'call' && tree.f === 'read') calls.push(tree)
+  for (const child of [tree.a, tree.b, tree.c, tree.o, tree.k, ...(tree.args || [])]) if (child && typeof child === 'object') readCalls(child, calls)
+  return calls
+}
+
+// How a group of dice is read (dice.<group>.read): sum, highest or lowest (one die counts), or a count of the dice whose
+// face is listed ({count: [3]}) or meets a comparison ({count: ">= 8"}, the right side a formula). read(group) is that
+// value, and the record marks each die kept or dropped, so the stage shows which dice made the number. adjusted (a
+// formula, with a count of listed faces) is the count after the player's changes: as many dice turn as the difference.
+function compileRead(at, spec) {
+  if (spec.read === undefined) {
+    if (spec.adjusted !== undefined) fail(at + '.adjusted', 'belongs to a group read as a count ({count: [faces]})')
+    return {}
+  }
+  if (READS.includes(spec.read)) {
+    if (spec.adjusted !== undefined) fail(at + '.adjusted', 'belongs to a group read as a count ({count: [faces]})')
+    return { read: { how: spec.read } }
+  }
+  const count = spec.read && typeof spec.read === 'object' && !Array.isArray(spec.read) ? spec.read.count : undefined
+  if (Array.isArray(count) && count.length && count.every(face => Number.isInteger(face) && face >= 1 && face <= 1000)) {
+    return { read: { how: 'count', faces: [...count] }, ...(spec.adjusted !== undefined ? { adjusted: formula(at + '.adjusted', spec.adjusted) } : {}) }
+  }
+  const match = typeof count === 'string' ? /^\s*(>=|<=|>|<|==|!=)(.+)$/.exec(count) : null
+  if (!match) fail(at + '.read', 'is sum, highest, lowest, {count: [faces]} or {count: ">= n"}')
+  if (spec.adjusted !== undefined) fail(at + '.adjusted', 'belongs to a group read as a count of listed faces ({count: [faces]})')
+  return { read: { how: 'count', op: match[1], than: formula(at + '.read.count', match[2].trim()) } }
+}
+const COMPARE = { '>=': (a, b) => a >= b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '<': (a, b) => a < b, '==': (a, b) => a === b, '!=': (a, b) => a !== b }
+// A pool read: its value and each die kept or dropped (highest / lowest keep the first die of that face).
+function readPool(read, faces, scope) {
+  if (read.how === 'sum') return { value: faces.reduce((total, face) => total + face, 0), flags: faces.map(() => 'kept') }
+  if (read.how === 'highest' || read.how === 'lowest') {
+    if (!faces.length) return { value: 0, flags: [] }
+    const best = read.how === 'highest' ? Math.max(...faces) : Math.min(...faces), at = faces.indexOf(best)
+    return { value: best, flags: faces.map((_, index) => index === at ? 'kept' : 'dropped') }
+  }
+  const than = read.faces ? null : evaluate(read.than, scope)
+  const flags = faces.map(face => (read.faces ? read.faces.includes(face) : COMPARE[read.op](face, than)) ? 'kept' : 'dropped')
+  return { value: flags.filter(flag => flag === 'kept').length, flags }
+}
+// The faces after the player changed the count to `to`: dropped dice turn to the first listed face (front first), kept
+// ones to the lowest unlisted face (back first); each turned die is flagged changed, with its face after in `after`.
+function adjustPool(listed, sides, read, faces, to) {
+  if (typeof to !== 'number' || !Number.isFinite(to)) throw new Error('adjusted must give a number, got ' + JSON.stringify(to))
+  const flags = [...read.flags], after = [...faces]
+  let left = Math.max(0, Math.min(faces.length, to)) - read.value
+  const off = Array.from({ length: sides }, (_, index) => index + 1).find(face => !listed.includes(face))
+  for (let index = 0; left > 0 && index < faces.length; index++) if (flags[index] === 'dropped') { flags[index] = 'changed'; after[index] = listed[0]; left-- }
+  for (let index = faces.length - 1; left < 0 && off !== undefined && index >= 0; index--) if (flags[index] === 'kept') { flags[index] = 'changed'; after[index] = off; left++ }
+  return flags.includes('changed') ? { flags, after } : null
 }
 
 // A parameter (given by the model with the action) or a choice (made by the player after it): int {min,max,default},
@@ -394,6 +477,11 @@ export function foldRecords(rules, state, records) {
 function scopeOf(rules, action, state, values) {
   const items = action ? [...action.params, ...action.choices] : []
   return {
+    read(node) {
+      const read = values[READ]?.[node.v]
+      if (!read) throw new Error('read(' + node.v + ') is not known here')
+      return read.value
+    },
     get(name) {
       if (Object.hasOwn(values, name)) return values[name]
       if (Object.hasOwn(state, name)) return state[name]
@@ -475,17 +563,20 @@ function prepare(rules, state, request, seed) {
     values[param.id] = readItem(param, given[param.id], scope, state)
   }
   const draw = seededDraw(seed), dice = {}, faces = {}
+  values[READ] = {}
   const roll = (name, count, sides) => {
     if (!Number.isInteger(count) || count < 0 || count > 100 || !Number.isInteger(sides) || sides < 2 || sides > 1000) throw new Error(action.label + ': dice ' + name + ' must be 0-100 dice of 2-1000 sides')
     return Array.from({ length: count }, () => draw(sides))
   }
   for (const [name, spec] of Object.entries(action.dice)) {
-    const look = { ...(spec.mark ? { mark: spec.mark } : {}), ...(spec.markColor ? { markColor: spec.markColor } : {}) }
+    const look = { ...(spec.mark ? { mark: spec.mark } : {}), ...(spec.markColor ? { markColor: spec.markColor } : {}), ...(spec.look ? { look: spec.look } : {}), ...(spec.order ? { order: spec.order } : {}) }
     if (!spec.terms) {
       const sides = evaluate(spec.sides, scope)
       values[name] = roll(name, evaluate(spec.count, scope), sides)
+      const read = spec.read ? readPool(spec.read, values[name], scope) : null
+      if (read) values[READ][name] = read
       // A group that rolls no die this time (an extra die only some rolls get) leaves the record.
-      if (values[name].length) { dice[name] = values[name]; faces[name] = { sides, ...look } }
+      if (values[name].length) { dice[name] = values[name]; faces[name] = { sides, ...look, ...(read ? { read: spec.read.how, value: read.value, flags: read.flags } : {}) } }
       continue
     }
     // A dice expression: its name is its value; the record keeps the dice and, when they differ, each die's sides.
@@ -505,7 +596,10 @@ function prepare(rules, state, request, seed) {
   for (const step of action.before) values[step.name] = runStep(step, scope, values)
   // A requirement refuses the action: nothing is recorded, and the card's message tells the story its way out.
   for (const rule of action.require) if (!evaluate(rule.when, scope)) throw new Error(render(rule.message, scope))
-  return { action, values, scope, dice, faces, params: Object.fromEntries(action.params.filter(row => values[row.id] !== null).map(row => [row.id, values[row.id]])) }
+  // The line over the dice (「难度 15」「优势」; an empty tag is left out) and a roll kept from the player (hidden).
+  const tags = action.tags.map(parts => render(parts, scope)).filter(tag => tag.trim())
+  return { action, values, scope, dice, faces, tags, hidden: action.hidden ? Boolean(evaluate(action.hidden, scope)) : false,
+    params: Object.fromEntries(action.params.filter(row => values[row.id] !== null).map(row => [row.id, values[row.id]])) }
 }
 
 // A choice as the player sees it once the dice are down, or null when it is no choice now (its when is false, an int
@@ -579,6 +673,13 @@ function finish(rules, state, prepared, asked) {
   const { action, values, scope } = prepared
   for (const step of action.after) values[step.name] = runStep(step, scope, values)
   for (const rule of action.ensure) if (!evaluate(rule.when, scope)) throw new Error(render(rule.message, scope))
+  // The dice the player's choices turned (dice.<group>.adjusted): their flags and faces after, on the settled record.
+  let faces = prepared.faces
+  for (const [name, spec] of Object.entries(action.dice)) {
+    if (!spec.adjusted || !faces[name]) continue
+    const turned = adjustPool(spec.read.faces, faces[name].sides, values[READ][name], prepared.dice[name], evaluate(spec.adjusted, scope))
+    if (turned) faces = { ...faces, [name]: { ...faces[name], ...turned } }
+  }
   const outcome = action.outcomes.find(row => row.when === null || evaluate(row.when, scope)) || null
   values.outcome = outcome ? outcome.id : null
   const shown = { text: render(outcome?.text || action.text, scope), stop: render(outcome?.stop || action.stop, scope), report: reportOf(action.report, scope) }
@@ -624,16 +725,19 @@ function finish(rules, state, prepared, asked) {
     if (!primitive(to)) throw new Error(row.label + ': a value is a number, text or true/false, got ' + JSON.stringify(to))
     if (next[id] !== to) { changes.push({ path: row.path, label: row.label, ...(next[id] === undefined ? {} : { from: next[id] }), to, ...(row.secret ? { secret: true } : {}) }); next[id] = to }
   }
-  return { outcome: outcome ? { id: outcome.id, label: outcome.label } : null, show: showOf(outcome), ...shown, changes: mergeChanges(changes),
+  return { outcome: outcomeOf(outcome), show: showOf(outcome), ...shown, changes: mergeChanges(changes), faces,
     chosen: Object.fromEntries(asked.map(row => [row.id, values[row.id]])) }
 }
+const outcomeOf = row => row ? { id: row.id, label: row.label, ...(row.tone ? { tone: row.tone } : {}) } : null
 
-// The report; while choices are open, only the entries that read nothing still unknown.
+// The report; while choices are open, only the entries that read nothing still unknown, and the main line by its label
+// alone (pending: its value is each choice preview's main).
 function reportOf(entries, scope, unknown = null) {
   const report = {}
   for (const row of entries) {
-    if (unknown && row.reads.some(name => unknown.has(name))) continue
-    if (!row.when || evaluate(row.when, scope)) report[row.id] = { label: row.label, value: evaluate(row.value, scope), ...(row.secret ? { secret: true } : {}) }
+    if (unknown && row.reads.some(name => unknown.has(name))) { if (row.main) report[row.id] = { label: row.label, main: true, pending: true }; continue }
+    if (!row.when || evaluate(row.when, scope)) report[row.id] = { label: row.label, value: evaluate(row.value, scope), ...(row.secret ? { secret: true } : {}), ...(row.main ? { main: true } : {}),
+      ...(row.target ? { target: { label: row.target.label, value: evaluate(row.target.value, scope), need: row.target.need } } : {}) }
   }
   return report
 }
@@ -661,22 +765,37 @@ function decidedOutcome(action, scope, unknown) {
 }
 
 function headOf(prepared, seed) {
-  const { action, params, dice, faces, scope } = prepared
-  return { action: action.id, label: action.label, ...(action.title ? { title: render(action.title, scope) } : {}), ...(Object.keys(params).length ? { params } : {}),
-    ...(Object.keys(dice).length ? { seed, dice, faces } : {}) }
+  const { action, params, dice, faces, scope, tags, hidden } = prepared
+  return { action: action.id, label: action.label, ...(action.title ? { title: render(action.title, scope) } : {}), ...(tags.length ? { tags } : {}), ...(hidden ? { hidden: true } : {}),
+    ...(Object.keys(params).length ? { params } : {}), ...(Object.keys(dice).length ? { seed, dice, faces } : {}) }
 }
 const compact = record => Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && value !== null && !(typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length)))
 
-// What an int choice's values would each do, so the player chooses knowing it and the model need not work it out.
+// What a choice's values would each do, so the player chooses knowing it and the model need not work it out: every
+// value of an int of at most PREVIEW_ALL + 1 values, an option, a set name or yes/no; of a wider int (luck to spend,
+// 0-99) only the value nearest its default for each outcome it can reach, the cheapest way to that outcome.
 // The choices after it take their defaults (a condition the manager reports is taken as its default too).
+const PREVIEW_ALL = 12, PREVIEW_SCAN = 200
 function previews(rules, state, request, seed, made, choice) {
-  if (choice.kind !== 'int' || choice.max - choice.min > 12) return
-  choice.preview = []
-  for (let value = choice.min; value <= choice.max; value++) {
+  if (choice.by === 'gm') return
+  const wide = choice.kind === 'int' && choice.max - choice.min > PREVIEW_ALL
+  const values = choice.kind === 'int' ? (choice.max - choice.min > PREVIEW_SCAN ? [] : Array.from({ length: choice.max - choice.min + 1 }, (_, index) => choice.min + index))
+    : choice.kind === 'options' ? Object.keys(choice.options) : choice.kind === 'set' ? choice.options : choice.kind === 'boolean' ? [true, false] : []
+  if (!values.length) return
+  let rows = []
+  for (const value of values) {
     let done
     try { done = resolve(rules, state, prepare(rules, state, request, seed), { ...made, [choice.id]: value }, () => true).done } catch { continue }
-    choice.preview.push({ value, outcome: done.outcome?.label ?? null, changes: done.changes.map(row => ({ label: row.label, ...(typeof row.from === 'number' && typeof row.to === 'number' ? { add: row.to - row.from } : { to: row.to }), ...(row.secret ? { secret: true } : {}) })) })
+    const main = Object.values(done.report || {}).find(row => row.main)
+    rows.push({ value, outcome: done.outcome?.label ?? null, ...(done.outcome?.tone ? { tone: done.outcome.tone } : {}), ...(main ? { main: main.value } : {}), id: done.outcome?.id ?? null,
+      changes: done.changes.map(row => ({ label: row.label, ...(typeof row.from === 'number' && typeof row.to === 'number' ? { add: row.to - row.from } : { to: row.to }), ...(row.secret ? { secret: true } : {}) })) })
   }
+  if (wide) {
+    const best = new Map()
+    for (const row of rows) { const kept = best.get(row.id); if (!kept || Math.abs(row.value - choice.default) < Math.abs(kept.value - choice.default)) best.set(row.id, row) }
+    rows = rows.filter(row => best.get(row.id) === row)
+  }
+  choice.preview = rows.map(({ id, ...row }) => row)
 }
 
 // Settle, or wait for the choices open now. `asking` is the set of choice ids the record being answered listed: those the
@@ -687,14 +806,17 @@ function settleOrWait(rules, state, prepared, request, seed, answers, asking, ah
   const result = resolve(rules, state, prepared, answers, item => Boolean(asking?.has(item.id) || ahead) && item.by !== 'gm')
   if (result.done) {
     const done = result.done
-    return compact({ ...head, status: 'settled', ...(asking ? { choice: done.chosen } : {}), outcome: done.outcome, ...done.show, text: done.text, report: done.report, changes: done.changes, stop: done.stop })
+    return compact({ ...head, faces: done.faces, status: 'settled', ...(asking ? { choice: done.chosen } : {}), outcome: done.outcome, ...done.show, text: done.text, report: done.report, changes: done.changes, stop: done.stop })
   }
   const { open, asked, unknown } = result.waiting
   const unreported = open.filter(row => asking?.has(row.id))
   if (unreported.length) throw new Error(unreported.map(row => row.label + ' (' + row.id + ')').join(', ') + ' is yours to report (by gm): judge it from the story and give it in choice, with the player\'s answers')
   const made = Object.fromEntries(asked.map(row => [row.id, values[row.id]]))
   for (const choice of open) previews(rules, state, request, seed, made, choice)
-  return compact({ ...head, status: 'awaiting', choice: made, ...showOf(decidedOutcome(action, scope, unknown)), report: reportOf(action.report, scope, unknown), choices: open,
+  // The outcome fixed before the choice, named when the rules give their outcomes a tone (the stage's result page shows it).
+  const decided = decidedOutcome(action, scope, unknown)
+  return compact({ ...head, status: 'awaiting', choice: made, ...showOf(decided), ...(decided && action.outcomes.some(row => row.tone) ? { decided: outcomeOf(decided) } : {}),
+    report: reportOf(action.report, scope, unknown), choices: open,
     stop: open.some(row => row.by === 'gm') ? AWAITING_STOP_GM : AWAITING_STOP })
 }
 

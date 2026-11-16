@@ -64,10 +64,10 @@ const checkSigned = value => (value > 0 ? "+" : "") + value;
 // What the player's card may show of a record: what the rules keep from the player (a v1 record lists its secret resources
 // in record.secret, a v2 change or report row carries secret) is left out everywhere on it.
 const checkShown = (record, rows) => rows.filter(row => !row.secret && !(record.secret && record.secret.includes(row.resource)));
-// One previewed value of an int choice: 「2：代价成功（素质保证·主动-1）」.
-function checkPreviewText(row, record) {
+// One previewed value of a choice: 「2：代价成功（素质保证·主动-1）」; an option reads by its label 「计入：成功」.
+function checkPreviewText(row, record, label = row.value) {
     const changes = checkShown(record, row.changes);
-    return row.value + "：" + (row.outcome || "") + (changes.length ? "（" + changes.map(c => c.label + (c.add !== undefined ? checkSigned(c.add) : " " + c.to)).join("，") + "）" : "");
+    return label + "：" + (row.outcome || "") + (changes.length ? "（" + changes.map(c => c.label + (c.add !== undefined ? checkSigned(c.add) : " " + c.to)).join("，") + "）" : "");
 }
 // A change row: 「欺瞒 3→2」; a new entry 「线索·管家 新增 2」, a removed one 「线索·管家 删除」.
 function checkChangeText(row) {
@@ -103,6 +103,7 @@ function checkChoiceText(choice, record) {
         return choice.preview.map(row => checkPreviewText(row, record)).join("　");
     }
     if (choice.kind === "int") return choice.min + "～" + choice.max + "（默认 " + choice.default + "）";
+    if (choice.preview) return (checkButtonValues(choice, record) || []).map(row => row.text).join("　");
     if (choice.kind === "options") return Object.values(choice.options).join(" / ");
     if (choice.kind === "pick") return "从 " + choice.options.join("、") + " 中选 " + (choice.min === choice.max ? choice.min : choice.min + "～" + choice.max) + " 个";
     if (choice.kind === "set") return choice.options.join(" / ");
@@ -118,19 +119,22 @@ function checkOtherFaces(face, sides, index) {
     for (let n = 1; n <= sides; n++) if (n !== face) rest.push(n);
     return [rest[index % rest.length], rest[(index + 1) % rest.length]];
 }
+// A die's state on the record (faces.<group>.flags): a die that does not count is dimmed, one the player's choice
+// turned shows its face after the change with a turned mark.
+const checkDieState = props => (props.marked ? " is-marked" : "") + (props.flag && !checkDieCounts(props) ? " is-dropped" : "") + (props.flag === "changed" ? " is-changed" : "");
 function CheckDie(props) {
-    const h = React.createElement, face = props.face, marked = props.marked;
+    const h = React.createElement, face = props.flag === "changed" && props.after !== undefined ? props.after : props.face, marked = props.marked;
     // A d8 is the outline of an octahedron seen from above with its top face up, the result on that face.
-    if (props.sides === 8) return h("svg", { className: "fork-check-d8" + (marked ? " is-marked" : ""), viewBox: "0 0 100 100", "aria-hidden": "true",
+    if (props.sides === 8) return h("svg", { className: "fork-check-d8" + checkDieState(props), viewBox: "0 0 100 100", "aria-hidden": "true",
             style: marked && props.color ? { "--fork-check-mark": props.color } : undefined },
         h("polygon", { className: "fork-check-d8-body", points: "50,2 92,26 92,74 50,98 8,74 8,26" }),
         h("polygon", { className: "fork-check-d8-face", points: "50,14 86,76 14,76" }),
         h("text", { x: 50, y: 58, fontSize: 32, className: "fork-check-d8-top" }, String(face)));
-    if (props.sides !== 4) return h("span", { className: "fork-check-die" + (marked ? " is-marked" : ""), style: marked && props.color ? { "--fork-check-mark": props.color } : undefined }, String(face));
+    if (props.sides !== 4) return h("span", { className: "fork-check-die" + checkDieState(props), style: marked && props.color ? { "--fork-check-mark": props.color } : undefined }, String(face));
     const [left, right] = checkOtherFaces(face, 4, props.index);
     // Sizes are viewBox units (the die scales as a whole), not CSS type.
     const corner = (n, x, turn) => h("text", { x, y: 80, fontSize: 18, transform: "rotate(" + turn + " " + x + " 75)", className: "fork-check-d4-corner" }, String(n));
-    return h("svg", { className: "fork-check-d4" + (marked ? " is-marked" : ""), viewBox: "0 0 100 88", "aria-hidden": "true",
+    return h("svg", { className: "fork-check-d4" + checkDieState(props), viewBox: "0 0 100 88", "aria-hidden": "true",
             style: marked && props.color ? { "--fork-check-mark": props.color } : undefined },
         h("polygon", { className: "fork-check-d4-face", points: "50,2 98,86 2,86" }),
         marked ? h("polygon", { className: "fork-check-d4-band", points: "50,2 87.7,68 12.3,68" }) : null,
@@ -138,22 +142,26 @@ function CheckDie(props) {
         h("text", { x: 50, y: marked ? 54 : 52, fontSize: marked ? 30 : 34, className: "fork-check-d4-top" }, String(face)),
         corner(left, 24, 120), corner(right, 76, -120));
 }
-// The record's dice in roll order: [{ face, sides, color (the rules' markColor or null), marked }] (also the stage
-// performance's, show.js).
+// The record's dice in roll order: [{ face, sides, color (the rules' markColor or null), marked, group, look, order,
+// flag (kept / dropped / changed, when the rules read the group), after (a changed die's face) }] (also the stage's).
 function checkDiceFaces(record) {
     const dice = [];
     for (const [name, list] of Object.entries(record.dice || {})) {
         const meta = record.faces && record.faces[name] || {};
         // A dice expression with dice of different sides lists each die's sides.
-        list.forEach((face, i) => dice.push({ face, sides: Array.isArray(meta.sides) ? meta.sides[i] : meta.sides, color: meta.markColor || null, marked: Array.isArray(meta.mark) && meta.mark.includes(face) }));
+        list.forEach((face, i) => {
+            const shown = meta.after ? meta.after[i] : face;
+            dice.push({ face, sides: Array.isArray(meta.sides) ? meta.sides[i] : meta.sides, color: meta.markColor || null, marks: meta.mark || [], marked: Array.isArray(meta.mark) && meta.mark.includes(shown),
+                group: name, look: meta.look || "main", order: meta.order || 1, ...(meta.flags ? { flag: meta.flags[i] } : {}), ...(meta.after ? { after: meta.after[i] } : {}) });
+        });
     }
     return dice;
 }
 function CheckDice(props) {
-    const h = React.createElement, record = props.record;
-    const rows = checkDiceFaces(record).map((die, i) => h(CheckDie, Object.assign({ key: i, index: i }, die)));
+    const h = React.createElement, record = props.record, dice = checkDiceFaces(record);
+    const rows = dice.map((die, i) => h(CheckDie, Object.assign({ key: i, index: i }, die)));
     if (!rows.length) return null;
-    return h("div", { className: "fork-check-dice", role: "img", "aria-label": "骰面 " + Object.values(record.dice).flat().join(" ") }, rows);
+    return h("div", { className: "fork-check-dice", role: "img", "aria-label": "骰面 " + dice.map(die => die.flag === "changed" ? die.face + "→" + die.after : String(die.face)).join(" ") }, rows);
 }
 // A dice expression's line: 「1d6 + 4d100 + 3 = 215」.
 function checkRollText(record) {
@@ -171,18 +179,24 @@ function CheckConditions(props) {
 // click; otherwise the clicks only mark and 「确认」 hands them all over. What is sent is one readable player line,
 // 「【检定 #2 选择】调整后 3 的个数：2」, which the model settles with (the card's description tells it the format).
 const CHECK_INT_BUTTONS_MAX = 12;
+// Each button: { value, text, tone (the outcome it leads to, when previewed) }. A wide int (its preview keeps the value
+// nearest the default for each outcome) is those values, the default first among equals.
 function checkButtonValues(choice, record) {
+    const rows = new Map((choice.preview || []).map(row => [row.value, row]));
+    const button = (value, label) => { const row = rows.get(value); return { value, text: row ? checkPreviewText(row, record, label) : label, ...(row && row.tone ? { tone: row.tone } : {}) }; };
     if (choice.kind === "int") {
-        if (choice.max - choice.min + 1 > CHECK_INT_BUTTONS_MAX) return null;
-        const rows = choice.preview ? new Map(choice.preview.map(row => [row.value, row])) : new Map(), values = [];
-        for (let n = choice.min; n <= choice.max; n++) {
-            const row = rows.get(n);
-            values.push({ value: n, text: row ? checkPreviewText(row, record) : String(n) });
+        if (choice.max - choice.min + 1 > CHECK_INT_BUTTONS_MAX) {
+            if (!choice.preview) return null;
+            const values = [...new Set([choice.default, ...choice.preview.map(row => row.value)])].sort((a, b) => a - b);
+            return values.map(n => button(n, String(n)));
         }
+        const values = [];
+        for (let n = choice.min; n <= choice.max; n++) values.push(button(n, String(n)));
         return values;
     }
-    if (choice.kind === "options") return Object.entries(choice.options).map(([id, label]) => ({ value: id, text: label }));
-    if (choice.kind === "boolean") return [{ value: true, text: "是" }, { value: false, text: "否" }];
+    if (choice.kind === "options") return Object.entries(choice.options).map(([id, label]) => button(id, label));
+    if (choice.kind === "boolean") return [button(true, "是"), button(false, "否")];
+    if (choice.kind === "set") return choice.options.map(option => button(option, option));
     return choice.options.map(option => ({ value: option, text: option }));
 }
 function checkAnswerText(record, picked) {
@@ -204,7 +218,7 @@ function CheckButtons(props) {
     const stop = event => event.stopPropagation();
     function send(values) {
         setState({ sent: true, error: "" });
-        Promise.resolve(props.input.submit(checkAnswerText(record, values))).catch(function (error) { setState({ sent: false, error: String(error && error.message || error) }); });
+        Promise.resolve(props.input.submit(checkAnswerText(record, values))).then(() => { if (props.onSend) props.onSend(values); }, function (error) { setState({ sent: false, error: String(error && error.message || error) }); });
     }
     function choose(choice, value) {
         const next = Object.assign({}, picked, { [choice.id]: choice.kind === "pick"
@@ -223,11 +237,11 @@ function CheckButtons(props) {
                 values ? h("div", { className: "fork-check-buttons", role: "group", "aria-label": choice.label },
                     values.map(row => {
                         const on = choice.kind === "pick" ? picked[choice.id].includes(row.value) : picked[choice.id] === row.value;
-                        return h("button", { key: String(row.value), type: "button", className: "fork-check-button" + (on ? " is-on" : ""), "aria-pressed": on, disabled: state.sent,
+                        return h("button", { key: String(row.value), type: "button", className: "fork-check-button" + (on ? " is-on" : ""), "aria-pressed": on, disabled: state.sent || props.disabled, "data-tone": row.tone,
                             onClick: () => choose(choice, row.value) }, row.text);
                     })) : checkChoiceText(choice, record));
         }),
-        direct || !choices.length ? null : h("button", { type: "button", className: "fork-check-confirm", disabled: state.sent || !ready, onClick: () => send(picked) }, "确认选择"),
+        direct || !choices.length ? null : h("button", { type: "button", className: "fork-check-confirm", disabled: state.sent || props.disabled || !ready, onClick: () => send(picked) }, "确认选择"),
         state.error ? h("div", { className: "fork-check-hint", role: "alert" }, "⚠ " + state.error) : null);
 }
 
@@ -263,20 +277,26 @@ function CheckCard(props) {
     const performing = useCheckPerforming(record.callId);
     const head = record.title && record.title !== record.label ? record.title + " · " + record.label : record.label || "调整";
     // An outcome the rules stage (show) is named in the mark colour; one fixed as the dice land is named while it awaits.
-    const tail = awaiting ? (record.show ? record.show.label + " · " : "") + "等你选择" : record.outcome ? record.outcome.label : record.status === "adjusted" ? "资源调整" : "";
+    // A hidden roll (the rules' hidden) shows neither its dice nor what came of them; the model reads them as usual.
+    const hidden = record.hidden === true;
+    const tail = hidden ? "暗骰" : awaiting ? (record.show ? record.show.label + " · " : "") + "等你选择" : record.outcome ? record.outcome.label : record.status === "adjusted" ? "资源调整" : "";
     const mark = record.show ? checkDiceFaces(record).find(die => die.color)?.color : null;
-    const report = record.report ? checkShown(record, Object.values(record.report)).map(row => row.label + " " + (row.value === true ? "是" : row.value)).join(" · ") : "";
+    // The main number (report main) is told large at the head of the report, its target beside it.
+    const headline = hidden ? null : checkHeadline(record);
+    const report = record.report && !hidden ? checkShown(record, Object.values(record.report)).filter(row => !row.main).map(row => row.label + " " + (row.value === true ? "是" : row.value)).join(" · ") : "";
+    const changes = hidden ? [] : checkShown(record, record.changes || []);
     return h("div", { className: "fork-roll fork-check" + (awaiting ? " is-awaiting" : "") + (performing ? " is-throwing" : ""), "data-call": record.callId, "data-outcome": record.outcome ? record.outcome.id : undefined,
-            "data-show": record.show ? record.show.effect : undefined, style: mark ? { "--fork-check-mark": mark } : undefined },
+            "data-tone": hidden ? undefined : checkToneOf(record) || undefined, "data-show": record.show ? record.show.effect : undefined, style: mark ? { "--fork-check-mark": mark } : undefined },
         h("button", { type: "button", className: "fork-roll-head", "aria-expanded": open, "aria-controls": open ? detailsId : undefined,
             onKeyDown: function (event) { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); },
             onClick: function (event) { event.stopPropagation(); setOpen(!open); } },
             h(Icon, { name: "die", size: 16 }),
             h("span", { className: "fork-roll-line" }, (record.id ? record.id + " " : "") + head + " · ", h("span", { className: "fork-roll-tier" }, tail))),
-        h(CheckDice, { record }),
-        checkRollText(record) ? h("div", { className: "fork-check-line" }, checkRollText(record)) : null,
+        hidden ? null : h(CheckDice, { record }),
+        !hidden && checkRollText(record) ? h("div", { className: "fork-check-line" }, checkRollText(record)) : null,
+        headline ? h("div", { className: "fork-check-line fork-check-headline" }, headline.label + " ", h("b", null, String(headline.value)), headline.target ? "　" + checkTargetText(headline.target) : null) : null,
         report ? h("div", { className: "fork-check-line" }, report) : null,
-        record.changes && checkShown(record, record.changes).length ? h("div", { className: "fork-check-line" }, checkShown(record, record.changes).map(checkChangeText).join("，")) : null,
+        changes.length ? h("div", { className: "fork-check-line" }, changes.map(checkChangeText).join("，")) : null,
         awaiting && props.answerable ? h(CheckButtons, { record, input: props.input }) : null,
         awaiting && !props.answerable ? h("div", { className: "fork-check-choices" },
             h(CheckConditions, { record }),
