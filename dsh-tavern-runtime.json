@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a0857aab64acf8f4ff521ce7836b4368ce9049a4",
-  "releaseSequence": 1705,
+  "revision": "6b6dcf6055db80822179e2aba0482ae9ef239973",
+  "releaseSequence": 1706,
   "version": "3.3.0",
   "files": [
     {
@@ -5876,8 +5876,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/view/index.js",
-      "sha256": "bc7ddf960f9cfe981581877d396491511809e0e1145028406d97e78673744fc2",
-      "size": 105008
+      "sha256": "2a38b25102b1cdf9b43e3b5a3f407fdc6a4e294d8d2f60c1b67c28d783127b89",
+      "size": 105092
     },
     {
       "path": "tavern-plugin/mods/phone/view/photos.js",
@@ -9341,9 +9341,9 @@
     }
   ],
   "archive": {
-    "commit": "2eeefdb8fe3f984f6d16b4c580347a93d9d3f5e9",
+    "commit": "c0d3628e8088a6c20d5a90a4e13f3fd0cb05bf94",
     "path": "runtime.zip",
-    "sha256": "60b30aeede9e73a9e05dea31affbbd80147fa5e8280899b3297b051a1a997ca5",
-    "size": 16624255
+    "sha256": "ac1bac5a2947eada70fee81fb131e6d833dc1c537ee21917e5406ad3d1eb2f24",
+    "size": 16624287
   }
 }
