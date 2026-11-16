@@ -24,6 +24,9 @@ const FUNCTIONS = Object.freeze({
   range: n => { const count = asNumber(n, 'range'); if (!Number.isInteger(count) || count < 0 || count > 1000) throw new Error('range() needs a whole number 0-1000'); return Array.from({ length: count }, (_, index) => index) },
   // slice(list, start, end) - the entries from start up to before end, e.g. count(slice(d, 0, key + 1), d[key]) is the how-manieth time this face came up
   slice: (list, start, end) => asList(list, 'slice').slice(asNumber(start, 'slice'), end === undefined ? undefined : asNumber(end, 'slice')),
+  // read(group) - a dice group read the way its rules say (dice.<group>.read: sum, highest, lowest or a count); the
+  // scope answers it (rules-engine.js), so it is only known where an action's dice are
+  read: () => { throw new Error('read() reads a dice group of this action that has read') },
 })
 // A formula is short data: these bound what one card can make the engine parse.
 const MAX_FORMULA_LENGTH = 2000, MAX_FORMULA_DEPTH = 40
@@ -134,7 +137,9 @@ export function evaluate(tree, scope) {
     case 'id': return scope.get(tree.v)
     case 'un': { const value = evaluate(tree.a, scope); return tree.op === '!' ? !value : -asNumber(value, '-') }
     case 'if': return evaluate(tree.c, scope) ? evaluate(tree.a, scope) : evaluate(tree.b, scope)
-    case 'call': return FUNCTIONS[tree.f](...tree.args.map(arg => evaluate(arg, scope)))
+    case 'call':
+      if (tree.f === 'read') return scope.read ? scope.read(tree.args[0]) : FUNCTIONS.read()
+      return FUNCTIONS[tree.f](...tree.args.map(arg => evaluate(arg, scope)))
     case 'idx': {
       const object = evaluate(tree.o, scope), key = evaluate(tree.k, scope)
       if (Array.isArray(object)) return object[asNumber(key, '[]')]

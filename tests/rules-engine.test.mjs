@@ -376,3 +376,99 @@ test('secret for the player only: a report line, a derived value, and the panel,
     [['/幕后/察觉', 'unlisted'], ['/幕后/阶段', 'masked']])
   assert.throws(() => compileRulesV2({ ...source, derived: { stage: { ...source.derived.stage, secret: 'yes' } } }), /derived\.stage\.secret: must be true or "unlisted"/)
 })
+
+// What the stage is told (the check design's block A): how a group is read and which dice made the number, the main line
+// and its target, the outcome's tone, the tags over the dice, a die's look and turn, a hidden roll, and previews for
+// options and for a wide range. None of it changes a sum; a card that writes none of it gets the records it got before.
+const D20 = { format: 'dsh-rules', version: 2, name: 'd20', state: { hero: { path: '/英雄点', label: '英雄点', min: 0, initial: 2 } },
+  actions: { check: { label: '潜行', by: 'player', tags: ['难度 {dc}', "{adv == 'adv' ? '优势' : adv == 'dis' ? '劣势' : ''}"], hidden: 'secret',
+    params: { dc: { int: { min: 5, max: 30 } }, mod: { int: { min: -5, max: 10, default: 0 } }, adv: { options: { none: '无', adv: '优势', dis: '劣势' }, default: 'none' }, secret: { type: 'boolean', default: false } },
+    dice: { d: { count: "adv == 'none' ? 1 : 2", sides: 20, read: "highest", mark: [20, 1], look: 'main', order: 1 } },
+    let: [['nat', 'read(d)'], ['total', 'read(d) + mod']],
+    outcomes: [{ id: 'crit', label: '大成功', when: 'nat == 20', tone: 'great' }, { id: 'hit', label: '成功', when: 'total >= dc', tone: 'good' },
+      { id: 'fumble', label: '大失败', when: 'nat == 1', tone: 'terrible' }, { id: 'miss', label: '失败', tone: 'bad' }],
+    report: [{ id: 'total', label: '总值', value: 'total', main: true, target: { label: '难度', value: 'dc', need: '>=' } }] } } }
+
+test('a group read as its highest die: read(d), each die kept or dropped, the main line and its target, the tone and the tags', () => {
+  const rules = compileRulesV2(D20)
+  const seed = (() => { for (let s = 1; s < 5000; s++) { const draw = seededDraw(s), a = draw(20), b = draw(20); if (a !== b && a < 20 && b < 20 && a > 1 && b > 1) return s } })()
+  const draw = seededDraw(seed), faces = [draw(20), draw(20)], best = Math.max(...faces)
+  const record = runRulesCall(rules, [], { op: 'act', action: 'check', params: { dc: 15, mod: 5, adv: 'adv' }, reason: 'r' }, seed, { turn: 1 })
+  assert.deepEqual(record.tags, ['难度 15', '优势'])
+  assert.equal(record.hidden, undefined)
+  assert.deepEqual(record.faces.d, { sides: 20, mark: [20, 1], look: 'main', order: 1, read: 'highest', value: best, flags: faces.map(face => face === best ? 'kept' : 'dropped') })
+  assert.deepEqual(record.report.total, { label: '总值', value: best + 5, main: true, target: { label: '难度', value: 15, need: '>=' } })
+  assert.deepEqual(record.outcome, best + 5 >= 15 ? { id: 'hit', label: '成功', tone: 'good' } : { id: 'miss', label: '失败', tone: 'bad' })
+  const lone = runRulesCall(rules, [], { op: 'act', action: 'check', params: { dc: 15, secret: true }, reason: 'r' }, seed, { turn: 1 })
+  assert.deepEqual([lone.tags, lone.hidden, lone.faces.d.flags], [['难度 15'], true, ['kept']], 'an empty tag is left out; a hidden roll says so')
+  const bad = (patch, pattern) => assert.throws(() => compileRulesV2({ ...D20, actions: { check: { ...D20.actions.check, ...patch } } }), pattern)
+  bad({ dice: { d: { count: 1, sides: 20, read: 'best' } } }, /actions\.check\.dice\.d\.read: is sum, highest, lowest/)
+  bad({ dice: { d: { roll: '1d20', read: 'sum' } } }, /a dice expression reads as its value/)
+  bad({ dice: { d: { count: 1, sides: 20, read: 'sum', adjusted: '1' } } }, /adjusted: belongs to a group read as a count/)
+  bad({ dice: { d: { count: 1, sides: 20, look: 'a b' } } }, /look: must be a short name/)
+  bad({ dice: { d: { count: 1, sides: 20, order: 0 } } }, /order: must be a whole number from 1 to 9/)
+  bad({ dice: { d: { count: 1, sides: 20 } } }, /read\(\) takes the name of one of this action's dice groups that has read/)
+  bad({ outcomes: [{ id: 'x', label: 'x', tone: 'nice' }] }, /outcomes\.0\.tone: must be one of great, good, mixed, bad, terrible/)
+  bad({ report: [{ id: 'a', label: 'a', value: '1', target: { label: 't', value: '1', need: '>=' } }] }, /report\.0\.target: belongs to the main line/)
+  bad({ report: [{ id: 'a', label: 'a', value: '1', main: true }, { id: 'b', label: 'b', value: '1', main: true }] }, /only one line is the main one/)
+  bad({ report: [{ id: 'a', label: 'a', value: '1', main: true, target: { label: 't', value: '1', need: '=>' } }] }, /target\.need: must be one of/)
+})
+
+test('a count read: the dice that count, a count against a formula, and the dice the player\'s choice turned', () => {
+  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'pool', state: { qa: { path: '/素质保证', label: '素质保证', min: 0, initial: 3 } },
+    actions: {
+      roll: { label: '掷骰', dice: { d: { count: 6, sides: 4, mark: [3], read: { count: [3] }, adjusted: 'threes' } },
+        let: [['raw', 'read(d)']],
+        choices: [{ id: 'threes', label: '调整后 3 的个数', int: { min: 'max(0, raw - qa)', max: 'min(6, raw + qa)', default: 'raw' } }],
+        then: [['spent', 'abs(threes - raw)']],
+        outcomes: [{ id: 'ok', label: '成功', when: 'threes >= 1', tone: 'good' }, { id: 'no', label: '失败', tone: 'bad' }],
+        effects: [{ var: 'qa', add: '-spent', strict: true }],
+        report: [{ id: 'threes', label: '3 的个数', value: 'threes', main: true }] },
+      many: { label: '数成功', params: { tn: { int: { min: 2, max: 10 } } }, dice: { d: { count: 5, sides: 10, read: { count: '>= tn' } } }, let: [['hits', 'read(d)']], text: '{hits}' } } })
+  const seed = (() => { for (let s = 1; s < 5000; s++) { const draw = seededDraw(s), d = Array.from({ length: 6 }, () => draw(4)); if (d.filter(f => f === 3).length === 2) return s } })()
+  const draw = seededDraw(seed), d = Array.from({ length: 6 }, () => draw(4))
+  const play = game(rules)
+  const waiting = play.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  assert.deepEqual([waiting.faces.d.value, waiting.faces.d.flags, waiting.faces.d.after], [2, d.map(f => f === 3 ? 'kept' : 'dropped'), undefined])
+  assert.deepEqual(waiting.decided, undefined, 'nothing is fixed before the choice')
+  assert.deepEqual(waiting.report, { threes: { label: '3 的个数', main: true, pending: true } }, 'the main line waits for the choice by its label')
+  assert.deepEqual(waiting.choices[0].preview.map(row => row.main), [0, 1, 2, 3, 4, 5], 'each value says what the main line would be')
+  // Two 3s turned into four: the first two dropped dice turn to 3.
+  const done = play.call(2, { op: 'choose', choice: { threes: 4 } })
+  const turned = d.map((f, i) => f !== 3 && d.slice(0, i).filter(x => x !== 3).length < 2)
+  assert.deepEqual(done.faces.d.flags, d.map((f, i) => turned[i] ? 'changed' : f === 3 ? 'kept' : 'dropped'))
+  assert.deepEqual(done.faces.d.after, d.map((f, i) => turned[i] ? 3 : f))
+  assert.deepEqual(done.dice.d, d, 'the dice stay as rolled; the record replays from its seed')
+  assert.deepEqual([done.outcome.tone, done.report.threes.main, done.changes[0].to], ['good', true, 1])
+  // Down to one: the last 3 turns to the lowest face that does not count.
+  play.call(3, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  const down = play.call(3, { op: 'choose', choice: { threes: 1 } })
+  const last = d.lastIndexOf(3)
+  assert.deepEqual([down.faces.d.flags[last], down.faces.d.after[last]], ['changed', 1])
+  const kept = play.call(4, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  assert.deepEqual([kept.status, kept.faces.d.after], ['settled', undefined], 'with no assurance left nothing is asked and no die turns')
+  const many = runRulesCall(rules, [], { op: 'act', action: 'many', params: { tn: 6 }, reason: 'r' }, 9, { turn: 1 })
+  assert.equal(Number(many.text), many.dice.d.filter(f => f >= 6).length)
+  assert.deepEqual(many.faces.d.flags, many.dice.d.map(f => f >= 6 ? 'kept' : 'dropped'))
+})
+
+test('previews: an option and yes/no show what each does; a wide range shows the value nearest its default for each outcome', () => {
+  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'd100', state: { luck: { path: '/幸运', label: '幸运', min: 0, initial: 45 } },
+    actions: { lib: { label: '图书馆使用', dice: { d: { count: 1, sides: 100 } },
+      let: [['r', 'd[0]']],
+      choices: [{ id: 'spend', label: '花幸运', when: 'r > 60', int: { min: 0, max: 'min(luck, r - 1)', default: 0 } },
+        { id: 'push', label: '孤注一掷', when: 'r > 60', type: 'boolean', default: false }],
+      then: [['final', 'r - spend']],
+      outcomes: [{ id: 'extreme', label: '极难成功', when: 'final <= 12', tone: 'great' }, { id: 'hard', label: '困难成功', when: 'final <= 30', tone: 'good' },
+        { id: 'ok', label: '成功', when: 'final <= 60', tone: 'good' }, { id: 'no', label: '失败', tone: 'bad' }],
+      effects: [{ var: 'luck', add: '-spend' }],
+      report: [{ id: 'final', label: '掷出', value: 'final', main: true, target: { label: '技能', value: '60', need: '<=' } }] } } })
+  const seed = (() => { for (let s = 1; s < 5000; s++) if (seededDraw(s)(100) === 63) return s })()
+  const waiting = runRulesCall(rules, [], { op: 'act', action: 'lib', reason: 'r' }, seed, { turn: 1 })
+  const spend = waiting.choices.find(row => row.id === 'spend')
+  assert.deepEqual(spend.preview.map(row => [row.value, row.outcome, row.tone]), [[0, '失败', 'bad'], [3, '成功', 'good'], [33, '困难成功', 'good']], 'luck 45 reaches three outcomes; each at its cheapest')
+  assert.deepEqual(spend.preview[1].changes, [{ label: '幸运', add: -3 }])
+  assert.deepEqual(waiting.choices.find(row => row.id === 'push').preview.map(row => [row.value, row.outcome]), [[true, '失败'], [false, '失败']])
+  const done = runRulesCall(rules, [waiting], { op: 'choose', choice: { spend: 3 } }, 1, { turn: 2 })
+  assert.deepEqual([done.report.final, done.outcome], [{ label: '掷出', value: 60, main: true, target: { label: '技能', value: 60, need: '<=' } }, { id: 'ok', label: '成功', tone: 'good' }])
+})

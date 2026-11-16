@@ -71,20 +71,22 @@ function showSoundPlay(layout, calm, now) {
 }
 
 // The show's colours and type (computed; the canvas cannot read var()): paper, ink, the record's mark colour (the
-// rules' markColor, else the theme accent) and the stage's display family.
-function showLook(layer, layout) {
+// rules' markColor, else the theme accent) and the stage's display family; a skin's colours for this show (the dsh.dice
+// option shows.<name>: paper, ink, mark) over them.
+function showLook(layer, layout, skin) {
     const probe = document.createElement("i");
     probe.style.display = "none";
     layer.appendChild(probe);
     const read = css => { probe.style.color = css; return getComputedStyle(probe).color; };
     const mark = layout.marked[0]?.color || layout.dice.find(die => die.color)?.color;
-    const look = { colors: { paper: read("var(--gal-check-show-paper)"), ink: read("var(--gal-check-show-ink)"), mark: read(mark || "var(--check-show-mark)") }, font: getComputedStyle(layer).fontFamily };
+    const own = skin || {};
+    const look = { colors: { paper: read(own.paper || "var(--gal-check-show-paper)"), ink: read(own.ink || "var(--gal-check-show-ink)"), mark: read(own.mark || mark || "var(--check-show-mark)") }, font: getComputedStyle(layer).fontFamily };
     probe.remove();
     return look;
 }
 
 // The imperative player behind CheckShow: a queue of records, one layer (its canvas).
-function createCheckShower(layer, rootRef, device, safety, paused) {
+function createCheckShower(layer, rootRef, device, safety, paused, options) {
     const canvas = layer.querySelector("canvas");
     let queue = [], current = null, frame = 0, listening = false;
     const onClick = event => { event.stopPropagation(); event.preventDefault(); skip(); };
@@ -94,16 +96,16 @@ function createCheckShower(layer, rootRef, device, safety, paused) {
         window[method]("click", onClick, true);
         window[method]("keydown", onKey, true);
     }
-    function enqueue(records, calm) {
+    function enqueue(records, calm, done) {
         checkPerforming.hold(records.map(record => record.callId));
-        queue.push(...records.map(record => ({ record, calm })));
+        queue.push(...records.map(record => ({ record, calm, done })));
         if (!current) next();
     }
     function next() {
         if (!queue.length || paused()) return;
         start(queue.shift());
     }
-    function start({ record, calm }) {
+    function start({ record, calm, done }) {
         const sr = rootRef.current.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
         const layout = showLayout(record, sr.width, sr.height, device());
         layer.hidden = false;
@@ -112,8 +114,8 @@ function createCheckShower(layer, rootRef, device, safety, paused) {
         layer.toggleAttribute("data-calm", calm);
         canvas.width = Math.round(layout.w * dpr); canvas.height = Math.round(layout.h * dpr);
         const t0 = forkForeground.now();
-        current = { record, calm, layout, dpr, t0, released: false, ctx: canvas.getContext("2d"),
-            look: Object.assign(showLook(layer, layout), { safe: safety()?.photosensitive === true, still: calm, into: null }),
+        current = { record, calm, done, layout, dpr, t0, released: false, ctx: canvas.getContext("2d"),
+            look: Object.assign(showLook(layer, layout, options()?.values?.shows?.[record.show.effect]), { safe: safety()?.photosensitive === true, still: calm, into: null }),
             sound: showSoundPlay(layout, calm, () => forkForeground.now() - t0) };
         if (!listening) { listening = true; listen(true); }
         // The first frame is drawn before the first paint.
@@ -153,7 +155,7 @@ function createCheckShower(layer, rootRef, device, safety, paused) {
     function hide(cut) {
         if (frame) forkForeground.cancelAnimationFrame(frame);
         frame = 0;
-        if (current) { release(current); current.sound.stop(cut); }
+        if (current) { release(current); current.sound.stop(cut); current.done?.(); }
         current = null;
         layer.hidden = true;
         layer.removeAttribute("data-phase");
@@ -167,6 +169,7 @@ function createCheckShower(layer, rootRef, device, safety, paused) {
     }
     function skip() {
         const ids = queue.map(item => item.record.callId);
+        queue.forEach(item => item.done?.());
         queue = [];
         if (ids.length) checkPerforming.release(ids);
         if (current) hide(true);
@@ -174,17 +177,25 @@ function createCheckShower(layer, rootRef, device, safety, paused) {
     }
     return { enqueue, resume() { if (!current) next(); }, skip, dispose: skip };
 }
+// The mounted stage's show player, for a skin cue that names a show (check-result.js): play(record, effect, label, calm)
+// performs that show over the record and resolves when it is over (or skipped).
+const checkShowStage = { player: null, play(record, effect, label, calm) {
+    const player = this.player;
+    return player ? new Promise(done => player.enqueue([Object.assign({}, record, { show: { effect, label } })], calm, done)) : Promise.resolve();
+} };
 
 // Stage overlay props as DiceThrow's (mod-clients.js overlay). Records with show play as they arrive live.
 function CheckShow(props) {
     const h = React.createElement;
     const layer = React.useRef(null), player = React.useRef(null), seen = React.useRef(null), latest = React.useRef(props);
     latest.current = props;
-    const key = props.useChat(showLatestKey);
+    const key = props.useChat(showLatestKey), mod = useModOptions(props.sessionId, "dsh.dice"), optionsRef = React.useRef(mod);
+    optionsRef.current = mod;
     React.useEffect(() => {
-        const p = createCheckShower(layer.current, props.rootRef, () => latest.current.device, () => latest.current.safety, () => latest.current.veiled === true);
+        const p = createCheckShower(layer.current, props.rootRef, () => latest.current.device, () => latest.current.safety, () => latest.current.veiled === true, () => optionsRef.current);
         player.current = p;
-        return () => { p.dispose(); player.current = null; };
+        checkShowStage.player = p;
+        return () => { p.dispose(); player.current = null; if (checkShowStage.player === p) checkShowStage.player = null; };
     }, []);
     React.useEffect(() => {
         if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, shown: new Set() };

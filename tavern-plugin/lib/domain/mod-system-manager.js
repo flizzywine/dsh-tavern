@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto'
 import {emptyCardMods,modError,assertSchema,MOD_HOST_API} from './mod-system-contract.js'
 import {resolveMods,resolveSwitch,resolveConfig,validateDependencyGraph,modDependencyReason} from './mod-system.js'
-import {validateUserModOptions} from './mod-system-options.js'
+import {skinAssetKeys,validateUserModOptions} from './mod-system-options.js'
 import {modVersionMatches} from './mod-system-semver.js'
 import {planCardModChoices} from './mod-system-choices.js'
 import {validateManagedConfigValues} from './mod-system-config.js'
@@ -231,7 +231,9 @@ export function createManagedModManager({installations,cards,settings,authorize,
         if(!args.modId)fail('MOD_INVALID','A mod is required')
         const answer=await optionsView(f,args.modId),mod=answer.mods[0]
         if(!mod)fail('MOD_MISSING','Mod is not installed')
-        const fields=mod.fields.filter(field=>field.schema['x-skin-asset']),keys=fields.map(field=>mod.values[field.key]).filter(Boolean)
+        // Every skin asset an option names, also inside an object or list option (skinAssetKeys); a missing top-level one
+        // falls back to the preset, a missing nested one is left to the renderer (it draws without it).
+        const fields=mod.fields.filter(field=>field.schema['x-skin-asset']),keys=mod.fields.flatMap(field=>skinAssetKeys(field.schema,mod.values[field.key]))
         const media=await readOptionMedia(f.skin,keys)
         for(const field of fields)if(mod.values[field.key] && !Object.hasOwn(media,mod.values[field.key])) {
           mod.values[field.key]=clone(field.default)

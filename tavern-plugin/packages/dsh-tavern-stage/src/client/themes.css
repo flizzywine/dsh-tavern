@@ -982,6 +982,10 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
   /* a check outcome's performance (mods/dice/client/show.js): the stage bleached to office paper, black geometric type;
      the figure and the field are the rules' mark colour (faces.markColor, e.g. a signal red), else the accent. */
   --gal-check-show-paper: #f2f0eb; --gal-check-show-ink: #121212;
+  /* a rule check's tones (outcomes[].tone; mods/dice/client/check-throw.js, check-result.js): great a deep gold, good
+     the accent, mixed the warning, bad the muted ink, terrible the alarm pink; a skin's dsh.dice tones option overrides. */
+  --gal-check-tone-great: color-mix(in srgb, var(--gal-base-ink) 30%, var(--gal-dice-gold)); --gal-check-tone-good: var(--gal-ui-accent);
+  --gal-check-tone-mixed: var(--gal-ui-widget-warning); --gal-check-tone-bad: var(--gal-ui-ink-2); --gal-check-tone-terrible: var(--gal-ui-widget-pink);
   --gal-check-show-font: var(--gal-base-font);
   --gal-ui-line: var(--fk-s-stage-panel-line);
   --gal-ui-track: color-mix(in srgb, var(--gal-base-ink) 12%, transparent);
@@ -7317,6 +7321,52 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Over the whole stage for its few seconds - the text box, the top bar and the notices included (band 8; an opened
    backlog, CONFIG or menu stays above): one canvas the script paints whole each frame (show-art.js) in the paper, ink
    and mark colours and this family. */
+/* A rule check's 3D throw (mods/dice/client/check-throw.js): the d100 throw's band and stake line, its dice landing in a row. */
+.fork-check-throw { position: absolute; z-index: 4; pointer-events: none; container-type: size; }
+.fork-check-throw[hidden] { display: none; }
+/* The check's tone colour, on the band and the result page. */
+:is(.fork-check-throw, .fork-check-page, .fork-check-read-now) { --check-tone: var(--gal-ui-ink); }
+:is(.fork-check-throw, .fork-check-page, .fork-check-read-now, .fork-check-button)[data-tone="great"] { --check-tone: var(--gal-check-tone-great); }
+:is(.fork-check-throw, .fork-check-page, .fork-check-read-now, .fork-check-button)[data-tone="good"] { --check-tone: var(--gal-check-tone-good); }
+:is(.fork-check-throw, .fork-check-page, .fork-check-read-now, .fork-check-button)[data-tone="mixed"] { --check-tone: var(--gal-check-tone-mixed); }
+:is(.fork-check-throw, .fork-check-page, .fork-check-read-now, .fork-check-button)[data-tone="bad"] { --check-tone: var(--gal-check-tone-bad); }
+:is(.fork-check-throw, .fork-check-page, .fork-check-read-now, .fork-check-button)[data-tone="terrible"] { --check-tone: var(--gal-check-tone-terrible); }
+/* ③ the read row under the dice (the script raises the dice row when it shows, data-reads): the main number with its
+   label and target, the outcome so far (a record that asks) or the outcome's seal, and the changes under them. Each
+   part shows on its beat (opacity and scale from the script); an empty part takes no room. */
+.fork-check-read { position: absolute; left: 0; right: 0; top: 60%; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; align-content: center; justify-content: center; gap: .15em 1.1em;
+  color: var(--gal-ui-ink); text-shadow: 0 0 2px var(--gal-ui-surface), 0 1px 10px color-mix(in srgb, var(--gal-ui-surface) 85%, transparent); }
+.fork-check-read > :empty, .fork-check-read-headline:has(> .fork-check-read-number:empty) { display: none; }
+.fork-check-read-headline { display: flex; align-items: baseline; gap: .45em; }
+.fork-check-read-label, .fork-check-read-target { font: 600 var(--gal-ui-meta-size)/1.2 var(--gal-ui-font); }
+.fork-check-read-number { color: var(--check-tone); font: 800 clamp(calc(var(--gal-ui-choice-size) * 1.4), 17cqh, calc(var(--gal-ui-choice-size) * 3.2))/1 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; }
+.fork-check-read-now { padding: .15em .9em; border-radius: 999px; background: var(--gal-ui-surface); box-shadow: var(--gal-ui-shadow); color: var(--check-tone); font: 700 var(--gal-ui-choice-size)/1.4 var(--gal-ui-title-font); text-shadow: none; }
+/* The outcome's seal: the d100 throw's stamp, smaller, in the tone's colour. */
+.fork-check-read-seal { padding: .04em .2em .08em .32em; border: .06em solid var(--check-tone); border-radius: .14em; background: var(--gal-ui-surface);
+  box-shadow: inset 0 0 0 .09em var(--gal-ui-surface), inset 0 0 0 .12em var(--check-tone), var(--gal-ui-shadow); color: var(--check-tone);
+  font: 900 clamp(calc(var(--gal-ui-choice-size) * 1.2), 13cqh, calc(var(--gal-ui-choice-size) * 2.6))/1.15 var(--gal-tc-mincho); letter-spacing: .12em; white-space: nowrap; text-shadow: none; }
+/* A skin's seal (the dsh.dice option result.seal): plain is the word alone, none shows no seal. */
+.fork-check-throw[data-seal="plain"] .fork-check-read-seal { border: 0; background: none; box-shadow: none; text-shadow: 0 0 2px var(--gal-ui-surface), 0 1px 10px color-mix(in srgb, var(--gal-ui-surface) 85%, transparent); }
+.fork-check-throw[data-seal="none"] .fork-check-read-seal { display: none; }
+.fork-check-read-changes { flex-basis: 100%; text-align: center; font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+/* ④ the result page, in the band's place over the text box: the check's head and tags, its dice and main number, the
+   outcome so far and the choices (check.js CheckButtons), on the stage panel. It grows upward when the choices need room. */
+.fork-check-page { position: absolute; z-index: 5; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 14px; overflow-y: auto;
+  border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); box-shadow: var(--gal-ui-shadow); color: var(--gal-ui-ink); font: 400 var(--gal-ui-choice-size)/1.45 var(--gal-ui-font);
+  --fork-ink: var(--gal-ui-ink); --fork-ink-2: var(--gal-ui-ink-2); --fork-ink-3: var(--gal-ui-ink-2); --fork-hover: var(--gal-ui-hover); --fork-focus: var(--gal-ui-focus); --fork-font-ui: var(--gal-ui-font);
+  --fork-surface: var(--gal-ui-surface-2); --fork-accent: var(--gal-ui-accent); --fork-accent-soft: var(--gal-ui-active); }
+.fork-check-page:focus { outline: none; }
+.fork-check-page-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.fork-check-page-title { font: 700 var(--gal-ui-choice-size)/1.3 var(--gal-ui-title-font); }
+.fork-check-page-tag { padding: .05em .65em; border-radius: 999px; background: var(--gal-ui-hover); font: 600 var(--gal-ui-meta-size)/1.5 var(--gal-ui-font); }
+.fork-check-page-read { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; }
+.fork-check-page :is(.fork-check-dice, .fork-check-line, .fork-check-choices) { padding-left: 0; padding-right: 0; }
+.fork-check-page-headline, .fork-check-page-now { display: flex; align-items: baseline; gap: .45em; }
+.fork-check-page-label, .fork-check-page-target { font: 600 var(--gal-ui-meta-size)/1.2 var(--gal-ui-font); }
+.fork-check-page-number { color: var(--check-tone); font: 800 calc(var(--gal-ui-choice-size) * 2)/1 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; }
+.fork-check-page-tier { color: var(--check-tone); font: 800 calc(var(--gal-ui-choice-size) * 1.3)/1.1 var(--gal-ui-title-font); }
+/* A previewed button leads with a dot in the colour of the outcome it gives. */
+.fork-check-page .fork-check-button[data-tone]::before { content: ""; display: inline-block; width: .55em; height: .55em; margin: 0 .45em .08em 0; border-radius: 50%; background: var(--check-tone); vertical-align: middle; }
 .fork-check-show { --check-show-mark: var(--gal-ui-accent); position: absolute; inset: 0; z-index: 8; pointer-events: none; overflow: hidden; font-family: var(--gal-check-show-font); }
 .fork-check-show[hidden] { display: none; }
 .fork-check-show-field { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }

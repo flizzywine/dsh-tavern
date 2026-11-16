@@ -13,7 +13,7 @@ for(const fault of ['render','effect','loader'])test(`stage ${fault} failure pre
  const before={window:globalThis.window,document:globalThis.document,act:globalThis.IS_REACT_ACT_ENVIRONMENT}
  Object.assign(globalThis,{window,document,IS_REACT_ACT_ENVIRONMENT:true})
  const active=signal('s'),enabled=signal(true);let fail=true,chatUnmounts=0,generated=0,forced=0,covered=false
- const navigation={galStageAvailable:enabled,galActive:active,galMenuRequest:{request(){}},galEscapeLock(){},galEnter:id=>active.set(id),
+ const navigation={galStageAvailable:enabled,galActive:active,galMenuRequest:{request(){}},galEscapeLock(){},galHandoverEnd(){},galEnter:id=>active.set(id),
   galCoverChat(){covered=true;document.querySelector('#chat').hidden=true},galUncover(){covered=false;document.querySelector('#chat')?.removeAttribute('hidden')},
   galLeave(){/* simulate a broken controller's pending leave animation */},galLeaveNow(){forced++;active.set('')}}
  function Stage(){if(fail&&fault==='render')throw Error('stage render failed');React.useEffect(()=>{if(fail&&fault==='effect')throw Error('stage effect failed')},[]);return React.createElement('div',{'data-stage-content':true},'stage')}

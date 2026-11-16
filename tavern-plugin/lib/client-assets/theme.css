@@ -6296,6 +6296,17 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-check-d8 text { fill: var(--fork-surface); font-weight: 800; text-anchor: middle; font-family: var(--fork-font-ui, sans-serif); }
 .fork-check-d8.is-marked text { fill: var(--fork-on-accent); }
 @media (max-width: 480px) { .fork-check-dice { padding-left: 12px; } .fork-check-d4 { width: 46px; height: 40px; } .fork-check-d8 { width: 38px; height: 38px; } }
+/* A die's state when the rules read its group (faces.<group>.flags): one that does not count steps back; one the
+   player's choice turned shows its new face inside a dashed outline. */
+.fork-check-dice > .is-dropped { filter: var(--fk-current-dim, grayscale(1)); }
+.fork-check-dice > .is-changed { outline: 1.5px dashed var(--fork-ink-3); outline-offset: 2px; border-radius: 4px; }
+/* The outcome's tone (outcomes[].tone) in the roll card's tier colours: the same five as tavern_roll's. */
+.fork-check[data-tone="great"] { --roll-tier: var(--roll-critical); }
+.fork-check[data-tone="good"] { --roll-tier: var(--roll-success); }
+.fork-check[data-tone="mixed"] { --roll-tier: var(--roll-costly); }
+.fork-check[data-tone="bad"] { --roll-tier: var(--roll-failure); }
+.fork-check[data-tone="terrible"] { --roll-tier: var(--roll-fumble); }
+/* The main number (report main), large, in the outcome's colour. */
 .fork-check-line, .fork-check-choices { padding: 0 12px 0 34px; overflow-wrap: anywhere; }
 .fork-check-choice-label { font-weight: 600; }
 .fork-check-hint { font-size: var(--fork-fs-meta); }
