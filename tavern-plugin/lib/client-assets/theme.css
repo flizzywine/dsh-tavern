@@ -6307,6 +6307,7 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-check[data-tone="bad"] { --roll-tier: var(--roll-failure); }
 .fork-check[data-tone="terrible"] { --roll-tier: var(--roll-fumble); }
 /* The main number (report main), large, in the outcome's colour. */
+.fork-check-headline > b { color: var(--roll-tier, var(--fork-ink)); font-size: var(--fork-fs-heading); font-variant-numeric: tabular-nums; }
 .fork-check-line, .fork-check-choices { padding: 0 12px 0 34px; overflow-wrap: anywhere; }
 .fork-check-choice-label { font-weight: 600; }
 .fork-check-hint { font-size: var(--fork-fs-meta); }
