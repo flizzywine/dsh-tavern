@@ -142,7 +142,7 @@ test('HTTP 操作遵守 DSH 登录和可信 Host 拒绝结果，鉴权前不派�
 test('语音与素材生图接口：桌面端转发的已登录请求放行，跨站与未登录拒绝', async () => {
   const routes = externalRoutes({ requestRejection: req => req.headers.cookie === 'host-session' ? undefined : 401 })
   const signedIn = { cookie: 'host-session' }
-  for (const url of ['/api/dsh-tavern/getFigureVoiceEditor', '/api/dsh-tavern/getAssetGenPrompts']) {
+  for (const url of ['/api/dsh-tavern/getFigureVoiceEditor', '/api/dsh-tavern/listAssetGenStyles']) {
     const before = routes.calls()
     // the desktop app forwards with the login cookie and without Origin or Sec-Fetch-Site.
     assert.equal((await operation(routes.external, signedIn, url)).status, 200, `${url} 桌面端转发`)

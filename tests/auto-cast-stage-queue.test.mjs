@@ -196,16 +196,14 @@ test('switched off, nothing is counted or drawn; after a restart the record land
   assert.deepEqual(kinds(h.writes), ['identity-settei', 'sprite'])
 })
 
-test('automatic prompts come from the same editable templates as the asset pictures', async () => {
+test('automatic prompts come from the same templates as the asset pictures', async () => {
   const {createAssetGeneration} = await import('../tavern-plugin/lib/domain/asset-generation.js')
-  const overrides = {}
-  const generation = createAssetGeneration({store:{readJson:async () => ({revision:1, overrides})}, getLibrary:() => null, linkedAppearance:async ref => ref.figureId === 'f' ? {identityAppearance:'黑色短发'} : null})
+  const generation = createAssetGeneration({store:{readJson:async () => undefined}, getLibrary:() => null, linkedAppearance:async ref => ref.figureId === 'f' ? {identityAppearance:'黑色短发'} : null})
   const figure = {ref:{packId:'p', figureId:'f'}, name:'甲', emotions:[{id:'joy', label:'喜悦'}]}
   const sprite = await generation.autoPrompt({kind:'sprite', figure, emotionId:'joy', fromSettei:true})
   assert.match(sprite.prompt, /甲/); assert.match(sprite.prompt, /喜悦/); assert.match(sprite.prompt, /黑色短发/); assert.match(sprite.prompt, /Image 1: Approved identity settei/)
   assert.deepEqual(sprite.output, {size:'1024x1536', background:'transparent', quality:'high'})
-  overrides['identity-settei'] = 'Board of {{figureName}}. {{userPrompt}}'
-  assert.equal((await generation.autoPrompt({kind:'identity-settei', figure, userPrompt:'front and back'})).prompt, 'Board of 甲. front and back', 'the user\'s edited template applies')
+  assert.match((await generation.autoPrompt({kind:'identity-settei', figure, userPrompt:'front and back'})).prompt, /front and back/)
   generation.dispose()
 })
 

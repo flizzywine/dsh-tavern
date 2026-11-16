@@ -558,13 +558,5 @@ return assetGenerationResult(() => assetGeneration.accept(args))
       const { assetGeneration, assetGenerationResult } = deps
 return assetGenerationResult(() => assetGeneration.styles(args))
     },
-    async getAssetGenPrompts(args, method, serverTemplate, authority) {
-      const { assetGeneration, assetGenerationResult } = deps
-return assetGenerationResult(() => assetGeneration.prompts())
-    },
-    async setAssetGenPrompt(args, method, serverTemplate, authority) {
-      const { assetGeneration, assetGenerationResult } = deps
-return assetGenerationResult(() => assetGeneration.setPrompt(args))
-    },
   }
 }

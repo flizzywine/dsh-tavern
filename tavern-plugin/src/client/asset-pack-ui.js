@@ -1520,7 +1520,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     stageSetup,
     stage:stageExposed({openingPatch,openingPreview,stageMissing,simpleSpriteImages,replaceOutfitSprite,emotionSlot,get RETURN_KEY(){return stageScope.views?.STAGE_RETURN_KEY;}},
       ['directorPromptRows','directorWire','directorPieceName','directorPromptRow','promptToolDefs','PromptOps','PromptPieces','PromptCatalogue','catalogueEntries','commandInfo','PromptTools','PromptAt','promptHeadClick','promptJson','promptJsonText','judgePromptRows','judgeWithProvider','judgeDraftProblem','promptTokenEstimate','storyPromptRows','promptSources','promptPackScope','stagePrefs','stageActive','stagePatch','stageSwitchPatch','stageEnable','unbindPatch','writeStageReturn'])},
-    // 设置 → 舞台 → 素材生图 (GenPromptSettings), the 舞台 tab (StagePanel / StagePage / EnginePage), 读音词典 and the DSH card export sheet.
-    ['ModManagerEntry','StagePanel','StagePage','EnginePage','ReadingsEditor','DshCardExportSheet','GenPromptSettings']);
+    // the 舞台 tab (StagePanel / StagePage / EnginePage), 读音词典 and the DSH card export sheet.
+    ['ModManagerEntry','StagePanel','StagePage','EnginePage','ReadingsEditor','DshCardExportSheet']);
   return api;
 }
