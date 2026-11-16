@@ -2420,6 +2420,7 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 .dsh-tavern-gs-head { padding: 0 2px; }
 .dsh-tavern-gs-head h2 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.4; color: var(--dsw-alias-label-primary); }
 .dsh-tavern-gs-head p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-gs-card .dsh-tavern-gs-subtitle { margin: 0; padding: 12px 0 2px; font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-gs-notice { margin: 0; padding: 0 2px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-global-settings .dsh-tavern-global-defaults { gap: 12px; }
 .dsh-tavern-global-settings .dsh-tavern-global-defaults > p[role="status"] { margin: 0; padding: 0 2px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
