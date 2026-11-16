@@ -67,16 +67,22 @@ const PC_CSS_TEXT = `
   font-size: 12px;
   line-height: 1;
 }
-/* 窄屏（与宿主手机布局断点一致）：入口默认只留图标，文字改成可访问名称，
-   按钮同步放大到能稳定点中的触摸目标。 */
+/* 窄屏（与宿主手机布局断点一致）：入口默认只留图标，文字改成可访问名称。
+   图标靠左贴住输入条边缘，和上方的楼层药丸同一左边界；触摸目标用 min-width 撑住。 */
 @media (max-width: 1023px) {
-  .dsh-tavern-compass-dock-btn,
-  .dsh-tavern-compass-dock-btn.is-pinned {
+  .dsh-tavern-compass-dock-btn {
     gap: 0;
-    justify-content: center;
+    justify-content: flex-start;
     min-width: 30px;
     min-height: 30px;
-    padding: 5px 7px;
+    padding: 5px 0;
+  }
+  /* 钉住路线时按钮变成可见胶囊，贴边会把图标顶住边框，留出内边距。 */
+  .dsh-tavern-compass-dock-btn.is-pinned {
+    gap: 0;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 5px 8px;
   }
   .dsh-tavern-compass-dock-label {
     display: none;

@@ -37,8 +37,11 @@ test('剧情罗盘输入栏入口在窄屏只显示图标', async () => {
   const text = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
   // 文字节点必须带独立 class，否则下面的窄屏规则无从命中。
   assert.match(text, /className: 'dsh-tavern-compass-dock-label'/)
-  assert.match(text, /@media \(max-width: 1023px\) \{[\s\S]{0,800}?\.dsh-tavern-compass-dock-label \{\s*display: none;/)
-  assert.match(text, /@media \(max-width: 1023px\) \{[\s\S]{0,800}?\.dsh-tavern-compass-dock-btn,[\s\S]{0,200}?min-width: 30px;/)
+  const narrow = text.match(/@media \(max-width: 1023px\) \{[\s\S]{0,900}?\n\}/)
+  assert.ok(narrow, '缺少窄屏媒体查询')
+  assert.match(narrow[0], /\.dsh-tavern-compass-dock-label \{\s*display: none;/)
+  // 图标靠左贴住输入条边缘（与上方楼层药丸同一左边界），而不居中缩进。
+  assert.match(narrow[0], /\.dsh-tavern-compass-dock-btn \{[^}]*justify-content: flex-start;[^}]*min-width: 30px;/)
 })
 
 test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落注入、世界书扫描、归卷事件、模型解析与 RPC 全链路', async () => {
