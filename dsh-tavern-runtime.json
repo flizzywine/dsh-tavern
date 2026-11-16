@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "826ac47cb0c19cc7e81e96f6e1aeb7599132d032",
-  "releaseSequence": 1719,
+  "revision": "69fac9e5d7a73b34b309d125c5f7f330da1456b3",
+  "releaseSequence": 1720,
   "version": "3.3.0",
   "files": [
     {
@@ -1021,8 +1021,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "08ca75104e8a480844ae312df64d91829f4f4a38164c70368331878069888982",
-      "size": 438477
+      "sha256": "b1ebf0ae282946fd5e7a0407316c41b1164f6865d01e9b2596da22abe27dea4d",
+      "size": 438346
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "6a4bac9137c7fdf74b8da3770696f39fcaba56d8a5b89b0919eb3189b1c53f13",
-      "size": 6257213
+      "sha256": "045e238cb0eb360dd887a4eef4ed668a462d1104eeb5e1f9d9b22d8bb35e2eb3",
+      "size": 6257066
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -9346,9 +9346,9 @@
     }
   ],
   "archive": {
-    "commit": "afe339cb0c796f0b270ae8618770baad9420a13c",
+    "commit": "65b39edccfb58d52f500394d1295c82d3750a562",
     "path": "runtime.zip",
-    "sha256": "85f795d639b71b3f6568a2db1c9fcd07a11528db8b27bcb11fdf93bafea1fc27",
-    "size": 16634169
+    "sha256": "fda0a912638737386c4a2adcf925b53013ad5e549c6bb16d7967f5a5d95ac8a0",
+    "size": 16634141
   }
 }
