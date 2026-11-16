@@ -1,0 +1,40 @@
+{
+  "name": "dsh-tavern-audiobook",
+  "version": "1.0.2",
+  "description": "DSH Tavern 有声书：像听有声书一样连续朗读正文，一屏一页自动翻页；用舞台的读法和声音，打开时舞台不配音。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "client.js",
+    "build.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-tavern-plugin"
+      ]
+    },
+    "compatibility": {
+      "tavernApiVersion": 9
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:check": "node build.mjs --check"
+  },
+  "license": "MIT"
+}

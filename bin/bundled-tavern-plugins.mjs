@@ -20,6 +20,11 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     packageName: 'dsh-tavern-plot-compass',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-plot-compass'],
   },
+  {
+    folder: 'dsh-tavern-audiobook',
+    packageName: 'dsh-tavern-audiobook',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-audiobook'],
+  },
 ])
 
 /** 内置副本必须齐备的文件；缺一个就当这份发行版没内置插件，不去猜。 */
