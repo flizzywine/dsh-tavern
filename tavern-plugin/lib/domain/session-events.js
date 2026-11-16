@@ -69,6 +69,7 @@ export function releaseOpeningTurn(session, agent) {
 // Turns Tavern opened for its own writes (withSurfaceEditTurn, a surface mutation's edit
 // step), per session: not the player's.
 const surfaceEditTurns = new WeakMap()
+const reservingTurns = new WeakSet()
 
 // Released V4 refuses a turn that opens or closes while a between-turns compaction is
 // still summarizing ("turn/start crosses an open compaction"), and the live Session
@@ -95,6 +96,30 @@ export function markSurfaceEditTurn(session, turn) {
 /** Whether this turn of the session only carries a Tavern edit (no player message, no model reply). */
 export function isSurfaceEditTurn(session, turn) {
   return Boolean(session && surfaceEditTurns.get(session)?.has(Number(turn)))
+}
+
+export function isReservingStoryTurns(session) {
+  return reservingTurns.has(session)
+}
+
+// A story fork replays multiple saved replies in one edit turn. New player
+// turns use native numbers as story IDs, so reserve the inherited range with
+// empty boundaries. DSH's persisted log requires consecutive native turns.
+export function reserveStoryTurns(session, lastStoryTurn, agent) {
+  const lastNativeTurn = sessionEvents(session).findLast(event => event.type === 'turn/end')?.data?.turn || 0
+  if (lastNativeTurn >= lastStoryTurn) return
+  reservingTurns.add(session)
+  try {
+    for (let turn = lastNativeTurn + 1; turn <= lastStoryTurn; turn++) {
+      appendSessionEvent(session, 'turn/start', { turn })
+      appendSessionEvent(session, 'turn/end', { turn, reason: { kind: 'completed' } })
+    }
+  } finally {
+    reservingTurns.delete(session)
+  }
+  if (agent?.phase?.kind === 'idle') {
+    agent.phase.lastTurn = Math.max(Number(agent.phase.lastTurn) || 0, lastStoryTurn)
+  }
 }
 
 export function withSurfaceEditTurn(session, agent, write) {

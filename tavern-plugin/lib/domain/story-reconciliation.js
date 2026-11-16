@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { repairNativeSurface, recordNativeSurfaceRepair, planNativeSurfaceRepair } from './native-surface-repair.js'
 import { reshadowRolledBackRounds } from './rollback-surface.js'
-import { sessionEvents } from './session-events.js'
+import { reserveStoryTurns, sessionEvents } from './session-events.js'
 import { inspectStoryAlignment, nativeStoryTurns } from './story-alignment.js'
 
 function str(value) {
@@ -60,14 +60,17 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
   // One explicit use only: a story fork starts a fresh native session that
   // carries no context, so its tail is built from the save once, at fork time.
   // Nothing reconciles or repairs a live session behind the player's back.
-  async function seedNativeStory(sessionId, session, reason) {
+  async function seedNativeStory(sessionId, session, lastStoryTurn, reason) {
     const chat = await chatForSession(sessionId)
     if (!chat || chat.regenInProgress || !['story', 'script'].includes(chat.mode || 'story')) return null
     try {
       // The session may have received a turn while the fork save was being written.
       assertBlankStoryForkTarget(sessionId, session)
       const result = repairNativeSurface(session, chat, { repairId: randomUUID() })
-      if (result.applied) await sessionStore.flush(session)
+      if (result.applied) {
+        reserveStoryTurns(session, lastStoryTurn, agentRegistry.get(sessionId))
+        await sessionStore.flush(session)
+      }
       await updateChat(chat.id, current => recordNativeSurfaceRepair(current, chat, result.anchors) ? current : undefined, { source: 'native-seed' })
       if (result.applied) console.warn('dsh-tavern: 故事分叉建原生上下文（' + reason + '），写入最近 ' + result.plan.rounds.length + ' 轮')
       return result

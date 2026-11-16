@@ -11,7 +11,7 @@ import { variableDirectoryOpen } from '../domain/session-variable-directory.js'
 import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
 import { turnRepliedByModel } from '../domain/story-alignment.js'
-import { isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
+import { isReservingStoryTurns, isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
 import { agentForSession } from '../domain/agent-lookup.js'
 import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
@@ -203,6 +203,7 @@ export function registerTurnLifecycleHooks({
   })
 
   ctx.on('session/event', function (session, event) {
+    if (isReservingStoryTurns(session)) return
     // A new foreground request drops the previous reply's waiting automatic candidates.
     // A Tavern edit (精修 write-back, body edit) opens a turn of its own: not 玩家发送.
     const edit = isSurfaceEditTurn(session, event?.data?.turn)

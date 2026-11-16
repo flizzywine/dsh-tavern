@@ -2626,6 +2626,10 @@ export async function apply(ctx) {
       const lastNativeTurn = storyDirect ? 0 : Number(sessionEvents(target).findLast(event => event.type === 'turn/start')?.data?.turn) || 0
       const includedTurns = new Set((state.messages || []).filter(message => message?.role === 'assistant')
         .map(message => Number(message.turn)).filter(turn => Number.isSafeInteger(turn) && turn >= 0))
+      const lastStoryTurn = [...includedTurns].reduce((highest, turn) => Math.max(highest, turn), 0)
+      // Imported rows may contain arbitrary turn labels. Bound how many synthetic
+      // events a blank Session can write before publishing a new Chat for it.
+      if (storyDirect && lastStoryTurn > 100_000) throw new Error('分叉前缀的轮号超过原生上下文可重建范围')
       const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now, lastNativeTurn })
       fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
         stateChatId: state.id, stateRevision: state._storageRevision, turn, ...(storyDirect ? { messageIndex, atSeq: null } : { atSeq }) }
@@ -2641,7 +2645,7 @@ export async function apply(ctx) {
       await sceneWorldbookArchive.copyRefs(state.id, fork.id, includedTurns).catch(() => {})
       await forkPluginState(source, state, fork, turn, includedTurns)
       if (storyDirect) {
-        const repaired = await seedNativeStory(targetId, target, '故事分叉后按消息历史建立原生上下文')
+        const repaired = await seedNativeStory(targetId, target, lastStoryTurn, '故事分叉后按消息历史建立原生上下文')
           .catch(error => { console.warn('dsh-tavern: 故事分叉原生上下文修复失败:', str(error?.message || error)); return null })
         if (repaired?.applied) {
           fork.nativeOpeningAppended = true
@@ -2649,7 +2653,7 @@ export async function apply(ctx) {
             .catch(error => console.warn('dsh-tavern: 保存故事分叉开场白状态失败:', str(error?.message || error)))
         }
       }
-      const receiptTurn = turn > 0 ? turn : Math.max(0, ...includedTurns)
+      const receiptTurn = turn > 0 ? turn : lastStoryTurn
       return conversationForkReceipt(fork, { lastTurn: receiptTurn, messageCount: fork.messages.length })
     } finally {
       if (targetHandle) await targetHandle.dispose().catch(error => console.warn('dsh-tavern: 释放分叉目标 Session 句柄失败:', str(error?.message || error)))

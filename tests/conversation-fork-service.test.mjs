@@ -108,13 +108,21 @@ async function runServiceFixture() {
   try {
     // ---- 故事消息分叉：空白目标 Session + 精确前缀 + revision 校验 ----
     const rows = [row('assistant', '开场', 1), row('user', '走进客栈'),
-      { ...row('assistant', '她抬起头', 2), messageUid: 'fork-world-source', variables: [{ stat_data: { gold: 10 }, schema: {} }] },
+      { ...row('assistant', '她抬起头', 2), messageUid: 'fork-world-source', mvu: { modified: true },
+        variables: [{ stat_data: { gold: 10 }, schema: {} }] },
       row('user', '坐下'), row('assistant', '茶来了', 3)]
     const source = await importGame({
       id: 'source-a', sessionId: 'session-a', messages: rows,
       rounds: [{ user: '走进客栈', assistant: '她抬起头' }, { user: '坐下', assistant: '茶来了' }],
       revisions: [{ revision: 1, messages: rows.slice(0, 3) }],
       checkpoints: [{ id: 'checkpoint-2', turn: 2, beforeRevision: 1 }]
+    })
+    const { createPluginMedia } = await load('../tavern-plugin/lib/domain/plugin-media.js')
+    const { key: sourceImageKey } = await host.rpc('pluginMediaForTurn', { sessionId: source.sessionId, turn: 2 })
+    assert.ok(sourceImageKey)
+    await createPluginMedia({ store }).attach({
+      chatId: source.chatId, sessionId: source.sessionId, owner: 'fixture', turn: 2, key: sourceImageKey, currentKey: sourceImageKey,
+      item: { kind: 'image', attachment: { attachmentId: 'old-scene-image', mediaType: 'image/png' } }
     })
     const sourceRevision = (await host.rpc('getStoryTranscript', { sessionId: source.sessionId })).revision
     const plan = await host.rpc('prepareConversationFork', { chatId: source.chatId, messageIndex: 2, revision: sourceRevision })
@@ -144,8 +152,11 @@ async function runServiceFixture() {
     assert.deepEqual(existing.surface.nodes, originalNodes)
     assert.equal((await host.rpc('listSessions')).sessions.some(chat => chat.sessionId === existing.id), false)
 
-    const target = blankSession('session-a-fork')
-    assert.deepEqual(sessions.get(target).events, [])
+    const forkSession = Session.create('session-a-fork')
+    const target = forkSession.id
+    sessions.set(target, forkSession)
+    host.services.get('agents').set(target, { session: forkSession, phase: { kind: 'idle', lastTurn: 0 } })
+    assert.deepEqual(sessionEvents(forkSession), [])
     assert.equal((await host.rpc('listSessions')).sessions.some(chat => chat.sessionId === target), false, '目标 Session 还没有绑定对话')
     const attempts = await Promise.allSettled([forkTo(target), forkTo(target)])
     const succeeded = attempts.filter(attempt => attempt.status === 'fulfilled')
@@ -175,6 +186,32 @@ async function runServiceFixture() {
     assert.equal(forkedFrom.stateChatId, source.chatId)
     assert.equal(forkedFrom.stateRevision, 1, '来源记录指向实际取用的历史快照 revision')
     assert.equal(forkedFrom.atSeq, null)
+
+    // The freshly seeded Session only needed one edit turn to replay this
+    // prefix. Its next model turn still has to start after the copied story.
+    assert.equal(host.services.get('agents').get(target).phase.lastTurn, 2)
+    const continued = await host.rpc('appendStoryRounds', {
+      sessionId: target, rounds: [{ user: '问店家', assistant: '她递来菜单' }]
+    })
+    const continuedRows = (await host.rpc('getStoryTranscript', { sessionId: target })).storyTranscript.messages
+    assert.equal(continued.lastTurn, 3)
+    assert.equal(continuedRows[2].key, 'turn:2')
+    assert.equal(continuedRows.at(-1).key, 'turn:3')
+    const inheritedMedia = await host.rpc('pluginMediaForTurn', { sessionId: target, turn: 2 })
+    const newMedia = await host.rpc('pluginMediaForTurn', { sessionId: target, turn: 3 })
+    assert.equal(inheritedMedia.items[0].attachment.attachmentId, 'old-scene-image')
+    assert.ok(newMedia.key)
+    assert.notEqual(newMedia.key, inheritedMedia.key)
+    assert.deepEqual(newMedia.items, [])
+    const { view } = await host.rpc('getSession', { sessionId: target })
+    assert.equal(view.mvuReceipts.find(receipt => receipt.turn === 2)?.receipt.status, 'updated')
+    assert.equal(view.canRollback, true)
+    assert.equal(view.rollbackTargetTurn, 3)
+    const { rollbackAvailability } = await load('../tavern-plugin/lib/domain/rollback-surface.js')
+    const latestRollback = rollbackAvailability(await chatOf(target), {
+      events: sessionEvents(forkSession), nodes: forkSession.surface.nodes
+    })
+    assert.equal(latestRollback.target?.turn, 3)
 
     // 现有对话的 Session 不能再当目标：prepare 用当前 revision，fork 才走到目标校验。
     const headRevision = (await host.rpc('getStoryTranscript', { sessionId: source.sessionId })).revision
@@ -220,8 +257,8 @@ async function runServiceFixture() {
     const weird = await importGame({
       id: 'source-c', sessionId: 'session-c', messages: weirdRows,
       rounds: [{ user: '甲', assistant: '乙' }, { user: '丙', assistant: '丁' }, { user: '戊', assistant: '己' }, { user: '庚', assistant: '辛' }],
-      revisions: [{ revision: 1, messages: weirdRows.slice(0, 3) }],
-      checkpoints: [{ id: 'checkpoint-5', turn: 5, beforeRevision: 1 }], scene
+      revisions: [{ revision: 1, messages: weirdRows.slice(0, 3) }, { revision: 2, messages: weirdRows.slice(0, 5) }],
+      checkpoints: [{ id: 'checkpoint-5', turn: 5, beforeRevision: 1 }, { id: 'checkpoint-3', turn: 3, beforeRevision: 2 }], scene
     })
     // A ref whose turn has no message at all: a numeric upper bound would still copy it.
     await books.capture({ worldBook, chat: { id: weird.chatId }, turn: 2 })
@@ -236,6 +273,14 @@ async function runServiceFixture() {
     const forkTurns = turnsOf((await store.readJson(refPath(weirdFork.fork.chatId))).refs)
     assert.deepEqual(forkTurns, [1, 5], '只拷贝分成前缀里真的有的 turn，不被 turn 2（缺失）或 3、7（前缀之外）带上')
     assert.deepEqual(await transcriptRows('session-c-fork'), (await transcriptRows(weird.sessionId)).slice(0, 3))
+    const reorderedTarget = Session.create('session-c-reordered-fork')
+    sessions.set(reorderedTarget.id, reorderedTarget)
+    await host.rpc('forkChat', { chatId: weird.chatId, sessionId: weird.sessionId, targetSessionId: reorderedTarget.id,
+      messageIndex: 4, sourceRevision: weirdPlan.sourceRevision, atSeq: null })
+    const reordered = await host.rpc('appendStoryRounds', {
+      sessionId: reorderedTarget.id, rounds: [{ user: '再说', assistant: '续写正文' }]
+    })
+    assert.equal(reordered.lastTurn, 6, '继承的最大轮号为 5，哪怕分叉点本身的轮号是 3')
     evidence.turnPrefix = { sourceTurns, forkTurns }
 
     // ---- 旧 atSeq 分叉路径：原生回合边界仍被校验，不回归 ----
