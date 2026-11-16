@@ -1140,24 +1140,22 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
     const stopSelect=()=>{setSelecting(false);setPicked(new Set());};
     const switchKind=k=>{audio.stop();setFresh(null);setNaming(null);setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());};
-    // 删除 of a 演出风格 removes it in one CAS write.
-    const removeStyle=id=>work.task(async()=>{
-      await enqueue(c=>binding.service.patchPack({packId,expectedRevision:c.revision,patch:{assets:c.manifest.assets.filter(a=>!(a.kind==='directions'&&a.id===id))}}));
-      setSel(null);setDetail(false);setNotice({text:'已删除'});onPacksChanged?.();
-    });
-    // ⋯ › 删除 of a standalone 舞台皮肤 — the entry, its bundle (when no other entry
-    // uses it) and the bundle's files leave in one CAS write.
-    const removeEntry=(k,id)=>work.task(async()=>{
-      await enqueue(c=>{
-        const asset=c.manifest.assets.find(a=>a.kind===k&&a.id===id);if(!asset)throw new Error('条目已被删除，请重新载入');
-        const assets=c.manifest.assets.filter(a=>a!==asset),shared=asset.bundleKey&&assets.some(a=>a.bundleKey===asset.bundleKey);
-        const bundles={...c.manifest.bundles};if(asset.bundleKey&&!shared)delete bundles[asset.bundleKey];
-        const gone=asset.bundleKey&&!shared?c.manifest.files.filter(f=>f.path.startsWith('bundles/'+asset.bundleKey+'/')).map(f=>[f.path,null]):[];
-        return binding.service.patchPack({packId,expectedRevision:c.revision,patch:{assets,bundles},...(gone.length?{fileUpdates:new Map(gone)}:{})});
+    // 删除 (⋯ › 删除… of one entry, 多选 › 删除 of several): the entries, their bundles (when no other entry uses them) and the
+    // bundles' files leave in one CAS write; a 人物 is removed through removeFigure, one write each.
+    const removeEntries=(k,ids)=>work.task(async()=>{
+      if(k==='figures')for(const figureId of ids)await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId}));
+      else await enqueue(c=>{
+        const gone=c.manifest.assets.filter(a=>a.kind===k&&ids.includes(a.id));if(gone.length!==ids.length)throw new Error('条目已被删除，请重新载入');
+        const assets=c.manifest.assets.filter(a=>!gone.includes(a)),bundles={...c.manifest.bundles},removed=[];
+        for(const key of new Set(gone.map(a=>a.bundleKey).filter(Boolean)))if(!assets.some(a=>a.bundleKey===key)){delete bundles[key];removed.push(...c.manifest.files.filter(f=>f.path.startsWith('bundles/'+key+'/')).map(f=>[f.path,null]));}
+        return binding.service.patchPack({packId,expectedRevision:c.revision,patch:{assets,bundles},...(removed.length?{fileUpdates:new Map(removed)}:{})});
       });
-      setSel(null);setDetail(false);setNotice({text:'已删除'});onPacksChanged?.();
+      setSel(null);setDetail(false);stopSelect();setNotice({text:ids.length>1?'已删除 '+ids.length+' 项':k==='figures'?'已删除人物':'已删除'});onPacksChanged?.();
     });
-    // 新建条目 — the one way an entry comes into the pack (the strip's 「＋ 新建」, a tab's 「＋ 新建<种类>」, the empty pack's
+    const removeEntry=(k,id)=>removeEntries(k,[id]),removeStyle=id=>removeEntries('directions',[id]);
+    const [confirm,setConfirm]=React.useState(null);
+    const askRemovePicked=()=>{const ids=all.filter(a=>picked.has(a.id)).map(a=>a.id);
+      askDelete(setConfirm,{title:'删除选中的 '+ids.length+' 项'+kinds[current]+'？',body:'从素材包「'+pack.manifest.name+'」中删除它们和它们的文件，无法恢复。用到它们的卡会少掉这些素材，不会自动换成别的。',confirmLabel:'删除 '+ids.length+' 项',danger:true},()=>removeEntries(current,ids));};    // 新建条目 — the one way an entry comes into the pack (the strip's 「＋ 新建」, a tab's 「＋ 新建<种类>」, the empty pack's
     // buttons and a dropped file). A blank entry is written first, whatever is missing (library contract: media kinds
     // `media: null, pendingMedia: true` and 关闭; a 演出风格 with empty text, 关闭; a figure with one empty 默认 outfit, its
     // usual 启用). A `file` is then attached through the entry page's own upload (uploadBackground / uploadVariant /
@@ -1279,7 +1277,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},v==='all'?'全部':ENTRY_LAMPS[v]),lampFilter===v&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
     // 多选 turns
     // the search row into the selection bar — the round check (全选 / 全不选 of what is shown, − when some are) · 「已选 N」 ……
-    // 取消 · 复制到…, the house 「已选 N · 取消 · <action>」 of the library's other selection modes. Esc (the popup stack, so an
+    // 取消 · 复制到… · 删除, the house 「已选 N · 取消 · <action>」 of the library's other selection modes. Esc (the popup stack, so an
     // open menu closes first) or 取消 leaves it and focus returns to the 多选 button; Ctrl+A selects everything shown.
     const pickedShown=shown.filter(a=>picked.has(a.id)).length,allState=pickedShown===0?false:pickedShown===shown.length?true:'mixed';
     const pickAll=()=>setPicked(allState===true?new Set():new Set(shown.map(a=>a.id)));
@@ -1297,7 +1295,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('span',{className:'ap-select-count',role:'status'},'已选 ',h('b',null,picked.size)),
       h(Button,{className:'ap-manage',onClick:stopSelect},'取消'),
       h(Popover,{label:'复制到',className:'ap-copy-anchor',float:true,trigger:({toggle:t,open})=>h(Button,{className:'ap-manage is-done','aria-expanded':open,disabled:!picked.size||work.busy,onClick:t},'复制到…'),
-        content:closeMenu=>h(PackTargetMenu,{packs:packs||[],exclude:packId,close:closeMenu,onPick:copyTo})}));
+        content:closeMenu=>h(PackTargetMenu,{packs:packs||[],exclude:packId,close:closeMenu,onPick:copyTo})}),
+      h(Button,{className:'ap-manage',disabled:!picked.size||work.busy,onClick:askRemovePicked},'删除'));
     const left=pack&&h('aside',{ref:leftRef,className:'ap-pack-left','data-selecting':selecting||undefined},
       h(PackKindNav,{manifest:pack.manifest,present,current,onSwitch:switchKind,newMenu:h(NewEntryMenu,{current,disabled:work.busy,onPick:k=>createBlankEntry(k)})}),
       selbar||h('div',{className:'ap-pack-tools'},h(PackSearchBox,{label:'搜索条目',placeholder:'搜索',value:query,onChange:setQuery}),filterMenu,
@@ -1342,7 +1341,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       pack&&gen.dialog&&h(GenDialog,{key:gen.dialog.id,gen,binding,pack,commitFigure,importSettei,saveStyle}),gen.dialogs,
       pack&&modelImport&&h(ModelImportSheet,{binding,pack,pending:modelImport.pending,fixed:modelImport.fixed,onClose:()=>setModelImport(null),onImport:importModelHere}),
       pack&&automaticReview&&h(AutomaticWriteReview,{binding,packId,onClose:()=>setAutomaticReview(false),onChanged:automaticChanged}),
-      pack&&tagSheet&&h(TagIconsSheet,{binding,pack,save:saveTagIcons,upload:uploadTagIcon,onClose:()=>setTagSheet(false)}));
+      pack&&tagSheet&&h(TagIconsSheet,{binding,pack,save:saveTagIcons,upload:uploadTagIcon,onClose:()=>setTagSheet(false)}),
+      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}));
   }
   // 素材包 ⋯ › 标签图标. An 物品 without its own picture shows the icon of its deepest
   // tag from the same pack (assetTags.icon); the icons travel with the pack. The strip is one chip per icon (picture · tag)
