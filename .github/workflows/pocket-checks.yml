@@ -1,0 +1,57 @@
+name: Pocket integration checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pocket-checks.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/dsh-pocket@*.patch'
+      - 'bin/profile-configuration.mjs'
+      - 'tests/pocket-*.test.mjs'
+      - 'tests/profile-configuration.test.mjs'
+      - 'tests/fixtures/browser-react.mjs'
+  pull_request:
+    paths:
+      - '.github/workflows/pocket-checks.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/dsh-pocket@*.patch'
+      - 'bin/profile-configuration.mjs'
+      - 'tests/pocket-*.test.mjs'
+      - 'tests/profile-configuration.test.mjs'
+      - 'tests/fixtures/browser-react.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  pocket:
+    name: Pocket / ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            node: 24.18.1
+          - os: ubuntu-22.04
+            node: 22.19.0
+          - os: macos-15
+            node: 22.19.0
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium --only-shell
+      - name: Check Pocket, browser interactions and Profile upgrades
+        run: node --test --test-timeout=30000 tests/pocket-proxy.test.mjs tests/pocket-client-browser.test.mjs tests/pocket-profile.test.mjs tests/profile-configuration.test.mjs
