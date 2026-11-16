@@ -134,3 +134,12 @@ export async function readRecentWindow(readWindow, chatId, { limit, from, requir
   }
   return null
 }
+
+/** A bounded window that already holds every floor: the whole history is here as
+ * real rows, so nothing lies above it, and the projection of this window is the
+ * complete view. Bounded readers use this instead of the complete reader. */
+export function windowCoversHistory(window) {
+  if (!window || window.from !== 0) return false
+  const rows = window.chat?.messages
+  return Array.isArray(rows) && rows.length === window.messageCount
+}

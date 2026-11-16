@@ -79,7 +79,7 @@ import { storedSessionVersion } from './domain/session-upgrade.js'
 import { createTaskStateReader, taskStateFields } from './domain/task-state-reader.js'
 import { installHostProjectionReplay } from './domain/host-projection-replay.js'
 import { installHostTurnRailFilter } from './domain/host-turn-rail.js'
-import { createBoundedHistory, readRecentWindow, readRowsAt, storyContextMessageFields } from './domain/bounded-history.js'
+import { createBoundedHistory, readRecentWindow, readRowsAt, storyContextMessageFields, windowCoversHistory } from './domain/bounded-history.js'
 import { createStoryTranscriptReader, storyTranscriptMessageFields } from './domain/story-transcript-reader.js'
 import { createHelperHistoryAccess } from './domain/helper-history-access.js'
 import { isScopedMessages } from './domain/scoped-messages.js'
@@ -1001,12 +1001,35 @@ export async function apply(ctx) {
   }
 
   // ---------- 角色卡 ----------
-  async function readIndex() {
-    const idx = await readJson('index.json')
-    return (idx !== undefined && typeof idx === 'object') ? idx : { cards: [], chats: [] }
+  // 会话列表和资源图每次刷新都要这份索引：按文件版本缓存解析结果，命中时只花一次
+  // stat。返回值带着自己的外层对象和两个数组，调用方的 filter/map/sort 改不到缓存
+  // 里的那一份；行对象本身只读共享（现有调用方只读）。
+  let indexCache
+  function indexView(value) {
+    return { ...value, cards: [...(Array.isArray(value.cards) ? value.cards : [])], chats: [...(Array.isArray(value.chats) ? value.chats : [])] }
   }
-  async function writeIndex(idx) { await writeJson('index.json', idx) }
-  async function updateIndex(updater) { return await profileData.updateJson('index.json', value => updater(value || { cards: [], chats: [] })) }
+  async function readIndex() {
+    const stamp = await profileData.version('index.json')
+    if (indexCache !== undefined && indexCache.stamp === stamp) return indexView(indexCache.value)
+    const idx = await readJson('index.json')
+    const value = (idx !== undefined && typeof idx === 'object') ? idx : { cards: [], chats: [] }
+    indexCache = { stamp, value }
+    return indexView(value)
+  }
+  // 写入后立刻换成刚写下的那一份：下一次列表读取不必再解析一遍磁盘。
+  async function cacheWrittenIndex(value) {
+    indexCache = { stamp: await profileData.version('index.json'), value }
+  }
+  async function writeIndex(idx) {
+    await writeJson('index.json', idx)
+    await cacheWrittenIndex(idx)
+  }
+  async function updateIndex(updater) {
+    const next = await profileData.updateJson('index.json', value => updater(value || { cards: [], chats: [] }))
+    if (next !== undefined && typeof next === 'object') await cacheWrittenIndex(next)
+    else indexCache = undefined
+    return next
+  }
   const updateCard = createCardEditor({ readCardWorkspace, cardPreparation, fileResources, bumpCardProjectionRevision, syncCardName,
     cardRevision: path => cardProjectionRevision(normalizeResourcePath(path, 'card')),
     withCardLock: (id, edit) => cardStorage.withCardLock(id, edit), cardAssetWorkspaceRevision })
@@ -2258,17 +2281,34 @@ export async function apply(ctx) {
   function projectOpeningWindow(...args) { return sessionProjection.project.opening(...args) }
   // `historyFrom`: the oldest floor the browser has scrolled to; the window grows
   // to cover it instead of switching the whole session to a complete view.
+  //
+  // A regular short game (at most one cold window of floors) used to be refused here:
+  // with nothing above the window the bounded read is refused as "no partial history",
+  // so the opening read fell back to the complete reader — every floor materialized
+  // with its full MVU variable snapshot, ~0.8 s on a phone for a hundred-floor save.
+  // The first read of a game (historyFrom absent) has no floor to honour yet, so the
+  // same bounded read is accepted when it already holds the whole history: no hole is
+  // left to fill, and the projected window is the complete view without that cost.
+  // Scrolling back to the first floor still asks for the complete view: the page then
+  // needs the floors the window never carried, and only that reader can grow from there.
   async function readOpeningWindow(sessionId, historyFrom) {
     const chatId = (await readSessionMap())[str(sessionId)]
     if (!chatId) return null
     // Scrolled back to the first floor: the window would be the whole history, read page by
     // page only to be refused. The complete view refreshes from changed floors instead.
     if (historyFrom === 0) return null
-    const window = await readRecentWindow(chatPersistence.readWindow,chatId,{limit:HELPER_MESSAGE_COLD_WINDOW,from:historyFrom,requirePartial:true,messageFields:sessionViewMessageFields})
-    if (!window || window.from===0 || window.chat.sessionId!==sessionId
+    const scrolled = Number.isSafeInteger(historyFrom) && historyFrom > 0
+    const window = await readRecentWindow(chatPersistence.readWindow,chatId,{limit:HELPER_MESSAGE_COLD_WINDOW,from:historyFrom,requirePartial:scrolled,messageFields:sessionViewMessageFields})
+    if (!window || window.chat.sessionId!==sessionId
       || window.chat.backgroundConfigVersion!==1 || window.chat.conversationFeaturesVersion!==1
       || !['story','script'].includes(window.chat.mode || 'story')
       || window.chat.messages.some(message=>message.role==='assistant' && !Number.isSafeInteger(message.turn))) return null
+    // `from === 0` is only usable when this window is the whole history (every floor is a
+    // real row, nothing outside it): otherwise the page would lose the floors above it.
+    if (window.from === 0) {
+      const complete = windowCoversHistory(window) && window.messageCount <= HELPER_MESSAGE_COLD_WINDOW
+      if (!complete) return null
+    }
     return window
   }
   const readStoryTranscriptWindow = createStoryTranscriptReader({

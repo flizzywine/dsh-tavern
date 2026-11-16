@@ -36,6 +36,24 @@ export function createPlayHandlers(deps) {
     try { ctx.emit('api-session/status', sessionId, after > 0) }
     catch (error) { console.warn('dsh-tavern: 重新生成的运行状态没有送到页面', str(error?.message || error)) }
   }
+  // A phone switching to a game sends the same sync three or four times in the same
+  // second (page mount, tab focus, pending-task wake-up), and each one used to walk the
+  // same save again — hundreds of milliseconds, once nearly three seconds. Identical
+  // calls in flight share one run; the newer duplicates only wait for its result. A
+  // different kind/requestId is a different question and still runs on its own.
+  const syncRuns = new Map()
+  function runSessionSync(sessionId, args) {
+    const key = JSON.stringify([sessionId, str(args && args.kind), str(args && args.requestId)])
+    const running = syncRuns.get(key)
+    if (running !== undefined) return running
+    const work = (async () => {
+      const sync = await requestPerformance.stage('candidateSync', () => candidateTasks.sync(sessionId, { requestId: args && args.requestId, kind: args && args.kind }))
+      requestPerformance.state({ foregroundRunning: agentRegistry.get(sessionId)?.phase?.kind === 'running', backgroundBusy: sync.activity?.busy, backgroundRole: sync.activity?.role })
+      return { sync }
+    })().finally(() => { if (syncRuns.get(key) === work) syncRuns.delete(key) })
+    syncRuns.set(key, work)
+    return work
+  }
   return {
     async appendPlayerInput(args) {
       return await turnOrchestrator.appendUser({ sessionId: str(args?.sessionId), requestId: str(args?.requestId),
@@ -107,9 +125,7 @@ export function createPlayHandlers(deps) {
       return { state: (await sessionStateForSession(args && args.sessionId))?.contextCompaction || null }
     },
     async syncSession(args) {
-      const sync = await requestPerformance.stage('candidateSync', () => candidateTasks.sync(args && args.sessionId, { requestId: args && args.requestId, kind: args && args.kind }))
-      requestPerformance.state({ foregroundRunning: agentRegistry.get(str(args?.sessionId))?.phase?.kind === 'running', backgroundBusy: sync.activity?.busy, backgroundRole: sync.activity?.role })
-      return { sync }
+      return await runSessionSync(str(args?.sessionId), args)
     },
     async submitTask(args) {
       // A manual request supersedes the automatic one still waiting for this game.
