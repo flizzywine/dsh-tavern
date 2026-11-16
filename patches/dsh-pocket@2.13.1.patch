@@ -1,7 +1,7 @@
 diff --git a/client/client.js b/client/client.js
 --- a/client/client.js
 +++ b/client/client.js
-@@ -2878,11 +2878,16 @@
+@@ -2989,11 +2989,16 @@
        {
          name: "settings.section",
          id: "pocket",
