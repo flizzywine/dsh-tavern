@@ -6,7 +6,7 @@ const source = await readFile(new URL('../src/client.js',import.meta.url),'utf8'
 async function mount(fetch, globals = {}) {
   const exports = {}, effects = [], provided = new Map()
   let events
-  class EventSource { constructor() {events = this} close() {this.closed = true} }
+  class EventSource { static CLOSED = 2; readyState = 1; constructor() {events = this} close() {this.closed = true} }
   vm.runInNewContext(source,{exports,require:() => ({createElement:() => null}),fetch,EventSource,AbortController,Date,Set,setTimeout,clearTimeout,...globals})
   exports.apply({provide:(key,value) => {provided.set(key,value);return () => provided.delete(key)},effect:fn => effects.push(fn()),inject:() => {},slots:{inject:() => {}}})
   assert.equal(provided.has('ttsClient'),false)
@@ -75,11 +75,23 @@ test('disabled clients are unprovided, stale requests reject, and re-enabling re
   await assert.rejects(fixture.client.audio('old-ticket'),{code:'TTS_DISABLED'})
   await fixture.enabled(true)
   assert.equal(fixture.provided.get('ttsClient').available(),true)
-  fixture.events.onerror()
+  fixture.events.readyState = 2; fixture.events.onerror()
   assert.equal(fixture.provided.has('ttsClient'),false)
   await fixture.enabled(true)
   fixture.dispose(); assert.equal(fixture.events.closed,true)
   assert.equal(fixture.provided.has('ttsClient'),false)
+})
+
+test('a dropped enabled stream that is reconnecting keeps playback and its audio', async () => {
+  // Long-lived streams can be cut (e.g. every 300 s); EventSource then reports an error while CONNECTING.
+  const fixture = await mount(async () => response({}))
+  const events = []; fixture.client.subscribe(e => events.push(e.type))
+  fixture.events.readyState = 0; fixture.events.onerror()
+  await fixture.enabled(true)
+  assert.deepEqual(events,[])
+  assert.equal(fixture.provided.get('ttsClient'),fixture.client)
+  assert.equal(fixture.client.available(),true)
+  fixture.dispose()
 })
 
 test('client keeps the normal pending job through the host-provided cold-start budget',async()=>{

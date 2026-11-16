@@ -74,6 +74,7 @@ export async function handleControl(request, dispatch, logger = console) {
 
 // Management stays available when the consumer service is disabled. Connection
 // authenticates this same-origin stream just like the control endpoints.
+// A comment line every 30 s keeps the otherwise silent stream from being cut as idle.
 export function registerEnabledRoute(ctx, state) {
   ctx.inject(['connection'], child => {
     const streams = new Set()
@@ -87,9 +88,10 @@ export function registerEnabledRoute(ctx, state) {
           start(controller) {
             const send = enabled => controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({enabled}) + '\n\n'))
             const unsubscribe = state.subscribe(send)
+            const heartbeat = setInterval(() => controller.enqueue(new TextEncoder().encode(':\n\n')),30e3)
             close = (end = true) => {
               if (!streams.delete(close)) return
-              unsubscribe(); request.signal.removeEventListener('abort',close); if (end) controller.close()
+              clearInterval(heartbeat); unsubscribe(); request.signal.removeEventListener('abort',close); if (end) controller.close()
             }
             streams.add(close); request.signal.addEventListener('abort',close,{once:true})
             if (request.signal.aborted) close(); else send(state.get())
