@@ -507,3 +507,41 @@ test('流式思考超过折叠框高度时自动滚到底部，上翻阅读时�
 	await act(async () => root.render(element({ turn: 1, step: 1, blocks: [{ kind: 'reasoning', text: '第二步继续思考' }] })))
 	assert.equal(scrollTop, 760, '新一步思考重新展开时应自动滚到最新位置')
 })
+
+test('长故事只挂读者附近的楼层，其余楼层留同样标记的空楼层，舞台盖住时全部收起', async t => {
+	const observed = new Map()
+	class FakeIntersectionObserver {
+		constructor(callback) { this.callback = callback; this.targets = new Set() }
+		observe(target) { this.targets.add(target); observed.set(target.getAttribute('data-row-key'), this) }
+		unobserve(target) { this.targets.delete(target) }
+		disconnect() { this.targets.clear() }
+	}
+	class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
+	let active = ''
+	const listeners = new Set()
+	const galActive = { get: () => active, subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) } }
+	const page = createPage(t, { IntersectionObserver: FakeIntersectionObserver, ResizeObserver: FakeResizeObserver, CSS: { escape: value => value }, galActive })
+	const messages = []
+	for (let turn = 1; turn <= 8; turn++) messages.push({ role: 'user', text: '行动' + turn }, { role: 'assistant', turn, text: '第 ' + turn + ' 轮正文' })
+	const feature = page.context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement('div', { 'data-conversation-scroll': '' },
+		React.createElement(feature.StoryTranscriptList, { transcript: story(messages), sessionId: 'game' })))
+	const doc = page.dom.window.document
+	const held = () => [...doc.querySelectorAll('[data-story-held]')].map(row => row.getAttribute('data-floor'))
+	const floor = n => doc.querySelector('[data-story-row][data-floor="' + n + '"]')
+	// 最新两层挂着，更早的楼层收起，但仍是带楼层号和锚点的故事行（楼层跳转与宿主滚动锚点照旧认得）。
+	assert.deepEqual(held(), ['1', '2', '3', '4', '5', '6'])
+	assert.equal(floor(3).getAttribute('data-chat-anchor-key'), floor(3).getAttribute('data-row-key'))
+	assert.match(floor(3).style.height, /px$/)
+	assert.match(floor(8).textContent, /第 8 轮正文/)
+	// 滚到第 3 层附近才挂回正文。
+	const target = floor(3)
+	await act(async () => { observed.get(target.getAttribute('data-row-key')).callback([{ target, isIntersecting: true }]); await Promise.resolve() })
+	assert.deepEqual(held(), ['1', '2', '4', '5', '6'])
+	assert.match(floor(3).textContent, /第 3 轮正文/)
+	// 舞台盖住这一局：读者附近的楼层也收起；离开舞台后挂回。
+	await act(async () => { active = 'game'; for (const fn of listeners) fn() })
+	assert.deepEqual(held(), ['1', '2', '3', '4', '5', '6'])
+	await act(async () => { active = ''; for (const fn of listeners) fn() })
+	assert.deepEqual(held(), ['1', '2', '4', '5', '6'])
+})

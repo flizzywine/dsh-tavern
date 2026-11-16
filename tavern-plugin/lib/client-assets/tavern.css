@@ -103,6 +103,8 @@ body.dsh-tavern-shell-active,
 /* Use the host's live width preference, including while a handle is dragged. */
 [data-chat-flow]:has(.dsh-tavern-story-transcript-row) { width: 100%; max-width: var(--dsh-chat-user-width, var(--dsh-chat-content-width, 100%)); }
 .dsh-tavern-story-transcript-row { width: 100%; min-width: 0; }
+/* 收起的楼层（story-transcript-list.js createTavernStoryRowWindow）：只占它量到或估出的高度，滚到附近再挂回正文。 */
+.dsh-tavern-story-held { box-sizing: border-box; overflow: hidden; contain: strict; }
 .dsh-tavern-story-body { min-width: 0; overflow-wrap: anywhere; }
 .dsh-tavern-story-floor-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
 .dsh-tavern-story-floor-no { color: var(--dsw-alias-label-secondary); font-weight: 600; }

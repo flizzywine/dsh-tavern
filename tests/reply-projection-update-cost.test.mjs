@@ -48,3 +48,20 @@ test('indexed reply cache preserves append, role-change and truncation results',
  await edit(chat.messages.slice(0,1),[])
  await edit([],[])
 })
+
+test('a stage round view projects only the rounds it carries, and the session view of the same chat stays cached',async()=>{
+ const {markStageRead}=await import('../tavern-plugin/lib/domain/stage-read-projection.js')
+ const messages=Array.from({length:40},(_,i)=>({role:'assistant',turn:i+1,text:'正文'+i}))
+ const cache=createIncrementalReplyView({readChanges:async()=>undefined})
+ const session={id:'long',_storageRevision:3,messages}
+ await cache.project(session,options,options,{shared:true})
+ assert.equal(cache.stats().projectedMessages,40)
+ const round=markStageRead({id:'long',_storageRevision:3,messages:messages.map((m,i)=>i===29?m:{role:m.role,turn:m.turn})},{chainOnly:true,index:29,full:[]})
+ const view=await cache.project(round,options,options,{shared:true})
+ assert.equal(cache.stats().projectedMessages,41,'only round 30 is projected')
+ assert.equal(view.projections.find(row=>row?.turn===30).text,'正文29')
+ await cache.project(session,options,options,{shared:true})
+ await cache.project(round,options,options,{shared:true})
+ assert.equal(cache.stats().projectedMessages,41,'both views are reused')
+ assert.equal(cache.stats().rebuilt,2)
+})

@@ -5,6 +5,14 @@ import {validateFigureRef} from '../../../packages/dsh-presentation-protocol/src
 import {normalizeCatalogueText} from '../asset-pack-lexical.js'
 export const CONFIG_FILE_PATH=/^files\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(png|webp|jpg|mp3|ogg|wav)$/
 const own=(value,key)=>Object.hasOwn(value || {},key)
+// The card's variable schema (its <initvar> YAML), once per card read: the config host keeps one context, and its raw,
+// per card revision, while every automatic field of every mod resolves against the same schema.
+const schemaByRaw=new WeakMap()
+const cardSchema=raw=>{
+  if(!raw || typeof raw!=='object')return analyzeVariableSchema(raw)
+  if(!schemaByRaw.has(raw))schemaByRaw.set(raw,analyzeVariableSchema(raw))
+  return schemaByRaw.get(raw)
+}
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
 const problem=error=>({code:error.code || 'CONFIG_TYPE',message:error.message,...(error.position===undefined?{}:{position:error.position})})
 const type=value=>Array.isArray(value)?'array':value===null?'null':typeof value
@@ -158,7 +166,7 @@ export function createModConfigService({schemas,store,sources}) {
           let result=field.autoRef || cached?.source!==source?null:cached?.result
           if(!result) {
             const slot={...field,target:{kind:'mods',modId:id,slot:key}}
-            result=resolveSlot(slot,null,analyzeVariableSchema(state.ctx.raw),state.sources)
+            result=resolveSlot(slot,null,cardSchema(state.ctx.raw),state.sources)
             if(field.autoRef) {
               const found=resolveSlot({...slot,guessHints:null},{entries:[{target:slot.target,variable:field.autoRef}]},[],state.sources)
               result.value=found.value

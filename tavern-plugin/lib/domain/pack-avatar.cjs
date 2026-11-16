@@ -3,8 +3,20 @@
 // that emotion's own sprite state (manual state > manual outfit > auto > default crop), then the outfit's calm
 // uploaded avatar, then the crop of the calm/fallback state. Uploaded avatars are already framed (crop null).
 // @include-shared sprite-emotions.cjs
+// The shared helpers, resolved once: on the host a require() per call walked the module resolution hooks for every
+// avatar of every figure (most of a long chat's bubble projection). The client build includes them as globals.
+let packAvatarHelpers = null;
+function packAvatarShared() {
+    if (packAvatarHelpers) return packAvatarHelpers;
+    if (typeof window === 'undefined' && typeof require === 'function') {
+        packAvatarHelpers = {emotions:require('../../shared/sprite-emotions.cjs'), matchBubbleMood:require('../../packages/dsh-asset-library/lib/shared/emotion-identity.cjs').matchBubbleMood,
+            stateImageId:require('../../shared/sprite-images.cjs').stateImageId};
+    } else packAvatarHelpers = {get emotions() { return {resolveSpriteEmotion, spriteEmotionEntries, spriteEmotionState}; },
+        get matchBubbleMood() { return matchBubbleMood; }, get stateImageId() { return stateImageId; }};
+    return packAvatarHelpers;
+}
 function packSpriteEmotions() {
-    return typeof window === 'undefined' && typeof require === 'function' ? require('../../shared/sprite-emotions.cjs') : {resolveSpriteEmotion, spriteEmotionEntries, spriteEmotionState};
+    return packAvatarShared().emotions;
 }
 const PACK_AVATAR_DEFAULT_CROP = Object.freeze({x:0.3,y:0,w:0.4,h:0.21});
 // The crop of one sprite state's own body picture: manual state > manual outfit > automatic (written when the pack was
@@ -67,11 +79,9 @@ function selectFigureAvatar(figure, sprites = {}, {outfitKey,emotion,imageSelect
     if (figure.emotions?.length === 1 && figure.emotions[0].label === undefined) emotion = figure.emotions[0].id;
     const selected = outfitKey === undefined ? figure.outfits.find(outfit => outfit.enabled) : figure.outfits.find(outfit => outfit.key === outfitKey);
     if (!selected?.enabled) return null;
-    const identity = typeof window === 'undefined' && typeof require === 'function' ? require('../../packages/dsh-asset-library/lib/shared/emotion-identity.cjs').matchBubbleMood : matchBubbleMood;
-    emotion = identity(emotion,figure.emotions || [])?.id || emotion || selected.defaultEmotion || figure.emotions?.[0]?.id;
+    emotion = packAvatarShared().matchBubbleMood(emotion,figure.emotions || [])?.id || emotion || selected.defaultEmotion || figure.emotions?.[0]?.id;
     if (selected.sprite?.imagePools) {
-        const images = typeof window === 'undefined' && typeof require === 'function' ? require('../../shared/sprite-images.cjs') : {stateImageId};
-        const id = images.stateImageId(selected,emotion,imageSelection), manifest = sprites[selected.sprite.manifestKey];
+        const id = packAvatarShared().stateImageId(selected,emotion,imageSelection), manifest = sprites[selected.sprite.manifestKey];
         const state = packSpriteEmotions().spriteEmotionState(manifest,id);
         if (!state) return null;
         const source = {outfit:selected,manifest,state,emotion:id,defaultEmotion:id,spriteOnly:true};
