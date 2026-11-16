@@ -97,3 +97,25 @@ test('preview warning is per failed audition, not the selected provider',()=>{
   assert.equal(nodes(untouched).find(n=>n.type==='glyph').props.name,'play')
   for(const provider of ['minimax','qwen'])assert.match(ctx.voiceIssueText('SERVICE_REQUIRED',{provider}),/^这个声音绑定的语音服务还没设置.*重新选择/)
 })
+
+// 语音服务 ⌄ on the 声音 tab: the same voice moves to another service of its kind (本地 Drama 3 → Fish Audio online); a 模型
+// the new service does not offer goes, everything else of the voice stays.
+test('语音服务 ⌄: a voice moves to another service of its kind, keeping the rest of its source',async t=>{
+  const root=new URL('../.tmp/',import.meta.url);await mkdir(root,{recursive:true})
+  const library=createAssetPackService({assetRoot:await mkdtemp(fileURLToPath(new URL('service-switch-',root))),authorizeLease:async()=>true})
+  t.after(()=>library.dispose())
+  let pack=(await library.createPack({name:'测试',expectedRevision:null})).snapshot
+  pack=(await library.createFigure({packId:pack.manifest.id,expectedRevision:pack.revision,figure:{schemaVersion:1,id:FIGURE_ID,name:'新人物',enabled:true,outfits:[]}})).snapshot
+  const figureId=pack.manifest.figures[0],ctx=ui()
+  const commitVoice=async job=>{const result=await job(pack);pack=result.snapshot;return result}
+  const writer=()=>ctx.useVoiceWriter({binding:{service:library},pack,figure:pack.figures[figureId],setError:message=>assert.equal(message,''),commitVoice})
+  const voiceId='a'.repeat(32)
+  await writer().createVoice({name:'声音',language:'ja',defaultSource:'fish',sources:{fish:{kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'local',model:'drama-3'}}})
+  const id=pack.figures[figureId].voice.voice
+  await writer().setSourceService('fish',{id:'cloud',models:[{id:'s1'},{id:'s2'}]})
+  assert.deepEqual(pack.manifest.voiceLibrary.voices[id].sources.fish,{kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'cloud'})
+  await writer().setSourceModel('fish','s2')
+  await writer().setSourceService('fish',{id:'other',models:[{id:'s2'}]})
+  assert.deepEqual(pack.manifest.voiceLibrary.voices[id].sources.fish,{kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'other',model:'s2'},'a 模型 the new service offers stays')
+  assert.equal(pack.figures[figureId].voice.voice,id,'the figure keeps the same voice')
+})

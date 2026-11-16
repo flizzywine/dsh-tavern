@@ -5094,6 +5094,7 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-spark { display: inline-flex; color: var(--fork-accent); }
 .ap-vx-spark .ap-glyph { width: 14px; height: 14px; }
 .ap-vx-tag { flex: none; padding: 0 7px; border-radius: 9px; background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-weight: 400; line-height: 18px; }
+.ap-vx-name-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: -4px; }
 .ap-vx-hero-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; --fork-spinner-size: 16px; }
 .ap-vx-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; min-height: 28px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
 .ap-vx-meta > i { font-style: normal; color: var(--fork-ink-3); }
@@ -5135,6 +5136,8 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-row[data-current] .ap-vx-row-name { color: var(--fork-accent); font-weight: 600; }
 .ap-vx-lang { flex: none; min-width: 18px; padding: 0 3px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--fork-hairline); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); line-height: 16px; text-align: center; }
 .ap-vx-row-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fork-ink-2); }
+/* 选择声音: the meta is the short service name; the voice name gives way first. */
+.ap-vx-pick .ap-vx-row-meta { flex: none; max-width: 40%; font-size: var(--fork-fs-meta); }
 .ap-vx-row-end { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex: none; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; }
 .ap-vx-row-check { display: inline-flex; color: var(--fork-accent); }
 .ap-vx-row-check .ap-glyph { width: 16px; height: 16px; }
