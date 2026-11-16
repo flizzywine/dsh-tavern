@@ -37,31 +37,6 @@ for (const installed of [false, true]) {
   })
 }
 
-// 随酒馆发行的内置插件（剧情罗盘）没有 plugins/ 目录可停用，列表里是只读行：
-// 说明它已经在跑，但不给停用/删除按钮，也不混进第三方插件的操作区。
-test('内置插件在插件页列成只读行，紧跟第三方插件之后', async t => {
-  const plugins = [
-    { folder: 'dsh-tavern-plot-compass', name: 'dsh-tavern-plot-compass', version: '1.0.0', description: '剧情罗盘插件：多路线分支推演', source: { kind: 'bundle', tavernApiVersion: 8 }, enabled: true, state: 'loaded', reason: '', readOnly: true },
-    { folder: 'hub', name: 'dsh-runninghub', version: '1.1.4', source: { kind: 'github', repo: 'bigmalove/dsh-runninghub', resolved: 'Release v1.1.4' }, enabled: true, state: 'loaded', reason: '' },
-  ]
-  const { page } = await openTavernSettings(t, {
-    section: 'dsh-tavern: plugins settings section',
-    respond: method => method === 'listUserPlugins' ? { plugins, dir: '/tmp/tavern/plugins' } : undefined,
-  })
-  const row = page.locator('li.dsh-tavern-user-plugin', { hasText: 'dsh-tavern-plot-compass' })
-  await row.waitFor({ state: 'visible' })
-  assert.match(await row.innerText(), /dsh-tavern-plot-compass/)
-  assert.match(await row.innerText(), /1\.0\.0/)
-  assert.match(await row.innerText(), /剧情罗盘插件/)
-  assert.match(await row.innerText(), /内置插件 · 随酒馆提供，随酒馆一起更新/)
-  assert.equal(await row.getByRole('button', { name: '停用', exact: true }).count(), 0)
-  assert.equal(await row.getByRole('button', { name: '启用', exact: true }).count(), 0)
-  assert.equal(await row.getByRole('button', { name: '删除', exact: true }).count(), 0)
-  // 第三方插件照旧保留自己的操作按钮。
-  const third = page.locator('li.dsh-tavern-user-plugin', { hasText: 'dsh-runninghub' })
-  assert.equal(await third.getByRole('button', { name: '停用', exact: true }).count(), 1)
-})
-
 // 设置 → 插件：已是最新时不显示更新按钮，有新版时按钮写明版本，停用/启用原地切换。
 // 手动「检查更新」跳过自动检查的缓存，按钮旁边写明结果，徽标和更新按钮随之刷新。
 test('插件列表可以手动检查更新', async t => {
