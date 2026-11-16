@@ -447,6 +447,7 @@ export function createStageServices(core) {
   // no gallery state is exported through cards or asset packs.
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
+  ctx.inject(['assetLibrary'],child => child.effect(() => cgGallery.watch(child.get('assetLibrary'))))
 
   const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery,stage:core.stageModReads})
   return {widgetVariables, cardPages, cgGallery, ...extensions}
