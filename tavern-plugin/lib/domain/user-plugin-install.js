@@ -283,6 +283,35 @@ function folderFor(pkg, fallback) {
 
 async function readJson(file) { try { return JSON.parse(await readFile(file, 'utf8')) } catch { return null } }
 
+/**
+ * 随酒馆一起发行的酒馆插件（剧情罗盘这类）走的是 profile bundle，不在 plugins/ 目录里，
+ * 用户插件加载器也就不会在插件页列出它 —— 用户看到的只有自己装的第三方插件。这里把它们按
+ * 「内置插件」补成只读行：确实在跑，但启停/更新/删除归酒馆安装与本局面板，插件页不做。
+ * 只认声明了 Tavern 插件 API 版本的包；舞台、配音这类 DSH 宿主插件仍由 DSH 内置插件页管理。
+ */
+async function builtinBundlePlugins(profile) {
+  const manifest = await readJson(path.join(profile, 'package.json')) || {}
+  const bundles = Array.isArray(manifest?.dsh?.profile?.bundles) ? manifest.dsh.profile.bundles : []
+  const rows = []
+  for (const name of bundles) {
+    if (typeof name !== 'string' || !name || name === 'dsh-tavern-plugin' || name.startsWith('@deepseek-ai/')) continue
+    const pkg = await readJson(path.join(profile, 'node_modules', ...name.split('/'), 'package.json'))
+    if (!pkg || !pkg?.dsh?.compatibility?.tavernApiVersion) continue
+    rows.push({
+      folder: name,
+      name: String(pkg.name || name),
+      version: String(pkg.version || ''),
+      description: String(pkg.description || ''),
+      source: { kind: 'bundle', tavernApiVersion: Number(pkg.dsh.compatibility.tavernApiVersion) },
+      enabled: true,
+      state: 'loaded',
+      reason: '',
+      readOnly: true,
+    })
+  }
+  return rows
+}
+
 export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = () => new Date(), sync = async () => {}, archiveTimeoutMs = ARCHIVE_TIMEOUT_MS }) {
   const paths = userPluginPaths(dataRoot)
   const backups = path.join(path.resolve(dataRoot), 'plugin-backups')
@@ -382,7 +411,8 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed: installedPackage })
       let folders = []
       try { folders = (await readdir(paths.plugins, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')).map(item => item.name).sort() } catch {}
-      return Promise.all(folders.map(async folder => {
+      const bundled = await builtinBundlePlugins(paths.profile)
+      const installed = await Promise.all(folders.map(async folder => {
         const dir = path.join(paths.plugins, folder)
         const pkg = await readJson(path.join(dir, 'package.json')) || {}
         const problem = problems.find(item => item.folder === folder)
@@ -404,6 +434,8 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
           reason: isDisabled ? '' : problem ? problem.reason : status?.ok === false ? status.stage + '失败：' + status.message : '',
         }
       }))
+      // 内置插件排在最前，用户自己装的第三方插件跟在后面。
+      return bundled.concat(installed)
     },
     /**
      * A GitHub plugin tracks a Release only when it was installed without an explicit ref.
