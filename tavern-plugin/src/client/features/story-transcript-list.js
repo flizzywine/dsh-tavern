@@ -5,10 +5,6 @@
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
 
-function tavernStorySpeechId(row) {
-	return JSON.stringify([row.messageUid || row.key, row.message?.swipeId])
-}
-
 function TavernStoryMarkdown(props) {
 	const text = String(props.text === undefined || props.text === null ? '' : props.text)
 	const labels = props.labels || TAVERN_STORY_TRANSCRIPT_LABELS
@@ -315,9 +311,6 @@ function createTavernStoryTranscriptFeature(deps) {
 			row.role === 'user' ? editButton : copyButton,
 			row.role === 'user' ? copyButton : editButton,
 			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
-				h('span', { 'data-fork-turn': 'speech' }, h(replyActions.Speech, {
-					sessionId: props.sessionId, messageId: tavernStorySpeechId(row), source: row.text, voiced: props.speechVoiced
-				})),
 				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
 				props.latest && props.host ? h(replyActions.Latest, {
 					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId
@@ -429,6 +422,12 @@ function createTavernStoryTranscriptFeature(deps) {
 			? h('div', { className: 'dsh-tavern-plugin-media-list' }, trailingMedia.map(function (item) {
 				return h(TavernPluginMediaItem, { key: item.id, item: item, sessionId: mediaSessionId, turn: projectionTurn })
 			})) : null
+		// The mods' floor parts lead the round's story text, as on the native floor (assistant-renderer.js; mod-clients.js): a
+		// part reads the chat snapshot by the round's DSH turn.
+		const modFloorNodes = projectionTurn > 0 && typeof props.useChat === 'function' && typeof tavernModClients !== 'undefined'
+			? tavernModClients.slot('floor').map(function (part) {
+				return tavernStageBoundary(part.label, h(part.value, { key: part.modId, useChat: props.useChat, nativeTurn: typeof tavernDshTurnForStoryTurn === 'function' ? tavernDshTurnForStoryTurn(props.view, projectionTurn) : projectionTurn, input: tavernModClients.input(props.executeSlash, props.sessionId) }))
+			}) : null
 		const hasTurn = replyActions && playView && !row.streaming && row.key === 'turn:' + projectionTurn
 		const inlineStatus = props.latest === true && !row.streaming && props.helperView?.statusBarPlacement === 'body'
 			&& typeof TavernPersistentStatusRuntime === 'function'
@@ -456,6 +455,7 @@ function createTavernStoryTranscriptFeature(deps) {
 					expanded: damperExpanded,
 					onToggle: function () { setDamperExpanded(function (open) { return !open }) }
 				}) : null),
+			modFloorNodes,
 			damperOutcome && damperExpanded && typeof StoryFloorDamperPanel === 'function' ? h(StoryFloorDamperPanel, {
 				outcome: damperOutcome,
 				sessionId: mediaSessionId,
@@ -501,7 +501,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,
 			inlineStatus,
 			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
-				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, speechVoiced: props.speechVoiced, host: props.host, turnFooter: props.turnFooter }))
+				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, host: props.host, turnFooter: props.turnFooter }))
 	})
 
 	function StoryTurnReasoningBox({ text, live }) {
@@ -729,7 +729,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn, regenDamperOutcome, activeLiveDamper, draftDamperOutcome])
 		const latest = rows.findLast(row => row.role === 'assistant')
 		const generating = Boolean(props.partial || streamView?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
-		const speechVoiced = replyActions ? replyActions.useSpeechVoiced(sessionId) : false
 		const rowWindow = useTavernStoryRowWindow(sessionId)
 		if (!rows.length) {
 			return h('div', {
@@ -762,8 +761,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			if (windowed(row)) rowWindow.window.remember(row.key, text)
 			return h(StoryTranscriptRow, { windowRef: windowed(row) ? rowWindow.window.refFor(row.key) : undefined, key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
-				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus,
-				latest: row === latest, latestTurn: latest?.legacyTurn, speechVoiced,
+				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus, useChat: props.useChat,
+				latest: row === latest, latestTurn: latest?.legacyTurn,
 				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
 		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
 			h('span', null, '\u26a0 ' + failure)) : null)
@@ -818,7 +817,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
-				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, showDamperStatus: props.showDamperStatus, host: props.host, turnFooter: props.turnFooter }))
+				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, showDamperStatus: props.showDamperStatus, useChat: props.useChat, host: props.host, turnFooter: props.turnFooter }))
 	}
 
 	function defaultStore() {

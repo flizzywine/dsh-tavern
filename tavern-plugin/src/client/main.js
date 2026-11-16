@@ -1080,8 +1080,6 @@ function clipReplayCore() {
 
 		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
 			replyActions: {
-				useSpeechVoiced: useTavernBodySpeechVoiced,
-				Speech: TavernReplySpeechAction,
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,

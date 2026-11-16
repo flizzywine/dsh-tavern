@@ -118,6 +118,7 @@
 		// @include gal-stage.js
 		// @include gal-config.js
 		// @include bgm-player.js
+		// @include story-reading.js
 		// @include bg-manual.js
 		// @include stage-scene-images.js
 		// @include stage-ambience.js

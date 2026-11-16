@@ -142,8 +142,6 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 	) + '\nTavernRollbackToTurnButton', page.context)
 	const feature = page.context.createTavernStoryTranscriptFeature({
 		replyActions: {
-			useSpeechVoiced: () => true,
-			Speech: props => props.voiced ? button('朗读', props.source) : null,
 			Illustrate: props => button('配图', props.turn),
 			Receipt: props => button('变量结算', props.storyTurn),
 			Latest: () => button('更多'),
@@ -155,7 +153,8 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 	const document = page.dom.window.document
 	const [duplicate, , historical, latest, user] = document.querySelectorAll('[data-story-row]')
 	const action = (row, label) => row.querySelector('button[aria-label="' + label + '"]')
-	assert.equal(action(duplicate, '朗读').textContent, '重号正文甲')
+	// 有声书 (the 顶栏 speaker) reads the story; a reply has no 🔊 of its own (owner 11-18)
+	assert.equal(duplicate.querySelector('[data-fork-turn="speech"]'), null)
 	assert.equal(action(duplicate, '配图'), null)
 	assert.equal(action(duplicate, '回退到这一轮'), null)
 	assert.equal(action(historical, '配图').textContent, '12')
@@ -163,7 +162,6 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 	assert.equal(action(historical, '更多'), null)
 	assert.ok(action(latest, '更多'))
 	assert.equal(action(latest, '回退到这一轮'), null)
-	assert.equal(action(user, '朗读'), null)
 	await act(async () => action(historical, '回退到这一轮').click())
 	assert.match(calls[0], /回退到第 3 楼/)
 	assert.deepEqual(calls[1], { method: 'rollbackToTurn', turn: 12, messageUid: 'story-12', sessionId: 'game' })

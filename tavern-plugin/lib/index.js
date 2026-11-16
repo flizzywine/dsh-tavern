@@ -281,9 +281,7 @@ import { modStageContributions } from './domain/mods/stage-contributions.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {activeStageSkin, cardStageVoicing} from './domain/card-stage-settings.js'
-import {ENGINE_SECTION} from './domain/asset-engine-settings.js'
-import {settingsSectionProvider} from './native-settings.js'
+import {activeStageSkin} from './domain/card-stage-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -4529,13 +4527,8 @@ export async function apply(ctx) {
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
   const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
-  // A reply's 🔊 is the stage voicing's replay: only where the stage voices this card (there is no separate 朗读).
-  rpcHandlers.bodySpeechState = async args => {
-    const card = await castCardOf(str(args?.sessionId)).catch(() => null)
-    const extension = card ? await cardStageExtension(card.path) : null
-    const engine = settingsSectionProvider(ctx, ENGINE_SECTION)?.describe().find(row => row.ns === ENGINE_SECTION)?.value
-    return {voiced:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine)}
-  }
+  // The reading voice of tavernUi.playReading (story-reading.js): a library figure, or the one 旁白声音 points at when none is given.
+  rpcHandlers.openReadingVoice = async args => speech.openReading(args && Object.hasOwn(args, 'figure') ? args.figure : undefined)
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageLoadOnStartup = async args => stageSwitch.setLoadOnStartup(args?.enabled)
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
