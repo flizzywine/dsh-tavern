@@ -86,8 +86,8 @@ test('行内时间跟随排序：创建序是创建时间，最新回复序是�
 test('侧边栏按偏好切换排序，并在设置变化后重新读取', () => {
   assert.match(sidebar, /recentReplyFirst === true \? "recent" : "created"/)
   // 未归档与已归档两张表各自排序：侧栏把归档从主列表拆成了独立分组。
-  assert.match(sidebar, /const orderedActiveHistory = orderTavernHistory\(activeHistory, summaries, historyOrder\)/)
-  assert.match(sidebar, /const orderedArchivedHistory = orderTavernHistory\(archivedHistory, summaries, historyOrder\)/)
+  assert.match(sidebar, /const orderedActiveHistory = React\.useMemo\(function \(\) \{\s*return orderTavernHistory\(activeHistory, summaries, historyOrder\)/)
+  assert.match(sidebar, /const orderedArchivedHistory = React\.useMemo\(function \(\) \{\s*return orderTavernHistory\(archivedHistory, summaries, historyOrder\)/)
   assert.match(sidebar, /groupTavernHistory\(orderedActiveHistory, summaries, historyOrder\)/)
   assert.match(sidebar, /void reloadHistoryOrder\(\)/)
   assert.match(sidebar, /formatTime\(tavernHistoryStamp\(item, summary, summaries, historyOrder\)\)/)
