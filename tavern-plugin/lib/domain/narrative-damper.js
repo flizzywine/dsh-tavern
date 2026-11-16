@@ -717,9 +717,9 @@ function compileAuthorTurnRuling(ruling, { stateLine, postureLine }) {
 // 真骰联动行统一在这里拼到闭合标签之前，roleplay 与 author 两个分支都覆盖
 export function compileTurnRuling(ruling, options = {}) {
   const text = compileTurnRulingBody(ruling, options)
-  const diceLine = diceShiftLine(ruling)
-  if (!diceLine) return text
-  return text.replace(/<\/turn_ruling>$/, diceLine + '\n</turn_ruling>')
+  const shiftLine = diceShiftLine(ruling)
+  if (!shiftLine) return text
+  return text.replace(/<\/turn_ruling>$/, shiftLine + '\n</turn_ruling>')
 }
 
 function compileTurnRulingBody(ruling, { stateSnapshot, posture, explicitSceneShift = false } = {}) {
