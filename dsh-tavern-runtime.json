@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3aba60f88518e7f9f1391e8fa0f7d0ca82db2811",
-  "releaseSequence": 1708,
+  "revision": "88ba1fa845cc0be38be620eb52e535b7d584a8cf",
+  "releaseSequence": 1709,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "df99b76a6f7fc3aaf61deb8b3c82c7f78b66507cdb5676e138320063f1f2d07d",
-      "size": 6237250
+      "sha256": "14a01d250f48db80de87ffd88152f654c1cd9e69baafeb806a17938b1096e429",
+      "size": 6239207
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1616,8 +1616,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-reads.js",
-      "sha256": "5448de31f28e8757c3667bc9f3b2fd6136a0824257c074a8790784371c5ffa3d",
-      "size": 3421
+      "sha256": "2bf38331199f3e71003013b9226f740f8ccf409c5dd4dd098e032c9c60e21b4d",
+      "size": 3723
     },
     {
       "path": "tavern-plugin/lib/domain/chat-reasoning-fold.js",
@@ -2946,8 +2946,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/resource-bindings.js",
-      "sha256": "3060900af4b99e1f1e6229eb9d323977e64f94c04beeb4e05d6eaa327f29bf9d",
-      "size": 14603
+      "sha256": "053b9e65d8904c544e3d69844cd834c13e7e62007ccea024b2540e068215ef67",
+      "size": 15952
     },
     {
       "path": "tavern-plugin/lib/domain/resource-graph.js",
@@ -3921,8 +3921,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-library.js",
-      "sha256": "1f860fee6b9fca3c7c6a23978fda972929cd3fce1fe2383cc4971b2403a298b6",
-      "size": 27167
+      "sha256": "9e8fb6fc0690bcc1b768739693059bc946b92b4765f595b6bfd74ca10444f905",
+      "size": 30707
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-merge.js",
@@ -3961,8 +3961,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-resource.js",
-      "sha256": "cb3fac6c53a2f237a14869146bfd3c72a1a7579763dc6cc3eb93102cbae890f9",
-      "size": 25254
+      "sha256": "2480d1705ae7d0e464a67914e6807630e59258923bbcb10cf2e3de781f46aff5",
+      "size": 28142
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-skill-changes.js",
@@ -4256,8 +4256,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/resources.js",
-      "sha256": "ebce6b08f10eb3f9eea7661d08099338ce088508bb901893ae3054edbf8940c8",
-      "size": 13369
+      "sha256": "ba3ced47deac25b901cbcaa3168c1f88e9c522810c9a307ba5fce553a33fdb31",
+      "size": 14043
     },
     {
       "path": "tavern-plugin/lib/rpc/settings.js",
@@ -9346,9 +9346,9 @@
     }
   ],
   "archive": {
-    "commit": "59d892e267086149baef5730ef933f9570b0e969",
+    "commit": "c78cd6c43f7aa50fc222d7a4fde4e4f01e850896",
     "path": "runtime.zip",
-    "sha256": "a35c63960f8de37855cf614031b19727085ea16592de7b3e018c6eb6d5548119",
-    "size": 16628803
+    "sha256": "12c7700d79dab99ead95bc91d13ebc7a6bedd7bae02c9ec07362805240059153",
+    "size": 16631824
   }
 }
