@@ -14,36 +14,21 @@ import { turnRepliedByModel } from '../domain/story-alignment.js'
 import { isReservingStoryTurns, isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
 import { agentForSession } from '../domain/agent-lookup.js'
 import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
-import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
+import { appendStorySubmissionReminder, STORY_SUBMIT_TOOL_NAME } from '../domain/story-tool-submission.js'
+import { extractStreamedToolReplyContent, parsePartialToolReplyJson } from '../domain/tool-reply-stream-parser.js'
 
 // A provider can stop mid-stream (SAFETY, an idle timeout) and DSH then keeps only the
 // attempt's stream, never an assistant/message: the turn looks empty even though the
 // player watched the body arrive. The prose is still inside that stream — a finished
 // submit_story document, its cut argument text, or a text block — so the round is kept
 // as an incomplete body instead of rolling back to the previous one.
-const PARTIAL_CONTENT_RE = /"content"\s*:\s*"/
-const STORY_SUBMIT_TOOL = 'submit_story'
-
-function unescapeJsonFragment(fragment) {
-  try { return JSON.parse('"' + fragment + '"') } catch (_error) { /* cut mid-escape */ }
-  return fragment
-    .replace(/\\u[0-9a-fA-F]{0,3}$/, '')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t')
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, '\\')
-}
-
 function contentOfArguments(raw) {
   if (typeof raw !== 'string' || raw === '') return ''
   try {
     const parsed = JSON.parse(raw)
     if (typeof parsed?.content === 'string') return parsed.content
   } catch (_error) { /* cut mid-document */ }
-  const match = PARTIAL_CONTENT_RE.exec(raw)
-  if (!match) return ''
-  return unescapeJsonFragment(raw.slice(match.index + match[0].length).replace(/"(?:\s*})?\s*$/, ''))
+  return parsePartialToolReplyJson(raw).content
 }
 
 export function recoveredSubmissionBody(session, turn) {
@@ -55,14 +40,14 @@ export function recoveredSubmissionBody(session, turn) {
     if (Number(event?.data?.turn) !== Number(turn)) continue
     if (event.type === 'assistant/message') {
       for (const block of event.data.message?.content || []) {
-        if (block?.type === 'tool-call' && block.name === STORY_SUBMIT_TOOL) consider(contentOfArguments(block.arguments))
+        if (block?.type === 'tool-call' && block.name === STORY_SUBMIT_TOOL_NAME) consider(contentOfArguments(block.arguments))
         else if (block?.type === 'text') consider(block.text)
       }
+      if (Array.isArray(event.data.stream)) consider(extractStreamedToolReplyContent(event.data.stream, STORY_SUBMIT_TOOL_NAME))
     } else if (event.type === 'assistant/attempt') {
+      consider(extractStreamedToolReplyContent(event.data.stream, STORY_SUBMIT_TOOL_NAME))
       for (const entry of event.data.stream || []) {
-        if (entry?.type === 'tool-call-chunks' && entry.name === STORY_SUBMIT_TOOL) {
-          consider(contentOfArguments((Array.isArray(entry.args) ? entry.args : []).join('')))
-        } else if (entry?.type === 'chunk' && entry.chunk?.type === 'block-end' && entry.chunk.block?.type === 'text') {
+        if (entry?.type === 'chunk' && entry.chunk?.type === 'block-end' && entry.chunk.block?.type === 'text') {
           consider(entry.chunk.block.text)
         }
       }

@@ -290,3 +290,49 @@ export function createToolReplyStreamTracker(targetToolName = STORY_SUBMIT_TOOL_
 
   return Object.freeze({ pushToolDelta })
 }
+
+/**
+ * Extract partial or complete `content` text from a durable `stream` array
+ * (`assistant/attempt.data.stream` or `assistant/message.data.stream`), handling
+ * split `tool-call-chunks` records where only the opening chunk carries `name`.
+ */
+export function extractStreamedToolReplyContent(stream, targetToolName = STORY_SUBMIT_TOOL_NAME) {
+  if (!Array.isArray(stream) || stream.length === 0) return ''
+  const tracker = createToolReplyStreamTracker(targetToolName)
+  let best = ''
+  const consider = value => {
+    if (typeof value === 'string' && value.length > best.length) best = value
+  }
+  for (const entry of stream) {
+    if (!entry || typeof entry !== 'object') continue
+    if (entry.type === 'tool-call-chunks') {
+      const args = Array.isArray(entry.args) ? entry.args.map(item => typeof item === 'string' ? item : '').join('') : ''
+      const res = tracker.pushToolDelta({
+        type: 'tool-call-delta',
+        index: Number.isInteger(entry.index) ? entry.index : 0,
+        ...(typeof entry.name === 'string' && entry.name !== '' ? { name: entry.name } : {}),
+        argumentsDelta: args
+      })
+      if (res.matched) consider(res.content)
+    } else if (entry.type === 'chunk' && entry.chunk && typeof entry.chunk === 'object') {
+      const chunk = entry.chunk
+      if (chunk.type === 'tool-call-delta') {
+        const res = tracker.pushToolDelta(chunk)
+        if (res.matched) consider(res.content)
+      } else if (chunk.type === 'block-start' && chunk.blockType === 'tool-call' && typeof chunk.name === 'string' && chunk.name !== '') {
+        tracker.pushToolDelta({
+          type: 'tool-call-delta',
+          index: Number.isInteger(chunk.index) ? chunk.index : 0,
+          name: chunk.name,
+          argumentsDelta: ''
+        })
+      } else if (chunk.type === 'block-end' && chunk.block?.type === 'tool-call' && chunk.block.name === targetToolName) {
+        consider(parsePartialToolReplyJson(typeof chunk.block.arguments === 'string' ? chunk.block.arguments : '').content)
+      }
+    } else if (entry.type === 'tool-call-delta') {
+      const res = tracker.pushToolDelta(entry)
+      if (res.matched) consider(res.content)
+    }
+  }
+  return best.trim()
+}

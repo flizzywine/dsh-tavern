@@ -890,7 +890,14 @@ function applyIndependentRoundProjection(session, projection) {
     surface.editStep((turn, step) => {
       // Opening the new edit turn first keeps cleanup and both appends in one
       // native turn. A crash can safely retry each append by its stable id.
-      if (needsInput) clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
+      if (Number.isSafeInteger(projection.attemptEventStart)) {
+        clearRegenerationAttemptSurface({
+          session,
+          eventStart: projection.attemptEventStart,
+          id: () => (projection.input?.id || projection.data?.message?.id || randomUUID()) + ':attempt-cleanup'
+        })
+      }
+      if (needsInput && projection.failedTurn) clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
       if (needsInput && !found.input) surface.append('user/message', { ...projection.input, turn }, { surfaceOp: 'append' })
       surface.append('assistant/message', { ...projection.data, turn, step }, { surfaceOp: 'append', sourceEventSeqs: [] })
     })

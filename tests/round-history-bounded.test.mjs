@@ -363,7 +363,7 @@ test('被截断的重新生成保留已生成的部分正文，两种路径结�
     const view = await h.rounds.regenerate('chat', '', 'session')
     const after = await h.p.read('chat')
     assert.equal(view.adopted.text, '半截正文')
-    assert.match(view.regenerationWarning, /已保留生成到的部分正文/)
+    assert.equal(view.regenerationWarning, undefined)
     // The round keeps its original number and the player's input; only the body is new.
     assert.equal(after.messages.length, before.messages.length)
     assert.deepEqual(after.messages.slice(0, -2), before.messages.slice(0, -2))
@@ -397,7 +397,7 @@ test('max-tokens 已落原生正文的重生成也保留截断标记', async t =
   const view = await h.rounds.regenerate('chat', '', 'session')
   const row = (await h.p.read('chat')).messages.at(-1)
   assert.equal(view.adopted.text, '达到上限的正文')
-  assert.match(view.regenerationWarning, /已保留生成到的部分正文/)
+  assert.equal(view.regenerationWarning, undefined)
   assert.equal(row.incomplete, true)
 })
 

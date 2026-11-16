@@ -477,6 +477,93 @@ test('补写只有流式正文时保留正文并清除旧原生位置', async ()
   assert.deepEqual(h.chat.suppressedDshTurns, [12])
 })
 
+test('重新生成中带思考与 submit_story 工具流手动终止时保留已流式输出的正文', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const model = { kind: 'model', provider: 'gemini', model: 'gemini-4-hydrogen' }
+  h.setGeneration('missing')
+  h.beforeGenerate(() => {
+    const turn = h.agent.phase.lastTurn + 1
+    h.session.append('turn/start', { turn })
+    h.session.append('user/message', { ...h.agent.input, turn }, { surfaceOp: 'append' })
+    h.session.append('assistant/message', {
+      turn,
+      step: 1,
+      interrupted: true,
+      message: { role: 'assistant', source: model, content: [{ type: 'reasoning', text: '先构思场景细节' }] },
+      stream: [
+        { type: 'reasoning-chunks', index: 0, dt: [], texts: ['先构思场景细节'] },
+        { type: 'tool-call-chunks', index: 1, dt: [], id: 'call_1', name: 'submit_story', args: [''] },
+        { type: 'tool-call-chunks', index: 1, dt: [30], id: 'call_1', args: ['{"think":"构思","content":"长尾依然松松地搭在你的手腕旁', '，时不时随着她说话的节奏轻轻点着石凳边缘。'] }
+      ]
+    }, { surfaceOp: 'append' })
+    h.session.append('turn/end', { turn, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  })
+
+  const view = await h.create().regenerate('chat', '', 'session')
+  assert.equal(view.adopted.text, '长尾依然松松地搭在你的手腕旁，时不时随着她说话的节奏轻轻点着石凳边缘。')
+  assert.equal(view.regenerationWarning, undefined)
+  assert.equal(h.chat.messages.at(-1).text, '长尾依然松松地搭在你的手腕旁，时不时随着她说话的节奏轻轻点着石凳边缘。')
+  assert.equal(h.chat.messages.at(-1).incomplete, true)
+  assert.equal(h.chat.regenInProgress, undefined)
+})
+
+test('未回答尾部重新生成在 submit_story 流中途手动终止时保留正文并补齐原生消息面', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  h.chat.messages.push({ role: 'user', text: '学习魔法', native: true })
+  h.setGeneration('missing')
+  h.beforeGenerate(() => {
+    const turn = h.agent.phase.lastTurn + 1
+    h.session.append('turn/start', { turn })
+    h.session.append('user/message', { ...h.agent.input, turn }, { surfaceOp: 'append' })
+    h.session.append('assistant/attempt', {
+      turn,
+      step: 1,
+      stream: [
+        { type: 'tool-call-chunks', index: 0, dt: [], id: 'call_2', name: 'submit_story', args: ['{"content":"指尖微光凝聚成一枚符文'] }
+      ]
+    })
+    h.session.append('turn/end', { turn, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  })
+
+  const view = await h.create().regenerate('chat', '', 'session')
+  assert.equal(view.adopted.text, '指尖微光凝聚成一枚符文')
+  assert.equal(h.chat.messages.at(-1).text, '指尖微光凝聚成一枚符文')
+  assert.equal(h.chat.messages.at(-1).incomplete, true)
+  assert.ok(h.chat.messages.at(-1).nativeAnchor?.reply >= 0)
+  assert.ok(h.chat.suppressedDshTurns.includes(3))
+})
+
+test('重新生成零正文手动终止时静默收尾不抛错；上游错误直接透传真实原因', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const original = structuredClone(h.chat.messages)
+  h.setGeneration('missing')
+  h.beforeGenerate(() => {
+    const turn = h.agent.phase.lastTurn + 1
+    h.session.append('turn/start', { turn })
+    h.session.append('user/message', { ...h.agent.input, turn }, { surfaceOp: 'append' })
+    h.session.append('assistant/attempt', {
+      turn,
+      step: 1,
+      stream: [{ type: 'reasoning-chunks', index: 0, dt: [], texts: ['还在思考尚未输出正文'] }]
+    })
+    h.session.append('turn/end', { turn, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  })
+
+  const abortedView = await h.create().regenerate('chat', '', 'session')
+  assert.equal(abortedView.aborted, true)
+  assert.deepEqual(h.chat.messages, original.slice(0, -1))
+  assert.equal(h.chat.failedRegenerationTarget.assistant.text, '旧正文')
+  assert.equal(h.chat.regenInProgress, undefined)
+
+  h.beforeGenerate(() => {
+    const turn = h.agent.phase.lastTurn + 1
+    h.session.append('turn/start', { turn })
+    h.session.append('user/message', { ...h.agent.input, turn }, { surfaceOp: 'append' })
+    h.session.append('turn/end', { turn, reason: { kind: 'error', error: { message: '429 Too Many Requests', code: 'RATE_LIMIT' } } })
+  })
+  await assert.rejects(h.create().regenerate('chat', '', 'session'), /429 Too Many Requests/)
+})
+
 test('重新创建流程模块后连续重生成仍替换原轮次；回退恢复 checkpoint 并按顺序通知脚本', async () => {
   // Revision-backed checkpoints require the same monotonic revisions as the real journal.
   const h = harness({ checkpoint: true, journal: true })

@@ -278,8 +278,10 @@ export function createPlayHandlers(deps) {
         // fresh：长按发送键 1 秒的直接重生成，跳过「正文被改过就带着它改写」的判断，
         // 这一轮从头重新采样；正文编辑面板与指导面板的重新生成不传这个标记。
         const view = await regenBody(args && args.chatId, args && args.guidance, sessionId, { fresh: args?.fresh === true })
-        notifyPluginTimeline(sessionId, 'regenerate')
-        void polishPrereview.start(sessionId).catch(() => {})
+        if (!view?.aborted) {
+          notifyPluginTimeline(sessionId, 'regenerate')
+          void polishPrereview.start(sessionId).catch(() => {})
+        }
         return { view }
       } finally {
         announceRegenerating(sessionId, false)

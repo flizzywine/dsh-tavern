@@ -17,6 +17,8 @@ import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { assistantResultForTurn } from './session-turn-result.js'
+import { STORY_SUBMIT_TOOL_NAME } from './story-tool-submission.js'
+import { extractStreamedToolReplyContent, parsePartialToolReplyJson } from './tool-reply-stream-parser.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
@@ -34,11 +36,6 @@ function isRollbackInputPlaceholder(row, committedInput) {
   const requestId = str(committedInput?.source?.rpcId).trim()
   return requestId !== '' && row?.role === 'user' && row.placeholder === true && str(row.source?.rpcId).trim() === requestId
 }
-
-// A provider that keeps moderating or cutting a regeneration short can often be
-// worked around by dropping the foreground tool calls the player enabled for this
-// game: 本局设置 → 高级 → 前台工具.
-const FOREGROUND_TOOL_HINT = '也可以试试在「本局设置 → 高级 → 前台工具」关掉前台工具后再发一次。'
 
 // 重新生成等结算的时长上限：超过就先交回已提交的正文。等待结算不该决定这轮
 // 正文什么时候出现在页面上；结算完成/失败仍经存档与活动视图回来。
@@ -151,14 +148,8 @@ function replyTextOf(message) { return str(message && (message.projectionText ??
  * `assistant/attempt` record keeps its chunks, which is exactly what the player
  * watched arrive. Rebuild the text blocks from those chunks.
  */
-export function attemptStreamText(events, eventStart, turn) {
-  let stream = null
-  for (const event of Array.isArray(events) ? events : []) {
-    if (!event || event.type !== 'assistant/attempt' || Number(event.seq) < Number(eventStart)) continue
-    if (Number.isSafeInteger(turn) && turn > 0 && Number(event.data?.turn) !== turn) continue
-    stream = event.data?.stream
-  }
-  if (!Array.isArray(stream)) return ''
+function plainStreamText(stream) {
+  if (!Array.isArray(stream) || stream.length === 0) return ''
   const blocks = new Map(), order = []
   function bucket(index) {
     const key = String(index ?? 0)
@@ -185,6 +176,43 @@ export function attemptStreamText(events, eventStart, turn) {
   return order.map(key => blocks.get(key)).filter(item => item.kind !== 'reasoning').map(item => item.closed !== '' ? item.closed : item.text).join('').trim()
 }
 
+function eventStreamedBody(event) {
+  const content = Array.isArray(event?.data?.message?.content) ? event.data.message.content : []
+  let toolText = ''
+  for (const block of content) {
+    if (block?.type === 'tool-call' && block.name === STORY_SUBMIT_TOOL_NAME) {
+      const candidate = parsePartialToolReplyJson(str(block.arguments)).content.trim()
+      if (candidate.length > toolText.length) toolText = candidate
+    }
+  }
+  const streamedToolText = extractStreamedToolReplyContent(event?.data?.stream, STORY_SUBMIT_TOOL_NAME)
+  if (streamedToolText.length > toolText.length) toolText = streamedToolText
+  if (toolText !== '') return toolText
+  const streamedPlain = plainStreamText(event?.data?.stream)
+  if (streamedPlain !== '') return streamedPlain
+  return content.filter(block => block?.type === 'text').map(block => str(block.text)).filter(Boolean).join('\n').trim()
+}
+
+/**
+ * Text a streamed attempt had written when its turn ended badly. A turn the
+ * provider failed, the player stopped or content moderation cut short may settle
+ * as `assistant/attempt` or as an `interrupted` `assistant/message` (e.g. when
+ * reasoning blocks arrived before `submit_story`). Rebuild the visible prose
+ * from either durable record, including partial `submit_story` JSON arguments.
+ */
+export function attemptStreamText(events, eventStart, turn) {
+  let latest = ''
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || Number(event.seq) < Number(eventStart)) continue
+    if (event.type !== 'assistant/attempt' && event.type !== 'assistant/message') continue
+    if (event.type === 'assistant/message' && event.data?.message?.source && event.data.message.source.kind !== 'model') continue
+    if (Number.isSafeInteger(turn) && turn > 0 && Number(event.data?.turn) !== turn) continue
+    const candidate = eventStreamedBody(event)
+    if (candidate !== '') latest = candidate
+  }
+  return latest
+}
+
 /**
  * A regeneration the host never finished still streams its reply into the log
  * before the turn ends (stop, provider error, safety block, truncation). The
@@ -205,9 +233,60 @@ function streamedAttemptText(session, turn, eventStart) {
   } catch { return '' }
 }
 
-function attemptReachedOutputLimit(session, turn, eventStart) {
-  return sessionEvents(session).some(event => event?.type === 'turn/end' && Number(event.seq) >= Number(eventStart) &&
-    Number(event.data?.turn) === Number(turn) && event.data?.reason?.kind === 'max-tokens')
+function attemptHasReasoning(events, eventStart, turn) {
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || Number(event.seq) < Number(eventStart)) continue
+    if (Number.isSafeInteger(turn) && turn > 0 && Number(event.data?.turn) !== turn) continue
+    if (event.type === 'assistant/message') {
+      if ((event.data?.message?.content || []).some(block => block?.type === 'reasoning' && str(block.text).trim() !== '')) return true
+    }
+    if (Array.isArray(event.data?.stream)) {
+      for (const entry of event.data.stream) {
+        if (entry?.type === 'reasoning-chunks' && Array.isArray(entry.texts) && entry.texts.some(item => str(item).trim() !== '')) return true
+        if (entry?.type === 'chunk' && entry.chunk?.type === 'reasoning-delta' && str(entry.chunk.text).trim() !== '') return true
+      }
+    }
+  }
+  return false
+}
+
+function attemptEmptyBodyError(events, eventStart, turn, endReason, directResult) {
+  if (endReason?.kind === 'error') {
+    const message = str(endReason.error?.message ?? endReason.message).trim()
+    if (message !== '') return new Error(message)
+  }
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (!event || Number(event.seq) < Number(eventStart)) break
+    if (Number.isSafeInteger(turn) && turn > 0 && Number(event.data?.turn) !== turn) continue
+    if (!Array.isArray(event.data?.stream)) continue
+    for (let j = event.data.stream.length - 1; j >= 0; j--) {
+      const entry = event.data.stream[j]
+      const chunk = entry?.type === 'chunk' ? entry.chunk : entry
+      if (chunk?.type !== 'finish') continue
+      const reason = chunk.reason === undefined ? chunk : chunk.reason
+      const message = str(reason?.failure?.message ?? reason?.error?.message).trim()
+      if (message !== '') return new Error(message)
+    }
+  }
+  if (endReason?.kind === 'max-tokens') {
+    return new Error('本轮输出达到上限被截断，正文没有完整提交；请重新生成本轮正文。')
+  }
+  if (directResult?.reasoningOnly || attemptHasReasoning(events, eventStart, turn)) {
+    return new Error('模型本轮只返回了思考过程，没有返回正文；请重新生成本轮正文。')
+  }
+  return new Error('模型本轮没有返回正文；请重新生成本轮正文。')
+}
+
+function attemptModelSource(session, eventStart) {
+  for (const event of sessionEvents(session)) {
+    if (!event || Number(event.seq) < Number(eventStart)) continue
+    if (event.type === 'assistant/message' && event.data?.message?.source?.kind === 'model') {
+      const { provider, model } = event.data.message.source
+      return { kind: 'model', ...(provider ? { provider } : {}), ...(model ? { model } : {}) }
+    }
+  }
+  return { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
 }
 
 function failedTailSelection(chat, session, inputIndex) {
@@ -646,15 +725,33 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         })
         try { await agent.whenIdle() } catch (error) { generationError = error }
       })
-      const ownStart = sessionEvents(session).slice(eventStart).find(event => event?.type === 'turn/start')
+      const eventsAfter = sessionEvents(session)
+      const ownStart = eventsAfter.slice(eventStart).find(event => event?.type === 'turn/start')
       if (ownStart) syntheticTurn = Number(ownStart.data?.turn) || syntheticTurn
       else if (Number.isFinite(Number(agent.phase?.lastTurn))) syntheticTurn = Number(agent.phase.lastTurn)
-      body = streamedAttemptText(session, syntheticTurn, eventStart).trim()
+      const turnEnd = eventsAfter.slice(eventStart).findLast(event =>
+        event?.type === 'turn/end' && (!syntheticTurn || Number(event.data?.turn) === Number(syntheticTurn)))
+        || eventsAfter.slice(eventStart).findLast(event => event?.type === 'turn/end')
+      const endReason = turnEnd?.data?.reason
+      const directResult = Number.isSafeInteger(syntheticTurn) && syntheticTurn > 0 ? assistantResultForTurn(session, syntheticTurn) : null
+      const hasDirectBody = directResult !== null && str(directResult.text).trim() !== '' && Number(directResult.event?.seq) >= Number(eventStart)
+      body = (hasDirectBody ? directResult.text : streamedAttemptText(session, syntheticTurn, eventStart)).trim()
+      const finishSilentAbort = async () => {
+        const abortedChat = await attempt.abandon() || await readChat(chat.id)
+        committed = true
+        const abortedResult = await stage('regen.present', () => view(abortedChat, card))
+        abortedResult.aborted = true
+        return abortedResult
+      }
       if (body === '') {
         if (generationError !== null) throw generationError
-        throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），旧正文已撤下，可以再试一次。' + FOREGROUND_TOOL_HINT)
+        if (endReason?.kind === 'aborted') return await finishSilentAbort()
+        throw attemptEmptyBodyError(eventsAfter, eventStart, syntheticTurn, endReason, directResult)
       }
-      keptStreamed = generationError !== null || attemptReachedOutputLimit(session, syntheticTurn, eventStart)
+      keptStreamed = generationError !== null
+        || !hasDirectBody
+        || Boolean(directResult?.event?.data?.interrupted)
+        || Boolean(endReason?.kind && endReason.kind !== 'completed')
       if (typeof sessions.flush === 'function') await stage('regen.flush-native', () => sessions.flush(session))
       const storedCandidate = await stage('regen.read-candidate', () => readRegenerationTail(chat.id))
       const nativeCandidateRow = storedCandidate?.messages?.at(-1)?.role === 'assistant' &&
@@ -680,7 +777,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       const projectedReply = typeof prepareRegenerationReply === 'function'
         ? await prepareRegenerationReply({ chat: draft, card, turn: storyTurn, text: body, hostRegex: true, regexChat: originalChat }) : null
       const prose = projectedReply ? replyProse(projectedReply.sourceText ?? body, projectedReply) : plainReplyProse(body)
-      if (!str(prose.text).trim()) throw new Error('重新生成失败：模型返回空文本')
+      if (!str(prose.text).trim()) {
+        if (endReason?.kind === 'aborted') return await finishSilentAbort()
+        throw new Error('重新生成失败：模型返回空文本')
+      }
       const originalUser = inputRow ? structuredClone(originalChat.messages[inputIndex]) : null
       const beforeMessages = rollbackIntent?.beforeChat?.messages || legacyBefore?.messages || []
       const previousVariables = lastTavernHelperVariables(originalUser ? [originalUser] : []) ?? lastTavernHelperVariables(beforeMessages)
@@ -753,6 +853,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (completed.value.status !== 'committed') throw new Error('正文提交条件已失效')
       const next = completed.chat
       const appendAnchor = appending ? attemptNativeAnchor(session, eventStart, syntheticTurn) : null
+      const rewriteFailedTail = failedTail && (keptStreamed || appendAnchor === null)
       next.nativeCommits = originalChat.nativeCommits && typeof originalChat.nativeCommits === 'object' ? structuredClone(originalChat.nativeCommits) : {}
       next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
       next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
@@ -768,17 +869,44 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         delete next.nativeCommits[String(syntheticTurn)]
         next.suppressedDshTurns = [...new Set([...next.suppressedDshTurns, syntheticTurn])].sort((left, right) => left - right)
         next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
+      } else if (rewriteFailedTail) {
+        delete next.nativeCommits[String(syntheticTurn)]
+        next.suppressedDshTurns = [...new Set([...next.suppressedDshTurns, syntheticTurn])].sort((left, right) => left - right)
       }
       // A replacement rewrites the old reply in place; the answered tail only has
-      // to record where its reply already landed.
-      const projection = appending
-        ? { kind: 'append-round', storyTurn, native: appendAnchor }
-        : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
-          message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
-            source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
+      // to record where its reply already landed, unless an interrupted attempt
+      // left no committed reply on the surface and needs an explicit append.
+      const projection = rewriteFailedTail
+        ? {
+            kind: 'append-round',
+            attemptEventStart: eventStart,
+            failedTurn: syntheticTurn,
+            storyTurn,
+            input: {
+              id: 'tavern-regen-input:' + operationId,
+              role: 'user',
+              content: projectPlayerContent(inputRow?.inputAttachments, originalUserText),
+              source: { kind: 'user' }
+            },
+            data: {
+              turn: storyTurn,
+              step: 1,
+              message: {
+                id: 'tavern-regen:' + operationId,
+                role: 'assistant',
+                content: [{ type: 'text', text: prose.text }],
+                source: { ...(oldSource || attemptModelSource(session, eventStart)), tavernStoryTurn: storyTurn }
+              }
+            }
+          }
+        : appending
+          ? { kind: 'append-round', storyTurn, native: appendAnchor }
+          : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
+            message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
+              source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
       if (extractedForegroundChoices.choices) {
-        const regenMessageId = appending
-          ? str(assistantResultForTurn(session, syntheticTurn)?.event?.data?.message?.id)
+        const regenMessageId = appending && !rewriteFailedTail
+          ? str(assistantResultForTurn(session, syntheticTurn)?.event?.data?.message?.id) || ('tavern-regen:' + operationId)
           : 'tavern-regen:' + operationId
         if (regenMessageId !== '') {
           next.candidates = {
@@ -846,7 +974,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const result = await stage('regen.present', () => view(settledChat, card))
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
-    if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。' + FOREGROUND_TOOL_HINT
     return result
   }
 
