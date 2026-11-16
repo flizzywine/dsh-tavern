@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "634e3a202254bbc705c6d6fe308a2127adea6e7e",
-  "releaseSequence": 1716,
+  "revision": "e044d16c30a1e632e601d5f670550647ccc42e89",
+  "releaseSequence": 1717,
   "version": "3.3.0",
   "files": [
     {
@@ -8136,8 +8136,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "0323e1402e4e0272f22c0c3dd5c755e6e76a90eb09076c6eb3571b0db9ec2364",
-      "size": 3688253
+      "sha256": "a3ce289bc9571721c21fe47206f71e1cf4e24bfc3e6bebd1865109feb63c65cd",
+      "size": 3688291
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9346,9 +9346,9 @@
     }
   ],
   "archive": {
-    "commit": "f0b976685df4a707d571f5a8a672adb1811c92f4",
+    "commit": "f199f7408b1897189c857a24354f3cd31c10e002",
     "path": "runtime.zip",
-    "sha256": "06859a6210526e3432dcda881b0a308e930536b66a03f2bc59e06f489fbb30c9",
-    "size": 16629674
+    "sha256": "06bfcc6fe7500cf3444382100546cf27e05f2ac2842a9131473669770c15111f",
+    "size": 16629723
   }
 }
