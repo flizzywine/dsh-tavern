@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c62f5c1526887dfabde662ea80215741b445ecb7",
-  "releaseSequence": 1712,
+  "revision": "743593514d8d0f60f19dd1e9d2ec1e4c790bed60",
+  "releaseSequence": 1713,
   "version": "3.3.0",
   "files": [
     {
@@ -546,7 +546,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "c1b1f9bbea8862129e29e98feab2d9e806ca4b1ac030c40958615446e89bbe2a",
+      "sha256": "5aed7cb96ecb504a7a3d8741e411516604947bf2f9f1eab1d2884449b9406fc3",
       "size": 3417
     },
     {
@@ -560,8 +560,8 @@
       "size": 4187
     },
     {
-      "path": "patches/dsh-pocket@2.12.0.patch",
-      "sha256": "1b0fac9bc15853908a97cd3cd9cea13aa17484e649ce423b5f9bcbecd61ef42e",
+      "path": "patches/dsh-pocket@2.13.1.patch",
+      "sha256": "e0df3c10915f3dc97365324daef6b69c459324ac94f340b4b58e3635d6141d17",
       "size": 684
     },
     {
@@ -571,12 +571,12 @@
     },
     {
       "path": "pnpm-lock.yaml",
-      "sha256": "4f464867110d60c0487e524353eb34f3d9d2493552b743856a24080fe7886b53",
+      "sha256": "56e2a8532e211981df8122baf3dd7b6e17af379ef3036d7310d1f93a9f4d44af",
       "size": 106746
     },
     {
       "path": "pnpm-workspace.yaml",
-      "sha256": "aebaba0b79e83fd43691d02bce20019c94acbb18fddf04ee4458e74915abb83d",
+      "sha256": "72c39635c0c48bc271b15993b32c97b1ee490e0e43a4d5efcf9ebaab96c34608",
       "size": 999
     },
     {
@@ -9346,9 +9346,9 @@
     }
   ],
   "archive": {
-    "commit": "5b8295eda9e58fe2445df3e44af06dadc6c674b5",
+    "commit": "ddddd8202e3bbc39abd9f8dc40fed4d58e82ec3a",
     "path": "runtime.zip",
-    "sha256": "31282fc51893b0b8bb96cf5d6109bebd31cefa8caec39a2ee649821289108dc9",
-    "size": 16628329
+    "sha256": "192c171fe5e34d282504980384860f3edbe6b5d93f218b2248a24ef7adbe4c26",
+    "size": 16628334
   }
 }
