@@ -3183,10 +3183,13 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) .fork-gal-toggle { justify-content: center; color: var(--dsw-alias-label-primary); }
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) .fork-gal-toggle > span { display: none; }
   .dsh-tavern-header-items { --dsh-tavern-header-button: 40px; }
-  body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_headerUtilities"] > :not(.dsh-tavern-header-settings):not(.dsh-tavern-export-menu):not(.dsh-tavern-header-items):not(.fork-gal-toggle) { display: none; }
+  /* 收起宿主的 utilities 是为了让位给酒馆自己的按钮，前提是酒馆真的画了「导出」。
+     顶栏设置里把导出关掉后这里不能再收：宿主的「下载 Session 日志」是这一页最后的
+     日志导出入口，一起收掉等于整页没有日志可拿（见 :has(.dsh-tavern-export-menu)）。 */
+  body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_headerUtilities"]:has(.dsh-tavern-export-menu) > :not(.dsh-tavern-header-settings):not(.dsh-tavern-export-menu):not(.dsh-tavern-header-items):not(.fork-gal-toggle) { display: none; }
   /* utilities 也有 display:contents 插槽；保留插槽本身，隐藏已在抽屉提供的日志入口。 */
   body.dsh-tavern-shell-active [data-slot="conversation.session.header.utilities"] { display: contents !important; }
-  body.dsh-tavern-shell-active [data-slot="conversation.session.header.utilities"] > :not(.dsh-tavern-header-settings):not(.dsh-tavern-export-menu):not(.dsh-tavern-header-items):not(.fork-gal-toggle) { display: none !important; }
+  body.dsh-tavern-shell-active [data-slot="conversation.session.header.utilities"]:has(.dsh-tavern-export-menu) > :not(.dsh-tavern-header-settings):not(.dsh-tavern-export-menu):not(.dsh-tavern-header-items):not(.fork-gal-toggle) { display: none !important; }
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_label"]:has(> svg) { display: none !important; }
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) .dsh-tavern-play-fullscreen {
     width: 40px; height: 40px; min-width: 40px; padding: 0; order: 2;
