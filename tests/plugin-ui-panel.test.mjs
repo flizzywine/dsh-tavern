@@ -25,7 +25,7 @@ test('插件面板：注册为当前游戏的侧栏页，卸载时移除；没�
   const dispose = plugin.registerPanel({ id: 'state', title: '记忆', render: ({ gameId }) => { seen.push(gameId); return 'panel:' + gameId } })
   const tab = tabs.get('tavern-plugin:memory-plugin:state')
   assert.equal(tab.title, '记忆')
-  assert.equal(ui.service.apiVersion, 8)
+  assert.equal(ui.service.apiVersion, 9)
   const rendered = tab.component({ scope: { sessionId: 'game-1' } })
   assert.equal(rendered.type, 'Boundary')
   assert.equal(seen.length, 0, '渲染回调由边界内的子组件执行')

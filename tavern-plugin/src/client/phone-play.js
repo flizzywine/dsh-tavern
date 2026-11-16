@@ -77,6 +77,7 @@ function PhonePlayMoreItems(props) {
         stage ? tavernStageBoundary("舞台按钮", h(GalStageToggle, { key: "stage:" + props.sessionId, sessionId: props.sessionId })) : null,
         h(CardStageToggle, { sessionId: props.sessionId }),
         stage ? tavernStageBoundary("背景音乐", h(BgmChat, { key: "bgm:" + props.sessionId, sessionId: props.sessionId, menu: true })) : null,
+        h(TavernPluginHeaderTools, { sessionId: props.sessionId, menu: true }),
         h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "fullscreen", onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-play-chrome", { detail: "toggle" })); } },
             phoneModIcon(full ? "exitFullscreen" : "fullscreen"), full ? "退出全屏" : "全屏"),
         h("button", { type: "button", role: "menuitem", "data-fork-phone-item": "export", "data-keep-open": "", "aria-haspopup": "menu", onClick: function () { setView("export"); } }, phoneModIcon("export"), "导出…"),

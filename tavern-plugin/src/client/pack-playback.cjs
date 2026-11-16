@@ -462,7 +462,9 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 if (current !== entry || !enabled || !service.available()) return false;
                 entry.audio = clip.audio; entry.loading = false; entry.key = clip.key;
                 remember(requestKey, clip);
-                clip.audio.volume = 1;
+                // input.volume / input.rate: a caller's own level and speed for this line (有声书's panel); the stage leaves both.
+                clip.audio.volume = input.volume ?? 1;
+                if (input.rate) { clip.audio.preservesPitch = true; clip.audio.playbackRate = input.rate; }
                 clip.audio.onended = () => { if (current === entry) { retire(false); emit(); } };
                 clip.audio.onpause = clip.audio.onplay = emit;
                 // covered words (input.masks, a stage line's text marks): the covers still shut as it starts; a clip covered

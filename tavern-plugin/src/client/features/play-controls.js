@@ -1542,6 +1542,11 @@
 				{ name: "conversation.session.header.utilities", id: "dsh-fork-bgm-player", order: 82 },
 				function (props) { return tavernStageBoundary("背景音乐", React.createElement(BgmChat, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: BGM player");
+			// Plugins' header tools (tavernUi.registerHeaderTool), left of BGM; a phone lists them in its ⋯ menu (phone-play.js).
+			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
+				{ name: "conversation.session.header.utilities", id: "dsh-fork-plugin-header-tools", order: 81 },
+				function (props) { return React.createElement(TavernPluginHeaderTools, { key: props.sessionId, sessionId: props.sessionId }); }
+			)), "dsh-tavern: plugin header tools");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-regen", order: -110, label: "重新生成正文" },
 				function (props) { return React.createElement(React.Fragment, null, React.createElement(RegenPanel, props), React.createElement(BodyEditPanel, props)); }

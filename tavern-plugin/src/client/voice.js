@@ -28,6 +28,31 @@ const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: fo
     onAudio:audio => forkStageAudio.voice(Boolean(audio))});
 // Whether the voice service is on for this page (ttsClient): the stage voices and a reply's 🔊 show only then.
 const ttsClientAvailable = () => Boolean(pageTtsClient()?.available());
+// The one voice channel (owner 11-16): a plugin reading the story aloud (tavernUi.holdVoice, e.g. 有声书) and the stage's
+// voicing never both speak. While anyone holds it the stage and the reply bubbles do not voice at all - no auto voice, no ▶ -
+// and the line they were saying stops; the last release gives the voicing back.
+const voiceChannel = (function () {
+    const holders = new Set(), listeners = new Set();
+    const notify = () => { for (const fn of Array.from(listeners)) fn(); };
+    return Object.freeze({
+        held: () => holders.size > 0,
+        hold() {
+            const token = {};
+            holders.add(token);
+            if (holders.size === 1) { voicePlayer.stop(); notify(); }
+            return function release() {
+                if (!holders.delete(token) || holders.size) return;
+                voicePlayer.stop();
+                // clips read at the holder's own speed go back to the stage's 语音速度
+                voicePlayer.setRate(stageReading.get().voiceRate);
+                notify();
+            };
+        },
+        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+    });
+})();
+// Whether the stage (and the bubbles) may voice now: the voice service is on and nobody holds the channel.
+const stageVoicingAvailable = () => ttsClientAvailable() && !voiceChannel.held();
 function voiceObservedTurn(_session,_turn,running) { return running; }
 // @include voice-speech.cjs
 function useVoiceBubbles(props,segments,_cardPath,config) {
@@ -35,7 +60,8 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
     const client=forkTtsScope?.get('ttsClient');
     const owner=String(props.sessionId)+':'+String(props.voiceScope);
     const active = React.useSyncExternalStore(galActive.subscribe,galActive.get);
-    const available = client?.available() && !props.interrupted && config?.voice?.enabled !== false;
+    const held = React.useSyncExternalStore(voiceChannel.subscribe,voiceChannel.held);
+    const available = client?.available() && !held && !props.interrupted && config?.voice?.enabled !== false;
     React.useEffect(()=>{
         const invalidate=event=>{ if (event?.type === 'unavailable') voicePlayer.invalidate(); };
         const off=packTransport?.service.subscribe(invalidate), host=tavernSessionSignals?.subscribe(props.sessionId,'tavern-state',invalidate);

@@ -134,3 +134,29 @@ test('通用声音「不配音」或所指人物不在了：未绑定的说话�
   assert.deepEqual(await speech.speak({ speaker: 'NPC', text: 'Hello.' }), { skip: true, reason: 'silent' })
   await assert.rejects(speech.speak({ narration: true, text: 'Night falls.', extension: { stage: {} } }), { code: 'VOICE_NOT_FOUND' })
 })
+
+// 有声书's reading voice (openReadingVoice): the figure 旁白声音 points at unless one is chosen, as the browser plays it -
+// the scoped voice ref the browser synthesizes through (warmed once), a system voice, or the reason it is silent.
+test('有声书的朗读声音：默认旁白声音，可换人物；服务声音只预热一次，浏览器声音原样给浏览器；不配音或人物不在了说原因', async t => {
+  const prewarmed = []
+  const tts = voiceService(readingOf({ narratorFigure: 'mm-zh' }))
+  tts.registerProvider('test', { id: 'mm', kind: 'minimax', revision: 'r1', capabilities: {}, health: async () => ({ state: 'ready' }), catalog: async () => [], synthesize: async () => audio })
+  const prewarm = tts.prewarm.bind(tts)
+  tts.prewarm = (input, options) => { prewarmed.push(input); return prewarm(input, options) }
+  const speech = createLineSpeech({ getTts: () => tts, getLibrary: () => voiceLibrary({ 'mm-zh': [minimaxVoice('zh')], tingting: [browserVoice('Tingting')], mute: [browserVoice(), { source: null }] }) })
+  t.after(() => { speech.dispose(); tts.dispose() })
+  const opened = await speech.openReading(undefined)
+  assert.equal(opened.available, true)
+  assert.equal(opened.scope, 'dsh-browser')
+  assert.equal(opened.language, 'zh')
+  assert.match(opened.voice.source, /^reading:/)
+  assert.deepEqual(await speech.openReading(undefined), opened, '同一个声音只注册一次')
+  assert.equal(prewarmed.length, 1, '只预热一次')
+  // the browser synthesizes through the scope's grant
+  const grant = tts.grantConsumer({ principal: 'dsh-browser', source: opened.voice.source, scope: 'dsh-browser' })
+  assert.ok((await tts.synthesize({ voice: opened.voice, text: '夜深了。', language: 'zh' }, { grant: grant.grant, scope: 'dsh-browser' })).key)
+  assert.deepEqual(await speech.openReading(at('tingting')), { available: true, browser: { voice: 'Tingting' }, language: 'zh', scope: 'dsh-browser', diagnostics: [] })
+  assert.deepEqual(await speech.openReading(at('mute')), { available: false, diagnostics: ['silent'] })
+  assert.deepEqual(await speech.openReading(at('gone')), { available: false, diagnostics: ['VOICE_NOT_FOUND'] })
+  assert.deepEqual(await createLineSpeech({ getTts: () => null, getLibrary: () => voiceLibrary() }).openReading(undefined), { available: false, diagnostics: ['TTS_UNAVAILABLE'] })
+})
