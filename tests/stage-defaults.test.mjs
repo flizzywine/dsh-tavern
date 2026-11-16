@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { cardExtension } from './fixtures/asset-packs/pack.mjs'
-import { CARD_STAGE_SWITCHES, validateCardStage, effectiveCardStage, effectiveAutoChoices, effectiveNarrator, cardEngineSettings } from '../tavern-plugin/lib/domain/card-stage-settings.js'
+import { CARD_STAGE_SWITCHES, validateCardStage, effectiveCardStage, effectiveNarrator, cardEngineSettings } from '../tavern-plugin/lib/domain/card-stage-settings.js'
 import { defaultAssetEngineSettings } from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import { cardBubbleConfig } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 
@@ -35,11 +35,6 @@ test('the other switches take a card layer in stage.switches, resolved like a mo
   assert.equal(effective.stageToggles.performance, false)
   assert.equal(effective.dimensions.sfx, false)
   assert.equal(effective.stageToggles.entrance, undefined, '入场演出 is no switch')
-  // 自动生成选项: the global candidateAutoGenerate with stage.switches.autoChoices.
-  assert.equal(effectiveAutoChoices(with_({autoChoices:'on'}), false), true)
-  assert.equal(effectiveAutoChoices(with_({autoChoices:'off'}), true), false)
-  assert.equal(effectiveAutoChoices(null, true), true)
-  assert.equal(effectiveAutoChoices(null, false), false)
   // 旁白配音: the card layer owns only its switch; the voice is the figure named by tts.reading().narrator.
   const narrator = {enabled:true}
   assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:false}}}, narrator), {enabled:false})
@@ -47,6 +42,7 @@ test('the other switches take a card layer in stage.switches, resolved like a mo
   assert.equal(effectiveNarrator(ext, narrator).enabled, true)
   // written once: only known keys, only 'on' / 'off'; the declared pair stays on stage.enabled.
   for (const switches of [{dialogue:'on'}, {stage:'on'}, {music:true}, {music:'yes'}, {unknown:'on'}]) assert.throws(() => validateCardStage({switches}), JSON.stringify(switches))
+  // an older card's retired autoChoices key still validates (自动生成候选项 is a global switch only; nothing reads it).
   assert.doesNotThrow(() => validateCardStage({enabled:true, switches:{voice:'on', autoChoices:'off'}}))
 })
 

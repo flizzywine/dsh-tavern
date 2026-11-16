@@ -38,7 +38,7 @@ function ttsErrorMessage(code) {
     TIMEOUT:'语音服务响应超时，请检查服务连接或本地模型日志后重试。',
     PROCESS_EXITED:'本地模型已退出，请查看本地模型日志并重新启动。',
     SERVICE_START_FAILED:'本地模型启动失败，请查看本地模型日志并修正安装配置。',
-    INVALID_READING_VOICE:'朗读声音设置无效：声音须是浏览器声音 {browser:名称} 或语音服务声音 {serviceId, voice}，留空用浏览器默认声音。',
+    INVALID_READING_VOICE:'朗读声音设置无效：通用声音和旁白须指向素材库里的一个人物 {packId, figureId}，留空用浏览器默认声音。',
     TTS_DISABLED:'配音服务未启用，请在语音后端启用服务。',
     USAGE_UNKNOWN:'查不到有没有人物在用这个语音服务，删除前需要确认。',
     REVISION_CONFLICT:'声音配置已变化，请重新载入人物声音页后再试。',

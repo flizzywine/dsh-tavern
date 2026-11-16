@@ -81,9 +81,10 @@ export function cardContentPackIds(extension) {
 // The card-declared pair: their card layer is stage.enabled (cardStageChoice), not stage.switches.
 const CARD_DECLARED = ['dialogue', 'stage']
 
-// The four-state switches of 基础设置: the engine's stageToggles (global) and 自动生成选项 (global: tavern settings
-// candidateAutoGenerate), each with this card's stage.switches key. 旁白配音's card layer is stage.narrator.enabled;
-// 对话气泡 / 舞台模式's is stage.enabled.
+// The four-state switches of 基础设置: the engine's stageToggles (global), each with this card's stage.switches key.
+// 旁白配音's card layer is stage.narrator.enabled; 对话气泡 / 舞台模式's is stage.enabled. autoChoices is retired (owner
+// 自动生成候选项 is the core's one global switch (设置 › DSH Tavern › 剧情); an older card may still carry the key,
+// nothing reads it.
 export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key => !CARD_DECLARED.includes(key)), 'autoChoices', 'autoCast'])
 
 // 自动选角: its 激进程度. late = only what the story asked for, usable the round after; eager = also the
@@ -132,11 +133,6 @@ export function effectiveCardStage(extension, engine) {
 export function cardStageVoicing(extension, engine) {
   const stage = effectiveCardStage(extension, engine)
   return stage.dialogue && stage.voice
-}
-
-// 自动生成选项 for a card: the global candidateAutoGenerate with this card's switch.
-export function effectiveAutoChoices(extension, globalOn) {
-  return resolveSwitch(globalOn === true, extension?.stage?.switches?.autoChoices)
 }
 
 // 旁白配音 in effect for a card: each key of the card layer (stage.narrator) wins over the global one, the tts plugin's

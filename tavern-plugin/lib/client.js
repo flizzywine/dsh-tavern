@@ -5445,13 +5445,11 @@ window.__ModuleLoader__.load({
 		  if(raw&&said!==raw&&!playerErrorSeen.has(raw)&&typeof console!=='undefined'){if(playerErrorSeen.size>200)playerErrorSeen.clear();playerErrorSeen.add(raw);console.warn('dsh-tavern:',raw);}
 		  return said;
 		}
-		function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, autoChoices, modClients = typeof tavernModClients === 'undefined' ? { slot: () => [], register() {} } : tavernModClients} = {}) {
+		function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, modClients = typeof tavernModClients === 'undefined' ? { slot: () => [], register() {} } : tavernModClients} = {}) {
 		  const h = React.createElement;
 		  // The Live2D preview kit: the stage's Live2D module, bound with the stage pages (stageScope.bind, views.live2dKit), else
 		  // the one given here. The pages that read it draw only once the stage is bound.
 		  let live2dKit = live2dOption;
-		  // autoChoices is the client's useAutoChoicesPreference hook (auto-choices-preference.js) —
-		  // the one reader/writer of tavern-settings candidateAutoGenerate — for the 基础设置 row 「自动生成选项」.
 		  // timeGrade(projection) is the stage's compensating background colour matrix for a time without its
 		  // variant (pack-playback.cjs createPackSceneLayers → backgroundGrade) or null; injected by the client.
 		  // shared fixed figure emotion rows; no retired card emotion writer.
@@ -7081,54 +7079,6 @@ window.__ModuleLoader__.load({
 		        h('span',{className:'ap-check-mark','aria-hidden':true},muted&&h(Glyph,{name:'check'})),h('span',null,'不再显示此提示')),
 		      error&&h('p',{className:'ap-alert',role:'alert'},error),
 		      h(Actions,null,busy&&h('span',{className:'ap-busy'},h(Spinner),'正在处理…'),h(Button,{disabled:busy,onClick:onClose},uncertain?'关闭并检查':'取消'),h(Button,{className:danger?'ap-danger-text':'',disabled:busy||uncertain,onClick:run},confirmLabel)));
-		  }
-		  // Shared voice catalogue picker for core and stage settings.
-		  const voiceKey=voice=>!voice?'':voice.silent?'silent':voice.browser?'browser:'+voice.browser:voice.serviceId?'service:'+JSON.stringify([voice.serviceId,voice.voice])
-		    :voice.templateId?'template:'+voice.templateId:voice.voiceId?'pack:'+JSON.stringify([voice.packId,voice.voiceId]):'figure:'+JSON.stringify([voice.packId,voice.figureId]);
-		  function voiceFromKey(key) {
-		    if(!key)return null;
-		    if(key==='silent')return {silent:true};
-		    if(key.startsWith('template:'))return {templateId:key.slice(9)};
-		    if(key.startsWith('pack:')){const [packId,voiceId]=JSON.parse(key.slice(5));return {packId,voiceId};}
-		    if(key.startsWith('browser:'))return {browser:key.slice(8)};
-		    if(key.startsWith('service:')){const [serviceId,voice]=JSON.parse(key.slice(8));return {serviceId,voice};}
-		    const [packId,figureId]=JSON.parse(key.slice(7));
-		    return {packId,figureId};
-		  }
-		  function generalServiceVoices(tts,s) {
-		    if(s.voiceList==='preset')return tts.call('listOnlinePresetVoices',{provider:s.kind,serviceId:s.id});
-		    if(s.voiceList==='fish-recommended')return tts.call('listRecommendedFishVoices',{serviceId:s.id});
-		    return tts.call('providerVoices',{serviceId:s.id});
-		  }
-		  async function generalVoiceOptions(binding) {
-		    const browser=typeof window!=='undefined'&&window.speechSynthesis?await browserSpeechVoiceList(window.speechSynthesis):[];
-		    const services=binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'&&s.state!=='needs-key'):[];
-		    const groups=await Promise.all(services.map(s=>generalServiceVoices(binding.tts,s).then(r=>({s,voices:r?.status==='error'?[]:r?.voices||[]}),()=>({s,voices:[]}))));
-		    const catalogue=await binding.service.listVoiceCatalogue();
-		    const seen=new Set();
-		    return [...catalogue.voices.map(v=>({value:voiceKey(v.ref),label:v.name,group:v.packName||'我的模板'})),...browser.map(v=>({value:voiceKey({browser:v.id}),label:v.label||v.id,group:'浏览器朗读'})),
-		      ...groups.flatMap(({s,voices})=>voices.map(v=>({value:voiceKey({serviceId:s.id,voice:v.voiceId||v.id}),label:v.name||v.label||v.voiceId||v.id,group:s.label})))]
-		      .filter(o=>!seen.has(o.value)&&seen.add(o.value));
-		  }
-		  const GENERAL_DEFAULT='浏览器 · 系统默认';
-		  function VoiceCataloguePicker({binding,value,onPick,label,leading=[]}) {
-		    const [wanted,setWanted]=React.useState(false),[query,setQuery]=React.useState('');
-		    const list=useVoiceLoad(()=>wanted?generalVoiceOptions(binding):null,[binding,wanted]);
-		    const voice=voiceFromKey(value),options=list.value||[];
-		    const found=options.find(o=>o.value===value);
-		    const shown=leading.find(o=>o.value===value)?.label||(!voice?GENERAL_DEFAULT:found?found.group+' · '+found.label:voice.browser?'浏览器 · '+voice.browser:voice.voice||voice.voiceId||voice.templateId);
-		    const needle=voiceNeedle(query.trim()),filtered=options.filter(o=>voiceMatches(needle,[o.label,o.group]));
-		    const pick=(close,key)=>{close();setQuery('');if(key!==value)onPick(key);};
-		    const item=(close,o)=>h('button',{key:o.value||'default',type:'button',role:'menuitemradio','aria-checked':o.value===value,className:'ap-menu-item',onClick:()=>pick(close,o.value)},
-		      h('span',null,o.label),o.value===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));
-		    const content=close=>[
-		      h(PackSearchBox,{key:'search',label:'搜索声音',placeholder:'搜索声音',value:query,onChange:setQuery,className:'is-compact'}),
-		      ...(!needle?leading.map(o=>item(close,o)):[]),
-		      ...filtered.flatMap((o,i)=>[o.group&&(i===0||filtered[i-1].group!==o.group)?h('div',{key:'g:'+o.group,role:'presentation',className:'fork-inline-group'},o.group):null,item(close,o)]),
-		      !list.value?h(Spinner,{key:'loading'}):needle&&!filtered.length?h(EmptyState,{key:'empty',compact:true,text:'没有找到「'+query.trim()+'」'}):null];
-		    return h(Popover,{label,className:'ap-general-voice',fit:true,limit:360,content,
-		        trigger:({open,toggle})=>h('button',{type:'button',className:'fork-inline-trigger','aria-haspopup':'menu','aria-expanded':open,'aria-label':label+'：'+shown,
-		          onClick:()=>{setWanted(true);toggle();}},h('span',{className:'fork-inline-text'},shown),h(Glyph,{name:'chevDown'}))});
 		  }
 		  // one declaration-driven renderer for a widget's shared pack defaults (its only appearance settings).
 		  // Galgame panel language: hairline rows, no boxes inside the dialog, no grey notes —
@@ -10297,7 +10247,7 @@ window.__ModuleLoader__.load({
 		      TIMEOUT:'语音服务响应超时，请检查服务连接或本地模型日志后重试。',
 		      PROCESS_EXITED:'本地模型已退出，请查看本地模型日志并重新启动。',
 		      SERVICE_START_FAILED:'本地模型启动失败，请查看本地模型日志并修正安装配置。',
-		      INVALID_READING_VOICE:'朗读声音设置无效：声音须是浏览器声音 {browser:名称} 或语音服务声音 {serviceId, voice}，留空用浏览器默认声音。',
+		      INVALID_READING_VOICE:'朗读声音设置无效：通用声音和旁白须指向素材库里的一个人物 {packId, figureId}，留空用浏览器默认声音。',
 		      TTS_DISABLED:'配音服务未启用，请在语音后端启用服务。',
 		      USAGE_UNKNOWN:'查不到有没有人物在用这个语音服务，删除前需要确认。',
 		      REVISION_CONFLICT:'声音配置已变化，请重新载入人物声音页后再试。',
@@ -13610,7 +13560,7 @@ window.__ModuleLoader__.load({
 		    const notify=()=>{for(const fn of [...listeners])fn();};
 		    const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
 		    // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-		    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+		    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
 		      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
 		    return {names, get views(){return views;}, bound:()=>views!==null,
 		      bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
@@ -13633,7 +13583,7 @@ window.__ModuleLoader__.load({
 		      h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
 		      h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
 		  }
-		  const api=stageExposed({VoiceCataloguePicker,voiceKey,voiceFromKey,App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+		  const api=stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
 		    // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
 		    stageScope,
 		    // the manager and the card's mod section, for tests and the offline screenshot harness.
@@ -29449,8 +29399,6 @@ function tavernModelRefusalNotice(text) {
 		    live2d:typeof LIVE2D_PREVIEW_KIT==='object'?LIVE2D_PREVIEW_KIT:undefined,
 		    // the Spine importer's reader and live preview (spine-preview.js).
 		    spine:typeof forkSpineKit==='function'?forkSpineKit():undefined,
-		    // 舞台设置 › 基础设置 「自动生成选项」 reads/writes through the one preference hook.
-		    autoChoices:typeof useAutoChoicesPreference==='function'?useAutoChoicesPreference:undefined,
 		    // 开场画面 previews the stage's compensating background grade (same math as the live stage).
 		    timeGrade:projection=>{const grade=createPackSceneLayers()(projection).backgroundGrade;return galMatrix.isIdentity(grade)?null:grade;},
 		    emotions:{moods:BUBBLE_MOODS,max:CUSTOM_MOOD_MAX,colors:customMoodColors,upsert:(list,value)=>emotionUpsert(list,value)}});
@@ -38493,7 +38441,7 @@ function tavernFloorHeightRecall(key, width) {
 			// Read-only counters for live inspect (forkTavernSpeechDiagnostics): line requests, clips the shared player started,
 			// the last clips (system speech or a voice-service clip, the stage mixer as it started, heard to the end, how long),
 			// and the player state right after the last stop.
-			const stats = { requests: 0, readAloudRequests: 0, started: 0, clips: [], lastStop: null };
+			const stats = { requests: 0, started: 0, clips: [], lastStop: null };
 			function clipRecord(entry) {
 				const mix = forkStageAudio.diagnostics(), track = mix.tracks.find(t => t.layer === "voice");
 				const clip = { browserSpeech: Boolean(entry.audio.browserSpeech), at: Date.now(), heard: null, ms: null,
@@ -38515,7 +38463,6 @@ function tavernFloorHeightRecall(key, width) {
 			function diagnostics() {
 				const now = voicePlayer.get(), mine = now?.owner === OWNER;
 				return { requests: stats.requests, started: stats.started, active: Boolean(current), player: playerState(),
-					readAloud: { requests: stats.readAloudRequests, active: current?.line === "readAloudLine" },
 					browserSpeech: mine && now.audio ? Boolean(now.audio.browserSpeech) : null,
 					clips: stats.clips.map(c => ({ browserSpeech: c.browserSpeech, heard: c.heard, ms: c.ms, stage: { speaking: c.stage.speaking, voice: c.stage.voice, master: c.stage.master, effective: c.stage.effective, duck: c.stage.duck, musicDuckDb: c.stage.musicDuckDb } })),
 					lastStop: stats.lastStop ? { requests: stats.lastStop.requests, player: stats.lastStop.player } : null };
@@ -38545,14 +38492,13 @@ function tavernFloorHeightRecall(key, width) {
 				const lines = parts.filter(part => part.text).flatMap(part =>
 					(input.body ? tavernBodySpeechChunks(part.text) : [part.text]).map(text => ({ text, narration: part.narration })));
 				if (!lines.length) return false;
-				const lease = { owner: input.owner, line: input.line || "speechForLine", cancelled: false };
+				const lease = { owner: input.owner, cancelled: false };
 				current = lease;
 				let heardAny = false;
 				try {
 					for (const [index, line] of lines.entries()) {
 						stats.requests++;
-						if (lease.line === "readAloudLine") stats.readAloudRequests++;
-						const reply = await rpc(lease.line, { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
+						const reply = await rpc("speechForLine", { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
 						if (lease.cancelled || !reply) return false;
 						// Narration stays silent while the narrator is off; the dialogue goes on.
 						if (reply.skip) { if (reply.reason === "narration" || reply.reason === "empty") continue; return false; }
@@ -38575,6 +38521,31 @@ function tavernFloorHeightRecall(key, width) {
 		})();
 
         // Read the prose and bubble captions, with no speaker IDs, voice directions or executable HTML.
+        function tavernSpeechPlainText(source) {
+            const text = String(source || "")
+                .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+                .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+            const doc = new DOMParser().parseFromString(text, "text/html");
+            doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
+            doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
+            return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
+        }
+        function tavernBodySpeechChunks(text) {
+            const chars = Array.from(text), chunks = [];
+            while (chars.length) {
+                let end = Math.min(1000, chars.length);
+                if (end < chars.length) {
+                    for (let i = end - 1; i >= end / 2; i--) {
+                        if (/[。！？.!?；;\s]/u.test(chars[i])) { end = i + 1; break; }
+                    }
+                }
+                chunks.push(chars.splice(0, end).join(""));
+            }
+            return chunks;
+        }
+        function tavernReplyBody(node) {
+            return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
+        }
         function tavernBodySpeechParts(source) {
             const parts = [];
             function append(text, narration) {
@@ -38603,173 +38574,43 @@ function tavernFloorHeightRecall(key, width) {
             const parts = React.useMemo(() => tavernBodySpeechParts(source), [source]);
             return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length }) : null;
         }
+        // A reply's 🔊 replays the stage voicing, so it shows only where the stage voices this card (bodySpeechState).
+        function useTavernBodySpeechVoiced(sessionId) {
+            const available = usePackRevision(ttsClientAvailable);
+            const [state, setState] = React.useState(null);
+            React.useEffect(() => {
+                let live = true;
+                if (available) rpc("bodySpeechState", {}, sessionId).then(value => { if (live) setState({ sessionId, voiced: value?.voiced === true }); }, () => {});
+                return () => { live = false; };
+            }, [sessionId, available]);
+            return available && state?.sessionId === sessionId && state.voiced;
+        }
+        function TavernTurnSpeechAction(props) {
+            const source = props.useChat(snapshot => tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId)));
+            return useTavernBodySpeechVoiced(props.sessionId) ? React.createElement(TavernBodySpeechAction, { ...props, source }) : null;
+        }
+        function TavernReplySpeechAction(props) {
+            return props.voiced ? React.createElement(TavernBodySpeechAction, props) : null;
+        }
         /** A second press stops the current line/body, including synthesis still in flight. */
         function TavernSpeakButton(props) {
             const h = React.createElement;
             const [playing, setPlaying] = React.useState(false);
             const run = React.useRef(null);
             React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            const shown = playing || props.playing === true;
-            const label = shown ? "停止朗读" : props.label || (props.body ? "朗读正文" : "朗读这句");
+            const shown = playing;
+            const label = shown ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
             return h("button", { type: "button", className: "dsh-tavern-speak" + (shown ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
-                onClick: async function (event) {
+                onClick: function (event) {
                     event.stopPropagation();
-                    if (!run.current && props.playing) { props.onStop?.(); return; }
                     if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
                     const token = {};
                     run.current = token;
                     setPlaying(true);
-                    if (props.beforeRead && !await props.beforeRead() || run.current !== token) { if (run.current === token) { run.current = null; setPlaying(false); } return; }
-                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, line: props.line, owner: token }).finally(function () {
+                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
                         if (run.current === token) { run.current = null; setPlaying(false); }
                     });
-                } }, shown ? "■" : props.label ? "🔊 " + props.label : "🔊");
-        }
-        function tavernSpeechPlainText(source) {
-            const text = String(source || "")
-                .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-                .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-            const doc = new DOMParser().parseFromString(text, "text/html");
-            doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
-            doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
-            return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
-        }
-        function tavernBodySpeechChunks(text) {
-            const chars = Array.from(text), chunks = [];
-            while (chars.length) {
-                let end = Math.min(1000, chars.length);
-                if (end < chars.length) {
-                    for (let i = end - 1; i >= end / 2; i--) {
-                        if (/[。！？.!?；;\s]/u.test(chars[i])) { end = i + 1; break; }
-                    }
-                }
-                chunks.push(chars.splice(0, end).join(""));
-            }
-            return chunks;
-        }
-        function tavernReplyBody(node) {
-            return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
-        }
-        const tavernReadAloud = (function () {
-            const sessions = new Map(), listeners = new Set();
-            let reading = null;
-            function emit() { listeners.forEach(fn => fn()); }
-            function stop(sessionId) {
-                if (!reading || sessionId && reading.sessionId !== sessionId) return;
-                const lease = reading; reading = null;
-                tavernSpeech.stop(lease.owner);
-                emit();
-            }
-            function session(sessionId) {
-                let state = sessions.get(sessionId);
-                if (!state) sessions.set(sessionId, state = { count: 0, signal: null, armed: false, before: null, latest: null, generation: 0 });
-                return state;
-            }
-            async function read(sessionId, state, messageId, source) {
-                const generation = ++state.generation;
-                const data = await rpc("readAloudState", {}, sessionId).catch(() => null);
-                if (generation !== state.generation || sessions.get(sessionId) !== state || !data?.auto || data.stepAside) return;
-                if (!ttsClientAvailable() || typeof galActive !== "undefined" && galActive.get() === sessionId) return;
-                const text = tavernBodySpeechParts(source).map(part => part.text).join(" ");
-                if (!text) return;
-                stop();
-                const owner = {};
-                reading = { sessionId, messageId, owner };
-                emit();
-                tavernSpeech.speak({ sessionId, speaker: "", parts: [{ text, narration: false }], body: true, line: "readAloudLine", owner }).finally(function () {
-                    if (reading?.owner === owner) { reading = null; emit(); }
-                });
-            }
-            // The story signal adds the floor so a regenerated reply can retain
-            // its identity and a rollback to earlier prose does not read it again.
-            function observe(sessionId, signal) {
-                const state = session(sessionId);
-                if (state.signal === signal) return;
-                state.signal = signal;
-                const [busy, messageId, source, floor] = JSON.parse(signal);
-                if (busy) {
-                    if (!state.armed) { state.armed = true; state.before = state.latest; }
-                    state.generation++;
-                    stop(sessionId);
-                    return;
-                }
-                state.latest = { messageId, source, floor };
-                // The finished reply may land a snapshot after the stream ends: stay armed until a new reply is there.
-                if (!state.armed || !messageId || (messageId === state.before?.messageId && (floor == null || source === state.before.source))) return;
-                state.armed = false;
-                if (source && (floor == null || state.before?.floor == null || floor >= state.before.floor)) void read(sessionId, state, messageId, source);
-            }
-            function attach(sessionId) {
-                const state = session(sessionId);
-                state.count++;
-                return function () {
-                    state.count--;
-                    setTimeout(function () {
-                        if (state.count > 0 || sessions.get(sessionId) !== state) return;
-                        sessions.delete(sessionId); state.generation++;
-                        stop(sessionId);
-                    }, 0);
-                };
-            }
-            return { observe, attach, stop,
-                reading: (sessionId, messageId) => Boolean(reading && reading.sessionId === sessionId && reading.messageId === messageId),
-                subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); } };
-        })();
-        function tavernReadAloudSignal(snapshot) {
-            const nodes = snapshot?.legacy?.nodes || [];
-            const busy = Boolean(snapshot?.legacy?.partial) || nodes[nodes.length - 1]?.kind === "user";
-            const messageId = latestTavernAssistantMessageId(snapshot);
-            const node = !busy && messageId ? nodes.find(item => item.kind === "assistant" && item.messageId === messageId) : null;
-            return JSON.stringify([busy, messageId, node ? tavernReplyBody(node) : ""]);
-        }
-        function useTavernReadAloudState(sessionId, signal) {
-            const available = usePackRevision(ttsClientAvailable);
-            const [snapshot, setSnapshot] = React.useState(null);
-            const refreshRef = React.useRef(null);
-            const refresh = React.useCallback(() => refreshRef.current?.(), []);
-            const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-            React.useEffect(() => tavernReadAloud.attach(sessionId), [sessionId]);
-            React.useEffect(() => { if (signal) tavernReadAloud.observe(sessionId, signal); }, [sessionId, signal]);
-            React.useEffect(() => { if (active === sessionId) tavernReadAloud.stop(sessionId); }, [active, sessionId]);
-            React.useEffect(() => {
-                let live = true;
-                if (!available) return;
-                const read = async () => {
-                    const value = await rpc("readAloudState", {}, sessionId).catch(() => null);
-                    if (!live) return null;
-                    setSnapshot({ sessionId, value });
-                    return value;
-                };
-                refreshRef.current = read;
-                void read();
-                const off = pageTtsClient()?.subscribe(event => { if (event.type === "readingChanged") void read(); });
-                return () => { live = false; refreshRef.current = null; off?.(); };
-            }, [sessionId, available]);
-            const state = available && snapshot?.sessionId === sessionId ? snapshot.value : null;
-            return React.useMemo(() => state ? { ...state, refresh } : null, [state, refresh]);
-        }
-        function TavernReadAloudAction(props) {
-            const source = props.useChat(snapshot => tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId)));
-            const signal = props.useChat(tavernReadAloudSignal);
-            const state = useTavernReadAloudState(props.sessionId, signal);
-            return React.createElement(TavernReplyReadAloudAction, { ...props, source, state });
-        }
-        function TavernReplyReadAloudAction(props) {
-            const { source, state } = props;
-            const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-            const playing = React.useSyncExternalStore(tavernReadAloud.subscribe, () => tavernReadAloud.reading(props.sessionId, props.messageId));
-            if (!source || !state) return null;
-            if (state.stepAside) return React.createElement(TavernBodySpeechAction, props);
-            if (active === props.sessionId) return null;
-            const text = parseBubbles(source, false).map(part => tavernSpeechPlainText(part.text)).join(" ");
-            return React.createElement(TavernSpeakButton, {
-                key:JSON.stringify([props.sessionId,props.messageId,source]),sessionId:props.sessionId,body:true,text,line:"readAloudLine",label:"朗读",playing,
-                onStop:() => tavernReadAloud.stop(props.sessionId),
-                beforeRead:async () => {
-                    const value = await state.refresh();
-                    return !!value && !value.stepAside && galActive.get() !== props.sessionId;
-                }
-            });
+                } }, shown ? "■" : "🔊");
         }
 
 		// Background music: one looping track for the page. Plugins say which track plays; the player
@@ -43054,7 +42895,7 @@ function installTavernHostChatFlow(slots, renderFlow) {
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
 
-function tavernStoryReadAloudId(row) {
+function tavernStorySpeechId(row) {
 	return JSON.stringify([row.messageUid || row.key, row.message?.swipeId])
 }
 
@@ -43361,8 +43202,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			row.role === 'user' ? editButton : copyButton,
 			row.role === 'user' ? copyButton : editButton,
 			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
-				h('span', { 'data-fork-turn': 'speech' }, h(replyActions.ReadAloud, {
-					sessionId: props.sessionId, messageId: tavernStoryReadAloudId(row), source: row.text, state: props.readAloudState
+				h('span', { 'data-fork-turn': 'speech' }, h(replyActions.Speech, {
+					sessionId: props.sessionId, messageId: tavernStorySpeechId(row), source: row.text, voiced: props.speechVoiced
 				})),
 				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
 				props.latest && props.host ? h(replyActions.Latest, {
@@ -43542,7 +43383,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,
 			inlineStatus,
 			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
-				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host, turnFooter: props.turnFooter }))
+				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, speechVoiced: props.speechVoiced, host: props.host, turnFooter: props.turnFooter }))
 	})
 
 	function StoryTurnReasoningBox({ text, live }) {
@@ -43769,9 +43610,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, cached.nativeTurn, allowCommitted, streamLive, summarizedReasoning.text, summarizedReasoning.live, storyStreamUid, regeneratingTarget, regeneratingStoryTurn, regenDamperOutcome, activeLiveDamper, draftDamperOutcome])
 		const latest = rows.findLast(row => row.role === 'assistant')
 		const generating = Boolean(props.partial || streamView?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
-		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
-			? JSON.stringify([false, tavernStoryReadAloudId(latest), latest.text, latest.floorNo]) : null
-		const readAloudState = replyActions ? replyActions.useReadAloudState(sessionId, readAloudSignal) : null
+		const speechVoiced = replyActions ? replyActions.useSpeechVoiced(sessionId) : false
 		const rowWindow = useTavernStoryRowWindow(sessionId)
 		if (!rows.length) {
 			return h('div', {
@@ -43805,7 +43644,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			return h(StoryTranscriptRow, { windowRef: windowed(row) ? rowWindow.window.refFor(row.key) : undefined, key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus,
-				latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
+				latest: row === latest, latestTurn: latest?.legacyTurn, speechVoiced,
 				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
 		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
 			h('span', null, '\u26a0 ' + failure)) : null)
@@ -48003,39 +47842,6 @@ function TavernCardUpdateDialog(props) {
             return enabled;
         }
 
-        // the automatic candidate preference hook (its switch lives in 舞台设置 › 基础设置); no stage/bubble dependency.
-        // the global candidateAutoGenerate preference (tavern-settings.json), independent of stage/bubble features.
-        // Its one switch is 舞台设置 › 基础设置 「自动生成选项」 (asset-pack-card-ui.js StageAutoChoicesSwitch, injected through
-        // createAssetPackUI({autoChoices})); every mount stays in sync through the window event.
-        function useAutoChoicesPreference(readMethod = "getTavernSettings") {
-            const [enabled, setEnabled] = React.useState(false);
-            const [loading, setLoading] = React.useState(true);
-            const [busy, setBusy] = React.useState(false);
-            const [error, setError] = React.useState("");
-            React.useEffect(function () {
-                let active = true;
-                let changed = false;
-                function update(event) { changed = true; setEnabled(event.detail === true); setLoading(false); setError(""); }
-                window.addEventListener("dsh-tavern-auto-choices-preference", update);
-                rpc(readMethod).then(function (result) {
-                    const settings = readMethod === "getTavernSettings" ? result.settings : result;
-                    if (active && !changed) { setEnabled(settings.candidateAutoGenerate === true); setLoading(false); }
-                }, function (err) {
-                    if (active && !changed) { setError(String(err.message || err)); setLoading(false); }
-                });
-                return function () { active = false; window.removeEventListener("dsh-tavern-auto-choices-preference", update); };
-            }, []);
-            async function save(value) {
-                if (busy || loading) return;
-                setBusy(true); setError("");
-                try {
-                    const result = await rpc("updateTavernSettings", { patch: { candidateAutoGenerate: value } });
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-auto-choices-preference", { detail: result.settings.candidateAutoGenerate === true }));
-                } catch (err) { setError("保存失败：" + String(err.message || err)); }
-                finally { setBusy(false); }
-            }
-            return { enabled, loading, busy, error, save };
-        }
 
         function CandidatePreferencesSettings() {
             const mode = useCandidatePreferences();
@@ -48212,7 +48018,7 @@ function TavernCardUpdateDialog(props) {
         }
 
         // Settings owns its initial snapshot; each editor saves only its own resource.
-        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip, VoiceCataloguePicker, voiceKey, voiceFromKey, useReadingBinding }) {
+        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
             const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
             function GlobalPlayDefaults({ settings }) {
@@ -48323,7 +48129,8 @@ function TavernCardUpdateDialog(props) {
                     React.createElement(TavernDefaultModelSetting, { label: "默认后台模型", title: "后台模型", description: "变量结算、世界书筛选、候选回复、手机消息等幕后任务", fallback: "跟随前台", selection: state.defaultBackgroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultBackgroundModel", selection) }),
                     React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
                     null),
-                        h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.modId !== 'dsh.stage'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
+                        // the core's own slots; the stage's and its mods' (手机 · 通话模型) are on 设置 › 舞台 › 舞台模型.
+                        h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.owner === 'core'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
                     group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",
                         state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
                         h(TavernConversationWritingSkills, { globalDefaults: true })),
@@ -48378,29 +48185,6 @@ function TavernCardUpdateDialog(props) {
                     h("header", {className:"dsh-tavern-gs-head"}, h("h2", null, title)),
                     h("div", {className:"dsh-tavern-gs-card"}, children));
             }
-            function ReadAloudSettings() {
-                const h = React.createElement, binding = useReadingBinding();
-                const [reading, setReading] = React.useState(null), [notice, setNotice] = React.useState(''), [busy, setBusy] = React.useState(false);
-                React.useEffect(() => {
-                    let active = true;
-                    const refresh = () => binding.tts.call('reading').then(value => { if (active) setReading(value.readAloud); }, () => { if (active) setNotice('无法读取朗读设置'); });
-                    if (!binding.tts?.available()) { setReading(null); return; }
-                    void refresh();
-                    const off = binding.tts.subscribe(event => { if (event.type === 'readingChanged') void refresh(); });
-                    return () => { active = false; off(); };
-                }, [binding]);
-                async function save(patch) {
-                    setBusy(true); setNotice('');
-                    try { const value = await binding.tts.call('setReading', {readAloud:patch}); setReading(value.readAloud); }
-                    catch (_) { setNotice('保存失败，请重试'); }
-                    finally { setBusy(false); }
-                }
-                return h(SettingsGroup, {title:'朗读'},
-                    !binding.tts?.available() ? h('p', {role:'status'}, '配音服务未启用') : reading ? h(React.Fragment, null,
-                        h(TavernSettingRow, {title:'朗读声音'}, h(VoiceCataloguePicker, {binding, value:voiceKey(reading.voice), label:'朗读声音', leading:[{value:'',label:'浏览器 · 系统默认'}], onPick:key => save({voice:voiceFromKey(key)})})),
-                        h(TavernSettingRow, {title:'自动朗读',help:'每条新回复用朗读声音读一次；本卡舞台配音开启时让位于角色配音。'}, h(Switch, {label:'自动朗读',checked:reading.auto,disabled:busy,onChange:auto => save({auto})}))) : h('p', {role:'status'}, '正在读取…'),
-                    notice ? h('p', {role:'status'}, notice) : null);
-            }
             function TavernPluginsSettingsSection() {
                 const h = React.createElement;
                 return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
@@ -48409,13 +48193,12 @@ function TavernCardUpdateDialog(props) {
                             h("a", { href: "https://discord.gg/hYAEjKnpra", target: "_blank", rel: "noopener noreferrer" }, "Discord 交流群"),
                             "的插件分享，查找社区作者发布的插件及使用说明。"),
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。"),
-                        h(TavernUserPluginsSettings)), h(ReadAloudSettings));
+                        h(TavernUserPluginsSettings)));
             }
             // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
             // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the
             // page needs from the core travel as the stage view options (gal-stage.js bindStageViews, globalSettings);
-            // TavernSettingRow and Switch draw the four-state 基础设置 switches.
-            const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, Switch};
+            const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, SpineRuntimeEntry, ForkModManagerEntry};
             function TavernStageSettingsSection() {
                 const h = React.createElement;
                 React.useEffect(() => galStageHold(), []);
@@ -48643,16 +48426,8 @@ function TavernCardUpdateDialog(props) {
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
             CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
-            // both are stage package pages (asset-pack-gen-ui.js / mod-manager.js): drawn once the stage client binds them (StagePackView).
-            StageGenerationSettings: () => React.createElement(StagePackView, { view: ui => ui.GenPromptSettings, call: engineRpc }),
-            // 设置 › 舞台 › 模组管理 (mod-manager.js).
+            // 设置 › 舞台 › 模组管理 (mod-manager.js), a stage package page: drawn once the stage client binds it (StagePackView).
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
-            VoiceCataloguePicker:packUi.VoiceCataloguePicker, voiceKey:packUi.voiceKey, voiceFromKey:packUi.voiceFromKey,
-            useReadingBinding:() => {
-                usePackRevision(ttsClientAvailable);
-                const service = packClient(), tts = forkTtsScope?.get('ttsClient');
-                return React.useMemo(() => ({service,tts}), [service,tts]);
-            },
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
         });
@@ -62707,7 +62482,7 @@ function createStoryFloorRail(root, options) {
 		    const h = React.createElement;
 		    return h("span", { className: "dsh-fork-turn-actions" },
 		        latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
-		        h("span", { "data-fork-turn": "speech" }, h(TavernReadAloudAction, props)),
+		        h("span", { "data-fork-turn": "speech" }, h(TavernTurnSpeechAction, props)),
 		        h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
 		        latest ? h(LatestReplyActions, props) : null);
 		}
@@ -65381,8 +65156,8 @@ function clipReplayCore() {
 
 		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
 			replyActions: {
-				useReadAloudState: useTavernReadAloudState,
-				ReadAloud: TavernReplyReadAloudAction,
+				useSpeechVoiced: useTavernBodySpeechVoiced,
+				Speech: TavernReplySpeechAction,
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,

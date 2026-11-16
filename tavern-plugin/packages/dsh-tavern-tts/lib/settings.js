@@ -15,9 +15,9 @@ import { boundedFetch } from './providers/fetch.js'
 import { createModelValidation } from './model-validation.js'
 
 // 台词朗读: 通用声音 and 旁白 each point at one figure of the asset library ({packId, figureId}: they speak with that figure's
-// voice; null = the browser's default voice), 旁白配音's global switch (off by default) and 全文朗读's reader. The reader is the voice
-// picker's binding: {browser:name}, {serviceId, voice}, a pack voice or a template. Schemastery drops null defaults, so readingOf fills them.
-const Reading = z.object({ general: z.object({ figure: z.any() }), narrator: z.object({ enabled: z.boolean().default(false), figure: z.any() }), readAloud: z.object({ voice: z.any(), auto: z.boolean().default(false) }) })
+// voice; null = the browser's default voice) and 旁白配音's global switch (off by default). Schemastery drops null defaults, so
+// readingOf fills them.
+const Reading = z.object({ general: z.object({ figure: z.any() }), narrator: z.object({ enabled: z.boolean().default(false), figure: z.any() }) })
 export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
   reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
@@ -51,21 +51,9 @@ export function validateSettings(value) {
 }
 export function readingOf(settings) {
   const r = settings.reading || {}
-  return { general: { figure: r.general?.figure ?? null }, narrator: { enabled: r.narrator?.enabled === true, figure: r.narrator?.figure ?? null },
-    readAloud: { voice: r.readAloud?.voice ?? null, auto: r.readAloud?.auto === true } }
+  return { general: { figure: r.general?.figure ?? null }, narrator: { enabled: r.narrator?.enabled === true, figure: r.narrator?.figure ?? null } }
 }
 const plainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
-const voiceName = v => typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f]/.test(v)
-function readingVoice(v) {
-  if (v === null) return null
-  const keys = plainObject(v) ? Object.keys(v).sort().join() : ''
-  if (keys === 'browser' && voiceName(v.browser)) return { browser: v.browser }
-  if (keys === 'serviceId,voice' && PROVIDER_ID.test(v.serviceId) && voiceName(v.voice)) return { serviceId: v.serviceId, voice: v.voice }
-  const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)
-  if (keys === 'packId,voiceId' && uuid(v.packId) && typeof v.voiceId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v.voiceId) && !['constructor','prototype','__proto__'].includes(v.voiceId)) return {packId:v.packId,voiceId:v.voiceId}
-  if (keys === 'templateId' && uuid(v.templateId)) return {templateId:v.templateId}
-  fail('INVALID_READING_VOICE')
-}
 // 通用声音 / 旁白's figure: null, or a figure of an installed pack (whether it exists is the speaker's to find out).
 function figureRef(v) {
   if (v === null) return null
@@ -76,7 +64,7 @@ function figureRef(v) {
 // Validated once here, on write; a bad patch is a repairable INVALID_READING_VOICE.
 export function patchReading(current, patch) {
   const next = readingOf({ reading: current })
-  if (!plainObject(patch) || Object.keys(patch).some(k => !['general','narrator','readAloud'].includes(k))) fail('INVALID_READING_VOICE')
+  if (!plainObject(patch) || Object.keys(patch).some(k => !['general','narrator'].includes(k))) fail('INVALID_READING_VOICE')
   if (patch.general !== undefined) {
     if (!plainObject(patch.general) || Object.keys(patch.general).some(k => k !== 'figure')) fail('INVALID_READING_VOICE')
     if (Object.hasOwn(patch.general,'figure')) next.general.figure = figureRef(patch.general.figure)
@@ -86,12 +74,6 @@ export function patchReading(current, patch) {
     if (!plainObject(n) || Object.keys(n).some(k => !['enabled','figure'].includes(k))) fail('INVALID_READING_VOICE')
     if (n.enabled !== undefined) { if (typeof n.enabled !== 'boolean') fail('INVALID_READING_VOICE'); next.narrator.enabled = n.enabled }
     if (Object.hasOwn(n,'figure')) next.narrator.figure = figureRef(n.figure)
-  }
-  if (patch.readAloud !== undefined) {
-    const r = patch.readAloud
-    if (!plainObject(r) || Object.keys(r).some(k => !['auto','voice'].includes(k))) fail('INVALID_READING_VOICE')
-    if (r.auto !== undefined) { if (typeof r.auto !== 'boolean') fail('INVALID_READING_VOICE'); next.readAloud.auto = r.auto }
-    if (Object.hasOwn(r,'voice')) next.readAloud.voice = readingVoice(r.voice)
   }
   return next
 }

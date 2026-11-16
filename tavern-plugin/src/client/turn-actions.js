@@ -105,7 +105,7 @@ function TurnActions(props) {
     const h = React.createElement;
     return h("span", { className: "dsh-fork-turn-actions" },
         latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
-        h("span", { "data-fork-turn": "speech" }, h(TavernReadAloudAction, props)),
+        h("span", { "data-fork-turn": "speech" }, h(TavernTurnSpeechAction, props)),
         h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
         latest ? h(LatestReplyActions, props) : null);
 }

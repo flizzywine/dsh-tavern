@@ -18,7 +18,7 @@ function identity(chat) {
 
 const playModes = ['story', 'script']
 
-// `enabled(chat)`: 自动生成候选项 in effect for the chat's card (the global switch with the card's own, effectiveAutoChoices).
+// `enabled(chat)`: 自动生成候选项 in effect for the chat (the one global switch, 设置 › DSH Tavern › 剧情).
 export function createAutoChoices({ read, enabled: enabledFor, activity, submit,
   defer = callback => setTimeout(callback, 1000), clear = clearTimeout, report = console.error }) {
   const pending = new Map()

@@ -21,7 +21,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   if (focus) session.set('dsh-tts:focus-service',JSON.stringify({at:Date.now(),...focus}))
   // an EventTarget: the page also takes a focus request sent while it is mounted (the key's window event).
   const window = Object.assign(new EventTarget(),{sessionStorage:{getItem:key => {if (blockedStorage) throw Error('storage unavailable');return session.get(key) ?? null},setItem:(key,value) => session.set(key,value),removeItem:key => session.delete(key)}})
-  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {narrator:{enabled:false},readAloud:{voice:null,auto:false}}
+  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {narrator:{enabled:false}}
   const keys = new Set(['azure-main','qwen-main','volc-main','fish-local','fish'])
   let configured = initial ?? [{id:'azure-main',kind:'azure',label:'Test Azure',config:{region:'eastasia'}},{id:'qwen-main',kind:'qwen',label:'Test Qwen',config:{region:'cn'}},{id:'volc-main',kind:'volcengine',label:'Test Volcengine',config:{appId:'test',resourceId:'seed-tts-2.0'}}]
   const checks = new Map()

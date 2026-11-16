@@ -5,10 +5,12 @@ import { readFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-// The 🔊 on a reply: the host resolves each part (speechForLine) and the one stage voice player (voice.js) plays it.
-const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'features/speech.js', 'features/read-aloud.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
+// The 🔊 on a reply (where the stage voices the card: bodySpeechState): the host resolves each part (speechForLine) and the one
+// stage voice player (voice.js) plays it.
+const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'features/speech.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
 // available: false = the voice plugin mounted with its service off; null = no voice plugin, so no ttsClient at all.
-async function mount(t, text, available = true) {
+// voiced: false = the stage does not voice this card, so the reply has no 🔊 (there is no separate 朗读).
+async function mount(t, text, available = true, voiced = true) {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const page = await browser.newPage()
@@ -20,6 +22,7 @@ async function mount(t, text, available = true) {
     const React=modules.react;
     const calls=[], utterances=[], errors=[], pending=[], audios=[], prepared=[];
     let ttsOn=${available};
+    window.unvoiced=${!voiced};
     const packListeners=new Set();
     function usePackRevision(select){return React.useSyncExternalStore(fn=>{packListeners.add(fn);return()=>packListeners.delete(fn);},select);}
     const ttsClient={apiVersion:1,available:()=>ttsOn,subscribe:()=>()=>{}};
@@ -32,7 +35,7 @@ async function mount(t, text, available = true) {
     window.SpeechSynthesisUtterance=function(text){this.text=text;};
     window.Audio=class{constructor(src){this.src=src;this.paused=true;audios.push(this);}load(){}play(){this.paused=false;this.onplay?.();return Promise.resolve();}pause(){if(this.paused)return;this.paused=true;this.onpause?.();}};
     const galActive={subscribe:()=>()=>{},get:()=>""};
-    async function rpc(method,args,sessionId){if(method==="readAloudState")return {stepAside:true,auto:false};calls.push({method,args,sessionId});
+    async function rpc(method,args,sessionId){if(method==="bodySpeechState")return {voiced:window.unvoiced!==true};calls.push({method,args,sessionId});
       if(window.skipNarration&&args.narration)return {skip:true,reason:'narration'};
       const reply=window.audioReply?{url:'/tts-audio?ticket='+calls.length,mediaType:'audio/wav',loudness:{gain:1.5}}:{browser:true,voice:args.narration?'narrator-voice':'chosen-voice',text:args.text};
       if(window.deferSpeech)return new Promise(resolve=>pending.push(()=>resolve(reply)));return reply;}
@@ -87,6 +90,13 @@ test('每条正文都有朗读按钮，经舞台语音播放器按原文顺序�
   await button.waitFor()
   assert.equal(await page.evaluate(() => fixture.calls.slice(2).map(c=>c.args.text).join('')), '月光落在窗边。'.repeat(260)+'你好。')
   assert.deepEqual(await page.evaluate(() => fixture.utterances.slice(2).map(u=>u.voice.name)), ['narrator-voice','narrator-voice','chosen-voice'])
+})
+
+test('舞台没有为本卡配音时，回复没有朗读按钮', async t => {
+  const page = await mount(t, '正文', true, false)
+  await page.locator('.dsh-fork-turn-actions').waitFor({state:'attached'})
+  await page.waitForTimeout(50)
+  assert.equal(await page.getByRole('button', {name:'朗读正文',exact:true}).count(),0)
 })
 
 test('语音服务未启用时不显示正文朗读按钮，启用后出现', async t => {

@@ -80,15 +80,12 @@ export interface ServiceVoice {
 export interface ServiceSynthesis { voiceId: string; text: string; language: string; mood?: string }
 /** Error code when no voice service can speak; callers stay silent and show it as a diagnostic, never throw it to chat. */
 export declare const TTS_UNAVAILABLE: 'TTS_UNAVAILABLE'
-/** A 台词朗读 voice, the same shape the figure voice picker produces: a browser system voice or a voice of a configured service. */
-export type ReadingVoiceBinding = {browser: string} | {serviceId: string; voice: string}
-/** Native setting tts.reading: 旁白配音's global switch (off by default) and 全文朗读's reader. 通用声音 / 旁白's voices are the asset
- * library's reading voices, not settings. */
+/** Native setting tts.reading: 通用声音 / 旁白's figures and 旁白配音's global switch (off by default). */
 /** 通用声音 / 旁白: the asset-library figure whose voice they speak with (null = the browser's default voice). */
 export type FigurePointer = {packId: string; figureId: string}
-export interface TtsReading { general: {figure: FigurePointer | null}; narrator: {enabled: boolean; figure: FigurePointer | null}; readAloud: {voice: ReadingVoiceBinding | null; auto: boolean} }
-/** ttsControl `setReading` input: omitted keys keep their value; null clears a voice. Invalid input rejects with INVALID_READING_VOICE. */
-export interface TtsReadingPatch { general?: {figure?: FigurePointer | null}; narrator?: {enabled?: boolean; figure?: FigurePointer | null}; readAloud?: {voice?: ReadingVoiceBinding | null; auto?: boolean} }
+export interface TtsReading { general: {figure: FigurePointer | null}; narrator: {enabled: boolean; figure: FigurePointer | null} }
+/** ttsControl `setReading` input: omitted keys keep their value; null clears a figure. Invalid input rejects with INVALID_READING_VOICE. */
+export interface TtsReadingPatch { general?: {figure?: FigurePointer | null}; narrator?: {enabled?: boolean; figure?: FigurePointer | null} }
 /** One configured voice service as UIs and other plugins list it: no keys, URLs or config. 浏览器朗读 (kind 'browser') is always listed;
  * so is every other plugin's registered provider that reports `voiceSources`. */
 export interface VoiceServiceEntry {

@@ -2912,7 +2912,7 @@ function ttsErrorMessage(code) {
     TIMEOUT:'语音服务响应超时，请检查服务连接或本地模型日志后重试。',
     PROCESS_EXITED:'本地模型已退出，请查看本地模型日志并重新启动。',
     SERVICE_START_FAILED:'本地模型启动失败，请查看本地模型日志并修正安装配置。',
-    INVALID_READING_VOICE:'朗读声音设置无效：声音须是浏览器声音 {browser:名称} 或语音服务声音 {serviceId, voice}，留空用浏览器默认声音。',
+    INVALID_READING_VOICE:'朗读声音设置无效：通用声音和旁白须指向素材库里的一个人物 {packId, figureId}，留空用浏览器默认声音。',
     TTS_DISABLED:'配音服务未启用，请在语音后端启用服务。',
     USAGE_UNKNOWN:'查不到有没有人物在用这个语音服务，删除前需要确认。',
     REVISION_CONFLICT:'声音配置已变化，请重新载入人物声音页后再试。',
@@ -26814,41 +26814,18 @@ function createStageViewScope(build) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageViewScope};
 
         // 设置 › 舞台 (global-settings.js): the core's settings section holds the stage client and renders views.GlobalSettings.
-        function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, CubismCoreEntry, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, Switch}) {
-    // 对话气泡 / 舞台模式's global layer (engine stageToggles, default off); a card's 本卡开启 / 本卡关闭 lives on its 舞台设置 and wins
-    // (card-stage-settings.js effectiveCardStage). 舞台模式 needs 对话气泡, like the card page.
-    function GlobalStageSwitches() {
-        const h = React.createElement;
-        const [engine, setEngine] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
-        React.useEffect(() => {
-            let active = true;
-            rpc("getAssetEngineSettings").then(value => { if (active) setEngine(value); }, err => { if (active) setError("读取失败：" + err.message); });
-            return () => { active = false; };
-        }, []);
-        async function save(key, value) {
-            setBusy(true); setError("");
-            const write = current => rpc("saveAssetEngineSettings", { expectedRevision: current.revision, patch: { stageToggles: { [key]: value } } });
-            try {
-                try { setEngine(await write(engine)); }
-                catch (err) { if (err?.code !== "REVISION_CONFLICT") throw err; setEngine(await write(await rpc("getAssetEngineSettings"))); }
-            } catch (err) { setError("保存失败：" + err.message); }
-            finally { setBusy(false); }
-        }
-        const toggles = engine?.values?.stageToggles, dialogue = toggles?.dialogue === true;
-        const row = (key, title, text, blocked) => h(TavernSettingRow, { key, title, help: text },
-            h(Switch, { label: title, disabled: !engine || busy || engine.writable === false || blocked, checked: toggles?.[key] === true, onChange: value => save(key, value) }));
-        return h(React.Fragment, null,
-            row("dialogue", "对话气泡", "带舞台设置的卡默认是否用带头像的对话气泡显示正文。单张卡可在它的舞台设置里改为本卡开启或本卡关闭；普通人物卡不受影响。"),
-            row("stage", "舞台模式", dialogue ? "带舞台设置的卡默认是否打开舞台（立绘、背景、音乐和演出）。单张卡可在它的舞台设置里改为本卡开启或本卡关闭。" : "先打开对话气泡", !dialogue),
-            error ? h("p", { className: "dsh-tavern-gs-notice is-alert", role: "alert" }, "⚠ " + error) : null);
-    }
+        function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, CubismCoreEntry, SpineRuntimeEntry, ForkModManagerEntry}) {
+    // 对话气泡 / 舞台模式 have no row here: their only switch is the four-state one of 舞台设置 › 基础设置 (its 全局 choices write
+    // the same engine stageToggles).
+    // 舞台模型: every slot the stage registered — its own (导演模型, 智能判断) first as plain rows, then each stage mod's
+    // (手机 › 通话模型) under the mod's name. The core's own slots stay on 设置 › DSH Tavern › 默认模型 (owner 'core').
     function StageModelSettings() {
         const h = React.createElement;
         const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
         React.useEffect(() => {
             let active = true;
             const refresh = () => rpc('getTavernSettings').then(result => {
-                if (active) setState(current => ({...current, loading:false, slots:(result.modModelSlots || []).filter(slot=>slot.modId === 'dsh.stage'), settings:result.settings, catalog:result.modelCatalog || [], scoringCatalog:result.scoringCatalog || [], error:""}));
+                if (active) setState(current => ({...current, loading:false, slots:(result.modModelSlots || []).filter(slot=>slot.owner !== 'core'), settings:result.settings, catalog:result.modelCatalog || [], scoringCatalog:result.scoringCatalog || [], error:""}));
             }, error => { if (active) setState(current=>({...current, loading:false, error:String(error.message || error)})); });
             refresh();
             window.addEventListener('dsh-tavern-mods-changed', refresh);
@@ -26862,16 +26839,16 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                 setState(current=>({...current,busy:false,settings:result.settings}));
             } catch(error) { setState(current=>({...current,busy:false,error:String(error.message || error)})); }
         }
+        const common = {values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save};
         return h(React.Fragment, null,
             state.error ? h('p', {role:'alert'}, state.error) : null,
-            h(TavernModelSlotGroups, {rowsOnly:true, slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
+            h(TavernModelSlotGroups, {...common, rowsOnly:true, slots:state.slots.filter(slot=>slot.modId === 'dsh.stage')}),
+            h(TavernModelSlotGroups, {...common, slots:state.slots.filter(slot=>slot.modId !== 'dsh.stage')}));
     }
     function TavernStageSettingsSection() {
         const h = React.createElement;
         return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-            h(SettingsGroup, {title:"基础设置"}, h(GlobalStageSwitches)),
             h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
-            h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
             // the optional runtimes, the same entries as the model previews.
             h(SettingsGroup, {title:"运行库"}, h("div", {className:"fork-runtime-list"}, CubismCoreEntry ? h(CubismCoreEntry, {request:rpc}) : null, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null)),
             h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
@@ -27885,7 +27862,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
-            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
                 EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
@@ -29210,7 +29187,6 @@ function StageSwitches({ctx}) {
     row('dialogue'),
     h(StageVoiceRow,{key:'voice',ctx}),
     row('stage',h(StageModeJump,{ctx}),ctx.onEngine?()=>ctx.onEngine():undefined),
-    h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
     h(StageAutoCastRow,{key:'auto-cast',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
@@ -29351,23 +29327,6 @@ function StageModeJump({ctx}) {
   const jump=React.useRef(null);
   React.useEffect(()=>{if(ctx.takeEngineFocus?.())jump.current?.focus?.();},[]);
   return ctx.onEngine?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'舞台模式设置',title:'舞台模式设置',onClick:()=>ctx.onEngine()},h(Glyph,{name:'chevRight'})):null;
-}
-// 「自动生成选项」 is a basic, every-card setting and lives only here (moved out of 酒馆设置 ›
-// 候选项 and the stage CONFIG): the global candidateAutoGenerate through the one hook (auto-choices-preference.js). Needs no stage
-// switch: it also serves the chat view. A save failure is the row's ⚠.
-const STAGE_AUTO_CHOICES_HELP='每轮正文完成后自动生成选项；不补生成旧回复，失败可手动重试。';
-// Four-state like the rest: the global layer is candidateAutoGenerate, the card layer stage.switches.autoChoices (the host
-// decides per chat with effectiveAutoChoices).
-function StageAutoChoicesRow({ctx}) {
-  if(typeof autoChoices!=='function')return null;
-  return h(StageAutoChoicesSwitch,{ctx});
-}
-function StageAutoChoicesSwitch({ctx}) {
-  const {enabled,loading,busy,error,save}=autoChoices('getTavernSettings');
-  const tag=h(StageSwitchTag,{name:'自动生成选项',global:enabled===true,card:ctx.ext?.stage?.switches?.autoChoices,busy,disabled:loading,
-    writeCard:value=>ctx.writer.write(ext=>stageSwitchPatch(ext,{autoChoices:value})),writeGlobal:value=>save(value)});
-  return h(SwitchRow,{label:'自动生成选项',icon:'select',help:STAGE_AUTO_CHOICES_HELP,tag,
-    status:error?h(HintLine,{compact:true,text:error}):null});
 }
 // 「自动素材 ›」: a stage core feature, not a mod. Four-state like the rest: the global layer is the stage's
 // tavern-auto-cast section (getAutoCastSettings), the card layer stage.switches.autoCast; the host decides with
