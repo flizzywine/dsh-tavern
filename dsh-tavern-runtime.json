@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b17be2997e893ad041823bba75aa0a111373cffd",
-  "releaseSequence": 1697,
+  "revision": "7e6b697b357e39523c36e0f3311a352186be3173",
+  "releaseSequence": 1698,
   "version": "3.3.0",
   "files": [
     {
@@ -3141,8 +3141,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-events.js",
-      "sha256": "a1ce6bb3cab357d62ded810270e3523510cd77b50fbeab477184ebf127388b25",
-      "size": 8917
+      "sha256": "db826b6b0393d2f03e45f9921dfb4d6520df786ecf1af24743db02135babe4d1",
+      "size": 9943
     },
     {
       "path": "tavern-plugin/lib/domain/session-inventory.js",
@@ -3446,8 +3446,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-reconciliation.js",
-      "sha256": "4e1f1e727c6971b8b72b459093f9de201fb41909da6db3f8a928afa10cf59a8a",
-      "size": 8981
+      "sha256": "3228c44c8ff6ea87e1f3ef7da415a44204ee7bafe8ec62ba76bf27ed590b1034",
+      "size": 9113
     },
     {
       "path": "tavern-plugin/lib/domain/story-timeline.js",
@@ -4051,8 +4051,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "4ddd0cad40c382076baa117f3e7b13c93882508eabc166c5da4f1c32f7eed128",
-      "size": 15482
+      "sha256": "ec10cd59477e4c99cb89a6f263b31a844580beb9926e48618dab0aa7798615cd",
+      "size": 15552
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -4121,8 +4121,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "88cc33127c83d5b235a5bb8734961bff3b61cda7df677debd4a87b61025274b6",
-      "size": 312793
+      "sha256": "8af17d7a81066e09d4f8fe9381412cb51394d4a7f3a04c0f6bdcbf0c37db57c4",
+      "size": 313182
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9306,9 +9306,9 @@
     }
   ],
   "archive": {
-    "commit": "2a05fa7ff9d67cb2ba18d19badbeb11bc500ba50",
+    "commit": "e8003e2a99e3152ebd6691e5847c2193be282f4c",
     "path": "runtime.zip",
-    "sha256": "a3757e7c656095c82c74ef085d2233d8b6519f688ac3e56bb378294be2d36581",
-    "size": 16682773
+    "sha256": "3d906c8c52409399532272dc123240457248b85ae576f2448e70046c00804d81",
+    "size": 16683264
   }
 }
