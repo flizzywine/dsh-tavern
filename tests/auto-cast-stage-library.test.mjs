@@ -115,13 +115,13 @@ test('an automatic figure without emotions counts its lines against the standard
 })
 
 // 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
-test('the assistant\'s voice candidates are the library\'s 通用声音 only: the switch decides, an old 使用情景 counts as on', async t => {
+test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景 or 「通用」 in the name; the old switch is not read', async t => {
   const {service, port, templatePack} = await fixture(t)
   const pack = await service.getPackSnapshot({packId:templatePack}), base = pack.manifest.voiceLibrary.voices.tsundere
   const {guidance:_g, ...plain} = base
-  await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false}, own:{...plain, name:'萌宝'}, on:{...plain, name:'通用男性声音', autoCast:true}}}}})
-  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '通用男性声音'])
-  assert.deepEqual((await port.search('傲娇')).voices.map(row => row.voiceId), ['tsundere'], 'the search offers the same candidates')
+  await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音'}}}}})
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '通用男性声音'])
+  assert.deepEqual((await port.search('傲娇')).voices.map(row => row.voiceId), ['tsundere', 'off'], 'the search offers the same candidates')
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})
 })
 test('a committed round through the asset library plugin\'s own service: new speakers are written, counted and drawn', async t => {

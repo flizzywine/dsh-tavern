@@ -8,7 +8,7 @@ import {JSDOM} from 'jsdom'
 
 const client = name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8')
 
-// 素材库 › 人物 › 声音: the library's pack modal has no card context (ctx:null), so 「配音后端 ›」 opens the 配音 tab
+// 素材库 › 人物 › 声音: the library's pack modal has no card context (ctx:null), so 「语音后端 ›」 opens the 配音 tab
 // through the library's own nav, not the card's.
 test('the 素材库 tab hands its pages a nav that opens the 配音 tab', async () => {
   const source = await client('asset-launcher.js'), opened = []
@@ -36,33 +36,17 @@ test('the library passes its nav from App through the pack modal and figure page
   // the window's tab nav closes the window before the tab opens (voice-backend-focus.test.mjs).
   assert.match(ui, /const tabNav=nav\?\.openTab\?\{\.\.\.nav,openTab:type=>\{close\(\);return nav\.openTab\(type\);\}\}:nav;/)
   assert.match(ui, /h\(FigureDetail,\{[^}]*figureActions:figureActions\(selected\.id\),nav:tabNav,/)
-  assert.match(figure, /h\(VoicePage,\{[^}]*nav,onClose:closeVoice\}/)
+  assert.match(figure, /h\(VoiceTab,\{[^}]*commitVoice,nav\}/)
   assert.match(voice, /const openSettings=nav\?\.openTab\?/)
-  assert.match(voice, /action:openSettings&&h\(Button,\{className:'ap-link ap-voice-backend',onClick:\(\)=>openSettings\(null\)\},'配音后端 ›'\)/)
+  // 「语音后端 ›」 sits at the foot of 添加声音's service column.
+  assert.match(voice, /openSettings&&h\(Button,\{className:'ap-link ap-vx-nav-foot',onClick:\(\)=>openSettings\(null\)\},'语音后端 ›'\)/)
 })
 
-// A source naming a service not set up in 配音后端 is one row: 「<服务名> · 未设置」 and the way there, no list to browse.
-test('an unconfigured source row has no body, only its state and the link to 配音后端', async t => {
+// 添加声音: a service that cannot speak now carries ⚠ and why, in 语音后端's words; one not checked yet is fine.
+test('a service that cannot speak says why in 语音后端 words; a service not checked yet is fine', async () => {
   const source = await client('asset-pack-voice-ui.js')
-  const dom = new JSDOM('<div id="root"></div>')
-  const previous = Object.fromEntries(['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
-  Object.assign(globalThis, {window:dom.window, document:dom.window.document, IS_REACT_ACT_ENVIRONMENT:true})
-  let root
-  t.after(async () => {
-    if (root) await act(() => root.unmount())
-    dom.window.close()
-    for (const [key, descriptor] of Object.entries(previous)) descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key]
-  })
-  const context = {h:React.createElement, Glyph:({name}) => React.createElement('i', {'data-glyph':name})}
-  const VoiceWay = vm.runInNewContext(source.slice(source.indexOf('function VoiceWay('), source.indexOf('// A chosen-from-a-list row')) + ';VoiceWay', context)
-  let opened = 0
-  root = createRoot(document.getElementById('root'))
-  await act(() => root.render(React.createElement(VoiceWay, {way:{id:'library', title:'Fish Audio · 声音库'}, current:true,
-    state:{warn:true, text:'Fish Audio · 未设置'}, action:React.createElement('button', {onClick:() => opened++}, '去配音后端设置 ›')})))
-  const row = document.querySelector('.ap-voice-way')
-  assert.equal(row.querySelector('.ap-voice-way-body'), null)
-  assert.equal(row.querySelector('[aria-expanded]'), null)
-  assert.equal(row.querySelector('.ap-voice-way-sum.is-warn').textContent, 'Fish Audio · 未设置')
-  await act(() => row.querySelector('.ap-voice-way-action button').click())
-  assert.equal(opened, 1)
+  const state = vm.runInNewContext(source.slice(source.indexOf('const SERVICE_STATE_WORDS='), source.indexOf('// Azure voice names')) + ';voiceServiceState', {window:{speechSynthesis:{}}})
+  assert.deepEqual({...state({kind:'fish-audio', state:'needs-key'})}, {warn:true, setup:true, text:'缺少 API Key'})
+  assert.equal(state({kind:'azure', state:'configured'}), null)
+  assert.equal(state({kind:'browser'}), null)
 })

@@ -56,7 +56,7 @@ export function mergePackContents(source, target, {name, figureMerges = [], back
   }
   for (const id of source.manifest.figures) {
     const incoming = rewrite(source.figures[id]), rule = figureMerges.find(row=>row.source===id)
-    if (incoming.voice) incoming.voice.voice = voiceKeys[incoming.voice.voice]
+    if (incoming.voice?.voice) incoming.voice.voice = voiceKeys[incoming.voice.voice]
     if (!rule) {
       check(!manifest.figures.includes(id),'$.figures','Duplicate figure UUID','DUPLICATE_ID')
       manifest.figures.push(id); files.set('figures/'+id+'.json',jsonBytes(incoming)); continue

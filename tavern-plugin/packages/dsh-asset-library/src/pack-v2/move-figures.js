@@ -47,7 +47,7 @@ export function moveFigureContents(source, target, figureIds) {
         for (const [name,bytes] of source.files) if (name.startsWith('bundles/'+key+'/')) copyFile(name,bytes)
       }
     }
-    if (figure.voice) {
+    if (figure.voice?.voice) {
       const old = figure.voice.voice, spec = source.manifest.voiceLibrary?.voices?.[old]
       check(spec,'$.voice','Voice missing in source: '+old,'ASSET_UNAVAILABLE')
       const library = to.manifest.voiceLibrary ||= {version:1,voices:{}}

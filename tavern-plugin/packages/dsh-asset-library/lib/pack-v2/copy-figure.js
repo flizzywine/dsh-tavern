@@ -35,7 +35,7 @@ export function copyFigureAssets(source, figureId, manifest, files, {credits = t
     if (typeof value === 'string' && Object.hasOwn(source.manifest.blobs, value)) media.add(value)
     else if (value && typeof value === 'object') Object.values(value).forEach(visit)
   }
-  if (figure.voice) {
+  if (figure.voice?.voice) {
     const old = figure.voice.voice, library = manifest.voiceLibrary ||= {version:1,voices:{}}
     if (!voices.has(old)) {
       let next = old

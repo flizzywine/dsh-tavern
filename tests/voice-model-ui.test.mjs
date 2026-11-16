@@ -24,8 +24,8 @@ async function mount(t) {
   const rows=[figure('doubao','豆包'),figure('off','Off',{enabled:false}),figure('claude','Claude 娘'),figure('muted','Muted',{voice:{voice:'v',source:null}}),figure('ok','Browser')]
   sandbox.stageFigureRows=()=>rows
   sandbox.narratorLayers=(ext,reading)=>({effective:{enabled:!!reading?.narrator?.enabled}})
-  vm.runInNewContext([slice(entry,'const previewFailure=','function previewAudioError('),slice(voice,'function useVoiceLoad(','function voiceTts('),slice(voice,'function useVoiceRefresh(','function useVoiceModelStatus('),
-    slice(inline,'function Switch(','function Segmented('),slice(widgets,'function SwitchRow(','// Small anchored menu'),slice(card,'const STAGE_VOICE_REASONS=','const stageNeedText'),slice(card,'const STAGE_POINTERS=','// 通用声音 / 旁白\'s one row'),slice(voice,'const READING_ROLES=','// ⋯ → 换成本包其他声音或模板…'),
+  vm.runInNewContext([slice(entry,'const previewFailure=','function previewAudioError('),slice(voice,'function useVoiceLoad(','function voiceTts('),slice(voice,'function useVoiceRefresh(','// The saved figure'),slice(voice,'function useReadingPointers(','// The figure 通用声音 points at'),
+    slice(inline,'function Switch(','function Segmented('),slice(widgets,'function SwitchRow(','// Small anchored menu'),slice(card,'const STAGE_VOICE_REASONS=','const stageNeedText'),slice(card,'const STAGE_POINTERS=','// 通用声音 / 旁白\'s one row'),
     slice(card,'const pressRowJump=','// The voices that cannot speak')].join('\n')+
     ';this.StageVoiceRow=StageVoiceRow;this.StageVoiceProblems=StageVoiceProblems',sandbox)
   // state.reading: tts.reading (which figure 通用声音 / 旁白 point at); the figures they may point at are in the unlit pack 'voices'.

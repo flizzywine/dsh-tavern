@@ -199,11 +199,12 @@ test('a voice\'s 使用情景 is saved, found by the library search and survives
   const saved = await f.service.savePackVoice({packId:pack.manifest.id, expectedRevision:pack.revision, figureId:'f6f6f6f6-0000-4000-8000-000000000006', voiceId:'uncle', voiceSpec:{...browserVoice('沉稳大叔', 'zh-c'), guidance:'适合中年男性'}})
   await assert.rejects(f.service.savePackVoice({packId:pack.manifest.id, expectedRevision:saved.snapshot.revision, figureId:'f6f6f6f6-0000-4000-8000-000000000006', voiceId:'uncle', voiceSpec:{...browserVoice('沉稳大叔', 'zh-c'), guidance:'长'.repeat(61)}}), {code:'INVALID_INPUT'})
   assert.deepEqual((await f.caster.searchLibrary({query:'中年'})).voices.map(row => row.guidance), ['适合中年男性'])
-  // 通用声音: a 使用情景 from before the switch counts as on; the switch off hides it and keeps the words.
+  // 可选声音 「默认」: a voice with a 使用情景 is offered; the old autoCast switch is not read; without one it is not.
   assert.deepEqual((await f.caster.listLibraryVoices()).voices.map(row => row.name), ['沉稳大叔'])
-  const off = await f.service.savePackVoice({packId:pack.manifest.id, expectedRevision:saved.snapshot.revision, figureId:'f6f6f6f6-0000-4000-8000-000000000006', voiceId:'uncle', voiceSpec:{...browserVoice('沉稳大叔', 'zh-c'), guidance:'适合中年男性', autoCast:false}})
+  const old = await f.service.savePackVoice({packId:pack.manifest.id, expectedRevision:saved.snapshot.revision, figureId:'f6f6f6f6-0000-4000-8000-000000000006', voiceId:'uncle', voiceSpec:{...browserVoice('沉稳大叔', 'zh-c'), guidance:'适合中年男性', autoCast:false}})
+  assert.deepEqual((await f.caster.listLibraryVoices()).voices.map(row => row.name), ['沉稳大叔'])
+  const off = await f.service.savePackVoice({packId:pack.manifest.id, expectedRevision:old.snapshot.revision, figureId:'f6f6f6f6-0000-4000-8000-000000000006', voiceId:'uncle', voiceSpec:browserVoice('沉稳大叔', 'zh-c')})
   assert.deepEqual([(await f.caster.listLibraryVoices()).voices, (await f.caster.searchLibrary({query:'中年'})).voices], [[], []])
-  assert.equal(off.snapshot.manifest.voiceLibrary.voices.uncle.guidance, '适合中年男性')
   await f.service.savePackVoice({packId:pack.manifest.id, expectedRevision:off.snapshot.revision, figureId:'f6f6f6f6-0000-4000-8000-000000000006', voiceId:'uncle', voiceSpec:{...browserVoice('沉稳大叔', 'zh-c'), guidance:'适合中年男性'}})
   const {readSmallArchive} = await import('./fixtures/asset-packs/pack.mjs')
   const bytes = await readSmallArchive(await f.service.exportPack({packId:pack.manifest.id, expectedRevision:(await f.service.getPackSnapshot({packId:pack.manifest.id})).revision}))

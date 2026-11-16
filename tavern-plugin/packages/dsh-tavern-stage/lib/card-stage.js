@@ -96,7 +96,7 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
     const promptEmotionIds = (figure.emotions || []).map(row=>row.id)
     // 通用声音 speaks an enabled figure that has no voice binding (one set to 「不配音」, source null, stays silent).
     const general = stage.voice && figure.enabled && !figure.voice
-    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? figureVoiceKey(ref, figure, pack, extension) : null, avatarMedia:{...outfitMedia(opening), outfits:Object.fromEntries(figure.outfits.filter(outfit => outfit.enabled && outfit !== opening).map(outfit => [outfit.key, outfitMedia(outfit)]))},
+    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice?.voice ? figureVoiceKey(ref, figure, pack, extension) : null, avatarMedia:{...outfitMedia(opening), outfits:Object.fromEntries(figure.outfits.filter(outfit => outfit.enabled && outfit !== opening).map(outfit => [outfit.key, outfitMedia(outfit)]))},
       voiceLanguage:figureVoiceLanguage(figure, pack)}
   })
   config.stage.styles = directionStyles(packSnapshots, extension?.assetBindings.boundPackIds, globalEnabledPackIds)

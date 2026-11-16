@@ -1,6 +1,6 @@
 // Generated from dsh-presentation-protocol by build.mjs; do not edit.
-// 通用声音 (声音页的开关「是否通用」, voice spec field `autoCast`): whether the casting assistant (自动素材) may pick this voice
-// for a new figure. A voice from before the switch counts as on when it has a 使用情景 (the only thing that offered it then).
-// The one rule: the library's candidate filter (library-search.js) and the voice page both call it.
-const voiceAutoCast = voice => voice.autoCast ?? Boolean(voice.guidance)
+// 可选声音 (舞台设置 › 自动素材, preset 「默认」): whether the casting assistant (自动素材) may pick this
+// voice for a new figure — a voice with a 使用情景 (`guidance`) or 「通用」 in its name. The old per-voice
+// `autoCast` switch is no longer read. The one rule: the library's candidate filter (library-search.js) and 自动素材 call it.
+const voiceAutoCast = voice => Boolean(voice.guidance) || String(voice.name || '').includes('通用')
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast};

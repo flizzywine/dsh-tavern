@@ -22,6 +22,7 @@ export async function assetVoiceBinding(tts, declaration, options) {
 export async function figureRefTtsVoice(library, tts, ref, options) {
   if (!ref) return {browser:''}
   const pack = await library.getPackSnapshot({packId:ref.packId}), figure = pack?.figures[ref.figureId]
+  if (figure?.voice?.source === null) return null
   const voice = figure?.voice && pack.manifest.voiceLibrary?.voices[figure.voice.voice]
   if (!voice) throw Object.assign(new Error('VOICE_NOT_FOUND'), {code:'VOICE_NOT_FOUND'})
   const binding = figure.voice

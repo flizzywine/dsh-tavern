@@ -36,8 +36,8 @@ export function voiceReferences(voice) {
 export function validateVoiceSpec(v, path = '$.voice') {
   shape(v,['name','guidance','autoCast','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
-  // 使用情景: one optional line saying whom the voice suits (「适合中年男性」); the casting assistant reads it. It is kept while
-  // autoCast (通用声音, voice-auto-cast.cjs) is off (the page greys it).
+  // 使用情景: one optional line saying whom the voice suits (「适合中年男性」); the casting assistant reads it and it puts the
+  // voice in 自动素材's 「默认」 可选声音 (voice-auto-cast.cjs). `autoCast`: the old per-voice switch, still accepted, no longer read.
   if (v.autoCast !== undefined) check(typeof v.autoCast === 'boolean',path+'.autoCast')
   if (v.guidance !== undefined) check(typeof v.guidance === 'string' && [...v.guidance].length <= 60 && !/[\u0000-\u001f\u007f]/.test(v.guidance),path+'.guidance')
   record(v.sources,path+'.sources',(s,p) => {
@@ -77,7 +77,9 @@ export function validateVoiceSpec(v, path = '$.voice') {
   })
   return v
 }
+// {source:null} alone: a figure without a voice of its own that is still not voiced (配音 off while it would use 通用声音).
 export function validateVoiceBinding(v, library, path = '$.voice') {
+  if (v?.source === null && !own(v,'voice')) { shape(v,['source'],['source'],path); return v }
   shape(v,['voice','source','variant','language','emotionVariants'],['voice'],path); id(v.voice,path+'.voice')
   if (v.source !== undefined && v.source !== null) id(v.source,path+'.source')
   if (v.variant !== undefined) id(v.variant,path+'.variant')
