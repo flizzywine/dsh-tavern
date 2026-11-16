@@ -3142,6 +3142,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui button.ap-state-tag[data-state=off]:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-ink) 16%, transparent); }
 .ap-ui button.ap-state-tag[data-state=card]:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-state-card) 25%, transparent); }
 .ap-ui button.ap-state-tag[data-state=global]:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-state-global) 25%, transparent); }
+/* 「自动」 marks an automatic pack: a quiet neutral pill (no state colour), so it reads as a badge, not loose text. */
+.ap-state-tag.is-auto { background: color-mix(in srgb, var(--fork-ink) 12%, transparent); color: color-mix(in srgb, var(--fork-ink) 78%, transparent); }
 .ap-state-anchor .ap-popover { min-width: 196px; padding: 5px; }
 .ap-ui button.ap-state-opt { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 0; height: 38px; padding: 0 10px 0 6px; border: 0; border-radius: 8px; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 500; }
 .ap-ui button.ap-state-opt:hover:not(:disabled) { background: var(--fork-hover); }
