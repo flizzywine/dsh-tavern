@@ -3027,6 +3027,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
         extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
+        referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
       const currentInput = instruction ? `${body}\n\n<本次生图要求>\n${instruction}\n</本次生图要求>` : body
       const contextBoundary = system.indexOf('\n\n<本轮上下文>\n')

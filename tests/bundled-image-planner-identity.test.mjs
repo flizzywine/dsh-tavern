@@ -78,3 +78,9 @@ test('draw-turn hands the planner the end of the previous reply', async t => {
   assert.doesNotMatch(calls[0].system, /裴婉宁在水池前挽起袖子/)
   assert.match(calls[0].system, /认人按这个顺序/)
 })
+
+test('only reference planning shows <subjects> in the fixed output template', () => {
+  const template = system => system.match(/<images><image>[^\n]*<\/images>/)[0]
+  assert.match(template(buildPlannerSystem({ count: 1, referenceSubjects: true })), /<size>\.\.\.<\/size><subjects>\[\{"characterId":"[^"]+","outfitId":""\}\]<\/subjects><prompts>/)
+  assert.doesNotMatch(template(buildPlannerSystem({ count: 1 })), /subjects/)
+})
