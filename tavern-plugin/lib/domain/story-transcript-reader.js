@@ -59,24 +59,47 @@ async function projectWindow(window, summaries, readToolEvents) {
  */
 export function createStoryTranscriptReader({
   readSessionMap, readWindow, readRecentSummaries, readChat,
-  readToolEvents, messageFields, limit = 120
+  readToolEvents, messageFields, limit = 120, cacheSize = 12
 }) {
+  const transcriptCache = new Map()
+  function readCachedTranscript(key) {
+    const cached = transcriptCache.get(key)
+    if (!cached) return null
+    transcriptCache.delete(key)
+    transcriptCache.set(key, cached)
+    return cached
+  }
+  function rememberTranscript(key, value) {
+    if (cacheSize <= 0) return value
+    transcriptCache.delete(key)
+    transcriptCache.set(key, value)
+    while (transcriptCache.size > cacheSize) transcriptCache.delete(transcriptCache.keys().next().value)
+    return value
+  }
+
   async function fullWindow(chatId, sessionId, tools) {
     const chat = await readChat(chatId)
     if (!chat || String(chat.sessionId || '') !== String(sessionId)
       || !['story', 'script'].includes(chat.mode || 'story')
       || !Array.isArray(chat.messages)) return null
     const messageCount = chat.messages.length
+    const revision = Number(chat._storageRevision) || 0
     const window = {
       chat,
       from: 0,
       to: messageCount - 1,
       messageCount,
-      revision: Number(chat._storageRevision) || 0
+      revision
     }
+    const key = !tools && revision > 0
+      ? JSON.stringify([chatId, String(sessionId), revision, 0, messageCount - 1, messageCount])
+      : null
+    const cached = key ? readCachedTranscript(key) : null
+    if (cached) return { ...window, storyTranscript: cached }
+    const projected = await projectWindow(window, chat.messages.map(summaryOf), tools)
     return {
       ...window,
-      storyTranscript: await projectWindow(window, chat.messages.map(summaryOf), tools)
+      storyTranscript: key ? rememberTranscript(key, projected) : projected
     }
   }
 
@@ -94,13 +117,19 @@ export function createStoryTranscriptReader({
       if (!window) return fullWindow(chatId, sessionId, tools)
       if (String(window.chat?.sessionId || '') !== String(sessionId)
         || !['story', 'script'].includes(window.chat?.mode || 'story')) return null
+      const key = !tools && window.revision > 0
+        ? JSON.stringify([chatId, String(sessionId), window.revision, window.from, window.to, window.messageCount])
+        : null
+      const cached = key ? readCachedTranscript(key) : null
+      if (cached) return { ...window, storyTranscript: cached }
       const summaryPage = await readRecentSummaries(chatId, window.messageCount, { revision: window.revision })
       if (summaryPage?.revision === window.revision && summaryPage.from === 0
         && summaryPage.messageCount === window.messageCount
         && Array.isArray(summaryPage.messages)) {
+        const projected = await projectWindow(window, summaryPage.messages, tools)
         return {
           ...window,
-          storyTranscript: await projectWindow(window, summaryPage.messages, tools)
+          storyTranscript: key ? rememberTranscript(key, projected) : projected
         }
       }
       // A write landed between the page and summary reads. Retry; the final

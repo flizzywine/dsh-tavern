@@ -38,8 +38,11 @@ function createTavernRecentSessionRetention(sessions, options) {
 	const existing = TAVERN_RECENT_SESSION_RETENTIONS.get(sessions)
 	if (existing) return existing
 	const settings = options || {}
-	const limit = Number.isSafeInteger(settings.limit) ? Math.max(1, settings.limit) : 4
-	const durationMs = Number.isSafeInteger(settings.durationMs) ? Math.max(1000, settings.durationMs) : 60 * 1000
+	// 手机在 5~8 个对话之间来回切：只留 4 个宿主会话时，第 5 个一起就要把最早那个
+	// 拆掉，再切回去等于重开整条事件流 + 重读 page，切一次卡一次。窗口提到 8 个/3 分钟，
+	// 仍然是显式可配置参数（保留参数优先）。
+	const limit = Number.isSafeInteger(settings.limit) ? Math.max(1, settings.limit) : 8
+	const durationMs = Number.isSafeInteger(settings.durationMs) ? Math.max(1000, settings.durationMs) : 180 * 1000
 	const busyRetryMs = Number.isSafeInteger(settings.busyRetryMs) ? Math.max(1000, settings.busyRetryMs) : 5 * 1000
 	const records = new Map()
 	const setTimer = function (run, ms) {

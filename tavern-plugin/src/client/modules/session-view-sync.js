@@ -1,5 +1,5 @@
 // Cached session views are immutable, like the React views returned by getSession.
-function createSessionViewReader(maxSessions = 4) {
+function createSessionViewReader(maxSessions = 12) {
   const sessions = new Map();
   // Evict cached views, never an outstanding request's freshness watermark.
   // The pending map is bounded by actual in-flight work, and released on every

@@ -35,11 +35,18 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
  */
 export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, project, activity,
   trace, foregroundRunning, synchronize, resourceVersion = async () => '' }) {
+  // 手机在 5~12 个对话之间来回切：缓存只留 8 条时，刚切一圈就会把最早那份视图踢掉，
+  // 再切回去又要整条重投影。上限与客户端故事窗口缓存、楼层摘要快照缓存保持同一档。
+  const VIEW_CACHE_LIMIT = 12
+  const STORY_CACHE_LIMIT = 12
   const cache = new Map()
   const openingCache = new Map()
   const openingPending = new Map()
   const openingNegative = new Map()
   const helperWindows = new Map()
+  // 故事窗口的投影比视图投影更贵：同一份窗口快照被重复请求时直接复用。
+  const storyCache = new Map()
+  const storyPending = new Map()
   const pending = new Map()
   async function changes(chat, revision) {
     const target = Number(chat._storageRevision) || 0
@@ -106,13 +113,13 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       if (view?.tavernHelper?.messagesPending && options.windowHelperMessages) {
         const latest = helperWindows.get(chat.id)
         if (!latest || latest.revision <= next.revision) helperWindows.set(chat.id, {...next, sessionId:String(sessionId), view})
-        while (helperWindows.size > 8) helperWindows.delete(helperWindows.keys().next().value)
+        while (helperWindows.size > VIEW_CACHE_LIMIT) helperWindows.delete(helperWindows.keys().next().value)
       }
       if (!view?.tavernHelper?.messagesPending) {
         const latest = cache.get(chat.id)
         // A slower old projection cannot evict an already completed newer one.
         if (!latest || latest === cached || latest.revision <= next.revision) cache.set(chat.id, { ...next, view })
-        while (cache.size > 8) cache.delete(cache.keys().next().value)
+        while (cache.size > VIEW_CACHE_LIMIT) cache.delete(cache.keys().next().value)
       }
     }
     trace.state({ foregroundRunning: foregroundRunning(sessionId), backgroundBusy: currentActivity.busy,
@@ -131,13 +138,42 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
     }
     // Story history is read-only and independent of native view cursors.
     if (args.storyTranscript === 1 && readStoryWindow && project.story) {
+      const includeTools = args.includeToolCalls === true
+      const deferRes = args.resourceSync === 1
       const window = await trace.stage('readStoryWindow', () => readStoryWindow(sessionId, args.historyFrom,
-        { includeToolCalls: args.includeToolCalls === true }))
+        { includeToolCalls: includeTools }))
       if (!window) return { view: null, storyTranscript: null, revision: 0 }
-      const view = await trace.stage('projectStoryWindow', () => project.story(window, {deferResources:args.resourceSync === 1}))
-      trace.state({viewRebuild:'story',helperMessageCount:window.chat.messages.length})
-      const {storyTranscript:_embedded,...storyView}=view
-      return {view:transportView(storyView),storyTranscript:window.storyTranscript,revision:window.revision}
+      // 同一份窗口快照 + 同一份外部资源（世界书/扩展）才算同一份正文。签名里带上
+      // 全部投影输入，客户端把上次拿到的签名带回来时才能断言「屏幕上那份就是这份」。
+      // 只凭 revision 相等不行：世界书被外部改过时 revision 不变、正文却变了。
+      const resources = await resourceVersion(window.chat)
+      const storySignature = JSON.stringify([window.chat.id, window.revision, window.from, window.to,
+        window.messageCount, resources, includeTools, deferRes])
+      const knownSignature = typeof args.knownStorySignature === 'string' && args.knownStorySignature !== ''
+        ? args.knownStorySignature : null
+      if (knownSignature !== null && knownSignature === storySignature) {
+        trace.state({viewRebuild:'story-cache',helperMessageCount:window.chat.messages.length})
+        return {unchanged:true,revision:window.revision,storySignature}
+      }
+      let cached = storyCache.get(storySignature)
+      if (cached) { storyCache.delete(storySignature); storyCache.set(storySignature, cached) }
+      let rebuild = 'story-cache'
+      if (!cached) {
+        let work = storyPending.get(storySignature), owner = work === undefined
+        if (!work) {
+          work = trace.stage('projectStoryWindow', () => project.story(window, {deferResources:deferRes}))
+          storyPending.set(storySignature, work)
+        }
+        try {
+          cached = await work
+          storyCache.set(storySignature, cached)
+          while (storyCache.size > STORY_CACHE_LIMIT) storyCache.delete(storyCache.keys().next().value)
+          rebuild = owner ? 'story' : 'story-cache'
+        } finally { if (storyPending.get(storySignature) === work) storyPending.delete(storySignature) }
+      }
+      trace.state({viewRebuild:rebuild,helperMessageCount:window.chat.messages.length})
+      const {storyTranscript:_embedded,...storyView}=cached
+      return {view:transportView(storyView),storyTranscript:window.storyTranscript,revision:window.revision,storySignature}
     }
     // Bounded and complete views have separate cache contracts. A window key pins
     // both its storage snapshot and external resources; it never becomes a Chat baseline.
@@ -167,7 +203,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
             try {
               cached = { view: await work }
               openingCache.set(key, cached)
-              while (openingCache.size > 8) openingCache.delete(openingCache.keys().next().value)
+              while (openingCache.size > VIEW_CACHE_LIMIT) openingCache.delete(openingCache.keys().next().value)
               rebuild = owner ? 'window' : 'window-cache'
             } finally { if (openingPending.get(key) === work) openingPending.delete(key) }
           }
@@ -200,7 +236,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
     if (current && current.revision >= revision) return false
     cache.set(chatId,{...pending,view:{...pending.view,tavernHelper:helper}})
     helperWindows.delete(chatId)
-    while (cache.size > 8) cache.delete(cache.keys().next().value)
+    while (cache.size > VIEW_CACHE_LIMIT) cache.delete(cache.keys().next().value)
     return true
   }
   return Object.freeze({ read, response, acceptHelperMessages })

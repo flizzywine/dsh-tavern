@@ -88,8 +88,10 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    }
    onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
    const value={messages,pending,bytes}
+   // 手机在 12 个会话之间来回切：只留 4 份时刚切一圈就全部落空，每次都要重扫全历史
+   // page。上限提到 12 份（与视图/故事窗口缓存同档），字节上限相应放宽。
    if(bytes<=8*1024*1024){
-    while(summaryCache.size && (summaryCache.size>=4 || summaryBytes+bytes>16*1024*1024)){
+    while(summaryCache.size && (summaryCache.size>=12 || summaryBytes+bytes>24*1024*1024)){
      const oldest=summaryCache.keys().next().value;summaryBytes-=summaryCache.get(oldest).bytes;summaryCache.delete(oldest)
     }
     summaryCache.set(key,value);summaryBytes+=bytes

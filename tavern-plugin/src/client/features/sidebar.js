@@ -702,7 +702,21 @@
 			async function waitForSessionSummary(sessionId) {
 				await sessionListRecoveryRef.current.wait(sessionId);
 			}
+			// 点会话的那一瞬间就把这一局的故事正文读起来。否则要等 getSession（手机实测
+			// 2.4s 量级）落地、列表挂载后才发出第一次 getStoryTranscript（1.4s），两段
+			// 串成一条瀑布，界面上就一直停在「正在读取故事…」。预取只写缓存、不改可见
+			// 状态；模块未包含或预取失败时静默跳过，绝不影响切换本身。
+			function prefetchStoryOnSwitch(sessionId) {
+				try {
+					const id = String(sessionId || "");
+					if (id === "" || typeof prefetchTavernStoryTranscript !== "function") return;
+					const row = history.find(function (entry) { return entry.sessionId === id; });
+					if (row && !isPlayMode(row.mode || "story")) return;
+					void prefetchTavernStoryTranscript(sessionId);
+				} catch (_) { /* 预取是加速，不是切换的前提 */ }
+			}
 			async function openSessionWhenReady(sessionId) {
+				prefetchStoryOnSwitch(sessionId);
 				await sessionListRecoveryRef.current.open(sessionId);
 				// 切过来就立刻把这一局的视图读出来。不这么做的话，按钮先拿着切换前那份
 				// 视图（多半是空会话的）判定，要等它自己重试或者玩家点开「更多」——那里的

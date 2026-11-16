@@ -33,6 +33,21 @@ function tavernStoryTranscriptHistoryFrom(value) {
 	return Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
+// 侧栏（features/sidebar.js）与故事历史模块之间不直接引用：第一次创建的 store 把
+// 自己的 prefetch 挂在这里，侧栏点击会话时调用它，切换瞬间就把正文读起来。
+// 未注册、模块未包含或预取失败时一律静默返回 null，侧栏行为不受影响。
+let TAVERN_STORY_TRANSCRIPT_PREFETCH = null
+function registerTavernStoryTranscriptPrefetch(fn) {
+	TAVERN_STORY_TRANSCRIPT_PREFETCH = typeof fn === 'function' ? fn : null
+}
+function prefetchTavernStoryTranscript(sessionId, options) {
+	if (typeof TAVERN_STORY_TRANSCRIPT_PREFETCH !== 'function') return null
+	try {
+		const result = TAVERN_STORY_TRANSCRIPT_PREFETCH(String(sessionId || ''), options)
+		return result && typeof result.then === 'function' ? result.catch(function () { return null }) : result
+	} catch (_) { return null }
+}
+
 const TAVERN_HIDDEN_PROTOCOL_TAGS = new Set([
 	'think', 'thinking', 'analysis', 'reasoning',
 	'updatevariable', 'updatevariables', 'update_variable', 'update_variables', 'update-variable', 'update-variables',
@@ -629,13 +644,19 @@ function createTavernStoryTranscriptDataModule(deps) {
 		const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 		const args = historyFrom === null ? { sessionId: id } : { sessionId: id, historyFrom: historyFrom }
 		if (readOptions?.includeToolCalls === true) args.includeToolCalls = true
+		// 上次读到的版本与窗口签名一起带回去，服务端能毫秒级判定「屏幕上那份就是这份」，
+		// 免得每次切回来都整条重投影再整条传回来。
+		if (Number.isSafeInteger(readOptions?.knownRevision) && readOptions.knownRevision >= 0) args.knownRevision = readOptions.knownRevision
+		if (typeof readOptions?.knownStorySignature === 'string' && readOptions.knownStorySignature !== '') args.knownStorySignature = readOptions.knownStorySignature
 		const result = await request('getStoryTranscript', args, id, readOptions?.signal ? { signal: readOptions.signal } : undefined)
 		return {
 			sessionId: id,
 			historyFrom: historyFrom,
 			transcript: result && result.storyTranscript ? result.storyTranscript : null,
 			view: result && result.view ? result.view : null,
-			revision: result && result.revision !== undefined ? result.revision : null
+			revision: result && result.revision !== undefined ? result.revision : null,
+			storySignature: result && typeof result.storySignature === 'string' ? result.storySignature : null,
+			unchanged: result ? result.unchanged === true : false
 		}
 	}
 
@@ -653,10 +674,44 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// The visible store is single-slot, but switching sessions must not throw away
 		// every transcript it already downloaded. Keep a small LRU by session+window;
 		// force/read-after-mutation still bypasses it and replaces the cached revision.
-		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 4
+		// 手机在 5~12 个对话之间来回切：窗口缓存只留 4 份时刚切一圈就全被踢光，每次切回
+		// 都要重新走一遍 getStoryTranscript（整条正文重传 + 重投影）。
+		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 12
 		const cache = new Map()
 		let ticket = 0
+		let inflight = null
 		let state = IDLE
+
+		// 快速连切时，上一局还没回来的读已经没有意义：直接中断，别让它继续占着主线程
+		// 和内存。取消只发生在客户端；服务端故事窗口缓存照旧命中，下次切换是毫秒级的。
+		function abortInflight() {
+			const previous = inflight
+			inflight = null
+			if (!previous) return
+			try { previous.abort() } catch (_) {}
+		}
+		// 外部传了 signal 就跟着外部取消，没传就由内部接管；新一次读会抢占上一次。
+		function beginRequest(externalSignal) {
+			if (typeof AbortController !== 'function') return { signal: externalSignal, done: function () {} }
+			abortInflight()
+			const controller = new AbortController()
+			inflight = controller
+			let listener = null
+			if (externalSignal) {
+				if (externalSignal.aborted) { try { controller.abort() } catch (_) {} }
+				else if (typeof externalSignal.addEventListener === 'function') {
+					listener = function () { try { controller.abort() } catch (_) {} }
+					externalSignal.addEventListener('abort', listener)
+				}
+			}
+			return {
+				signal: controller.signal,
+				done: function () {
+					if (listener) { try { externalSignal.removeEventListener('abort', listener) } catch (_) {} }
+					if (inflight === controller) inflight = null
+				}
+			}
+		}
 
 		function cacheKey(sessionId, historyFrom) { return JSON.stringify([sessionId, historyFrom]) }
 		function touch(key) {
@@ -704,7 +759,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const id = String(sessionId || '')
 			const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 			const force = readOptions && readOptions.force === true
-			const signal = readOptions?.signal
 			const includeToolCalls = showPlayProcess()
 			const key = cacheKey(id, historyFrom)
 			const sameSession = state.sessionId === id
@@ -745,13 +799,26 @@ function createTavernStoryTranscriptDataModule(deps) {
 					ticket: current
 				})
 			}
+			const pendingRequest = beginRequest(readOptions?.signal)
+			const signal = pendingRequest.signal
 			try {
 				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
-					...(includeToolCalls ? { includeToolCalls: true } : {}), ...(signal ? { signal } : {}) })
+					...(includeToolCalls ? { includeToolCalls: true } : {}),
+					// 缓存命中时把上次的版本与窗口签名带回去：服务端据此判定正文没变就只回
+					// { unchanged: true }，既不重投影也不整条重传。
+					...(cacheHit && Number.isSafeInteger(cacheHit.revision) && cacheHit.revision >= 0 ? { knownRevision: cacheHit.revision } : {}),
+					...(cacheHit && typeof cacheHit.storySignature === 'string' && cacheHit.storySignature !== '' ? { knownStorySignature: cacheHit.storySignature } : {}),
+					...(signal ? { signal } : {}) })
 				if (current !== ticket) return state
 				signal?.throwIfAborted()
 				if (readOptions?.minimumRevision && !(result?.revision >= readOptions.minimumRevision)) {
 					throw new Error('故事历史尚未读到已提交版本')
+				}
+				if (result && result.unchanged === true && cacheHit) {
+					// 屏幕上这份就是服务端当前这份：只把它放回 LRU 前排，不重新 publish，
+					// 免得一次切回白白触发整棵故事列表重绘。
+					remember(key, cacheHit)
+					return state
 				}
 				const transcript = result && result.transcript ? result.transcript : null
 				const next = {
@@ -760,6 +827,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 					transcript: transcript,
 					view: result && result.view ? result.view : null,
 					revision: result && result.revision !== undefined ? result.revision : null,
+					storySignature: result && typeof result.storySignature === 'string' ? result.storySignature : null,
 					error: null, ticket: current
 				}
 				remember(key, next)
@@ -771,18 +839,62 @@ function createTavernStoryTranscriptDataModule(deps) {
 				if (cacheHit) return state
 				const preserve = state.sessionId === id && state.transcript
 				publish({ sessionId: id, historyFrom: historyFrom, status: 'error', transcript: preserve ? state.transcript : null,
-					view: preserve ? state.view : null, revision: preserve ? state.revision : null, error: error, ticket: current })
+					view: preserve ? state.view : null, revision: preserve ? state.revision : null,
+					storySignature: preserve ? state.storySignature : null, error: error, ticket: current })
+			} finally {
+				pendingRequest.done()
 			}
 			return state
 		}
 
+		// 点击会话的那一刻先把正文读起来（不 publish、不动当前可见状态），切过去时
+		// 服务端与本地窗口缓存都已经热了，不用再等 getSession 落地才发第一次读。
+		async function prefetch(sessionId, prefetchOptions) {
+			const id = String(sessionId || '')
+			if (id === '') return null
+			const historyFrom = tavernStoryTranscriptHistoryFrom(prefetchOptions && prefetchOptions.historyFrom)
+			const key = cacheKey(id, historyFrom)
+			if (state.sessionId === id && state.historyFrom === historyFrom && state.transcript) return state
+			const known = cache.get(key)
+			if (known && known.status === 'ready') return known
+			try {
+				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
+					...(showPlayProcess() ? { includeToolCalls: true } : {}),
+					...(known && Number.isSafeInteger(known.revision) && known.revision >= 0 ? { knownRevision: known.revision } : {}),
+					...(known && typeof known.storySignature === 'string' && known.storySignature !== '' ? { knownStorySignature: known.storySignature } : {}) })
+				if (result && result.unchanged === true) return known || null
+				const transcript = result && result.transcript ? result.transcript : null
+				if (!transcript) return null
+				const next = {
+					sessionId: id, historyFrom: historyFrom, includeToolCalls: showPlayProcess(),
+					status: 'ready', transcript: transcript,
+					view: result && result.view ? result.view : null,
+					revision: result && result.revision !== undefined ? result.revision : null,
+					storySignature: result && typeof result.storySignature === 'string' ? result.storySignature : null,
+					error: null, ticket: ticket
+				}
+				// 预取只写缓存，不抢可见槽位；比它新的读已经落盘时以新的为准。
+				const current = cache.get(key)
+				if (current && Number.isSafeInteger(current.revision) && Number.isSafeInteger(next.revision)
+					&& current.revision > next.revision) return current
+				remember(key, next)
+				return next
+			} catch (_) { return null }
+		}
 		function reset() {
 			ticket += 1
+			abortInflight()
 			cache.clear()
 			publish(IDLE)
 		}
 
-		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, snapshotFor: snapshotFor, peek: peek, read: read, reset: reset, subscribeProcess, showPlayProcess, showDamperStatus })
+		// 侧栏点会话时用它预热：只写缓存，不改可见槽位，失败静默。
+		if (!TAVERN_STORY_TRANSCRIPT_PREFETCH) {
+			registerTavernStoryTranscriptPrefetch(function (sessionId) { return prefetch(sessionId) })
+		}
+
+		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, snapshotFor: snapshotFor, peek: peek, read: read,
+			prefetch: prefetch, reset: reset, subscribeProcess, showPlayProcess, showDamperStatus })
 	}
 
 	return Object.freeze({
