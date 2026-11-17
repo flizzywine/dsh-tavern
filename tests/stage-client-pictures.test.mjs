@@ -23,7 +23,7 @@ test('insert pages: a page turn passes the ready pictures between the paragraphs
   assert.deepEqual(pictures.passed(items, 5, 2, false).map(item => item.id), ['b', 'a'])
 })
 
-test('AUTO on an insert page: a picture shown within 3 s of reaching it holds 3 s on screen; one that is not is passed', () => {
+test('AUTO on an insert page: a picture shown within 3 s of reaching it holds 6.5 s on screen; one that is not is passed', () => {
   const pending = id => ({id, para:2, state:'pending', url:'', progress:null})
   // AUTO meets a picture still being drawn after its paragraph; a manual page turn passes only the ready ones, as before
   const drawing = [ready('a', 2), pending('b'), {id:'c', para:2, state:'failed', url:''}]
@@ -40,11 +40,11 @@ test('AUTO on an insert page: a picture shown within 3 s of reaching it holds 3 
     for (const {at, shown} of events) if (at < due) due = at + pictures.autoDelay(shown, wait, at)
     return due
   }
-  // ready at once: shown as soon as it loads (0.4 s), then held 3 s, or the reader's longer wait
-  assert.equal(run(1600, [{at:400, shown:true}]), 3400)
-  assert.equal(run(4200, [{at:400, shown:true}]), 4600)
-  // ready within the grace: drawn at 1.8 s, loaded at 2.2 s, held 3 s from there
-  assert.equal(run(1600, [{at:1800, shown:false}, {at:2200, shown:true}]), 5200)
+  // ready at once: shown as soon as it loads (0.4 s), then held 6.5 s, or the reader's longer wait
+  assert.equal(run(1600, [{at:400, shown:true}]), 6900)
+  assert.equal(run(8000, [{at:400, shown:true}]), 8400)
+  // ready within the grace: drawn at 1.8 s, loaded at 2.2 s, held 6.5 s from there
+  assert.equal(run(1600, [{at:1800, shown:false}, {at:2200, shown:true}]), 8700)
   // never ready within the grace: passed 3 s after reaching it, and a picture that shows later does not call it back
   assert.equal(run(1600, []), 3000)
   assert.equal(run(1600, [{at:1800, shown:false}]), 3000)
@@ -63,6 +63,25 @@ test('AUTO on an insert page: a picture shown within 3 s of reaching it holds 3 
   assert.match(controller, /const shown = !!insertPageKey && pictureShown === insertPageKey;\r?\n\s*const timer = setTimeout\(\(\) => go\(1, true\), stageViews\.pictures\.autoDelay\(shown, options\.configText\.autoDelay\(reading, false, ''\), Date\.now\(\) - insert\.since\)\);/)
   assert.equal(controller.match(/since:Date\.now\(\)/g).length, 3)
   assert.equal(controller.match(/stageViews\.pictures\.autoDelay\(/g).length, 1)
+})
+
+test('定格欣赏: the page offers a hold button, a held page takes the click and AUTO waits; a closed page fades out', () => {
+  let toggled = 0, stopped = 0
+  const onToggleHold = () => { toggled++ }
+  const page = pictures.Page({picture:ready('a', 1), onShown() {}, onFailed() {}, holding:true, onToggleHold})
+  assert.match(page.props.className, /is-holding/)
+  page.props.onClick({stopPropagation() { stopped++ }})
+  assert.deepEqual([toggled, stopped], [1, 1])
+  const button = page.children.find(child => child && child.type === 'button')
+  assert.equal(button.children[0], '继续')
+  assert.equal(pictures.Page({picture:ready('a', 1), onToggleHold}).children.find(child => child && child.type === 'button').children[0], '定格欣赏')
+  // a leaving page takes no input and has no button
+  const leaving = pictures.Page({picture:ready('a', 1), leaving:true, onToggleHold})
+  assert.match(leaving.props.className, /is-leaving/)
+  assert.equal(leaving.children.some(child => child && child.type === 'button'), false)
+  const controller = readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs', import.meta.url), 'utf8')
+  assert.match(controller, /if \(!auto \|\| pictureHold \|\|/)
+  assert.match(controller, /setTimeout\(\(\) => setPictureLate\(null\), 24000\)/)
 })
 
 test('the 正在生成 CG notice shows a number only once the plugin reports one', () => {

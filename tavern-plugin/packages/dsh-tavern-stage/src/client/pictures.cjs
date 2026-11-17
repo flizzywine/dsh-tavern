@@ -27,7 +27,7 @@ function stagePictureLate(items, previouslyPending, para, atEnd) {
 // AUTO on an insert page: a picture on screen (onShown) holds at least STAGE_PICTURE_AUTO_MIN_MS, however short the
 // reader's auto wait (a picture has no words to time it by); one not on screen within STAGE_PICTURE_AUTO_GRACE_MS of
 // reaching its page (still drawn or loading) is passed, never waited for. It stays in 回想 and reading back.
-const STAGE_PICTURE_AUTO_GRACE_MS = 3000, STAGE_PICTURE_AUTO_MIN_MS = 3000;
+const STAGE_PICTURE_AUTO_GRACE_MS = 3000, STAGE_PICTURE_AUTO_MIN_MS = 6500;
 function stagePictureAutoDelay(shown, wait, elapsed) {
     return shown ? Math.max(STAGE_PICTURE_AUTO_MIN_MS, wait) : Math.max(0, STAGE_PICTURE_AUTO_GRACE_MS - elapsed);
 }
@@ -38,14 +38,19 @@ function stagePictureShowable(items, picture) {
 }
 // One picture over the whole stage: the art contained, the same picture blurred behind it; the caption bottom left and the
 // 继续 cue bottom right. onShown once the art has loaded; a picture that does not load is passed (onFailed), never an empty page.
-function StagePicturePage({picture, onShown, onFailed}) {
+// 定格欣赏 (holding): AUTO stops turning the page and the caption and cue fade away; a click on the picture or the button
+// again carries on. leaving: the page that has just closed fades out over the stage and takes no input.
+const STAGE_PICTURE_LEAVE_MS = 380;
+function StagePicturePage({picture, onShown, onFailed, holding = false, leaving = false, onToggleHold}) {
     const h = React.createElement;
-    return h('figure', {className:'fork-gal-picture-page', 'aria-label':picture.caption || 'CG'},
+    return h('figure', {className:'fork-gal-picture-page' + (holding ? ' is-holding' : '') + (leaving ? ' is-leaving' : ''), 'aria-label':picture.caption || 'CG',
+            onClick:holding && onToggleHold ? event => { event.stopPropagation(); onToggleHold(); } : undefined},
         h('img', {className:'fork-gal-picture-fill', src:picture.url, alt:'', 'aria-hidden':true, draggable:false}),
         h('img', {className:'fork-gal-picture-art', src:picture.url, alt:picture.caption || 'CG', draggable:false, onLoad:onShown, onError:onFailed}),
         picture.caption ? h('figcaption', null, picture.caption) : null,
-        h('span', {className:'fork-gal-picture-next', 'aria-hidden':true}, '点击继续'));
+        h('span', {className:'fork-gal-picture-next', 'aria-hidden':true}, '点击继续'),
+        onToggleHold && !leaving ? h('button', {type:'button', className:'fork-gal-picture-hold', 'aria-pressed':holding, onClick:event => { event.stopPropagation(); onToggleHold(); }}, holding ? '继续' : '定格欣赏') : null);
 }
-return {passed:stagePicturesPassed, working:stagePicturesWorking, late:stagePictureLate, autoDelay:stagePictureAutoDelay, showable:stagePictureShowable, Page:StagePicturePage};
+return {passed:stagePicturesPassed, working:stagePicturesWorking, late:stagePictureLate, autoDelay:stagePictureAutoDelay, leaveMs:STAGE_PICTURE_LEAVE_MS, showable:stagePictureShowable, Page:StagePicturePage};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStagePictures};
