@@ -12099,6 +12099,8 @@ function rawKeyframeLayer({root, owner, foreground, rects, safety = () => ({}), 
     // Resting frame: a persistent performance outside its exit holds the entry end; everything else leaves no layer.
     function rest(value, entry) {
         stopClock();
+        // A cut-in rests on the performance it played over (prepared with it in apply).
+        if (value?.resume) { const held = keyframeDependency(value.resume); value = value.resume; entry = held && prepared.get(held.identity) || null; }
         const holding = entry && entry.model.playback === 'persistent' && value.phase !== 'exit';
         // A performance without keyframes holds from its start to its exit (phase-free).
         playback(holding || !entry && value.phase !== 'exit' ? value : null, 'rest');
@@ -12140,7 +12142,8 @@ function rawKeyframeLayer({root, owner, foreground, rects, safety = () => ({}), 
         if (entry && value.phase === 'entry') segments.push({entry, phase:'entry', from:offset, duration:entry.model.entry.durationMs});
         if (entry && value.phase === 'exit' && entry.model.exit) segments.push({entry, phase:'exit', from:offset, duration:entry.model.exit.durationMs});
         if (!segments.length) { rest(value, entry); return; }
-        retain(new Set(segments.map(item => item.entry)));
+        const held = value.resume && keyframeDependency(value.resume);
+        retain(new Set([...segments.map(item => item.entry), ...(held && prepared.has(held.identity) ? [prepared.get(held.identity)] : [])]));
         for (const target of Object.values(surfaces)) root.appendChild(target.node); // stay after a re-created text box
         shown = {entry, value, instanceKey:JSON.stringify(value.instanceKey), token:tokenKey(intent.token), segments, startedAt:foreground.now()};
         tick();
@@ -12158,7 +12161,7 @@ function rawKeyframeLayer({root, owner, foreground, rects, safety = () => ({}), 
             if (intent.descriptor && intent.descriptor.do !== 'phase-end') return;
             if (playing && !intent.descriptor && intent.snap) return; // the same playback re-presented ('keep')
             let entry = null;
-            try { entry = prepare(intent.value, intent.handles || []); }
+            try { entry = prepare(intent.value, intent.handles || []); if (intent.value.resume) prepare(intent.value.resume, intent.handles || []); }
             catch (error) { console.warn('Keyframe performance rejected', error); rest(intent.value, null); return; }
             if (!intent.snap && !intent.descriptor) {
                 if (playing) return;
@@ -12225,8 +12228,9 @@ function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPrese
                 ref:widget.ref,state:widget.state || grant.state,slot,slotExplicit:true,bornAt:0,order:index,definition:grant.definition,lifetime:{until:'explicit'}}] : [];
         });
         // skinMode: the mode the current performance's document declares - the stage skin's modes.<skinMode> (stage-skin-adv.md「modes」).
-        const own=value.dependencies?.find(item => item.ref?.kind === 'performances' && item.ref.packId === value.ref?.packId && item.ref.assetId === value.ref?.assetId);
-        return {skin:skin ? {...skin,level:layer.skin.level ?? value.level} : null,look,ambience:ambience ? {...ambience,gain:10**((layer.ambience.gainDb || 0)/20)} : null,widgets,snap:!!snap,skinMode:own?.document?.skinMode || null};
+        // A cut-in keeps the mode of the performance it plays over.
+        const own=performanceOwnDocument(value.resume || value);
+        return {skin:skin ? {...skin,level:layer.skin.level ?? value.level} : null,look,ambience:ambience ? {...ambience,gain:10**((layer.ambience.gainDb || 0)/20)} : null,widgets,snap:!!snap,skinMode:own?.skinMode || null};
     }
     async function apply(intent) {
         if(disposed) return;

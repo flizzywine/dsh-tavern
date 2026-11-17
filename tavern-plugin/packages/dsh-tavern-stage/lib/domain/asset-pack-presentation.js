@@ -434,8 +434,13 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
         } catch (cause) {restoreDiagnostics.push({ref,code:cause.code || 'RESTORE_UNAVAILABLE'})}
       }
       const retiring = plan.retiring ? await api.performance(plan.retiring,{snapshots:metadata,engine,isCurrent,snapshotOnly}) : null
+      // A cut-in's held performance: its documents ride along so the stage can rest on it when the cut-in ends.
+      let resume = plan.resume ? await api.performance(plan.resume,{snapshots:metadata,engine,isCurrent,snapshotOnly}) : null
+      if (resume?.unavailable) resume = null
+      for (const dependency of resume?.dependencies || []) if (!dependencies.some(item => key(item.ref) === key(dependency.ref))) dependencies.push(dependency)
+      for (const dependency of resume?.executionDependencies || []) if (!executionDependencies.some(item => key(item.ref) === key(dependency.ref) && item.slot === dependency.slot)) executionDependencies.push(dependency)
       if (!isCurrent()) throw error('ASSET_STALE')
-      return {...plan,retiring:retiring?.unavailable ? null : retiring,dependencies,executionDependencies,restoreDiagnostics,unavailable:null,
+      return {...plan,retiring:retiring?.unavailable ? null : retiring,...(plan.resume ? {resume:resume && {...resume,dependencies,executionDependencies}} : {}),dependencies,executionDependencies,restoreDiagnostics,unavailable:null,
         imageShown:stagePerformanceImageShown(packs.get(plan.ref.packId)?.performances?.[plan.ref.assetId])}
     },
     async audio(state, ops = [], {descriptors = false} = {}) {

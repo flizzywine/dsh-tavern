@@ -136,7 +136,7 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     let ops = entry?.at === at ? entry.ops.map(op => directorCommands.recordOperation(op,checked.binding)).filter(Boolean) : []
     const chain = [...(direction.predecessor || []),checked]
     // Sidecar frames contain scene/audio/figures, not performance execution plans.
-    const performanceRefs = snapshotOnly || !performanceEnabled ? [] : [...new Map(chain.flatMap(record => [record.baseline.performance?.ref,...record.entries.map(entry => entry.state.performance?.ref)]).filter(Boolean).map(ref => [JSON.stringify(ref),ref])).values()]
+    const performanceRefs = snapshotOnly || !performanceEnabled ? [] : [...new Map(chain.flatMap(record => [record.baseline.performance?.ref,...record.entries.flatMap(entry => [entry.state.performance?.ref,entry.state.performance?.cutIn?.ref])]).filter(Boolean).map(ref => [JSON.stringify(ref),ref])).values()]
     let metadata = [], performanceFailure = null, performancePlan = null
     const unavailablePerformance = error => {
       performanceFailure = {ref:state.performance?.ref || performanceRefs[0],dependencies:[],executionDependencies:[],
