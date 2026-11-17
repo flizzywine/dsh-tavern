@@ -70,7 +70,11 @@
 .dtts-item-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
 .dtts-item-note { margin: 4px 0 0; color: var(--dtts-ink-2); font-size: 12px; }
 
+/* a setting is one row: label left, its value / field / menu in the rest of the row, a switch at the row's far end
+   (like the title row's 启用配音). The label column narrows with the page; only a column under
+   280px puts a field under its label (a 375px phone keeps one row; owner 11-18 「怎么那么喜欢换行啊」). */
 .dtts-field, .dtts-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 12px; margin: 10px 0; }
+.dtts-field > .dsh-tavern-settings-switch, .dtts-field > .dtts-switch { justify-self: end; }
 .dtts-row { grid-template-columns: 112px minmax(0, 1fr) auto; }
 .dtts-label { color: var(--dtts-ink-2); }
 .dtts-value { font-variant-numeric: tabular-nums; }
@@ -91,7 +95,7 @@
 .dtts input:focus, .dtts select:focus, .dtts textarea:focus { outline: none; border-color: var(--dtts-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dtts-accent) 16%, transparent); }
 .dtts input:disabled, .dtts select:disabled { filter: var(--fk-current-dim, grayscale(1)); }
 .dtts input::placeholder, .dtts textarea::placeholder { color: var(--dtts-ink-3); }
-.dtts .dtts-number { width: 120px; }
+.dtts input.dtts-number { width: 120px; }
 /* the cache limits are inline edits (the Tavern inline-edit look: plain
    text at rest, tint + ✎ on hover); no spin buttons over the ✎ (↑ / ↓ still step). */
 .dtts input.dtts-number.fork-edit { -moz-appearance: textfield; appearance: textfield; }
@@ -156,9 +160,19 @@
 .dtts-button.is-paid::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-warning-primary, #c77c0e); }
 
 @container (max-width: 520px) {
+  .dtts-field { grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+  .dtts-row, .dtts-mood { grid-template-columns: 88px minmax(0, 1fr) auto; gap: 10px; }
+  .dtts-field + .dtts-hint { margin-left: 98px; }
+}
+@container (max-width: 360px) {
+  .dtts-field { grid-template-columns: 80px minmax(0, 1fr); }
+  .dtts-row, .dtts-mood { grid-template-columns: 80px minmax(0, 1fr) auto; }
+  .dtts-field + .dtts-hint { margin-left: 90px; }
+}
+@container (max-width: 280px) {
   .dtts-mood { grid-template-columns: 1fr auto; }
   .dtts-mood > .dtts-label { grid-column: 1 / -1; }
-  .dtts-field { grid-template-columns: 1fr; gap: 4px; }
+  .dtts-field:not(:has(> .dsh-tavern-settings-switch, > .dtts-switch)) { grid-template-columns: 1fr; gap: 4px; }
   .dtts-field + .dtts-hint { margin-left: 0; }
   .dtts-row { grid-template-columns: auto minmax(0, 1fr); }
   .dtts-row > :last-child { grid-column: 1 / -1; justify-self: start; }
@@ -282,14 +296,17 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 .dtts-engine .dtts-value[data-state=ready] { color: var(--dtts-ink); }
 
 @container (max-width: 520px) {
-  .dtts-result { margin-left: 0; }
+  .dtts-result { margin-left: 98px; }
   .dtts-actions { gap: 8px; }
   .dtts-actions-start { width: 100%; }
   .dtts-tag { max-width: 34%; }
   .dtts-warn { max-width: 46%; }
   .dtts-kind { height: 36px; }
   .dtts-icon-button { width: 36px; height: 36px; }
-}.dtts input[type=search]::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+}
+@container (max-width: 360px) { .dtts-result { margin-left: 90px; } }
+@container (max-width: 280px) { .dtts-result { margin-left: 0; } }
+.dtts input[type=search]::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
 
 /* the master switch on the title row; a state word on every service
    row (就绪 / 已设置 / 未设置 / 待机 / 正在检查…; problems are the ⚠ chip); the local engine's controls open under its row. */
