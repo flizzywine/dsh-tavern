@@ -11,7 +11,7 @@ export const PROVIDER_ID = /^[a-z][a-z0-9-]{0,23}$/
 export const PROVIDER_KINDS = [
   { kind: 'qwen', label: '通义千问', paid: true, voiceSources: ['preset'], voice: ['model', 'voice'], fields: [{ key: 'region', label: '区域', type: 'select', required: true, options: [['cn', '中国内地'], ['intl', '国际']], default: 'cn' }, { key: 'key', label: 'API Key', secret: true }] },
   { kind: 'azure', label: 'Azure', paid: true, voiceSources: ['preset'], voice: ['voice'], fields: [{ key: 'region', label: '区域', required: true, placeholder: 'eastasia' }, { key: 'key', label: 'API Key', secret: true }] },
-  // A service is only its connection: which model speaks is each figure's choice (its voice source's `model`).
+  // A service is its connection and its 默认模型 (config.defaultModel); a figure's voice source may name its own `model`.
   { kind: 'fish-audio', label: 'Fish Audio', paid: true, voiceSources: ['reference-list'], voice: ['model'], fields: [
     { key: 'url', label: 'Base URL', required: true, default: 'https://api.fish.audio', advanced: true },
     { key: 'key', label: 'API Key', secret: true },
@@ -51,6 +51,13 @@ export const PROVIDER_KINDS = [
 ].map(item => ({ paid: false, voice: [], ...item, fields: item.fields.map(field => ({ secret: false, required: false, advanced: false, placeholder: '', ...field })) }))
 export function providerKind(kind) { const value = PROVIDER_KINDS.find(item => item.kind === kind); if (!value) throw new Error('语音服务类型无效'); return value }
 export function credentialRef(id, field) { return 'DSH_TAVERN_TTS_' + id.toUpperCase().replace(/-/g, '_') + '_' + field.toUpperCase() }
+// 默认模型 (语音后端): the model a service speaks with when a figure's source names none (settings.js serviceDefaultModel).
+const DEFAULT_MODEL = {'fish-audio':/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/, minimax:/^[\w.-]{1,80}$/, qwen:/^qwen[0-9a-z.-]{0,60}$/}
+function defaultModel(kind, value) {
+  if (value === undefined || value === '') return {}
+  if (typeof value !== 'string' || !DEFAULT_MODEL[kind].test(value)) throw new Error('默认模型无效')
+  return {defaultModel:value}
+}
 export function providerConfig(kind, input = {}) {
   providerKind(kind)
   if (kind === 'openai-compatible') return httpConfig(input)
@@ -58,7 +65,7 @@ export function providerConfig(kind, input = {}) {
     let url
     try { url = new URL(input.url || 'https://api.fish.audio') } catch { throw new Error('Fish Audio Base URL 无效') }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Fish Audio Base URL 无效')
-    return {url:url.href.replace(/\/+$/, '')}
+    return {url:url.href.replace(/\/+$/, ''), ...defaultModel(kind, input.defaultModel)}
   }
   if (kind === 'minimax') {
     let url
@@ -66,10 +73,10 @@ export function providerConfig(kind, input = {}) {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('MiniMax Base URL 无效')
     const groupId = input.groupId || ''
     if (!/^[\w-]{0,80}$/.test(groupId)) throw new Error('MiniMax Group ID 无效')
-    return { url: url.href.replace(/\/+$/, ''), ...(groupId ? { groupId } : {}) }
+    return { url: url.href.replace(/\/+$/, ''), ...(groupId ? { groupId } : {}), ...defaultModel(kind, input.defaultModel) }
   }
   if (kind === 'azure') { if (!/^[a-z][a-z0-9-]{0,50}$/.test(input.region || '')) throw new Error('Azure 区域无效'); return { region: input.region } }
-  if (kind === 'qwen') { const region = input.region ?? 'cn'; if (!['cn', 'intl'].includes(region)) throw new Error('通义千问区域无效'); return { region } }
+  if (kind === 'qwen') { const region = input.region ?? 'cn'; if (!['cn', 'intl'].includes(region)) throw new Error('通义千问区域无效'); return { region, ...defaultModel(kind, input.defaultModel) } }
   const resourceId = String(input.resourceId || 'seed-tts-2.0').trim()
   if (!/^[\w.-]{1,100}$/.test(resourceId)) throw new Error('火山引擎资源 ID 无效')
   return { resourceId }

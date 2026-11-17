@@ -54,6 +54,8 @@ export interface Provider {
     /** How its voices are listed (the catalog's `voiceList`); defaults to `provider` (providerVoices). */
     voiceList?: VoiceServiceEntry['voiceList']}
   onRequest?(): void
+  /** The model a voice that names none speaks with (the service's 默认模型); undefined: the provider's own fallback. */
+  defaultModel?(): string | undefined
   /** Refresh server-advertised optional capabilities (including `voiceSources`); never infer them from a model name. */
   discover?(options?: {wake?: boolean; signal?: AbortSignal}): Promise<void>
   /** Fresh service state from the server (Fish `/v1/info`), for diagnostics only. */
@@ -97,6 +99,10 @@ export interface VoiceServiceEntry {
   sources: VoiceSourceKind[]
   /** How its voices are listed: listRecommendedFishVoices, listOnlinePresetVoices, providerVoices, or the browser's own voices. */
   voiceList: 'fish-recommended' | 'preset' | 'provider' | 'browser'
+  /** The models a voice of this service picks from (empty when it has none to pick). */
+  models?: {id: string; label: string}[]
+  /** The model a voice that names none speaks with; `defaultModelMissing`: the service's 默认模型 is not among `models`. */
+  defaultModel?: string; defaultModelMissing?: true
 }
 /** The configured voice services catalog (ttsControl `voiceServices`, Tts.listVoiceServices); `kinds`: every supported kind's name, for a source whose service is not configured. */
 export interface VoiceServiceCatalog { services: VoiceServiceEntry[]; kinds: Record<VoiceServiceEntry['kind'], string> }
