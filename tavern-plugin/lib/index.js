@@ -88,6 +88,7 @@ import {registerVariableReadTool} from './domain/read-variables.js'
 import { createBackgroundSessionRetirement, installRetiredBackgroundFilter, installRetiredCatalogView } from './domain/background-session-retirement.js'
 import { createBackgroundCatalogBackfill } from './domain/background-catalog.js'
 import { createBranchOriginRepair } from './domain/branch-origin-repair.js'
+import { createDirectorDescriptorRepair } from './domain/director-descriptor-repair.js'
 import { createGameTitles } from './domain/game-titles.js'
 import { createCardMemory, CARD_MEMORY_TOOLS } from '../packages/dsh-tavern-card-memory/index.js'
 import { installSkillCatalogSessionScope } from './domain/skill-catalog-session-scope.js'
@@ -2775,6 +2776,20 @@ export async function apply(ctx) {
     listSessions: () => ctx.get('sessionQuery')?.listSessions?.() ?? []
   })
   void branchOrigin.sweep().catch(error => console.warn('dsh-tavern: 检查旧分支会话头部失败', error?.message || error))
+  // Stage-director children an earlier release wrote with a descriptor the host rejects.
+  const directorDescriptors = createDirectorDescriptorRepair({
+    dataRoot: resolveTavernDataRoot(),
+    loadCatalog: sessionPatch.loadSessionCatalog,
+    listSessions: async () => (await ctx.get('sessionQuery')?.listSessions?.()) ?? [],
+    hostIdentity: header => {
+      const values = ctx.get('sessionProjectionCache')?.cachedSnapshot(header, ['subagent'])?.values
+      return values && Object.hasOwn(values, 'subagent') ? values.subagent : undefined
+    },
+    // The cache would otherwise keep serving the empty identity folded from the old descriptor.
+    forgetProjections: id => ctx.get('sessionProjectionCache')?.table?.delete(id),
+    isLive: id => Boolean(sessionStore.get(id) || agentRegistry.get(id))
+  })
+  void directorDescriptors.sweep().catch(error => console.warn('dsh-tavern: 修复舞台导演会话描述失败', error?.message || error))
   const runtimePresetSnapshots = new Map()
   const backgroundPresetSeeds = new Map()
   // The stage director runs beside the game's background work: a game-wide stop or progress read leaves it alone.
