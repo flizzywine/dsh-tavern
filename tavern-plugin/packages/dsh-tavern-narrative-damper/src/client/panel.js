@@ -214,13 +214,13 @@ function TndPanel({ ui }) {
         h(Switch, { label: '在对话楼层显示裁定结果', disabled, checked: config.showTurnStatus !== false, onChange: value => { void savePatch({ showTurnStatus: value }) } })),
       h(TndRow, { title: '判定模式', help: '角色扮演：系统认定你只控制自己的角色，替 NPC 落笔反应或调用场外情报会被判越权剥离。写作（上帝）：不存在你的角色，可为任意角色落笔、自由切镜头与场景，只有与既有设定矛盾的吃书才会被判为设定冲突。' },
         h(Segmented, {
-          label: '判定模式', disabled, value: config.judgeMode || 'roleplay',
+          label: '判定模式', disabled, value: config.judgeMode || 'roleplay', className: 'tnd-seg',
           options: [['roleplay', '角色扮演'], ['author', '写作 · 上帝视角']],
           onChange: value => { void savePatch({ judgeMode: value }) }
         })),
       h(TndRow, { title: '阻尼模式', help: '标准拉扯适合大多数恋爱、NTR 与剧情向游玩（常规变动 ±5 / 突破 ±12）；慢热严苛提高破防筹码要求并收紧单轮状态上限（常规 ±3 / 突破 ±8）。' },
         h(Segmented, {
-          label: '阻尼模式', disabled, value: config.mode || 'balanced',
+          label: '阻尼模式', disabled, value: config.mode || 'balanced', className: 'tnd-seg',
           options: [['balanced', '标准拉扯（推荐）'], ['strict', '慢热严苛']],
           onChange: value => { void savePatch({ mode: value }) }
         })),

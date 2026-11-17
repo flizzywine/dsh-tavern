@@ -56,6 +56,9 @@ test('面板在插件里：侧栏 registerPanel，四个宿主入口齐全', asy
     assert.ok(client.includes(rpc), '缺少 ' + rpc)
   }
   assert.equal(client.includes('getNarrativeDamperSettings'), false)
+  // 分段选择要有自己的选中态样式：宿主的 .ap-segmented 按钮规则只认 .ap-ui，面板不在那个作用域里。
+  assert.match(client, /className: 'tnd-seg'/)
+  assert.match(client, /\.tnd-panel \.tnd-seg button\[aria-pressed="true"\]/)
   // 字段名与宿主配置逐字一致，面板不会造出宿主不认识的值。
   for (const field of ['showTurnStatus', 'judgeMode', 'desensitizeR18', 'clampMvuDelta', 'fallbackStateForPlainCards', 'godmodeThreshold', 'timeoutMs', 'preamble']) {
     assert.ok(client.includes(field), '缺少字段 ' + field)

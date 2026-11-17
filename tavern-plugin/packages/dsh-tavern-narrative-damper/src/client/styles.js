@@ -21,7 +21,18 @@ const TND_CSS = `
 .tnd-input.tnd-wide { width: 16em; }
 .tnd-input:focus-visible, .tnd-select:focus-visible, .tnd-area:focus-visible { outline: var(--fork-focus, 2px solid currentColor); outline-offset: 1px; }
 .tnd-input:disabled, .tnd-select:disabled, .tnd-area:disabled { opacity: .5; cursor: default; }
-.tnd-select { width: 12em; cursor: pointer; }
+.tnd-select { width: 16em; cursor: pointer; }
+
+/* 分段选择（判定模式 / 阻尼模式）：宿主的 .ap-segmented 按钮规则挂在 .ap-ui 下，插件面板不在那个
+   作用域里，只有容器底色生效，按钮就退化成一排白底方框。这里按同一套 tokens 补全：选中项有底色、
+   加粗和细描边，一眼看得出当前是哪个。 */
+.tnd-panel .tnd-seg { display: inline-flex; flex: none; gap: 2px; max-width: 100%; padding: 2px; border-radius: 9px; background: var(--fork-hover, rgba(127, 127, 127, .12)); }
+.tnd-panel .tnd-seg button { min-width: 0; height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--fork-ink-2, inherit); font: inherit; font-size: var(--fork-fs-meta, 12px); line-height: 1.4; cursor: pointer; }
+.tnd-panel .tnd-seg button:hover:not(:disabled) { background: transparent; color: var(--fork-ink, inherit); }
+.tnd-panel .tnd-seg button[aria-pressed="true"] { background: var(--fork-surface, Canvas); color: var(--fork-ink, inherit); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 0 0 .5px var(--ap-border, var(--fork-hairline, rgba(127, 127, 127, .32))); }
+.tnd-panel .tnd-seg button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 560px) { .tnd-panel .tnd-seg { flex: 1 1 100%; } .tnd-panel .tnd-seg button { flex: 1; height: 32px; } }
+
 .tnd-area { flex: 1 1 100%; min-height: 4.5em; resize: vertical; }
 .tnd-unit { color: var(--fork-ink-3, #8a8a8a); font-size: var(--fork-fs-meta, 12px); }
 .tnd-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }

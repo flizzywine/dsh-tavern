@@ -40,7 +40,18 @@ const TND_CSS = `
 .tnd-input.tnd-wide { width: 16em; }
 .tnd-input:focus-visible, .tnd-select:focus-visible, .tnd-area:focus-visible { outline: var(--fork-focus, 2px solid currentColor); outline-offset: 1px; }
 .tnd-input:disabled, .tnd-select:disabled, .tnd-area:disabled { opacity: .5; cursor: default; }
-.tnd-select { width: 12em; cursor: pointer; }
+.tnd-select { width: 16em; cursor: pointer; }
+
+/* 分段选择（判定模式 / 阻尼模式）：宿主的 .ap-segmented 按钮规则挂在 .ap-ui 下，插件面板不在那个
+   作用域里，只有容器底色生效，按钮就退化成一排白底方框。这里按同一套 tokens 补全：选中项有底色、
+   加粗和细描边，一眼看得出当前是哪个。 */
+.tnd-panel .tnd-seg { display: inline-flex; flex: none; gap: 2px; max-width: 100%; padding: 2px; border-radius: 9px; background: var(--fork-hover, rgba(127, 127, 127, .12)); }
+.tnd-panel .tnd-seg button { min-width: 0; height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--fork-ink-2, inherit); font: inherit; font-size: var(--fork-fs-meta, 12px); line-height: 1.4; cursor: pointer; }
+.tnd-panel .tnd-seg button:hover:not(:disabled) { background: transparent; color: var(--fork-ink, inherit); }
+.tnd-panel .tnd-seg button[aria-pressed="true"] { background: var(--fork-surface, Canvas); color: var(--fork-ink, inherit); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 0 0 .5px var(--ap-border, var(--fork-hairline, rgba(127, 127, 127, .32))); }
+.tnd-panel .tnd-seg button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 560px) { .tnd-panel .tnd-seg { flex: 1 1 100%; } .tnd-panel .tnd-seg button { flex: 1; height: 32px; } }
+
 .tnd-area { flex: 1 1 100%; min-height: 4.5em; resize: vertical; }
 .tnd-unit { color: var(--fork-ink-3, #8a8a8a); font-size: var(--fork-fs-meta, 12px); }
 .tnd-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
@@ -348,13 +359,13 @@ function TndPanel({ ui }) {
         h(Switch, { label: '在对话楼层显示裁定结果', disabled, checked: config.showTurnStatus !== false, onChange: value => { void savePatch({ showTurnStatus: value }) } })),
       h(TndRow, { title: '判定模式', help: '角色扮演：系统认定你只控制自己的角色，替 NPC 落笔反应或调用场外情报会被判越权剥离。写作（上帝）：不存在你的角色，可为任意角色落笔、自由切镜头与场景，只有与既有设定矛盾的吃书才会被判为设定冲突。' },
         h(Segmented, {
-          label: '判定模式', disabled, value: config.judgeMode || 'roleplay',
+          label: '判定模式', disabled, value: config.judgeMode || 'roleplay', className: 'tnd-seg',
           options: [['roleplay', '角色扮演'], ['author', '写作 · 上帝视角']],
           onChange: value => { void savePatch({ judgeMode: value }) }
         })),
       h(TndRow, { title: '阻尼模式', help: '标准拉扯适合大多数恋爱、NTR 与剧情向游玩（常规变动 ±5 / 突破 ±12）；慢热严苛提高破防筹码要求并收紧单轮状态上限（常规 ±3 / 突破 ±8）。' },
         h(Segmented, {
-          label: '阻尼模式', disabled, value: config.mode || 'balanced',
+          label: '阻尼模式', disabled, value: config.mode || 'balanced', className: 'tnd-seg',
           options: [['balanced', '标准拉扯（推荐）'], ['strict', '慢热严苛']],
           onChange: value => { void savePatch({ mode: value }) }
         })),
