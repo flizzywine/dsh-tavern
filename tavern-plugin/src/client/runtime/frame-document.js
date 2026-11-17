@@ -164,11 +164,13 @@
 		// @include voice.js
 		// @include-stage-source bubble-presets.js
 		// @include-stage-source bubbles.js
+		// @include pixi-runtime.js
 		// @include phone-call.js
 		// @include stage-sfx.js
 		// @include asset-catalogue.js
 		// @include-stage-source bubble-modes.js
 		// @include-stage-source bubble-modals.js
+		// @include speech-recognition-ui.js
 		// @include asset-launcher.js
 		// @include card-zip-entry.js
 		// @include card-dsh-export.js

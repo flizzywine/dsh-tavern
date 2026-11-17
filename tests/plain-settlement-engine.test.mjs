@@ -4,10 +4,9 @@ import { createPostureItem } from '../tavern-plugin/lib/domain/background-pipeli
 import { createPlainSettlementEngine } from '../tavern-plugin/lib/domain/plain-settlement-engine.js'
 import { POSTURE_SUBMIT_TOOL } from '../tavern-plugin/lib/domain/posture-submission.js'
 
-function engine({ wanted = true, replaced = null, submit = true } = {}) {
+function engine({ replaced = null, submit = true } = {}) {
   const runs = []
   const settle = createPlainSettlementEngine({
-    settlementItems: { wanted: async () => wanted },
     pluginApi: { replaceSettlement: async () => replaced },
     pluginSettlementProgress: { begin() {} },
     backgroundModelSelection: () => ({ provider: 'p', model: 'm' }),
@@ -25,6 +24,12 @@ const turn = posture => ({
   snapshot: { id: 'game', sessionId: 'story', messages: [{ role: 'user', text: '开门' }, { role: 'assistant', turn: 2, text: '门开了' }] },
   taskRun: { bindSession() {}, participantRequest: { rewindTo: 0 } }, card: { name: '鱼' }, signal: undefined,
   trace: { sessionId: '', boundary: null }, backgroundTasksSettings: { posture }
+})
+
+test('posture off settles without a model call or a plugin', async () => {
+  const { settle, runs } = engine()
+  assert.deepEqual(await settle.run(turn(false)), { text: '', result: {} })
+  assert.equal(runs.length, 0)
 })
 
 test('a plugin that replaces the settlement wins; Tavern runs its own agent when the plugin declines', async () => {

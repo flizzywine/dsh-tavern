@@ -114,7 +114,9 @@ function createUiSfx(env) {
             if (moment && !own) return false;
             // type: one cue in every `every` glyph steps
             if (cue === "type" && typed++ % own.every !== 0) return false;
-            const gain = (moment ? uiSfxGain(env.prefs(), "confirm") * moment[0] : uiSfxGain(env.prefs(), cue)) * (own ? own.gain : 1);
+            // The engine's relative gain (hover and toggles kept back) is for the engine's own cues; a skin's cue is at the level its
+            // author set (own.gain), so a short hover tick of a skin is not trimmed a second time.
+            const gain = moment ? uiSfxGain(env.prefs(), "confirm") * moment[0] * own.gain : own ? (uiSfxGain(env.prefs(), cue) > 0 ? own.gain : 0) : uiSfxGain(env.prefs(), cue);
             if (!(gain > 0)) return false;
             const now = env.now();
             if (moment) { if (now - (gate.at[cue] ?? -Infinity) < moment[1]) return false; gate.at[cue] = now; }
