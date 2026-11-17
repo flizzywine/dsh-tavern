@@ -91,33 +91,68 @@ window.__ModuleLoader__.load({
 
 		// @include modules/card-password.js
 		// @include modules/task-poll.js
-		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
-		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
-		async function importTavernCardFile(file, call, onProgress = () => {}, replacePath) {
+		/** Import one card file. PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other formats (a plugin's
+		 * importer, tavern.cardImporter) go up as raw files. A card carrying another version of an installed pack asks first
+		 * (导入人物卡, card-update-dialog.js). */
+		async function importTavernCardFile(file, call, onProgress = () => {}) {
 			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
-			const progress = beginTavernCardImportProgress(file.name);
-			const report = value => { progress.update(value); onProgress(value); };
+			let progress = beginTavernCardImportProgress(file.name);
+			const report = value => { progress?.update(value); onProgress(value); };
 			try {
-			const archive = !/\.(png|json)$/i.test(String(file.name || "")) && /\.[^./\\]+$/.test(String(file.name || ""));
-			if (archive) {
-				report('正在上传卡包…');
-				const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
-				let reply = null;
-				try { reply = await response.json(); } catch (_error) {}
-				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-				return await importTavernPasswordCard(password => {
-					report(password === undefined ? '正在读取卡包并导入素材…' : '正在校验密码并导入素材…');
-					return call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(password === undefined ? {} : { password }) });
-				}, file.name, () => call("discardCardUpload", { uploadId: reply.uploadId }), options => {
+				if (!isTavernCardArchive(file)) { report('正在读取人物卡…'); return await commitTavernCardFile(file, null, call); }
+				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
+				const staged = await previewTavernCardArchive(file, call, report);
+				let packDecisions = {};
+				if (staged.packs.length) {
+					progress.close(); progress = null;
+					const way = await askTavernCardPackWay(file, staged);
+					if (!way) {
+						await call("discardCardUpload", { uploadId: staged.uploadId }).catch(() => {});
+						throw Object.assign(new Error('已取消人物卡导入'), { code: 'TAVERN_CARD_IMPORT_CANCELLED' });
+					}
+					packDecisions = tavernCardPackDecisions(staged.packs, way);
+					progress = beginTavernCardImportProgress(file.name);
+				}
+				report('正在导入素材…');
+				return await commitTavernCardFile(file, staged, call, { packDecisions });
+			} finally { progress?.close(); }
+		}
+		function isTavernCardArchive(file) {
+			const name = String(file.name || "");
+			return !/\.(png|json)$/i.test(name) && /\.[^./\\]+$/.test(name);
+		}
+		/** CHARX and DSH cards: archives that can carry packs, read by the server before they are imported. */
+		function isTavernCardPackArchive(file) { return /\.(dshcard|charx)$/i.test(String(file.name || "")); }
+		async function uploadTavernCardFile(file, report) {
+			report('正在上传卡包…');
+			const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+			let reply = null;
+			try { reply = await response.json(); } catch (_error) {}
+			if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
+			return reply.uploadId;
+		}
+		/** A CHARX or DSH card uploaded and read before it is imported or replaces a card: {uploadId, password?, card: {name,
+		 * version, cover}, packs: the installed packs it carries another version of}. The upload is discarded on failure or cancel. */
+		async function previewTavernCardArchive(file, call, report = () => {}) {
+			const uploadId = await uploadTavernCardFile(file, report);
+			let password;
+			try {
+				const preview = await importTavernPasswordCard(value => {
+					password = value;
+					report(value === undefined ? '正在读取卡包…' : '正在校验密码…');
+					return call("previewCardUpload", { uploadId, name: file.name, ...(value === undefined ? {} : { password: value }) });
+				}, file.name, null, options => {
 					report('等待输入密码…');
 					return askTavernCardPassword(options);
 				});
-			}
-			report('正在读取人物卡…');
-			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
-			} finally { progress.close(); }
+				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs };
+			} catch (error) { await call("discardCardUpload", { uploadId }).catch(() => {}); throw error; }
 		}
-
+		/** The card file into the library, or in place of replacePath: staged is the upload (and preview) of an archive, null for PNG / JSON. */
+		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions } = {}) {
+			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {} });
+			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
+		}
 		/** What a card file brought into its character material, for the import notice. */
 		function tavernCardAssetNotice(assets, card) {
 			const extra = [];

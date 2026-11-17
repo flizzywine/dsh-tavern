@@ -2574,6 +2574,46 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 /* Dialogs: a neutral dark scrim in both schemes (CanvasText would wash a dark page out to grey). */
 .ap-stage .ap-modal-scrim { background: var(--fk-s-modal-veil); }
 .ap-confirm { width: min(460px, 100%); }
+/* 更新人物卡 / 导入人物卡 (card-update-dialog.js): the house Modal; full screen on a phone with the buttons at the bottom. */
+.ap-modal.fork-card-update { display: flex; flex-direction: column; width: min(540px, 100%); padding: 20px 24px 18px; }
+.fork-card-update > .ap-modal-body { padding: 0; overflow: auto; }
+.fork-card-update-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.fork-card-update-head h2 { margin: 0; font-size: var(--fork-fs-title); font-weight: 600; }
+.fork-card-update-card { display: grid; grid-template-columns: 64px minmax(0, 1fr); column-gap: 16px; row-gap: 4px; align-items: center; }
+.fork-card-update-cover { grid-row: span 3; width: 64px; height: 86px; overflow: hidden; border-radius: 6px; background: var(--fork-hover); }
+.fork-card-update-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.fork-card-update-name { font-size: var(--fork-fs-heading); font-weight: 600; overflow-wrap: anywhere; }
+.fork-card-update-ver { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: calc(var(--fork-fs-title) * 1.2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.fork-card-update-ver .is-old, .fork-card-update-ver .is-arrow { color: var(--fork-ink-3); }
+.fork-card-update-ver .is-arrow { font-size: var(--fork-fs-heading); }
+.fork-card-update-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); overflow-wrap: anywhere; }
+.fork-card-update-loading { display: flex; align-items: center; gap: 8px; margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--fork-hairline); color: var(--fork-ink-2); }
+.fork-card-update-packs { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--fork-hairline); }
+.fork-card-update-packs h3 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 12px; font-size: var(--fork-fs-body); font-weight: 600; }
+.fork-card-update-count { color: var(--fork-ink-3); font-weight: 400; }
+.ap-segmented.fork-card-update-way { display: flex; }
+.ap-segmented.fork-card-update-way > button { flex: 1; }
+.fork-card-update-packs .ap-pack-list { margin-top: 12px; }
+.fork-card-update-packs .ap-pack-row:last-child { border-bottom: 0; }
+.fork-card-update-removed { margin-top: 14px; padding: 12px 14px; border-radius: var(--fork-radius); background: var(--fork-hover); }
+.fork-card-update-removed p { display: flex; align-items: baseline; gap: 8px; margin: 0; }
+.fork-card-update-warn { color: var(--fork-warn); }
+.fork-card-update-removed ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 22px; padding: 0; list-style: none; }
+.fork-card-update-removed li { padding: 2px 9px; border-radius: 999px; background: var(--fork-surface); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+.fork-card-update-done { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 0 4px; text-align: center; }
+.fork-card-update-check { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--fork-accent-soft); color: var(--fork-accent); font-size: var(--fork-fs-title); }
+.fork-card-update-done strong { font-size: calc(var(--fork-fs-title) * 1.1); font-weight: 600; overflow-wrap: anywhere; }
+.fork-card-update-done ul { margin: 0; padding: 0; list-style: none; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+.fork-card-update-error { margin: 14px 0 0; color: var(--fork-warn); }
+.ap-actions.fork-card-update-foot { margin-top: 22px; }
+.ap-ui button.fork-card-update-quiet { border-color: transparent; background: none; color: var(--fork-accent); }
+@media (max-width: 720px) {
+  .ap-modal-scrim:has(> .fork-card-update) { padding: 0; }
+  .ap-modal.fork-card-update { width: 100%; height: 100%; max-height: 100dvh; padding: 18px 18px 16px; border: 0; border-radius: 0; }
+  .fork-card-update > .ap-modal-body { flex: 1; min-height: 0; }
+  .ap-actions.fork-card-update-foot { flex-wrap: nowrap; margin-top: auto; padding-top: 16px; }
+  .ap-actions.fork-card-update-foot > button { flex: 1; min-height: 40px; }
+}
 .ap-confirm-extra { color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
 .ap-ui button.ap-danger-text { border-color: transparent; color: var(--ap-error); }
 .ap-busy { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; color: var(--ap-ink-3); font-size: var(--fork-fs-meta); }
