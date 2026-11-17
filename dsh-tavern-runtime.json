@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0fa089164f2fdeeb8e605e80f99d87dab6b518ec",
-  "releaseSequence": 1741,
+  "revision": "6f643f05d63f8264b82815b44c3b2c3893328cf2",
+  "releaseSequence": 1742,
   "version": "3.3.0",
   "files": [
     {
@@ -8736,8 +8736,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/fish-voice-design.js",
-      "sha256": "635f2900fc0c21dfe3d0325c2915dd2ed9b13743cbb774da9bac66e2877ad2f4",
-      "size": 14647
+      "sha256": "fd0f03cc476e10494013238fbab5ed22969752bde9909d79d462a425a097c76e",
+      "size": 14971
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/http-config.js",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "18d67ea5fe9a784f681f4a6a6ff3744bb75bbfc3",
+    "commit": "53ce026606989f1f91699763daf095d6c6512a8a",
     "path": "runtime.zip",
-    "sha256": "3595d804f13e3122a7590255a8e2cf5c7c8251c95225f0da469081e5dd728c0f",
-    "size": 16690560
+    "sha256": "92994bca5c8fc7eff76433a9173cb7884bafaeee5ef6d20137e5e736a4bfa573",
+    "size": 16690641
   }
 }
