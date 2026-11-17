@@ -228,12 +228,23 @@
 			});
 		}
 
+		// 面板是「刚才那一下出错了」的即时提示，不是常驻通知：显示 5 秒后自己收走。
+		// 同一条错误再次上报会刷新 lastAt，倒计时跟着重来，所以连续失败时面板不会一闪一闪。
+		const ERROR_AUTO_DISMISS_MS = 5000;
+
 		function TavernErrorCenter() {
 			const [items, setItems] = React.useState(tavernErrorHub.getSnapshot());
 			React.useEffect(function () { return tavernErrorHub.subscribe(setItems); }, []);
-			if (!items.length) return null;
+			const current = items[0] || null;
+			const stamp = current ? current.id + ":" + current.lastAt : "";
+			React.useEffect(function () {
+				if (!stamp) return;
+				const timer = setTimeout(function () { tavernErrorHub.clear(); }, ERROR_AUTO_DISMISS_MS);
+				return function () { clearTimeout(timer); };
+			}, [stamp]);
+			if (!current) return null;
 			const h = React.createElement;
-			const item = items[0];
+			const item = current;
 			const text = "[" + formatErrorTime(item.lastAt) + "] " + item.source + (item.count > 1 ? "（重复 " + item.count + " 次）" : "") + "\n" + (item.code ? item.code + ": " : "") + item.message + (item.moduleFailure ? "\n" + JSON.stringify(item.moduleFailure, null, 2) : "");
 			// the player reads the shared Chinese sentence; the raw
 			// message (provider English, codes, ids) and the module-load details show only in the 调试视图 (body.dsh-fork-debug), and 复制 copies them.

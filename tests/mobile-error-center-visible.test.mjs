@@ -127,3 +127,14 @@ test('抽屉展开时，报错面板仍按视口定位，不随抽屉内容滚�
   assert.equal(state.visible, true)
   assert.ok(state.rect.x >= 0 && state.rect.y >= 0, '面板要落在视口内：' + JSON.stringify(state.rect))
 })
+
+test('报错面板显示五秒后自动移除，记录一起清掉', async t => {
+  const { page } = await mountPhoneSidebar(t)
+  await page.locator('.dsh-tavern-error-center').waitFor({ state: 'visible' })
+  const shownAt = Date.now()
+  await page.waitForFunction(() => !document.querySelector('.dsh-tavern-error-center'), null, { timeout: 9000 })
+  const elapsed = Date.now() - shownAt
+  assert.ok(elapsed >= 4000, '面板要留够五秒，不能一闪就没：' + elapsed + 'ms')
+  assert.ok(elapsed <= 7000, '面板要在五秒左右自行移除：' + elapsed + 'ms')
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('dsh-tavern:error-history:v1')), '[]', '自动移除后不留记录，刷新页面不会又冒出来')
+})
