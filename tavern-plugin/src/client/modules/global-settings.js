@@ -137,9 +137,10 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     renderSlot("settings.tavern.appearance", {}),
                     DebugSetting ? h(DebugSetting) : null,
                     h(CandidatePreferencesSettings), h(HeaderItemsSettings))),
-            group("高级", "",
-                card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
-                    sw("retryOnFailure", "请求失败自动重试", "模型请求因网络中断、服务端错误或限流失败时，自动再发一次（一轮最多两次请求）。关闭后失败即停在这一步，等你手动重发；DSH 自身的重试也不会介入。下一轮生效。", true),
+            // the anti-truncation block: the tool-call plumbing that keeps long outputs from being
+            // cut mid-body on channels that support tool calls (Gemini especially), grouped out of 高级.
+            group("防截断", "本区域可以帮助支持工具调用的渠道改善 Gemini 模型输出截断问题。",
+                card(sw("retryOnFailure", "请求失败自动重试", "模型请求因网络中断、服务端错误或限流失败时，自动再发一次（一轮最多两次请求）。关闭后失败即停在这一步，等你手动重发；DSH 自身的重试也不会介入。下一轮生效。", true),
                     sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史以工具记录形式回放，而不是普通对话文字；可降低续写被退回概率。只影响请求，存档和界面保持不变。需要模型支持工具调用。", false),
                     sw("storyOutputToolCall", "输出走工具调用", "仅用于宿主生成方式。通过协议级 tool_choice 强制模型调用 submit_story 提交本轮正文，并在 Gemini 渠道自动维护 thoughtSignature 签名链。需要模型支持工具调用。", false),
                     sw("storyToolThinking", "工具内思考槽", "开启「输出走工具调用」时，在 submit_story 参数首位增加必填 think 思考字段并锁定生成顺序（先构思再写正文），结算后自动归入思维链折叠行。遇到强制工具与原生思考互斥的渠道时也会自动启用。", false),
@@ -151,7 +152,9 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                                 { value: "bodies", label: "仅历史正文转调用" },
                                 { value: "envelope", label: "全信封模式（设定+输入全入工具）" }
                             ],
-                            onCommit: value => saveDefault("storyToolHistoryMode", value) })),
+                            onCommit: value => saveDefault("storyToolHistoryMode", value) })))),
+            group("高级", "",
+                card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
                     sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                     sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
                     sw("candidateTabs", "候选多角色 / 全局 Tab", "候选项按在场角色和全局事件分成「精选 / 角色 / 全局」几组 Tab 切换，默认停在精选。关闭后候选卡只显示精选一组，不再出现 Tab 条。改动立即生效。", false),
