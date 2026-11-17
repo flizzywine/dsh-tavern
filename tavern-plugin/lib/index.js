@@ -119,7 +119,7 @@ import { createSessionViewSync } from './domain/session-view-sync.js'
 import { createCharacterDesignPublisher } from './domain/character-design-worldbook.js'
 import { createManualCharacterDesign } from './domain/manual-character-design.js'
 import { prepareTemplateHistory, synchronizeTemplateHistory } from './domain/template-history.js'
-import { createServerTemplateSync } from './domain/server-template-sync.js'
+import { createServerTemplateSync, serverTemplateSyncState } from './domain/server-template-sync.js'
 import { createServerTemplateRuntime } from './domain/server-template-runtime.js'
 import { createForegroundStyleReferenceTool, foregroundStyleReferencePrompt, rememberStyleReference } from './domain/style-reference.js'
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
@@ -720,10 +720,9 @@ export async function apply(ctx) {
     // Display work waits while a foreground turn runs: it shares the template queue with the
     // turn's own template work, which reads the latest state itself. The turn's end lets it run
     // at once, so the new reply's template display does not wait for settlement.
-    templateSync.schedule(chat.sessionId, chat._storageRevision, {
-      enabled: groupOfMode(chat.mode || 'story') === 'play',
-      blocked: ['pending', 'running'].includes(chat.settleStatus) || agentRegistry.get(chat.sessionId)?.phase?.kind === 'running'
-    })
+    const state = serverTemplateSyncState(chat)
+    templateSync.schedule(chat.sessionId, chat._storageRevision, { ...state,
+      blocked: state.blocked || agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' })
   }
   ctx.on('session/event', function (session, event) { if (event?.type === 'turn/end' && session?.id) templateSync.release(session.id) })
   ctx.effect(() => () => templateSync.dispose())
@@ -4660,6 +4659,14 @@ export async function apply(ctx) {
     if (result === null || result.text === bodyText) return
     const previous = result.event && result.event.data && result.event.data.message
     if (previous === null || typeof previous !== 'object') return
+    // The replacement contains the whole body. Keep tool evidence but do not repeat its prose in model context.
+    for (const part of result.textEvents || []) {
+      if (part.event === result.event) continue
+      const data = part.event.data, seq = Number(part.event.seq ?? part.index)
+      replaceSessionSurface(session, 'assistant/message', {...data, message:{...data.message,id:randomUUID(),
+        source:{kind:'model',provider:'dsh-tavern',model:'reply-prefix-projection'},
+        content:data.message.content.filter(block => block.type !== 'text')}}, {start:seq,end:seq,sourceEventSeqs:[seq]})
+    }
     const reasoningBlocks = (Array.isArray(previous.content) ? previous.content : [])
       .filter(block => block?.type === 'reasoning' && typeof block.text === 'string' && block.text.trim() !== '')
       .map(block => ({ type: 'reasoning', text: block.text }))
@@ -4669,7 +4676,7 @@ export async function apply(ctx) {
       message: Object.assign({}, previous, {
         id: typeof messageId === 'string' && messageId !== '' ? messageId : randomUUID(),
         source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' },
-        content: [...reasoningBlocks, { type: 'text', text: bodyText }]
+        content: [...reasoningBlocks, ...(Array.isArray(previous.content) ? previous.content : []).filter(block => block?.type !== 'text' && block?.type !== 'reasoning'), { type: 'text', text: bodyText }]
       })
     }, { start: result.index, end: result.index, sourceEventSeqs: [result.index] })
   }

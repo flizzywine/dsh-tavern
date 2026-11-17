@@ -588,10 +588,10 @@ export function createCandidateGenerator(options) {
       ? await options.stableWorldBookContext(chat, card) : ''
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow, constantWorldBookContext })
     taskRun = await tasks.begin(chat, 'candidate', { requestId, bindExistingSession: true, prepareCommit: input.prepareCommit, expectedTimeline })
-    chat = taskRun.chat
     const duplicate = preparedValue()
     if (duplicate !== null) return duplicate
-    const currentScriptWindow = scriptMode ? scripts.inspect({ script, state: chat.scriptState, request: { kind: 'choice' } }) : null
+    // expectedTimeline guards the prepared window; the task chat is metadata, not its body projection.
+    const currentScriptWindow = scriptMode ? scripts.inspect({ script, state: taskRun.chat.scriptState, request: { kind: 'choice' } }) : null
     if (scriptMode && (currentScriptWindow.cursor !== scriptWindow.cursor || currentScriptWindow.sourceOffset !== scriptWindow.sourceOffset || currentScriptWindow.chunkSize !== scriptWindow.chunkSize)) {
       const error = new Error('剧本游标已变化，请重新生成候选项')
       await taskRun.fail(error)
@@ -647,6 +647,7 @@ export function createCandidateGenerator(options) {
       preparedWorldbook,
       sessionId: input.sessionId,
       task: 'candidate',
+      turn: Number(chat.messages?.findLast(message => message.role === 'assistant')?.turn) || 0,
       backgroundTasks,
       selection,
       temperature: 0.8,

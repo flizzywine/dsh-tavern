@@ -1,5 +1,8 @@
+// Background tasks keep their own silence bound; the foreground stream has none (upstream 23b87dfa0).
+const BACKGROUND_IDLE_MS = 90000
+
 /** Model liveness is measured from actual output, never UI heartbeats. */
-export function createBackgroundProgress({idleMs=300000, now=Date.now, onCancel=()=>{}}={}) {
+export function createBackgroundProgress({idleMs=BACKGROUND_IDLE_MS, now=Date.now, onCancel=()=>{}}={}) {
   const controller=new AbortController(), startedAt=now()
   let phase='preparing', lastProgressAt=startedAt, timer, attempt, closed=false, failure
   let reject
@@ -13,7 +16,7 @@ export function createBackgroundProgress({idleMs=300000, now=Date.now, onCancel=
   function arm() {
     clearTimeout(timer)
     if(closed || failure || phase!=='model') return
-    timer=setTimeout(()=>stop(Object.assign(new Error('后台模型连续 '+Math.round(idleMs/60000)+' 分钟没有有效输出，已停止等待。已生成的正文保留，请检查 API 或切换模型后重试。'),{code:'BACKGROUND_MODEL_IDLE_TIMEOUT'})),Math.max(0,lastProgressAt+idleMs-now()))
+    timer=setTimeout(()=>stop(Object.assign(new Error('后台模型连续 '+Math.ceil(idleMs/1000)+' 秒没有有效输出，已停止等待。已生成的正文保留，请检查 API 或切换模型后重试。'),{code:'BACKGROUND_MODEL_IDLE_TIMEOUT'})),Math.max(0,lastProgressAt+idleMs-now()))
     timer.unref?.()
   }
   return {

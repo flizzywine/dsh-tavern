@@ -56,6 +56,51 @@ test('missing cards, invalid openings, missing scripts and readiness failures do
   }
 })
 
+test('blank alternate persists an empty native chat and accepts its first player floor', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { createChatJournalStore } = await import('../tavern-plugin/lib/domain/chat-journal-store.js')
+  const { createChatPersistence } = await import('../tavern-plugin/lib/domain/chat-persistence.js')
+  const root = await mkdtemp(join(tmpdir(), 'blank-opening-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const { fixture: managedFixture } = await import('./helpers/mod-system-production-host.mjs')
+  const skinReads = []
+  const managed = await managedFixture(t, { readSkin: async (_path, { sessionId }) => {
+    skinReads.push(sessionId)
+    if (sessionId) {
+      const existing = await h.registry.resolve(sessionId)
+      assert.ok(existing._storageRevision > 0)
+    }
+    return null
+  } })
+  const h = initializationFixture({ persistence })
+  h.card.alternate_greetings = ['']
+  const started = await h.make().start({ ...h.input, openingId: 'alternate:0' })
+  const chat = await persistence.read(started.id)
+  assert.deepEqual(chat.messages, [])
+  assert.ok(chat._storageRevision > 0)
+  assert.equal(messages(h.session()).length, 0)
+  assert.deepEqual(skinReads, [], 'The opening projects no foreground capabilities, so it never reads an unpublished session')
+  await managed.production.foreground(chat, { nativeSession: h.session(chat.sessionId) })
+  assert.equal(skinReads.at(-1), chat.sessionId, 'First player request uses the published session skin')
+  chat.messages.push({ role: 'user', text: 'Begin from nothing.', turn: 2 })
+  await persistence.write(chat)
+  const cold = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  assert.deepEqual((await cold.read(chat.id)).messages, chat.messages)
+})
+
+test('an explicitly empty alternate starts without a Tavern or native opening message', async () => {
+  const h = initializationFixture()
+  h.card.first_mes = 'Existing opening'
+  h.card.alternate_greetings = ['Another opening', '']
+  const chat = await h.make().start({ ...h.input, openingId: 'alternate:1' })
+  assert.equal(chat.openingText, '')
+  assert.deepEqual(h.saved.get(chat.id).messages, [])
+  assert.equal(messages(h.session()).length, 0)
+  assert.equal(chat.nativeOpeningAppended, true)
+})
 test('missing binding recovers through registry; old standalone UUID greeting is adopted without rewriting its events', async () => {
   const h = initializationFixture()
   const first = await h.make().start(h.input)

@@ -4,7 +4,6 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createHash } from 'node:crypto'
-import { selectTestRuntime, probeTestRuntime } from './test-runtime.mjs'
 import { root, readContracts, hostReferences, addedReferences, summarizeTap, compareReports } from './dsh-contract-check.mjs'
 
 // Runs inside the selected Node/Electron, so ASAR reads and resolution use that host.
@@ -40,6 +39,7 @@ function inspectPackages(boot, names) {
 }
 
 async function runRuntime(selector, manifest, temporary) {
+  const { selectTestRuntime, probeTestRuntime } = await import('./test-runtime.mjs')
   const { findDshCommand, readInstallationFile } = await import('./launcher-environment.mjs')
   const { resolveDshBootModule } = await import('./plugin-dependencies.mjs')
   const env = { ...process.env, TMP: temporary, TEMP: temporary, TMPDIR: temporary }

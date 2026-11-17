@@ -2,6 +2,43 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createForegroundHandoff } from '../tavern-plugin/lib/domain/foreground-handoff.js'
+import { prepareWorldBookRecall } from '../tavern-plugin/lib/domain/worldbook-recall.js'
+import { createBackgroundProgress } from '../tavern-plugin/lib/domain/background-progress.js'
+import { createSettlementJobs } from '../tavern-plugin/lib/domain/settlement-jobs.js'
+
+test('sending during a silent settlement waits for its failure receipt, then starts the next body without a retry', async t => {
+  t.mock.timers.enable({apis:['setTimeout','Date']})
+  const chat={id:'waiting',settleStatus:'running',variables:{location:'last-confirmed'}}
+  let executions=0,prepared=0,cancelled=0
+  const jobs=createSettlementJobs({async run(){
+    executions++
+    const progress=createBackgroundProgress({onCancel:()=>cancelled++})
+    progress.frame({type:'start',attemptId:'settlement'})
+    try {await progress.wait(new Promise(()=>{}))}
+    catch(error){chat.settleStatus='failed';chat.settleError=error.message}
+    finally{progress.dispose()}
+  },async onSettled(){}})
+  t.after(()=>jobs.dispose())
+  const previous=jobs.start(chat.id)
+  const handoff=createForegroundHandoff({store:{async chatForSession(){return chat}},
+    tasks:{activity(){return {role:'settlement',phase:chat.settleStatus,busy:true}}},
+    // the tasks the next turn waits for (upstream workflow.beforeNextTurn: settlement, plugin tasks).
+    queueBackground:id=>jobs.start(id),beforeNextTurn:chat=>jobs.pending(chat.id),
+    turns:{async finalize(){},async discard(){},async prepare(){
+      assert.equal(chat.settleStatus,'failed');assert.match(chat.settleError,/90 秒/)
+      assert.deepEqual(chat.variables,{location:'last-confirmed'});prepared++
+    }}
+  })
+  const next=handoff.prepare({sessionId:'s',turn:10,userText:'前往医院'})
+  await new Promise(resolve=>setImmediate(resolve))
+  t.mock.timers.tick(89999)
+  assert.equal(prepared,0)
+  t.mock.timers.tick(1)
+  await Promise.all([previous,next])
+  assert.equal(executions,1);assert.equal(cancelled,1);assert.equal(prepared,1)
+})
+
+
 
 test('候选重生成跳过普通下一回合的世界同步与失败清理', async () => {
   const order = []

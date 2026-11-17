@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto'
 export function createPlayHandlers(deps) {
   const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationBackgroundSettings, conversationGuides, ctx,
-    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
+    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
@@ -103,9 +103,6 @@ export function createPlayHandlers(deps) {
     },
     async consolidateLedger(args) {
       return await manualLedger.start(args || {})
-    },
-    async sendPhoneMessage(args) {
-      return { phoneChat: await phoneChat.send(args || {}) }
     },
     async runCompaction(args) {
       const id = str(args && args.sessionId), chat = await chatForSession(id)

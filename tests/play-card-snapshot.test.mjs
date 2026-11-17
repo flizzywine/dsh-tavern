@@ -209,6 +209,38 @@ test('没有本局副本的游戏，常驻条目改动在下一轮读到时重�
   assert.equal(writes.length, 1)
 })
 
+// chat-mvl53223-joqbuf: an opening game (no floors yet) wrote ~459k no-op headers in a day, only cardContextRevision bumping:
+// build() digested the constants with the foreground capability entries, refreshConstantPrefix() without them.
+test('没有本局副本的开局游戏：前缀摘要只有一个投影，读取不写，第一层前后前缀逐字节相同', async () => {
+  const { createWorldBookLibrary } = await import('../tavern-plugin/lib/domain/worldbook-library.js')
+  const card = { name: '开局', character_book: { entries: [] } }
+  const cardPath = 'cards/opening.json', bookPath = 'worldbooks/opening.json'
+  const text = JSON.stringify({ name: '书', entries: [{ uid: 0, comment: '常驻', content: '常驻', constant: true, disable: false, key: [] }] })
+  const worldBooks = createWorldBookLibrary({ normalizePath: p => p, removeStandalone: async () => {},
+    cards: { read: async () => card },
+    resources: { bindingForCard: async () => ({ kind: 'standalone', path: bookPath, available: true }), readText: async () => text } })
+  // The option the host used to pass: foreground capabilities have their own snapshot and never enter the card prefix.
+  const prepareCapabilities = async (_chat, book) => ({ ...book, view: { ...book.view,
+    entries: [...book.view.entries, { ...book.view.entries[0], uid: 99, comment: '模组说明', content: '模组常驻说明' }] } })
+  let stored = null
+  const writes = []
+  const api = createPlayCardSnapshots({ worldBooks, prepareCapabilities,
+    planner: { plan: async ({ worldBookContext }) => ({ text: '前缀\n' + worldBookContext }) },
+    readCard: async () => card, writeChat: async () => { throw new Error('自动更新不能整份覆盖存档') },
+    updateChat: async (id, mutate, metadata) => { writes.push(metadata.source); stored = mutate(stored); return stored }
+  })
+  const chat = { id: 'opening', sessionId: 'session-opening', mode: 'story', cardPath, messages: [] }
+  await api.prepare(chat, card, await worldBooks.bound(cardPath, card, {}))
+  stored = structuredClone(chat)
+  const opening = stored.cardContextSnapshot
+  assert.doesNotMatch(opening, /模组常驻说明/)
+  for (let i = 0; i < 3; i++) assert.equal((await api.autoSync(structuredClone(stored), card)).applied, false, '库没变就不写')
+  stored.messages.push({ role: 'assistant', text: '第一层', turn: 1 })
+  assert.equal((await api.autoSync(structuredClone(stored), card)).applied, false, '第一层出现也不重建前缀')
+  assert.deepEqual(writes, [])
+  assert.equal(stored.cardContextSnapshot, opening)
+})
+
 test('没有本局副本的游戏也能显式重载人物卡，且不新建世界书副本 (#318)', async () => {
   const { createWorldBookLibrary } = await import('../tavern-plugin/lib/domain/worldbook-library.js')
   const entry = (id, content, enabled = true) => ({ id, comment: content, content, constant: true, enabled, keys: [] })
@@ -263,4 +295,45 @@ test('重载人物卡的检测与校验值按磁盘上最新的卡算，不拿�
   assert.equal(status.cardChanged, true, '改了卡内嵌世界书要提示')
   const patch = await api.replacement(chat, latest, status.digest)
   assert.match(patch.cardContextSnapshot, /改过的条目/, '按页面拿到的校验值能重载成功')
+})
+
+// 舞台内换皮肤（CONFIG 本卡皮肤）只写卡的「使用皮肤」dsh_tavern.stage.defaultSkin：它不是卡的内容，不能触发本局自动重载
+// （重载会开新的舞台分支，读者被打回本轮第一页）。
+test('卡的使用皮肤只是外观：改它们不算人物卡改动，游戏不自动重载', async () => {
+  const stage = { switches: { director: true } }
+  const frozen = { name: '皮肤', extensions: { dsh_tavern: { assetBindings: { boundPackIds: [] }, stage } } }
+  let latest = frozen
+  const api = createPlayCardSnapshots({ worldBooks: { bound: async () => null }, planner: { plan: async () => ({ text: '' }) },
+    readCard: async chat => chat.cardDefinitionSnapshot, readLatestCard: async () => latest,
+    writeChat: async () => { throw new Error('不能整份覆盖存档') } })
+  const chat = { id: 'skin-card', mode: 'story', cardPath: 'cards/skin.json', cardDefinitionSnapshot: frozen, messages: [{ role: 'assistant', text: '开场' }] }
+  await api.prepare(chat, frozen)
+  const skin = { packId: '00000000-0000-4000-8000-000000000000', kind: 'skins', assetId: 'paper' }
+  latest = { ...frozen, extensions: { dsh_tavern: { ...frozen.extensions.dsh_tavern, stage: { ...stage, defaultSkin: skin } } } }
+  assert.equal(cardContentDigest(latest), cardContentDigest(frozen))
+  assert.equal((await api.currentStatus(chat, { busy: true })).available, false, '换皮肤不提示、不自动重载')
+})
+
+// 手机设置「仅此角色卡」与「使用所有角色卡的设置」只写卡的 dsh_tavern.modSystem：运行时从磁盘上的卡实时读，
+// 它们一变就自动重载本局会重启卡脚本与舞台，皮肤、背景和手机一起掉线。
+test('本卡模组开关与手机设置实时读：改它们不算人物卡改动，游戏不自动重载', async () => {
+  const mods = { version: 2, mods: { 'dsh.map': 'off' }, packs: {}, config: { 'dsh.phone': { version: 1, values: { battery: { fixed: 85 } } } } }
+  const frozen = { name: '手机', description: '原文', extensions: { dsh_tavern: { assetBindings: { boundPackIds: [] }, modSystem: mods } } }
+  let latest = frozen
+  const api = createPlayCardSnapshots({ worldBooks: { bound: async () => null }, planner: { plan: async () => ({ text: '' }) },
+    readCard: async chat => chat.cardDefinitionSnapshot, readLatestCard: async () => latest,
+    writeChat: async () => { throw new Error('不能整份覆盖存档') } })
+  const chat = { id: 'phone-card', mode: 'story', cardPath: 'cards/phone.json', cardDefinitionSnapshot: frozen, messages: [{ role: 'assistant', text: '开场' }] }
+  await api.prepare(chat, frozen)
+  const withMods = modSystem => ({ ...frozen, extensions: { dsh_tavern: { ...frozen.extensions.dsh_tavern, modSystem } } })
+  // 「使用所有角色卡的设置」：本卡层清空；本卡关闭一个模组；卡从没有过 modSystem。
+  for (const modSystem of [{ ...mods, config: { 'dsh.phone': { version: 1, values: {} } } }, { ...mods, mods: { 'dsh.map': 'off', 'dsh.phone': 'off' } }]) {
+    latest = withMods(modSystem)
+    assert.equal(cardContentDigest(latest), cardContentDigest(frozen))
+    assert.equal((await api.currentStatus(chat, { busy: true })).available, false, '改手机设置不提示、不自动重载')
+  }
+  latest = { ...frozen, extensions: { dsh_tavern: { assetBindings: { boundPackIds: [] } } } }
+  assert.equal(cardContentDigest(latest), cardContentDigest(frozen))
+  latest = { ...withMods(mods), description: '改过的正文' }
+  assert.notEqual(cardContentDigest(latest), cardContentDigest(frozen), '卡的内容改动仍照常触发重载')
 })

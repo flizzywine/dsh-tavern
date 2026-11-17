@@ -1,9 +1,11 @@
+// tagged English defaults; retain protocol, payload, cache and budget assertions.
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createCandidateGenerator, extractForegroundStoryChoices, foregroundCandidatePrompt } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
+import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 
 const storyChoices = [
@@ -25,7 +27,7 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection, planHook, worldBookContext }) {
+function harness({ mode = 'story', taskProjection = false, outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection, planHook, worldBookContext }) {
   const continuity = createScriptContinuity()
   const activeScript = scriptData || script()
   let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
@@ -108,15 +110,21 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
       return { text: '候选项上下文', stableText: '稳定候选上下文', taskText: '候选格式规则', systemPromptText: '本轮系统提示', postHistoryText: '本轮历史后指令', dynamicText: '本轮游标、Guide 与姿势', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } }
     }
   }
+  const timeline = createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 })
+  const coordinator = createBackgroundTaskCoordinator({store,timeline})
+  const tasks = taskProjection ? {...coordinator, async begin(...args) {
+    const task = await coordinator.begin(...args)
+    return {...task,chat:{...task.chat,messages:[],macroState:{userName:'你'}}}
+  }} : coordinator
   const candidates = createCandidateGenerator({
-    store, model, planner, prompt, scripts: continuity, worldBookContext,
+    store, model, planner, prompt, scripts: continuity, worldBookContext, tasks,
     characterDesign: { async execute() { return JSON.stringify({ ok: true }) } },
     async stableWorldBookContext(currentChat, currentCard) {
       assert.equal(currentChat.id, chat.id)
       assert.equal(currentCard.name, card.name)
       return '常驻世界设定'
     },
-    timeline: createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 }),
+    timeline,
     waitUntilSettled: waitUntilSettled || (async () => {}), sleep: async () => {}, now: () => 123456,
     logger: { error() {}, warn(message) { warnings.push(String(message)) } }
   })
@@ -130,6 +138,32 @@ function harness({ mode = 'story', outputs, initialCandidates, initialCandidateA
     mutateChat(change) { change(chat) }
   }
 }
+
+test('script candidate commits retain the continuity revision fence', async () => {
+  const run = harness({mode:'script', outputs:[JSON.stringify({choices:storyChoices})]})
+  let started
+  await run.candidates.generate({sessionId:'session-1', messageId:'script-choice', onStarted(value) {started = value}})
+  assert.equal(run.chat().timeline.revision,started.basedOn.revision + 1)
+})
+
+test('regenerating choices replaces only candidates, preserving body, MVU and stage bytes', async () => {
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })], initialCandidates: { messageId: 'message-1', choices: [{ type: 'action', text: 'old choice' }] } })
+  run.mutateChat(chat => {
+    chat.messages = [{ role: 'assistant', turn: 1, text: '正文\r\n  保留空格。', mvu: { status: 'completed', effect: { score: 7 } }, stageDirectionAssetPacks: { background: 'room', music: 'rain' }, stagePlaybackV1: { turn: 1, segments: [] } }]
+    chat.macroState.local = { score: 7 }
+  })
+  const before = run.chat()
+  const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1', guidance: '新的行动方向', requestId: 'regenerate-choices' })
+  const after = run.chat()
+  assert.deepEqual(after.candidates.choices, storyChoices)
+  assert.equal(JSON.stringify(after.messages), JSON.stringify(before.messages))
+  assert.equal(JSON.stringify(after.macroState), JSON.stringify(before.macroState))
+  assert.equal(after.settleStatus, before.settleStatus)
+  assert.equal(after.scriptState, before.scriptState)
+  assert.equal(result.messageId, 'message-1')
+  assert.match(JSON.stringify(run.modelRequests[0].messages), /新的行动方向/)
+  assert.equal(run.modelCalls(), 1)
+})
 
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
   const run = harness({ outputs: [async function (options) {
@@ -176,6 +210,23 @@ test('单次输出无效时不覆盖旧候选，也不改变剧本游标', async
   const after = run.chat()
   assert.deepEqual(after.candidates, oldCandidates)
   assert.equal(run.continuity.inspect({ script: script(), state: after.scriptState, request: { kind: 'progress' } }).cursor, 0)
+})
+
+test('a synced background session still receives the latest story, renamed player and bedtime after twenty turns', async () => {
+  const messages = Array.from({length:20}, (_, i) => ({role:'assistant',turn:i + 1,text:i === 19 ? '阿舟在午夜向大肥鱼道晚安，她已经在卧室睡着。' : '阿舟继续处理当天的事情，第' + (i + 1) + '轮。'}))
+  const run = harness({messages, taskProjection:true, macroState:{userName:'阿舟'}, outputs:[JSON.stringify({choices:storyChoices})]})
+  await run.candidates.generate({sessionId:'session-1',messageId:'turn20'})
+  // The second task shares both the persistent participant and its synced revision.
+  await run.candidates.generate({sessionId:'session-1',messageId:'turn20-again'})
+  const request = run.modelRequests[1]
+  assert.equal(request.persistentSessionId, 'candidate-trace-1')
+  const bodies = request.messages.filter(message => message.role === 'assistant')
+  assert.equal(bodies.length, 3)
+  assert.equal(bodies.at(-1).content[0].text, messages.at(-1).text)
+  assert.match(request.messages.at(-1).content[0].text, /latest story turn 20/)
+  assert.match(request.messages.at(-1).content[0].text, /Player.s name in this session: 阿舟/)
+  const taskText = request.messages.at(-1).content[0].text
+  console.log('B3 candidate prompt bytes', JSON.stringify({before:{recentBodyBytes:2,taskBytes:Buffer.byteLength(taskText.split('\n\n【候选时间点】')[0])},after:{recentBodyBytes:Buffer.byteLength(JSON.stringify(bodies)),taskBytes:Buffer.byteLength(taskText)},toolSchemaBytes:Buffer.byteLength(JSON.stringify(request.tools))}))
 })
 
 test('first candidate interrupted before a result keeps its bound session for retry', async () => {

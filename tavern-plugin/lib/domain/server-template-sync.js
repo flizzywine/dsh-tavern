@@ -1,3 +1,13 @@
+/** Opening MVU owns the first message-variable write before display templates. */
+export function serverTemplateSyncState(chat) {
+  return {
+    enabled: !chat.mode || chat.mode === 'story' || chat.mode === 'script',
+    blocked: ['pending', 'running'].includes(chat.settleStatus)
+      || (chat.mvu?.enabled === true && chat.mvu.owner === 'official'
+        && chat.mvu.openingInitialization?.status === 'pending')
+  }
+}
+
 /** Coalesce display work without losing a write received during execution. */
 export function createServerTemplateSync({ run, onError, delayMs = 250, maxRetryDelayMs = 5000 }) {
   const records = new Map()
