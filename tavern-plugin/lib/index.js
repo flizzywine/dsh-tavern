@@ -242,7 +242,8 @@ import { createMediaStore } from '../packages/dsh-asset-library/lib/pack-v2/medi
 import { readCardArchive } from './domain/card-archive.js'
 import { openZipFile } from './domain/zip-file.js'
 import { createUploads } from './domain/uploads.js'
-import { createCardPlugins } from './domain/card-plugins.js'
+import { createCardPlugins, createCardPluginUpdates } from './domain/card-plugins.js'
+import { tmpdir } from 'node:os'
 import { createCardFiles } from './domain/card-files.js'
 import { createPostureItem, createSettlementItems } from './domain/background-pipeline.js'
 import { createTavernCompatibilityDiagnosticStore } from './domain/tavern-compatibility-diagnostics.js'
@@ -304,8 +305,8 @@ import { canonicalTavernSkillName, createTavernSkillModule } from './domain/tave
 import { readZipEntries } from './domain/zip-entries.js'
 import { createGameFootprint } from './domain/game-footprint.js'
 import { createGameSaveExporter } from './domain/game-save-export.js'
-import { readFileSync } from 'node:fs'
-import { readdir, readFile, rm } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { readdir, readFile, rm, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const TAVERN_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -670,6 +671,8 @@ export async function apply(ctx) {
   })
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
+  const cardPluginJournal = path.join(dataRoot, 'card-plugin-update.journal.json')
+  const cardPluginUpdatePending = () => existsSync(cardPluginJournal)
   // Folders in <data>/plugins become profile patch entries, so both plugin halves load without editing Tavern.
   // The entries DSH started with: a later sync that moves one (managed mods republished below) restarts it from its new
   // folder through the loader, or the old release's code would run against the new release's files until a restart.
@@ -677,10 +680,10 @@ export async function apply(ctx) {
   const fileResources = createFileResourceStore({ dataRoot })
   const reloadUserPlugin = loaderReload(ctx.get('loader'), ctx.fiber)
   try {
-    const result = await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card') })
+    const result = await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending })
     await reconcileUserPluginsAtStartup({ result, loaded: loadedUserPlugins, reload: reloadUserPlugin })
   } catch (error) { console.warn('dsh-tavern: 同步用户插件失败', error?.message || error) }
-  ctx.effect(() => watchUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), loaded: loadedUserPlugins, reload: reloadUserPlugin }))
+  ctx.effect(() => watchUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending, loaded: loadedUserPlugins, reload: reloadUserPlugin }))
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
@@ -1474,8 +1477,37 @@ export async function apply(ctx) {
   const assetPacks = createAssetPacks({ store: profileData, mediaStore })
   const uploads = createUploads({ root: dataRoot })
   const pluginDataStore = createPluginDataStore({ dataRoot })
-  const userPluginInstaller = createUserPluginInstaller({ dataRoot, sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card') }) })
-  const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf })
+  const userPluginInstaller = createUserPluginInstaller({ dataRoot, sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }) })
+  const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf,
+    journalPath: cardPluginJournal })
+  const cardPluginUploads = createUploads({ root: path.join(tmpdir(), 'dsh-card-plugin-update', castAssets.keyOf(dataRoot)), maxAgeMs: 10 * 60 * 1000 })
+  ctx.effect(() => {
+    const timer = setInterval(() => { void cardPluginUploads.sweep().catch(() => {}) }, 60 * 1000)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  })
+  const cardPluginUpdates = createCardPluginUpdates({ cardPlugins: {
+    ...cardPlugins,
+    updateBoundPlugin: async input => {
+      const result = await cardPlugins.updateBoundPlugin(input)
+      await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending })
+      return result
+    },
+    recoverBoundPlugin: async callbacks => {
+      const result = await cardPlugins.recoverBoundPlugin(callbacks)
+      await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending })
+      return result
+    }
+  }, castAssets, backup: async cardPath => {
+    const directory = path.join(dataRoot, '..', 'backups', 'card-plugin-update')
+    await mkdir(directory, { recursive: true })
+    const file = path.join(directory, 'card-plugin-update-' + randomUUID() + '.json')
+    const manifest = await readFile(path.join(dataRoot, 'cast-assets', castAssets.keyOf(cardPath), 'cast.json'), 'utf8')
+    await writeFile(file, JSON.stringify({ cardPath, manifest }, null, 2) + '\n', { flag: 'wx' })
+    return file
+  } })
+  // An update interrupted by a crash or restart finishes (or rolls back) before user plugins load again.
+  void cardPluginUpdates.recover().catch(error => console.warn('dsh-tavern: 恢复中断的人物卡插件更新失败', error?.message || error))
   void uploads.sweep().catch(() => {})
   // 台词朗读 goes through the voice service; plugin speech providers join it as its providers (pluginApi is created later; read lazily).
   const voiceService = () => ctx.get('tts')
@@ -4439,7 +4471,7 @@ export async function apply(ctx) {
   const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,
-    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
+    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
@@ -4633,7 +4665,7 @@ export async function apply(ctx) {
     castAssets,
     exportCardFile,
     assetPacks,
-    uploads,
+    uploads: { receive: req => new URL(req.url, 'http://localhost').searchParams.get('purpose') === 'card-plugin-update' ? cardPluginUploads.receive(req) : uploads.receive(req) },
     transferExports,
     exposeHandler: handle => { tavernHttpHandle = handle },
     pluginAssets: createPluginAssets({ pluginsDir: userPluginPaths(dataRoot).plugins }),

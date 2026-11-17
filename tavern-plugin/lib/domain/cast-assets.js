@@ -267,6 +267,28 @@ export function createCastAssets({ store }) {
     return read(cardPath)
   }
 
+  /** Replace one existing binding without normalizing unrelated records or material fields. */
+  async function updatePlugin(cardPath, expected, replacement) {
+    await update(cardPath, manifest => {
+      const matches = (manifest.plugins || []).filter(plugin => plugin.name === expected.name)
+      if (matches.length !== 1 || JSON.stringify(matches[0]) !== JSON.stringify(expected)) throw invalid('插件绑定已变化，请重新预览')
+      const index = manifest.plugins.indexOf(matches[0])
+      manifest.plugins[index] = { ...matches[0], ...replacement, enabled: matches[0].enabled }
+    })
+  }
+
+  async function restorePlugin(cardPath, expected, replacement) {
+    await store.updateJson(dirOf(cardPath) + '/cast.json', manifest => {
+      const matches = (manifest?.plugins || []).filter(plugin => plugin.name === expected.name)
+      if (matches.length !== 1) throw invalid('插件绑定在恢复前已变化')
+      if (JSON.stringify(matches[0]) === JSON.stringify(expected)) return undefined
+      const installed = { ...expected, ...replacement, enabled: expected.enabled }
+      if (JSON.stringify(matches[0]) !== JSON.stringify(installed)) throw invalid('插件绑定在恢复前已变化')
+      manifest.plugins[manifest.plugins.indexOf(matches[0])] = expected
+      return manifest
+    })
+  }
+
   /** The file the card was imported from (card-import-identity.js): { archiveSha256, cardSha256 }. */
   async function setSource(cardPath, source) {
     await update(cardPath, manifest => { if (source) manifest.source = source; else delete manifest.source })
@@ -292,5 +314,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ replaceManifest: (cardPath, manifest) => store.writeJson(dirOf(cardPath) + "/cast.json", manifest || empty()), read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ replaceManifest: (cardPath, manifest) => store.writeJson(dirOf(cardPath) + "/cast.json", manifest || empty()), read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, updatePlugin, restorePlugin, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }
