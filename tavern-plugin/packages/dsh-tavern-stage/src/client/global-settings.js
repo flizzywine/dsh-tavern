@@ -2,7 +2,7 @@ function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernMod
     // 对话气泡 / 舞台模式 have no row here: their only switch is the four-state one of 舞台设置 › 基础设置 (its 全局 choices write
     // the same engine stageToggles).
     // 舞台模型: every slot the stage registered — its own (导演模型, 智能判断) first as plain rows, then each stage mod's
-    // (手机 › 通话模型) as plain rows in the same card (the mod's name in the description; no card inside the card). The core's own slots stay on 设置 › DSH Tavern › 默认模型 (owner 'core').
+    // (手机 › 通话模型) as plain rows in the same card under a plain subtitle with the mod's name (no card inside the card). The core's own slots stay on 设置 › DSH Tavern › 默认模型 (owner 'core').
     function StageModelSettings() {
         const h = React.createElement;
         const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
@@ -26,7 +26,9 @@ function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernMod
         const common = {values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save};
         return h(React.Fragment, null,
             state.error ? h('p', {role:'alert'}, state.error) : null,
-            h(TavernModelSlotGroups, {...common, rowsOnly:true, slots:state.slots.map(slot=>slot.modId === 'dsh.stage' ? slot : {...slot, purpose:slot.modName + '模组用。' + (slot.purpose || '')})}));
+            Array.from(Map.groupBy(state.slots, slot=>slot.modId), ([modId, slots]) => h(React.Fragment, {key:modId},
+                modId === 'dsh.stage' ? null : h('p', {className:'dsh-tavern-gs-subtitle'}, slots[0].modName),
+                h(TavernModelSlotGroups, {...common, rowsOnly:true, slots}))));
     }
     function TavernStageSettingsSection() {
         const h = React.createElement;
