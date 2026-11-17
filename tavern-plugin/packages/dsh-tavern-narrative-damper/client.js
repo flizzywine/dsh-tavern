@@ -225,8 +225,15 @@ function TndField({ kind = 'text', label, value, placeholder, unit, wide, multil
 function TndPanel({ ui }) {
   const h = React.createElement
   const components = ui.components || {}
-  const Switch = components.Switch
-  const Segmented = components.Segmented
+  // 宿主控件（apiVersion 9 起）能借就借，借不到用原生控件顶上：面板在新旧宿主上都要能用。
+  const Switch = components.Switch || (({ label, checked, disabled, onChange }) => h('input', {
+    type: 'checkbox', role: 'switch', 'aria-label': label, checked: Boolean(checked), disabled: Boolean(disabled),
+    onChange: event => onChange(event.target.checked)
+  }))
+  const Segmented = components.Segmented || (({ label, value, options, disabled, onChange }) => h('select', {
+    className: 'tnd-select', 'aria-label': label, disabled: Boolean(disabled), value,
+    onChange: event => onChange(event.target.value)
+  }, (options || []).map(([optionValue, text]) => h('option', { key: optionValue, value: optionValue }, text))))
   const [state, setState] = useState({ loading: true, busy: false, config: null, credential: null, error: '', notice: '', test: null, editingKey: false })
   const testSeq = React.useRef(0)
   const mounted = React.useRef(true)
