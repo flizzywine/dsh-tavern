@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2dcd907d29fd97b363eb2345e218b6c6bd28327b",
-  "releaseSequence": 1726,
+  "revision": "9c2db9648358564f7bee7f77b59a9f178805f2fa",
+  "releaseSequence": 1727,
   "version": "3.3.0",
   "files": [
     {
@@ -2606,8 +2606,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/opening-command.js",
-      "sha256": "cfd2fab4dc82e47546f02fad477daf3a196f43dabc5a9e6c2285eb1595b9c436",
-      "size": 4087
+      "sha256": "5087e34eace89799ccf528dbaf444937d6fa14aea2d6a982746587a2702b1c08",
+      "size": 4165
     },
     {
       "path": "tavern-plugin/lib/domain/opening-preparation.js",
@@ -2616,8 +2616,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/opening-setup.js",
-      "sha256": "92dcce25999fdfcd8a7dd5b6fdb11ae3581ce0f9a8b77c4626b0b92ae47f199d",
-      "size": 28957
+      "sha256": "e320124c39fd450b10851d747cf08163065c443f942ed2787cb64f6f3767a91d",
+      "size": 29488
     },
     {
       "path": "tavern-plugin/lib/domain/opening-transport.js",
@@ -9401,9 +9401,9 @@
     }
   ],
   "archive": {
-    "commit": "fee5df22222e26149e11a135517eee70ecd67299",
+    "commit": "9338413f52faa349d86dbc4317d9665c2ccd72bb",
     "path": "runtime.zip",
-    "sha256": "74b0d790d999a53750a183d49b35bb1b6a53fb5100e7250facb680a49a58f828",
-    "size": 16667091
+    "sha256": "3096bdf43853273796e7eba0922e3d446172a2b18e9b51b0159d4118760ef223",
+    "size": 16667373
   }
 }
