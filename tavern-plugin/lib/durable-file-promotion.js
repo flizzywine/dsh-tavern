@@ -171,7 +171,7 @@ export function createDurableFilePromotion(options = {}) {
     } finally { if (handle) await handle.close().catch(function () {}) }
   }
 
-  async function writeTarget(target, value) {
+  async function writeTarget(target, value, beforeCommit) {
     await mkdir(path.dirname(target), { recursive: true })
     const snapshots = await pendingSnapshots(target)
     const revision = snapshots.length === 0 ? 1 : snapshots[snapshots.length - 1].revision + 1
@@ -183,6 +183,8 @@ export function createDurableFilePromotion(options = {}) {
       await handle.writeFile(bytes(value))
       await handle.sync()
       await handle.close(); handle = null
+      // Pending snapshots are visible to readers, so authority is fenced before publication.
+      await beforeCommit?.()
       await rename(staging, pending)
       await syncDirectory(path.dirname(target))
       await replaceTarget(pending, target)
@@ -258,9 +260,9 @@ export function createDurableFilePromotion(options = {}) {
         return { status: 'appended', bytes: frame.length }
       }))
     },
-    async write(target, value) {
+    async write(target, value, { beforeCommit } = {}) {
       const absolute = path.resolve(target)
-      return enqueue(absolute, () => withWriteLock(absolute, () => writeTarget(absolute, value)))
+      return enqueue(absolute, () => withWriteLock(absolute, () => writeTarget(absolute, value, beforeCommit)))
     },
     async update(target, updater) {
       if (typeof updater !== 'function') throw new Error('Durable File Promotion 缺少 updater')

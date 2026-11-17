@@ -3,6 +3,15 @@ import test from 'node:test'
 
 import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/session-signal-transport.js'
 
+test('only tavern-state carries its read-only projection through the snapshot and delta channel',async()=>{
+  const transport=createSessionSignalTransport(),controller=new AbortController()
+  transport.publish('s',{kind:'tavern-state',version:'1',snapshot:{mailboxVersion:1}})
+  const stream=transport.follow(controller.signal,['s'])[Symbol.asyncIterator]()
+  assert.deepEqual((await stream.next()).value.signals[0].snapshot,{mailboxVersion:1})
+  transport.publish('s',{kind:'runtime-work',version:'2',snapshot:{views:[]}})
+  assert.equal((await stream.next()).value.signal.snapshot,undefined)
+  controller.abort();assert.equal((await stream.next()).done,true)
+})
 test('one global snapshot stream coalesces bursts by session and kind and reopens from a complete baseline', async function () {
   const transport = createSessionSignalTransport()
   transport.publish('session-a', { kind: 'tavern-state', version: '1', snapshot: { mailboxVersion: 1 } })
@@ -12,6 +21,7 @@ test('one global snapshot stream coalesces bursts by session and kind and reopen
   const iterator = transport.follow(abort.signal)[Symbol.asyncIterator]()
   const opening = await iterator.next()
   assert.equal(opening.value.type, 'snapshot')
+  assert.equal(transport.connected('session-a'),true)
   assert.deepEqual(opening.value.signals.map(signal => [signal.sessionId, signal.kind, signal.version]), [
     ['session-a', 'tavern-state', '1'],
     ['session-b', 'runtime-work', 'job-1']
@@ -28,6 +38,7 @@ test('one global snapshot stream coalesces bursts by session and kind and reopen
 
   abort.abort()
   assert.equal((await iterator.next()).done, true)
+  assert.equal(transport.connected('session-a'),false)
 
   const reopened = transport.follow(new AbortController().signal)[Symbol.asyncIterator]()
   const replacement = await reopened.next()
@@ -35,7 +46,9 @@ test('one global snapshot stream coalesces bursts by session and kind and reopen
     ['session-a', 'tavern-state', '1000'],
     ['session-b', 'runtime-work', 'job-2']
   ])
+  assert.equal(transport.connected('session-a'),true)
   await reopened.return()
+  assert.equal(transport.connected('session-a'),false)
 })
 
 test('narrative-damper 信号保留完整对象快照供实时显示与重放，非白名单信号仍剥离快照', async function () {

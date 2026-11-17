@@ -568,7 +568,8 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (!changed?.denseMessages || changed.chat.id !== reader?.chatId
       || changed.chat.sessionId !== reader?.sessionId
       || (changed.chat.tavernHelperLifecycleRevision || 0) !== reader?.lifecycle) changed = undefined
-    const chat = window?.chat || (reuse ? selected.chat : changed ? changed.chat : await resolveChat(sessionId))
+    const template = !window && !reuse && !changed ? await options.resolveTemplateChat?.(sessionId) : undefined
+    const chat = window?.chat || (reuse ? selected.chat : changed ? changed.chat : template?.chat || await resolveChat(sessionId))
     assertTemplateChat(chat)
     const card = await options.readCard(chat)
     let templateBook
@@ -588,7 +589,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     })
     const snapshot = {
       capabilities: {statePatch:1},
-      state: projectFullPromptTemplateState(chat),
+      state: projectFullPromptTemplateState(chat, template?.helper),
       environment: { characters, name1: str(chat.macroState?.userName) || '你', name2: str(card.name),
         this_chid: '0', extension_settings: extensionSettings,
         world_names: worldName ? [worldName] : [], selected_world_info: [],
