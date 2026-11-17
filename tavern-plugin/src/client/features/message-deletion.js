@@ -131,7 +131,7 @@
 				if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: sessionId } }));
 				}
 			});
-			const confirm = deps.confirm || askTavernConfirm;
+			const askDeleteConfirm = deps.confirm || askTavernConfirm;
 			function useSelection(sessionId) {
 				const subscribe = React.useCallback(function (listener) { return store.subscribe(sessionId, listener); }, [sessionId]);
 				const snapshot = React.useCallback(function () { return store.getSnapshot(sessionId); }, [sessionId]);
@@ -159,9 +159,14 @@
 				}, [props.sessionId, key, state.active, state.deleting, valid]);
 				if (!state.active || !valid) return null;
 				const label = props.selector.role === "user" ? "选择这条用户输入" : "选择这条 AI 输出";
-				return React.createElement("label", { ref: labelRef, className: "dsh-tavern-message-select " + (props.selector.role === "user" ? "user" : "assistant"), title: label },
-					React.createElement("input", { type: "checkbox", "aria-label": label, checked: state.keys.has(key), disabled: state.deleting,
-						onChange: function () { store.toggle(props.sessionId, props.selector); } }));
+				const checked = state.keys.has(key);
+				// fork: the multi-select's self-drawn tick (.ap-check-mark, ui-design §三.15) instead of a native checkbox.
+				return React.createElement("button", { ref: labelRef, type: "button", role: "checkbox", className: "ap-pack-check dsh-tavern-message-select " + (props.selector.role === "user" ? "user" : "assistant"),
+					"aria-checked": checked, "aria-label": label, title: label, disabled: state.deleting,
+					onClick: function () { store.toggle(props.sessionId, props.selector); } },
+					React.createElement("span", { className: "ap-check-mark", "aria-hidden": "true" }, checked
+						? React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true" }, React.createElement("path", { d: "M3.5 8.5l3 3 6-7", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" }))
+						: null));
 			}
 			function TavernMessageDeletionDock(props) {
 				const state = useSelection(props.sessionId);
@@ -182,7 +187,7 @@
 					if (state.deleting || confirming.current || !state.items.length) return;
 					confirming.current = true;
 					try {
-						const accepted = await confirm("确定删除选中的 " + state.items.length + " 条消息吗？它们将从对话和后续模型上下文中移除。", { confirmText: "删除", cancelText: "取消" });
+						const accepted = await askDeleteConfirm("确定删除选中的 " + state.items.length + " 条消息吗？它们将从对话和后续模型上下文中移除。", { confirmText: "删除", cancelText: "取消" });
 						if (accepted) await store.remove(props.sessionId);
 					} finally { confirming.current = false; }
 				}

@@ -33,7 +33,7 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
   await page.evaluate(() => { window.__statusSettingsChanged = 0; window.addEventListener('dsh-tavern-settings-changed', () => window.__statusSettingsChanged++); })
   await trigger.click()
   await page.getByRole('menuitemradio', { name: '正文下方' }).click()
-  await page.getByText('已保存，所有对局使用此状态栏位置。', { exact: true }).waitFor()
+  await page.locator('.dsh-tavern-global-defaults [role=status]').filter({ hasText: '已保存' }).waitFor()
   assert.equal(await trigger.getAttribute('aria-label'), '状态栏位置（所有对局）：正文下方')
   assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { statusBarPlacement: 'body' } })
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)

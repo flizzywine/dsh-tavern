@@ -798,11 +798,11 @@
         }
         function TavernRollbackToTurnButton({ sessionId, turn, round, floorNo, messageUid, running }) {
             const [busy, setBusy] = React.useState(false);
-            const confirm = useTavernConfirm(JSON.stringify([sessionId, turn, messageUid, running]));
+            const confirmRollback = useTavernConfirm(JSON.stringify([sessionId, turn, messageUid, running]));
             const target = floorNo ? "第 " + floorNo + " 楼" : "第 " + round + " 轮";
             async function rollbackTo() {
                 if (busy || running) return;
-                if (!await confirm("回退到" + target + "？\n\n" + target + "之后的所有输入和正文都会删除，剧情状态回到这轮结束时。之后可在菜单里「撤销回退」一次全部恢复。", { confirmText: "回退", cancelText: "取消" })) return;
+                if (!await confirmRollback("回退到" + target + "？\n\n" + target + "之后的所有输入和正文都会删除，剧情状态回到这轮结束时。之后可在菜单里「撤销回退」一次全部恢复。", { confirmText: "回退", cancelText: "取消" })) return;
                 setBusy(true);
                 try {
                     const result = await rpc("rollbackToTurn", messageUid ? { turn, messageUid } : { turn }, sessionId);

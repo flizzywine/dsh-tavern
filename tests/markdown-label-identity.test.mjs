@@ -10,7 +10,6 @@ import vm from './fixtures/client-vm.mjs'
 // to it must be stable, shared variants.
 const bundle = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const source = readFileSync(new URL('../tavern-plugin/src/client/ui/message-frame.js', import.meta.url), 'utf8')
-const textColors = readFileSync(new URL('../tavern-plugin/src/client/text-colors.js', import.meta.url), 'utf8')
 
 function labelHelpers() {
   const start = bundle.indexOf('const tavernCodeLabelVariants')
@@ -53,56 +52,5 @@ test('正文渲染点不再传 labels 字面量', () => {
   assert.ok(/const codeLabels = (?:input\.codeLabels \|\| )?tavernCodeLabels\(translate\)/.test(bundle), 'codeLabels 未走缓存')
 })
 
-test('流式中的正文不挂着色观察器', () => {
-  const start = textColors.indexOf('function TavernColoredMarkdown(props)')
-  assert.ok(start >= 0, '缺少 TavernColoredMarkdown')
-  const body = textColors.slice(start, textColors.indexOf('\n}', start) + 2)
-  assert.ok(/const suspend = props\.streaming === true/.test(body), '未读取 streaming 状态')
-  assert.ok(/if \(suspend\) return undefined/.test(body), '流式中仍会安装整块着色观察器')
-  assert.ok(/\}, \[suspend\]\)/.test(body), 'effect 需要在 streaming 变化时重跑，结算后再上色')
-})
-
-// Behaviour: the component must not attach the per-block MutationObserver while the
-// reply is still streaming, and must attach it once the text settles.
-test('流式结束后才安装着色观察器', async () => {
-  const { JSDOM } = await import('jsdom')
-  const dom = new JSDOM('<body><main id="prose"><p>“你好”</p></main></body>')
-  const win = dom.window
-  win.CSS = { highlights: new Map(), supports: () => true }
-  win.Highlight = class Highlight extends Set { constructor() { super(); this.priority = 0 } }
-  let observers = 0
-  const NativeObserver = win.MutationObserver
-  win.MutationObserver = class CountingObserver extends NativeObserver { constructor(fn) { super(fn); observers++ } }
-  const cleanups = []
-  const React = {
-    useRef: initial => ({ current: initial }),
-    useSyncExternalStore: (_, snapshot) => snapshot(),
-    useLayoutEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) },
-    createElement: () => null
-  }
-  const context = vm.createContext({
-    React,
-    DshUi: { MarkdownText: function MarkdownText() {} },
-    window: win,
-    document: win.document,
-    getComputedStyle: (...args) => win.getComputedStyle(...args),
-    Array, Object, String, Number, Boolean, Math, Map, WeakMap, Set, WeakSet, JSON, Error, RegExp, Symbol, Promise, console
-  })
-  vm.runInContext(textColors + '\nthis.TavernColoredMarkdown = TavernColoredMarkdown', context)
-  const root = win.document.querySelector('#prose')
-  const render = streaming => context.TavernColoredMarkdown({ text: '“你好”', streaming, labels: {} })
-  const run = streaming => {
-    const previous = React.useRef
-    let refs = 0
-    React.useRef = value => ({ current: refs++ === 0 ? root : value })
-    try { render(streaming) } finally { React.useRef = previous }
-  }
-  observers = 0
-  run(true)
-  assert.equal(observers, 0, '流式中不应安装观察器（每帧整块重扫）')
-  run(false)
-  // 一个共享主题观察器（首个使用者创建）+ 一个本块观察器。
-  assert.equal(observers, 2, '结算后应安装本块观察器')
-  for (const cleanup of cleanups.splice(0)) cleanup()
-  win.close()
-})
+// A streaming reply keeps its quote colours live (each streamed commit refreshes them), so there is no streaming
+// suspension to check (it was 53c96d280, ae0f16fe3).

@@ -145,15 +145,15 @@
 			function channelSelect(entry, index) {
 				const inherited = entry.channelInherited !== false;
 				const options = [{ value: CHANNEL_INHERIT, label: "跟随整本（" + CHANNEL_LABELS[bookChannel()] + "）" }].concat(CHANNEL_OPTIONS);
-				return h("select", {
-					"aria-label": "注入通道",
+				return h(InlineField, {
+					kind: "menu", label: "注入通道", hideLabel: true,
 					value: inherited ? CHANNEL_INHERIT : channelOf(entry),
-					onChange: function (event) {
-						const next = event.target.value;
+					options: options.map(function (option) { return { value: option.value, label: option.label }; }),
+					onCommit: function (next) {
 						if (next === CHANNEL_INHERIT) updateEntry(index, { channel: "auto", channelInherited: true, channelCleared: true });
 						else updateEntry(index, { channel: next, channelInherited: false, channelCleared: false });
 					}
-				}, options.map(function (option) { return h("option", { key: option.value || "inherit", value: option.value }, option.label); }));
+				});
 			}
 			// One switch for the whole book: it moves the default and stamps every entry in
 			// the draft, so one save changes the book outright. Any entry can still be
@@ -201,7 +201,7 @@
 							h("label", null, h("input", { type: "checkbox", checked: entry.enabled !== false, onChange: function (event) { updateEntry(index, { enabled: event.target.checked }); } }), "启用"),
 
 							background
-								? h("span", { className: "dsh-tavern-worldbook-kind is-background", title: WORLD_BOOK_BACKGROUND_HELP }, "仅后台变量更新")
+								? h("span", { className: "dsh-tavern-worldbook-kind is-background" }, "仅后台变量更新", typeof HelpTip === "function" ? h(HelpTip, { label: "仅后台变量更新说明" }, WORLD_BOOK_BACKGROUND_HELP) : null)
 								: h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { updateEntry(index, { constant: !entry.constant }); } }, entry.constant ? "常驻" : "非常驻")
 						),
 						h("div", { className: "dsh-tavern-card-field dsh-tavern-worldbook-content" }, h("label", null, "内容"), h("textarea", { className: "large", rows: 14, "aria-label": "条目内容", value: entry.content || "", onChange: function (event) { updateEntry(index, { content: event.target.value }); } })),

@@ -31,7 +31,7 @@ function TavernWorldbookInspector(props) {
             h('div', { className: 'dsh-wb-stats' }, `${files.length} 条原文`, h('br'), `成功读取 ${data.counts.entries} 次 · 错误 ${data.counts.errors} 次`),
             data.catalog?.directory && h('details', null, h('summary', null, '实体文件夹'), h('code', null, data.catalog.directory), h('p', { className: 'dsh-wb-muted' }, '由世界书自动同步；修改生成文件不会修改世界书。')),
             h('nav', null, button('文件与内容', () => { setMode('catalog'); setSource(null); }), button(`调用记录 (${data.total})`, () => { setMode('history'); setSource(null); })),
-            h('input', { type: 'search', placeholder: '搜索条目或本页调用', 'aria-label': '搜索世界书文件', value: query, onChange: e => setQuery(e.target.value) }),
+            h(SearchBox, { label: '搜索世界书文件', placeholder: '搜索条目或本页调用', value: query, onChange: setQuery, bare: true }),
             source ? h('section', null, button('← 返回目录', () => setSource(null)), h('h3', null, source.title), h('pre', null, source.content)) : mode === 'catalog' ? h('section', null,
                 !data.catalog && h('p', null, '当前对局未启用世界书文件，或原生读取工具不可用。'),
                 data.catalog && !files.length && h('p', null, '当前没有可用的静态条目；预处理尚未完成或条目被排除时，目录也可能为空。'),

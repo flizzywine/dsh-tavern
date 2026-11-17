@@ -103,6 +103,8 @@ function createConversationSettingsModule({
             error ? h("p", { role: "alert" }, error) : null);
     }
 
+    // Options plugins add to this game's settings (tavern.gameSettings), drawn like Tavern's own.
+    // Plugins themselves are switched on and off globally, on the 酒馆插件 page.
     function TavernConversationPluginSettings(props) {
         const h = React.createElement;
         const [data, setData] = React.useState(null);
@@ -198,7 +200,8 @@ function createConversationSettingsModule({
                 h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: () => void load() }, "刷新")),
             catalog.map(tool => h("label", { key: tool.name, className: "dsh-tavern-background-task" },
                 h("span", null, (tool.source === "plugin" ? "插件/扩展 · " : "") + tool.label, h("span", { className: "dsh-tavern-settings-desc" }, tool.description)),
-                h("input", { type: "checkbox", role: "switch", "aria-label": tool.label, checked: !disabled.includes(tool.name), disabled: !loaded || busy, onChange: event => toggle(tool.name, event.target.checked) }))),
+                // the one switch, bare inside the row's own label.
+                h(Switch, { bare: true, label: tool.label, checked: !disabled.includes(tool.name), disabled: !loaded || busy, onChange: checked => toggle(tool.name, checked) }))),
             error ? h("p", { role: "alert" }, "保存失败：" + error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : (loaded ? notice : "正在读取…")));
     }
 
