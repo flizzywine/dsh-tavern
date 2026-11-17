@@ -655,6 +655,16 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-regen-examples { display: flex; flex: 1 1 200px; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .dsh-tavern-regen-example { padding: 3px 10px; font: inherit; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; cursor: pointer; }
 .dsh-tavern-regen-example:hover { border-color: var(--dsh-tavern-accent-border); color: var(--dsh-tavern-accent); background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-candidate-shortcuts { display: flex; align-items: flex-start; flex-wrap: wrap; width: 100%; min-width: 0; gap: 4px 8px; }
+.dsh-tavern-candidate-shortcut-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; max-height: 6.5rem; padding: 2px; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; }
+.dsh-tavern-candidate-shortcut-chip { max-width: min(100%, 18em); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dsh-tavern-candidate-shortcut-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.dsh-tavern-candidate-shortcut-action { padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--dsh-tavern-accent-active); font: inherit; font-size: 12px; line-height: 1.6; cursor: pointer; }
+.dsh-tavern-candidate-shortcut-action:hover:not(:disabled) { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-candidate-shortcut-action:disabled { opacity: .45; cursor: default; }
+.dsh-tavern-candidate-shortcut-chip:focus-visible, .dsh-tavern-candidate-shortcut-action:focus-visible { outline: 2px solid var(--fork-focus); outline-offset: -2px; }
+.dsh-tavern-candidate-shortcut-note { flex-basis: 100%; margin: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-candidate-shortcut-note[role="alert"] { color: var(--dsh-tavern-accent-error); }
 .dsh-tavern-regen-cancel { margin-left: auto; padding: 6px 12px; font: inherit; font-size: 14px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dsh-tavern-regen-cancel:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dsh-tavern-regen-submit { padding: 6px 16px; font: inherit; font-size: 14px; white-space: nowrap; font-weight: 600; }

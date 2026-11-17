@@ -1,4 +1,5 @@
 // @include-protocol candidate-tabs.cjs
+// @include features/candidate-guidance-shortcuts.js
 // Presentation and composer draft lifetime; async transitions belong to interactions.
 function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError }) {
     const setCandidatePanel = interactions.candidates.set;
@@ -157,7 +158,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			const panel = useCandidateGuidePanel();
 			const sessionMode = useTavernSessionMode(props.sessionId);
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
-			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const [guidance, setGuidance] = React.useState("");
             React.useEffect(() => setGuidance(""), [props.sessionId, panel?.messageId]);
 			const h = React.createElement;
@@ -167,6 +167,12 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			const isScript = sessionMode === "script";
             function generateGuided() { return interactions.regenerateCandidates(panel, guidance); }
             function cancel() { interactions.cancelGuide(panel); }
+            function pickShortcut(text) {
+                setGuidance(value => {
+                    const current = value.trim();
+                    return current ? current + "；" + text : text;
+                });
+            }
 			return h(RegenGuideForm, {
 				title: "重新生成候选项",
 				hint: isScript ? "跟随剧本，只重新生成一个推荐候选" : "角色与全局候选项通用",
@@ -175,7 +181,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 				value: guidance,
 				onChange: setGuidance,
 				placeholder: "对候选的要求（可选）",
-				examples: isScript ? ["侧重角色行动", "直接开新场景"] : ["让对手戏角色更主动", "多点暧昧动作", "增加突发插曲", "场景换到白天户外"],
+				shortcuts: h(CandidateGuidanceShortcuts, { key: JSON.stringify([props.sessionId, sessionMode, panel.messageId]), mode: sessionMode, guidance, onPick: pickShortcut }),
 				submitLabel: "重新生成",
 				onSubmit: generateGuided,
 				onCancel: cancel
@@ -185,10 +191,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		// Shared guidance form of the candidate and body regeneration panels.
 		function RegenGuideForm(props) {
 			const h = React.createElement;
-			function addExample(text) {
-				const current = props.value.trim();
-				props.onChange(current ? current + "；" + text : text);
-			}
 			function onKeyDown(e) {
 				if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); props.onSubmit(); }
 				else if (e.key === "Escape") { e.preventDefault(); props.onCancel(); }
@@ -208,9 +210,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 					}),
 					props.extra || null,
 					h("div", { className: "dsh-tavern-regen-foot" },
-						h("div", { className: "dsh-tavern-regen-examples" }, props.examples.map(function (text) {
-							return h("button", { key: text, type: "button", className: "dsh-tavern-regen-example", onClick: function () { addExample(text); } }, text);
-						})),
+						h("div", { className: "dsh-tavern-regen-examples" }, props.shortcuts || null),
 						h("button", { type: "button", className: "dsh-tavern-regen-cancel", onClick: props.onCancel }, "取消"),
 						props.secondary ? h("button", { type: "button", className: "dsh-tavern-regen-cancel", title: props.secondary.title, disabled: props.secondary.disabled, onClick: props.secondary.onClick }, props.secondary.label) : null,
 						h("button", { type: "button", className: "dsh-tavern-question-primary dsh-tavern-regen-submit", onClick: props.onSubmit }, props.submitLabel)
@@ -374,7 +374,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 value: guidance,
                 onChange: setGuidance,
                 placeholder: "指导意见（可选）",
-                examples: [],
                 submitLabel: "生成并替换正文",
                 secondary: { label: "精修", title: "按「正文精修原则」审读当前正文，直接改掉问题（一句到整段）；填了指导意见，精修后再只照意见改一次；不重新生成；前后对比、撤销和「自动精修」开关在顶部「精修」页", disabled: reviewing, onClick: runPolish },
                 onSubmit: generate,
