@@ -205,7 +205,15 @@ export function createTavernPluginApi(deps) {
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
+    ...(deps.damperSettings ? { damperSettings: 1 } : {}),
     ...(deps.narrativeDamper ? { narrativeDamper: 1 } : {}) })
+  // 叙事阻尼器设置的宿主实现（lib/domain/damper-settings.js）；缺失时如实报「不支持」，不假装成功。
+  function requireDamperSettings() {
+    if (!deps.damperSettings) {
+      throw Object.assign(new Error('当前版本不支持叙事阻尼器设置接口'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    }
+    return deps.damperSettings
+  }
   // Allocated only when a plugin declares a read capability.
   let readDeclarations
   let readEpoch = 0
@@ -1527,6 +1535,31 @@ export function createTavernPluginApi(deps) {
         const message = String(cause?.message || '决策判定请求失败')
         throw Object.assign(new Error(message), { code: mapped })
       }
+    },
+
+    // 叙事阻尼器的全局设置：面板在内置插件 dsh-tavern-narrative-damper 里，读写走宿主同一份实现。
+    // 密钥只回 {configured, source, keyName}；明文留在宿主安全存储，设置文件与返回值都不含它。
+    async readDamperSettings() {
+      ownerOf(this)
+      return requireDamperSettings().read()
+    },
+
+    // 保存阻尼器设置补丁（服务端照旧校验，非法字段抛 DAMPER_INVALID_CONFIG）
+    async updateDamperSettings({ patch } = {}) {
+      ownerOf(this)
+      return requireDamperSettings().update(patch)
+    },
+
+    // 保存或清除决策模型密钥。value 为 null 清除；传环境变量名时保存键名引用并清掉已存明文。
+    async setDamperKey({ provider, value } = {}) {
+      ownerOf(this)
+      return requireDamperSettings().setKey({ provider, value })
+    },
+
+    // 用给定（或当前）设置真发一次决策请求，返回 {ok, latencyMs, sampleProbability | error}
+    async testDamperConnection({ config } = {}) {
+      ownerOf(this)
+      return requireDamperSettings().test(config)
     },
 
     // 注册阻尼器附加题：宿主在裁定前调用，题目随阻尼器同一趟请求送出

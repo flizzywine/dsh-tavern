@@ -1419,9 +1419,8 @@ function clipReplayCore() {
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.
 			ctx.provide("ttsBrowserSpeech", browserSpeechService);
-            ctx.effect(function () {
-                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-narrative-damper", order:112, label:() => "叙事阻尼器" }, TavernNarrativeDamperSettingsSection); });
-            }, "dsh-tavern: narrative damper settings section");
+            // 叙事阻尼器的设置面板不在这里：它是内置插件 dsh-tavern-narrative-damper 的侧栏面板，
+            // 宿主设置里不再有这一页（宿主只管引擎，面板随插件启停）。
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
             }, "dsh-tavern: plugins settings section");

@@ -46,6 +46,7 @@ import { createPluginAssets } from './domain/plugin-assets.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { createNarrativeDamper, readDamperStateSnapshot } from './domain/narrative-damper.js'
+import { createDamperSettings } from './domain/damper-settings.js'
 import { registerGameplayTools } from './tools/gameplay.js'
 import { cardGoverns, cardOffer, modTools, withModHidden } from './mod-tools.js'
 import { settleToolResults, toolResultTexts, toolSettlementContext } from './domain/tool-settlement-context.js'
@@ -2492,6 +2493,13 @@ export async function apply(ctx) {
     }
   })
   let pluginApi = null
+  // 叙事阻尼器设置的唯一实例：宿主 RPC 与内置插件面板（tavern.damperSettings）都读它。
+  // 阻尼器引擎晚于 pluginApi 构造，所以插件面按调用时取，不在构造期抓快照。
+  let damperSettingsService = null
+  const requireDamperSettings = () => {
+    if (!damperSettingsService) throw Object.assign(new Error('叙事阻尼器服务未就绪'), { code: 'DAMPER_NOT_READY' })
+    return damperSettingsService
+  }
   const projectBuiltinWorldbook = createForegroundWorldbook({
     bound: (cardPath, card, chat) => playWorldBook(chat, card),
     runtime: promptTemplateRuntime,
@@ -3375,6 +3383,13 @@ export async function apply(ctx) {
       turnContextForPlugin: (...a) => narrativeDamper.turnContextForPlugin(...a),
       applyDiceOutcomeShift: (...a) => narrativeDamper.applyDiceOutcomeShift(...a)
     },
+    // 内置插件 dsh-tavern-narrative-damper 的面板在这里读写阻尼器设置；设置页本身不在宿主设置里。
+    damperSettings: {
+      read: () => requireDamperSettings().read(),
+      update: patch => requireDamperSettings().update(patch),
+      setKey: input => requireDamperSettings().setKey(input),
+      test: config => requireDamperSettings().test(config)
+    },
     readDefaultPlayerName: async () => (await readTavernSettings()).defaultPlaySettings.playerName,
     readPlayerName: async sessionId => (await chatHeaderForSession(sessionId, ['macroState']))?.macroState?.userName,
     writeDefaultPlayerName: async playerName => (await updateTavernSettings({ defaultPlaySettings: { playerName } })).defaultPlaySettings.playerName,
@@ -3886,6 +3901,7 @@ export async function apply(ctx) {
     getConfig: async () => (await readTavernSettings()).narrativeDamper,
     credentials: () => ctx.get('credentials')
   })
+  damperSettingsService = createDamperSettings({ readTavernSettings, updateTavernSettings, damper: narrativeDamper })
   const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
     narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId),
     // What the reply's mod tools settled for its variables (their settlement(results) in tools.js), over the given turns.
@@ -4497,7 +4513,7 @@ export async function apply(ctx) {
     replaceCard, revertCardUpdate, importCardArchiveFile, previewCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,
-    modelRequestLog, mvuDiagnostics, narrativeDamper, notifyPluginTimeline, openingPreparation, pagesInFront,
+    modelRequestLog, mvuDiagnostics, narrativeDamper, damperSettings: damperSettingsService, notifyPluginTimeline, openingPreparation, pagesInFront,
     playCardSnapshots, pluginApi, pluginBodyGeneration, pluginDataStore, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns,
     pluginSettlementProgress, prepareConversationFork, preparedSaveSessions, presentSystemPrompts, promptDocuments, transferExports,
     presentUserPreferenceProfile, presetLibrary, previewPreset, profileData, projectOpeningWindow,

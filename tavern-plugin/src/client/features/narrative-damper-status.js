@@ -97,12 +97,12 @@ const TAVERN_DAMPER_BYPASS_COPY = Object.freeze({
 	DAMPER_NO_KEY: Object.freeze({
 		short: '未配密钥',
 		title: '未生效 · 尚未配置 API Key',
-		hint: '请前往「设置 › 叙事阻尼器」填写决策模型 API Key 并点击测试连接。本轮已自动静默放行，未阻塞正文生成。'
+		hint: '请前往「插件 › 叙事阻尼器」填写决策模型 API Key 并点击测试连接。本轮已自动静默放行，未阻塞正文生成。'
 	}),
 	DAMPER_AUTH_ERROR: Object.freeze({
 		short: '密钥无效',
 		title: '未生效 · 密钥鉴权失败',
-		hint: '当前配置的决策模型 API Key 无效或无权访问目标模型，请在「设置 › 叙事阻尼器」更换后测试连接。本轮已静默放行。'
+		hint: '当前配置的决策模型 API Key 无效或无权访问目标模型，请在「插件 › 叙事阻尼器」更换后测试连接。本轮已静默放行。'
 	}),
 	DAMPER_TIMEOUT: Object.freeze({
 		short: '超时放行',
@@ -117,7 +117,7 @@ const TAVERN_DAMPER_BYPASS_COPY = Object.freeze({
 	DAMPER_SAFETY_BLOCKED: Object.freeze({
 		short: '拦截放行',
 		title: '未生效 · 送审内容被远端拦截',
-		hint: '三级送审降级（全量脱敏 → 骨架 → 结构摘要）均被远端决策接口输入过滤拒绝，本轮已自动静默放行，主写作模型提示词不受影响。若长期出现可改用兼容端点或在「设置 › 叙事阻尼器」关闭 R18 送审脱敏后自查。'
+		hint: '三级送审降级（全量脱敏 → 骨架 → 结构摘要）均被远端决策接口输入过滤拒绝，本轮已自动静默放行，主写作模型提示词不受影响。若长期出现可改用兼容端点或在「插件 › 叙事阻尼器」关闭 R18 送审脱敏后自查。'
 	}),
 	DAMPER_INACTIVE: Object.freeze({
 		short: '地址未配',
