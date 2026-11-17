@@ -22,12 +22,10 @@ window.__ModuleLoader__.load({
 		// @include wait-lines.js
 		// @include jump-latest.js
 		// @include inline-field.js
-		// @include spine-runtime-entry.js
-        // @include pixi-runtime.js
 		// @include image-viewer.js
 		// @include data-picker.js
 		// @include mod-config-ui.js
-
+		// @include spine-runtime-entry.js
 
 		// `dsh-tavern-shell-active` gates every Tavern rule that touches host chrome.
 		// It used to be added only when the left sidebar mounted. On a phone that

@@ -1358,537 +1358,6 @@ window.__ModuleLoader__.load({
 		    if (p.bare) return box;
 		    return h("div", { className: p.className || "fork-inline-add-row" }, box, p.children);
 		}
-		// Any runtime import (Spine, or one a stage module registers in RUNTIMES, e.g. Live2D) re-reads the open stage
-		// (stage-session-binding.js runtimeChanged).
-		const vendorRuntimeListeners = new Set();
-		function vendorRuntimeChanged(listener) { vendorRuntimeListeners.add(listener); return () => { vendorRuntimeListeners.delete(listener); }; }
-		function vendorRuntimeStore(extra) {
-		    const store = Object.assign({ revision: 0, listeners: new Set(),
-		        installed(value) {
-		            if (extra && extra.installed) extra.installed.call(store, value);
-		            store.revision++;
-		            for (const listener of store.listeners) listener();
-		            for (const listener of [...vendorRuntimeListeners]) listener();
-		        },
-		        subscribe(listener) { store.listeners.add(listener); return () => store.listeners.delete(listener); },
-		        snapshot() { return store.revision; } }, extra && extra.fields);
-		    return store;
-		}
-		const spineRuntimeState = vendorRuntimeStore({ fields: { runtime: "" }, installed(value) { this.runtime = value.runtime || ""; } });
-		const RUNTIME_MIB = 1024 * 1024;
-		// One spec per runtime. pieces(status): what has to be in place, each with its official page while missing.
-		// Spine on stage is the third-party pixi-spine 3.1.2 UMD for PIXI 6 (not Esoteric's spine-player / spine-webgl); it
-		// embeds Spine runtime code, so the user needs their own Spine Editor licence.
-		const RUNTIMES = {
-		    spine: { title: "Spine", store: spineRuntimeState, status: "getSpineRuntimeStatus", import: () => "importSpineRuntime",
-		        installedOf: status => !!(status && (status.installed || status.runtime)),
-		        importable: status => status.importSupported === true, accept: () => ".js,text/javascript",
-		        pieces: status => [{ key: "spine", name: "pixi-spine 3.1.2", installed: !!(status.installed || status.runtime),
-		            links: [{ label: "获取 Spine 授权", href: status.purchaseUrl || "https://esotericsoftware.com/spine-purchase" },
-		                { label: "下载", href: status.downloadUrl || "https://www.npmjs.com/package/pixi-spine/v/3.1.2" }] }],
-		        help: (status, a) => [["pixi-spine 含 Spine 运行库，要有你自己的 Spine 授权；未安装时舞台用静态立绘。"],
-		            status.importSupported === true ? ["导入包里 dist 文件夹的 pixi-spine.umd.js。许可：",
-		                a(status.licenseUrl || "https://esotericsoftware.com/spine-runtimes-license", "Spine 运行库许可"), "。文件会在页面里运行，只用这个页面下载的。"]
-		                : ["暂不能在应用内导入。"]] }
-		};
-		async function runtimeFileBase64(file) {
-		    const bytes = new Uint8Array(await file.arrayBuffer());
-		    let text = "";
-		    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-		    return btoa(text);
-		}
-		// Contract limits: a bare script ≤ 8 MiB, a downloaded archive ≤ 50 MiB.
-		function runtimeTooLarge(file) {
-		    const script = /\.js$/i.test(file.name), limit = (script ? 8 : 50) * RUNTIME_MIB;
-		    return file.size > limit ? file.name + " 太大（上限 " + (script ? 8 : 50) + " MB）" : "";
-		}
-		// {status, error, retry, settle} of one runtime; re-read whenever any entry installs it. settle(value) takes an import
-		// result directly (a Live2D import that brought one piece tells nobody else: only a usable runtime is announced).
-		function useRuntimeStatus(kind, request) {
-		    const spec = RUNTIMES[kind];
-		    const revision = React.useSyncExternalStore(spec.store.subscribe, spec.store.snapshot);
-		    const [state, setState] = React.useState({ status: null, error: "" }), [retry, setRetry] = React.useState(0);
-		    React.useEffect(() => {
-		        let live = true;
-		        setState(current => current.error ? { status: current.status, error: "" } : current);
-		        request(spec.status, {}).then(value => { if (live) setState({ status: value || {}, error: "" }); },
-		            failure => { if (live) setState(current => ({ status: current.status, error: String(failure && failure.message || failure) })); });
-		        return () => { live = false; };
-		    }, [request, revision, retry]);
-		    return { ...state, installed: spec.installedOf(state.status), retry: () => setRetry(value => value + 1),
-		        settle: value => setState({ status: value || {}, error: "" }) };
-		}
-		// A runtime the app fetches for the player (spec.download names the host method) asks once, in a confirmation dialog:
-		// what comes from where and under which licences, 「取消」 / spec.consent.confirm. The download runs in the entry itself.
-		function RuntimeConsentDialog({ consent, status, link, onConfirm, onClose }) {
-		    const h = React.createElement, ref = React.useRef(null);
-		    if (typeof useOverlay === "function") useOverlay(true, () => [ref.current], onClose);
-		    React.useEffect(() => {
-		        const opener = document.activeElement;
-		        ref.current?.querySelector("button")?.focus({ preventScroll: true });
-		        return () => { if (opener && opener.isConnected) opener.focus({ preventScroll: true }); };
-		    }, []);
-		    function key(event) {
-		        if (event.key === "Escape") {
-		            if (typeof overlayEscape === "function" && overlayEscape(event)) return;
-		            event.preventDefault(); event.stopPropagation(); onClose();
-		        } else if (event.key === "Tab") {
-		            const nodes = [...ref.current.querySelectorAll("a[href],button:not(:disabled)")], first = nodes[0], last = nodes[nodes.length - 1];
-		            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-		            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-		        }
-		    }
-		    const dialog = h("div", { className: "ap-ui ap-layer" }, h("div", { className: "ap-modal-scrim" },
-		        h("section", { ref, className: "ap-modal ap-confirm fork-runtime-consent", role: "dialog", "aria-modal": true, "aria-label": consent.title, onKeyDown: key },
-		            h("header", null, h("h2", null, consent.title)),
-		            consent.body(status, link).map((line, i) => h("p", { key: i }, ...line)),
-		            h("div", { className: "ap-actions" },
-		                h("button", { type: "button", onClick: onClose }, "取消"),
-		                h("button", { type: "button", onClick: onConfirm }, consent.confirm)))));
-		    return typeof ReactDOM !== "undefined" && ReactDOM.createPortal && document.body ? ReactDOM.createPortal(dialog, document.body) : dialog;
-		}
-		// props: request (rpc), kind ("live2d" | "spine"), head (default true; false inside a notice that already names it).
-		// A spec with `download` installs through RuntimeConsentDialog; only after a failed download does the entry take the
-		// official files dropped on it (never a file picker). Other specs import the files the player picks.
-		function RuntimeEntry({ request, kind, head = true }) {
-		    const h = React.createElement, spec = RUNTIMES[kind];
-		    const read = useRuntimeStatus(kind, request), status = read.status;
-		    const [busy, setBusy] = React.useState(""), [errors, setErrors] = React.useState([]);
-		    const [asking, setAsking] = React.useState(false), [dropping, setDropping] = React.useState(false), [over, setOver] = React.useState(false);
-		    const active = React.useRef(true), lock = React.useRef(false), picker = React.useRef(null), root = React.useRef(null);
-		    React.useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
-		    function done(latest) { if (spec.installedOf(latest)) { spec.store.installed(latest); if (active.current) root.current?.focus(); } }
-		    // One file per call, in order; each result is the new status. Files that fail are listed, the others still count.
-		    async function pick(files) {
-		        if (lock.current || !files.length) return;
-		        lock.current = true; setBusy("import"); setErrors([]);
-		        const failed = [];
-		        let latest = status;
-		        try {
-		            for (const file of files) {
-		                try {
-		                    const large = runtimeTooLarge(file);
-		                    if (large) throw new Error(large);
-		                    latest = await request(spec.import(latest || {}), { name: file.name, base64: await runtimeFileBase64(file), consent: true }) || {};
-		                    if (active.current) read.settle(latest);
-		                } catch (failure) { failed.push((files.length > 1 ? file.name + "：" : "") + String(failure && failure.message || failure)); }
-		            }
-		            done(latest);
-		        } finally { lock.current = false; if (active.current) { setBusy(""); setErrors(failed); } }
-		    }
-		    async function fetchRuntime() {
-		        setAsking(false);
-		        if (lock.current) return;
-		        lock.current = true; setBusy("download"); setErrors([]);
-		        try { const latest = await request(spec.download, { consent: true }) || {}; if (active.current) read.settle(latest); done(latest); }
-		        catch (failure) { if (active.current) { setErrors([String(failure && failure.message || failure)]); setDropping(true); read.retry(); } }
-		        finally { lock.current = false; if (active.current) setBusy(""); }
-		    }
-		    const Tip = typeof HelpTip === "function" ? HelpTip : null;
-		    const link = (href, label) => h("a", { key: label, href, target: "_blank", rel: "noopener noreferrer" }, label);
-		    const tip = status && Tip ? h(Tip, { label: spec.title + " 说明", interactive: true },
-		        ...spec.help(status, link).map((line, i) => h("span", { key: i }, ...line))) : null;
-		    const loading = !status && !read.error;
-		    const state = read.installed ? "installed" : busy ? "importing" : status ? "missing" : read.error ? "error" : "loading";
-		    const canImport = status && !read.installed && spec.importable(status);
-		    const pieces = status && !read.installed ? spec.pieces(status) : [];
-		    // A downloaded runtime names its official pages only once the download has failed (they are the way to the drop).
-		    const showLinks = !spec.download || dropping;
-		    const drop = event => { event.preventDefault(); setOver(false); pick([...(event.dataTransfer && event.dataTransfer.files || [])]); };
-		    const hover = value => event => { event.preventDefault(); setOver(value); };
-		    const action = !canImport ? null : spec.download
-		        ? h("button", { type: "button", className: "fork-runtime-import", disabled: !!busy, onClick: () => setAsking(true) },
-		            busy ? h(React.Fragment, null, h(Spinner, { key: "import" }), busy === "download" ? "正在下载…" : "正在导入…") : dropping ? spec.consent.retry : spec.consent.action)
-		        : h(React.Fragment, null,
-		            h("button", { type: "button", className: "fork-runtime-import", disabled: !!busy, onClick: () => picker.current?.click() },
-		                busy ? h(React.Fragment, null, h(Spinner, { key: "import" }), "正在导入…") : "同意许可并导入…"),
-		            h("input", { ref: picker, type: "file", hidden: true, tabIndex: -1, "aria-hidden": true, multiple: !!spec.multiple, accept: spec.accept(status),
-		                onChange: event => { const files = [...(event.target.files || [])]; event.target.value = ""; pick(files); } }));
-		    return h("div", { ref: root, tabIndex: -1, className: "fork-runtime", "data-runtime": kind, "data-state": state, "aria-busy": !!busy || loading || undefined,
-		            role: "group", "aria-label": spec.title },
-		        head ? h("div", { className: "fork-runtime-head" }, h("strong", null, spec.title), tip,
-		            read.installed ? h("span", { className: "fork-runtime-state", role: "status" }, "✓ 已安装") : null) : null,
-		        pieces.length ? h("ul", { className: "fork-runtime-pieces" }, pieces.map(piece =>
-		            h("li", { key: piece.key, className: "fork-runtime-piece", "data-piece": piece.key, "data-installed": piece.installed || undefined },
-		                h("span", { className: "fork-runtime-name" }, piece.name),
-		                piece.installed ? h("span", { className: "fork-runtime-state" }, "✓ 已安装")
-		                    : h("span", { className: "fork-runtime-links" }, h("span", { className: "fork-runtime-state" }, "未安装"),
-		                        showLinks ? piece.links.map(item => h("a", { key: item.label, className: "fork-runtime-link", href: item.href, target: "_blank", rel: "noopener noreferrer" },
-		                            item.label, h("span", { className: "fork-runtime-out", "aria-hidden": true }, "↗"))) : null)))) : null,
-		        canImport || (!head && pieces.length) ? h("div", { className: "fork-runtime-actions" }, action, head ? null : tip) : null,
-		        canImport && spec.download && dropping ? h("div", { className: "fork-runtime-drop", "data-over": over || undefined, role: "group", "aria-label": spec.consent.dropLabel,
-		            onDragEnter: hover(true), onDragOver: hover(true), onDragLeave: hover(false), onDrop: drop }, spec.consent.drop) : null,
-		        loading ? h(Spinner, { key: "read" }) : null,
-		        errors.map((error, i) => h("span", { key: i, className: "fork-runtime-alert", role: "alert" }, "⚠ " + error)),
-		        read.error && !status ? h("span", { className: "fork-runtime-alert", role: "alert" }, "⚠ " + read.error,
-		            h("button", { type: "button", className: "fork-runtime-retry", onClick: read.retry }, "重新检测")) : null,
-		        asking ? h(RuntimeConsentDialog, { consent: spec.consent, status, link, onConfirm: fetchRuntime, onClose: () => setAsking(false) }) : null);
-		}
-		// The Spine entry (settings, the asset library's Spine outfits).
-		function SpineRuntimeEntry(props) { return React.createElement(RuntimeEntry, { ...props, kind: "spine" }); }
-        // Shared Pixi and static-sprite runtime, independent of model SDKs.
-        // Shared manifest/runtime contract. No platform APIs, filesystem reads or implicit image lookup.
-        const SPRITE_EVENTS = ['closed', 'small', 'mid', 'open'];
-        function layeredSpritePath(value) {
-            if (typeof value !== 'string' || value.length > 240 || !/^[a-zA-Z0-9_./-]+$/.test(value) || value.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || !/\.(png|webp)$/i.test(value)) throw new Error('分层素材路径无效');
-            return value;
-        }
-        function layeredSpriteManifest(raw, mode = 'path') {
-            const fail = message => { throw new Error('分层素材：' + message); };
-            const object = v => v && typeof v === 'object' && !Array.isArray(v);
-            const slug = (v, max = 64) => typeof v === 'string' && v.length <= max && /^[a-z0-9][a-z0-9_-]*$/.test(v) && !['__proto__', 'constructor', 'prototype'].includes(v);
-            const text = (v, max = 160) => typeof v === 'string' ? v.slice(0, max) : '';
-            const dimension = v => Number.isInteger(v) && v > 0 && v <= 4096;
-            const source = v => mode === 'sha' ? (/^[0-9a-f]{64}$/.test(v) ? v : fail('图片 SHA 无效')) : layeredSpritePath(v);
-            function rect(r, w, h) {
-                if (!object(r) || !['x', 'y', 'w', 'h'].every(k => Number.isInteger(r[k])) || r.x < 0 || r.y < 0 || r.w <= 0 || r.h <= 0 || r.x + r.w > w || r.y + r.h > h) fail('坐标越界');
-                return { x: r.x, y: r.y, w: r.w, h: r.h };
-            }
-            function viewRect(r, w, h) {
-                if (!object(r) || !['x', 'y', 'w', 'h'].every(k => Number.isFinite(r[k]) && r[k] >= 0) || r.w === 0 || r.h === 0) fail('坐标越界');
-                // Rasterize view anchors only; atlas crops must remain exact integer pixels.
-                const x = Math.floor(r.x), y = Math.floor(r.y);
-                return rect({ x, y, w: Math.min(Math.ceil(r.w), w - x), h: Math.min(Math.ceil(r.h), h - y) }, w, h);
-            }
-            if (!object(raw) || raw.version !== 2 || raw.kind !== 'layered-static-sprites') fail('不支持的 manifest 版本');
-            if (raw.closedBehavior !== 'restore-base') fail('closedBehavior 必须是 restore-base');
-            if (!slug(raw.character?.id) || !text(raw.character?.name).trim()) fail('角色无效');
-            function atlas(value) {
-                if (!object(value) || !dimension(value.width) || !dimension(value.height) || !object(value.frames) || !Object.keys(value.frames).length || Object.keys(value.frames).length > 256) fail('atlas 无效');
-                const frames = {};
-                for (const [id, entry] of Object.entries(value.frames)) {
-                    if (!slug(id)) fail('frame ID 无效');
-                    const r = rect(entry, value.width, value.height);
-                    if (Object.values(frames).some(p => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y)) fail('atlas frame 重叠');
-                    // replacement is opt-in; legacy frames remain alpha-over.
-                    if (entry.replace !== undefined && typeof entry.replace !== 'boolean') fail('Invalid frame replace flag');
-                    frames[id] = { ...r, ...(entry.replace !== undefined ? { replace: entry.replace } : {}) };
-                }
-                return { src: source(value.src), width: value.width, height: value.height, frames, defaultFrames: mapping(value.defaultFrames, SPRITE_EVENTS, frames) };
-            }
-            function mapping(value, keys, frames) {
-                if (value === undefined || object(value) && !Object.keys(value).length) return {};
-                if (!object(value) || keys.some(key => !Object.hasOwn(value, key))) fail('mouthFrames requires closed/small/mid/open');
-                const out = {};
-                for (const [key, id] of Object.entries(value)) {
-                    if (!keys.includes(key)) fail('mouthFrames requires exactly closed/small/mid/open; unexpected key: ' + key);
-                    if (!Object.hasOwn(frames, id)) fail('口型映射不存在');
-                    out[key] = id;
-                }
-                return out;
-            }
-            const mouthAtlas = raw.mouthAtlas === undefined ? undefined : atlas(raw.mouthAtlas), mouthSets = {};
-            if (raw.mouthSets !== undefined) {
-                if (!object(raw.mouthSets) || Object.keys(raw.mouthSets).length > 128) fail('mouthSets 无效');
-                for (const [id, value] of Object.entries(raw.mouthSets)) {
-                    if (!slug(id, 160)) fail('mouthSet ID 无效');
-                    mouthSets[id] = atlas(value);
-                }
-            }
-            if (!Array.isArray(raw.states) || !raw.states.length) fail('至少需要一个状态');
-            const seen = new Set();
-            const states = raw.states.map(s => {
-                if (!object(s) || !slug(s.id) || seen.has(s.id)) fail('状态 ID 无效或重复');
-                seen.add(s.id);
-                if (s.mouthSet !== undefined && (!slug(s.mouthSet, 160) || !Object.hasOwn(mouthSets, s.mouthSet))) fail('mouthSet 不存在');
-                const selectedAtlas = s.mouthSet === undefined ? mouthAtlas : mouthSets[s.mouthSet];
-                const frames = selectedAtlas?.frames || {};
-                const mouthFrames = mapping(s.mouthFrames, SPRITE_EVENTS, frames), initialPhoneme = s.initialPhoneme ?? 'closed';
-                if (!SPRITE_EVENTS.includes(initialPhoneme)) fail('initialPhoneme 无效');
-                if (s.closedMouthFrame !== undefined) {
-                    if (!Object.hasOwn(frames, s.closedMouthFrame) || mouthFrames.closed && mouthFrames.closed !== s.closedMouthFrame) fail('closed 映射冲突');
-                    mouthFrames.closed = s.closedMouthFrame;
-                }
-                if (initialPhoneme !== 'closed' && !mouthFrames.closed) fail('张口底图需要真正的闭口 patch');
-                const staticState = s.stage?.mouth === undefined && s.portrait?.mouth === undefined;
-                if (staticState && (Object.keys(mouthFrames).length || Object.keys(s.stage?.mouthByFrame || {}).length || Object.keys(s.portrait?.mouthByFrame || {}).length)) fail('静态状态不能引用口型');
-                function view(v) {
-                    if (!object(v) || !dimension(v.width) || !dimension(v.height)) fail('视图尺寸无效');
-                    const out = { src: source(v.src), width: v.width, height: v.height };
-                    if (!staticState) {
-                        out.mouth = viewRect(v.mouth, v.width, v.height);
-                        if (!SPRITE_EVENTS.every(key => Object.hasOwn(v.mouthFrames || mouthFrames, key))) fail('mouthFrames requires closed/small/mid/open');
-                    }
-                    if (v.mouthByFrame !== undefined) {
-                        if (!object(v.mouthByFrame)) fail('mouthByFrame 无效');
-                        out.mouthByFrame = {};
-                        for (const [id, r] of Object.entries(v.mouthByFrame)) {
-                            if (!Object.hasOwn(frames, id)) fail('mouthByFrame frame 不存在');
-                            out.mouthByFrame[id] = viewRect(r, v.width, v.height);
-                        }
-                    }
-                    // independent raster patches can share the selected state atlas.
-                    if (v.mouthFrames !== undefined) {
-                        out.mouthFrames = mapping(v.mouthFrames, SPRITE_EVENTS, frames);
-                        if (staticState && Object.keys(out.mouthFrames).length) fail('Static view cannot map mouths');
-                    }
-                    if (v.mouthOcclusionMask !== undefined) out.mouthOcclusionMask = source(v.mouthOcclusionMask);
-                    // an optional blink overlay never invalidates the sprite; a bad one is ignored.
-                    if (v.blink !== undefined) { try { out.blink = layeredSpriteBlink(v.blink, v.width, v.height, source); } catch { /* eyes stay open */ } }
-                    return out;
-                }
-                return { id: s.id, label: text(s.label || s.id), emotion: text(s.emotion || s.id, 64), initialPhoneme, mouthFrames, ...(s.mouthSet !== undefined ? { mouthSet: s.mouthSet } : {}), stage: view(s.stage), portrait: view(s.portrait) };
-            });
-            if (raw.defaultState !== undefined && !seen.has(raw.defaultState)) fail('默认状态不存在');
-            return { version: raw.version, kind: raw.kind, closedBehavior: 'restore-base', character: { id: raw.character.id, name: text(raw.character.name) }, defaultState: raw.defaultState || (seen.has('calm') ? 'calm' : states[0].id), ...(mouthAtlas ? { mouthAtlas } : {}), ...(raw.mouthSets !== undefined ? { mouthSets } : {}), states };
-        }
-        function layeredSpriteBlink(raw, width, height, source = layeredSpritePath) {
-            const r = raw && raw.rect;
-            if (!raw || typeof raw !== 'object' || !Array.isArray(r) || r.length !== 4 || !r.every(Number.isInteger) || r[0] < 0 || r[1] < 0 || r[2] <= 0 || r[3] <= 0 || r[0] + r[2] > width || r[1] + r[3] > height) throw new Error('blink 无效');
-            return { closed: source(raw.closed), ...(raw.half !== undefined ? { half: source(raw.half) } : {}), rect: [...r], ...(raw.blend === 'replace' ? { blend: 'replace' } : {}) };
-        }
-        function layeredSpriteMapAssets(pack, map) {
-            const view = v => ({ ...v, src: map(v.src), ...(v.mouthOcclusionMask ? { mouthOcclusionMask: map(v.mouthOcclusionMask) } : {}), ...(v.blink ? { blink: { ...v.blink, closed: map(v.blink.closed), ...(v.blink.half ? { half: map(v.blink.half) } : {}) } } : {}) });
-            return { ...pack, ...(pack.mouthAtlas ? { mouthAtlas: { ...pack.mouthAtlas, src: map(pack.mouthAtlas.src) } } : {}), ...(pack.mouthSets ? { mouthSets: Object.fromEntries(Object.entries(pack.mouthSets).map(([id, atlas]) => [id, { ...atlas, src: map(atlas.src) }])) } : {}), states: pack.states.map(s => ({ ...s, stage: view(s.stage), portrait: view(s.portrait) })) };
-        }
-        function layeredSpriteAssets(pack) {
-            const out = new Map();
-            const add = (src, w, h) => { if (out.has(src) && String(out.get(src)) !== String([w, h])) throw new Error('分层素材同一资源尺寸冲突'); out.set(src, [w, h]); };
-            for (const atlas of [pack.mouthAtlas, ...Object.values(pack.mouthSets || {})].filter(Boolean)) add(atlas.src, atlas.width, atlas.height);
-            for (const s of pack.states) for (const v of [s.stage, s.portrait]) { add(v.src, v.width, v.height); if (v.mouthOcclusionMask) add(v.mouthOcclusionMask, v.width, v.height); }
-            return out;
-        }
-        function layeredSpriteState(pack, requested, fallback = '') {
-            if (!pack) return null;
-            const alias = { sad: 'sadness', anxious: 'nervous', shy: 'embarrassed', love: 'affection' };
-            const exact = value => pack.states.find(s => s.id === value || s.label === value);
-            const emotion = value => pack.states.find(s => s.emotion === value || s.emotion === alias[value]);
-            return exact(requested) || exact(alias[requested]) || emotion(requested) || exact(fallback) || exact(alias[fallback]) || emotion(fallback) || exact(pack.defaultState) || pack.states[0];
-        }
-        function layeredSpriteAtlas(pack, state) {
-            return state.mouthSet === undefined ? pack.mouthAtlas : pack.mouthSets?.[state.mouthSet];
-        }
-        function layeredSpriteFrame(pack, state, event, view) {
-            if (event === 'initial' || event === 'idle' || (!state.stage.mouth && !state.portrait.mouth)) return null;
-            if (!SPRITE_EVENTS.includes(event)) return null;
-            const atlas = layeredSpriteAtlas(pack, state);
-            const id = (view?.mouthFrames || state.mouthFrames)?.[event];
-            return id && atlas?.frames[id] ? { id, rect: atlas.frames[id] } : null;
-        }
-        // The one amplitude → tier gear, shared by the stage and the dialogue portrait: one sample per Audio element per display
-        // frame. Rising thresholds 0.20/0.45/0.72, falling 0.10/0.32/0.58 (hysteresis), 80 ms hold between tier changes, and
-        // real silence closes at once even inside the hold. 'initial' (the clip has not started) keeps the base untouched.
-        // Amplitude animation, not phoneme recognition; no synthetic text timer.
-        const MOUTH_UP = [0.20, 0.45, 0.72], MOUTH_DOWN = [0.10, 0.32, 0.58];
-        function layeredSpriteVoiceStep(previous, audio, level, enabled, now) {
-            const fresh = !previous || (audio && previous.audio !== audio) || now < previous.at || now - previous.at > 250 || Number(audio?.currentTime) + 0.02 < previous.time;
-            const state = fresh ? { audio, event: 'initial', started: Boolean(previous?.started && (!audio || previous.audio === audio)), changed: -Infinity } : previous;
-            const playing = Boolean(enabled && audio && !audio.paused && !audio.ended && Number.isFinite(level));
-            const started = state.started || playing, amplitude = playing ? Math.min(1, Math.max(0, level)) : 0;
-            let event = 'initial';
-            if (started && amplitude <= 0.01) event = 'closed';
-            else if (started) {
-                const index = Math.max(0, SPRITE_EVENTS.indexOf(state.event));
-                let next = index;
-                while (next < 3 && amplitude >= MOUTH_UP[next]) next++;
-                if (next === index) while (next > 0 && amplitude < MOUTH_DOWN[next - 1]) next--;
-                event = SPRITE_EVENTS[next !== index && now - state.changed < 80 ? index : next];
-            }
-            return { audio, event, started, changed: event === state.event ? state.changed : now, at: now, time: Number(audio?.currentTime) || 0 };
-        }
-        if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = { SPRITE_EVENTS, layeredSpritePath, layeredSpriteBlink, layeredSpriteManifest, layeredSpriteMapAssets, layeredSpriteAssets, layeredSpriteState, layeredSpriteAtlas, layeredSpriteFrame, layeredSpriteVoiceStep };
-        // The base remains immutable. The same compositor drives PIXI and the full GAL dialogue portrait.
-        function layeredSpriteBundle(model, requested, view = 'stage', fallback = '') {
-            const pack = model && model.spritePack, state = layeredSpriteState(pack, requested, fallback);
-            return state ? { pack, state, view: state[view], key: model.id + ':' + state.id + ':' + view, revision: JSON.stringify([model.id, state.id, state[view], layeredSpriteAtlas(pack, state), state.mouthFrames, state.initialPhoneme]) } : null;
-        }
-        function layeredSpriteUrls(bundle) {
-            return bundle ? [bundle.view.src, layeredSpriteAtlas(bundle.pack, bundle.state)?.src, bundle.view.mouthOcclusionMask, ...(bundle.view.blink?.blend === 'replace' ? [bundle.view.blink.closed, bundle.view.blink.half] : [])].filter(Boolean) : [];
-        }
-        // Scaling straight from the atlas lets bilinear filtering sample neighbouring frames at the
-        // patch edges. Isolate each frame first (1:1 copy, cached per atlas image) and scale that.
-        const layeredSpriteFramePatches = new WeakMap();
-        function layeredSpriteFramePatch(atlas, f) {
-            let patches = layeredSpriteFramePatches.get(atlas);
-            if (!patches) { patches = new Map(); layeredSpriteFramePatches.set(atlas, patches); }
-            const key = f.x + ',' + f.y + ',' + f.w + ',' + f.h;
-            let patch = patches.get(key);
-            if (!patch) {
-                patch = document.createElement('canvas'); patch.width = f.w; patch.height = f.h;
-                patch.getContext('2d').drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
-                patches.set(key, patch);
-            }
-            return patch;
-        }
-        // The frame's own alpha at the size it is painted (cached per atlas image, frame and size).
-        const layeredSpriteFrameAlphas = new WeakMap();
-        function layeredSpriteFrameAlpha(atlas, f, w, h) {
-            let alphas = layeredSpriteFrameAlphas.get(atlas);
-            if (!alphas) { alphas = new Map(); layeredSpriteFrameAlphas.set(atlas, alphas); }
-            const key = [f.x, f.y, f.w, f.h, w, h].join(',');
-            let alpha = alphas.get(key);
-            if (!alpha) {
-                const work = document.createElement('canvas'); work.width = w; work.height = h;
-                const wctx = work.getContext('2d');
-                if (f.w === w && f.h === h) wctx.drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, w, h);
-                else wctx.drawImage(layeredSpriteFramePatch(atlas, f), 0, 0, f.w, f.h, 0, 0, w, h);
-                alpha = wctx.getImageData(0, 0, w, h).data; alphas.set(key, alpha);
-            }
-            return alpha;
-        }
-        // Replacement masks store straight RGBA, not opacity to stack over the same coverage.
-        // Cache the small decoded mask; transparent pixels (including tear exclusions) keep the base.
-        const blinkPixels = new WeakMap();
-        function layeredSpriteReplacePatch(ctx, image, rect) {
-            let patch = blinkPixels.get(image);
-            if (!patch) {
-                const work = document.createElement('canvas'); work.width = image.width; work.height = image.height;
-                const source = work.getContext('2d'); source.drawImage(image, 0, 0);
-                patch = source.getImageData(0, 0, image.width, image.height); blinkPixels.set(image, patch);
-            }
-            const [x, y, w, h] = rect, target = ctx.getImageData(x, y, w, h);
-            for (let i = 0; i < patch.data.length; i += 4) if (patch.data[i + 3]) target.data.set(patch.data.subarray(i, i + 4), i);
-            ctx.putImageData(target, x, y);
-        }
-        function layeredSpritePaint(canvas, bundle, images, event, blink) {
-            const v = bundle.view, a = layeredSpriteAtlas(bundle.pack, bundle.state), base = images.get(v.src), atlas = images.get(a?.src);
-            if (!base || base.width !== v.width || base.height !== v.height) throw new Error('分层底图尺寸不匹配');
-            if (canvas.width !== v.width) canvas.width = v.width;
-            if (canvas.height !== v.height) canvas.height = v.height;
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, v.width, v.height); ctx.drawImage(base, 0, 0);
-            const eyes = v.blink;
-            if (eyes?.blend === 'replace' && (blink === 'closed' || blink === 'half') && eyes[blink]) layeredSpriteReplacePatch(ctx, images.get(eyes[blink]), eyes.rect);
-            const frame = layeredSpriteFrame(bundle.pack, bundle.state, event, v);
-            if (!frame) return;
-            if (!atlas || atlas.width !== a.width || atlas.height !== a.height) throw new Error('分层 atlas 尺寸不匹配');
-            const f = frame.rect, r = v.mouthByFrame?.[frame.id] || v.mouth;
-            const before = v.mouthOcclusionMask ? ctx.getImageData(r.x, r.y, r.w, r.h) : null;
-            // clear only explicitly authored replacement patches.
-            if (f.replace) ctx.clearRect(r.x, r.y, r.w, r.h);
-            const under = f.replace ? null : before || ctx.getImageData(r.x, r.y, r.w, r.h);
-            if (f.w === r.w && f.h === r.h) ctx.drawImage(atlas, f.x, f.y, f.w, f.h, r.x, r.y, r.w, r.h);
-            else ctx.drawImage(layeredSpriteFramePatch(atlas, f), 0, 0, f.w, f.h, r.x, r.y, r.w, r.h);
-            // An overlay frame keeps the larger of its own and the base's alpha. Plain source-over lifts a near-opaque
-            // frame (alpha 253) on a near-opaque base to 255, a faint box against the stage; a frame filling a hole in
-            // the base (alpha 0 there) must still show.
-            if (under) {
-                const over = ctx.getImageData(r.x, r.y, r.w, r.h), b = under.data, o = over.data;
-                let a = null, lifted = false;
-                for (let i = 3; i < o.length; i += 4) if (b[i] && b[i] < 255 && o[i] > b[i]) {
-                    a ||= layeredSpriteFrameAlpha(atlas, f, r.w, r.h);
-                    const keep = Math.max(b[i], a[i]);
-                    if (o[i] > keep) { o[i] = keep; lifted = true; }
-                }
-                if (lifted) ctx.putImageData(over, r.x, r.y);
-            }
-            if (before) {
-                const mask = images.get(v.mouthOcclusionMask);
-                if (!mask || mask.width !== v.width || mask.height !== v.height) throw new Error('分层遮挡 mask 尺寸不匹配');
-                // Luminance is the mask, not alpha. Composite(base, patched, grayscale) like the asset tool.
-                const work = document.createElement('canvas'); work.width = r.w; work.height = r.h;
-                const mctx = work.getContext('2d'); mctx.drawImage(mask, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
-                const m = mctx.getImageData(0, 0, r.w, r.h).data, after = ctx.getImageData(r.x, r.y, r.w, r.h);
-                for (let i = 0; i < m.length; i += 4) {
-                    const alpha = (m[i] * 0.299 + m[i + 1] * 0.587 + m[i + 2] * 0.114) / 255;
-                    for (let channel = 0; channel < 4; channel++) after.data[i + channel] = Math.round(before.data[i + channel] * alpha + after.data[i + channel] * (1 - alpha));
-                }
-                ctx.putImageData(after, r.x, r.y);
-            }
-        }
-        const layeredSpriteVoice = (() => {
-            const samples = new Map();
-            return (key, audio, enabled, now = forkForeground.now()) => {
-                const old = samples.get(key);
-                if (old && old.audio === audio && old.enabled === enabled && old.paused === audio?.paused && old.ended === audio?.ended && (!audio || audio.currentTime + 0.02 >= old.time) && now >= old.at && now - old.at < 12) return old.event;
-                // an editor voice preview is heard whatever the stage mutes (forkStageAudio.preview).
-                const audible = typeof forkStageAudio === 'undefined' || !audio || forkStageAudio.audible(audio);
-                const active = Boolean(enabled && audible && !document.hidden);
-                const value = layeredSpriteVoiceStep(old, audio, active && audio ? forkLipSync.level(audio) : 0, active, now);
-                value.enabled = enabled; value.paused = audio?.paused; value.ended = audio?.ended; samples.delete(key); samples.set(key, value);
-                while (samples.size > 64) samples.delete(samples.keys().next().value);
-                return value.event;
-            };
-        })();
-        function SpriteImage(props) {
-            const h = React.createElement, ref = React.useRef(null), live = React.useRef(props);
-            live.current = props;
-            const [ready, setReady] = React.useState('');
-            const held = React.useRef(null), [,retry] = React.useState(0);
-            if (!held.current || held.current.bundle.revision !== props.bundle.revision || held.current.failed && held.current.bundle !== props.bundle) held.current = {bundle:props.bundle,failed:false};
-            const bundle = held.current.bundle, identity = bundle.revision;
-            React.useEffect(() => {
-                let cancelled = false, raf = 0, previous = '', loaded = [];
-                const canvas = ref.current; setReady('');
-                Promise.all(layeredSpriteUrls(bundle).map(async src => {
-                    const image = new Image(); image.src = src; await image.decode(); return [src, image];
-                })).then(records => {
-                    if (cancelled) return;
-                    loaded = records; const images = new Map(records);
-                    function tick() {
-                        if (cancelled) return;
-                        const latest = live.current;
-                        const event = layeredSpriteVoice(latest.voiceKey, latest.audio, latest.enabled);
-                        if (event !== previous) {
-                            try { layeredSpritePaint(canvas, bundle, images, event); previous = event; setReady(identity); }
-                            catch (error) { setReady(''); console.warn('[layered-sprite] portrait retained base', error); return; }
-                        }
-                        raf = forkForeground.requestAnimationFrame(tick);
-                    }
-                    raf = forkForeground.requestAnimationFrame(tick);
-                }).catch(error => { if (!cancelled) {
-                    held.current.failed = true;
-                    if (live.current.bundle !== bundle) retry(n => n + 1);
-                    console.warn('[layered-sprite] portrait retained base', error);
-                } });
-                return () => { cancelled = true; forkForeground.cancelAnimationFrame(raf); loaded = []; };
-            }, [bundle]);
-            // keep face orientation on the shared base/canvas wrapper.
-            return h('span', { className: (props.className || '') + ' fork-sprite-surface', 'data-enter': props.enter, 'data-out': props.out || undefined, 'data-sprite-state': bundle.state.id, 'data-face-actor': props.faceActor },
-                h(PackImage, { identity, src: props.bundle.view.src, alt: '', draggable: false, style: { visibility: ready === identity ? 'hidden' : 'visible' } }),
-                h('canvas', { ref, width: bundle.view.width, height: bundle.view.height, 'aria-hidden': true, style: { visibility: ready === identity ? 'visible' : 'hidden' } }));
-        }
-        let pixiRuntime = null;
-        const PIXI_VENDOR = '/api/dsh-tavern/vendor/runtime-assets/pixi/';
-        function forkLoadScript(src) {
-            return new Promise(function (resolve, reject) {
-                const node = document.createElement("script");
-                node.src = src; node.async = false;
-                node.onload = resolve; node.onerror = () => reject(new Error("加载失败：" + src));
-                document.head.appendChild(node);
-            });
-        }
-        function loadPixiRuntime() {
-            if (window.PIXI) return Promise.resolve(window.PIXI);
-            if (pixiRuntime) return pixiRuntime;
-            pixiRuntime = forkLoadScript(PIXI_VENDOR + "pixi.min.js")
-                .then(() => { if (!window.PIXI) throw new Error("pixi 运行库不可用"); return window.PIXI; })
-                .catch(error => { pixiRuntime = null; throw error; });
-            return pixiRuntime;
-        }
-        const forkLipSync = (function () {
-            const taps = new WeakMap();
-            function tap(audio) {
-                if (!audio) return null;
-                if (taps.has(audio)) return taps.get(audio);
-                try {
-                    // Reuse the mixer's source: a media element can only be connected once.
-                    const analyser = forkStageAudio.analyser(audio);
-                    if (!analyser) return null;
-                    const entry = { analyser, data: new Float32Array(analyser.fftSize), level: 0, peak: 0.06 };
-                    taps.set(audio, entry);
-                    return entry;
-                } catch (_) { taps.set(audio, null); return null; }
-            }
-            return {
-                wake() { forkStageAudio.wake(); },
-                level(audio) {
-                    if (audio?.browserSpeech) return browserSpeechMouth(audio);
-                    const entry = audio && !audio.paused ? tap(audio) : null;
-                    if (!entry) return 0;
-                    entry.analyser.getFloatTimeDomainData(entry.data);
-                    let sum = 0; for (let i = 0; i < entry.data.length; i++) sum += entry.data[i] * entry.data[i];
-                    const rms = Math.sqrt(sum / entry.data.length);
-                    // Automatic gain: loudness relative to this clip's recent peak, so quiet synthesized
-                    // voices still open the mouth fully on stressed syllables and close it in pauses.
-                    entry.peak = Math.max(rms, entry.peak * 0.995, 0.02);
-                    const relative = rms / entry.peak;
-                    const target = relative < 0.12 ? 0 : Math.min(1, Math.pow((relative - 0.12) / 0.7, 0.75));
-                    entry.level += (target - entry.level) * (target > entry.level ? 0.7 : 0.35);
-                    return entry.level < 0.05 ? 0 : entry.level;
-                }
-            };
-        })();
 		// the one large-picture view. 查看大图 and
 		// every click-to-enlarge in the library and stage settings open it. The picture covers the window on a dark backdrop —
 		// no title bar, frame or footer, no caption. It opens fitted to the window; the wheel zooms around the cursor (fit … 8×
@@ -2969,7 +2438,174 @@ window.__ModuleLoader__.load({
 		        open && ready ? (p.editor && p.editor(open.key, { anchor: open.anchor, beside: p.placement === "below" ? null : frame.current, placement: p.placement, onClose: () => setOpen(null) })) ||
 		            h(ValueEditor, { config, fieldKey: open.key, anchor: open.anchor, beside: p.placement === "below" ? null : frame.current, placement: p.placement, onClose: () => setOpen(null) }) : null);
 		}
-
+		// Any runtime import (Spine, or one a stage module registers in RUNTIMES, e.g. Live2D) re-reads the open stage
+		// (stage-session-binding.js runtimeChanged).
+		const vendorRuntimeListeners = new Set();
+		function vendorRuntimeChanged(listener) { vendorRuntimeListeners.add(listener); return () => { vendorRuntimeListeners.delete(listener); }; }
+		function vendorRuntimeStore(extra) {
+		    const store = Object.assign({ revision: 0, listeners: new Set(),
+		        installed(value) {
+		            if (extra && extra.installed) extra.installed.call(store, value);
+		            store.revision++;
+		            for (const listener of store.listeners) listener();
+		            for (const listener of [...vendorRuntimeListeners]) listener();
+		        },
+		        subscribe(listener) { store.listeners.add(listener); return () => store.listeners.delete(listener); },
+		        snapshot() { return store.revision; } }, extra && extra.fields);
+		    return store;
+		}
+		const spineRuntimeState = vendorRuntimeStore({ fields: { runtime: "" }, installed(value) { this.runtime = value.runtime || ""; } });
+		const RUNTIME_MIB = 1024 * 1024;
+		// One spec per runtime. pieces(status): what has to be in place, each with its official page while missing.
+		// Spine on stage is the third-party pixi-spine 3.1.2 UMD for PIXI 6 (not Esoteric's spine-player / spine-webgl); it
+		// embeds Spine runtime code, so the user needs their own Spine Editor licence.
+		const RUNTIMES = {
+		    spine: { title: "Spine", store: spineRuntimeState, status: "getSpineRuntimeStatus", import: () => "importSpineRuntime",
+		        installedOf: status => !!(status && (status.installed || status.runtime)),
+		        importable: status => status.importSupported === true, accept: () => ".js,text/javascript",
+		        pieces: status => [{ key: "spine", name: "pixi-spine 3.1.2", installed: !!(status.installed || status.runtime),
+		            links: [{ label: "获取 Spine 授权", href: status.purchaseUrl || "https://esotericsoftware.com/spine-purchase" },
+		                { label: "下载", href: status.downloadUrl || "https://www.npmjs.com/package/pixi-spine/v/3.1.2" }] }],
+		        help: (status, a) => [["pixi-spine 含 Spine 运行库，要有你自己的 Spine 授权；未安装时舞台用静态立绘。"],
+		            status.importSupported === true ? ["导入包里 dist 文件夹的 pixi-spine.umd.js。许可：",
+		                a(status.licenseUrl || "https://esotericsoftware.com/spine-runtimes-license", "Spine 运行库许可"), "。文件会在页面里运行，只用这个页面下载的。"]
+		                : ["暂不能在应用内导入。"]] }
+		};
+		async function runtimeFileBase64(file) {
+		    const bytes = new Uint8Array(await file.arrayBuffer());
+		    let text = "";
+		    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+		    return btoa(text);
+		}
+		// Contract limits: a bare script ≤ 8 MiB, a downloaded archive ≤ 50 MiB.
+		function runtimeTooLarge(file) {
+		    const script = /\.js$/i.test(file.name), limit = (script ? 8 : 50) * RUNTIME_MIB;
+		    return file.size > limit ? file.name + " 太大（上限 " + (script ? 8 : 50) + " MB）" : "";
+		}
+		// {status, error, retry, settle} of one runtime; re-read whenever any entry installs it. settle(value) takes an import
+		// result directly (a Live2D import that brought one piece tells nobody else: only a usable runtime is announced).
+		function useRuntimeStatus(kind, request) {
+		    const spec = RUNTIMES[kind];
+		    const revision = React.useSyncExternalStore(spec.store.subscribe, spec.store.snapshot);
+		    const [state, setState] = React.useState({ status: null, error: "" }), [retry, setRetry] = React.useState(0);
+		    React.useEffect(() => {
+		        let live = true;
+		        setState(current => current.error ? { status: current.status, error: "" } : current);
+		        request(spec.status, {}).then(value => { if (live) setState({ status: value || {}, error: "" }); },
+		            failure => { if (live) setState(current => ({ status: current.status, error: String(failure && failure.message || failure) })); });
+		        return () => { live = false; };
+		    }, [request, revision, retry]);
+		    return { ...state, installed: spec.installedOf(state.status), retry: () => setRetry(value => value + 1),
+		        settle: value => setState({ status: value || {}, error: "" }) };
+		}
+		// A runtime the app fetches for the player (spec.download names the host method) asks once, in a confirmation dialog:
+		// what comes from where and under which licences, 「取消」 / spec.consent.confirm. The download runs in the entry itself.
+		function RuntimeConsentDialog({ consent, status, link, onConfirm, onClose }) {
+		    const h = React.createElement, ref = React.useRef(null);
+		    if (typeof useOverlay === "function") useOverlay(true, () => [ref.current], onClose);
+		    React.useEffect(() => {
+		        const opener = document.activeElement;
+		        ref.current?.querySelector("button")?.focus({ preventScroll: true });
+		        return () => { if (opener && opener.isConnected) opener.focus({ preventScroll: true }); };
+		    }, []);
+		    function key(event) {
+		        if (event.key === "Escape") {
+		            if (typeof overlayEscape === "function" && overlayEscape(event)) return;
+		            event.preventDefault(); event.stopPropagation(); onClose();
+		        } else if (event.key === "Tab") {
+		            const nodes = [...ref.current.querySelectorAll("a[href],button:not(:disabled)")], first = nodes[0], last = nodes[nodes.length - 1];
+		            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+		            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+		        }
+		    }
+		    const dialog = h("div", { className: "ap-ui ap-layer" }, h("div", { className: "ap-modal-scrim" },
+		        h("section", { ref, className: "ap-modal ap-confirm fork-runtime-consent", role: "dialog", "aria-modal": true, "aria-label": consent.title, onKeyDown: key },
+		            h("header", null, h("h2", null, consent.title)),
+		            consent.body(status, link).map((line, i) => h("p", { key: i }, ...line)),
+		            h("div", { className: "ap-actions" },
+		                h("button", { type: "button", onClick: onClose }, "取消"),
+		                h("button", { type: "button", onClick: onConfirm }, consent.confirm)))));
+		    return typeof ReactDOM !== "undefined" && ReactDOM.createPortal && document.body ? ReactDOM.createPortal(dialog, document.body) : dialog;
+		}
+		// props: request (rpc), kind ("live2d" | "spine"), head (default true; false inside a notice that already names it).
+		// A spec with `download` installs through RuntimeConsentDialog; only after a failed download does the entry take the
+		// official files dropped on it (never a file picker). Other specs import the files the player picks.
+		function RuntimeEntry({ request, kind, head = true }) {
+		    const h = React.createElement, spec = RUNTIMES[kind];
+		    const read = useRuntimeStatus(kind, request), status = read.status;
+		    const [busy, setBusy] = React.useState(""), [errors, setErrors] = React.useState([]);
+		    const [asking, setAsking] = React.useState(false), [dropping, setDropping] = React.useState(false), [over, setOver] = React.useState(false);
+		    const active = React.useRef(true), lock = React.useRef(false), picker = React.useRef(null), root = React.useRef(null);
+		    React.useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+		    function done(latest) { if (spec.installedOf(latest)) { spec.store.installed(latest); if (active.current) root.current?.focus(); } }
+		    // One file per call, in order; each result is the new status. Files that fail are listed, the others still count.
+		    async function pick(files) {
+		        if (lock.current || !files.length) return;
+		        lock.current = true; setBusy("import"); setErrors([]);
+		        const failed = [];
+		        let latest = status;
+		        try {
+		            for (const file of files) {
+		                try {
+		                    const large = runtimeTooLarge(file);
+		                    if (large) throw new Error(large);
+		                    latest = await request(spec.import(latest || {}), { name: file.name, base64: await runtimeFileBase64(file), consent: true }) || {};
+		                    if (active.current) read.settle(latest);
+		                } catch (failure) { failed.push((files.length > 1 ? file.name + "：" : "") + String(failure && failure.message || failure)); }
+		            }
+		            done(latest);
+		        } finally { lock.current = false; if (active.current) { setBusy(""); setErrors(failed); } }
+		    }
+		    async function fetchRuntime() {
+		        setAsking(false);
+		        if (lock.current) return;
+		        lock.current = true; setBusy("download"); setErrors([]);
+		        try { const latest = await request(spec.download, { consent: true }) || {}; if (active.current) read.settle(latest); done(latest); }
+		        catch (failure) { if (active.current) { setErrors([String(failure && failure.message || failure)]); setDropping(true); read.retry(); } }
+		        finally { lock.current = false; if (active.current) setBusy(""); }
+		    }
+		    const Tip = typeof HelpTip === "function" ? HelpTip : null;
+		    const link = (href, label) => h("a", { key: label, href, target: "_blank", rel: "noopener noreferrer" }, label);
+		    const tip = status && Tip ? h(Tip, { label: spec.title + " 说明", interactive: true },
+		        ...spec.help(status, link).map((line, i) => h("span", { key: i }, ...line))) : null;
+		    const loading = !status && !read.error;
+		    const state = read.installed ? "installed" : busy ? "importing" : status ? "missing" : read.error ? "error" : "loading";
+		    const canImport = status && !read.installed && spec.importable(status);
+		    const pieces = status && !read.installed ? spec.pieces(status) : [];
+		    // A downloaded runtime names its official pages only once the download has failed (they are the way to the drop).
+		    const showLinks = !spec.download || dropping;
+		    const drop = event => { event.preventDefault(); setOver(false); pick([...(event.dataTransfer && event.dataTransfer.files || [])]); };
+		    const hover = value => event => { event.preventDefault(); setOver(value); };
+		    const action = !canImport ? null : spec.download
+		        ? h("button", { type: "button", className: "fork-runtime-import", disabled: !!busy, onClick: () => setAsking(true) },
+		            busy ? h(React.Fragment, null, h(Spinner, { key: "import" }), busy === "download" ? "正在下载…" : "正在导入…") : dropping ? spec.consent.retry : spec.consent.action)
+		        : h(React.Fragment, null,
+		            h("button", { type: "button", className: "fork-runtime-import", disabled: !!busy, onClick: () => picker.current?.click() },
+		                busy ? h(React.Fragment, null, h(Spinner, { key: "import" }), "正在导入…") : "同意许可并导入…"),
+		            h("input", { ref: picker, type: "file", hidden: true, tabIndex: -1, "aria-hidden": true, multiple: !!spec.multiple, accept: spec.accept(status),
+		                onChange: event => { const files = [...(event.target.files || [])]; event.target.value = ""; pick(files); } }));
+		    return h("div", { ref: root, tabIndex: -1, className: "fork-runtime", "data-runtime": kind, "data-state": state, "aria-busy": !!busy || loading || undefined,
+		            role: "group", "aria-label": spec.title },
+		        head ? h("div", { className: "fork-runtime-head" }, h("strong", null, spec.title), tip,
+		            read.installed ? h("span", { className: "fork-runtime-state", role: "status" }, "✓ 已安装") : null) : null,
+		        pieces.length ? h("ul", { className: "fork-runtime-pieces" }, pieces.map(piece =>
+		            h("li", { key: piece.key, className: "fork-runtime-piece", "data-piece": piece.key, "data-installed": piece.installed || undefined },
+		                h("span", { className: "fork-runtime-name" }, piece.name),
+		                piece.installed ? h("span", { className: "fork-runtime-state" }, "✓ 已安装")
+		                    : h("span", { className: "fork-runtime-links" }, h("span", { className: "fork-runtime-state" }, "未安装"),
+		                        showLinks ? piece.links.map(item => h("a", { key: item.label, className: "fork-runtime-link", href: item.href, target: "_blank", rel: "noopener noreferrer" },
+		                            item.label, h("span", { className: "fork-runtime-out", "aria-hidden": true }, "↗"))) : null)))) : null,
+		        canImport || (!head && pieces.length) ? h("div", { className: "fork-runtime-actions" }, action, head ? null : tip) : null,
+		        canImport && spec.download && dropping ? h("div", { className: "fork-runtime-drop", "data-over": over || undefined, role: "group", "aria-label": spec.consent.dropLabel,
+		            onDragEnter: hover(true), onDragOver: hover(true), onDragLeave: hover(false), onDrop: drop }, spec.consent.drop) : null,
+		        loading ? h(Spinner, { key: "read" }) : null,
+		        errors.map((error, i) => h("span", { key: i, className: "fork-runtime-alert", role: "alert" }, "⚠ " + error)),
+		        read.error && !status ? h("span", { className: "fork-runtime-alert", role: "alert" }, "⚠ " + read.error,
+		            h("button", { type: "button", className: "fork-runtime-retry", onClick: read.retry }, "重新检测")) : null,
+		        asking ? h(RuntimeConsentDialog, { consent: spec.consent, status, link, onConfirm: fetchRuntime, onClose: () => setAsking(false) }) : null);
+		}
+		// The Spine entry (settings, the asset library's Spine outfits).
+		function SpineRuntimeEntry(props) { return React.createElement(RuntimeEntry, { ...props, kind: "spine" }); }
 
 		// `dsh-tavern-shell-active` gates every Tavern rule that touches host chrome.
 		// It used to be added only when the left sidebar mounted. On a phone that
@@ -26168,7 +25804,9 @@ function tavernModelRefusalNotice(text) {
 		            if (moment && !own) return false;
 		            // type: one cue in every `every` glyph steps
 		            if (cue === "type" && typed++ % own.every !== 0) return false;
-		            const gain = (moment ? uiSfxGain(env.prefs(), "confirm") * moment[0] : uiSfxGain(env.prefs(), cue)) * (own ? own.gain : 1);
+		            // The engine's relative gain (hover and toggles kept back) is for the engine's own cues; a skin's cue is at the level its
+		            // author set (own.gain), so a short hover tick of a skin is not trimmed a second time.
+		            const gain = moment ? uiSfxGain(env.prefs(), "confirm") * moment[0] * own.gain : own ? (uiSfxGain(env.prefs(), cue) > 0 ? own.gain : 0) : uiSfxGain(env.prefs(), cue);
 		            if (!(gain > 0)) return false;
 		            const now = env.now();
 		            if (moment) { if (now - (gate.at[cue] ?? -Infinity) < moment[1]) return false; gate.at[cue] = now; }
@@ -28380,6 +28018,369 @@ function tavernModelRefusalNotice(text) {
 		        openModal: () => { if (typeof document !== 'undefined') document.querySelector('.ap-stage .ap-pack-section')?.scrollIntoView({ block: 'center' }); } };
 		    return React.createElement(BubblePromptEditor, { ctx, onClose });
 		}
+		// Shared Pixi and static-sprite runtime, independent of model SDKs.
+		// Shared manifest/runtime contract. No platform APIs, filesystem reads or implicit image lookup.
+		const SPRITE_EVENTS = ['closed', 'small', 'mid', 'open'];
+		function layeredSpritePath(value) {
+		    if (typeof value !== 'string' || value.length > 240 || !/^[a-zA-Z0-9_./-]+$/.test(value) || value.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || !/\.(png|webp)$/i.test(value)) throw new Error('分层素材路径无效');
+		    return value;
+		}
+		function layeredSpriteManifest(raw, mode = 'path') {
+		    const fail = message => { throw new Error('分层素材：' + message); };
+		    const object = v => v && typeof v === 'object' && !Array.isArray(v);
+		    const slug = (v, max = 64) => typeof v === 'string' && v.length <= max && /^[a-z0-9][a-z0-9_-]*$/.test(v) && !['__proto__', 'constructor', 'prototype'].includes(v);
+		    const text = (v, max = 160) => typeof v === 'string' ? v.slice(0, max) : '';
+		    const dimension = v => Number.isInteger(v) && v > 0 && v <= 4096;
+		    const source = v => mode === 'sha' ? (/^[0-9a-f]{64}$/.test(v) ? v : fail('图片 SHA 无效')) : layeredSpritePath(v);
+		    function rect(r, w, h) {
+		        if (!object(r) || !['x', 'y', 'w', 'h'].every(k => Number.isInteger(r[k])) || r.x < 0 || r.y < 0 || r.w <= 0 || r.h <= 0 || r.x + r.w > w || r.y + r.h > h) fail('坐标越界');
+		        return { x: r.x, y: r.y, w: r.w, h: r.h };
+		    }
+		    function viewRect(r, w, h) {
+		        if (!object(r) || !['x', 'y', 'w', 'h'].every(k => Number.isFinite(r[k]) && r[k] >= 0) || r.w === 0 || r.h === 0) fail('坐标越界');
+		        // Rasterize view anchors only; atlas crops must remain exact integer pixels.
+		        const x = Math.floor(r.x), y = Math.floor(r.y);
+		        return rect({ x, y, w: Math.min(Math.ceil(r.w), w - x), h: Math.min(Math.ceil(r.h), h - y) }, w, h);
+		    }
+		    if (!object(raw) || raw.version !== 2 || raw.kind !== 'layered-static-sprites') fail('不支持的 manifest 版本');
+		    if (raw.closedBehavior !== 'restore-base') fail('closedBehavior 必须是 restore-base');
+		    if (!slug(raw.character?.id) || !text(raw.character?.name).trim()) fail('角色无效');
+		    function atlas(value) {
+		        if (!object(value) || !dimension(value.width) || !dimension(value.height) || !object(value.frames) || !Object.keys(value.frames).length || Object.keys(value.frames).length > 256) fail('atlas 无效');
+		        const frames = {};
+		        for (const [id, entry] of Object.entries(value.frames)) {
+		            if (!slug(id)) fail('frame ID 无效');
+		            const r = rect(entry, value.width, value.height);
+		            if (Object.values(frames).some(p => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y)) fail('atlas frame 重叠');
+		            // replacement is opt-in; legacy frames remain alpha-over.
+		            if (entry.replace !== undefined && typeof entry.replace !== 'boolean') fail('Invalid frame replace flag');
+		            frames[id] = { ...r, ...(entry.replace !== undefined ? { replace: entry.replace } : {}) };
+		        }
+		        return { src: source(value.src), width: value.width, height: value.height, frames, defaultFrames: mapping(value.defaultFrames, SPRITE_EVENTS, frames) };
+		    }
+		    function mapping(value, keys, frames) {
+		        if (value === undefined || object(value) && !Object.keys(value).length) return {};
+		        if (!object(value) || keys.some(key => !Object.hasOwn(value, key))) fail('mouthFrames requires closed/small/mid/open');
+		        const out = {};
+		        for (const [key, id] of Object.entries(value)) {
+		            if (!keys.includes(key)) fail('mouthFrames requires exactly closed/small/mid/open; unexpected key: ' + key);
+		            if (!Object.hasOwn(frames, id)) fail('口型映射不存在');
+		            out[key] = id;
+		        }
+		        return out;
+		    }
+		    const mouthAtlas = raw.mouthAtlas === undefined ? undefined : atlas(raw.mouthAtlas), mouthSets = {};
+		    if (raw.mouthSets !== undefined) {
+		        if (!object(raw.mouthSets) || Object.keys(raw.mouthSets).length > 128) fail('mouthSets 无效');
+		        for (const [id, value] of Object.entries(raw.mouthSets)) {
+		            if (!slug(id, 160)) fail('mouthSet ID 无效');
+		            mouthSets[id] = atlas(value);
+		        }
+		    }
+		    if (!Array.isArray(raw.states) || !raw.states.length) fail('至少需要一个状态');
+		    const seen = new Set();
+		    const states = raw.states.map(s => {
+		        if (!object(s) || !slug(s.id) || seen.has(s.id)) fail('状态 ID 无效或重复');
+		        seen.add(s.id);
+		        if (s.mouthSet !== undefined && (!slug(s.mouthSet, 160) || !Object.hasOwn(mouthSets, s.mouthSet))) fail('mouthSet 不存在');
+		        const selectedAtlas = s.mouthSet === undefined ? mouthAtlas : mouthSets[s.mouthSet];
+		        const frames = selectedAtlas?.frames || {};
+		        const mouthFrames = mapping(s.mouthFrames, SPRITE_EVENTS, frames), initialPhoneme = s.initialPhoneme ?? 'closed';
+		        if (!SPRITE_EVENTS.includes(initialPhoneme)) fail('initialPhoneme 无效');
+		        if (s.closedMouthFrame !== undefined) {
+		            if (!Object.hasOwn(frames, s.closedMouthFrame) || mouthFrames.closed && mouthFrames.closed !== s.closedMouthFrame) fail('closed 映射冲突');
+		            mouthFrames.closed = s.closedMouthFrame;
+		        }
+		        if (initialPhoneme !== 'closed' && !mouthFrames.closed) fail('张口底图需要真正的闭口 patch');
+		        const staticState = s.stage?.mouth === undefined && s.portrait?.mouth === undefined;
+		        if (staticState && (Object.keys(mouthFrames).length || Object.keys(s.stage?.mouthByFrame || {}).length || Object.keys(s.portrait?.mouthByFrame || {}).length)) fail('静态状态不能引用口型');
+		        function view(v) {
+		            if (!object(v) || !dimension(v.width) || !dimension(v.height)) fail('视图尺寸无效');
+		            const out = { src: source(v.src), width: v.width, height: v.height };
+		            if (!staticState) {
+		                out.mouth = viewRect(v.mouth, v.width, v.height);
+		                if (!SPRITE_EVENTS.every(key => Object.hasOwn(v.mouthFrames || mouthFrames, key))) fail('mouthFrames requires closed/small/mid/open');
+		            }
+		            if (v.mouthByFrame !== undefined) {
+		                if (!object(v.mouthByFrame)) fail('mouthByFrame 无效');
+		                out.mouthByFrame = {};
+		                for (const [id, r] of Object.entries(v.mouthByFrame)) {
+		                    if (!Object.hasOwn(frames, id)) fail('mouthByFrame frame 不存在');
+		                    out.mouthByFrame[id] = viewRect(r, v.width, v.height);
+		                }
+		            }
+		            // independent raster patches can share the selected state atlas.
+		            if (v.mouthFrames !== undefined) {
+		                out.mouthFrames = mapping(v.mouthFrames, SPRITE_EVENTS, frames);
+		                if (staticState && Object.keys(out.mouthFrames).length) fail('Static view cannot map mouths');
+		            }
+		            if (v.mouthOcclusionMask !== undefined) out.mouthOcclusionMask = source(v.mouthOcclusionMask);
+		            // an optional blink overlay never invalidates the sprite; a bad one is ignored.
+		            if (v.blink !== undefined) { try { out.blink = layeredSpriteBlink(v.blink, v.width, v.height, source); } catch { /* eyes stay open */ } }
+		            return out;
+		        }
+		        return { id: s.id, label: text(s.label || s.id), emotion: text(s.emotion || s.id, 64), initialPhoneme, mouthFrames, ...(s.mouthSet !== undefined ? { mouthSet: s.mouthSet } : {}), stage: view(s.stage), portrait: view(s.portrait) };
+		    });
+		    if (raw.defaultState !== undefined && !seen.has(raw.defaultState)) fail('默认状态不存在');
+		    return { version: raw.version, kind: raw.kind, closedBehavior: 'restore-base', character: { id: raw.character.id, name: text(raw.character.name) }, defaultState: raw.defaultState || (seen.has('calm') ? 'calm' : states[0].id), ...(mouthAtlas ? { mouthAtlas } : {}), ...(raw.mouthSets !== undefined ? { mouthSets } : {}), states };
+		}
+		function layeredSpriteBlink(raw, width, height, source = layeredSpritePath) {
+		    const r = raw && raw.rect;
+		    if (!raw || typeof raw !== 'object' || !Array.isArray(r) || r.length !== 4 || !r.every(Number.isInteger) || r[0] < 0 || r[1] < 0 || r[2] <= 0 || r[3] <= 0 || r[0] + r[2] > width || r[1] + r[3] > height) throw new Error('blink 无效');
+		    return { closed: source(raw.closed), ...(raw.half !== undefined ? { half: source(raw.half) } : {}), rect: [...r], ...(raw.blend === 'replace' ? { blend: 'replace' } : {}) };
+		}
+		function layeredSpriteMapAssets(pack, map) {
+		    const view = v => ({ ...v, src: map(v.src), ...(v.mouthOcclusionMask ? { mouthOcclusionMask: map(v.mouthOcclusionMask) } : {}), ...(v.blink ? { blink: { ...v.blink, closed: map(v.blink.closed), ...(v.blink.half ? { half: map(v.blink.half) } : {}) } } : {}) });
+		    return { ...pack, ...(pack.mouthAtlas ? { mouthAtlas: { ...pack.mouthAtlas, src: map(pack.mouthAtlas.src) } } : {}), ...(pack.mouthSets ? { mouthSets: Object.fromEntries(Object.entries(pack.mouthSets).map(([id, atlas]) => [id, { ...atlas, src: map(atlas.src) }])) } : {}), states: pack.states.map(s => ({ ...s, stage: view(s.stage), portrait: view(s.portrait) })) };
+		}
+		function layeredSpriteAssets(pack) {
+		    const out = new Map();
+		    const add = (src, w, h) => { if (out.has(src) && String(out.get(src)) !== String([w, h])) throw new Error('分层素材同一资源尺寸冲突'); out.set(src, [w, h]); };
+		    for (const atlas of [pack.mouthAtlas, ...Object.values(pack.mouthSets || {})].filter(Boolean)) add(atlas.src, atlas.width, atlas.height);
+		    for (const s of pack.states) for (const v of [s.stage, s.portrait]) { add(v.src, v.width, v.height); if (v.mouthOcclusionMask) add(v.mouthOcclusionMask, v.width, v.height); }
+		    return out;
+		}
+		function layeredSpriteState(pack, requested, fallback = '') {
+		    if (!pack) return null;
+		    const alias = { sad: 'sadness', anxious: 'nervous', shy: 'embarrassed', love: 'affection' };
+		    const exact = value => pack.states.find(s => s.id === value || s.label === value);
+		    const emotion = value => pack.states.find(s => s.emotion === value || s.emotion === alias[value]);
+		    return exact(requested) || exact(alias[requested]) || emotion(requested) || exact(fallback) || exact(alias[fallback]) || emotion(fallback) || exact(pack.defaultState) || pack.states[0];
+		}
+		function layeredSpriteAtlas(pack, state) {
+		    return state.mouthSet === undefined ? pack.mouthAtlas : pack.mouthSets?.[state.mouthSet];
+		}
+		function layeredSpriteFrame(pack, state, event, view) {
+		    if (event === 'initial' || event === 'idle' || (!state.stage.mouth && !state.portrait.mouth)) return null;
+		    if (!SPRITE_EVENTS.includes(event)) return null;
+		    const atlas = layeredSpriteAtlas(pack, state);
+		    const id = (view?.mouthFrames || state.mouthFrames)?.[event];
+		    return id && atlas?.frames[id] ? { id, rect: atlas.frames[id] } : null;
+		}
+		// The one amplitude → tier gear, shared by the stage and the dialogue portrait: one sample per Audio element per display
+		// frame. Rising thresholds 0.20/0.45/0.72, falling 0.10/0.32/0.58 (hysteresis), 80 ms hold between tier changes, and
+		// real silence closes at once even inside the hold. 'initial' (the clip has not started) keeps the base untouched.
+		// Amplitude animation, not phoneme recognition; no synthetic text timer.
+		const MOUTH_UP = [0.20, 0.45, 0.72], MOUTH_DOWN = [0.10, 0.32, 0.58];
+		function layeredSpriteVoiceStep(previous, audio, level, enabled, now) {
+		    const fresh = !previous || (audio && previous.audio !== audio) || now < previous.at || now - previous.at > 250 || Number(audio?.currentTime) + 0.02 < previous.time;
+		    const state = fresh ? { audio, event: 'initial', started: Boolean(previous?.started && (!audio || previous.audio === audio)), changed: -Infinity } : previous;
+		    const playing = Boolean(enabled && audio && !audio.paused && !audio.ended && Number.isFinite(level));
+		    const started = state.started || playing, amplitude = playing ? Math.min(1, Math.max(0, level)) : 0;
+		    let event = 'initial';
+		    if (started && amplitude <= 0.01) event = 'closed';
+		    else if (started) {
+		        const index = Math.max(0, SPRITE_EVENTS.indexOf(state.event));
+		        let next = index;
+		        while (next < 3 && amplitude >= MOUTH_UP[next]) next++;
+		        if (next === index) while (next > 0 && amplitude < MOUTH_DOWN[next - 1]) next--;
+		        event = SPRITE_EVENTS[next !== index && now - state.changed < 80 ? index : next];
+		    }
+		    return { audio, event, started, changed: event === state.event ? state.changed : now, at: now, time: Number(audio?.currentTime) || 0 };
+		}
+		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = { SPRITE_EVENTS, layeredSpritePath, layeredSpriteBlink, layeredSpriteManifest, layeredSpriteMapAssets, layeredSpriteAssets, layeredSpriteState, layeredSpriteAtlas, layeredSpriteFrame, layeredSpriteVoiceStep };
+		// The base remains immutable. The same compositor drives PIXI and the full GAL dialogue portrait.
+		function layeredSpriteBundle(model, requested, view = 'stage', fallback = '') {
+		    const pack = model && model.spritePack, state = layeredSpriteState(pack, requested, fallback);
+		    return state ? { pack, state, view: state[view], key: model.id + ':' + state.id + ':' + view, revision: JSON.stringify([model.id, state.id, state[view], layeredSpriteAtlas(pack, state), state.mouthFrames, state.initialPhoneme]) } : null;
+		}
+		function layeredSpriteUrls(bundle) {
+		    return bundle ? [bundle.view.src, layeredSpriteAtlas(bundle.pack, bundle.state)?.src, bundle.view.mouthOcclusionMask, ...(bundle.view.blink?.blend === 'replace' ? [bundle.view.blink.closed, bundle.view.blink.half] : [])].filter(Boolean) : [];
+		}
+		// Scaling straight from the atlas lets bilinear filtering sample neighbouring frames at the
+		// patch edges. Isolate each frame first (1:1 copy, cached per atlas image) and scale that.
+		const layeredSpriteFramePatches = new WeakMap();
+		function layeredSpriteFramePatch(atlas, f) {
+		    let patches = layeredSpriteFramePatches.get(atlas);
+		    if (!patches) { patches = new Map(); layeredSpriteFramePatches.set(atlas, patches); }
+		    const key = f.x + ',' + f.y + ',' + f.w + ',' + f.h;
+		    let patch = patches.get(key);
+		    if (!patch) {
+		        patch = document.createElement('canvas'); patch.width = f.w; patch.height = f.h;
+		        patch.getContext('2d').drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+		        patches.set(key, patch);
+		    }
+		    return patch;
+		}
+		// The frame's own alpha at the size it is painted (cached per atlas image, frame and size).
+		const layeredSpriteFrameAlphas = new WeakMap();
+		function layeredSpriteFrameAlpha(atlas, f, w, h) {
+		    let alphas = layeredSpriteFrameAlphas.get(atlas);
+		    if (!alphas) { alphas = new Map(); layeredSpriteFrameAlphas.set(atlas, alphas); }
+		    const key = [f.x, f.y, f.w, f.h, w, h].join(',');
+		    let alpha = alphas.get(key);
+		    if (!alpha) {
+		        const work = document.createElement('canvas'); work.width = w; work.height = h;
+		        const wctx = work.getContext('2d');
+		        if (f.w === w && f.h === h) wctx.drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, w, h);
+		        else wctx.drawImage(layeredSpriteFramePatch(atlas, f), 0, 0, f.w, f.h, 0, 0, w, h);
+		        alpha = wctx.getImageData(0, 0, w, h).data; alphas.set(key, alpha);
+		    }
+		    return alpha;
+		}
+		// Replacement masks store straight RGBA, not opacity to stack over the same coverage.
+		// Cache the small decoded mask; transparent pixels (including tear exclusions) keep the base.
+		const blinkPixels = new WeakMap();
+		function layeredSpriteReplacePatch(ctx, image, rect) {
+		    let patch = blinkPixels.get(image);
+		    if (!patch) {
+		        const work = document.createElement('canvas'); work.width = image.width; work.height = image.height;
+		        const source = work.getContext('2d'); source.drawImage(image, 0, 0);
+		        patch = source.getImageData(0, 0, image.width, image.height); blinkPixels.set(image, patch);
+		    }
+		    const [x, y, w, h] = rect, target = ctx.getImageData(x, y, w, h);
+		    for (let i = 0; i < patch.data.length; i += 4) if (patch.data[i + 3]) target.data.set(patch.data.subarray(i, i + 4), i);
+		    ctx.putImageData(target, x, y);
+		}
+		function layeredSpritePaint(canvas, bundle, images, event, blink) {
+		    const v = bundle.view, a = layeredSpriteAtlas(bundle.pack, bundle.state), base = images.get(v.src), atlas = images.get(a?.src);
+		    if (!base || base.width !== v.width || base.height !== v.height) throw new Error('分层底图尺寸不匹配');
+		    if (canvas.width !== v.width) canvas.width = v.width;
+		    if (canvas.height !== v.height) canvas.height = v.height;
+		    const ctx = canvas.getContext('2d');
+		    ctx.clearRect(0, 0, v.width, v.height); ctx.drawImage(base, 0, 0);
+		    const eyes = v.blink;
+		    if (eyes?.blend === 'replace' && (blink === 'closed' || blink === 'half') && eyes[blink]) layeredSpriteReplacePatch(ctx, images.get(eyes[blink]), eyes.rect);
+		    const frame = layeredSpriteFrame(bundle.pack, bundle.state, event, v);
+		    if (!frame) return;
+		    if (!atlas || atlas.width !== a.width || atlas.height !== a.height) throw new Error('分层 atlas 尺寸不匹配');
+		    const f = frame.rect, r = v.mouthByFrame?.[frame.id] || v.mouth;
+		    const before = v.mouthOcclusionMask ? ctx.getImageData(r.x, r.y, r.w, r.h) : null;
+		    // clear only explicitly authored replacement patches.
+		    if (f.replace) ctx.clearRect(r.x, r.y, r.w, r.h);
+		    const under = f.replace ? null : before || ctx.getImageData(r.x, r.y, r.w, r.h);
+		    if (f.w === r.w && f.h === r.h) ctx.drawImage(atlas, f.x, f.y, f.w, f.h, r.x, r.y, r.w, r.h);
+		    else ctx.drawImage(layeredSpriteFramePatch(atlas, f), 0, 0, f.w, f.h, r.x, r.y, r.w, r.h);
+		    // An overlay frame keeps the larger of its own and the base's alpha. Plain source-over lifts a near-opaque
+		    // frame (alpha 253) on a near-opaque base to 255, a faint box against the stage; a frame filling a hole in
+		    // the base (alpha 0 there) must still show.
+		    if (under) {
+		        const over = ctx.getImageData(r.x, r.y, r.w, r.h), b = under.data, o = over.data;
+		        let a = null, lifted = false;
+		        for (let i = 3; i < o.length; i += 4) if (b[i] && b[i] < 255 && o[i] > b[i]) {
+		            a ||= layeredSpriteFrameAlpha(atlas, f, r.w, r.h);
+		            const keep = Math.max(b[i], a[i]);
+		            if (o[i] > keep) { o[i] = keep; lifted = true; }
+		        }
+		        if (lifted) ctx.putImageData(over, r.x, r.y);
+		    }
+		    if (before) {
+		        const mask = images.get(v.mouthOcclusionMask);
+		        if (!mask || mask.width !== v.width || mask.height !== v.height) throw new Error('分层遮挡 mask 尺寸不匹配');
+		        // Luminance is the mask, not alpha. Composite(base, patched, grayscale) like the asset tool.
+		        const work = document.createElement('canvas'); work.width = r.w; work.height = r.h;
+		        const mctx = work.getContext('2d'); mctx.drawImage(mask, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+		        const m = mctx.getImageData(0, 0, r.w, r.h).data, after = ctx.getImageData(r.x, r.y, r.w, r.h);
+		        for (let i = 0; i < m.length; i += 4) {
+		            const alpha = (m[i] * 0.299 + m[i + 1] * 0.587 + m[i + 2] * 0.114) / 255;
+		            for (let channel = 0; channel < 4; channel++) after.data[i + channel] = Math.round(before.data[i + channel] * alpha + after.data[i + channel] * (1 - alpha));
+		        }
+		        ctx.putImageData(after, r.x, r.y);
+		    }
+		}
+		const layeredSpriteVoice = (() => {
+		    const samples = new Map();
+		    return (key, audio, enabled, now = forkForeground.now()) => {
+		        const old = samples.get(key);
+		        if (old && old.audio === audio && old.enabled === enabled && old.paused === audio?.paused && old.ended === audio?.ended && (!audio || audio.currentTime + 0.02 >= old.time) && now >= old.at && now - old.at < 12) return old.event;
+		        // an editor voice preview is heard whatever the stage mutes (forkStageAudio.preview).
+		        const audible = typeof forkStageAudio === 'undefined' || !audio || forkStageAudio.audible(audio);
+		        const active = Boolean(enabled && audible && !document.hidden);
+		        const value = layeredSpriteVoiceStep(old, audio, active && audio ? forkLipSync.level(audio) : 0, active, now);
+		        value.enabled = enabled; value.paused = audio?.paused; value.ended = audio?.ended; samples.delete(key); samples.set(key, value);
+		        while (samples.size > 64) samples.delete(samples.keys().next().value);
+		        return value.event;
+		    };
+		})();
+		function SpriteImage(props) {
+		    const h = React.createElement, ref = React.useRef(null), live = React.useRef(props);
+		    live.current = props;
+		    const [ready, setReady] = React.useState('');
+		    const held = React.useRef(null), [,retry] = React.useState(0);
+		    if (!held.current || held.current.bundle.revision !== props.bundle.revision || held.current.failed && held.current.bundle !== props.bundle) held.current = {bundle:props.bundle,failed:false};
+		    const bundle = held.current.bundle, identity = bundle.revision;
+		    React.useEffect(() => {
+		        let cancelled = false, raf = 0, previous = '', loaded = [];
+		        const canvas = ref.current; setReady('');
+		        Promise.all(layeredSpriteUrls(bundle).map(async src => {
+		            const image = new Image(); image.src = src; await image.decode(); return [src, image];
+		        })).then(records => {
+		            if (cancelled) return;
+		            loaded = records; const images = new Map(records);
+		            function tick() {
+		                if (cancelled) return;
+		                const latest = live.current;
+		                const event = layeredSpriteVoice(latest.voiceKey, latest.audio, latest.enabled);
+		                if (event !== previous) {
+		                    try { layeredSpritePaint(canvas, bundle, images, event); previous = event; setReady(identity); }
+		                    catch (error) { setReady(''); console.warn('[layered-sprite] portrait retained base', error); return; }
+		                }
+		                raf = forkForeground.requestAnimationFrame(tick);
+		            }
+		            raf = forkForeground.requestAnimationFrame(tick);
+		        }).catch(error => { if (!cancelled) {
+		            held.current.failed = true;
+		            if (live.current.bundle !== bundle) retry(n => n + 1);
+		            console.warn('[layered-sprite] portrait retained base', error);
+		        } });
+		        return () => { cancelled = true; forkForeground.cancelAnimationFrame(raf); loaded = []; };
+		    }, [bundle]);
+		    // keep face orientation on the shared base/canvas wrapper.
+		    return h('span', { className: (props.className || '') + ' fork-sprite-surface', 'data-enter': props.enter, 'data-out': props.out || undefined, 'data-sprite-state': bundle.state.id, 'data-face-actor': props.faceActor },
+		        h(PackImage, { identity, src: props.bundle.view.src, alt: '', draggable: false, style: { visibility: ready === identity ? 'hidden' : 'visible' } }),
+		        h('canvas', { ref, width: bundle.view.width, height: bundle.view.height, 'aria-hidden': true, style: { visibility: ready === identity ? 'visible' : 'hidden' } }));
+		}
+		let pixiRuntime = null;
+		const PIXI_VENDOR = '/api/dsh-tavern/vendor/runtime-assets/pixi/';
+		function forkLoadScript(src) {
+		    return new Promise(function (resolve, reject) {
+		        const node = document.createElement("script");
+		        node.src = src; node.async = false;
+		        node.onload = resolve; node.onerror = () => reject(new Error("加载失败：" + src));
+		        document.head.appendChild(node);
+		    });
+		}
+		function loadPixiRuntime() {
+		    if (window.PIXI) return Promise.resolve(window.PIXI);
+		    if (pixiRuntime) return pixiRuntime;
+		    pixiRuntime = forkLoadScript(PIXI_VENDOR + "pixi.min.js")
+		        .then(() => { if (!window.PIXI) throw new Error("pixi 运行库不可用"); return window.PIXI; })
+		        .catch(error => { pixiRuntime = null; throw error; });
+		    return pixiRuntime;
+		}
+		const forkLipSync = (function () {
+		    const taps = new WeakMap();
+		    function tap(audio) {
+		        if (!audio) return null;
+		        if (taps.has(audio)) return taps.get(audio);
+		        try {
+		            // Reuse the mixer's source: a media element can only be connected once.
+		            const analyser = forkStageAudio.analyser(audio);
+		            if (!analyser) return null;
+		            const entry = { analyser, data: new Float32Array(analyser.fftSize), level: 0, peak: 0.06 };
+		            taps.set(audio, entry);
+		            return entry;
+		        } catch (_) { taps.set(audio, null); return null; }
+		    }
+		    return {
+		        wake() { forkStageAudio.wake(); },
+		        level(audio) {
+		            if (audio?.browserSpeech) return browserSpeechMouth(audio);
+		            const entry = audio && !audio.paused ? tap(audio) : null;
+		            if (!entry) return 0;
+		            entry.analyser.getFloatTimeDomainData(entry.data);
+		            let sum = 0; for (let i = 0; i < entry.data.length; i++) sum += entry.data[i] * entry.data[i];
+		            const rms = Math.sqrt(sum / entry.data.length);
+		            // Automatic gain: loudness relative to this clip's recent peak, so quiet synthesized
+		            // voices still open the mouth fully on stressed syllables and close it in pauses.
+		            entry.peak = Math.max(rms, entry.peak * 0.995, 0.02);
+		            const relative = rms / entry.peak;
+		            const target = relative < 0.12 ? 0 : Math.min(1, Math.pow((relative - 0.12) / 0.7, 0.75));
+		            entry.level += (target - entry.level) * (target > entry.level ? 0.7 : 0.35);
+		            return entry.level < 0.05 ? 0 : entry.level;
+		        }
+		    };
+		})();
 		// a voice call with one phone
 		// contact. The page owns the microphone and her voice; the host owns speech recognition, the model and the contact's own
 		// call history (one context window per contact). Her lines are synthesized with the contact figure's own voice and played
@@ -29538,6 +29539,82 @@ function tavernModelRefusalNotice(text) {
 		        return () => { live = false; };
 		    }, [sessionId, nonce]);
 		    return [state, () => setNonce(n => n + 1)];
+		}
+		// 语音后端 › 语音识别: the recognition services this machine offers (speech-recognition-host.js), drawn on the
+		// dsh-tavern-tts page with that page's own parts (ttsPanelSections), right under 语音合成. A service is an API by its
+		// address — a cloud one or a model on this machine (本地模型 page) alike; its models are the ones it reports itself.
+		// Users (the phone's 通话) pick from this list; nothing here knows who uses it. Saved rows save each field as it is left.
+		const RECOGNITION_LANGUAGES = [['zh', '中文'], ['ja', '日语'], ['en', '英语']];
+		const RECOGNITION_ERRORS = {ASR_SETTINGS_CONFLICT: '识别设置已在别处修改，已重新读取', ASR_SERVICE_ID_TAKEN: '这个名称已被占用', ASR_URL_INVALID: '接口地址无效', ASR_MODEL_INVALID: '模型名无效',
+		    ASR_LABEL_INVALID: '请填写 1–30 字的名称', ASR_KEY_INVALID: 'API Key 无效', ASR_CREDENTIALS_UNAVAILABLE: '凭据库不可写'};
+		const recognitionFail = error => RECOGNITION_ERRORS[error?.code] || error?.message || '请求失败';
+		const recognitionSlug = label => (String(label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'asr');
+		function RecognitionSection({Section, Field, Line, Confirm, Button, Menu, AddRow, StateWord, Status}) {
+		    const h = React.createElement;
+		    const [data, setData] = React.useState(null), [states, setStates] = React.useState({}), [error, setError] = React.useState(''), [message, setMessage] = React.useState('');
+		    const [open, setOpen] = React.useState(''), [draft, setDraft] = React.useState(null), [models, setModels] = React.useState({}), [confirm, setConfirm] = React.useState(''), [busy, setBusy] = React.useState(false);
+		    const readStates = () => rpc('listSpeechRecognitionServices', {}).then(({services}) => setStates(Object.fromEntries(services.map(row => [row.id, row.available]))), () => {});
+		    const read = () => rpc('getSpeechRecognitionConfig', {}).then(value => { setData(value); setError(''); void readStates(); }, e => setError(recognitionFail(e)));
+		    React.useEffect(() => { void read(); }, []);
+		    // A service's models as it reports them (GET {base}/info), read when its row opens.
+		    const describe = (service, key) => rpc('describeSpeechRecognitionService', {service, ...(key ? {key} : {})}).then(info => { setModels(all => ({...all, [service.id]: info})); return info; });
+		    const run = work => async () => { setBusy(true); setMessage(''); try { await work(); } catch (e) { setMessage(recognitionFail(e)); if (e?.code === 'ASR_SETTINGS_CONFLICT') void read(); } finally { setBusy(false); } };
+		    const save = (service, key) => run(async () => { setData(await rpc('saveSpeechRecognitionService', {service, ...(key !== undefined ? {key} : {}), expectedRevision: data.revision})); void readStates(); })();
+		    if (!data) return h(Section, {title: '语音识别'}, h('p', {className: 'dtts-muted dtts-loading', role: error ? 'alert' : undefined}, error ? '⚠ ' + error : h('span', {className: 'dtts-spinner', 'aria-label': '正在载入'})));
+		    const kinds = Object.fromEntries(data.kinds.map(row => [row.kind, row]));
+		    const stateOf = row => states[row.id] === undefined ? ['busy', '正在检查…'] : states[row.id] ? ['ready', '可用'] : kinds[row.kind]?.keyRequired && !row.key?.configured ? ['warn', '缺少 API Key'] : ['warn', '连不上'];
+		    const strip = ({key, ...row}) => row;
+		    // The fields of one service; `change(patch)` is a saved row's save or a draft's edit.
+		    function fields(row, change, keyed) {
+		        const info = models[row.id], listed = info?.available ? info.models.map(model => model.id) : [];
+		        const modelOptions = [...new Set([...listed, row.model].filter(Boolean))].map(id => ({value: id, label: id}));
+		        const finals = [{value: '', label: '不用'}, ...data.services.filter(other => other.id !== row.id).map(other => ({value: other.id, label: other.label}))];
+		        return [
+		            h(Field, {key: 'label', label: '名称'}, h(InlineField, {label: '名称', hideLabel: true, value: row.label, maxLength: 30, onCommit: label => label.trim() && change({label: label.trim()})})),
+		            !kinds[row.kind].url && h(Field, {key: 'url', label: '接口地址'}, h(InlineField, {label: '接口地址', hideLabel: true, value: row.url || '', placeholder: 'http://127.0.0.1:9887/v1', trim: true, onCommit: url => change({url})})),
+		            h(Field, {key: 'key', label: 'API Key', help: 'API Key 交给 DSH 凭据存储，不写进设置；保存后不再显示。'}, h(InlineField, {label: 'API Key', hideLabel: true, secret: true, value: keyed ?? '',
+		                placeholder: row.key?.configured ? '•••••••••• 已保存' : kinds[row.kind].keyRequired ? '' : '选填', onCommit: key => change({}, key || null)})),
+		            h(Field, {key: 'model', label: '模型'}, modelOptions.length > 1 || listed.length ? h(InlineField, {kind: 'menu', label: '模型', hideLabel: true, value: row.model, options: modelOptions, onCommit: model => change({model})})
+		                : h(InlineField, {label: '模型', hideLabel: true, value: row.model || '', trim: true, onCommit: model => change({model})})),
+		            h(Field, {key: 'final', label: '定稿用', help: '你说完一句时，用这个服务再认一遍这一句（更准的模型）；说话时的实时字幕仍用本服务。'},
+		                h(InlineField, {kind: 'menu', label: '定稿用', hideLabel: true, value: row.final || '', options: finals, onCommit: final => change({final: final || undefined})})),
+		            h(Field, {key: 'language', label: '识别语言'}, h(InlineField, {kind: 'menu', label: '识别语言', hideLabel: true, value: row.language, options: RECOGNITION_LANGUAGES.map(([value, label]) => ({value, label})), onCommit: language => change({language})})),
+		        ];
+		    }
+		    const toggle = row => { setConfirm(''); if (open === row.id) { setOpen(''); return; } setOpen(row.id); setDraft(null); void describe(strip(row)).catch(() => {}); };
+		    const startAdd = kind => { setOpen(''); const base = kinds[kind]; setDraft({kind, label: kind === 'openai' ? 'OpenAI' : '', url: '', model: base.model, language: 'zh', key: ''}); };
+		    const freeId = base => { let id = base, n = 2; while (data.services.some(row => row.id === id) || data.external.some(row => row.id === id)) id = base + '-' + n++; return id; };
+		    const draftRow = draft && {id: freeId(recognitionSlug(draft.label || draft.kind)), label: draft.label, kind: draft.kind, ...(kinds[draft.kind].url ? {} : {url: draft.url}), model: draft.model, language: draft.language, ...(draft.final ? {final: draft.final} : {})};
+		    const editDraft = (patch, key) => {
+		        const next = {...draft, ...patch, ...(key !== undefined ? {key: key || ''} : {})};
+		        setDraft(next);
+		        // A typed address (or key) asks the server for its models, so 模型 becomes its list.
+		        if ((patch.url || key !== undefined) && next.url) void describe({id: draftRow.id, label: next.label || 'x', kind: next.kind, url: next.url, model: next.model || 'x', language: next.language}, next.key || undefined)
+		            .then(info => { if (info.available && !next.model && info.models[0]) setDraft(d => d && {...d, model: info.models[0].id}); }, () => {});
+		    };
+		    const add = run(async () => {
+		        if (!draftRow.label.trim()) throw new Error('请填写名称');
+		        setData(await rpc('saveSpeechRecognitionService', {service: draftRow, ...(draft.key ? {key: draft.key} : {}), expectedRevision: data.revision}));
+		        setDraft(null); setMessage('已添加「' + draftRow.label + '」'); void readStates();
+		    });
+		    const remove = row => run(async () => { setData(await rpc('deleteSpeechRecognitionService', {id: row.id, expectedRevision: data.revision})); setConfirm(''); setOpen(''); setMessage('已删除「' + row.label + '」'); });
+		    const count = data.services.length + data.external.length;
+		    return h(Section, {title: '语音识别', meta: count, help: '把说话听成文字的服务，这台电脑设一次。手机通话用排在最前的那个。'},
+		        h('ul', {className: 'dtts-list'},
+		            data.services.map(row => h('li', {key: row.id, 'data-open': open === row.id || undefined},
+		                h(Line, {title: row.label, open: open === row.id, onOpen: () => toggle(row), warn: StateWord(stateOf(row))},
+		                    h(Menu, {label: row.label + ' 更多操作', items: [{label: '删除…', danger: true, disabled: busy, onSelect: () => setConfirm(row.id)}]})),
+		                confirm === row.id && h(Confirm, {text: '删除「' + row.label + '」？', onYes: remove(row), onNo: () => setConfirm('')}),
+		                open === row.id && h('div', {className: 'dtts-form', role: 'group', 'aria-label': '编辑 ' + row.label},
+		                    fields(row, (patch, key) => save({...strip(row), ...patch}, key))))),
+		            data.external.map(row => h('li', {key: row.id}, h(Line, {title: row.label, warn: StateWord(states[row.id] === false ? ['warn', '连不上'] : ['ready', '可用'])})))),
+		        draft ? h('div', {className: 'dtts-adding'},
+		            h('div', {className: 'dtts-adding-head'}, h('span', {className: 'dtts-label'}, '选择协议类型'), h(Button, {link: true, onClick: () => setDraft(null)}, '取消')),
+		            h('div', {className: 'dtts-kinds', role: 'radiogroup', 'aria-label': '协议类型'}, data.kinds.map(row => h('button', {key: row.kind, type: 'button', role: 'radio', className: 'dtts-kind', 'aria-checked': draft.kind === row.kind, onClick: () => startAdd(row.kind)}, row.label))),
+		            h('div', {className: 'dtts-form', role: 'group', 'aria-label': '添加识别服务'}, fields({...draftRow, key: {configured: false}}, editDraft, draft.key),
+		                h('div', {className: 'dtts-actions'}, h('span', {className: 'dtts-actions-start'}), h(Button, {onClick: () => setDraft(null)}, '取消'), h(Button, {primary: true, disabled: busy, onClick: add}, '添加'))))
+		            : h(AddRow, {label: '添加识别服务', disabled: busy, onClick: () => startAdd('openai-compatible')}),
+		        h(Status, {label: '识别服务状态'}, message));
 		}
 		// one workbench, one slot registration, one transport lifetime.
 		let packTransport;
@@ -35218,7 +35295,9 @@ function bubbleCardFace(config, name, sessionId) {
 // (a sandboxed frame cannot load the host's). A name without a face is left out; a card without bubble settings has none.
 // The avatar cache is bound to a session by the stage client's session observation; with the stage off (or not started
 // yet) nothing binds it, so a frame binds it itself before preparing its face (as the transcript rows work with the stage off).
-const BUBBLE_FRAME_FACE_PX = 96;
+// A card shows its face in a photo window well above transcript avatar size (a badge photo is ~130 CSS px wide, cover-fitted),
+// and the frame cannot resample: the face is cut at 256 CSS px (x devicePixelRatio) so it stays sharp when scaled to the window.
+const BUBBLE_FRAME_FACE_PX = 256;
 async function bubbleCardFaceBlobs(sessionId, names) {
     const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
     const faces = await Promise.all([...new Set(names)].map(async name => {
@@ -35232,7 +35311,7 @@ async function bubbleCardFaceBlobs(sessionId, names) {
             const stop = session.subscribe(() => { if (session.getSnapshot().source) { stop(); resolve(); } });
         });
         const source = session?.getSnapshot().source, authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
-        let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX) || avatarCache.ready(face);
+        let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX);
         if (!url && !(stageSessions.resourceOwner && !authority)) {
             const pool = bubbleMediaPool.retain(), {sessionId: _session, ...descriptor} = face;
             try {
@@ -35240,6 +35319,8 @@ async function bubbleCardFaceBlobs(sessionId, names) {
                 try { url = await avatarCache.prepare(face,pin.handle.url,BUBBLE_FRAME_FACE_PX); } finally { pin.release(); }
             } catch (_) { /* an unleasable face is left out, as the transcript leaves its avatar empty */ } finally { pool.release(); }
         }
+        // a face that could not be cut at this size still shows as the transcript's smaller one
+        url = url || avatarCache.ready(face);
         return url ? {name, blob: await (await fetch(url)).blob()} : null;
     }));
     return faces.filter(Boolean);}		const TAVERN_FRAME_MAX_HEIGHT = 32000;
@@ -39486,6 +39567,13 @@ function tavernFloorHeightRecall(key, width) {
 				if (Number(mappings[storyTurn]) === Number(turn)) return Number(storyTurn);
 			}
 			return Number(turn);
+		}
+
+		// The inverse: a story turn's DSH turn (a regenerated round answers under a new DSH turn; regeneratedDshTurns maps story to DSH).
+		function tavernDshTurnForStoryTurn(view, turn) {
+			const mappings = view && view.regeneratedDshTurns && typeof view.regeneratedDshTurns === "object" ? view.regeneratedDshTurns : {};
+			const dshTurn = Number(mappings[String(turn)]);
+			return dshTurn > 0 ? dshTurn : Number(turn);
 		}
 
 		function tavernMvuReceiptForTurn(view, turn) {

@@ -317,6 +317,13 @@
 			return Number(turn);
 		}
 
+		// The inverse: a story turn's DSH turn (a regenerated round answers under a new DSH turn; regeneratedDshTurns maps story to DSH).
+		function tavernDshTurnForStoryTurn(view, turn) {
+			const mappings = view && view.regeneratedDshTurns && typeof view.regeneratedDshTurns === "object" ? view.regeneratedDshTurns : {};
+			const dshTurn = Number(mappings[String(turn)]);
+			return dshTurn > 0 ? dshTurn : Number(turn);
+		}
+
 		function tavernMvuReceiptForTurn(view, turn) {
 			const receipts = view && Array.isArray(view.mvuReceipts) ? view.mvuReceipts : [];
 			const ordered = createSessionViewReader.receiptOrderedIndex;
