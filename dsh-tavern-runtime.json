@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "157d86c91a4693d430f7eaa942138b34455be8be",
-  "releaseSequence": 1759,
+  "revision": "9fe6d7cf2c1b0050f71526022737e7458770c355",
+  "releaseSequence": 1760,
   "version": "3.3.0",
   "files": [
     {
@@ -3276,8 +3276,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-controls.js",
-      "sha256": "f9d0f7dd26a2e2cecfeccaa43a080de752e6cf0ad8b1551315e3f381794f6040",
-      "size": 6173
+      "sha256": "d90c63481c00fe459cc4f5527e1e132c6b32b6d15cc77655027f96d5bc09fca4",
+      "size": 6691
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-input.js",
@@ -4146,8 +4146,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "6282e436970fd31895f54abf6d05869c9b7afbd234234bef55936fc279e70d44",
-      "size": 325370
+      "sha256": "6bde07ad6f020a6e755d298e84c0eccf5c81ca8da53da657c6e9d4483d1cd532",
+      "size": 325412
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9556,9 +9556,9 @@
     }
   ],
   "archive": {
-    "commit": "76b5b64fdf76cd9159eebdc8fa238e0dd8834367",
+    "commit": "ed2920a804f10d05aa16a334be283396b8fca239",
     "path": "runtime.zip",
-    "sha256": "5c2069d3536415a6dca966bea5de6fd77c0d4d504c405881fa4418147381d36c",
-    "size": 16948763
+    "sha256": "d55f38d2869badea85d02383b69fb29025a9438db3aac55c4e2e2517a8910863",
+    "size": 16948926
   }
 }
