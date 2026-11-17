@@ -4235,7 +4235,7 @@ function createAmbience({player, session, owner, authority}) {
     // pins: the loops the plan sounds, and the ones still fading out. leasing: descriptors whose lease is in flight.
     // epoch: bumped when the pins are dropped, so a lease that lands late is released instead of kept.
     const pins = new Map(), leasing = new Set();
-    let epoch = 0, disposed = false;
+    let epoch = 0, disposed = false, held = false;
     const sound = () => instance ||= player();
     function inputs(state) {
         return {plan:state?.accepted?.ambience || null,
@@ -4271,7 +4271,9 @@ function createAmbience({player, session, owner, authority}) {
     function apply(snap) {
         const layers = [...(input?.plan?.layers || [])];
         if (performance) layers.push({...performance, slot:'performance', id:performance.identity, lowpassHz:null});
-        const plan = {version:1, layers:layers.map(layer => sourced(layer, snap)).filter(Boolean), warnings:input?.plan?.warnings || []};
+        // While the loops are paused (hold) the plan is still pinned and tracked but sounds as empty, so resuming is instant.
+        const sourcedLayers = layers.map(layer => sourced(layer, snap)).filter(Boolean);
+        const plan = {version:1, layers:held ? [] : sourcedLayers, warnings:input?.plan?.warnings || []};
         sound().apply(plan, {snap});
         const done = sound().whenSettled();
         // A loop that left the plan keeps its pin until its fade-out has ended.
@@ -4322,6 +4324,8 @@ function createAmbience({player, session, owner, authority}) {
         performance(track, snap) { if (disposed) return; performance = track || null; return apply(snap); },
         // The runtime released or revoked its presentation: nothing of it sounds any more.
         release() { performance = null; if (input) input = {...input, plan:null}; stop(); },
+        // The BGM panel's pause covers every looping sound: on silences the plan (it keeps its pins), off brings it back.
+        hold(on) { on = !!on; if (disposed || held === on) return; held = on; if (input) void apply(false); },
         // A user gesture retries playback the autoplay policy refused.
         resume() { return instance?.resume(); },
         snapshot: () => ({plan:input?.plan || null, performance, player:instance?.snapshot() || null}),
@@ -10998,6 +11002,8 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         own(() => media.music.activate(null));
         own(() => media.background.activate(null));
         own(() => media.ambience.activate(null));
+        // The BGM pause is the pause of every looping sound: the ambience holds while the player's pause is on.
+        own(media.music.subscribe(() => media.ambience.hold(media.music.get().loopsPaused)));
         own(selection.list.subscribe(bgmSelect));
         const bgmKick = () => { if(!active())return; media.music.kick(); media.ambience.resume(); };
         document.addEventListener('pointerdown', bgmKick, true);
@@ -26450,7 +26456,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     function view() {
         const list = lists.get(active), current = target();
         return Object.freeze({sessionId:active, available:!!input?.available, enabled:!!input?.enabled,
-            follow:mine.follow, paused:silent(), error, loading:!!list?.loading, tracks:list?.tracks || [],
+            follow:mine.follow, paused:silent(), loopsPaused:!!mine.paused, error, loading:!!list?.loading, tracks:list?.tracks || [],
             cue:input?.cue ? {key:input.cue.key, name:input.cue.name} : null,
             current:current ? {key:current.key, name:current.name, source:current.source} : null});
     }
