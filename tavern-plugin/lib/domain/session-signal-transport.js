@@ -83,6 +83,7 @@ export function createSessionSignalTransport() {
       stopped = true
       if (wake) { const resolve = wake; wake = undefined; resolve() }
     }
+    notify.sessionIds=filter
     followers.add(notify)
     signal?.addEventListener('abort', stop, { once: true })
     try {
@@ -106,5 +107,6 @@ export function createSessionSignalTransport() {
     }
   }
 
-  return Object.freeze({ publish, subscribe, snapshot, follow })
+  const connected=sessionId=>[...followers].some(listener=>listener.sessionIds===null || listener.sessionIds.has(str(sessionId)))
+  return Object.freeze({ publish, subscribe, snapshot, follow, connected })
 }

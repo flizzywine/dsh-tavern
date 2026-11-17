@@ -1,6 +1,9 @@
 import path from 'node:path'
 import { readdir, stat } from 'node:fs/promises'
 import { createDurableFilePromotion } from './durable-file-promotion.js'
+import {channel} from 'node:diagnostics_channel'
+import {performance} from 'node:perf_hooks'
+const readMetrics=channel('dsh.chat.read')
 
 function resolveSafePath(dataRoot, relativePath) {
   if (typeof relativePath !== 'string' || relativePath === '' || path.isAbsolute(relativePath)) throw new Error('Profile 数据路径不合法')
@@ -25,7 +28,12 @@ export function createProfileDataStore(options) {
   return Object.freeze({
     async version(relativePath) { return files.version(resolveSafePath(dataRoot, relativePath)) },
     async size(relativePath) { try { return (await stat(resolveSafePath(dataRoot, relativePath))).size } catch (error) { if (error?.code === 'ENOENT') return 0; throw error } },
-    async readJson(relativePath) { return decodeJson(await files.read(resolveSafePath(dataRoot, relativePath))) },
+    async readJson(relativePath) {
+      const started=performance.now(),bytes=await files.read(resolveSafePath(dataRoot, relativePath)),loaded=performance.now()
+      const value=decodeJson(bytes)
+      if(readMetrics.hasSubscribers && ['sessions.json','index.json'].includes(relativePath))readMetrics.publish({name:'chat.routing.'+relativePath,durationMs:performance.now()-started,readMs:loaded-started,decodeMs:performance.now()-loaded,bytes:bytes?.length||0})
+      return value
+    },
     async readText(relativePath) { return (await files.read(resolveSafePath(dataRoot, relativePath)))?.toString('utf8') },
     async appendText(relativePath, text, options) {
       return files.append(resolveSafePath(dataRoot, relativePath), text, {
@@ -35,7 +43,7 @@ export function createProfileDataStore(options) {
     },
     async readBytes(relativePath) { return files.read(resolveSafePath(dataRoot, relativePath)) },
     async writeBytes(relativePath, data) { return files.write(resolveSafePath(dataRoot, relativePath), data) },
-    async writeJson(relativePath, value) { return files.write(resolveSafePath(dataRoot, relativePath), encodeJson(value)) },
+    async writeJson(relativePath, value, options) { return files.write(resolveSafePath(dataRoot, relativePath), encodeJson(value), options) },
     async updateJson(relativePath, updater) {
       const result = await files.update(resolveSafePath(dataRoot, relativePath), async function (current) {
         const next = await updater(decodeJson(current))

@@ -64,6 +64,7 @@ import { registerRegexLibraryTools } from './tools/regex-library.js'
 import { registerCardEditingTools } from './tools/card-editing.js'
 import { createConversationGuides } from './domain/conversation-guides.js'
 import { withConversationReadLane } from './domain/conversation-read-lanes.js'
+import {recoverRuntimeHistory as recoverHistory} from './domain/runtime-history-recovery.js'
 import { createGuideLibrary } from './domain/guide-library.js'
 import { createRegexLibrary } from './domain/regex-library.js'
 import { createTavernRegexSettings } from './domain/regex-settings.js'
@@ -248,6 +249,7 @@ import { createTavernCompatibilityDiagnosticStore } from './domain/tavern-compat
 import { createMvuDiagnosticStore, createMvuDiagnosticExport } from './domain/mvu-diagnostics.js'
 import { createPlayChatDebugReference, readPlayChatDebugTurn } from './domain/play-chat-debug.js'
 import { createSaveMaintenance } from './domain/save-maintenance.js'
+import { blockVisits, RELAYOUT_COLD_VISITS } from './domain/conversation-page-store.js'
 import { createServerScriptExecutor } from './domain/server-script-executor.js'
 import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/display-runtime-store.js'
 import { createPresetLibrary } from './domain/preset-library.js'
@@ -688,8 +690,9 @@ export async function apply(ctx) {
   const displayRuntimeStore = createDisplayRuntimeStore({ store: profileData })
   const gameFootprint = createGameFootprint({ dataRoot })
   const deletedSessionIds = new Set()
-  try { const removed = await gameFootprint.processDeferredDeletions(); if (removed) console.log('dsh-tavern: 已清理已删除游戏的原生会话', removed) }
-  catch (error) { console.warn('dsh-tavern: 清理已删除游戏的原生会话失败', error?.message || error) }
+  // Maintenance: deleted games' sessions are never opened again, so their removal does not hold up host-ready.
+  void gameFootprint.processDeferredDeletions().then(removed => { if (removed) console.log('dsh-tavern: 已清理已删除游戏的原生会话', removed) },
+    error => console.warn('dsh-tavern: 清理已删除游戏的原生会话失败', error?.message || error))
   void gameFootprint.sweepDeletedGameImages().then(removed => { if (removed) console.log('dsh-tavern: 已清理已删除游戏遗留的插图记录', removed) },
     error => console.warn('dsh-tavern: 清理已删除游戏遗留的插图记录失败', error?.message || error))
   // Oldest floor each browser session has viewed; the template window covers it.
@@ -740,7 +743,12 @@ export async function apply(ctx) {
   ctx.effect(() => () => mvuDiagnostics.dispose(), 'dsh-tavern: flush diagnostic logs')
   const apiDiagnostics = createTavernApiDiagnostics(profileData)
   const compatibilityDiagnostics = createTavernCompatibilityDiagnosticStore(profileData)
-  const requestPerformance = createRequestPerformance()
+  // A traced stage request's pack visits per save, and every committed revision; save maintenance listens once it exists.
+  let noteColdRead = () => {}, noteCommit = () => {}
+  const requestPerformance = createRequestPerformance({onColdRead:row => {
+    if (row.phase === 'end') for (const [chatId, visits] of blockVisits(row.reads)) noteColdRead(chatId, visits)
+  }})
+  ctx.effect(() => () => requestPerformance.dispose())
   // Tavern's own recent warnings and errors, for the debugging Agent's runtime health report.
   const runtimeLogs = createRuntimeLogBuffer()
   ctx.effect(() => runtimeLogs.install())
@@ -1253,7 +1261,8 @@ export async function apply(ctx) {
     }
     return chat
   }
-  const chatJournalStore = createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console, backgroundSnapshots: true, newConversations: true, wholeReadGuard: wholeReads, migrateLegacy: process.env.DSH_TAVERN_COMPATIBLE_STORAGE === '1' })
+  const chatJournalStore = createChatJournalStore({ dataRoot, legacyData: profileData, now: Date.now, logger: console, backgroundSnapshots: true, newConversations: true, wholeReadGuard: wholeReads, migrateLegacy: process.env.DSH_TAVERN_COMPATIBLE_STORAGE === '1',
+    onCommit: (chatId, revision) => noteCommit(chatId, revision) })
   ctx.effect(() => () => chatJournalStore.flushMaintenance(), 'dsh-tavern: finish queued Chat snapshots')
   const chatPersistence = createChatPersistence({ store: chatJournalStore, normalize: normalizeChat, now: Date.now })
   async function readChat(chatId) {
@@ -1422,7 +1431,7 @@ export async function apply(ctx) {
     headerForSession: chatHeaderForSession, stateForSession: sessionStateForSession
   })
   const saveMaintenance = createSaveMaintenance({
-    chats: chatJournalStore, requestLog: modelRequestLog, recallLog: worldbookRecallLog, store: profileData,
+    chats: chatJournalStore, requestLog: modelRequestLog, recallLog: worldbookRecallLog, store: profileData, coldVisits: RELAYOUT_COLD_VISITS,
     listChatIds: async () => [...new Set((await readdir(path.join(dataRoot, 'chats'), { withFileTypes: true }).catch(() => []))
       .map(entry => entry.isDirectory() ? entry.name : entry.name.endsWith('.json') ? entry.name.slice(0, -5) : '')
       .filter(id => id.startsWith('chat-') && !deletedChatIds.has(id)))],
@@ -1436,6 +1445,9 @@ export async function apply(ctx) {
     }
   })
   ctx.effect(() => () => saveMaintenance.dispose(), 'dsh-tavern: save maintenance')
+  noteColdRead = saveMaintenance.noteColdRead
+  noteCommit = saveMaintenance.noteWrite
+  saveMaintenance.catchUp()
   const historyRecall = createHistoryRecall()
   const foregroundRecallScopes = new WeakMap()
   async function recallHistoryForSession(sessionId, args, scope, audience, binding) {
@@ -4160,31 +4172,20 @@ export async function apply(ctx) {
     await resourceGraph.recover()
     return await readIndex()
   }
-  async function recoverRuntimeHistory(recoveredIndex, startedBefore) {
-    const activeChatIds = []
-    for (const row of recoveredIndex.chats || []) {
-      try { await recoverRegeneration(row.id) }
-      catch (error) { console.error('dsh-tavern: 恢复正文重新生成失败', row.id, error?.message || error) }
-      // Startup needs header metadata, not every historical message. The window
-      // is read-only: only materialize a writable Chat when it is bound to a
-      // retired bypass plan. Never write this partial projection back to storage.
-      const window = await chatPersistence.readWindow(row.id, { limit: 1, includeCheckpoints: true })
-      let chat = window ? window.chat : await readChat(row.id)
-      if (chat === undefined) continue
-      activeChatIds.push(row.id)
-      try {
-        if (str(chat.bypassPlanId) !== '') {
-          if (window) chat = await readChat(row.id)
-          if (await presetLibrary.restoreChat(chat)) await writeChat(chat)
-        }
-      } catch (error) { console.warn('dsh-tavern: 对话预设恢复失败', chat.id, error) }
-      await syncChatSummary(chat, undefined, { metadataOnly: true })
-    }
-    // Runs after the service is ready: work started since startup belongs to this process and is left alone.
-    await foregroundHandoff.recover(activeChatIds, { startedBefore })
-    await candidateTasks.recover(activeChatIds, { startedBefore })
-    // Recovery must first convert durable running operations back to pending.
-    void mvuSettlementReconciler.scan()
+  function recoverRuntimeHistory(recoveredIndex, startedBefore) {
+    return recoverHistory(recoveredIndex, {
+      recoverRegeneration:id=>requestPerformance.stage('recovery.regeneration', () => recoverRegeneration(id)),
+      readSlice:(...args)=>requestPerformance.stage('recovery.page-store', () => chatPersistence.readSlice(...args)),readChat,
+      restoreChat:chat=>presetLibrary.restoreChat(chat),writeChat,
+      syncSummary:async chat=>{
+        try { await requestPerformance.stage('recovery.registry-sync', () => conversationRegistry.sync(chat, { metadataOnly: true })) }
+        catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:',str(error?.message || error)) }
+      },
+      // Runs after the service is ready: work started since startup belongs to this process and is left alone.
+      recoverHandoff:ids=>requestPerformance.stage('recovery.handoff', () => foregroundHandoff.recover(ids, { startedBefore })),
+      recoverCandidates:ids=>requestPerformance.stage('recovery.candidates', () => candidateTasks.recover(ids, { startedBefore })),
+      scanSettlement:()=>mvuSettlementReconciler.scan()
+    })
   }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: nativeRegenBody, regenerateWithProvider, recover: recoverRegeneration, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback: undoRollbackTurn } = createRoundHistory({
@@ -4992,8 +4993,8 @@ export async function apply(ctx) {
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
     setImmediate(function () {
-      // Recovery reads every save after a start; a player's reads go first.
-      withConversationReadLane('background', () => recoverRuntimeHistory(recoveredIndex, startedAt)).catch(function (error) {
+      requestPerformance.run('startup-history', '', () =>
+        withConversationReadLane('background', () => recoverRuntimeHistory(recoveredIndex, startedAt))).catch(function (error) {
         console.error('dsh-tavern: 后台恢复历史对话失败', error && error.message || error)
       })
     })

@@ -21,6 +21,12 @@ function createdAtFromId(id) {
   return value > Date.UTC(2020, 0, 1) && value < Date.UTC(2100, 0, 1) ? value : 0
 }
 
+// Timeline participants/checkpoints also preserve historical background-session aliases.
+export const conversationSummaryFields = Object.freeze([
+  'id','sessionId','cardPath','cardName','title','mode','requestMode','createdAt','updatedAt','lastOpenedAt',
+  'backgroundHistoryIds','candidateAgent','timeline'
+])
+
 function cleanPreviewText(raw, maxLines = 5, maxChars = 240) {
   let text = str(raw)
   if (!text) return ''
