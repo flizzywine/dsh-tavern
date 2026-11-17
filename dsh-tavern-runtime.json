@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cfa8ea142b16986f19e702a2fde61a822f8b9cbb",
-  "releaseSequence": 1736,
+  "revision": "ad1523869a7e011addd4d566a4b7049efbb0e01c",
+  "releaseSequence": 1737,
   "version": "3.3.0",
   "files": [
     {
@@ -611,8 +611,8 @@
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/references/format-and-stage.md",
-      "sha256": "23fc4c0f8cea4ebe4406412466fa37d0f7910d99688550916a3d3d81b65b28db",
-      "size": 5856
+      "sha256": "b6df6feb151f0c1c62ddd06822827285f304f7480d1e83b7c7f3da278d456626",
+      "size": 6207
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/SKILL.md",
@@ -886,8 +886,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-cards.md",
-      "sha256": "3502ce8b5802705cd6cf3f4c4156b7de79c8e73a9db5a7894120a95721aa1e7f",
-      "size": 20031
+      "sha256": "4bacbcb70c90bcd588cfe487b8adbe42127087937e7a1c6948ace98e203c551b",
+      "size": 20131
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-data.md",
@@ -896,23 +896,23 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-game.md",
-      "sha256": "137824c585efa734db7911c514cdf563cccdfc1b0c0d17096ee206612d57f30e",
-      "size": 41297
+      "sha256": "e4a285bbfe8a700d62d43555cb8c28b7524f63509480dd041922fde6db6922ad",
+      "size": 41288
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-prompt.md",
-      "sha256": "fde9069b772652d5cab4468d91a1535c7512bd9b0d03a206c913ec4100e6dedf",
-      "size": 20007
+      "sha256": "cde532b8f92d2032aea76aa47322ae0ae192f5c5132c8d852f68f925b7eb3d50",
+      "size": 20040
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-ui.md",
-      "sha256": "d9c60ba94bec89e39c799c8ec1f3318b4f7d11ebe4303b9c5d4023a8e2b41b8c",
-      "size": 34795
+      "sha256": "8493c2e2f04d06049e934f5e72de8c48958a2f3bead6f59759157231824ecb33",
+      "size": 34837
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
-      "sha256": "d2a25ea158be10149278b336358ac6a622ec42447a6e4fc8bf78f4437e886928",
-      "size": 18658
+      "sha256": "7e4028d6138b7eba825438ef4f3451fecbd4612ba9032526fc8b419664b4e1db",
+      "size": 18449
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-publishing.md",
@@ -1021,8 +1021,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "7bd3af0d60439537e82e216668cd63de77691793e8019969018f210a080969de",
-      "size": 438502
+      "sha256": "3024bb6fef8745dcd10af5ddb15a8e3ae088e822841731bca832f54581bf9fdb",
+      "size": 438739
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a87239f8a841661e896b119044514f06e26b07e7ca72f147536ea51aa9309afd",
-      "size": 6277227
+      "sha256": "e3387aa6276f3aebbbae46faf21a2651d3b1d04db70fb4ada9c42eb2021c1d96",
+      "size": 6278666
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2681,8 +2681,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-interaction-flow.js",
-      "sha256": "3f55de58cc4e4fc01adac13163c6a799a969e45841185ec5c1c8efa794e3b5a0",
-      "size": 10415
+      "sha256": "7632c3fedbfd66c1c09add75680026b0ce3ef6c79a90200b2c52fe29b79871d4",
+      "size": 10462
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "b05dd2bdc8a77e7e231073a4da5023f8d76301a7",
+    "commit": "f90a1ffc2d9bff4a924582125ad01d546da81876",
     "path": "runtime.zip",
-    "sha256": "09afc0b2bfe330e2ebe85a9f920a52b74289f6b12fb0688b6a13d560321287a5",
-    "size": 16687422
+    "sha256": "0c9eac78b9ca3fe046dc594ee73fd203148a8e1bfbfb6ac5528c9e0344016519",
+    "size": 16688133
   }
 }
