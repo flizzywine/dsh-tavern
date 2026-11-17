@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "94a2629bc9735e0a683be13314498b659412bdc1",
-  "releaseSequence": 1764,
+  "revision": "1b2aa21f05b0af9648d5ec3b51dd9f22d6524c3a",
+  "releaseSequence": 1765,
   "version": "3.3.0",
   "files": [
     {
@@ -6386,8 +6386,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/budget.js",
-      "sha256": "85b30e61ecb0c86ba23d2a6baa96d78449ee426ca0330a50e2d2744193121f33",
-      "size": 184
+      "sha256": "9a9465c4510b6c432db526ea0809bafc5e057aff3c1c51fc566a8248f68185ad",
+      "size": 185
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/card-bundle.js",
@@ -9561,9 +9561,9 @@
     }
   ],
   "archive": {
-    "commit": "f2750b40d79957a3f5be4b917536ddc13a047705",
+    "commit": "e09aba2c7f0630a619de909f14249082927bab3e",
     "path": "runtime.zip",
-    "sha256": "9569ea8f4465e80fd6412ac5952a6c33283b7bbc77e1aca56c2993b856d8a217",
-    "size": 16951581
+    "sha256": "5ec4a35bc83f234aa69b6d661db35bcf0fea40b1acee33f30e3e68ff8958b215",
+    "size": 16951583
   }
 }
