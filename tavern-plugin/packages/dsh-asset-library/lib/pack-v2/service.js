@@ -18,6 +18,7 @@ import { publicNetwork, readBounded } from '../pack-catalogue/network.js'
 import { httpsUrl } from '../pack-catalogue/catalogue.js'
 import { createCatalogueManager } from '../pack-catalogue/manager.js'
 import { baseMetadata, mergeMetadata } from '../pack-catalogue/merge.js'
+import { removedEntries, withRemovedEntries } from './incremental-update.js'
 const REMOTE_ARCHIVE = Symbol('host-only downloaded archive')
 const CARD_URL_DEADLINE_MS = 20 * 60000
 import { assertPublicPackChain } from './public-export.js'
@@ -517,13 +518,13 @@ export function createAssetPackService(options) {
     const conflictFigures = pack.manifest.figures.filter(id => installed.some(p => p.manifest.id !== pack.manifest.id && p.manifest.figures.includes(id)))
     const identityConflict = conflictFigures.length > 0 || installed.some(p => p.manifest.id !== pack.manifest.id && (pack.manifest.figures.includes(p.manifest.id) || p.manifest.figures.includes(pack.manifest.id)))
     const same = before?.manifest.contentHash === pack.manifest.contentHash && (!remote || canonicalJson(before.local.distribution || null) === canonicalJson(distribution))
-    let choices = identityConflict || copyOnly ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','keep-both','cancel'] : ['install','keep-both','cancel']
+    let choices = identityConflict || copyOnly ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','merge','keep-both','cancel'] : ['install','keep-both','cancel']
     const mapping = {packId:randomUUID(), figures:Object.fromEntries(pack.manifest.figures.map(id => [id,randomUUID()]))}
     const remapped = await remapPack(pack, mapping)
     const keep = await verify(remapped.manifest, remapped.files, pack, true)
     const id = randomUUID(), expiresAt = now() + limits.previewTtlMs, size = budget(pack.files, limits) + jsonBytes(pack.manifest).length
     check(previewBytes + cardBundleUsage().bytes + size + externalUsage() <= limits.spoolBytes, '$', 'Preview spool budget exceeded', 'LIMIT_EXCEEDED')
-    const preview = {inspectionId:id, uploadHash, packId:pack.manifest.id, contentHash:pack.manifest.contentHash, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null, choices, expiresAt, diff:packDiff(before?.manifest, pack.manifest), incoming:contentSnapshot(pack), current:snapshot(before), conflictFigures, mapping, scriptRisk:inspectPackScripts(pack), figureLooks:choices.includes('update') ? await figureLookChanges(options, before, pack) : []}
+    const preview = {inspectionId:id, uploadHash, packId:pack.manifest.id, contentHash:pack.manifest.contentHash, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null, choices, expiresAt, diff:packDiff(before?.manifest, pack.manifest), incoming:contentSnapshot(pack), current:snapshot(before), conflictFigures, mapping, scriptRisk:inspectPackScripts(pack), figureLooks:choices.includes('update') ? await figureLookChanges(options, before, pack) : [], removed:choices.includes('merge') ? removedEntries(before, pack) : []}
     if (remote) { preview.distribution = {...remote.source, archiveSha256:remote.archiveSha256, integrity:remote.integrity}; preview.merge = merge || {preserved:[],removedEdited:[],withoutBaseline:false,wholePackReplacement:false} }
     previews.set(id, {pack, keep, preview, expiresAt, size, distribution, ...(setId ? {set:setId} : {})}); previewBytes += size
     return preview
@@ -1246,8 +1247,14 @@ export function createAssetPackService(options) {
         check(input.expectedRevision === entry.preview.expectedRevision, '$.expectedRevision', 'Preview revision changed', 'REVISION_CONFLICT')
         check(input.decision === 'noop' || !entry.preview.scriptRisk.length || input.acceptScriptRisk === true,'$.acceptScriptRisk','Accept or cancel this import script risk','SCRIPT_CONFIRMATION_REQUIRED')
         const adopt = input.adoptLooks ?? []
-        check(Array.isArray(adopt) && (!adopt.length || input.decision === 'update') && new Set(adopt).size === adopt.length && adopt.every(id => entry.preview.figureLooks.some(row => row.figureId === id)), '$.adoptLooks', 'Adopted looks must be figures the update preview lists')
+        const updating = ['update','merge'].includes(input.decision)
+        check(Array.isArray(adopt) && (!adopt.length || updating) && new Set(adopt).size === adopt.length && adopt.every(id => entry.preview.figureLooks.some(row => row.figureId === id)), '$.adoptLooks', 'Adopted looks must be figures the update preview lists')
         let candidate = input.decision === 'keep-both' ? entry.keep : entry.pack
+        // 增量更新 keeps the local 启用 / 召回词 / 别名 (a catalogue download merged them at inspection) and the entries only the installed version has.
+        if (input.decision === 'merge') {
+          const merged = entry.distribution ? candidate : (await mergeMetadata(candidate, before, before.local.distribution?.baseMetadata)).pack
+          candidate = await withRemovedEntries(merged, before, {verify, read:(name, size) => storage.read(`packs/${before.manifest.id}/${name}`, size)})
+        }
         if (input.createFigures !== undefined) {
           check(before && ['update','noop'].includes(input.decision) && Array.isArray(input.createFigures), '$.createFigures', 'Figure creation requires an installed-pack update')
           const added = candidate.manifest.figures.filter(id => !before.manifest.figures.includes(id))
@@ -1265,7 +1272,7 @@ export function createAssetPackService(options) {
           candidate = {...candidate,manifest,files}
         }
         // The host learns which figures take the incoming 外貌 before the write it follows; a failed write takes the choice back.
-        const adopting = input.decision === 'update' && options.adoptFigureImageLooks
+        const adopting = updating && options.adoptFigureImageLooks
         if (adopting) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:adopt})
         let result
         try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution) }

@@ -133,7 +133,7 @@ test('updating the same pack lists each figure whose imported 外貌 differs; th
   t.after(() => archive.dispose())
   // the same look locally: nothing to choose
   const same = await service.inspectImportFile({file:archive.file})
-  assert.deepEqual(same.choices, ['update', 'keep-both', 'cancel'])
+  assert.deepEqual(same.choices, ['update', 'merge', 'keep-both', 'cancel'])
   assert.deepEqual(same.figureLooks, [])
   await service.applyImport({inspectionId:same.inspectionId, expectedRevision:same.expectedRevision, decision:'cancel'})
   local = {traits:{face:'黑色短发'}}

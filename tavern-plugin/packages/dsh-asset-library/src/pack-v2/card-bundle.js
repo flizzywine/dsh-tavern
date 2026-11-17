@@ -5,6 +5,8 @@ import { writeZip } from '../zip.js'
 import { check, validateUuid, validateHash } from '../asset-packs/common.js'
 import { validatePackIdentities } from '../asset-packs/index.js'
 import { jsonBytes, readDocument, budget, sealPack, inspectPackScripts, packDiff } from './validation.js'
+import { mergeMetadata } from '../pack-catalogue/merge.js'
+import { removedEntries, withRemovedEntries } from './incremental-update.js'
 
 const ROOT = 'dsh-tavern-card-bundle.json'
 const copy = value => structuredClone(value)
@@ -89,7 +91,11 @@ export function createCardBundleMethods(host) {
         for (const [name, bytes] of pack.files) if (name.endsWith('.json')) pack.files.set(name, jsonBytes(remapValue(readDocument(bytes), other.from, other.packId, other.figures)))
       }
       await sealPack(pack.manifest, pack.files, incoming)
-      packs.push(await verify(pack.manifest, pack.files, incoming, true))
+      const verified = await verify(pack.manifest, pack.files, incoming, true)
+      if (decisions[incoming.manifest.id] !== 'merge') { packs.push(verified); continue }
+      // 增量更新: as applyImport's 'merge'.
+      const before = await metadata(incoming.manifest.id), merged = (await mergeMetadata(verified, before, before.local.distribution?.baseMetadata)).pack
+      packs.push(await withRemovedEntries(merged, before, {verify, read:(name, size) => storage.read(`packs/${before.manifest.id}/${name}`, size)}))
     }
     return {packs, mappings, raw:adapter().remapRaw(entry.data.raw, mappings)}
   }
@@ -182,7 +188,8 @@ export function createCardBundleMethods(host) {
           const same = before?.manifest.contentHash === pack.manifest.contentHash
           const mapping = {packId:randomUUID(), figures:Object.fromEntries(pack.manifest.figures.map(id => [id, randomUUID()]))}
           packs.push({packId:pack.manifest.id, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null,
-            choices:conflicts.length ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','keep-both','cancel'] : ['install','keep-both','cancel'],
+            choices:conflicts.length ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','merge','keep-both','cancel'] : ['install','keep-both','cancel'],
+            removed:!conflicts.length && !same && before ? removedEntries(before, pack) : [],
             incoming:{manifest:pack.manifest, figures:pack.figures, sprites:pack.sprites}, current:before ? {manifest:before.manifest, figures:before.figures} : null,
             diff:packDiff(before?.manifest, pack.manifest), affectedCards:{available:false,count:null}, mapping,
             scriptRisk:inspectPackScripts(pack)})
@@ -218,7 +225,7 @@ export function createCardBundleMethods(host) {
         check(input.expectedRevision === entry.preview.expectedRevision, '$.expectedRevision', 'Card preview changed', 'REVISION_CONFLICT')
         check(input.decisions && Object.keys(input.decisions).length === entry.preview.packs.length, '$.decisions', 'Explicit decision for every pack required')
         for (const p of entry.preview.packs) {
-          check(p.choices.includes(input.decisions[p.packId]) && input.decisions[p.packId] !== 'cancel', '$.decisions', 'Explicit install/update/keep-both decision required')
+          check(p.choices.includes(input.decisions[p.packId]) && input.decisions[p.packId] !== 'cancel', '$.decisions', 'Explicit install/update/merge/keep-both decision required')
           cas(await metadata(p.packId) || {local:await storage.local(p.packId)}, p.expectedRevision, p.incoming.manifest)
         }
         const {packs, mappings, raw} = await candidates(entry, input.decisions), installed = await all()

@@ -79,7 +79,10 @@ export interface FigureDelivery {
   audio?: Array<{hash: string; descriptor: BlobDescriptor; bytes: Uint8Array}>;
 }
 export interface PackMapping { packId: string; figures: Record<string, string> }
-export type ImportDecision = 'install' | 'update' | 'keep-both' | 'noop' | 'cancel'
+/** update: the new version replaces the installed one (完全替换); merge: 增量更新 — the new version plus the entries only the installed one has (same ids / UUIDs), keeping local 启用 / 召回词 / 别名. */
+export type ImportDecision = 'install' | 'update' | 'merge' | 'keep-both' | 'noop' | 'cancel'
+/** an entry only the installed version has: update deletes it, merge keeps it. kind: 'figures' or an entry kind. */
+export interface RemovedEntry { kind: string; id: string; name: string }
 export interface PackDiff { metadataChanged: boolean; assets: ChangeList; files: ChangeList; figures: ChangeList; affectedCards: {status: 'unknown'} }
 export interface ChangeList { added: string[]; removed: string[]; changed: string[] }
 export interface PackInspection {
@@ -88,6 +91,8 @@ export interface PackInspection {
   scriptRisk: ScriptRisk[];
   /** an update: kept figures whose carried 配图 外貌 (dsh.image-character) differs from their local one; applyImport adoptLooks picks the incoming one */
   figureLooks: Array<{figureId: string; name: string; local: unknown; incoming: unknown}>;
+  /** the installed version's entries the new one lacks, in the installed order (figures first); [] when merge is not offered */
+  removed: RemovedEntry[];
   distribution?: {sourceId?: string; catalogueUrl?: string; official?: boolean; version?: string; packId?: string; archiveSha256: string; integrity: 'sha256' | 'unverified'};
   merge?: MergeSummary;
 }
@@ -114,7 +119,7 @@ export interface CardBundleAdapter {
 export interface CardBundleInspection {
   inspectionId: string; path: string; expectedRevision: string | null; expiresAt: number; raw: unknown; currentRaw: unknown;
   dependencies: Array<{packId: string; contentHash: string | null; embedded: boolean}>;
-  packs: Array<Pick<PackInspection, 'packId' | 'expectedRevision' | 'choices' | 'incoming' | 'diff' | 'mapping' | 'scriptRisk'> & {current: {manifest: PackManifest; figures: Record<string, Figure>} | null; affectedCards: {available: false; count: null}}>;
+  packs: Array<Pick<PackInspection, 'packId' | 'expectedRevision' | 'choices' | 'incoming' | 'diff' | 'mapping' | 'scriptRisk' | 'removed'> & {current: {manifest: PackManifest; figures: Record<string, Figure>} | null; affectedCards: {available: false; count: null}}>;
 }
 export type PackArchive = {file: string; size: number; expiresAt: number; dispose(): Promise<void>} & {filename: string};
 export interface PackServiceOptions {
