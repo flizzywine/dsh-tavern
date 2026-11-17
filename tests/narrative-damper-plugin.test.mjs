@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -339,7 +340,7 @@ test('内置清单登记叙事阻尼器插件，发行副本齐备', () => {
   const entry = BUNDLED_TAVERN_PLUGINS.find(item => item.packageName === PLUGIN_NAME)
   assert.ok(entry, '清单缺少 ' + PLUGIN_NAME)
   assert.equal(entry.folder, PLUGIN_NAME)
-  const bundled = readBundledTavernPlugin(new URL('../', import.meta.url).pathname, entry)
+  const bundled = readBundledTavernPlugin(fileURLToPath(new URL('../', import.meta.url)), entry)
   assert.equal(bundled.ok, true, bundled.reason)
   assert.equal(bundled.packageName, PLUGIN_NAME)
 })
