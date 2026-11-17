@@ -710,7 +710,7 @@ export async function apply(ctx) {
   // Every scheduling caller already has this committed chat. Do not read a
   // full history projection again just to check its mode or settlement status.
   function scheduleTemplateSync(chat, metadata) {
-    if (/^candidate\.mailbox\.|^background\.candidate\.(begin|bind)$/.test(str(metadata?.source))) {
+    if (/^candidate\.mailbox\.|^background\.candidate\.(begin|bind)$|^variables\.edit\.(begin|cancel|recover)$/.test(str(metadata?.source))) {
       templateSync.unchanged(chat.sessionId,chat._storageRevision)
       return
     }

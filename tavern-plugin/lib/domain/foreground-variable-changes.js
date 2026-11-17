@@ -1,9 +1,23 @@
+import { promptSection } from './prompt-section.js'
 import { isDeepStrictEqual } from 'node:util'
+import contract from '../../src/client/widget-contracts.cjs'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "Current values after last turn's settlement and the user's widget actions (paths relative to stat_data); an action may have restored an old value, so a listing isn't a net change. Write this turn from these values.",
+  p002: "Variables changed by last turn's settlement, with latest values (paths relative to stat_data); others are unchanged. Write this turn from these values.",
+  p003: "…and ",
+  p004: " more changes not listed; query them with tavern_read_variables"
+})
+
+
+const { stageWidgetVariablePointer: parsePointer, stageWidgetVariableContains: contains } = contract
 
 const LIMIT = 6000
 // Long generated text (diaries, chat logs) only needs to be recognizable here.
 const VALUE_LIMIT = 100
 const escapeKey = key => key.replace(/~/g, '~0').replace(/\//g, '~1')
+const pathParts = path => path.slice(1).split('/').map(key => key.replace(/~1/g, '/').replace(/~0/g, '~'))
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 function statDataOf(message) {
@@ -13,9 +27,8 @@ function statDataOf(message) {
 
 // Objects are walked; a list or scalar is one variable, reported with its whole latest value.
 function changedPaths(before, after, path = '', out = []) {
-  // A key only in before was deleted this round; it is reported, not skipped.
-  for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after)])) {
-    if (key.startsWith('$') || key.startsWith('__')) continue
+  for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+    if (key.startsWith('$') || key.startsWith('__') || ['constructor', 'prototype'].includes(key)) continue
     const next = after[key], previous = before?.[key], pointer = path + '/' + escapeKey(key)
     if (isObject(next) && isObject(previous)) changedPaths(previous, next, pointer, out)
     else if (!isDeepStrictEqual(previous, next)) out.push([pointer, next])
@@ -37,19 +50,44 @@ export function lastRoundVariableChanges(chat) {
     if (latest < 0) latest = index
     else { previous = index; break }
   }
-  if (latest < 0 || previous < 0) return null
-  const changes = changedPaths(statDataOf(messages[previous]), statDataOf(messages[latest]))
+  if (latest < 0) return null
+  const head = messages[latest], after = statDataOf(head)
+  const changes = previous < 0 ? [] : changedPaths(statDataOf(messages[previous]), after)
+  // edits belong to the selected head/swipe, including a single opening snapshot.
+  const edit = head.variableEdits?.[Math.max(0, Number(head.swipeId) || 0)]
+  const editedPaths = []
+  if (edit?.editedAfterSettlement === true && Array.isArray(edit.feedbackPaths)) {
+    for (const path of edit.feedbackPaths.slice(0, 64)) {
+      try {
+        const parts = parsePointer(path)
+        if (editedPaths.some(item => contains(item.parts, parts))) continue
+        for (let i = editedPaths.length - 1; i >= 0; i--) if (contains(parts, editedPaths[i].parts)) editedPaths.splice(i, 1)
+        editedPaths.push({ path, parts })
+      } catch { /* never interpolate internal or malformed stored paths */ }
+    }
+  }
+  for (const { path, parts } of editedPaths) {
+    for (let i = changes.length - 1; i >= 0; i--) {
+      const existing = pathParts(changes[i][0])
+      if (contains(parts, existing)) changes.splice(i, 1)
+    }
+    const ancestor = changes.find(([existing]) => contains(pathParts(existing), parts))
+    if (ancestor) { ancestor[2] = true; continue }
+    let value = after
+    for (const key of parts) value = value && typeof value === 'object' && Object.hasOwn(value, key) ? value[key] : undefined
+    changes.push([path, value, true])
+  }
   if (!changes.length) return null
   const lines = []
   let size = 0, omitted = 0
-  for (const [path, value] of changes) {
+  for (const [path, value, edited] of changes) {
     const text = value === undefined ? '（已删除）' : JSON.stringify(value)
     const chars = Array.from(text)
-    const line = path + ' = ' + (chars.length > VALUE_LIMIT ? chars.slice(0, VALUE_LIMIT).join('') + '…（已截断）' : text)
+    const line = (edited ? '（用户组件操作后当前值）' : '') + path + ' = ' + (chars.length > VALUE_LIMIT ? chars.slice(0, VALUE_LIMIT).join('') + '…（已截断）' : text)
     if (size + line.length > LIMIT) { omitted++; continue }
     size += line.length
     lines.push(line)
   }
-  return ['【上一轮变量变化】上一轮结算后发生变化的变量及最新值（路径相对于 stat_data），其余变量未变。写本轮正文时以此为准。',
-    ...lines, ...(omitted ? ['…另有 ' + omitted + ' 项变化未列出，可用 tavern_read_variables 查询'] : [])].join('\n')
+  return promptSection('variable_changes', [editedPaths.length ? PROMPT_PROSE.p001 : PROMPT_PROSE.p002,
+    ...lines, ...(omitted ? [PROMPT_PROSE.p003 + omitted + PROMPT_PROSE.p004] : [])].join('\n'))
 }
