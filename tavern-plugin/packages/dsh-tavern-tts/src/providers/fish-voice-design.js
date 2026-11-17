@@ -42,6 +42,10 @@ function keys(value, allowed) {
 function chinese(value, max = 20000) {
   if (typeof value !== 'string' || !value.trim() || [...value].length > max || !/[\u3400-\u9fff]/u.test(value) || /[\u3040-\u30ff]/u.test(value)) fail('INVALID_INPUT')
 }
+// A local pilot speaks any language its references are in (e.g. a Japanese reference pool).
+function anyText(value, max = 20000) {
+  if (typeof value !== 'string' || !value.trim() || [...value].length > max) fail('INVALID_INPUT')
+}
 export async function outputPath(root, value, fresh = false) {
   if (typeof value !== 'string' || value.split(/[\\/]/).includes('..')) fail('INVALID_OUTPUT_PATH')
   const base = await realpath(root), target = resolve(root, value)
@@ -61,7 +65,7 @@ export async function outputPath(root, value, fresh = false) {
 export function validatePilot(action, plan, now = Date.now(), enforceBudget = true, local = false) {
   if (local && action !== 'pilot') fail('INVALID_PROVIDER')
   keys(plan, action === 'design' ? ['language','characters','maxCostUsd'] : local ? ['language','rows'] : ['language','model','rows','maxCostUsd'])
-  if (!['design','pilot'].includes(action) || plan.language !== 'zh' || (!local && (!Number.isFinite(plan.maxCostUsd) || plan.maxCostUsd <= 0 || plan.maxCostUsd > 0.5))) fail('INVALID_INPUT')
+  if (!['design','pilot'].includes(action) || !(plan.language === 'zh' || (local && plan.language === 'ja')) || (!local && (!Number.isFinite(plan.maxCostUsd) || plan.maxCostUsd <= 0 || plan.maxCostUsd > 0.5))) fail('INVALID_INPUT')
   let price = 0
   if (action === 'pilot' && !local) {
     if (!Object.hasOwn(prices, plan.model)) fail('INVALID_INPUT')
@@ -83,7 +87,8 @@ export function validatePilot(action, plan, now = Date.now(), enforceBudget = tr
     if ((row.reference === undefined) === (row.references === undefined)) fail('INVALID_INPUT')
     const references = row.references ?? [row.reference]
     if (!Array.isArray(references) || !references.length || references.length > 32) fail('INVALID_INPUT')
-    chinese(row.text); for (const reference of references) { keys(reference, ['file','text','audioBase64']); chinese(reference.text) }
+    const text = local ? anyText : chinese
+    text(row.text); for (const reference of references) { keys(reference, ['file','text','audioBase64']); text(reference.text) }
     const textUtf8Bytes = Buffer.byteLength(row.text)
     return {id:row.id, text:row.text, references, pool:row.references !== undefined, textUtf8Bytes, cost:textUtf8Bytes * price * 1000}
   })
@@ -123,7 +128,7 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
       const receiptFile = join(budgetRoot, 'voice-pilot-receipts', receiptId + '.json')
       await mkdir(dirname(receiptFile), {recursive:true})
       const deadline = now() + 110000, signal = AbortSignal.timeout(110000)
-      const receipt = {receiptId, receiptFile, serviceId:args.serviceId, model:prepared.model, language:'zh', ...(local ? {priceSource:null, priceUsd:0, priceUnit:null, accounting:'local-free'} : {priceSource, priceUsd:args.action === 'design' ? 0.01 : prepared.price / 1000000, priceUnit:args.action === 'design' ? 'successful-request' : 'utf8-byte', accounting:'public-price-not-invoice'}), complete:false, stopReason:'in_progress', plannedRequests:prepared.requests.length, requests:prepared.requests.map(row => ({id:row.id, kind:args.action, ...(row.body ? {instruction:row.body.instruction, reference_text:row.body.reference_text} : {text:row.text, ...(row.pool ? {references:row.references.map(r => ({file:r.file, text:r.text}))} : {reference:{file:row.references[0].file, text:row.references[0].text}})}), textUtf8Bytes:row.textUtf8Bytes, outcome:'not_attempted', unknownCostUsd:0, estimatedCostUsd:null, audio:[]}))}
+      const receipt = {receiptId, receiptFile, serviceId:args.serviceId, model:prepared.model, language:args.plan.language, ...(local ? {priceSource:null, priceUsd:0, priceUnit:null, accounting:'local-free'} : {priceSource, priceUsd:args.action === 'design' ? 0.01 : prepared.price / 1000000, priceUnit:args.action === 'design' ? 'successful-request' : 'utf8-byte', accounting:'public-price-not-invoice'}), complete:false, stopReason:'in_progress', plannedRequests:prepared.requests.length, requests:prepared.requests.map(row => ({id:row.id, kind:args.action, ...(row.body ? {instruction:row.body.instruction, reference_text:row.body.reference_text} : {text:row.text, ...(row.pool ? {references:row.references.map(r => ({file:r.file, text:r.text}))} : {reference:{file:row.references[0].file, text:row.references[0].text}})}), textUtf8Bytes:row.textUtf8Bytes, outcome:'not_attempted', unknownCostUsd:0, estimatedCostUsd:null, audio:[]}))}
       const save = async () => {
         await writeFile(budgetFile + '.tmp', JSON.stringify(budget) + '\n', {flag:'wx'}); await rename(budgetFile + '.tmp', budgetFile)
         await writeFile(receiptFile + '.tmp', JSON.stringify(receipt, (key,value) => key === 'audioBase64' ? undefined : value, 2) + '\n')

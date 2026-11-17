@@ -230,3 +230,10 @@ test('voiceSynth speaks one short line through the service adapter with the voic
   assert.equal(JSON.stringify(result).includes(key), false); assert.equal(Object.hasOwn(result, 'audioBase64'), false)
   await assert.rejects(services.voiceSynth({serviceId:provider.id, params:{referenceId:'abc123'}, text:' '}), {code:'INVALID_INPUT'})
 })
+test('a local pilot speaks Japanese with a Japanese reference pool; cloud plans stay Chinese', () => {
+  const row = {id:'ja', text:'みんなのライブ、ずっと応援してるからね！', references:[{file:'r.mp3', text:'久々のライブですから、楽しんでほしいです！'}]}
+  const prepared = validatePilot('pilot', {language:'ja', rows:[row]}, Date.now(), false, true)
+  assert.equal(prepared.requests[0].text, row.text); assert.equal(prepared.requests[0].pool, true)
+  assert.throws(() => validatePilot('pilot', {language:'ja', model:'s2.1-pro', maxCostUsd:0.5, rows:[row]}), {code:'INVALID_INPUT'})
+  assert.throws(() => validatePilot('pilot', {language:'zh', model:'s2.1-pro', maxCostUsd:0.5, rows:[row]}), {code:'INVALID_INPUT'})
+})
