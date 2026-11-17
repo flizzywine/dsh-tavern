@@ -6,6 +6,9 @@ export const FISH_MODELS = Object.freeze([
   // `label` names the model alone (the paid-preview dialog says it); `hint` follows it in settings.
   {id:'drama-3',label:'Drama 3',hint:'支持方括号内自然语言指示',billing:'paid',voiceDirections:true},
 ])
+// Lines the Fish cloud synthesizes at once for one service: its free tier takes up to five; three keep a margin for a
+// shared key and still let the stage's lookahead outpace reading.
+export const FISH_CLOUD_CONCURRENCY = 3
 export const isFishCloud = config => (config?.url || 'https://api.fish.audio').replace(/\/+$/, '') === 'https://api.fish.audio'
 export const fishModel = id => FISH_MODELS.find(model => model.id === id) || {id,label:id,billing:'unknown'}
 export function fishModelId(value = FISH_DEFAULT_MODEL) {

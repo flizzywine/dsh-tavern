@@ -1,4 +1,4 @@
-import {FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud} from './providers/fish-models.js'
+import {FISH_CLOUD_CONCURRENCY, FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud} from './providers/fish-models.js'
 import z from '@deepseek-ai/schemastery'
 import { providerConfig, providerKind, credentialRef, PROVIDER_ID, PROVIDER_KINDS } from './providers/params.js'
 import { createOpenAICompatibleAdapter } from './providers/openai-compatible.js'
@@ -423,7 +423,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         // service adds voice IDs in discover, once its own server answers that it serves a voice library.
         const voiceSources = [...providerKind(p.kind).voiceSources]
         const voiceList = p.kind === 'fish-audio' ? customFish ? 'provider' : 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'
-        const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},billing:customFish ? 'unknown' : 'paid',prepareVoice:false,stream:{sampleRate:44100}} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
+        const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},billing:customFish ? 'unknown' : 'paid',prepareVoice:false,stream:{sampleRate:44100},...(customFish ? {} : {concurrency:FISH_CLOUD_CONCURRENCY})} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
           ...(p.kind === 'fish-audio' ? {speaking} : {}),
           validateModel: (model, voiceName) => api.validateVoiceModel({serviceId:p.id,model,voiceName}),
           // A custom Fish server takes the server's own `/v1/hold` lease when it advertises one.
