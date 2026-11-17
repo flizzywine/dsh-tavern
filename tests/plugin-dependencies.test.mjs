@@ -38,7 +38,7 @@ function fixture(t) {
   return { root, pluginDirectory, original, bootstrap, packages, execPath: probeExecutable }
 }
 
-test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包及其传递依赖', async t => {
+test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包及其传递依赖', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async t => {
   const f = fixture(t)
   const staleTools = path.join(f.pluginDirectory, 'node_modules/@deepseek-ai/dsh-tools')
   mkdirSync(staleTools, { recursive: true })

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import test from 'node:test'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-const source = await readFile(new URL('../node_modules/dsh-pocket/client/client.js', import.meta.url), 'utf8')
+const source = await readFile(createRequire(import.meta.url).resolve('dsh-pocket/client'), 'utf8')
 
 async function mount(t) {
   const browser = await chromium.launch({ headless: true })

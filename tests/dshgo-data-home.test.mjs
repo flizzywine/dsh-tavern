@@ -1,4 +1,6 @@
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+// dsh-go runs on Android/Termux (POSIX paths, sh and links), which Windows cannot exercise.
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest
 import assert from 'node:assert/strict'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
