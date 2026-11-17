@@ -1,7 +1,38 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
 import { bodyGenerationError } from '../tavern-plugin/lib/domain/body-generation-failure.js'
+import test from 'node:test'
+import assert from 'node:assert/strict'
 import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
+import { describeTtsError } from '../tavern-plugin/packages/dsh-tavern-tts/lib/core.js'
+
+test('RPC errors preserve domain codes and redact private voice diagnostics', async () => {
+  let handler
+  const logs = []
+  const webServer = { register(route) { if (route.path === '/api/dsh-tavern') handler = route.handler; return () => {} } }
+  const failure = Object.assign(new Error('Settlement event mismatch'), { code: 'MVU_SETTLEMENT_EVENT_MISMATCH', privateState: 'PRIVATE-STORY' })
+  registerTavernHttpRoutes({
+    ctx: { get: name => name === 'webServer' ? webServer : name === 'connection' ? { requestRejection: () => null } : undefined,
+      effect(callback) { callback() }, logger: { warn: message => logs.push(message) } },
+    dispatch: async () => { throw failure }, str: value => String(value ?? ''),
+    performanceDiagnostics: { http() {} }, runtimeGeneration: 'test-generation',
+    runtimeReadiness: Promise.resolve({ ok: true }), fontLibrary: { serve: async () => false }
+  })
+  assert.equal(typeof handler, 'function')
+  async function invoke(method) {
+    let status, body
+    await handler({ url: '/api/dsh-tavern/' + method, method: 'POST',
+      headers: { host: 'localhost:3081', origin: 'http://localhost:3081' },
+      async *[Symbol.asyncIterator]() { yield Buffer.from('{}') }
+    }, { writeHead(value) { status = value }, end(value) { body = value } })
+    assert.equal(status, 200)
+    assert.doesNotMatch(body, /PRIVATE-STORY|stack|private|secret|token/)
+    return JSON.parse(body)
+  }
+  assert.deepEqual(await invoke('updateTavernHelperVariables'), { ok: false, error: failure.message, errorCode: failure.code })
+  failure.code = 'INVALID_PATH'
+  failure.message = '/srv/private/worker.py secret token'
+  assert.deepEqual(await invoke('previewFigureVoice'), { ok: false, error: describeTtsError('INVALID_PATH'), errorCode: 'INVALID_PATH' })
+  assert.deepEqual(logs, ['[voice-rpc] previewFigureVoice INVALID_PATH'])
+})
 
 for (const typed of [false, true]) test('POST API 保留错误码及有界生成失败契约：' + typed, async () => {
   let handler

@@ -31,7 +31,7 @@ export const sessionViewMessageFields = Object.freeze([
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
-  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'narrativeDamper', 'damperState',
+  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'voiceBackfill', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'narrativeDamper', 'damperState',
   'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'bodyPluginProjection', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
@@ -515,6 +515,8 @@ export function createSessionViewProjection({
       characterDesignTask: projectCharacterDesignTask(chat),
       ...latestTurnFields(chat)
     })
+    // The banner lasts until the next turn: recompute it from the new latest turn.
+    next.cardAutoReload = chat.cardAutoReload && Number(chat.cardAutoReload.turn) === next.latestAssistantTurn ? { at: chat.cardAutoReload.at } : null
     if (mode === 'script') next.scriptProgress = await scriptProgressOf(chat)
     Object.assign(next,inputFieldsProjection.project(chat,{baseRevision:changes.baseRevision,indices:dirtyMessageIndices,changedHeaderFields,runtimeInputChanges}))
     if (previous.tavernHelper) {
