@@ -25,6 +25,15 @@ export const Settings = z.object({ enabled: z.boolean().default(true), providers
 })
 // The service kinds whose model is each figure's choice (its voice source's `model`) since 语音后端 keeps only the connection.
 const MODEL_MOVED = ['fish-audio', 'minimax']
+// The one place a service's default model is chosen: a figure's source that names no model speaks with it. The service's
+// 默认模型 (config.defaultModel) while the service lists it, else the first listed (`models` lists the adapter's own
+// fallback first: the Fish cloud's free model, a server's first, Qwen's and MiniMax's default). An empty list (a server not
+// asked yet) takes the named default as is, or none (the adapter decides). Being part of a line's identity, it keeps lines
+// cached under an explicitly named model reachable once the source follows the default instead.
+export function serviceDefaultModel(p, models) {
+  const id = p.config?.defaultModel
+  return id && (!models.length || models.some(m => m.id === id)) ? id : models[0]?.id
+}
 export function validateSettings(value) {
   if (typeof value.enabled !== 'boolean') fail('INVALID_INPUT')
   if (!Number.isFinite(value.cacheMaxGB) || value.cacheMaxGB < 0.1 || value.cacheMaxGB > 100 || !Number.isInteger(value.cacheMaxAgeDays) || value.cacheMaxAgeDays < 1 || value.cacheMaxAgeDays > 3650) fail('INVALID_INPUT')
@@ -217,6 +226,20 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       return { status:'error', message:plainError(error), voices:[], models:[], source:'none', error }
     }
   }
+  // What a figure picks for a source of this service (its kind's `voice` declaration) and the models it picks from, the
+  // adapter's fallback first; a server that does not answer its model list lists none (a figure keeps its own pick).
+  // `defaultModel`: the one a source naming none speaks with; `defaultModelMissing`: the service's 默认模型 is not listed.
+  async function serviceModels(p) {
+    const kind = providerKind(p.kind), custom = p.kind === 'fish-audio' && !isFishCloud(p.config)
+    const models = !kind.voice.includes('model') ? [] : p.kind === 'qwen' ? QWEN_MODELS.map(m => ({id:m.id,label:m.label})) : p.kind === 'minimax' ? MINIMAX_MODELS.map(m => ({id:m.id,label:m.label}))
+      : p.kind !== 'fish-audio' ? []
+      : custom ? await secrets(p).then(secret => adapters[p.kind].info(p, secret)).then(i => i.models.map(m => ({id:m.id,label:m.label})), () => [])
+      : [...FISH_MODELS].sort((a,b) => (b.id === FISH_DEFAULT_MODEL) - (a.id === FISH_DEFAULT_MODEL)).map(m => ({id:m.id,label:m.label}))
+    const defaultModel = serviceDefaultModel(p, models)
+    return {models, ...(defaultModel ? {defaultModel} : {}), ...(p.config?.defaultModel && defaultModel !== p.config.defaultModel ? {defaultModelMissing:true} : {})}
+  }
+  // the models a service is known to list without asking it (a Fish server's own list is asked: none known here).
+  const listedModels = p => p.kind === 'fish-audio' ? isFishCloud(p.config) ? FISH_MODELS : [] : p.kind === 'qwen' ? QWEN_MODELS : p.kind === 'minimax' ? MINIMAX_MODELS : []
   const fishLists = new Map(), fishKnown = new Map()
   function knownFishVoices(p) {
     const key = hash([p,credentialEpochs.get(p?.id) || 0])
@@ -269,10 +292,11 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     async voiceSynth({serviceId, params, text}) {
       const p = record(serviceId), a = adapters[p.kind]
       if (!a || typeof text !== 'string' || !text.trim() || text.length > 200 || !params || typeof params !== 'object') fail('INVALID_INPUT')
-      const started = Date.now(), audio = wav(await a.synthesize(p, await secrets(p), {text, params, signal:AbortSignal.timeout(120000)}))
+      const model = params.model ?? serviceDefaultModel(p, listedModels(p))
+      const started = Date.now(), audio = wav(await a.synthesize(p, await secrets(p), {text, params:{...params, ...(model ? {model} : {})}, signal:AbortSignal.timeout(120000)}))
       let peak = 0
       for (let at = audio.length - (audio.length % 2) - 2; at >= 44; at -= 2) peak = Math.max(peak, Math.abs(audio.readInt16LE(at)))
-      return {serviceId, kind:p.kind, durationMs:durationMs(audio), bytes:audio.length, peak:+(peak / 32768).toFixed(4), elapsedMs:Date.now() - started}
+      return {serviceId, kind:p.kind, ...(model ? {model} : {}), durationMs:durationMs(audio), bytes:audio.length, peak:+(peak / 32768).toFixed(4), elapsedMs:Date.now() - started}
     },
     // Read-only names for the CLI. Host records are listed by key only; each saved Fish service is asked by its canonical
     // credential ref through describe alone. `present` is the host's configured flag, never a value or a successful lookup.
@@ -425,6 +449,8 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         const voiceList = p.kind === 'fish-audio' ? customFish ? 'provider' : 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'
         const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},billing:customFish ? 'unknown' : 'paid',prepareVoice:false,stream:{sampleRate:44100},...(customFish ? {} : {concurrency:FISH_CLOUD_CONCURRENCY})} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
           ...(p.kind === 'fish-audio' ? {speaking} : {}),
+          // the model a source that names none speaks with (undefined: the adapter's own fallback); Fish asks its current list.
+          defaultModel: () => serviceDefaultModel(p, p.kind === 'fish-audio' ? fishModels : listedModels(p)),
           validateModel: (model, voiceName) => api.validateVoiceModel({serviceId:p.id,model,voiceName}),
           // A custom Fish server takes the server's own `/v1/hold` lease when it advertises one.
           ...(customFish ? {hold:async () => adapter.hold(p, await secrets(p))} : {}),
@@ -476,20 +502,15 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         const keyless = await missingKey(p)
         const state = keyless || check?.status === 'credentials-required' ? 'needs-key' : !check ? 'configured' : ['connected','reachable'].includes(check.status) ? 'ready' : check.status === 'invalid-key' ? 'invalid-key' : check.status === 'rejected' ? 'rejected' : check.status === 'offline' && selfHosted(p) ? 'stopped' : 'offline'
         const own = reported.get(p.id); reported.delete(p.id)
-        // What a figure picks for a source of this service (its kind's `voice` declaration) and the models it picks from:
-        // the default model first. A server that does not answer its model list lists none (a figure keeps its own pick).
-        const models = !kind.voice.includes('model') ? [] : !fish ? p.kind === 'qwen' ? QWEN_MODELS.map(m => ({id:m.id,label:m.label})) : p.kind === 'minimax' ? MINIMAX_MODELS.map(m => ({id:m.id,label:m.label})) : []
-          : custom ? await secrets(p).then(secret => adapters[p.kind].info(p, secret)).then(i => i.models.map(m => ({id:m.id,label:m.label})), () => [])
-          : [...FISH_MODELS].sort((a,b) => (b.id === FISH_DEFAULT_MODEL) - (a.id === FISH_DEFAULT_MODEL)).map(m => ({id:m.id,label:m.label}))
         return {id:p.id, kind:p.kind, label:p.label || kind.label, state, billing:custom ? 'unknown' : kind.paid ? 'paid' : 'free',
-          sources:own?.sources || [], voiceList:own?.voiceList || 'provider', voice:[...kind.voice], models}
+          sources:own?.sources || [], voiceList:own?.voiceList || 'provider', voice:[...kind.voice], ...await serviceModels(p)}
       }))
       // Another plugin's provider: listed with what it reports; one that reports no 配音来源 is not a voice service here.
       const plugins = [...reported.values()].filter(r => r.owner !== 'dsh-tavern-tts' && r.sources.length).map(r => ({id:r.id, kind:r.kind, label:r.label,
         state:'configured', billing:r.billing, sources:r.sources, voiceList:r.voiceList || 'provider', voice:[], models:[]}))
       return {services:[...services, ...plugins, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
     },
-    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
+    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), ...await serviceModels(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
     save(input) { return serial(async () => {
       const before = get(), old = before.providers.find(p => p.id === input.id)
       if (old && (input.expectedRevision !== hash(old) || old.kind !== input.kind)) fail('REVISION_CONFLICT')

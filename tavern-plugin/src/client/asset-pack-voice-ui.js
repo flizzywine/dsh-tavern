@@ -563,8 +563,8 @@ function VoiceCurrent({binding,pack,figure,spec,voice,sourceId,muted,status,prev
   const nameControl=picker(({open,toggle})=>h('button',{type:'button',className:'ap-vx-name','aria-label':'选择声音：'+name,'aria-expanded':open,onClick:toggle},h('span',null,name),h(Glyph,{name:'chevDown'})));
   const auto=own&&figure.extensions?.['dsh.automatic-write']?.fields?.includes('voice');
   // where it comes from, as words: 服务 · 模型 (a service with several) · the parameters saved in it · 配音语言.
-  const shown=own?source:gSource,models=shown?voiceSourceService(readiness.services,shown)?.models||[]:[];
-  const meta=(shown?[voiceServiceName(readiness.services,shown),models.length>1&&(models.find(m=>m.id===(shown.model||models[0].id))?.label||shown.model),own&&voiceParamsText(spec,sourceId),voiceLanguageName(primaryLanguage(speakLanguage))]:
+  const shown=own?source:gSource,shownService=shown&&voiceSourceService(readiness.services,shown),models=shownService?.models||[],shownModel=shown?.model||shownService?.defaultModel||models[0]?.id;
+  const meta=(shown?[voiceServiceName(readiness.services,shown),models.length>1&&(models.find(m=>m.id===shownModel)?.label||shownModel),own&&voiceParamsText(spec,sourceId),voiceLanguageName(primaryLanguage(speakLanguage))]:
     ['浏览器朗读','中文']).filter(Boolean).join(' · ');
   return h('div',{className:'ap-vx-hero','data-off':muted||undefined,inert:muted||undefined},
     // the disc is the voice itself (配音 on / off), not a button: 试听 is its own bar below.
@@ -690,7 +690,9 @@ function VoiceAddDialog({binding,pack,figure,language,readiness,preview,candidat
   const picked=draft.picked||null,params=draft.params??(kept&&spec0.variants?.normal?.tuning?.[kept[0]]||{});
   // 模型: a Fish service's own list; any other service's comes with its voices (VoiceAddVoices → listed).
   const [listed,setListed]=React.useState({}),custom=service.voiceList==='provider',models=(kind==='fish-audio'?service.models:listed[service.id])||[];
-  const model=draft.model??kept?.[1].model??(custom?models[0]?.id||'':'');
+  // '' = the service's default model (语音后端 › 默认模型, `service.defaultModel`): the source names none. A service without one
+  // (自定义语音服务) takes its first listed model by name.
+  const fallback=service.defaultModel,model=draft.model??kept?.[1].model??(custom&&!fallback?models[0]?.id||'':'');
   const [named,setNamed]=React.useState(null),[naming,setNaming]=React.useState(false),[lang,setLang]=React.useState(language),[busy,setBusy]=React.useState(false);
   const [text,setText]=React.useState(null),[mood,setMood]=React.useState('calm'),[problem,setProblem]=React.useState('');
   // 参考音频: the voice's clips ({hash}) and the ones added here ({media, url}; not in the pack until 试听 or 保存).
@@ -767,6 +769,9 @@ function VoiceAddDialog({binding,pack,figure,language,readiness,preview,candidat
     state?.warn?lacks:kind==='fish-audio'?h(VoiceAddFish,{...common,key:service.id,current:kept?.[1].voiceId}):
     h(VoiceAddVoices,{...common,key:service.id,current:kept?.[1].voiceName,model,onModel:id=>patch({model:id}),onModels:list=>setListed(all=>({...all,[service.id]:list}))});
   const defs=VOICE_TUNING[kind]||[],modelOptions=models.map(m=>({id:m.id,label:m.label||m.id}));
+  // 默认（S2.1 Pro Free） first; the default model itself is not listed again below it.
+  const modelPick=fallback?{value:model,options:[{id:'',label:'默认（'+(modelOptions.find(m=>m.id===fallback)?.label||fallback)+'）'},...modelOptions.filter(m=>m.id!==fallback||m.id===model)]}:
+    {value:model||(kind==='fish-audio'?models[0]?.id:''),options:kind==='fish-audio'||custom?modelOptions:[{id:'',label:'默认模型'},...modelOptions]};
   // the clips go along to another service that clones.
   const carries=s=>s.id!==service.id&&items.length>0&&s.sources.includes('reference-list');
   // a voice that cannot speak the 配音语言 chosen here says so before it is saved.
@@ -796,7 +801,8 @@ function VoiceAddDialog({binding,pack,figure,language,readiness,preview,candidat
         pane,
         (!state?.warn||mode==='clone')&&h('div',{className:'ap-vx-set',role:'group','aria-label':'设置'},
           models.length>1&&h(React.Fragment,null,h('span',{className:'ap-vx-set-label'},'模型'),
-            h(VoiceOptionPick,{label:'模型',value:model||(kind==='fish-audio'?models[0].id:''),options:kind==='fish-audio'||custom?modelOptions:[{id:'',label:'默认模型'},...modelOptions],onPick:id=>patch({model:id})})),
+            h('span',{className:'ap-vx-model'},h(VoiceOptionPick,{label:'模型',...modelPick,onPick:id=>patch({model:id})}),
+              fallback&&openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(kind,{id:service.id})},'语音后端 ›'))),
           h('span',{className:'ap-vx-set-label'},'配音语言'),
           h(VoiceLanguagePick,{value:lang,defaultValue:spec0?effectiveVoiceLanguage('',spec0.language):undefined,label:'配音语言',icon:'language',title:VOICE_LANGUAGE_HELP,onPick:setLang}),
           defs.length>0&&h(VoiceParams,{binding,kind,defs,params,setParams:change=>patch({params:change(params)}),voiceName:picked?picked.spec.sources[picked.spec.defaultSource].voiceName:kept?.[1].voiceName}))),
