@@ -36,6 +36,9 @@ export async function projectDshCard(card, packs, excludeFigures = []) {
   // Generated rosters may be stored as worldbook text. Remove only omitted roster lines,
   // not authored story prose or arbitrary unknown extension strings.
   const data = document.data || document
+  // The 对话气泡 format entry is host-maintained from this install's packs (global ones too) and keyed to this card's
+  // path; the importing install derives its own, so it never travels.
+  if (data.character_book?.entries) data.character_book.entries = data.character_book.entries.filter(entry => !entry.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles)
   for (const entry of data.character_book?.entries || []) if (/roster|名单|人物表/i.test(entry.comment || entry.name || '')) {
     entry.content = String(entry.content || '').split('\n').filter(line => ![...excluded].some(id => line.includes(id)) && !rows.some(row => excluded.has(row.ref.figureId) && omittedName(row.name) && line.includes(row.name))).join('\n')
     entry.keys = (entry.keys || []).filter(name => !omittedName(name))

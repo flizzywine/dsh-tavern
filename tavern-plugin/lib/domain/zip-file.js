@@ -143,7 +143,7 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false 
     }
 
     // prefix: how many bytes come before the archive (0 for a plain ZIP).
-    return { entries, readBuffer, stream, size: fileSize, prefix, close: () => handle.close() }
+    return { file, entries, readBuffer, stream, size: fileSize, prefix, close: () => handle.close() }
   } catch (error) {
     await handle.close().catch(() => {})
     throw error

@@ -20,7 +20,7 @@ function str(value) {
 }
 
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, withCardBackup, exportRoot = os.tmpdir() }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, withCardBackup, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input, options = {}) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -101,9 +101,11 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true, library: !archive.packs.length, replacePath })
       if (packs.length) await castAssets.bindPacks(imported.path, packs)
       libraryNotices.push(...(imported.libraryNotices || []))
+      // the 对话气泡 format entry is derived here, from this install's packs (an export never carries one).
+      await syncBubbles(imported.path)
       await cardImportIdentity.remember(imported.path, archiveSha256)
       // The card's plugins come on with it, confined to this card; the card library can turn them off.
-      const plugins = archive.plugins.length ? await cardPlugins.stage(zip, { cardKey: castAssets.keyOf(imported.path), plugins: archive.plugins }) : []
+      const plugins = archive.plugins.length ? await cardPlugins.stage(archive.managed?.zipAdapter || zip, { cardKey: castAssets.keyOf(imported.path), plugins: archive.plugins, verifiedFiles: archive.managed?.expected }) : []
       let pluginError = ''
       const defaults = archive.defaults ? await storeStartDefaults(imported.path, archive.defaults) : null
       if (plugins.length) {
@@ -227,9 +229,10 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // material, its plugins and start defaults, and the packs that go with it under assets/<pack id>/ — by default every pack
   // the card binds (and the packs it came with); `packIds` chooses. A bound pack left out stays bound and is listed in
   // dsh.json `dependencies`, so it works wherever that pack is installed. `excludeFigures` leaves figures of the packs out (e.g. the one the player plays) with the media only they
-  // use. Packs can be large, so the archive is written to a spool file under exportRoot and streamed.
-  async function exportCardFile(input, { format = 'dshcard', packIds, dependencyPackIds, excludeFigures = [] } = {}) {
-    if (format === 'dshcard') return writeCardFile(input, { packIds, dependencyPackIds, excludeFigures })
+  // use. Private migration sets preserveBindings: unembedded packs stay external references at the destination.
+  // Packs can be large, so the archive is written to a spool file under exportRoot and streamed.
+  async function exportCardFile(input, { format = 'dshcard', packIds, dependencyPackIds, excludeFigures = [], preserveBindings = false } = {}) {
+    if (format === 'dshcard') return writeCardFile(input, { packIds, dependencyPackIds, excludeFigures, preserveBindings })
     if (format !== 'json' && format !== 'png') throw Object.assign(new Error('不支持的人物卡导出格式'), { code: 'TAVERN_EXPORT_INVALID' })
     if (packIds !== undefined || dependencyPackIds !== undefined || !Array.isArray(excludeFigures) || excludeFigures.length) throw Object.assign(new Error('素材包与人物选择仅用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
 
@@ -237,7 +240,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const { document, text } = await presentCardText(normalizeResourcePath(input, 'card'))
     return { name: str(document.data.name) || '人物卡', extension: format, contentType: 'application/json; charset=utf-8', bytes: Buffer.from(text) }
   }
-  async function writeCardFile(input, { excludeFigures = [], packIds, dependencyPackIds } = {}, backup = false) {
+  async function writeCardFile(input, { excludeFigures = [], packIds, dependencyPackIds, preserveBindings = false } = {}, backup = false) {
     if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string')
       || [packIds, dependencyPackIds].some(ids => ids !== undefined && (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')))) throw Object.assign(new Error('导出参数无效'), { code: 'TAVERN_EXPORT_INVALID' })
     let cardPath
@@ -280,7 +283,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         let raw = snapshot?.raw ? structuredClone(snapshot.raw) : document
         const data = raw.data || raw
         if (document.data?.character_book) data.character_book = document.data.character_book
-        const packs = [...(snapshot?.packs || []), ...importedPacks], extraEntries = [...entries]
+        const packs = [...(snapshot?.packs || []), ...importedPacks].filter(pack => !preserveBindings || !chosen || chosen.has(pack.manifest.id)), extraEntries = [...entries]
         // The card's own material in its CCv3 places; a file a pack already holds is pointed at there, not copied.
         if ((material.characters || []).length || (material.backgrounds || []).length || (material.extras || []).length) {
           const reused = new Map()
@@ -303,7 +306,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       // Replacement owns the card, not its installed packs: retain references without copying media.
       const selection = backup
         ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }
-        : { path: cardPath, packIds: ids, keepPackIds: imported, ...(dependencyPackIds ? { dependencyPackIds } : {}) }
+        : { path: cardPath, packIds: ids, keepPackIds: preserveBindings ? [...boundIds, ...imported] : imported, ...(dependencyPackIds ? { dependencyPackIds } : {}) }
       const result = library ? await (backup
         ? withCardBackup(file, selection, write)
         : library.withCardExport(selection, write)) : await write()
@@ -337,6 +340,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         const card = input.file
           ? await importCardArchiveFile(input.file, input.name, { password: input.password, replacePath: target, pluginChoices: choices })
           : await importCard(input.payload, { replacePath: target })
+        // The card's own bubble settings maintain an entry of its world book (the archive import syncs it too).
+        if (!input.file) await syncBubbles(target)
         return { ...card, updated: true, backupPath }
       } catch (error) {
         try {
