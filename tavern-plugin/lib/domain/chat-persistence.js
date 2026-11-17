@@ -2,6 +2,7 @@ import { diffJson } from './json-mutation.js'
 import { projectSceneImageState, projectDisplayRuntimeState, projectChatBackgroundConfig } from './chat-session-state.js'
 import { isDeepStrictEqual } from 'node:util'
 import { isScopedMessages } from './scoped-messages.js'
+import { stageReadScope } from './stage-read-projection.js'
 
 const STORAGE_REVISION = '_storageRevision'
 const MISSING = Symbol('missing')
@@ -204,6 +205,7 @@ export function createChatPersistence(options = {}) {
 
   async function write(input, metadata = {}) {
     if (!input || typeof input !== 'object' || String(input.id || '') === '') throw new Error('不能保存没有 id 的 Tavern Chat')
+    if (stageReadScope(input)) throw new Error('Cannot save a read-only stage projection')
     const desired = clone(input)
     const chatId = String(desired.id)
     const touchUpdatedAt = metadata.touchUpdatedAt !== false
