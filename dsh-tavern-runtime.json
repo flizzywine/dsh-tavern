@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ad1523869a7e011addd4d566a4b7049efbb0e01c",
-  "releaseSequence": 1737,
+  "revision": "68d35f833e33bcfc308134d7f13ea9bd5c7394b3",
+  "releaseSequence": 1738,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "e3387aa6276f3aebbbae46faf21a2651d3b1d04db70fb4ada9c42eb2021c1d96",
-      "size": 6278666
+      "sha256": "ca7ff2a17d5820b0de1a4824b4ba6d518b9a53c45a522ef83c6f66deeb9a16bf",
+      "size": 6279992
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8201,8 +8201,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "85d33fb5ba59431c9e79c6649875703ca75b18d2c926be2b22846aa15bf0f9e5",
-      "size": 3688811
+      "sha256": "822c5af4ed2dd45fbc13d74368227ade511601e1bef34a57e69448148cc38701",
+      "size": 3689228
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9321,8 +9321,8 @@
     },
     {
       "path": "tavern-plugin/shared/spine-rig.cjs",
-      "sha256": "8cf21d15861ef9d8b97dd08772ddfd4535a5d90c073cbb01c393d1380cbd5ce5",
-      "size": 12865
+      "sha256": "d6c3cc1eb01ceda8344ea49cc519e63421d5de24a80b26e4d245cf8bb1236be6",
+      "size": 14163
     },
     {
       "path": "tavern-plugin/shared/sprite-emotions.cjs",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "f90a1ffc2d9bff4a924582125ad01d546da81876",
+    "commit": "7fe8518b58e873e2629a2eacf58f0615d9b2efdf",
     "path": "runtime.zip",
-    "sha256": "0c9eac78b9ca3fe046dc594ee73fd203148a8e1bfbfb6ac5528c9e0344016519",
-    "size": 16688133
+    "sha256": "dcb73d5d49c066dac15c84a6476026c86e036e4883f83a85caba8aaedb80bdf5",
+    "size": 16689223
   }
 }
