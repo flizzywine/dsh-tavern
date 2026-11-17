@@ -22,7 +22,7 @@ test('retired native rows cannot advance the game; concurrent surfaces share one
     await page.addScriptTag({ content: bundle + `
       const React=modules.react, ReactDOM=modules['react-dom'];
       const useTavernUiExtensions=()=>0, tavernSessionSignals={subscribe:()=>()=>{}};
-      const tavernPluginBoundary=()=>p=>p.children;
+      const tavernPluginBoundary=()=>p=>p.children, randomId=()=>crypto.randomUUID();
       const tavernUiExtensions={gameModeView:()=>({owner:'test',render:p=>{
         React.useEffect(()=>{p.advance(null)},[]); return React.createElement('span',null,'active game');
       }})};
@@ -59,7 +59,7 @@ test('page presentation owns one controller, hides inline views and can return a
     await page.addScriptTag({ content: bundle + `
       const React=modules.react, ReactDOM=modules['react-dom'];
       const useTavernUiExtensions=()=>0, tavernSessionSignals={subscribe:()=>()=>{}};
-      const tavernPluginBoundary=()=>p=>p.children;
+      const tavernPluginBoundary=()=>p=>p.children, randomId=()=>crypto.randomUUID();
       const tavernUiExtensions={gameModeView:()=>({owner:'test',page:true,render:p=>{
         React.useEffect(()=>{p.advance(null)},[]); return React.createElement('span',null,'active game');
       }})};

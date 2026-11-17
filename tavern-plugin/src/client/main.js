@@ -13,6 +13,9 @@ window.__ModuleLoader__.load({
 			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
 		// @include crypto-digest.js
+		// http on a LAN address is not a secure context: no crypto.subtle, no crypto.randomUUID.
+		if (typeof window !== "undefined") installTavernCryptoSubtlePolyfill(window);
+		// @include-protocol random-id.cjs
 		// @include stylesheet.js
         // @include surfaces.cjs
 		// @include hscroll.js

@@ -22,6 +22,8 @@ const stageClientPlugin = (() => {
         __STAGE_TTS_MESSAGES__
         // dsh-presentation-protocol candidate-tabs.cjs: candidate tab grouping, badges and draft text.
         __STAGE_CANDIDATE_TABS__
+        // dsh-presentation-protocol random-id.cjs: random ids that also work outside a secure context (http on a LAN address).
+        __STAGE_RANDOM_ID__
         __STAGE_LABELS__
         __STAGE_LOADER__
         __STAGE_ADMISSION__
