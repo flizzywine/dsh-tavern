@@ -70,7 +70,15 @@ export function patchToolReplyStreamChatSource(text) {
     '    if (state === 7) { if (ch === ",") state = 1; else if (ch === "}") state = 9; continue; }',
     '    if (state === 8) { if (ws) continue; if (ch === ",") state = 1; else if (ch === "}") state = 9; }',
     '  }',
-    '  return out;',
+    '  return { think: tavernStreamVisibleText(out.think), content: tavernStreamVisibleText(out.content) };',
+    '}',
+    // 输出契约的锚点标签（`<ta_plan>`、`<ta_zh>` …）在提示词里只用来定位正文，保存时由展示正则剥掉。
+    // 流式预览没有那一步投影，锚点字面量会随正文一起闪在气泡里，写完才消失。预览只剥标签本身、保留
+    // 其中的正文；尾部还没收到 `>` 的半截标签同样去掉，不留给下一帧。
+    'function tavernStreamVisibleText(text) {',
+    '  var raw = typeof text === "string" ? text : "";',
+    '  if (raw === "") return "";',
+    '  return raw.replace(/<\\/?ta_[A-Za-z0-9_]*(?:\\s[^<>]*?)?\\/?>/g, "").replace(/<\\/?ta[_A-Za-z0-9]*$/, "");',
     '}',
     'function tavernSubmitStoryVisible(block) {',
     '  if (!block || block.kind !== "tool-call" || block.name !== "submit_story" || !block.argsRaw) return false;',
