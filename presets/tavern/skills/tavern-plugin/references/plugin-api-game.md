@@ -264,7 +264,7 @@ async function settle({ currentVariables, signal }) {
   gameId, turn, textVersion,
   greeting,      // 这一轮是不是开场白（onTurnSettled 里总是 false）
   text,          // 这一轮正文的纯文本（去掉了 HTML 标签与程序块，宏已展开）
-  rawText,       // 模型原始输出（含插件让模型写进正文的标记）
+  rawText,       // 模型原始输出，保留未经展示处理的文本
   card: { id, name },  // id 是人物卡在库里的位置，卡被移动或改名后可能变化
   variables,     // 这一轮结算后的消息变量（副本），没有时为 null
   settledAt,     // 毫秒时间戳

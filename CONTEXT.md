@@ -6,7 +6,7 @@ Tavern Chat 中唯一权威的剧情记录。它用单调递增的 revision、br
 
 ## Foreground Turn
 
-玩家可见的一轮输入与正文回复，也是剧情的独立提交边界。Foreground Turn 成功后立即推进 Story Timeline revision 并建立 checkpoint；后续状态结算失败不能撤销正文，也不能阻止下一轮。
+玩家可见的一轮输入与正文回复，也是剧情的独立提交边界。Foreground Turn 成功后立即推进 Story Timeline revision 并建立 checkpoint；后续状态结算失败不能撤销正文，也不能阻止下一轮；仍在运行的结算则由下一轮先等它完成（见 Background Cycle）。
 
 ## Round
 
@@ -34,7 +34,7 @@ Background Agent 基于特定 Story Timeline branch/revision 执行的一项工�
 
 ## Background Cycle
 
-Foreground Turn 提交后产生、并绑定该正文 branch/revision 的状态结算 Background Operation。世界书关键词匹配在本地完成；需要模型筛选时，在正文准备阶段执行独立 operation，复用同一个后台 Agent，不属于正文提交后的结算周期。结算失败会暴露重试入口但不阻塞下一次 Foreground Turn；旧 operation 的迟到结果不能覆盖更新 revision 的状态。
+Foreground Turn 提交后产生、并绑定该正文 branch/revision 的状态结算 Background Operation。世界书关键词匹配在本地完成；需要模型筛选时，在正文准备阶段执行独立 operation，复用同一个后台 Agent，不属于正文提交后的结算周期。结算失败会暴露重试入口但不阻塞下一次 Foreground Turn；仍在运行（或待运行）的结算，连同插件在结算前、同时、结算后的任务和玩家手动启动的插件任务，会让下一次 Foreground Turn 在准备阶段先等它们完成，因为下一轮正文从这轮结算写下的变量和姿势开始；世界书预筛不等待，直接取消。旧 operation 的迟到结果不能覆盖更新 revision 的状态。
 
 ## MVU Delivery
 
@@ -254,11 +254,11 @@ _Avoid_: 配音设置、朗读设置
 _Avoid_: 默认服务、协议路由
 
 **舞台配音**：
-舞台只按角色配音。「配音」使用 `voice` 四态开关，详情页包含通用声音、旁白四态开关和旁白声音。旁白声音默认写全局；「本卡单独指定」写入或移除 `stage.narrator.voice`。
+舞台只按角色配音。「配音」使用 `voice` 四态开关，详情页三节：通用声音、旁白声音（节标题右侧是旁白四态开关）、角色声音，每行都是「一个人物 + 它的声音」，› 打开素材库里那个人物的声音页。没有按卡指定的声音。
 
 **朗读正文**：
 本体没有自己的朗读按钮，回复上没有「🔊」。插件经 `tavernUi` 第 9 版按舞台的读法朗读整局正文（`readingUnits`、`playReading` 等，声音与缓存和气泡 ▶ 相同）；插件用 `holdVoice()` 占住声音时，舞台与气泡不配音。
 
 **通用声音**：
-插件设置 `tts.reading.dialogueVoice`（键名不变），所有卡通用；没选时是浏览器的系统默认声音。它用于已启用但没绑定声音的人物和临时 NPC（共用一个通用声音条目 `GENERAL_VOICE`，气泡上一样有 ▶，也自动配音）。旁白开启但没有单独指定声音时也使用通用声音，由 `effectiveNarrator` 统一决定。通用声音可选「不配音」（`{silent:true}`），此时这些回退声音保持静音。人物声音选了「不配音」（`source:null`）的仍不出声；手机联系人仍按 `declared()` 判断，不受通用声音影响。旧称「对白默认声音」已退役。
+通用声音和旁白都不自己存声音，只各存一个指向：素材库里的哪个人物（`tts.reading.general.figure` / `tts.reading.narrator.figure`，`{packId, figureId}` 或 `null`），所有卡通用。说话时用那个人物的声音、按它的配音语言，和本卡人物走同一条路（缓存也共用）；没选是浏览器默认声音；所指人物不在了就不出声，配音页提示重新选，不回退到别的声音。不看那个包是否点亮、人物是否启用。换人物在素材库里做：打开人物的声音页，⋯ 里勾「用作通用声音」/「用作旁白声音」。它用于已启用但没绑定声音的人物和临时 NPC（共用一个通用声音条目 `GENERAL_VOICE`，气泡上一样有 ▶，也自动配音）。所指人物的声音选了「不配音」（`source:null`）时这些声音保持静音。人物声音选了「不配音」的仍不出声；手机联系人仍按 `declared()` 判断，不受通用声音影响。默认指向素材包「系统设置（请勿删除）」里的人物「通用声音」「旁白声音」（启动时一次性建好的普通素材包），改它们的声音就是改这两个声音。旧称「对白默认声音」已退役。
 _Avoid_: 默认声音、对白声音

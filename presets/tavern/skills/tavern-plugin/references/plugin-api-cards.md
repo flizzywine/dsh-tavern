@@ -121,35 +121,34 @@ ctx.tavern.skillSource({ dir: fileURLToPath(new URL('./skills', import.meta.url)
 - 优先级在 Tavern 内置的之后、玩家自己的之前：和内置 Skill 同名时用内置的。
 - 插件卸载时自动撤销。卡内插件不能添加 Skill（Skill 对所有局可见）。
 
-## 演出：台词标注与角色素材（第 2 版）
+## 演出：台词与角色素材（第 2 版）
 
-玩家在「舞台设置」打开「对话气泡」后，正文模型把每句台词写成带说话人和情绪的对白气泡，人物卡还可以配上各人物的头像和表情立绘（见[角色演出](https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md)）。这些是给配音、立绘、Galgame 式演出这类插件用的公共数据：插件读它们，不用自己再让模型标一遍。
+正文模型把每句台词写成带说话人和情绪的对话气泡，人物卡还可以配上各人物的头像和表情立绘（见[角色演出](https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md)）。这些是给配音、立绘、Galgame 式演出这类插件用的公共数据：插件读它们，不用自己再让模型标一遍。
 
 ### `getCast({ gameId, turn })`
 
-读某一轮**当前显示版本**的台词标注，返回 `{ turn, textVersion, lines }`，没有标注时返回 `null`。`lines` 按正文顺序排列：
+读某一轮**当前显示版本**的台词，返回 `{ turn, textVersion, lines }`，这一轮没有对话气泡时返回 `null`。`lines` 按正文顺序排列：
 
 ```js
 [{ n: 1, quote: '你来了。', speaker: '林曦', emotion: 'joy' }]
 ```
 
-- `quote` 是这句台词：对白气泡里的原话（更早的轮次是后台标注过的引号里的原话），用它在正文里找到这句；`speaker` 是正文里的人名；`emotion` 是 SillyTavern 表情扩展的 28 个情绪名之一（`joy`、`anger`、`neutral`…），可以直接对应 ST 立绘包的文件名。
-- 台词跟着正文版本走：重新生成、编辑后读到的是新版本自己的台词，正文提交后就有。没写成对白气泡的台词不在列表里。
-- 玩家关掉「对话气泡」后正文不再写对白气泡，已有的照常可读。
+- `quote` 是对话气泡里的原话（心声不带括号），用它在正文里找到这句；`speaker` 是气泡写的人名，没写名字时是它的句柄；`emotion` 是 SillyTavern 表情扩展的 28 个情绪名之一（`joy`、`anger`、`neutral`…），气泡写的差分正好是其中一个（英文名或中文名，如「开心」）时取它，否则是 `neutral`。
+- 台词就是聊天显示的那一轮正文的气泡段落（宿主的回合正文分段），跟着正文版本走：重新生成、编辑后读到的是新版本自己的台词；最新一轮要等结算结束才读得到。没写成对话气泡的台词不在列表里；旧轮次后台存过的台词标注不再读取。
 
 ### `onCastAnnotated(handler)`
 
-一轮结算完（与 `onTurnSettled` 同一时刻）、里面有对白气泡时调用 `handler({ gameId, turn, textVersion, lines })`，字段同 `getCast`。适合配音插件在这时合成语音、演出插件在这时编排下一幕。插件不在这一局生效时不通知。
+一轮结算结束（或玩家编辑完最新一轮）、里面有对话气泡时调用 `handler({ gameId, turn, textVersion, lines })`，字段同 `getCast`，与 `onTurnSettled` 同一时机。适合配音插件在这时合成语音、演出插件在这时编排下一幕。开场白不通知；插件不在这一局生效时不通知。
 
 ### `getCastAssets({ gameId })`
 
-这局人物卡的角色素材：`{ player, card: { name, imageUrl }, characters: [{ name, aliases, avatarUrl, avatars, sprites, voices }] }`。`player` 是玩家名；`avatars` 是各情绪的头像、`sprites` 是各情绪的立绘，都是 `{ 情绪名: 图片地址 }`；`voices` 是 `{ 配音渠道: 声音 }`；地址都可以直接放进 `<img src>`。素材由玩家在全屏舞台上传或导入 ST 立绘包，跟着人物卡走，所有用这张卡的局共用。找人物时同时比对 `name` 和 `aliases`。
+这局人物卡的角色素材：`{ player, card: { name, imageUrl }, characters: [{ name, aliases, avatarUrl, avatars, sprites, voices }] }`。`player` 是玩家名；`avatars` 是各情绪的头像、`sprites` 是各情绪的立绘，都是 `{ 情绪名: 图片地址 }`；`voices` 是 `{ 配音渠道: 声音 }`；地址都可以直接放进 `<img src>`。素材由玩家在舞台页上传或导入 ST 立绘包，跟着人物卡走，所有用这张卡的局共用。找人物时同时比对 `name` 和 `aliases`。
 
 ### `castAssetSource({ name, characters })`（第 2 版）
 
-把插件自己掌握的人物图片并入这局的角色素材，例如 DSH 人物卡素材包里的表情头像。`characters({ gameId })` 返回 `[{ name, aliases?, avatarUrl?, avatars?, sprites? }]`，`avatars`、`sprites` 是 `{ 情绪名: 图片地址 }`，情绪名用台词标注的 28 个。地址要能直接放进 `<img src>`（`/` 开头、`http(s)://` 或 `data:image/`），其他的丢掉。
+把插件自己掌握的人物图片并入这局的角色素材，例如 DSH 人物卡素材包里的表情头像。`characters({ gameId })` 返回 `[{ name, aliases?, avatarUrl?, avatars?, sprites? }]`，`avatars`、`sprites` 是 `{ 情绪名: 图片地址 }`，情绪名用 SillyTavern 表情扩展的 28 个（`joy`、`anger`、`neutral`…）。地址要能直接放进 `<img src>`（`/` 开头、`http(s)://` 或 `data:image/`），其他的丢掉。
 
-- 并入后 `getCastAssets`、舞台、正文头像都会用到：正文里每句台词旁的头像按这句的情绪取 `avatars`，没有再取 `sprites`、`avatarUrl`。
+- 并入后 `getCastAssets` 和舞台数据（`getStage` 的 `characters`）都会用到。
 - 和玩家自己的素材是同一人物时（比对 `name` 和 `aliases`），玩家的图片优先，插件只补玩家没有的；只由插件提供的人物不能在「角色素材」里清除。
 - 每次读取都会调用，出错时跳过这个来源并记进 Tavern 日志。
 
@@ -159,7 +158,7 @@ DSH 人物卡（`.dshcard`，见[格式设计](https://github.com/flizzywine/dsh
 
 ### 写角色素材：`setCastImage`、`removeCastImage`、`setCastCharacter`、`setCastVoice`、`removeCastCharacter`（第 3 版）
 
-和玩家在「舞台素材」里做的一样，按人物卡写（`card` 是 `listCards` 的 `id`，或 `onTurnSettled` 里 `card.id`）。适合生图插件把画好的立绘存进卡、导入器插件导入素材、配音插件给人物配上声音：
+和玩家在舞台页「角色素材」里做的一样，按人物卡写（`card` 是 `listCards` 的 `id`，或 `onTurnSettled` 里 `card.id`）。适合生图插件把画好的立绘存进卡、导入器插件导入素材、配音插件给人物配上声音：
 
 ```js
 await ctx.tavern.setCastImage({ card, name: '林岚', slot: 'joy', data: pngBytes })   // slot：'avatar' 或 28 个情绪名之一
@@ -170,7 +169,7 @@ await ctx.tavern.removeCastCharacter({ card, name: '林岚' })
 ```
 
 - 图片 `data` 是 `Uint8Array` 或 `Buffer`，PNG、JPEG、WebP、GIF，单张最多 8 MB；同样的内容只存一份。规则和限制与玩家上传相同，不合格时抛错。
-- 写的是玩家自己的素材：玩家在「酒馆状态」里看得到、改得了、删得掉；与 `castAssetSource`（插件临时提供、玩家清不掉）不同。
+- 写的是玩家自己的素材：玩家在舞台页里看得到、改得了、删得掉；与 `castAssetSource`（插件临时提供、玩家清不掉）不同。
 - 写完后这张卡的各局（正文头像、舞台）自动刷新。卡内插件只能写自己的卡。
 
 ### `saveCardPack({ card, id, format?, title?, files })`、`removeCardPack({ card, id })`（第 3 版）
@@ -204,7 +203,7 @@ ctx.tavern.speechProvider({
 ```
 
 - `id` 用小写字母、数字、点、下划线和连字符，渠道全名是 `插件名/id`；`label` 1–30 字。
-- `voice` 是这个人物在这个渠道上的声音（玩家在「舞台素材」里填），没填时是玩家填的默认声音，再没有就是 `defaultVoice`；`emotion` 是台词标注的情绪名，旁白为 `neutral`。
+- `voice` 是这个人物在这个渠道上的声音（玩家在舞台页「角色素材」里填），没填时是玩家填的默认声音，再没有就是 `defaultVoice`；`emotion` 是台词标注的情绪名，旁白为 `neutral`。
 - `synthesize` 还收到（第 3 版）：`gameId`（为某一局合成时）、`speaker`（正文里的人名，设置页试听时为空字符串）、`narration`（是不是旁白）。渠道可以据此自己决定怎么读，例如按人物挑参考音频。
 - `version`（第 3 版，最多 40 字）：渠道的合成方式变了（换了模型、参数）时改它，旧缓存就不再使用。
 - 渠道自己的地址、Key 等设置由插件自己保存（DSH 的设置区或凭据服务），Tavern 只保存每个人物用哪个声音。
