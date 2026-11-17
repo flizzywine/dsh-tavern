@@ -7,6 +7,7 @@ on:
       - 'bin/bundled-scene-image-plugin.mjs'
       - 'tests/bundled-image-*.test.mjs'
       - 'tests/bundled-scene-image-plugin.test.mjs'
+      - 'tests/browser/bundled-image-gallery-views-browser-smoke.mjs'
       - 'tests/browser/bundled-image-prompt-editor-browser-smoke.mjs'
       - 'tests/browser/bundled-image-reference-settings-browser-smoke.mjs'
       - 'tests/browser/bundled-image-scenarios-browser-smoke.mjs'
@@ -17,10 +18,6 @@ on:
       - 'tests/plugin-guide-api.test.mjs'
       - 'tests/scene-image-gallery.test.mjs'
       - 'tests/scene-image-frontend.test.mjs'
-      - 'tests/stage-image-outfits.test.mjs'
-      - 'tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-image-outfits.js'
-      - 'tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js'
-      - 'tavern-plugin/packages/dsh-tavern-stage/lib/module.js'
       - 'tavern-plugin/lib/plugin-api.js'
       - 'tavern-plugin/lib/domain/plugin-image-catalog.js'
       - 'tavern-plugin/lib/domain/asset-generation.js'
@@ -96,7 +93,7 @@ jobs:
       - name: Check interface skin line ending normalization
         run: node --test tests/interface-skin-line-endings.test.mjs
       - name: Run Tavern API, gallery, and plugin guide regressions
-        run: node --test tests/plugin-api.test.mjs tests/plugin-image-catalog.test.mjs tests/plugin-api-image.test.mjs tests/plugin-guide-api.test.mjs tests/scene-image-gallery.test.mjs tests/scene-image-frontend.test.mjs tests/stage-image-outfits.test.mjs
+        run: node --test tests/plugin-api.test.mjs tests/plugin-image-catalog.test.mjs tests/plugin-api-image.test.mjs tests/plugin-guide-api.test.mjs tests/scene-image-gallery.test.mjs tests/scene-image-frontend.test.mjs
       - name: Run bundled image and installer tests
         shell: bash
         run: node --test --test-concurrency=2 --test-timeout=30000 tests/bundled-image-*.test.mjs tests/bundled-scene-image-plugin.test.mjs
@@ -115,6 +112,9 @@ jobs:
       - name: Run prompt editor redraw error browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/bundled-image-prompt-editor-browser-smoke.mjs
+      - name: Run gallery views browser check
+        if: matrix.os == 'ubuntu-22.04'
+        run: node tests/browser/bundled-image-gallery-views-browser-smoke.mjs
       - name: Run gallery provider browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/tavern-gallery-provider-browser-smoke.mjs

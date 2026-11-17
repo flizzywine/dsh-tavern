@@ -383,7 +383,29 @@ export function apply(ctx, { ready }) {
         return send(response, 200, { ok: true, ...(await worldbook.addEntry(String(payload.bucket || ''), payload.entry && typeof payload.entry === 'object' ? payload.entry : {})) })
       }
       if (method === 'GET' && route === 'gallery') return send(response, 200, { items: await gallery.list(url.searchParams.get('sessionId') || undefined) })
-      if (method === 'POST' && route === 'gallery-delete') return send(response, 200, { ok: true, removed: await gallery.remove(String((await body(request)).id || '')) ? 1 : 0 })
+      // 画廊的收藏 / 回收站：和游玩画廊同一套 operation，卡片图只改标记、不删文件。
+      if (method === 'POST' && route === 'gallery-item') {
+        const payload = await body(request)
+        const operation = String(payload.operation || '')
+        if (!['favorite', 'unfavorite', 'trash', 'restore'].includes(operation)) throw fail('INVALID_ARGUMENT', '画廊操作无效')
+        const patch = operation === 'favorite' ? { favorite: true } : operation === 'unfavorite' ? { favorite: false }
+          : operation === 'trash' ? { trashedAt: Date.now() } : { trashedAt: null }
+        const item = await gallery.setState(String(payload.id || ''), patch)
+        if (!item) return send(response, 404, { ok: false, error: '找不到这张卡片图片' })
+        return send(response, 200, { ok: true, item })
+      }
+      if (method === 'POST' && route === 'gallery-delete') {
+        const payload = await body(request)
+        // 批量 / 清空只认回收站里的图，和游玩画廊的 gallery-delete 同一条规则。
+        if (payload.all === true || Array.isArray(payload.ids)) {
+          const trashed = new Set((await gallery.list()).filter(item => item.trashedAt).map(item => item.id))
+          const ids = payload.all === true ? [...trashed] : [...new Set(payload.ids.map(id => String(id)))]
+          if (payload.all !== true && ids.some(id => !trashed.has(id))) throw fail('INVALID_ARGUMENT', '只能彻底删除回收站里的图片，请刷新后重试')
+          if (!ids.length) return send(response, 200, { ok: true, deleted: [], failed: [] })
+          return send(response, 200, { ok: true, ...(await gallery.removeMany(ids)) })
+        }
+        return send(response, 200, { ok: true, removed: await gallery.remove(String(payload.id || '')) ? 1 : 0 })
+      }
       if (method === 'POST' && route === 'gallery-clear') { await body(request); return send(response, 200, { ok: true, removed: await gallery.clear() }) }
       if (method === 'GET' && route === 'state') {
         const engine = await ready(), cfg = engine.currentConfig()
@@ -466,7 +488,7 @@ export function apply(ctx, { ready }) {
     }
     if (scoped.effect) scoped.effect(install, 'dsh-tavern-image: card tools'); else install()
     if (typeof scoped.tavern.registerGalleryProvider === 'function') {
-      const provider = { list: async ({ sessionId }) => (await gallery.list(sessionId || '')).map(item => ({ id: item.id, caption: [item.preset, item.size].filter(Boolean).join(' · '), createdAt: item.at })), read: ({ sessionId, id }) => gallery.read(id, sessionId || ''), remove: ({ sessionId, id }) => gallery.remove(id, sessionId || '') }
+      const provider = { list: async ({ sessionId }) => (await gallery.list(sessionId || '')).filter(item => !item.trashedAt).map(item => ({ id: item.id, caption: [item.preset, item.size].filter(Boolean).join(' · '), createdAt: item.at })), read: ({ sessionId, id }) => gallery.read(id, sessionId || ''), remove: ({ sessionId, id }) => gallery.remove(id, sessionId || '') }
       const installGallery = () => scoped.tavern.registerGalleryProvider(provider)
       if (scoped.effect) scoped.effect(installGallery, 'dsh-tavern-image: card gallery'); else installGallery()
     }

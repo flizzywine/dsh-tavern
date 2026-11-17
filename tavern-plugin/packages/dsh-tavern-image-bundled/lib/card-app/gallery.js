@@ -5,6 +5,8 @@ import { atomicWrite, readJson, serialQueue } from './storage.js'
 
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 const validFile = value => typeof value === 'string' && value === basename(value) && /^[\w-]+\.(png|jpe?g|webp|gif)$/i.test(value)
+// 收藏与回收站标记跟着记录一起落盘，卡片画廊和游玩画廊共用同一套图块操作。
+const flags = item => ({ favorite: item.favorite === true, trashedAt: item.trashedAt || null })
 
 /** One mutation gate covers append, delete and clear, including calls from the host gallery. */
 export function createCardGallery(directory, { removeFile = rm } = {}) {
@@ -20,7 +22,7 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
     return (await load()).find(item => item.id === id && (sessionId === undefined || sessionId && item.session === sessionId))
   }
   return {
-    async list(sessionId) { return (await load()).filter(item => sessionId === undefined || sessionId && item.session === sessionId).slice().reverse().map(item => ({ ...item, url: url(item.file) })) },
+    async list(sessionId) { return (await load()).filter(item => sessionId === undefined || sessionId && item.session === sessionId).slice().reverse().map(item => ({ ...item, ...flags(item), url: url(item.file) })) },
     async add(result, { sessionId, preset } = {}) {
       const extension = Object.keys(MIME).find(key => MIME[key] === result.mediaType) || 'png'
       const id = result.jobId || randomUUID(), file = id + '.' + extension
@@ -46,6 +48,30 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
         await removeFile(join(images, target.file), { force: true })
         await publish(list.filter(item => item.id !== target.id))
         return true
+      })
+    },
+    /** 收藏 / 回收站：只改标记，不动图片文件；找不到记录时返回 null。 */
+    setState(id, patch) {
+      return serial(async () => {
+        const list = await load(), at = list.findIndex(item => item.id === id)
+        if (at < 0) return null
+        const next = list.slice()
+        next[at] = { ...list[at], ...patch }
+        await publish(next)
+        return { ...next[at], ...flags(next[at]), url: url(next[at].file) }
+      })
+    },
+    /** 批量彻底删除；锁住的图片保留记录交给下次重试，和单张删除同一套规则。 */
+    removeMany(ids) {
+      return serial(async () => {
+        const list = await load(), wanted = new Set(ids), keep = [], deleted = [], failed = []
+        for (const item of list) {
+          if (!wanted.has(item.id)) { keep.push(item); continue }
+          try { await removeFile(join(images, item.file), { force: true }); deleted.push(item.id) }
+          catch (error) { failed.push({ id: item.id, error: String(error?.message ?? error) }); keep.push(item) }
+        }
+        await publish(keep)
+        return { deleted, failed }
       })
     },
     clear() {

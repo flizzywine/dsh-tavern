@@ -7,7 +7,9 @@ import vm from 'node:vm'
 test('settings progress polling skips hidden pages, prevents overlap, preserves drafts and refreshes once at completion', async () => {
   const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-image-bundled/client.js', import.meta.url), 'utf8')
   const start = source.indexOf('// Poll only progress while a task runs.')
-  const effect = source.slice(start, source.indexOf('// 画廊也列出', start))
+  // 切到这段 effect 自己的结尾（`}, [])`），不要依赖后面紧跟的是哪一块 —— 画廊已经搬去 GalleryPanel 了。
+  const end = source.indexOf('}, [])', start)
+  const effect = source.slice(start, end + '}, [])'.length)
   const dataRef = { current: { tasks: [{ state: 'running' }], definitions: { draft: true }, outfits: ['draft'] } }
   const listeners = new Map(), calls = [], errors = []
   let poll, cleanup, finish, refreshes = 0, cleared = false

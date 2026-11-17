@@ -653,6 +653,70 @@ test('gallery writes do not lose concurrent additions and remove compares stable
   await assert.rejects(gallery.file('../output.png'))
 })
 
+test('gallery favorites and trash are record flags, and bulk delete only touches the ids it is given', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'card-gallery-flags-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'output.png'); await writeFile(file, PNG)
+  const gallery = createCardGallery(join(root, 'gallery'))
+  for (const jobId of ['one', 'two']) await gallery.add({ jobId, file, mediaType: 'image/png' }, { sessionId: 'a' })
+  assert.deepEqual((await gallery.list()).map(item => [item.id, item.favorite, item.trashedAt]),
+    [['two', false, null], ['one', false, null]], '新记录默认既不收藏也不在回收站')
+
+  const favorited = await gallery.setState('one', { favorite: true })
+  assert.equal(favorited.favorite, true)
+  assert.match(favorited.url, /^\/dsh-tavern-gen\/img\//, '收藏回执仍带可直接渲染的地址')
+  assert.equal((await gallery.read('one', 'a')).data.length, PNG.length, '收藏不动图片文件')
+
+  const trashed = await gallery.setState('two', { trashedAt: 1700000000000 })
+  assert.equal(trashed.trashedAt, 1700000000000)
+  assert.equal(await gallery.setState('missing', { favorite: true }), null, '找不到的记录返回 null 而不是新建')
+
+  assert.deepEqual(await gallery.removeMany(['one']), { deleted: ['one'], failed: [] })
+  assert.deepEqual((await gallery.list()).map(item => item.id), ['two'], '批量删除只删点名的，回收站里那张不动')
+  await assert.rejects(gallery.read('one', 'a'), { code: 'NOT_FOUND' })
+})
+
+test('card gallery exposes favorite and trash routes so both gallery views share one tile UI', async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
+  const first = await draw(f, { prompt: 'first portrait' }, own)
+  const second = await draw(f, { prompt: 'second portrait' }, own)
+  const keepId = first.images[0].jobId, dropId = second.images[0].jobId
+  const gallery = () => f.runtime.request('/dsh-tavern-gen/api/gallery')
+  const items = (await gallery()).body.items
+  assert.equal(items.length, 2)
+  assert.ok(items.every(item => item.favorite === false && item.trashedAt === null), '老记录也要带默认标记，前端才好统一渲染')
+
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'explode' })).status, 400)
+  const favorite = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'favorite' })
+  assert.equal(favorite.status, 200, JSON.stringify(favorite.body))
+  assert.equal(favorite.body.item.favorite, true)
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: 'nope', operation: 'favorite' })).status, 404)
+  assert.equal((await gallery()).body.items.find(item => item.id === keepId).favorite, true, '收藏要落盘')
+
+  const trashed = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: dropId, operation: 'trash' })
+  assert.ok(trashed.body.item.trashedAt > 0)
+  assert.deepEqual((await f.galleries[0].list({ sessionId: 'card-session-a' })).map(item => item.id), [keepId],
+    '回收站里的图不再出现在 Tavern 原生画廊')
+
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { ids: [keepId] })).status, 400,
+    '回收站外的图不许彻底删除')
+  const deleted = await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { ids: [dropId] })
+  assert.deepEqual(deleted.body.deleted, [dropId])
+  assert.deepEqual((await gallery()).body.items.map(item => item.id), [keepId], '收藏的那张留在画廊里')
+
+  const again = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'trash' })
+  assert.ok(again.body.item.trashedAt > 0)
+  const restored = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'restore' })
+  assert.equal(restored.body.item.trashedAt, null)
+  assert.equal(restored.body.item.favorite, true, '恢复回收站不动收藏标记')
+
+  await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'trash' })
+  const cleared = await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { all: true })
+  assert.deepEqual(cleared.body.deleted, [keepId], '清空回收站只删回收站里的图')
+  assert.deepEqual((await gallery()).body.items, [])
+})
+
 test('a locked image keeps its gallery record for retry, including partial clear failures', async t => {
   const root = await mkdtemp(join(tmpdir(), 'card-gallery-delete-'))
   t.after(() => rm(root, { recursive: true, force: true }))
