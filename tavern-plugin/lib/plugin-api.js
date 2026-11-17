@@ -422,17 +422,36 @@ export function createTavernPluginApi(deps) {
     return material
   }
 
+  const turnStateRuns = new Map()
+
   /** Where a game stands now: its latest written turn, and whether a reply or settlement is under way. */
   async function turnState(gameId) {
-    const game = await requireGame(gameId)
-    const [latest, settled, activity] = await Promise.all([deps.readPendingTurn(game.sessionId), deps.readLatestSettledTurn(game.sessionId),
-      deps.readActivity ? deps.readActivity(game.sessionId) : null])
-    const generating = activity?.generating === true, settling = activity?.settling === true
-    return {
-      gameId: game.sessionId, turn: latest?.turn ?? 0, textVersion: latest?.key ?? null, greeting: latest?.greeting === true,
-      generating, settling, busy: generating || settling,
-      settled: !!latest && !!settled && settled.turn === latest.turn && settled.key === latest.key
-    }
+    const id = gameIdOf(gameId)
+    const inflight = turnStateRuns.get(id)
+    if (inflight !== undefined) return structuredClone(await inflight)
+    const work = (async () => {
+      if (typeof deps.readTurnState === 'function') {
+        const summary = await deps.readTurnState(id)
+        if (!summary) throw Object.assign(new Error('这一局不存在或不是游玩对话'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+        const activity = deps.readActivity ? await deps.readActivity(summary.sessionId) : null
+        const generating = activity?.generating === true, settling = activity?.settling === true
+        return {
+          gameId: summary.sessionId, turn: summary.turn, textVersion: summary.key, greeting: summary.greeting === true,
+          generating, settling, busy: generating || settling, settled: summary.settled === true
+        }
+      }
+      const game = await requireGame(id)
+      const [latest, settled, activity] = await Promise.all([deps.readPendingTurn(game.sessionId), deps.readLatestSettledTurn(game.sessionId),
+        deps.readActivity ? deps.readActivity(game.sessionId) : null])
+      const generating = activity?.generating === true, settling = activity?.settling === true
+      return {
+        gameId: game.sessionId, turn: latest?.turn ?? 0, textVersion: latest?.key ?? null, greeting: latest?.greeting === true,
+        generating, settling, busy: generating || settling,
+        settled: !!latest && !!settled && settled.turn === latest.turn && settled.key === latest.key
+      }
+    })().finally(() => { if (turnStateRuns.get(id) === work) turnStateRuns.delete(id) })
+    turnStateRuns.set(id, work)
+    return structuredClone(await work)
   }
 
   function cardIdOf(card) {

@@ -4,6 +4,7 @@ export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernS
   | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime'
   | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime'
   | 'getStageDirection' | 'getStageModHistory' | 'getDialogueBubbles'
+  | 'getStoryTranscript' | 'syncSession' | 'pluginTurnState' | 'pluginState'
 
 export interface TavernSessionSignal {
   readonly id: string

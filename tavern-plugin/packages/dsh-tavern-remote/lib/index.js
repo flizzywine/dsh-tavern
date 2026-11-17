@@ -1,5 +1,5 @@
 import { Remote, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
-//#region lib/types/index.js
+// lib/types/index.js
 var __runInitializers = function(thisArg, initializers, value) {
 	var useValue = arguments.length > 2;
 	for (var i = 0; i < initializers.length; i++) value = useValue ? initializers[i].call(thisArg, value) : initializers[i].call(thisArg);
@@ -92,5 +92,4 @@ let TavernSessionSignalRemote = (() => {
 		}
 	};
 })();
-//#endregion
 export { TavernSessionSignalRemote, TavernSessionSignalRemote as default };

@@ -15142,7 +15142,7 @@ window.__ModuleLoader__.load({
 			}
 			const runtimeControl = ["claimTavernScriptWork", "startTavernScriptWork", "getTavernScriptWorkState", "heartbeatTavernScriptRuntime", "completeTavernHelperEvent", "releaseTavernHelperRuntime"].includes(method);
             // Only reads ride the mux: getStageDirection without readOnly may run and save the director, so it stays on HTTP.
-            const multiplexedRead = ['getStageModHistory', 'getDialogueBubbles'].includes(method) || method === 'getStageDirection' && args?.readOnly === true;
+            const multiplexedRead = ['getStoryTranscript', 'syncSession', 'pluginTurnState', 'pluginState', 'getStageModHistory', 'getDialogueBubbles'].includes(method) || method === 'getStageDirection' && args?.readOnly === true;
 			const controlChannel = (runtimeControl || multiplexedRead) && typeof tavernSessionSignals !== "undefined" && typeof tavernSessionSignals.control === "function" ? tavernSessionSignals : null;
 			const started = Date.now();
             const clockStart = performance.now();

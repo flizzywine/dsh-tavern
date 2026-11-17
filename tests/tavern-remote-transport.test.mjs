@@ -353,16 +353,24 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
       roundLoadCounts:new Map(), roundLoadTrace:{mark() {}}, rpcFetchPriority,
       presentationRequest:createPresentationQueue(),
       tavernSessionSignals:{control:async (method,args) => {multiplexed.push({method,args});await remoteGate.promise;return {ok:true,method}}},
-      performanceReportAt:Date.now(), pagePerformance:{},
+      performanceReportAt:Date.now(), pagePerformance:{}, performanceActiveRequests:0, performanceRequests:[],
       tavernRuntimeGenerationMonitor:{observe() {}},
       readTavernJsonResponse:response=>response.json(),
       fetch:(url, request) => {const gate=deferred();waiting.push({url,request,gate});return gate.promise},
     }
     const rpc = vm.runInNewContext(source.slice(start,end)+';rpc',sandbox)
-    const slow = [['getStageDirection',{turn:17,readOnly:true}],['getStageModHistory',{turn:17}],['getDialogueBubbles',{turn:17}]].map(([method,args])=>rpc(method,args,'session-A'))
+    const slow = [
+      ['getStageDirection',{turn:17,readOnly:true}],
+      ['getStageModHistory',{turn:17}],
+      ['getDialogueBubbles',{turn:17}],
+      ['getStoryTranscript',{}],
+      ['syncSession',{}],
+      ['pluginTurnState',{}],
+      ['pluginState',{plugin:'plot-compass',name:'compass'}],
+    ].map(([method,args])=>rpc(method,args,'session-A'))
     const projections = Array.from({length:8},()=>rpc('getAssetPackPresentation',{turn:17},'session-A'))
     await new Promise(resolve=>setImmediate(resolve))
-    assert.equal(multiplexed.length,3)
+    assert.equal(multiplexed.length,7)
     assert.ok(multiplexed.every(row=>row.args.sessionId==='session-A'))
     assert.equal(waiting.length,2,'only two origin-bound projection requests may occupy HTTP sockets')
     const small=rpc('getUpdateStatus',{})
@@ -381,7 +389,7 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
     // A direction request that is not readOnly may run and save the director: it keeps HTTP.
     const generating=rpc('getStageDirection',{turn:18},'session-A')
     await new Promise(resolve=>setImmediate(resolve))
-    assert.equal(multiplexed.length,3)
+    assert.equal(multiplexed.length,7)
     const sent=waiting.find(row=>row.url.endsWith('getStageDirection'))
     assert.ok(sent,'getStageDirection without readOnly goes over HTTP')
     sent.gate.resolve({json:async()=>({ok:true})})
@@ -413,11 +421,11 @@ test('host mux read allowlist preserves dispatch, errors and cancellation, exclu
     requestPerformance:{serialize:(_method,_sessionId,result)=>JSON.stringify(result)},
     dispatch:async(method,args)=>{calls.push(method);if(args.fail)throw Object.assign(Error('changed'),{code:'REVISION_CONFLICT'});return {turn:args.turn}},
   })
-  for(const method of ['getStageDirection','getStageModHistory','getDialogueBubbles']) {
+  for(const method of ['getStageDirection','getStageModHistory','getDialogueBubbles','getStoryTranscript','syncSession','pluginTurnState','pluginState']) {
     assert.deepEqual(JSON.parse(await service.control(method,{turn:17})),{ok:true,turn:17,runtimeGeneration:'test-runtime'})
     assert.deepEqual(JSON.parse(await service.control(method,{fail:true})),{ok:false,error:'changed',errorCode:'REVISION_CONFLICT'})
   }
-  for(const method of ['getAssetPackPresentation','getStagePhonePresentation','saveDialogueBubbles'])await assert.rejects(service.control(method,{}))
+  for(const method of ['getAssetPackPresentation','getStagePhonePresentation','saveDialogueBubbles','appendPlayerInput'])await assert.rejects(service.control(method,{}))
   const count=calls.length, cancelled=AbortSignal.abort()
   await assert.rejects(service.control('getStageDirection',{},cancelled),{name:'AbortError'})
   assert.equal(calls.length,count)

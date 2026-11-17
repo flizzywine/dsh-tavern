@@ -2359,6 +2359,16 @@ export async function apply(ctx) {
       // The stage runtime state too: view.stage (readCardStageMode) has no stage until the runtime is there.
       return JSON.stringify([binding, versions, await profileData.version('tavern-extension-settings.json'), await profileData.version('prompt-template-variables.json'), await cardScripts.version(chat.cardPath), stageRuntime.status()])
     },
+    storyResourceVersion: async chat => {
+      if (!chat.cardPath || chat.mode === 'card') return ''
+      const binding = await fileResources.worldBookBindingForCard(chat.cardPath)
+      const paths = new Set([chat.cardPath])
+      for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
+      const versions = await Promise.all([...paths].map(path => profileData.version('resources/' + path)))
+      const extensionSettings = await tavernExtensionSettings.read().catch(() => ({}))
+      const globalRegexDigest = createHash('sha256').update(JSON.stringify(extensionSettings?.regex ?? null)).digest('hex')
+      return JSON.stringify([binding, versions, globalRegexDigest, await cardScripts.version(chat.cardPath), stageRuntime.status()])
+    },
     readChanges: chatPersistence.readChangedIndices,
     readViewDelta: chatPersistence.readViewDelta,
     project: sessionProjection.project,
@@ -4588,8 +4598,9 @@ export async function apply(ctx) {
 
   ctx.provide('tavernSessionSignals', Object.freeze({
     async control(method, args, signal) {
-      const extensionRead = extensionRequests.remoteRead(method, args)
-      if (!extensionRead && !['claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState',
+      const multiplexedRead = extensionRequests.remoteRead(method, args)
+        || ['getStoryTranscript', 'syncSession', 'pluginTurnState', 'pluginState'].includes(method)
+      if (!multiplexedRead && !['claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState',
         'heartbeatTavernScriptRuntime', 'completeTavernHelperEvent', 'releaseTavernHelperRuntime'].includes(method)) {
         throw new Error('不支持的运行时控制请求')
       }
@@ -4600,7 +4611,7 @@ export async function apply(ctx) {
         const result = await dispatch(method, args)
         return requestPerformance.serialize(method, args?.sessionId, { ok: true, ...result, runtimeGeneration })
       } catch (error) {
-        if (!extensionRead) throw error
+        if (!multiplexedRead) throw error
         return JSON.stringify({ok:false,error:str(error?.message || error),errorCode:typeof error?.code === 'string' ? error.code : undefined})
       }
     },

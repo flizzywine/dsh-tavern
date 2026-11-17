@@ -105,6 +105,27 @@ export function createPluginTurnReader(deps) {
     return { description: project(card?.description), personality: project(card?.personality), scenario: project(card?.scenario), lore }
   }
 
+  async function readTurnState(sessionId) {
+    const game = await resolveGame(sessionId)
+    if (!game) return null
+    const messages = Array.isArray(game.state.messages) ? game.state.messages : []
+    let latest = -1
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index]?.role === 'assistant') { latest = index; break }
+    }
+    if (latest < 0) return { sessionId: game.sessionId, turn: 0, key: null, greeting: false, settled: false }
+    const latestMessage = messages[latest]
+    const turn = storyTurnOf(latestMessage)
+    const [header, key] = await Promise.all([
+      deps.header(game.sessionId, ['settleStatus']),
+      currentKey(game.sessionId, turn)
+    ])
+    if (!header || key === null) return { sessionId: game.sessionId, turn: 0, key: null, greeting: false, settled: false }
+    const greeting = latestMessage.greeting === true
+    const settled = greeting || (['done', 'failed', 'idle'].includes(header.settleStatus) && latestMessage.mvu?.pending !== true)
+    return { sessionId: game.sessionId, turn, key, greeting, settled }
+  }
+
   return Object.freeze({
     resolveGame: async sessionId => {
       const game = await resolveGame(sessionId)
@@ -113,6 +134,7 @@ export function createPluginTurnReader(deps) {
     currentKey,
     currentKeys,
     readTurn: (sessionId, turn) => material(sessionId, turn),
+    readTurnState,
     readLatestSettledTurn: sessionId => material(sessionId, undefined, { requireLatest: true }),
     // The latest turn while its settlement is still to come (plugin tasks that run before it).
     readPendingTurn: sessionId => material(sessionId, undefined, { requireLatest: true, allowPending: true }),
