@@ -87,7 +87,7 @@ render({ item, gameId, turn })  // item 与 list 返回的字段相同，另有 
 
 ## `registerTextMarker({ pattern, render })`
 
-正文里匹配 `pattern`（正则）的片段交给插件显示，例如把 `image###…###` 换成图片。生成过程中也会调用，此时 `streaming` 为 `true`。
+正文里匹配 `pattern`（正则）的已有片段交给插件显示。生成过程中也会调用，此时 `streaming` 为 `true`。这是上游保留的渲染接口；舞台效果走导演命令，不借此定义新的正文协议。
 
 ```js
 render({ match, groups, gameId, turn, streaming })  // 返回 React 元素；返回 null 或出错时原样显示这段文字
@@ -95,7 +95,7 @@ render({ match, groups, gameId, turn, streaming })  // 返回 React 元素；返
 
 - 普通正文里，标记就地替换。
 - 写在人物卡自己的 HTML 界面（状态栏、美化面板）里的标记，无法拆开那段 HTML，会从界面里去掉，显示在那段界面之后。
-- 标记仍留在对话历史里，后续轮次模型能看到。是否要求模型继续写，由插件在提示词段落里说明。
+- 原始片段仍留在对话历史里，后续轮次模型能看到；渲染不修改历史内容。
 
 ## `registerMessageAction({ id, label, when, run })`
 
@@ -105,7 +105,7 @@ render({ match, groups, gameId, turn, streaming })  // 返回 React 元素；返
 context = { gameId, turn, settled, text }
 ```
 
-`text` 是这条消息的正文（模型写出的原文），可用来只在合适的消息下显示按钮，例如正文里已经有某个标记时就不显示。
+`text` 是这条消息的正文（模型写出的原文），可用来只在合适的消息下显示按钮，例如正文里已经写到某段内容时就不显示。
 
 ## `registerComposerAction({ id, label, when, run })`
 
@@ -413,7 +413,7 @@ ctx.tavernUi.registerStatusSection({ id: 'scene', title: '当前场景', render:
 ctx.tavernUi.registerTurnView({
   id: 'bubble', label: '气泡',
   render({ gameId, turn, settled, streaming, greeting, text, lines, children }) {
-    if (!settled || !lines.length) return null        // 还在生成、或没有台词标注时用 Tavern 自己的
+    if (!settled || !lines.length) return null        // 还在生成、或没有对话气泡时用 Tavern 自己的
     return h(BubbleTurn, { lines, text, fallback: children })
   },
 })
@@ -424,7 +424,7 @@ ctx.tavernUi.registerTurnView({
 | `turn`、`settled`、`streaming` | 第几轮；是否已写完；是否正在生成（生成中也会调用） |
 | `greeting` | 是不是开场白 |
 | `text` | 这一轮模型写的原文 |
-| `lines` | 这一轮的台词标注（同宿主侧 `getCast` 的 `lines`），还没有时为空数组 |
+| `lines` | 这一轮对话气泡的台词（同宿主侧 `getCast` 的 `lines`），写完前或没有气泡时为空数组 |
 | `children` | Tavern 自己渲染好的这一轮正文（含人物卡的 HTML 界面、正文标记、插件媒体的位置） |
 
 - 每一轮只由收尾的那一步显示一次，不会重复。
@@ -433,11 +433,11 @@ ctx.tavernUi.registerTurnView({
 
 ## `getStage(gameId, { count? })`、`watchStage(gameId, listener)`（第 2 版）
 
-舞台要显示的东西：`{ enabled, player, card, background, characters, turns }`。`background` 是人物卡带的主背景图地址，没有时为空字符串。`turns` 是最近 `count` 轮（默认 5，最多 10）的 `{ turn, text, lines }`，`text` 是去掉 HTML 块的正文，`lines` 同宿主侧 `getCast`；`characters` 同宿主侧 `getCastAssets`；`enabled` 是这张卡的局是否显示舞台（玩家在舞台设置里打开了舞台，且人物卡绑定了素材包）。`watchStage` 先回调一次，之后在新的一轮、新的标注、素材变化后再回调，只在这一局在当前页面打开时有效。
+舞台要显示的东西：`{ enabled, player, card, background, characters, turns }`。`background` 是人物卡带的主背景图地址，没有时为空字符串。`turns` 是最近 `count` 轮（默认 5，最多 10）的 `{ turn, text, lines }`，`text` 是去掉 HTML 块的正文，`lines` 同宿主侧 `getCast`（没有气泡时为空数组）；`characters` 同宿主侧 `getCastAssets`；`enabled` 是这张卡是否打开了舞台。`watchStage` 先回调一次，之后在新的一轮、素材变化后再回调，只在这一局在当前页面打开时有效。
 
 ## `registerStageView`（已停用）
 
-插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开对话气泡即可。调用 `registerStageView` 会直接报错。
+插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开这张卡的舞台即可。调用 `registerStageView` 不会注册任何视图，只在错误提示里报告这次调用。
 
 ## `speak({ gameId, speaker?, text, emotion?, narration? })`、`stopSpeech()`（第 2 版）
 
@@ -466,4 +466,4 @@ ctx.tavernUi.registerTurnView({
 
 ## `playMusic(url | { url, title?, volume? })`、`stopMusic()`（第 2 版）
 
-背景音乐由 Tavern 播放：同一时间一首、循环；传入同一个地址时接着放，换地址时淡入新曲，传空字符串或调 `stopMusic()` 时淡出。玩家在全屏舞台控制栏的「♪ 音乐」开关决定听不听得到（记在这个浏览器里），所有卡的音乐都受这一个开关管。离开这一局（切换、删除对话）或这一局不再显示舞台时，Tavern 会停掉音乐；插件换局后要重新调 `playMusic`。`volume` 为 0–1，默认 0.45。
+背景音乐由 Tavern 播放：同一时间一首、循环；传入同一个地址时接着放，换地址时淡入新曲，传空字符串或调 `stopMusic()` 时淡出。玩家在舞台上方的「♪ 音乐」开关决定听不听得到（记在这个浏览器里），所有卡的音乐都受这一个开关管。离开这一局（切换、删除对话）或这一局不再显示舞台时，Tavern 会停掉音乐；插件换局后要重新调 `playMusic`。`volume` 为 0–1，默认 0.45。
