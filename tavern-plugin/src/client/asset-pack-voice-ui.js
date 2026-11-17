@@ -1,7 +1,7 @@
 // a figure's 声音: the figure page's 「声音」 tab — 「配音」 on / off, the voice it speaks with
-// (the 通用声音 until it has one of its own) with ▶, its name ⌄ (选择声音: one list — 通用声音, this pack, the other packs,
-// ＋ 添加声音) and where it comes from, the 试听 line; for a voice that clones, its 参考音频. 舞台设置 › 配音 uses the same
-// 选择声音 and 添加声音 for the 通用声音 / 旁白 rows.
+// (the 通用声音 until it has one of its own): its name ⌄ (选择声音: one list — 通用声音, this pack, the other packs, ＋), ✎ and ＋
+// beside it, where it comes from, the 试听 line. ✎ 编辑声音 and ＋ 新建声音 are one dialog (VoiceAddDialog): the service, its
+// voice or 参考音频, 模型, 配音语言, parameters. 舞台设置 › 配音 uses the same 选择声音 and dialog for the 通用声音 / 旁白 rows.
 // Opening, choosing or saving never synthesizes; ▶ does, and a paid or unknown-cost preview asks first (billing confirm).
 // Missing service / key / voice → ⚠ and why, with the way to 语音后端; nothing silently switches service.
 // @include-protocol tts-messages.cjs
@@ -83,10 +83,12 @@ const voiceUsers=(pack,voiceId)=>Object.values(pack.figures||{}).filter(f=>f.voi
 // The catalog's set-up services (浏览器朗读 is its own); a service that offers no source kind is not listed.
 const catalogServices=catalog=>(catalog?.services||[]).filter(s=>s.kind!=='browser'&&s.sources.length);
 const voiceSourceLabel=source=>source.provider==='browser'?'浏览器朗读':providerName(source.provider)+(source.kind==='reference-list'?' · 参考音频克隆':source.kind==='voice-id'?' · 声音库':'');
-// The state of a service in 添加声音, in the words of 语音后端 (one set for every service): null, or ⚠ and why. A service not
+// The state of a service in 新建声音 / 编辑声音, in the words of 语音后端 (one set for every service): null, or ⚠ and why. A service not
 // checked yet is fine (a local server that idles starts when used). 浏览器朗读: ⚠ only on a device that cannot speak.
+// `unset`: the service of a voice being edited, when none of its kind is set up.
 const SERVICE_STATE_WORDS={'needs-key':'缺少 API Key','invalid-key':'API Key 无效',stopped:'未启动',rejected:'访问被拒绝',offline:'连不上'};
 function voiceServiceState(service){
+  if(service.unset)return {warn:true,setup:true,text:'语音后端里还没有设置这个服务'};
   if(service.kind==='browser')return typeof window==='undefined'||!window.speechSynthesis?{warn:true,text:'这台设备不支持'}:null;
   const word=SERVICE_STATE_WORDS[service.state];
   return word?{warn:true,setup:true,text:word}:null;
@@ -99,7 +101,6 @@ const voiceBytes=n=>!Number.isFinite(n)?'':n<1024*1024?Math.max(1,Math.round(n/1
 const voiceSeconds=s=>!Number.isFinite(s)?'':s<60?(Math.round(s*10)/10)+' 秒':Math.floor(s/60)+' 分 '+Math.round(s%60)+' 秒';
 const tuneText=(def,v)=>def.unit==='x'?Number(v).toFixed(2)+'×':(v>0?'+':'')+v+'%';
 const cleanBinding=b=>{const next={...b};for(const k of Object.keys(next))if(next[k]===undefined)delete next[k];return next;};
-const cloneSpec=(figure,language,references)=>({name:figure.name+'的声音',language,defaultSource:'fish',sources:{fish:{kind:'reference-list',provider:'fish-audio',references}}});
 // ---------- data + preview plumbing ----------
 // `keep`: a re-read after a dependency change keeps showing the last answer (no spinner, the rows and their focus stay).
 function useVoiceLoad(loader,deps,{keep=false}={}){
@@ -308,7 +309,6 @@ function useVoiceWriter({binding,pack,figure,commitVoice,setError,askShared}) {
   React.useEffect(()=>{everyone.current=null;},[figure.voice?.voice]);
   const run=async job=>{setBusy(n=>n+1);setError('');try{return await commitVoice(job);}catch(e){setError(voiceErrorText(e));return null;}finally{setBusy(n=>n-1);}};
   const setBinding=next=>run(c=>svc.saveFigureVoiceBinding({packId,figureId,expectedRevision:c.revision,binding:next}));
-  const patchBinding=patch=>run(c=>svc.saveFigureVoiceBinding({packId,figureId,expectedRevision:c.revision,binding:cleanBinding({...c.figures[figureId].voice,...patch})}));
   const createVoice=spec=>run(c=>svc.createAndAssignPackVoice({packId,figureId,expectedRevision:c.revision,voiceSpec:spec}));
   async function scope(){
     const id=figure.voice?.voice,others=voiceUsers(pack,id).filter(f=>f.id!==figureId);
@@ -316,35 +316,19 @@ function useVoiceWriter({binding,pack,figure,commitVoice,setError,askShared}) {
     if(everyone.current===id)return 'all';
     const pick=await askShared(others);if(pick==='all')everyone.current=id;return pick;
   }
-  const copyFor=async(c,spec,b)=>{const made=await svc.createAndAssignPackVoice({packId,figureId,expectedRevision:c.revision,voiceSpec:spec});return svc.saveFigureVoiceBinding({packId,figureId,expectedRevision:made.snapshot.revision,binding:{...b,voice:made.voiceId}});};
-    const apply=(how,make)=>run(async c=>{
-    const b=c.figures[figureId].voice,id=b.voice,spec=make(structuredClone(c.manifest.voiceLibrary.voices[id])),used=voiceUsers(c,id).some(f=>f.id!==figureId);
-    if(how==='copy')return copyFor(c,spec,b);
-    return svc.savePackVoice({packId,figureId,expectedRevision:c.revision,voiceId:id,voiceSpec:spec,...(used?{confirmShared:true}:{})});
-  });
-  const editVoice=async make=>{const how=await scope();return how?apply(how,make):null;};
-  async function upload(files,language,limit){
-    const refs=[];
-    for(const file of files){
-      let media;try{media=await prepareVoiceClip(file,limit);}catch(e){setError(errorText(e));return null;}
-      const blob=await run(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-      if(!blob)return null;refs.push({media:blob.hash,text:'',language});
-    }
-    return refs;
-  }
-  // New clips for the figure's voice (声音设置 › 参考音频): `place(spec, refs)` puts them in its reference list.
-  async function addClips(files,{language,limit,place}){
+  // 编辑声音's 保存: the figure's voice becomes `spec`, and the figure speaks with it as it is (its default source, its
+  // language): what the editor showed; 配音 off stays off. Shared with other figures and 「只改这个人物」: a copy of its own instead.
+  const saveVoice=async spec=>{
     const how=await scope();if(!how)return null;
-    const refs=await upload(files,language,limit);if(!refs)return null;
-    return apply(how,spec=>{place(spec,refs);return spec;});
-  }
+    return run(async c=>{
+      const was=c.figures[figureId].voice,b=cleanBinding({...was,source:was.source===null?null:undefined,language:undefined}),id=was.voice;
+      if(how==='copy'){const made=await svc.createAndAssignPackVoice({packId,figureId,expectedRevision:c.revision,voiceSpec:spec});return svc.saveFigureVoiceBinding({packId,figureId,expectedRevision:made.snapshot.revision,binding:{...b,voice:made.voiceId}});}
+      const saved=await svc.savePackVoice({packId,figureId,expectedRevision:c.revision,voiceId:id,voiceSpec:spec,...(voiceUsers(c,id).some(f=>f.id!==figureId)?{confirmShared:true}:{})});
+      return JSON.stringify(b)===JSON.stringify(was)?saved:svc.saveFigureVoiceBinding({packId,figureId,expectedRevision:saved.snapshot.revision,binding:b});
+    });
+  };
   // Another pack's voice: copied into this pack (its clips too) for the figure.
   const copyPackVoice=ref=>run(c=>svc.assignPackVoiceCopy({sourcePackId:ref.packId,voiceId:ref.voiceId,packId,figureId,expectedRevision:c.revision}));
-  // 模型 of one source (a Fish row's own choice).
-  const setSourceModel=(sid,model)=>editVoice(s=>{s.sources[sid]={...s.sources[sid],model};return s;});
-  // 语音服务 of one source: the same voice spoken by another service of its kind; a 模型 that service does not offer goes.
-  const setSourceService=(sid,service)=>editVoice(s=>{const src={...s.sources[sid],serviceId:service.id};
-    if(src.model&&!(service.models||[]).some(m=>m.id===src.model))delete src.model;s.sources[sid]=src;return s;});
   // 配音 on / off: a voice of its own keeps it (source null = silent); a figure on the 通用声音 is {source:null} while off.
   const setVoiced=on=>run(c=>{const b=c.figures[figureId].voice||null;
     const next=b?.voice?cleanBinding({...b,source:on?undefined:null}):on?null:{source:null};
@@ -352,16 +336,7 @@ function useVoiceWriter({binding,pack,figure,commitVoice,setError,askShared}) {
   // 选择声音: the 通用声音 drops the figure's own voice; a voice of this pack is pointed at; another pack's voice
   // is copied into the pack first. (No 我的模板: another pack's voice is that already.)
   const pick=choice=>choice.kind==='general'?setBinding(null):choice.kind==='own'?setBinding({voice:choice.id}):copyPackVoice(choice.ref);
-  // 录音克隆's clips (prepareVoiceClip results), each with what it says: into the pack, in order → its reference list.
-  async function uploadClips(medias,meta){
-    const refs=[];
-    for(const [i,media] of medias.entries()){
-      const blob=await run(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-      if(!blob)return null;refs.push({media:blob.hash,text:meta[i].text||'',language:meta[i].language});
-    }
-    return refs;
-  }
-  return {busy,run,setBinding,patchBinding,createVoice,editVoice,addClips,copyPackVoice,setSourceModel,setSourceService,setVoiced,pick,uploadClips};
+  return {busy,run,createVoice,saveVoice,setVoiced,pick};
 }
 
 // ---------- small pieces ----------
@@ -400,7 +375,7 @@ function VoiceMarked({text,query}) {
   if(at<0)return text;
   return h(React.Fragment,null,text.slice(0,at),h('mark',null,text.slice(at,at+query.length)),text.slice(at+query.length));
 }
-// The one voice row (选择声音, 添加声音, 可选声音): ▶ · name · 语言 square · meta · end (heat, faces, ✓). A click on the row
+// The one voice row (选择声音, 新建声音 / 编辑声音, 可选声音): ▶ · name · 语言 square · meta · end (heat, faces, ✓). A click on the row
 // picks it (`onPick`); ▶ only plays. `menu` (R9): the row's own menu — right click, Shift+F10, or a long press on touch
 // (useContextMenu, the library's one row menu).
 function VoiceListRow({name,query,lang,meta,end,current,picked,play,onPick,menu,label}) {
@@ -482,9 +457,12 @@ function useGeneralVoice(binding,revision){
 }
 // What a voice speaks with, in one line: its service's own name (語音后端) and the parameters saved in it.
 function voiceServiceName(catalog,source){
-  if(source.provider==='browser')return '浏览器朗读';
-  const services=catalogServices(catalog).filter(s=>s.kind===source.provider),s=services.find(x=>x.id===source.serviceId)||(services.length===1?services[0]:null);
-  return s?.label||providerName(source.provider);
+  return source.provider==='browser'?'浏览器朗读':voiceSourceService(catalog,source)?.label||providerName(source.provider);
+}
+// The set-up service a source speaks through: the one it names, else the only one of its kind.
+function voiceSourceService(catalog,source){
+  const services=catalogServices(catalog).filter(s=>s.kind===source.provider);
+  return services.find(s=>s.id===source.serviceId)||(services.length===1?services[0]:null);
 }
 // The parameters saved in a voice (variants.normal.tuning of its source), read-only: 「语速 +10% · 音高 +25%」.
 function voiceParamsText(spec,sourceId){
@@ -492,21 +470,25 @@ function voiceParamsText(spec,sourceId){
   return (VOICE_TUNING[source?.provider]||[]).filter(def=>tuning[def.key]!==undefined&&tuning[def.key]!==null&&tuning[def.key]!==''&&tuning[def.key]!==def.base)
     .map(def=>def.kind?def.label+' '+tuning[def.key]:def.label+' '+tuneText(def,tuning[def.key])).join(' · ');
 }
-// A new voice with the parameters chosen while adding it: they are its 原声 tuning of that source.
+// The parameters that are set (a voice keeps only these).
+const voiceSetParams=params=>Object.fromEntries(Object.entries(params||{}).filter(([,v])=>v!==undefined&&v!==null&&v!==''));
+// A new voice with the parameters chosen while making it: they are its 原声 tuning of that source.
 function voiceWithParams(spec,params){
-  const own=Object.fromEntries(Object.entries(params||{}).filter(([,v])=>v!==undefined&&v!==null&&v!==''));
+  const own=voiceSetParams(params);
   return Object.keys(own).length?{...spec,variants:{normal:{name:'原声',tuning:{[spec.defaultSource]:own}}}}:spec;
 }
 
 // ---------- the 声音 tab ----------
-// Top to bottom: 「配音」 on / off; the voice the figure speaks with — ▶, its name ⌄
-// (选择声音), one line of where it comes from (服务 · 模型 · its saved parameters · 配音语言), the 试听 line and 差分; then, for a
-// voice of its own that clones, its 参考音频. A figure without a voice of its own speaks with the 通用声音 (舞台设置 › 配音).
+// Top to bottom: 「配音」 on / off; the voice the figure speaks with — its name ⌄ (选择声音), ✎ (编辑声音) and ＋ (新建声音)
+// beside it, one read-only line of where it comes from (服务 · 模型 · its saved parameters · 配音语言), and the 试听 line.
+// What the voice is made of (its service, voice or 参考音频, 模型, 配音语言, parameters, its name, deleting it) is the
+// editor's (VoiceAddDialog). A figure without a voice of its own speaks with the 通用声音 (舞台设置 › 配音).
 function VoiceTab({binding,pack,figure,rows,status,preview,speech,commitVoice,nav}) {
   const packId=pack.manifest.id,voice=figure.voice||null,spec=figureVoiceSpec(pack,figure),muted=voice?.source===null;
   const sourceId=spec?voice.source??spec.defaultSource:null,language=effectiveVoiceLanguage(voice?.language,spec?.language);
   const readiness=useVoiceReadiness(binding),clips=useAudioPreview(binding,packId,speech),general=useGeneralVoice(binding);
-  const [error,setError]=React.useState(''),[notice,setNotice]=React.useState(''),[shared,setShared]=React.useState(null),[removing,setRemoving]=React.useState(null),[adding,setAdding]=React.useState(false);
+  // `editor`: null, {} (新建声音) or {edit:true} (编辑声音 on the figure's voice).
+  const [error,setError]=React.useState(''),[notice,setNotice]=React.useState(''),[shared,setShared]=React.useState(null),[removing,setRemoving]=React.useState(null),[editor,setEditor]=React.useState(null);
   const askShared=others=>new Promise(resolve=>setShared({others,resolve}));
   const writer=useVoiceWriter({binding,pack,figure,commitVoice,setError,askShared});
   const player={...preview,play:(...args)=>{clips.stop();return preview.play(...args);},playSample:(...args)=>{clips.stop();return preview.playSample(...args);}};
@@ -514,23 +496,23 @@ function VoiceTab({binding,pack,figure,rows,status,preview,speech,commitVoice,na
   const openSettings=nav?.openTab?(provider,options)=>openVoiceSettings(nav,provider,options):null;
   const candidate=voiceSpec=>({packId,figureId:figure.id,expectedRevision:pack.revision,voiceSpec});
   const remove=voiceId=>{preview.stop();return commitVoice(c=>binding.service.deletePackVoice({packId,expectedRevision:c.revision,voiceId}));};
-  const source=spec?spec.sources[sourceId]:null;
+  const open=next=>{preview.stop();clips.stop();setError('');setEditor(next);};
   const picker=trigger=>h(VoicePicker,{binding,pack,figure,current:spec?voice.voice:null,general:true,preview:player,candidate,generalVoice:general,trigger,services:readiness.services,
     onPick:async pick=>{preview.stop();const done=await writer.pick(pick);if(done)setNotice('已换成「'+pick.name+'」');},
-    onAdd:()=>setAdding({}),onDelete:setRemoving,setError});
+    onAdd:()=>open({}),onDelete:setRemoving,setError});
   return h('div',{className:'ap-voice-page ap-vx-tab',role:'region','aria-label':figure.name+'的声音'},
-    error&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 ',error),
+    error&&!editor&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 ',error),
     // A row's ▶ that failed says why here too; the hero's own failure sits under its 试听 line.
-    preview.state?.phase==='error'&&preview.state.key!=='saved:'+figure.id&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 试听失败：',preview.state.error),
+    preview.state?.phase==='error'&&!editor&&preview.state.key!=='saved:'+figure.id&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 试听失败：',preview.state.error),
     // 配音 off keeps the voice (greyed below); on again speaks with it.
     h('div',{className:'ap-vx-onoff'},h(SwitchRow,{label:'配音',checked:!muted,disabled:writer.busy>0,onChange:on=>{preview.stop();writer.setVoiced(on);}})),
-    h(VoiceCurrent,{binding,pack,figure,spec,voice,sourceId,muted,status,preview:player,rows,writer,readiness,openSettings,general,picker,setNotice,language,onDelete:()=>setRemoving(voice.voice),onAdd:serviceId=>setAdding({serviceId})}),
+    h(VoiceCurrent,{binding,pack,figure,spec,voice,sourceId,muted,status,preview:player,rows,writer,readiness,openSettings,general,picker,language,onEdit:()=>open({edit:true}),onAdd:()=>open({})}),
     notice&&h('p',{className:'ap-notice',role:'status'},notice),
-    // 不配音 hides the 参考音频 (kept; back with 配音 on).
-    !muted&&source?.kind==='reference-list'&&h(StageSection,{title:'参考音频',meta:source.references.length,foldKey:'voice-refs',className:'ap-vx-refs'},
-      h(VoiceReferences,{binding,pack,figure,spec,voice,writer,preview:player,clips,entry:[sourceId,source]})),
-    adding&&h(VoiceAddDialog,{binding,pack,figure,language,readiness,serviceId:adding.serviceId,preview:player,candidate,writer,openSettings,onClose:()=>{preview.stop();setAdding(false);},onDone:name=>{setAdding(false);setNotice('已换成「'+name+'」');}}),
-    removing&&h(VoiceDeleteDialog,{pack,voiceId:removing,onConfirm:()=>remove(removing),onClose:()=>setRemoving(null)}),
+    editor&&h(VoiceAddDialog,{key:editor.edit?'edit':'new',binding,pack,figure,language,readiness,preview:player,candidate,writer,openSettings,rows,clips,error,
+      edit:editor.edit&&spec?{spec,sourceId}:null,onDelete:()=>setRemoving(voice.voice),
+      onClose:()=>{preview.stop();clips.stop();setEditor(null);},onDone:(name,made)=>{setEditor(null);setNotice(made?'已换成「'+name+'」':'已保存「'+name+'」');}}),
+    // the voice an open editor is on goes with it.
+    removing&&h(VoiceDeleteDialog,{pack,voiceId:removing,onConfirm:()=>{if(editor)setEditor(null);return remove(removing);},onClose:()=>setRemoving(null)}),
     shared&&h(VoiceSharedDialog,{figure,others:shared.others,onPick:pick=>{shared.resolve(pick);setShared(null);}}));
 }
 // 删除声音…: who speaks with it goes back to the 通用声音; the reference audio goes with it — one sentence.
@@ -542,21 +524,34 @@ function VoiceDeleteDialog({pack,voiceId,onConfirm,onClose}) {
   return h(ConfirmDialog,{title:'删除声音「'+spec.name+'」？',confirmLabel:'删除',danger:true,onConfirm,onClose,
     body:who+(clips?'，'+clips+' 段参考音频一起删除。':'。')});
 }
-// The voice the figure speaks with — the one focal point of the tab. `spec` null: the 通用声音 (`general`, read-only here:
-// it is chosen in 舞台设置 › 配音). `muted`: 配音 off — the block is greyed and inert, nothing in it is lost.
-function VoiceCurrent({binding,pack,figure,spec,voice,sourceId,muted,status,preview,rows,writer,readiness,openSettings,general,picker,setNotice,language,onDelete,onAdd}) {
-  const [text,setText]=React.useState(null),[mood,setMood]=React.useState('calm'),[renaming,setRenaming]=React.useState(false);
+// 试听, one field: ▶ 试听 · the line it reads (editable; Enter plays) · 语气 (which 差分 speaks it; `rows` none: no 语气).
+// `text` null reads the `sample`. `off`: this cannot speak now (greyed); `disabled` also covers a missing 配音 plugin.
+function VoiceSay({state,text,sample,onText,rows,mood,onMood,off,disabled,title,onPlay}) {
+  const playing=!!state&&state.phase!=='error';
+  return h('div',{className:'ap-vx-say',role:'group','aria-label':'试听'},
+    h('button',{type:'button',className:'ap-vx-say-play','data-state':off?'off':state?.phase,'aria-pressed':playing,disabled:disabled&&!playing,title,onClick:onPlay},
+      state?.phase==='loading'?h(Spinner,{key:'go'}):h(Glyph,{name:playing?'stop':'play'}),h('span',null,playing?'停止':'试听')),
+    h('input',{className:'ap-vx-say-text','aria-label':'试听台词',placeholder:'写一句台词来试听',value:text??sample,maxLength:200,onChange:e=>onText(e.target.value),
+      onKeyDown:e=>{if(e.key==='Enter'&&!e.nativeEvent?.isComposing){e.preventDefault();if(!disabled)onPlay();}}}),
+    rows?.length>0&&h(VoiceMoodPick,{rows,value:mood,onPick:onMood,prefix:'语气'}));
+}
+// The line 试听 was given, when it is not the sample.
+const voiceSayTyped=(text,sample)=>text!==null&&text.trim()&&text!==sample?text.trim():'';
+// The voice the figure speaks with — the one focal point of the tab. `spec` null: the 通用声音 (`general`: it is chosen in
+// 舞台设置 › 配音). `muted`: 配音 off — the block is greyed and inert, nothing in it is lost.
+function VoiceCurrent({binding,pack,figure,spec,voice,sourceId,muted,status,preview,rows,writer,readiness,openSettings,general,picker,language,onEdit,onAdd}) {
+  const [text,setText]=React.useState(null),[mood,setMood]=React.useState('calm');
   const own=!!spec,g=!own&&general?.spec?general:null,gSource=g?g.spec.sources[voiceSourceId(g.spec,g.figure.voice)]:null;
   const speakLanguage=own?language:g?effectiveVoiceLanguage(g.figure.voice.language,g.spec.language):'zh';
   const source=own?spec.sources[sourceId]:gSource,issue=own&&!muted?status?.issues?.[0]:null;
-  const key='saved:'+figure.id,state=preview.of(key),sample=sampleText(speakLanguage),said=text??sample;
+  const key='saved:'+figure.id,state=preview.of(key),sample=sampleText(speakLanguage);
   const unset=!muted&&voiceSourceUnset(source),ready=source&&!muted&&!issue&&!unset?readiness(source.provider,source.serviceId):null;
   const speaks=!own||!source||!!unset||voiceSpeaks(source,speakLanguage);
   const warn=muted?'':unset||(issue?voiceIssueText(issue.code,source):ready?.warn?ready.text:!speaks?'这个声音不支持'+voiceLanguageName(primaryLanguage(speakLanguage)):'');
   const serviceFix=issue?['SERVICE_REQUIRED','CREDENTIALS_REQUIRED'].includes(issue.code):ready?.setup;
   const goSet=()=>openSettings(source.provider,source.serviceId?{id:source.serviceId}:undefined);
   const action=serviceFix&&openSettings&&h(Button,{className:'ap-hint-chip',onClick:goSet},issue?.code==='SERVICE_REQUIRED'||ready?.missing?VOICE_BACKEND_LINK:'去设置');
-  const typed=text!==null&&text.trim()&&text!==sample?text.trim():'';
+  const typed=voiceSayTyped(text,sample);
   const play=()=>{
     if(source?.provider==='browser')return preview.playBrowser(key,{voice:source.voiceName,language:speakLanguage,text:typed||sample},{mood});
     if(own)return preview.play(key,{packId:pack.manifest.id,figureId:figure.id,expectedRevision:pack.revision,...(typed?{text:typed}:{}),mood},{label:spec.name,mood});
@@ -564,32 +559,13 @@ function VoiceCurrent({binding,pack,figure,spec,voice,sourceId,muted,status,prev
     return preview.playBrowser(key,{voice:'',language:'zh',text:typed||sample},{mood});
   };
   const cannot=muted||!!warn&&!issue?.field&&speaks;
-  const disc=muted||cannot?'off':state?.phase,playing=!!state&&state.phase!=='error';
-  const services=source&&own?catalogServices(readiness.services).filter(s=>s.kind===source.provider):[];
-  const service=services.find(s=>s.id===source?.serviceId)||(services.length===1?services[0]:null),models=service?.models||[];
-  // 语音服务 ⌄: every service set up in 语音后端, flat (the 添加声音 list). One of the voice's kind that serves its way of
-  // speaking takes this voice as it is (the same reference audio cloned by 本地 Drama 3 or Fish Audio online); any other opens
-  // 添加声音 on that service, to set up what it needs.
-  const movable=services.filter(s=>s.sources.includes(source.kind));
-  const current=source?.provider==='browser'?BROWSER_SERVICE.id:service?.id||'';
-  const serviceOptions=[...catalogServices(readiness.services),BROWSER_SERVICE].map(s=>{const st=voiceServiceState(s);return {id:s.id,label:s.label||providerName(s.kind),meta:st?.warn?'⚠ '+st.text:''};});
-  const pickService=id=>{const same=movable.find(s=>s.id===id);if(same){writer.setSourceService(sourceId,same);return;}preview.stop();onAdd?.(id);};
-  const params=own?voiceParamsText(spec,sourceId):'';
   const name=own?spec.name:'通用声音';
-  const menu=own&&h(Popover,{label:'声音操作',className:'ap-voice-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'声音操作','aria-expanded':open,onClick:toggle}),content:close=>h(React.Fragment,null,
-    h(MenuItem,{danger:true,onClick:()=>{close();preview.stop();onDelete();}},'删除声音…'))});
-  const nameControl=renaming?h(CommitInput,{className:'ap-vx-name-input','aria-label':'声音名称',autoFocus:true,value:spec.name,maxLength:60,validate:v=>v.trim()?'':'名称不能为空',
-      onCommit:v=>{setRenaming(false);if(v.trim()!==spec.name)writer.editVoice(s=>({...s,name:v.trim()}));},onBlur:()=>setRenaming(false)}):
-    picker(({open,toggle})=>h('button',{type:'button',className:'ap-vx-name','aria-label':'选择声音：'+name,'aria-expanded':open,onClick:toggle},h('span',null,name),h(Glyph,{name:'chevDown'})));
+  const nameControl=picker(({open,toggle})=>h('button',{type:'button',className:'ap-vx-name','aria-label':'选择声音：'+name,'aria-expanded':open,onClick:toggle},h('span',null,name),h(Glyph,{name:'chevDown'})));
   const auto=own&&figure.extensions?.['dsh.automatic-write']?.fields?.includes('voice');
-  const sep=h('i',{'aria-hidden':true},'·');
-  const meta=own?h('div',{className:'ap-vx-meta'},
-      h(VoiceFilterPick,{label:'语音服务',value:current,valueText:voiceServiceName(readiness.services,source),options:serviceOptions,className:'ap-vx-service-anchor',onPick:pickService}),
-      models.length>1&&h(VoiceOptionPick,{label:'模型',value:source.model||models[0].id,options:models.map(m=>({id:m.id,label:m.label||m.id})),onPick:id=>writer.setSourceModel(sourceId,id)}),
-      params&&h(React.Fragment,null,sep,h('span',null,params)),
-      h(VoiceLanguagePick,{value:language,defaultValue:effectiveVoiceLanguage('',spec.language),label:'配音语言',icon:'language',title:VOICE_LANGUAGE_HELP,
-        onPick:l=>writer.patchBinding({language:l===effectiveVoiceLanguage('',spec.language)?undefined:l})})):
-    h('div',{className:'ap-vx-meta'},gSource?[voiceServiceName(readiness.services,gSource),voiceLanguageName(primaryLanguage(speakLanguage))].join(' · '):'浏览器朗读 · 中文');
+  // where it comes from, as words: 服务 · 模型 (a service with several) · the parameters saved in it · 配音语言.
+  const shown=own?source:gSource,models=shown?voiceSourceService(readiness.services,shown)?.models||[]:[];
+  const meta=(shown?[voiceServiceName(readiness.services,shown),models.length>1&&(models.find(m=>m.id===(shown.model||models[0].id))?.label||shown.model),own&&voiceParamsText(spec,sourceId),voiceLanguageName(primaryLanguage(speakLanguage))]:
+    ['浏览器朗读','中文']).filter(Boolean).join(' · ');
   return h('div',{className:'ap-vx-hero','data-off':muted||undefined,inert:muted||undefined},
     // the disc is the voice itself (配音 on / off), not a button: 试听 is its own bar below.
     h('span',{className:'ap-vx-disc','data-state':muted?'off':undefined,'aria-hidden':true},h(Glyph,{name:muted?'voiceOff':'voice'})),
@@ -597,28 +573,21 @@ function VoiceCurrent({binding,pack,figure,spec,voice,sourceId,muted,status,prev
       h('div',{className:'ap-vx-hero-line'},nameControl,
         auto&&h('span',{className:'ap-vx-spark',role:'img','aria-label':'自动素材分配',title:'自动素材分配'},h(Glyph,{name:'spark'})),
         !own&&h('span',{className:'ap-vx-tag'},'默认'),
-        // ✎ renames the voice, ＋ makes a new one (添加声音): what a voice of its own can do, beside its name.
-        !renaming&&h('span',{className:'ap-vx-name-tools'},
-          own&&h(IconButton,{icon:'edit',label:'重命名声音',title:'重命名声音',onClick:()=>setRenaming(true)}),
-          onAdd&&h(IconButton,{icon:'plus',label:'新建声音',title:'新建声音',onClick:()=>{preview.stop();onAdd();}})),
-        h('span',{className:'ap-vx-hero-tools'},writer.busy>0&&h(Spinner,{key:'saving',label:'正在保存'}),menu)),
-      // a service that cannot speak replaces the line (fixed in 语音后端); a 配音语言 the voice cannot speak keeps it, to change it.
-      // the 通用声音's line gives way to a ⚠ (fixed in 语音后端); a voice of its own keeps its line, where 语音服务 ⌄ moves it
-      // to a service that can speak.
-      warn&&speaks&&!own?null:meta,warn&&h('p',{className:'ap-vx-warn',role:'status'},h(Glyph,{name:'warning'}),h('span',null,warn),action||null)),
-    // 试听: one field — ▶ 试听 · the line it reads (editable; Enter plays) · 语气 (which 差分 speaks it).
-    h('div',{className:'ap-vx-say',role:'group','aria-label':'试听'},
-      h('button',{type:'button',className:'ap-vx-say-play','data-state':disc,'aria-pressed':playing,disabled:(cannot||!binding.tts)&&!playing,title:!binding.tts?'配音插件未启用':undefined,onClick:play},
-        state?.phase==='loading'?h(Spinner,{key:'go'}):h(Glyph,{name:playing?'stop':'play'}),h('span',null,playing?'停止':'试听')),
-      h('input',{className:'ap-vx-say-text','aria-label':'试听台词',placeholder:'写一句台词来试听',value:said,maxLength:200,onChange:e=>setText(e.target.value),
-        onKeyDown:e=>{if(e.key==='Enter'&&!e.nativeEvent?.isComposing){e.preventDefault();if(!cannot&&binding.tts)play();}}}),
-      h(VoiceMoodPick,{rows,value:mood,onPick:setMood,prefix:'语气'})),
+        // ✎ 编辑声音 (the voice of its own) and ＋ 新建声音 sit beside the name: what can be done with a voice is in sight.
+        h('span',{className:'ap-vx-name-tools'},
+          own&&h(IconButton,{icon:'edit',label:'编辑声音',onClick:onEdit}),
+          h(IconButton,{icon:'plus',label:'新建声音',onClick:onAdd})),
+        writer.busy>0&&h('span',{className:'ap-vx-hero-tools'},h(Spinner,{key:'saving',label:'正在保存'}))),
+      // the 通用声音's line gives way to a ⚠ (fixed in 语音后端); a voice of its own keeps its line (✎ moves it to a service
+      // that can speak).
+      warn&&speaks&&!own?null:h('div',{className:'ap-vx-meta'},meta),warn&&h('p',{className:'ap-vx-warn',role:'status'},h(Glyph,{name:'warning'}),h('span',null,warn),action||null)),
+    h(VoiceSay,{state,text,sample,onText:setText,rows,mood,onMood:setMood,off:muted||cannot,disabled:cannot||!binding.tts,title:!binding.tts?'配音插件未启用':undefined,onPlay:play}),
     state?.phase==='error'&&h('p',{className:'ap-vx-try-error',role:'alert'},h(VoiceWarn,{action:VOICE_SERVICE_CODES.has(state.code)&&openSettings&&source?h(Button,{className:'ap-link',onClick:goSet},'去设置'):
       h(Button,{className:'ap-link',onClick:play},'重试')},'试听失败：'+state.error)));
 }
 
 // ---------- 选择声音 ----------
-// One floating list (a bottom sheet on a phone): a search box, the list, a dashed ＋ (添加声音). The first row is the 通用声音
+// One floating list (a bottom sheet on a phone): a search box, the list, a dashed ＋ (新建声音). The first row is the 通用声音
 // (`general`: the 声音 tab; 舞台设置's own pickers have none). Then 本包; 其他素材包 N › stays folded until opened
 // or searched (a search lists every pack, by pack). A row: ▶ (plays, never picks) · name · 语言 · who
 // speaks with it; a click picks at once. This pack's voices carry their own menu (right click / long press,
@@ -679,83 +648,187 @@ function VoicePicker({binding,pack,figure,current,general=false,generalVoice,pre
       content:close=>h('div',{className:'ap-vx-pick'},
         h(PackSearchBox,{label:'搜索声音',value:query,placeholder:'搜索声音',onChange:setQuery,onKeyDown:voiceSearchKeys(query,()=>setQuery(''))}),
         h('div',{className:'ap-vx-pick-list'},body(close)),
-        onAdd&&h('div',{className:'ap-vx-pick-foot'},h(CatAddTile,{label:'添加声音',className:'ap-vx-add',onClick:()=>{close();onAdd();}})))}));
+        onAdd&&h('div',{className:'ap-vx-pick-foot'},h(CatAddTile,{label:'新建声音',className:'ap-vx-add',onClick:()=>{close();onAdd();}})))}));
 }
 
-// ---------- 添加声音 ----------
-// One dialog (full screen on a phone): the services set up in 语音后端 on the left (their order and names; ⚠ when one cannot
-// speak now, 「语音后端 ›」 at its foot; on a phone one 「服务名 ⌄」 at the top), on the right what that service offers —
-// Fish Audio 「声音库｜录音克隆」, the others their voices — and under it the parameters that service allows (VOICE_TUNING; the parameters are
-// chosen here and saved in the new voice). 「使用」 makes a new voice of the pack, named after the voice picked, and the
-// figure speaks with it.
+// ---------- 新建声音 / 编辑声音 ----------
+// One dialog for both (full screen on a phone): ＋ opens it empty, ✎ opens it on the figure's voice (`edit` {spec, sourceId}).
+// The services set up in 语音后端 are listed flat (their order and names; ⚠ when one cannot speak now): a column on the left,
+// a row under the name on a phone. Beside them the voice's 名称 and what the chosen service needs — Fish Audio
+// 「声音库｜录音克隆」, the others their voices — then 模型, 配音语言 and the parameters that service allows (VOICE_TUNING).
+// The footer is 试听 (the voice as it stands here) and the one button: nothing is the figure's until 「使用」 / 「保存」.
+// 参考音频 belongs to the voice, not to a service: the clips stay listed on every service that clones (本地 Drama 3 ↔ Fish
+// Audio; the mark beside such a service says they go along), and stay in the voice while it speaks with one that does not.
+// A voice whose own service is not set up in 语音后端 (a pack from elsewhere) still opens on it: listed with ⚠ and the way
+// there; its 参考音频 are shown and kept whatever state the service is in.
+// 舞台设置 › 配音 opens the same dialog to make a voice for 通用声音 / 旁白 (no `edit`, `rows` or `clips` there).
 const BROWSER_SERVICE={id:'browser',kind:'browser',label:'浏览器朗读',sources:['preset']};
-function VoiceAddDialog({binding,pack,figure,language,readiness,serviceId:startAt,preview,candidate,writer,openSettings,onClose,onDone}) {
-  const services=[...catalogServices(readiness.services),BROWSER_SERVICE];
+// The kind of source a service's way of speaking is kept as.
+const voiceWayKind=(kind,mode)=>mode==='clone'?'reference-list':kind==='fish-audio'?'voice-id':'preset';
+function VoiceAddDialog({binding,pack,figure,language,readiness,preview,candidate,writer,openSettings,onClose,onDone,edit,rows,clips,onDelete,error}) {
+  const packId=pack.manifest.id,svc=binding.service,spec0=edit?.spec||null,source0=spec0?spec0.sources[edit.sourceId]:null;
+  const setUp=catalogServices(readiness.services);
+  // the voice's own service: the one its source speaks through; none of its kind set up → listed all the same, as not set up.
+  const own=source0&&(source0.provider==='browser'?BROWSER_SERVICE:voiceSourceService(readiness.services,source0)||setUp.find(s=>s.kind===source0.provider)||
+    (readiness.loaded?{id:'unset',kind:source0.provider,label:providerName(source0.provider),sources:[source0.kind],unset:true}:null));
+  const services=[...setUp,...(own?.unset?[own]:[]),BROWSER_SERVICE];
   // what a service lacks now (浏览器朗读: only a device without speech; its voices are filtered by language below).
   const states=Object.fromEntries(services.map(s=>[s.id,voiceServiceState(s)]));
-  // `startAt`: the service picked in the 声音 tab's 语音服务 ⌄; else the first that can speak.
-  const [serviceId,setServiceId]=React.useState(()=>(services.find(s=>s.id===startAt)||services.find(s=>!states[s.id]?.warn)||services[0]).id);
-  const service=services.find(s=>s.id===serviceId)||services[0],kind=service.kind,state=states[service.id];
-  const ways=kind==='fish-audio'?[['library','声音库'],['clone','录音克隆']].filter(([id])=>service.sources.includes(id==='library'?'voice-id':'reference-list')):[];
-  const [modes,setModes]=React.useState({}),mode=ways.length?modes[service.id]||ways[0][0]:'library';
-  const [picked,setPicked]=React.useState(null),[params,setParams]=React.useState({}),[clipSet,setClipSet]=React.useState(null),[busy,setBusy]=React.useState(false);
-  React.useEffect(()=>{setPicked(null);setParams({});},[serviceId,mode]);
-  const bind=s=>catalogServices(readiness.services).filter(x=>x.kind===s.kind).length>1?{serviceId:s.id}:{};
-  const withParams=spec=>voiceWithParams(spec,params);
+  // the service clicked here; before any click the voice's own, else the first that can speak.
+  const [chosen,setChosen]=React.useState(null);
+  const service=services.find(s=>s.id===chosen)||own||services.find(s=>!states[s.id]?.warn)||services[0],kind=service.kind,state=states[service.id];
+  const ways=kind==='fish-audio'?[['library','声音库'],['clone','录音克隆']].filter(([id])=>service.sources.includes(voiceWayKind(kind,id))):[];
+  const [modes,setModes]=React.useState({}),wish=modes[service.id]||(source0?.provider===kind&&source0.kind==='reference-list'?'clone':'library');
+  const mode=ways.length?(ways.some(([id])=>id===wish)?wish:ways[0][0]):'library';
+  // the voice's own source of this service and way ([id, source]; the one it speaks with first): what is shown here starts
+  // from it, and 保存 writes it back in place.
+  const wayKind=voiceWayKind(kind,mode);
+  const kept=spec0?Object.entries(spec0.sources).filter(([,s])=>s.provider===kind&&s.kind===wayKind).sort(([a],[b])=>(b===edit.sourceId)-(a===edit.sourceId))[0]||null:null;
+  // what was picked and set on each service and way stays while another is looked at.
+  const [drafts,setDrafts]=React.useState({}),slot=service.id+'/'+mode,draft=drafts[slot]||{};
+  const patch=change=>setDrafts(d=>({...d,[slot]:{...d[slot],...change}}));
+  const picked=draft.picked||null,params=draft.params??(kept&&spec0.variants?.normal?.tuning?.[kept[0]]||{});
+  // 模型: a Fish service's own list; any other service's comes with its voices (VoiceAddVoices → listed).
+  const [listed,setListed]=React.useState({}),custom=service.voiceList==='provider',models=(kind==='fish-audio'?service.models:listed[service.id])||[];
+  const model=draft.model??kept?.[1].model??(custom?models[0]?.id||'':'');
+  const [named,setNamed]=React.useState(null),[naming,setNaming]=React.useState(false),[lang,setLang]=React.useState(language),[busy,setBusy]=React.useState(false);
+  const [text,setText]=React.useState(null),[mood,setMood]=React.useState('calm'),[problem,setProblem]=React.useState('');
+  // 参考音频: the voice's clips ({hash}) and the ones added here ({media, url}; not in the pack until 试听 or 保存).
+  const [items,setItems]=React.useState(()=>((source0?.kind==='reference-list'?source0:Object.values(spec0?.sources||{}).find(s=>s.kind==='reference-list'))?.references||[])
+    .map((r,i)=>({id:'saved:'+i+':'+r.media,hash:r.media,text:r.text||'',language:r.language})));
+  const name=named??(spec0?spec0.name:mode==='clone'?figure.name+'的声音':picked?.name||'');
+  const pick=choice=>{patch({picked:choice});
+    // a voice that does not speak the 配音语言 chosen here brings its own.
+    if(choice?.languages?.length&&!choice.languages.some(l=>primaryLanguage(l)===primaryLanguage(lang)))setLang(pickVoiceLanguage(choice.languages,lang));};
+  // Clips added here go into the pack when 试听 or 保存 needs them; one the pack did not have before, and the saved voice does
+  // not use, is taken out again when the dialog goes (`staged`, `used`).
+  const staged=React.useRef(new Set()),used=React.useRef(new Set()),blobs=React.useRef(null);blobs.current=pack.manifest.blobs||{};
+  React.useEffect(()=>()=>{for(const hash of staged.current)if(!used.current.has(hash))writer.run(c=>svc.removeBlob({packId,expectedRevision:c.revision,hash}));},[]);
+  // → {refs, revision} (the pack's revision after the last clip went in, if any did), or null when one could not.
+  async function saveClips(){
+    const hashes=new Map();let revision;
+    for(const it of items){
+      if(it.hash)continue;
+      const had=blobs.current,blob=await writer.run(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:it.media.bytes,descriptor:it.media.descriptor}));
+      if(!blob)return null;
+      if(!had[blob.hash])staged.current.add(blob.hash);
+      hashes.set(it.id,blob.hash);revision=blob.snapshot.revision;
+    }
+    if(hashes.size)setItems(list=>list.map(it=>hashes.has(it.id)?{...it,hash:hashes.get(it.id)}:it));
+    return {refs:items.map(it=>({media:it.hash||hashes.get(it.id),text:it.text,language:it.language})),revision};
+  }
+  const bind=catalogServices(readiness.services).filter(x=>x.kind===kind).length>1?{serviceId:service.id}:{};
+  // The voice as it stands here. A new voice has the one source; an edited one keeps its others (参考音频 of a voice now
+  // spoken by a service that does not clone), and its 原声 parameters are this source's.
+  function draftSpec(refs){
+    const base=mode==='clone'?{...(kept?.[1]||{kind:'reference-list',provider:'fish-audio'}),references:refs}:picked?picked.spec.sources[picked.spec.defaultSource]:kept[1];
+    const source={...base,...bind};
+    if(model&&(!models.length||models.some(m=>m.id===model)))source.model=model;else delete source.model;
+    if(!spec0){const sid=mode==='clone'?'fish':picked.spec.defaultSource;return voiceWithParams({name:name.trim(),language:lang,defaultSource:sid,sources:{[sid]:source}},params);}
+    const next=structuredClone(spec0),sid=kept?.[0]||freeSourceId(next,kind==='fish-audio'?(mode==='clone'?'fish':'lib'):custom?'custom':kind);
+    Object.assign(next,{name:name.trim(),language:lang,defaultSource:sid});next.sources[sid]=source;
+    const tuning={...next.variants?.normal?.tuning},set=voiceSetParams(params);
+    if(Object.keys(set).length)tuning[sid]=set;else delete tuning[sid];
+    if(Object.keys(tuning).length)next.variants={...next.variants,normal:{name:'原声',...next.variants?.normal,tuning}};
+    else if(next.variants?.normal)delete next.variants.normal.tuning;
+    return next;
+  }
+  // a voice that clones is its clips: they are saved whatever state its service is in.
+  const ready=!!name.trim()&&(mode==='clone'?items.length>0:!state?.warn&&!!(picked||kept));
+  // what 保存 would change, against how the dialog opened.
+  const signature=JSON.stringify([name,lang,service.id,mode,picked?.key||'',model,params,items.map(it=>[it.hash||it.id,it.text,it.language])]),opened=React.useRef(null);
+  if(opened.current===null&&readiness.loaded)opened.current=signature;
+  const dirty=signature!==opened.current;
   const use=async()=>{
-    setBusy(true);preview.stop();
+    setBusy(true);setProblem('');preview.stop();clips?.stop();
     try{
-      if(mode==='clone'){const made=await clipSet.make();if(made&&await writer.createVoice(withParams(made)))onDone(made.name);return;}
-      const spec=withParams(picked.spec);
-      if(await writer.createVoice(spec))onDone(spec.name);
+      const saved=mode==='clone'?await saveClips():{refs:[]};if(!saved)return;
+      const spec=draftSpec(saved.refs);
+      if(await(spec0?writer.saveVoice(spec):writer.createVoice(spec))){used.current=new Set(saved.refs.map(r=>r.media));onDone(spec.name,!spec0);}
     }finally{setBusy(false);}
   };
-  const ready=mode==='clone'?!!clipSet?.ready:!!picked;
-  const go=state?.setup&&openSettings&&h(Button,{className:'ap-hint-chip',onClick:()=>openSettings(kind,{id:service.id})},'去设置');
-  const servicePick=h(VoiceFilterPick,{label:'语音服务',value:service.id,className:'ap-vx-service-pick',options:services.map(s=>({id:s.id,label:s.label||providerName(s.kind),meta:states[s.id]?.warn?'⚠':''})),onPick:setServiceId});
-  const common={binding,figure,service,serviceKind:kind,bind:bind(service),language,preview,candidate,picked,onPick:setPicked,withParams,params};
-  const pane=state?.warn?h('p',{className:'ap-vx-warn'},h(Glyph,{name:'warning'}),h('span',null,state.text),go||null):
-    mode==='clone'?h(VoiceAddClone,{...common,writer,pack,onState:setClipSet}):
-    kind==='fish-audio'?h(VoiceAddFish,{...common,key:service.id}):h(VoiceAddVoices,{...common,key:service.id});
-  const defs=VOICE_TUNING[kind]||[];
-  return h(Modal,{title:'添加声音',onClose,busy,className:'ap-vx-add-modal',head:h('header',null,h('h2',null,'添加声音'),h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:onClose})),
-    foot:h('div',{className:'ap-vx-add-foot'},h(Button,{primary:true,disabled:!ready||busy||!!state?.warn,onClick:use},busy?'正在添加…':'使用'))},
+  // 试听 reads the voice as it stands here: a clone's new clips go into the pack first.
+  const sayKey='draft:'+figure.id,sayState=preview.of(sayKey),sample=sampleText(lang),line=voiceSayTyped(text,sample)||sample;
+  const say=async()=>{
+    if(sayState&&sayState.phase!=='error'){preview.stop();return;}
+    setProblem('');clips?.stop();
+    if(kind==='browser'){const spec=draftSpec([]);return preview.playBrowser(sayKey,{voice:spec.sources[spec.defaultSource].voiceName,language:lang,text:line},{mood});}
+    const saved=mode==='clone'?await saveClips():{refs:[]};if(!saved)return;
+    const spec=draftSpec(saved.refs);
+    preview.play(sayKey,{...candidate(spec),...(saved.revision?{expectedRevision:saved.revision}:{}),text:line,mood},{label:spec.name,mood});
+  };
+  const title=spec0?'编辑声音':'新建声音';
+  // closing asks first only when clips added here (a recording cannot be had again) would go with it.
+  const [leaving,setLeaving]=React.useState(false),leave=()=>items.some(it=>it.url)?setLeaving(true):onClose();
+  const go=state?.setup&&openSettings&&h(Button,{className:'ap-hint-chip',onClick:()=>openSettings(kind,service.unset?undefined:{id:service.id})},service.unset?VOICE_BACKEND_LINK:'去设置');
+  const lacks=state?.warn&&h('p',{className:'ap-vx-warn',role:'status'},h(Glyph,{name:'warning'}),h('span',null,state.text),go||null);
+  const common={binding,figure,service,serviceKind:kind,bind,language:lang,preview,candidate,picked,onPick:pick,withParams:spec=>voiceWithParams(spec,params),params};
+  const pane=mode==='clone'?h(React.Fragment,null,lacks||null,h(VoiceCloneClips,{binding,pack,items,setItems,language:lang,clips,disabled:busy,setError:setProblem,onPlay:()=>preview.stop()})):
+    state?.warn?lacks:kind==='fish-audio'?h(VoiceAddFish,{...common,key:service.id,current:kept?.[1].voiceId}):
+    h(VoiceAddVoices,{...common,key:service.id,current:kept?.[1].voiceName,model,onModel:id=>patch({model:id}),onModels:list=>setListed(all=>({...all,[service.id]:list}))});
+  const defs=VOICE_TUNING[kind]||[],modelOptions=models.map(m=>({id:m.id,label:m.label||m.id}));
+  // the clips go along to another service that clones.
+  const carries=s=>s.id!==service.id&&items.length>0&&s.sources.includes('reference-list');
+  // a voice that cannot speak the 配音语言 chosen here says so before it is saved.
+  const speaker=mode==='clone'?{provider:kind}:picked?picked.spec.sources[picked.spec.defaultSource]:kept?.[1];
+  const said=problem||error||(sayState?.phase==='error'?'试听失败：'+sayState.error:'')||(speaker&&!state?.warn&&!voiceSpeaks(speaker,lang)?'这个声音不支持'+voiceLanguageName(primaryLanguage(lang)):'');
+  return h(Modal,{title,onClose:leave,busy,className:'ap-vx-add-modal',initialFocus:'dialog',
+    head:h('header',null,h('h2',null,title),h('span',{className:'ap-vx-add-tools'},
+      spec0&&onDelete&&h(Popover,{label:'声音操作',className:'ap-voice-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'声音操作','aria-expanded':open,onClick:toggle}),
+        content:close=>h(MenuItem,{danger:true,onClick:()=>{close();preview.stop();onDelete();}},'删除声音…')}),
+      h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:leave}))),
+    foot:h('div',{className:'ap-vx-add-foot'},
+      h(VoiceSay,{state:sayState,text,sample,onText:setText,rows,mood,onMood:setMood,off:!ready||!!state?.warn,disabled:!ready||!!state?.warn||busy||kind!=='browser'&&!binding.tts,title:!binding.tts&&kind!=='browser'?'配音插件未启用':undefined,onPlay:say}),
+      h(Button,{primary:true,disabled:!ready||busy||!!spec0&&!dirty,onClick:use},busy?'正在保存…':spec0?'保存':'使用'))},
     h('div',{className:'ap-vx-add-cols'},
       h('nav',{className:'ap-vx-nav','aria-label':'语音服务'},
-        h('div',{role:'tablist','aria-orientation':'vertical','aria-label':'语音服务',className:'ap-vx-nav-list'},services.map(s=>h('button',{key:s.id,type:'button',role:'tab','aria-selected':s.id===service.id,className:'ap-vx-nav-item','data-current':s.id===service.id||undefined,onClick:()=>setServiceId(s.id)},
-          h('span',null,s.label||providerName(s.kind)),states[s.id]?.warn&&h('span',{className:'ap-vx-nav-warn',role:'img','aria-label':states[s.id].text,title:states[s.id].text},h(Glyph,{name:'warning'}))))),
+        h('div',{role:'tablist','aria-orientation':'vertical','aria-label':'语音服务',className:'ap-vx-nav-list'},services.map(s=>h('button',{key:s.id,type:'button',role:'tab','aria-selected':s.id===service.id,className:'ap-vx-nav-item','data-current':s.id===service.id||undefined,onClick:()=>{preview.stop();setChosen(s.id);}},
+          h('span',null,s.label||providerName(s.kind)),
+          carries(s)&&h('span',{className:'ap-vx-nav-clips',role:'img','aria-label':items.length+' 段参考音频一起带过去',title:items.length+' 段参考音频一起带过去'},h(Glyph,{name:'mic'}),items.length),
+          states[s.id]?.warn&&h('span',{className:'ap-vx-nav-warn',role:'img','aria-label':states[s.id].text,title:states[s.id].text},h(Glyph,{name:'warning'}))))),
         openSettings&&h(Button,{className:'ap-link ap-vx-nav-foot',onClick:()=>openSettings(null)},'语音后端 ›')),
+      h('div',{className:'ap-vx-ident',onBlur:()=>setNaming(false),onKeyDown:e=>{if(naming&&(e.key==='Enter'||e.key==='Escape')){e.stopPropagation();setNaming(false);}}},
+        naming?h(CommitInput,{className:'ap-vx-name-input','aria-label':'声音名称',autoFocus:true,value:name,maxLength:60,onCommit:v=>setNamed(v.trim()||null)}):
+          h('button',{type:'button',className:'ap-vx-name','aria-label':'重命名：'+(name||'新声音'),title:'重命名','data-empty':!name||undefined,onClick:()=>setNaming(true)},h('span',null,name||'新声音'),h(Glyph,{name:'edit'}))),
       h('div',{className:'ap-vx-pane'},
-        h('div',{className:'ap-vx-pane-tools is-head'},servicePick,ways.length>1&&h(Segmented,{label:'方式',className:'ap-vx-ways',value:mode,options:ways,onChange:id=>setModes(m=>({...m,[service.id]:id}))})),
+        said&&h('p',{className:'ap-vx-try-error',role:'alert'},h(VoiceWarn,null,said)),
+        ways.length>1&&h('div',{className:'ap-vx-pane-tools'},h(Segmented,{label:'方式',className:'ap-vx-ways',value:mode,options:ways,onChange:id=>{preview.stop();setModes(m=>({...m,[service.id]:id}));}})),
         pane,
-        !state?.warn&&defs.length>0&&h(VoiceParams,{binding,kind,defs,params,setParams,voiceName:picked?.spec?.sources?.[picked.spec.defaultSource]?.voiceName,clone:mode==='clone'}))));
+        (!state?.warn||mode==='clone')&&h('div',{className:'ap-vx-set',role:'group','aria-label':'设置'},
+          models.length>1&&h(React.Fragment,null,h('span',{className:'ap-vx-set-label'},'模型'),
+            h(VoiceOptionPick,{label:'模型',value:model||(kind==='fish-audio'?models[0].id:''),options:kind==='fish-audio'||custom?modelOptions:[{id:'',label:'默认模型'},...modelOptions],onPick:id=>patch({model:id})})),
+          h('span',{className:'ap-vx-set-label'},'配音语言'),
+          h(VoiceLanguagePick,{value:lang,defaultValue:spec0?effectiveVoiceLanguage('',spec0.language):undefined,label:'配音语言',icon:'language',title:VOICE_LANGUAGE_HELP,onPick:setLang}),
+          defs.length>0&&h(VoiceParams,{binding,kind,defs,params,setParams:change=>patch({params:change(params)}),voiceName:picked?picked.spec.sources[picked.spec.defaultSource].voiceName:kept?.[1].voiceName}))),
+      leaving&&h(ConfirmDialog,{title:'不保存新加的参考音频？',confirmLabel:'不保存',danger:true,onConfirm:onClose,onClose:()=>setLeaving(false),body:'关闭后，这次新加的参考音频不会留下。'})));
 }
-// The parameters a service allows (VOICE_TUNING, the adapters' own ranges): sliders, 风格 (Azure, the picked voice's styles),
-// 风格指令 (通义千问). `params` is what the new voice will keep; a value at its base is not kept.
-function VoiceParams({binding,kind,defs,params,setParams,voiceName,clone}) {
+// The parameters a service allows (VOICE_TUNING, the adapters' own ranges), a label and its control each: sliders, 风格
+// (Azure, the picked voice's styles), 风格指令 (通义千问). `params` is what the voice keeps; a value at its base is not kept.
+function VoiceParams({binding,kind,defs,params,setParams,voiceName}) {
   const azure=useVoiceLoad(()=>kind==='azure'&&binding.tts?.call?binding.tts.call('listOnlinePresetVoices',{provider:'azure'}):null,[binding,kind]);
   const styles=azure.value?.voices?.find(v=>v.id===voiceName)?.styles||[];
   const set=(key,value)=>setParams(p=>{const next={...p};if(value===null||value===undefined||value==='')delete next[key];else next[key]=value;return next;});
-  const control=def=>{
-    if(def.kind==='text')return h(React.Fragment,{key:def.key},h('span',{className:'ap-vx-param-label'},def.label),h(InlineField,{kind:'text',label:def.label,hideLabel:true,className:'ap-vx-param-text',value:params[def.key]||'',placeholder:'例：语气轻快，带一点撒娇',maxLength:200,onCommit:v=>set(def.key,v.trim())}));
-    if(def.kind==='style')return h(React.Fragment,{key:def.key},h('span',{className:'ap-vx-param-label'},def.label),
+  return defs.map(def=>{
+    const label=h('span',{className:'ap-vx-set-label'},def.label);
+    if(def.kind==='text')return h(React.Fragment,{key:def.key},label,h(InlineField,{kind:'text',label:def.label,hideLabel:true,className:'ap-vx-param-text',value:params[def.key]||'',placeholder:'例：语气轻快，带一点撒娇',maxLength:200,onCommit:v=>set(def.key,v.trim())}));
+    if(def.kind==='style')return h(React.Fragment,{key:def.key},label,
       h(VoiceOptionPick,{label:def.label,value:params.style||'',options:[{id:'',label:'默认'},...styles.map(s=>({id:s,label:s}))],onPick:id=>set('style',id||null)}));
     const value=Number.isFinite(params[def.key])?params[def.key]:def.base;
-    return h(React.Fragment,{key:def.key},h('span',{className:'ap-vx-param-label'},def.label),
+    return h(React.Fragment,{key:def.key},label,
       h(Slider,{className:'ap-tune',label:def.label,min:def.min,max:def.max,step:def.step,value,reset:def.base,valueText:v=>tuneText(def,v),output:v=>tuneText(def,v),outputClassName:'ap-tune-value',onCommit:v=>set(def.key,v===def.base?null:v)}));
-  };
-  return h('div',{className:'ap-vx-params'+(clone?' is-form':''),role:'group','aria-label':'参数'},defs.map(control));
+  });
 }
-// The voice list of 添加声音: tools (search · 配音语言) on top, the rows, one picked (`picked.key`). `rows` [{key, name, meta,
-// end, spec, play}].
-function VoiceAddList({tools,rows,picked,onPick,empty,label}) {
+// The voice list of a service: tools (search · 配音语言) on top, the rows, one picked (`picked.key`; before any pick here the
+// voice's own, `current`). `rows` [{key, name, meta, end, spec, play, voice, languages}].
+function VoiceAddList({tools,rows,picked,current,onPick,empty,label}) {
   return h(React.Fragment,null,h('div',{className:'ap-vx-pane-tools'},tools),
-    rows===null?h(VoiceLoading,{count:4}):rows.length?h('ul',{className:'ap-vx-rows ap-vx-pane-list','aria-label':label},rows.map(r=>h(VoiceListRow,{key:r.key,name:r.name,meta:r.meta,end:r.end,picked:picked?.key===r.key,play:r.play,
-      onPick:()=>onPick(picked?.key===r.key?null:{key:r.key,spec:r.spec,name:r.name})}))):empty);
+    rows===null?h(VoiceLoading,{count:4}):rows.length?h('ul',{className:'ap-vx-rows ap-vx-pane-list','aria-label':label},rows.map(r=>{
+      const on=picked?picked.key===r.key:current!==undefined&&r.voice===current;
+      return h(VoiceListRow,{key:r.key,name:r.name,meta:r.meta,end:r.end,picked:on,play:r.play,onPick:()=>onPick(picked?.key===r.key?null:{key:r.key,spec:r.spec,name:r.name,languages:r.languages})});})):empty);
 }
 // 配音语言 filter of a voice list: the figure's language first, 「所有语言」 lists every voice.
 function VoiceLangFilter({value,onPick}) {
-  return h(VoiceFilterPick,{label:'配音语言',value,icon:'language',options:[{id:'',label:'所有语言'},...VOICE_LANGUAGE_CHOICES.map(([id,name,en])=>({id,label:name,words:[en]}))],onPick,className:'ap-vx-lang-filter'});
+  return h(VoiceFilterPick,{label:'列出的语言',value,icon:'language',options:[{id:'',label:'所有语言'},...VOICE_LANGUAGE_CHOICES.map(([id,name,en])=>({id,label:name,words:[en]}))],onPick,className:'ap-vx-lang-filter'});
 }
 const VOICE_GENDER_SHORT={female:'女',male:'男',neutral:'中性'};
 // Fish 声音库 filters and sorts: one radio group each for 性别 and 年龄, 风格 any of;
@@ -784,14 +857,15 @@ function FishSortMenu({sort,onSort}) {
 }
 // Fish Audio 声音库: the popular voices in the chosen language (zh / ja; the others list both), typing filters them; Enter asks
 // Fish by name, a pasted voice ID is looked up. ▶ plays a voice's official sample (no synthesis) unless parameters are set:
-// then the picked voice is synthesised with them (the paid-preview gate asks first).
-function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,picked,onPick,withParams,params}) {
+// then the picked voice is synthesised with them (the paid-preview gate asks first). `current`: the voice an edited voice
+// speaks with — it stays listed.
+function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,picked,current,onPick,withParams,params}) {
   const [lang,setLang]=React.useState(['zh','ja'].includes(primaryLanguage(language))?primaryLanguage(language):''),[query,setQuery]=React.useState(''),[found,setFound]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState('');
   const [tags,setTags]=React.useState([]),[sort,setSort]=React.useState(''),[asked,setAsked]=React.useState('');
   // a filter or a sort asks Fish (20 voices; typing then Enter narrows by name); none: the popular list, typing filters it.
   const sifted=tags.length>0||!!sort;
   const remote=useVoiceLoad(()=>sifted&&binding.tts?.call?voiceTts(binding).call('searchFishVoices',{serviceId:service.id,query:asked,tags,...(sort?{sort}:{}),...(lang?{language:lang}:{}),page:1}):null,[binding,service.id,lang,sifted,tags.join(','),sort,asked],{keep:true});
-  const recommended=useVoiceLoad(()=>binding.tts?.call?voiceTts(binding).call('listRecommendedFishVoices',{...(lang?{language:lang}:{}),serviceId:service.id}):null,[binding,service.id,lang],{keep:true});
+  const recommended=useVoiceLoad(()=>binding.tts?.call?voiceTts(binding).call('listRecommendedFishVoices',{...(lang?{language:lang}:{}),serviceId:service.id,...(current?{selectedVoiceId:current}:{})}):null,[binding,service.id,lang,current],{keep:true});
   const q=query.trim(),idLike=/^[A-Za-z0-9_-]{24,160}$/.test(q)&&!/\s/.test(q),needle=voiceNeedle(q);
   async function find(){
     if(sifted&&!idLike){setAsked(q);return;}
@@ -803,9 +877,9 @@ function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,pi
   }
   const tuned=Object.keys(params).length>0;
   const row=v=>{const name=v.name||'Fish 声音',key='fish:'+v.voiceId,spec={name,language:pickVoiceLanguage(v.languages,lang||'zh'),defaultSource:'fish',sources:{fish:{kind:'voice-id',provider:'fish-audio',voiceId:v.voiceId,...bind}}};
-    const heat=voiceCount(v.likeCount);
-    const play=h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+name+'」',onClick:()=>v.sampleUrl&&!(tuned&&picked?.key===key)?preview.playSample(key,{serviceId:service.id,voiceId:v.voiceId},{request:candidate(withParams(spec)),label:name}):preview.play(key,candidate(withParams(spec)),{label:name})});
-    return {key,name,spec,play,meta:[VOICE_GENDER_SHORT[v.gender],...(v.toneTags||[]).slice(0,3)].filter(Boolean).join(' · '),end:heat&&h('span',{className:'ap-vx-heat'},heat+' ♥')};};
+    const heat=voiceCount(v.likeCount),on=picked?picked.key===key:v.voiceId===current;
+    const play=h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+name+'」',onClick:()=>v.sampleUrl&&!(tuned&&on)?preview.playSample(key,{serviceId:service.id,voiceId:v.voiceId},{request:candidate(withParams(spec)),label:name}):preview.play(key,candidate(withParams(spec)),{label:name})});
+    return {key,name,spec,play,voice:v.voiceId,languages:v.languages,meta:[VOICE_GENDER_SHORT[v.gender],...(v.toneTags||[]).slice(0,3)].filter(Boolean).join(' · '),end:heat&&h('span',{className:'ap-vx-heat'},heat+' ♥')};};
   const answer=found&&found.query===q?found:null;
   const list=answer?answer.voices:sifted?(remote.value?remote.value.voices||[]:null):recommended.value?(recommended.value.voices||[]).filter(v=>voiceMatches(needle,[v.name,...(v.toneTags||[]),VOICE_GENDERS[v.gender]])):null;
   const tools=h(React.Fragment,null,
@@ -818,64 +892,99 @@ function VoiceAddFish({binding,figure,service,bind,language,preview,candidate,pi
     error&&h(VoiceLoadError,{error}),
     recommended.error&&!recommended.value&&!sifted&&h(VoiceLoadError,{error:recommended.error,retry:recommended.reload}),
     remote.error&&sifted&&h(VoiceLoadError,{error:remote.error,retry:remote.reload}),
-    h(VoiceAddList,{label:'Fish 声音',tools,rows:list&&list.map(row),picked,onPick,
+    h(VoiceAddList,{label:'Fish 声音',tools,rows:list&&list.map(row),picked,current,onPick,
       empty:answer?.missing?h(EmptyState,{compact:true,text:'没有找到这个编号'}):sifted&&tags.length?h(EmptyState,{compact:true,noun:'声音',filter:tags.map(x=>fishTagName.get(x)).join('·'),query:asked,onClear:()=>{setTags([]);setAsked('');}}):q?h(EmptyState,{compact:true,noun:'声音',query:q,plain:true,onClear:()=>setQuery('')}):h(EmptyState,{compact:true,noun:'声音'})}));
 }
-// Any other service (and 浏览器朗读): its voices in the chosen language, typing filters; 模型 where the service offers several.
-// A service that lists no voices (a custom endpoint) takes the voice by name.
-function VoiceAddVoices({binding,service,serviceKind:kind,bind,language,preview,candidate,picked,onPick,withParams}) {
+// Any other service (and 浏览器朗读): its voices in the chosen language, typing filters. Its 模型 list goes up to the dialog
+// (`onModels`), which holds the one chosen (`model`). A service that lists no voices (a custom endpoint) takes the voice —
+// and, listing no models either, the model — by name. `current`: the voice an edited voice speaks with.
+function VoiceAddVoices({binding,service,serviceKind:kind,bind,language,preview,candidate,picked,current,onPick,withParams,model,onModel,onModels}) {
   const browser=kind==='browser',custom=service.voiceList==='provider';
-  const [lang,setLang]=React.useState(primaryLanguage(language)),[query,setQuery]=React.useState(''),[model,setModel]=React.useState(''),[typed,setTyped]=React.useState('');
+  const [lang,setLang]=React.useState(primaryLanguage(language)),[query,setQuery]=React.useState(''),[typed,setTyped]=React.useState('');
   const list=useVoiceLoad(()=>browser?browserSpeechVoiceList(window.speechSynthesis).then(voices=>({voices})):custom?voiceTts(binding).call('providerVoices',{serviceId:service.id}):voiceTts(binding).call('listOnlinePresetVoices',{provider:kind,serviceId:service.id}),[binding,kind,service.id]);
   const failed=list.value?.status==='error',voices=failed?[]:list.value?.voices||[];
   const models=(failed?[]:list.value?.models||service.models||[]).map(m=>typeof m==='string'?{id:m,label:m}:{id:m.id,label:m.label||m.id});
-  const useModel=model||(custom?models[0]?.id||'':'');
+  React.useEffect(()=>{onModels(models);},[JSON.stringify(models)]);
   const needle=voiceNeedle(query.trim()),speaks=v=>!lang||!(v.languages||[]).length||v.languages.some(l=>primaryLanguage(l)===lang);
-  const sid=custom?'custom':kind;
-  const specOf=v=>({name:v.label||v.id,language:pickVoiceLanguage(browser?(v.languages||[]).map(primaryLanguage):v.languages,lang||'zh'),defaultSource:sid,sources:{[sid]:{kind:'preset',provider:kind,voiceName:v.id,...(useModel?{model:useModel}:{}),...bind}}});
-  const row=v=>{const key=kind+':'+service.id+':'+v.id+':'+useModel,name=v.label||v.id,spec=specOf(v);
-    const play=h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+name+'」',disabled:custom&&!useModel,onClick:()=>browser?preview.playBrowser(key,{voice:v.id,language:v.languages?.[0],text:sampleText(primaryLanguage(v.languages?.[0]||'zh'))}):preview.play(key,candidate(withParams(spec)),{label:name})});
-    return {key,name,spec,play,meta:[v.mine?'我的音色':'',VOICE_GENDER_SHORT[v.gender],v.description||''].filter(Boolean).join(' · ')};};
-  const shown=list.value?voices.filter(v=>speaks(v)&&voiceMatches(needle,[v.label,v.id,v.description,...(v.styles||[])])):null;
+  const sid=custom?'custom':kind,languagesOf=v=>browser?(v.languages||[]).map(primaryLanguage):v.languages;
+  const specOf=v=>({name:v.label||v.id,language:pickVoiceLanguage(languagesOf(v),lang||'zh'),defaultSource:sid,sources:{[sid]:{kind:'preset',provider:kind,voiceName:v.id,...(model?{model}:{}),...bind}}});
+  const row=v=>{const key=kind+':'+service.id+':'+v.id,name=v.label||v.id,spec=specOf(v);
+    const play=h(VoiceRowPlay,{state:preview.of(key),label:'试听「'+name+'」',disabled:custom&&!model,onClick:()=>browser?preview.playBrowser(key,{voice:v.id,language:v.languages?.[0],text:sampleText(primaryLanguage(v.languages?.[0]||'zh'))}):preview.play(key,candidate(withParams(spec)),{label:name})});
+    return {key,name,spec,play,voice:v.id,languages:languagesOf(v),meta:[v.mine?'我的音色':'',VOICE_GENDER_SHORT[v.gender],v.description||''].filter(Boolean).join(' · ')};};
+  // the voice in use is listed whatever language is listed.
+  const shown=list.value?voices.filter(v=>(speaks(v)||v.id===current)&&voiceMatches(needle,[v.label,v.id,v.description,...(v.styles||[])])):null;
   const tools=h(React.Fragment,null,
     h(PackSearchBox,{label:'搜索音色',value:query,placeholder:'搜名字',onChange:setQuery,onKeyDown:voiceSearchKeys(query,()=>setQuery(''))}),
-    models.length>1&&h(VoiceOptionPick,{label:'模型',value:useModel,options:[...(custom?[]:[{id:'',label:'默认模型'}]),...models],onPick:setModel}),
     !browser||voices.some(v=>(v.languages||[]).length)?h(VoiceLangFilter,{value:lang,onPick:setLang}):null);
   if(list.error||failed)return h(VoiceLoadError,{error:list.error||'读不到这个服务的声音列表',retry:list.reload});
   if(custom&&list.value&&!voices.length)return h(InlineGrid,{label:'音色',columns:1,className:'ap-vx-fields'},
-    !models.length&&h(InlineField,{kind:'text',label:'模型',value:model,placeholder:'例：tts-1',maxLength:160,onCommit:v=>setModel(v.trim())}),
-    h(InlineField,{kind:'text',label:'音色',value:typed,placeholder:'例：alloy',maxLength:160,onCommit:v=>{const id=v.trim();setTyped(id);onPick(id?{key:'typed:'+id,spec:specOf({id,label:id,languages:[]}),name:id}:null);}}));
-  return h(VoiceAddList,{label:service.label||providerName(kind),tools,rows:shown&&shown.map(row),picked,onPick,
+    !models.length&&h(InlineField,{kind:'text',label:'模型',value:model,placeholder:'例：tts-1',maxLength:160,onCommit:v=>onModel(v.trim())}),
+    h(InlineField,{kind:'text',label:'音色',value:typed||current||'',placeholder:'例：alloy',maxLength:160,onCommit:v=>{const id=v.trim();setTyped(id);onPick(id?{key:'typed:'+id,spec:specOf({id,label:id,languages:[]}),name:id}:null);}}));
+  return h(VoiceAddList,{label:service.label||providerName(kind),tools,rows:shown&&shown.map(row),picked,current,onPick,
     empty:needle?h(EmptyState,{compact:true,noun:'音色',query,plain:true,onClear:()=>setQuery('')}):h(EmptyState,{compact:true,text:'这个服务没有'+(lang?voiceLanguageName(lang):'')+'音色',icon:h(Glyph,{name:'voice'})})});
 }
-// 录音克隆: clips of one person speaking (WAV / MP3; the reference rows of a voice: ▶ · what it says · language), a 名称 and
-// 模型. Nothing is written until 「使用」: then the clips go into the pack and make the new voice (`onState({ready, make})`).
-function VoiceAddClone({binding,figure,pack,service,bind,language,writer,onState}) {
-  const [items,setItems]=React.useState([]),[name,setName]=React.useState(figure.name+'的声音'),[model,setModel]=React.useState(''),[playing,setPlaying]=React.useState(null),[error,setError]=React.useState('');
-  const audio=React.useRef(null),models=service.models||[];
-  React.useEffect(()=>()=>{audio.current?.pause?.();for(const it of items)URL.revokeObjectURL(it.url);},[]);
+// One clip recorded now, as the WAV file a reference clip must be: decoded once, mixed to one channel, 16-bit.
+async function voiceRecordingWav(blob){
+  const context=new (window.AudioContext||window.webkitAudioContext)();
+  try{
+    const audio=await context.decodeAudioData(await blob.arrayBuffer()),n=audio.length,mix=new Float32Array(n);
+    for(let c=0;c<audio.numberOfChannels;c++){const data=audio.getChannelData(c);for(let i=0;i<n;i++)mix[i]+=data[i]/audio.numberOfChannels;}
+    const view=new DataView(new ArrayBuffer(44+n*2)),put=(at,s)=>{for(let i=0;i<s.length;i++)view.setUint8(at+i,s.charCodeAt(i));};
+    put(0,'RIFF');view.setUint32(4,36+n*2,true);put(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);
+    view.setUint32(24,audio.sampleRate,true);view.setUint32(28,audio.sampleRate*2,true);view.setUint16(32,2,true);view.setUint16(34,16,true);put(36,'data');view.setUint32(40,n*2,true);
+    for(let i=0;i<n;i++){const s=Math.max(-1,Math.min(1,mix[i]));view.setInt16(44+i*2,s<0?s*0x8000:s*0x7fff,true);}
+    return new File([view.buffer],'录音.wav',{type:'audio/wav'});
+  }finally{context.close();}
+}
+// The microphone tile of 参考音频: a click records, the next click ends it and hands over the clip (`onClip(file)`).
+// `supported` false: this device cannot record (the tile is not shown).
+function useVoiceRecorder(onClip,onError){
+  const [since,setSince]=React.useState(null),[,tick]=React.useState(0),run=React.useRef(null);
+  const supported=typeof navigator!=='undefined'&&!!navigator.mediaDevices?.getUserMedia&&typeof MediaRecorder!=='undefined';
+  const release=()=>{const now=run.current;run.current=null;now?.stream.getTracks().forEach(t=>t.stop());};
+  React.useEffect(()=>()=>{const now=run.current;if(now){now.recorder.onstop=null;now.recorder.stop();release();}},[]);
+  React.useEffect(()=>{if(since===null)return;const timer=setInterval(()=>tick(n=>n+1),500);return()=>clearInterval(timer);},[since]);
+  async function start(){
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1}}),recorder=new MediaRecorder(stream),chunks=[];
+      recorder.ondataavailable=e=>chunks.push(e.data);
+      recorder.onstop=()=>{release();setSince(null);voiceRecordingWav(new Blob(chunks,{type:recorder.mimeType})).then(onClip,onError);};
+      run.current={recorder,stream};recorder.start();setSince(Date.now());
+    }catch(e){onError(e);}
+  }
+  return {supported,on:since!==null,seconds:since===null?0:Math.floor((Date.now()-since)/1000),toggle:()=>run.current?run.current.recorder.stop():start()};
+}
+// 录音克隆's clips: the voice's own (`hash`: in the pack) and the ones added here (`url`: WAV / MP3 files, or one recorded
+// now) — ▶ · what it says · language · length · ⋯. The whole list, in this order, is sent with every line. The dashed ＋
+// takes files, the microphone records. Nothing here writes the pack (VoiceAddDialog saveClips does).
+function VoiceCloneClips({binding,pack,items,setItems,language,clips,disabled,setError,onPlay}) {
+  const [playing,setPlaying]=React.useState(null),audio=React.useRef(null),urls=React.useRef(new Set());
+  const saved=items.filter(it=>!it.url),durations=useClipDurations(binding,pack.manifest.id,saved.map(it=>it.hash));
+  React.useEffect(()=>()=>{audio.current?.pause?.();for(const url of urls.current)URL.revokeObjectURL(url);},[]);
   const add=async files=>{setError('');const next=[];
-    for(const file of files){try{const media=await prepareVoiceClip(file);const url=URL.createObjectURL(new Blob([media.bytes],{type:media.descriptor.mime}));
+    for(const file of files){try{const media=await prepareVoiceClip(file);const url=URL.createObjectURL(new Blob([media.bytes],{type:media.descriptor.mime}));urls.current.add(url);
       const duration=await new Promise(resolve=>{const a=new Audio();a.preload='metadata';a.onloadedmetadata=()=>resolve(a.duration);a.onerror=()=>resolve(null);a.src=url;});
       next.push({id:url,url,media,text:'',language:primaryLanguage(language),size:media.bytes.length,duration});}catch(e){setError(errorText(e));}}
     setItems(list=>[...list,...next]);};
-  const toggle=it=>{audio.current?.pause?.();if(playing===it.id){setPlaying(null);return;}const a=new Audio(it.url);audio.current=a;forkStageAudio?.preview?.(a);a.onended=()=>setPlaying(p=>p===it.id?null:p);a.play().then(()=>setPlaying(it.id),()=>setPlaying(null));};
-  const edit=(i,patch)=>setItems(list=>list.map((x,j)=>j===i?{...x,...patch}:x));
+  const recorder=useVoiceRecorder(file=>add([file]),e=>setError(['NotAllowedError','NotFoundError','SecurityError'].includes(e?.name)?'用不了麦克风，请检查系统的麦克风权限':'这段录音没能存下来，请再录一次'));
+  const toggle=it=>{onPlay?.();audio.current?.pause?.();
+    if(!it.url){setPlaying(null);clips?.toggle({kind:'voice-ref',id:it.id,media:it.hash,name:''});return;}
+    clips?.stop();if(playing===it.id){setPlaying(null);return;}
+    const a=new Audio(it.url);audio.current=a;forkStageAudio?.preview?.(a);a.onended=()=>setPlaying(p=>p===it.id?null:p);a.play().then(()=>setPlaying(it.id),()=>setPlaying(null));};
+  const edit=(i,change)=>setItems(list=>list.map((x,j)=>j===i?{...x,...change}:x));
   const move=(i,d)=>setItems(list=>{const j=i+d;if(j<0||j>=list.length)return list;const next=[...list];[next[i],next[j]]=[next[j],next[i]];return next;});
-  React.useEffect(()=>{onState({ready:items.length>0&&!!name.trim(),make:async()=>{
-    const refs=await writer.uploadClips(items.map(it=>it.media),items.map(it=>({text:it.text,language:it.language})));
-    if(!refs)return null;
-    const made=cloneSpec(figure,primaryLanguage(language),refs);made.name=name.trim();made.sources.fish={...made.sources.fish,...bind,...(model?{model}:{})};return made;}});},[items,name,model]);
   return h('div',{className:'ap-vx-clone'},
-    error&&h(VoiceLoadError,{error}),
-    h('ol',{className:'ap-clips','aria-label':'录音'},
-      items.map((it,i)=>h(VoiceClipRow,{key:it.id,index:i,count:items.length,clip:{text:it.text,language:it.language},size:it.size,duration:it.duration,playing:playing===it.id?'playing':null,reorder:true,
-        onPlay:()=>toggle(it),onEdit:patch=>edit(i,patch),onMove:d=>move(i,d),onRemove:()=>setItems(list=>list.filter(x=>x!==it))})),
-      h('li',{className:'ap-clip-add-row'},h('label',{className:'ap-clip-add','data-needed':!items.length||undefined,title:'添加录音'},h(Glyph,{name:'plus'}),
-        h('input',{type:'file',multiple:true,accept:VOICE_CLIP_ACCEPT,'aria-label':'添加录音',onChange:e=>{const files=[...(e.target.files||[])];e.target.value='';if(files.length)add(files);}})))),
-    h(InlineGrid,{label:'新声音',columns:1,className:'ap-vx-fields'},
-      h(InlineField,{kind:'text',label:'名称',value:name,maxLength:60,validate:v=>v.trim()?'':'名称不能为空',onCommit:v=>setName(v.trim())}),
-      models.length>1&&h(InlineRow,{label:'模型'},h(VoiceOptionPick,{label:'模型',value:model||models[0].id,options:models.map(m=>({id:m.id,label:m.label||m.id})),onPick:setModel}))));
+    clips?.state?.status==='error'&&h(VoiceLoadError,{error:clips.state.error}),
+    h('ol',{className:'ap-clips','aria-label':'参考音频'},
+      items.map((it,i)=>h(VoiceClipRow,{key:it.id,index:i,count:items.length,clip:{text:it.text,language:it.language},reorder:true,
+        size:it.size??pack.manifest.blobs?.[it.hash]?.size,duration:it.url?it.duration:durations[saved.indexOf(it)],
+        playing:it.url?(playing===it.id?'playing':null):clips?.state?.id==='voice-ref/'+it.id?clips.state.status:null,
+        onPlay:()=>toggle(it),onEdit:change=>edit(i,change),onMove:d=>move(i,d),onRemove:()=>setItems(list=>list.filter(x=>x!==it))})),
+      h('li',{className:'ap-clip-add-row'},
+        h('label',{className:'ap-clip-add','data-disabled':disabled||undefined,'data-needed':!items.length||undefined,title:'添加参考音频'},h(Glyph,{name:'plus'}),
+          h('input',{type:'file',multiple:true,accept:VOICE_CLIP_ACCEPT,'aria-label':'添加参考音频',disabled,onChange:e=>{const files=[...(e.target.files||[])];e.target.value='';if(files.length)add(files);}})),
+        recorder.supported&&h('button',{type:'button',className:'ap-clip-rec','aria-pressed':recorder.on,'aria-label':recorder.on?'停止录音':'现在录一段',title:recorder.on?'停止录音':'现在录一段',disabled,onClick:recorder.toggle},
+          h(Glyph,{name:recorder.on?'stop':'mic'}),recorder.on&&h('span',null,Math.floor(recorder.seconds/60)+':'+String(recorder.seconds%60).padStart(2,'0'))))));
 }
 
 // Heat as a short count (1.2万); an unknown count is not shown (never 0).
@@ -960,28 +1069,4 @@ function useClipDurations(binding,packId,hashes){
     return()=>{live=false;abort.abort(previewFailure('ABORTED'));};
   },[binding,packId,key]);
   return hashes.map(hash=>clipDurations.get(packId+'/'+hash)??null);
-}
-// An ordered clip list (Fish) with its dashed ＋ upload tile at the end.
-// `mood`: the 差分 these clips speak in, so the preview card shows that face while one plays.
-// `needed`: with no clip here the voice cannot speak — the empty list's ＋ is the highlighted next step, nothing is written (R25).
-function VoiceClipList({binding,pack,refs,label,clips,preview,onChange,onAdd,reorder=true,disabled,needed,mood=''}) {
-  const packId=pack.manifest.id,durations=useClipDurations(binding,packId,refs.map(r=>r.media)),sizes=refs.map(r=>pack.manifest.blobs?.[r.media]?.size);
-  const edit=(i,patch)=>onChange(refs.map((r,j)=>j===i?{...r,...patch}:r));
-  const move=(i,d)=>{const j=i+d;if(j<0||j>=refs.length)return;const next=[...refs];[next[i],next[j]]=[next[j],next[i]];onChange(next);};
-  return h('div',{className:'ap-clips-wrap'},
-    clips.state?.status==='error'&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'⚠ ',clips.state.error),
-    h('ol',{className:'ap-clips','aria-label':label},
-      refs.map((r,i)=>{const id='ref'+i+'/'+r.media,state=clips.state?.id==='voice-ref/'+id?clips.state.status:null;
-        return h(VoiceClipRow,{key:i+':'+r.media,index:i,count:refs.length,clip:r,size:sizes[i],duration:durations[i],playing:state,reorder,
-          onPlay:()=>{preview.stop();clips.toggle({kind:'voice-ref',id,media:r.media,name:'',mood});},onEdit:patch=>edit(i,patch),onMove:d=>move(i,d),onRemove:()=>onChange(refs.filter((_,j)=>j!==i))});}),
-      h('li',{className:'ap-clip-add-row'},h('label',{className:'ap-clip-add','data-disabled':disabled||undefined,'data-needed':needed&&!refs.length||undefined,title:'添加'+label},h(Glyph,{name:'plus'}),
-        h('input',{type:'file',multiple:true,accept:VOICE_CLIP_ACCEPT,'aria-label':'添加'+label,disabled,onChange:e=>{const files=[...(e.target.files||[])];e.target.value='';if(files.length)onAdd(files);}})))));
-}
-// 参考音频 of a voice that clones: Fish's ordered reference list — the whole list, in this order, is sent with every line.
-function VoiceReferences({binding,pack,spec,voice,writer,preview,entry,clips}) {
-  const [sid,source]=entry||[],language=effectiveVoiceLanguage(voice?.language,spec?.language),refs=source?.references||[];
-  const add=files=>writer.addClips(files,{language,place:(s,more)=>{s.sources[sid].references=[...s.sources[sid].references,...more];}});
-  return h('div',{className:'ap-voice-refs'},
-    h(VoiceClipList,{binding,pack,refs,label:'参考音频',clips,preview,disabled:writer.busy>0,needed:true,onAdd:add,
-      onChange:next=>writer.editVoice(s=>{s.sources[sid].references=next;return s;})}));
 }
