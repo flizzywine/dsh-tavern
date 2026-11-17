@@ -121,8 +121,10 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
       const deadline = () => AbortSignal.any([AbortSignal.timeout(networkTimeoutMs),...(spec.signal ? [spec.signal] : [])])
       const snapshot = spec.request?.capture('synthesize', spec.signal)
       let signal = snapshot?.observed ? snapshot.signal : deadline()
-      // One lane per endpoint, shared by presets and inline references, including body reads/backoff.
-      const previous = lanes.get(p.config.url) || Promise.resolve()
+      // A self-hosted server: one lane per endpoint, shared by presets and inline references, including body reads/backoff.
+      // The cloud takes several lines at once; the service's synthesis queue bounds how many (capabilities.concurrency).
+      const cloud = isFishCloud(p.config)
+      const previous = !cloud && lanes.get(p.config.url) || Promise.resolve()
       const work = previous.catch(() => {}).then(async () => {
         signal?.throwIfAborted()
         const references = spec.references || (spec.reference ? [spec.reference] : undefined)
@@ -143,6 +145,7 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
         })
         return wav(pcmWav(pcm,44100))
       }).catch(error => { if (error instanceof TtsError) throw error; fail(signal?.aborted ? signal.reason?.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED' : error?.name === 'AbortError' ? 'ABORTED' : 'SERVICE_OFFLINE') }).finally(() => snapshot?.dispose())
+      if (cloud) return work
       lanes.set(p.config.url,work)
       void work.finally(() => { if (lanes.get(p.config.url) === work) lanes.delete(p.config.url) }).catch(() => {})
       return work
