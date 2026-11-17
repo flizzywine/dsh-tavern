@@ -372,11 +372,11 @@ function historyRecallText(value) {
   if (value.mode === 'search') {
     const spread = (value.terms || []).map(function (item) {
       const turns = item.turns.length > 40 ? item.turns.slice(0, 20).join('、') + '……' + item.turns.slice(-20).join('、') : item.turns.join('、')
-      return '「' + item.term + '」' + (item.turns.length ? '出现在第 ' + turns + ' 轮（共 ' + item.turns.length + ' 轮）' : '没有出现')
+      return '「' + item.term + '」' + (item.turns.length ? '逐字出现于第 ' + turns + ' 轮' : '没有逐字出现——这不代表没命中，下方命中有部分匹配的正常结果')
     }).join('\n')
-    return warning + (spread ? '\n\n关键词分布：\n' + spread : '') + '\n\n命中最多的轮次：\n\n' + value.matches.map(function (match) {
+    return warning + '\n\n（检索支持部分匹配：查询不需要与原文逐字一致，措辞相近即可命中。）' + (spread ? '\n\n逐字出现位置（可选参考）：\n' + spread : '') + '\n\n按相关度命中的轮次：\n\n' + value.matches.map(function (match) {
       return recalledRound(match.turn, match.excerpt)
-    }).join('\n\n') + '\n\n只列出了命中最多的几轮；关键词分布里的其他轮次可用 turn 读取原文。信息足够就继续当前任务。'
+    }).join('\n\n') + '\n\n只列出了最相关的几轮。信息足够就继续当前任务。'
   }
   return warning + '\n\n' + value.rounds.map(function (round) {
     return recalledRound(round.turn, round.messages.map(function (message) {
