@@ -310,6 +310,23 @@ ctx.tavernUi.registerComposerSlot({
 - 高度由内容决定，最高 40vh，超出内部滚动；Tavern 会把输入区上移，不会盖住最新一条消息。
 - 出错时只显示一行错误；卡内插件按它那张卡的局生效。
 
+## `registerComposerTool({ id, modes, render })`（第 10 版）
+
+在输入卡尾部的紧凑控制区（模型席与提交键同一行）放一个图标按钮。和 `registerComposerSlot` 的区别只有一条：**不占输入框上方的停靠区一行**，所以适合“只有一个图标”的入口（剧情罗盘、语音、开关类面板），不会把最新一条正文挤到输入区后面。
+
+```js
+ctx.tavernUi.registerComposerTool({
+  id: 'compass', modes: ['play'],
+  render: ({ sessionId, busy }) => h(IconButton, { sessionId, busy }),
+})
+```
+
+- `render` 收到 `{ sessionId, busy }`，返回 React 元素或 null（不显示）；同一插件同名 id 不能重复注册，卸载后移除。
+- 只放一个字形：这一行本来就窄，文字请写进 `title` 与 `aria-label`。
+- 状态（已启用、正在跑、出错）用图标本身表达：加个小圆点或换图标，不要再展开成一行文字。
+- 活动面板展开时宿主要把这一行收起来（`hidden`），所以承载的功能要能在别处完整操作；点击后用 `openPanel()` 打开完整界面。
+- 宿主版本低于第 10 版时这个方法是 `undefined`：插件应退回 `registerComposerSlot`，不要直接调用。
+
 ## `setInput({ gameId, text })`、`submitInput({ gameId, text })`（第 2 版）
 
 `setInput` 把文字填进这一局的输入框，不发送，玩家可以改了再发。`submitInput` 直接作为玩家输入发送并生成正文，返回 Promise（提交后完成，不等正文写完；要等结果用 `watchTurnState`）。正在生成时会排在当前这轮之后。这一局没有在当前页面打开时报错。

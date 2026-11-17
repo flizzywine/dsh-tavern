@@ -353,6 +353,10 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .fork-chat-jump-latest > .fork-jump-latest { pointer-events: auto; }
 [data-composer-card]:has(.fork-jump-latest[data-shown]) [contenteditable] { padding-right: 46px; }
 [data-composer-card]:has(.fork-jump-latest[data-shown]) [class*="_placeholder"] { padding-right: 38px; }
+/* 输入座位顶缘那条 36px 淡出遮罩（宿主 .composerSeat 的 linear-gradient：transparent → 实色底）会把滚到
+   座位下面的最后一行正文涂成半透明，看上去像输入框上方的浮层图标挡住了那一行。座位自身没有实色背景，
+   关掉渐变后内容只是正常滚到卡片后面，文字不再被“吃掉”一行。桌面与手机同一条规则，表现一致。 */
+[class*="_composerSeat"] { background-image: none !important; }
 /* 管理 turns the whole row into the checkbox (house round check), so the hit area is the row. */
 .dsh-tavern-side-row-main.ap-check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; --ap-border-strong: var(--dsw-alias-border-l3, color-mix(in srgb, currentColor 22%, transparent)); }
 .dsh-tavern-side-row-text { display: block; min-width: 0; flex: 1; }

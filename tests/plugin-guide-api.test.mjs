@@ -112,8 +112,30 @@ test('registerComposerSlot：先注册者优先，卸载后让位；id 与 modes
   assert.throws(() => second.registerComposerSlot({ id: 'x', modes: ['card'], render: 1 }), /render/)
 })
 
-test('tavernReplyState：流式取 partial，结束后取最后一条终稿，工具名与轮次跟着走', () => {
-  const start = source.indexOf('function tavernReplyText(blocks)')
+test('registerComposerTool：输入框尾部只放一个图标位，不占停靠区一行；tavernUi 升到第 10 版', () => {
+  const ui = load()
+  assert.equal(ui.service.apiVersion, 10)
+  const first = plugin(ui, 'first')
+  const second = plugin(ui, 'second')
+  const dispose = first.registerComposerTool({ id: 'compass', modes: ['play'], render: () => 'icon' })
+  assert.equal(ui.composerTools().length, 1)
+  assert.equal(ui.composerTools()[0].owner, 'first')
+  assert.equal(ui.composerTools()[0].modes.includes('play'), true)
+  assert.throws(() => first.registerComposerTool({ id: 'compass', modes: ['play'], render() {} }), /已注册/)
+  assert.throws(() => second.registerComposerTool({ id: 'Bad Id', modes: ['play'], render() {} }), /id/)
+  assert.throws(() => second.registerComposerTool({ id: 'x', modes: ['play'], render: 1 }), /render/)
+  second.registerComposerTool({ id: 'compass', modes: ['play'], render: () => 'icon2' })
+  assert.equal(ui.composerTools().length, 2, '不同插件可各占一个工具位')
+  dispose()
+  assert.equal(ui.composerTools().length, 1)
+  assert.equal(ui.composerTools()[0].owner, 'second')
+  // 工具位与停靠区互不影响：没有注册停靠区时 composerSlots 仍为空。
+  assert.equal(ui.composerSlots().length, 0)
+  // 宿主侧把它挂进输入卡尾部（conversation.input.right），而不是输入框上方的停靠区。
+  assert.match(source, /slots\.inject\("conversation\.input\.right"/)
+})
+
+test('tavernReplyState：流式取 partial，结束后取最后一条终稿，工具名与轮次跟着走', () => {  const start = source.indexOf('function tavernReplyText(blocks)')
   const end = source.indexOf('// Always mounted with the composer', start)
   const state = vm.runInNewContext(source.slice(start, end) + '; tavernReplyState', {})
   const nodes = [

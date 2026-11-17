@@ -44,6 +44,17 @@ test('剧情罗盘输入栏入口在窄屏只显示图标', async () => {
   assert.match(narrow[0], /\.dsh-tavern-compass-dock-btn \{[^}]*justify-content: flex-start;[^}]*min-width: 30px;/)
 })
 
+test('剧情罗盘入口走输入框尾部工具位，不再独占停靠区一行', async () => {
+  const main = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/src/client/main.js', import.meta.url), 'utf8')
+  // 优先用宿主的 compact tool 槽（输入卡尾部、提交键旁），只有旧宿主才退回停靠区。
+  assert.match(main, /typeof ui\.registerComposerTool === 'function'/)
+  assert.match(main, /h\(PlotCompassComposerTool/)
+  assert.match(main, /ui\.registerComposerSlot/, '旧宿主仍要能退回停靠区')
+  const text = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  assert.match(text, /dsh-tavern-compass-tool-btn/)
+  assert.match(text, /dsh-tavern-compass-tool-glyph/)
+})
+
 test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落注入、世界书扫描、归卷事件、模型解析与 RPC 全链路', async () => {
   const storyEvents = createStoryEvents()
   const gameDataMap = new Map()
