@@ -709,6 +709,13 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       undo&&h(ConfirmDialog,{title:'撤销自动变更',body:'只撤销这次自动写入；后续手动修改会被保留，遇到冲突不会删除人物。',confirmLabel:'撤销',danger:true,onClose:()=>setUndo(null),onConfirm:()=>write('undoAutomaticWrite',undo)}));
   }
   // `menu(close)`: the row's right click / long press menu (useContextMenu; the 素材库 list: 打开 · 导出 · 复制 · 删除…).
+  // Installed packs named outside the library (更新人物卡, card-update-dialog.js): the 舞台设置 row look — name, then what the
+  // pack holds (PackPreviews), no state tag. packs [{packId,title}]; a pack's previews show once the rows are read.
+  function PackPreviewList({binding,packs}) {
+    const state=useLoad(binding,()=>loadPackRows(binding),[]),byId=new Map((state.value||[]).filter(row=>!row.error).map(row=>[row.manifest.id,row]));
+    return h('ul',{className:'ap-pack-list ap-pack-preview-list'},packs.map(({packId,title})=>h('li',{key:packId,className:'ap-pack-row'},
+      h('span',{className:'ap-pack-title'},h('span',{className:'ap-pack-name',title},title),byId.has(packId)&&h(PackPreviews,{binding,pack:byId.get(packId)})))));
+  }
   function PackRow({id,pack,scope,kind,onOpen,control,badge,lead,aside,tail,previews,menu=null}) {
     const rowMenu=useContextMenu({label:(pack?.manifest.name||'')+' 操作',content:pack?menu:null});
     // identify an uninstalled binding instead of hiding its identity behind a generic warning.
@@ -1506,7 +1513,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
       h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
   }
-  const api=stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  // Modal, Button, IconButton: the house dialog for the host's own dialogs too (人物卡更新, card-update-dialog.js).
+  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

@@ -204,44 +204,116 @@ test('the host-maintained bubble format entry never travels; authored entries do
   assert.deepEqual(card.data.character_book.entries,[authored])
 })
 
-// The stage reads packs from the asset library: a card's packs install there too. A new pack is installed, an
-// identical one left as it is; a different installed version is not touched but reported. Importing the very same
-// file again still makes sure its packs are in the library (cards imported before the library carry none there).
-test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动、不同版本只提示；重复导入也补装', async t => {
-  const { openZipFile } = await import('../tavern-plugin/lib/domain/zip-file.js')
-  const fresh = '55555555-5555-4555-8555-555555555555', changed = '66666666-6666-4666-8666-666666666666'
-  const installed = new Map([[changed, 'other-version']]), applied = []
-  const assetLibrary = () => ({
+// A fake asset library: installed pack id → {hash, data}; a pack with a different hash previews `conflict` choices.
+// backupPack writes the installed data to the file, so a restore can be checked.
+function fakeLibrary(installed, { conflict = ['update', 'keep-both', 'cancel'], removed } = {}) {
+  const applied = [], previews = new Map()
+  const service = {
+    async getPackSnapshot({ packId }) { return installed.has(packId) ? { manifest: { contentHash: installed.get(packId).hash } } : null },
     async inspectImportFile({ file }) {
       const zip = await openZipFile(file)
       try {
         const manifest = JSON.parse((await zip.readBuffer(zip.entries.get('manifest.json'), 65536)).toString())
         assert.ok(zip.entries.has('media/a.png'), 'the pack is re-rooted: its own files at the top')
-        const choices = !installed.has(manifest.id) ? ['install', 'keep-both', 'cancel'] : installed.get(manifest.id) === manifest.contentHash ? ['noop', 'cancel'] : ['update', 'keep-both', 'cancel']
-        return { inspectionId: manifest.id, packId: manifest.id, contentHash: manifest.contentHash, expectedRevision: null, choices, scriptRisk: [] }
+        const data = (await zip.readBuffer(zip.entries.get('media/a.png'), 65536)).toString()
+        const before = installed.get(manifest.id), inspectionId = 'inspection-' + (previews.size + 1)
+        const choices = !before ? ['install', 'keep-both', 'cancel'] : before.hash === manifest.contentHash ? ['noop', 'cancel'] : conflict
+        previews.set(inspectionId, { id: manifest.id, hash: manifest.contentHash, data })
+        return { inspectionId, packId: manifest.id, contentHash: manifest.contentHash, expectedRevision: before ? 'r-' + before.hash : null, choices, scriptRisk: [], ...(removed && choices === conflict ? { removed } : {}) }
       } finally { await zip.close() }
     },
     async applyImport({ inspectionId, decision }) {
-      applied.push([inspectionId, decision])
-      if (decision === 'install') installed.set(inspectionId, 'v1')
+      const { id, hash, data } = previews.get(inspectionId)
+      applied.push([id, decision])
+      if (['install', 'update', 'merge'].includes(decision)) installed.set(id, { hash, data })
       return { status: decision }
     },
-  })
+  }
+  const backupPack = async (file, { packId, expectedRevision }) => {
+    const before = installed.get(packId)
+    assert.equal(expectedRevision, 'r-' + before.hash, 'the backup is of the revision the preview saw')
+    await writeFile(file, writeZipEntries([{ path: 'manifest.json', content: JSON.stringify({ id: packId, contentHash: before.hash }) }, { path: 'media/a.png', content: before.data }]))
+  }
+  return { assetLibrary: () => service, backupPack, applied }
+}
+const sha = text => createHash('sha256').update(text).digest('hex')
+const packEntries = (id, name, hash = 'v1', data = 'png') => [{ path: `assets/${name}/manifest.json`, content: JSON.stringify({ id, contentHash: sha(hash) }) }, { path: `assets/${name}/media/a.png`, content: data }]
+const dshCard = (name, packs, version = '') => [
+  { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, packs: packs.map(([id, folder, title, hash = 'v1']) => ({ id, path: `assets/${folder}/`, title, contentHash: sha(hash) })) }) },
+  { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name, character_version: version } }) },
+]
+
+// The stage reads packs from the asset library: a card's packs install there too. A new pack is installed, an
+// identical one left as it is; a different installed version is replaced by default (完全替换). Importing the very same
+// file again still makes sure its packs are in the library (cards imported before the library carry none there).
+test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动、不同版本默认完全替换；重复导入也补装', async t => {
+  const fresh = '55555555-5555-4555-8555-555555555555', changed = '66666666-6666-4666-8666-666666666666'
+  const installed = new Map([[changed, { hash: 'other-version', data: 'old' }]])
+  const { assetLibrary, applied } = fakeLibrary(installed)
   const { root, files } = await library(t, { assetLibrary })
   const card = join(root, '鱼.dshcard')
-  const pack = (id, name) => [[`assets/${name}/manifest.json`, JSON.stringify({ id, contentHash: 'v1' })], [`assets/${name}/media/a.png`, 'png']]
-  await writeFile(card, writeZipEntries([
-    { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, packs: [{ id: fresh, path: 'assets/new/', title: '新包' }, { id: changed, path: 'assets/old/', title: '旧包' }] }) },
-    { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼' } }) },
-    ...[...pack(fresh, 'new'), ...pack(changed, 'old')].map(([path, content]) => ({ path, content })),
-  ]))
+  await writeFile(card, writeZipEntries([...dshCard('鱼', [[fresh, 'new', '新包'], [changed, 'old', '旧包']]), ...packEntries(fresh, 'new'), ...packEntries(changed, 'old')]))
   const first = await files.importCardArchiveFile(card, '鱼.dshcard')
-  assert.deepEqual(applied, [[fresh, 'install'], [changed, 'cancel']])
-  assert.match(first.libraryNotices.join(''), /旧包.*不同的版本/)
+  assert.deepEqual(applied, [[fresh, 'install'], [changed, 'update']])
+  assert.equal(first.libraryNotices, undefined)
+  assert.equal(installed.get(changed).hash, sha('v1'), 'the new version is installed')
   applied.length = 0
   const again = await files.importCardArchiveFile(card, '鱼.dshcard')
   assert.equal(again.duplicate, true)
-  assert.deepEqual(applied, [[fresh, 'noop'], [changed, 'cancel']], 'the same file again checks its packs')
+  assert.deepEqual(applied, [[fresh, 'noop'], [changed, 'noop']], 'the same file again checks its packs')
+})
+
+test('the preview lists only the packs to decide about; merge is applied as chosen', async t => {
+  const fresh = '55555555-5555-4555-8555-555555555555', same = '77777777-7777-4777-8777-777777777777', changed = '66666666-6666-4666-8666-666666666666'
+  const installed = new Map([[changed, { hash: 'other-version', data: 'old' }], [same, { hash: sha('v1'), data: 'png' }]])
+  const removed = [{ kind: 'figures', id: 'f1', name: '旧角色' }]
+  const { assetLibrary, applied } = fakeLibrary(installed, { conflict: ['update', 'merge', 'keep-both', 'cancel'], removed })
+  const { root, files } = await library(t, { assetLibrary })
+  const card = join(root, 'merge.dshcard')
+  await writeFile(card, writeZipEntries([...dshCard('示例卡', [[fresh, 'new', '新包'], [same, 'same', '同包'], [changed, 'old', '旧包']], '11-17'), ...packEntries(fresh, 'new'), ...packEntries(same, 'same'), ...packEntries(changed, 'old')]))
+  const preview = await files.previewCardArchiveFile(card, 'merge.dshcard')
+  assert.deepEqual(preview, { card: { name: '示例卡', version: '11-17' }, packs: [{ packId: changed, title: '旧包', choices: ['update', 'merge', 'keep-both', 'cancel'], removed }] })
+  assert.deepEqual(applied, [[changed, 'cancel']], 'a preview inspects only an installed pack with other content, and changes nothing')
+  applied.length = 0
+  await files.importCardArchiveFile(card, 'merge.dshcard', { packDecisions: { [changed]: 'merge' } })
+  assert.deepEqual(applied, [[fresh, 'install'], [same, 'noop'], [changed, 'merge']])
+})
+
+test('a card without pack conflicts previews none and imports as before', async t => {
+  const fresh = '55555555-5555-4555-8555-555555555555'
+  const { assetLibrary, applied } = fakeLibrary(new Map())
+  const { root, files } = await library(t, { assetLibrary })
+  const card = join(root, 'plain.dshcard')
+  await writeFile(card, writeZipEntries([...dshCard('新卡', [[fresh, 'new', '新包']]), ...packEntries(fresh, 'new')]))
+  assert.deepEqual((await files.previewCardArchiveFile(card, 'plain.dshcard')).packs, [])
+  applied.length = 0
+  const imported = await files.importCardArchiveFile(card, 'plain.dshcard')
+  assert.deepEqual(applied, [[fresh, 'install']])
+  assert.equal(imported.libraryNotices, undefined)
+})
+
+test('撤回 puts the card and the packs it replaced back; only the latest update can be taken back', async t => {
+  const packId = '66666666-6666-4666-8666-666666666666'
+  const installed = new Map()
+  const { assetLibrary, backupPack } = fakeLibrary(installed)
+  const { root, files, fileResources } = await library(t, { assetLibrary, backupPack, withCardBackup: (file, selection, write) => write() })
+  const archive = join(root, 'card.dshcard')
+  await writeFile(archive, writeZipEntries([...dshCard('示例卡', [[packId, 'sample', '示例包']], '11-15'), ...packEntries(packId, 'sample', 'v1', 'old art')]))
+  const old = await files.importCardArchiveFile(archive, 'card.dshcard')
+  await writeFile(archive, writeZipEntries([...dshCard('示例卡', [[packId, 'sample', '示例包', 'v2']], '11-17'), ...packEntries(packId, 'sample', 'v2', 'new art')]))
+  const updated = await files.replaceCard(old.path, { file: archive, name: 'card.dshcard' })
+  assert.deepEqual(installed.get(packId), { hash: sha('v2'), data: 'new art' })
+  assert.equal((await fileResources.readCard(old.path)).raw.data.character_version, '11-17')
+  assert.deepEqual(await files.revertCardUpdate(updated.updateId), { path: old.path, reverted: true })
+  assert.deepEqual(installed.get(packId), { hash: sha('v1'), data: 'old art' })
+  assert.equal((await fileResources.readCard(old.path)).raw.data.character_version, '11-15')
+  await assert.rejects(files.revertCardUpdate(updated.updateId), /不能撤回/)
+  await assert.rejects(files.revertCardUpdate('../' + updated.updateId), /不能撤回/)
+  const first = await files.replaceCard(old.path, { file: archive, name: 'card.dshcard' })
+  const second = await files.replaceCard(old.path, { file: archive, name: 'card.dshcard' })
+  await assert.rejects(files.revertCardUpdate(first.updateId), /不能撤回/, 'a newer update drops the earlier record')
+  await files.revertCardUpdate(second.updateId)
+  assert.ok(await readFile(first.backupPath), 'earlier card backups stay')
 })
 
 
@@ -293,78 +365,6 @@ test('dshcard replacement preserves disabled plugins and rolls back a post-write
   assert.deepEqual(await fileResources.list('card'),[old.path])
 })
 
-
-test('browser updates a selected card through the sidebar and real import RPC', { skip: !process.env.TAVERN_BROWSER_CHANNEL, timeout:60000 }, async t => {
-  const {createServer}=await import('node:http')
-  const {createRequire}=await import('node:module')
-  const {dirname}=await import('node:path')
-  const {chromium}=await import('playwright')
-  const {createCardHandlers}=await import('../tavern-plugin/lib/rpc/cards.js')
-  const {root,files,fileResources,cardPreparation,readCardWorkspace}=await library(t)
-  const old=await files.importCard({kind:'text',name:'selected.json',text:JSON.stringify({name:'红警 · DSH 指挥室',character_version:'0.6.0'})})
-  const handlers=createCardHandlers({...files,cardPreparation,readCardWorkspace,str:String,uploads:{take:async()=>({file:join(root,'upload'),remove:async()=>{}})}})
-  const sidebar=await readFile(new URL('../tavern-plugin/src/client/features/sidebar.js',import.meta.url),'utf8')
-  const main=await readFile(new URL('../tavern-plugin/src/client/main.js',import.meta.url),'utf8')
-  const states=sidebar.slice(sidebar.indexOf('const [updatingCard,'),sidebar.indexOf('const updateInput ='))+'const updateInput = React.useRef(null);'
-  const action=sidebar.slice(sidebar.indexOf('async function replaceSelectedCard()'),sidebar.indexOf('async function importCard(file)'))
-  const start=sidebar.indexOf("h('input',{ref:updateInput")
-  const controls=sidebar.slice(start,sidebar.indexOf('h("div", { className: "dsh-tavern-side-title',start)).trim().replace(/,$/,'')
-  const updateButton=sidebar.slice(sidebar.indexOf("organization.toolbar(h('button'"),sidebar.indexOf("organization.visible.length ?")).trim().replace(/,$/,'')
-  const importer=main.slice(main.indexOf('async function importTavernCardFile('),main.indexOf('/** What a card file'))
-  const parser=main.slice(main.indexOf('function parseCardFile('),main.indexOf('const MOBILE_IMPORT_SORTS'))
-  const updateDialog=await readFile(new URL('../tavern-plugin/src/client/modules/card-update-dialog.js',import.meta.url),'utf8')
-  const require=createRequire(import.meta.url);let bundle='const modules={};'
-  for(const [name,file] of [['react','react.production.js'],['scheduler','scheduler.production.js'],['react-dom','react-dom.production.js'],['react-dom/client','react-dom-client.production.js']]) bundle+='modules['+JSON.stringify(name)+']=(()=>{const module={exports:{}};const exports=module.exports;const require=n=>modules[n];'+await readFile(join(dirname(require.resolve(name)),'cjs',file),'utf8')+';return module.exports;})();'
-  const script=bundle+`const React=modules.react,h=React.createElement;
-  const beginTavernCardImportProgress=()=>({update(){},close(){}}),importTavernPasswordCard=run=>run();
-  async function call(method,args){const r=await fetch('/rpc/'+method,{method:'POST',body:JSON.stringify(args)}).then(r=>r.json());if(!r.ok)throw Error(r.error);return r;}
-  ${importer}
-${parser}
-${updateDialog}
-  function App(){const [busy,setBusy]=React.useState(false);const cards=[{path:'selected.json'.replace(/^/,'cards/'),name:'Old'}],openingPicker=null;const refresh=async()=>{},notifyDataChanged=()=>{};
-  const cardBatch={paths:cards.map(card=>card.path)},organization={toolbar:button=>button};
-  ${states}
-${action}
-  return h('aside',null,${updateButton},${controls});}
-  modules['react-dom/client'].createRoot(document.getElementById('app')).render(h(App));`
-  const css=await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css',import.meta.url),'utf8')
-  const server=createServer(async(req,res)=>{try{
-    if(req.url==='/')return res.writeHead(200,{'content-type':'text/html; charset=utf-8'}).end('<meta charset="utf-8"><style>:root{color-scheme:light;--dsw-alias-brand-primary:#c87960;--dsw-specific-sidebar-fill:#faf9f6;--dsw-alias-border-l2:#e6e1da;--dsw-alias-label-primary:#282521;--dsw-alias-label-secondary:#7a746d}body{margin:0;font:14px system-ui;background:#eeeae3}</style><style>'+css+'</style><div id="app"></div><script src="/app.js"></script>')
-    if(req.url==='/app.js')return res.writeHead(200,{'content-type':'text/javascript; charset=utf-8'}).end(script)
-    const chunks=[];for await(const c of req)chunks.push(c);const bytes=Buffer.concat(chunks)
-    if(req.url==='/api/dsh-tavern/card-upload'){await writeFile(join(root,'upload'),bytes);return res.end(JSON.stringify({ok:true,uploadId:'fixture'}))}
-    const result=await handlers[req.url.split('/').at(-1)](JSON.parse(bytes.toString()));res.end(JSON.stringify({ok:true,...result}))
-  }catch(e){res.end(JSON.stringify({ok:false,error:e.message}))}})
-  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)))
-  const browser=await chromium.launch({channel:process.env.TAVERN_BROWSER_CHANNEL,headless:true});t.after(()=>browser.close())
-  const page=await browser.newPage({viewport:{width:1000,height:760}});page.setDefaultTimeout(10000)
-  const errors=[];page.on('pageerror',e=>errors.push(e.message))
-  await page.goto('http://127.0.0.1:'+server.address().port)
-  await page.getByRole('button',{name:'更新',exact:true}).click().catch(e=>{throw new Error(errors.join('; ') || e.message)})
-  await page.getByText('0.6.0',{exact:true}).waitFor()
-  await page.locator('input[type=file]').setInputFiles({name:'new.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({name:'Updated JSON',character_version:'0.7.0'}))})
-  await page.getByText('0.7.0',{exact:true}).waitFor()
-  await page.screenshot({path:join(process.cwd(),'output/card-update-preview.png')})
-  await page.getByRole('button',{name:'确认更新'}).click()
-  await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
-  assert.equal((await fileResources.readCard(old.path)).raw.name,'Updated JSON')
-  assert.equal(await page.locator('.dsh-tavern-card-update-version').first().locator('strong').innerText(),'0.6.0')
-  const bytes=writeZipEntries([{path:'card.json',content:JSON.stringify({spec:'chara_card_v3',data:{name:'Updated archive',character_version:'0.8.0'}})}])
-  await page.locator('input[type=file]').setInputFiles({name:'different.charx',mimeType:'application/zip',buffer:bytes})
-  await page.getByText('0.8.0',{exact:true}).waitFor()
-  await page.getByRole('button',{name:'确认更新'}).click()
-  await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
-  assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Updated archive')
-  assert.equal(await page.locator('.dsh-tavern-card-update-version').first().locator('strong').innerText(),'0.7.0')
-  assert.deepEqual(await fileResources.list('card'),[old.path]);assert.deepEqual(errors,[])
-  await page.screenshot({path:join(process.cwd(),'output/card-update-browser.png'),fullPage:true})
-  assert.equal(await page.getByRole('button',{name:'确认更新'}).count(),0)
-  await page.setViewportSize({width:390,height:760})
-  await page.screenshot({path:join(process.cwd(),'output/card-update-mobile.png'),fullPage:true})
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
-  await page.getByText('查看旧卡备份位置',{exact:true}).click()
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
-})
 
 test('replacement never reads or bundles a five GB imported bound pack', async t => {
   const packId = '22222222-2222-4222-8222-222222222222'

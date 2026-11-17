@@ -43,6 +43,12 @@ export function apply(ctx, config = {}) {
     const backup = createAssetPackService({...config, mediaStore, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
     try { return await backup.withCardExport(input, consume) } finally { await backup.dispose() }
   })
+  // An installed pack written whole to a private file ({packId, expectedRevision}): the card library keeps the version a
+  // card update replaces, to put it back on 撤回. Not in the transport either.
+  ctx.provide('assetLibraryPackBackup', async (file, input) => {
+    const backup = createAssetPackService({...config, mediaStore, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
+    try { return await backup.exportPack(input) } finally { await backup.dispose() }
+  })
   ctx.provide('assetPackSettings',settings)
   registerAssetPackTransport(ctx,transport)
   ctx.effect(() => () => transport.service.dispose())
