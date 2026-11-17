@@ -9,21 +9,28 @@ import { reuseStagePlayback, stagePlaybackKey, stagePlaybackRuler, stagePlayback
 
 import {isImmutableJson} from '../../../../lib/domain/freeze-json.js'
 import {stageNarrationLayout} from '../../../../lib/domain/stage-narration.cjs'
+import {stagePageAtAnchor} from '../../../../src/client/stage-page-index.cjs'
 
 const same = (a,b) => JSON.stringify(a) === JSON.stringify(b)
 // Only completed sidecar checks are cached, never current media or authority.
 // The chat cache owns these immutable objects and their lifetime across revisions.
 const completedPlaybacks = new WeakMap()
 // Canonical pages are independent of subtitle-card layout and viewport size.
+// A requested page is the reader's anchor (paragraph and character offset), as the client keeps it. A round's text can be
+// laid out anew under the same direction (a card update re-projects old rounds with its new regex), so a page the reader
+// took from the earlier layout lands on the current page holding that character, as the client's own reconcile does.
 export function stageProjectionPage(direction, at, page) {
   const pages = direction.pageIndex?.pages
   if (!pages) {
     if (page) throw Object.assign(new Error('Canonical page index unavailable'), {code:'STAGE_PAGE_MISMATCH'})
     return null
   }
-  const coordinate = page ? pages[page.index] : pages.find(item => item.para === at)
-  if (page && (page.version !== 1 || !Number.isSafeInteger(page.index) || !coordinate || coordinate.para !== page.para || coordinate.offset !== page.offset)) {
-    throw Object.assign(new Error('Canonical stage page does not match frozen source'), {code:'STAGE_PAGE_MISMATCH'})
+  if (page && (page.version !== 1 || !Number.isSafeInteger(page.index) || !Number.isSafeInteger(page.para) || !Number.isSafeInteger(page.offset))) {
+    throw Object.assign(new Error('Malformed stage page'), {code:'STAGE_PAGE_MISMATCH'})
+  }
+  let coordinate = page ? pages[page.index] : pages.find(item => item.para === at)
+  if (page && (coordinate?.para !== page.para || coordinate.offset !== page.offset)) {
+    coordinate = pages[stagePageAtAnchor(direction.pageIndex,page) ?? -1] || pages.find(item => item.para === page.para)
   }
   return coordinate ? {index:coordinate.page,para:coordinate.para,offset:coordinate.offset,version:1} : null
 }
