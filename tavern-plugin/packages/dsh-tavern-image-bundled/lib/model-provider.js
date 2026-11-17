@@ -99,7 +99,7 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
       const draw = generate || (await import('./image-providers.js')).generateImage
       const result = await draw(channel, { ...prepared.parameters, ...prepared, references, width: width ?? prepared.parameters?.width, height: height ?? prepared.parameters?.height, exactSize: true, background, quality },
         { signal, maxImageBytes })
-      return { data: result.bytes, mediaType: result.mediaType, ...(result.seed !== undefined ? { seed: result.seed } : {}), ...(result.usage ? { usage: result.usage } : {}) }
+      return { data: result.bytes, mediaType: result.mediaType, provider: channel.provider, model: channel.model, ...(result.seed !== undefined ? { seed: result.seed } : {}), ...(result.usage ? { usage: result.usage } : {}) }
     },
   }
 }

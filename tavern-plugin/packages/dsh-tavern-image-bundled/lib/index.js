@@ -2619,7 +2619,9 @@ function createRuntime(ctx, overrides, logger, deps) {
     // 现在只用官方接口给的东西：onTurnSettled / getTurn 的回调里本来就带
     // card: { id, name }，每轮结算时顺手记下来就够了 —— 每一轮都会刷新它，
     // 所以「当前卡」总是跟着最新一轮走，不用自己去翻别人的会话目录。
-    const cardCache = new Map()   // gameId → { path, name }
+    const cardCache = new Map()   // gameId → { path, name, assetPacks? }
+    // assetPacks：这张卡用到的素材包（宿主给出时才有），关联了素材库人物的记录只在这些卡里出现
+    const cardOf = card => ({ path: String(card.id ?? ''), name: String(card.name ?? ''), ...(Array.isArray(card.assetPacks) ? { assetPacks: card.assetPacks.map(String) } : {}) })
     const lastTurn = new Map()    // gameId → 最近一轮的轮次号
 
     /** 记住一轮的卡与轮次（tavern-bridge 在每轮结算时调用）。 */
@@ -2629,7 +2631,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const t = Number(turn)
       if (Number.isSafeInteger(t) && t > 0) lastTurn.set(id, t)
       if (card && (card.id || card.name)) {
-        cardCache.set(id, { path: String(card.id ?? ''), name: String(card.name ?? '') })
+        cardCache.set(id, cardOf(card))
       }
       // 只留最近的会话，换卡很频繁时不会一直涨
       if (cardCache.size > 30) {
@@ -2668,7 +2670,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         try {
           const snapshot = await deps.tavern.getTurn({ gameId: id, turn: target })
           if (snapshot?.card && (snapshot.card.id || snapshot.card.name)) {
-            const found = { path: String(snapshot.card.id ?? ''), name: String(snapshot.card.name ?? '') }
+            const found = cardOf(snapshot.card)
             cardCache.set(id, found)
             return found
           }
@@ -2706,6 +2708,8 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     /** 这个角色在这张卡下可用吗（没绑卡的全局角色一直可用）。 */
     function usableOnCard(character, card) {
+      // 关联了素材库人物的记录跟着素材包走：这张卡没用到那个素材包，就不认这个人（同名、同姓的人不会串到别的卡的图里）
+      if (character.figurePackId && Array.isArray(card?.assetPacks) && !card.assetPacks.includes(character.figurePackId)) return false
       const cards = character.cards ?? []
       if (!cards.length) return true
       // 拿不到"当前卡"时不过滤 —— 否则绑过卡的角色会全军覆没（曾经因此整库失效）
@@ -2991,6 +2995,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (ambiguous) return '「' + asked + '」在人物库里对上了不止一个人，没有补外貌；把其中一位的英文触发名改得更具体'
           const elsewhere = (timelineDefinitions.characters ?? []).find(c => c && c.enabled !== false && !usableOnCard(c, card)
             && [c.id, c.name, ...splitTags(c.match)].some(alias => norm(alias) && norm(alias) === norm(asked)))
+          if (elsewhere?.figurePackId && Array.isArray(card?.assetPacks) && !card.assetPacks.includes(elsewhere.figurePackId)) return '「' + (elsewhere.name || asked) + '」是素材库人物，这张卡没用到她所在的素材包，这次没用上她的外貌；在这张卡的舞台设置里启用那个素材包即可'
           if (elsewhere) return '「' + (elsewhere.name || asked) + '」在人物库里绑定的是别的卡，这次没用上她的外貌；在人物库里给她勾上这张卡即可'
           return '「' + asked + '」不在人物库里，长相每张会不一样；把她加进人物库能固定外貌'
         }).slice(0, 4).concat(missingMounts.size ? ['有 ' + missingMounts.size + ' 张图的挂载句无法精确匹配，没有画（例如「' + [...missingMounts][0] + '」）；确认正文与挂载句一致后可重试'] : []).concat(heldBack)
@@ -5450,9 +5455,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           outfits: nextOutfits.map((item, i) => normalizeOutfit(item, i)),
         }
         try {
-          await definitionStore.update(() => normalized, { expectedRevision: next.revision, requireRevision: true })
+          await definitionStore.update(async previous => { await handLinkedNames(deps.tavern, previous.characters, normalized.characters); return normalized }, { expectedRevision: next.revision, requireRevision: true })
         } catch (error) {
-          sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : 500, { ok: false, code: error.code, error: error.message })
+          sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'FIGURE_EDIT_FAILED' ? 400 : 500, { ok: false, code: error.code, error: error.message })
           return
         }
         sendJson(response, 200, { ok: true, state: await consoleState() })
@@ -6871,6 +6876,26 @@ function workflowSummary(raw) {
 // =====================================================================
 // 提示词处理
 // =====================================================================
+
+/**
+ * 关联了素材库人物的记录：名字和触发词的家在素材库人物。在人物库页改了它们，就交给宿主写到人物上（别名按增删的词），
+ * 两边一致。宿主没有这个接口时只存在人物库。写不成就整页不保存，不留下两边不一致的名字。
+ */
+async function handLinkedNames(tavern, before, after) {
+  if (typeof tavern?.editLinkedFigure !== 'function') return
+  for (const next of after) {
+    const old = before.find(item => item.id === next.id)
+    if (!old?.figureId || old.figureId !== next.figureId || old.figurePackId !== next.figurePackId) continue
+    const was = splitTags(old.match), now = splitTags(next.match)
+    const addAliases = now.filter(word => !was.includes(word)), removeAliases = was.filter(word => !now.includes(word))
+    if (old.name === next.name && !addAliases.length && !removeAliases.length) continue
+    try {
+      await tavern.editLinkedFigure({ packId: next.figurePackId, figureId: next.figureId, ...(old.name !== next.name ? { name: next.name } : {}), addAliases, removeAliases })
+    } catch (error) {
+      throw Object.assign(new Error('「' + next.name + '」是素材库人物，名字和触发词要一并写回素材库，这次没写成：' + (error?.message || error)), { code: 'FIGURE_EDIT_FAILED' })
+    }
+  }
+}
 
 function splitTags(text) {
   return String(text ?? '').split(',').map(part => part.trim()).filter(Boolean)
