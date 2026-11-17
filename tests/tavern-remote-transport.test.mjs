@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { stripTypeScriptTypes } from 'node:module'
+import { stripTypeScriptTypes, createRequire } from 'node:module'
 import vm from './fixtures/client-vm.mjs'
 
 const remoteSource = stripTypeScriptTypes(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-remote/src/client.ts', import.meta.url), 'utf8'))
@@ -337,5 +337,202 @@ for (const format of ['source', 'bundle']) {
     assert.equal(h.unmounted, 1)
     assert.equal(first.disposals, 1)
     assert.equal(next.disposals, 1)
+  })
+}
+
+const {createPresentationQueue, rpcFetchPriority} = createRequire(import.meta.url)('../tavern-plugin/src/client/rpc-transport.cjs')
+for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib/client.js']) {
+  test(`${file}: slow stage reads use the mux while origin-bound projections leave HTTP slots free`, async () => {
+    const source = await readFile(new URL(file, import.meta.url),'utf8')
+    const start = source.indexOf('function rpc(method, args, sessionId, requestOptions)')
+    // d6e5cb1ed removed recordImageInteraction; rpc is now followed by rpcWithTimeout.
+    const end = source.indexOf('function rpcWithTimeout',start)
+    const waiting = [], multiplexed = [], remoteGate = deferred()
+    const sandbox = {
+      window: { crypto: globalThis.crypto }, Date, performance, Promise, JSON, Error, clipExportTransport: null,
+      roundLoadCounts:new Map(), roundLoadTrace:{mark() {}}, rpcFetchPriority,
+      presentationRequest:createPresentationQueue(),
+      tavernSessionSignals:{control:async (method,args) => {multiplexed.push({method,args});await remoteGate.promise;return {ok:true,method}}},
+      performanceReportAt:Date.now(), pagePerformance:{},
+      tavernRuntimeGenerationMonitor:{observe() {}},
+      readTavernJsonResponse:response=>response.json(),
+      fetch:(url, request) => {const gate=deferred();waiting.push({url,request,gate});return gate.promise},
+    }
+    const rpc = vm.runInNewContext(source.slice(start,end)+';rpc',sandbox)
+    const slow = [['getStageDirection',{turn:17,readOnly:true}],['getStageModHistory',{turn:17}],['getDialogueBubbles',{turn:17}]].map(([method,args])=>rpc(method,args,'session-A'))
+    const projections = Array.from({length:8},()=>rpc('getAssetPackPresentation',{turn:17},'session-A'))
+    await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(multiplexed.length,3)
+    assert.ok(multiplexed.every(row=>row.args.sessionId==='session-A'))
+    assert.equal(waiting.length,2,'only two origin-bound projection requests may occupy HTTP sockets')
+    const small=rpc('getUpdateStatus',{})
+    assert.equal(waiting.length,3,'unrelated HTTP calls are not queued behind projections')
+    waiting[2].gate.resolve({json:async()=>({ok:true})})
+    await small
+    remoteGate.resolve()
+    await Promise.all(slow)
+    for (let i=0;i<8;i++) {
+      const request=waiting.filter(row=>row.url.endsWith('getAssetPackPresentation'))[i]
+      assert.ok(request)
+      request.gate.resolve({json:async()=>({ok:true})})
+      await new Promise(resolve=>setImmediate(resolve))
+    }
+    await Promise.all(projections)
+    // A direction request that is not readOnly may run and save the director: it keeps HTTP.
+    const generating=rpc('getStageDirection',{turn:18},'session-A')
+    await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(multiplexed.length,3)
+    const sent=waiting.find(row=>row.url.endsWith('getStageDirection'))
+    assert.ok(sent,'getStageDirection without readOnly goes over HTTP')
+    sent.gate.resolve({json:async()=>({ok:true})})
+    await generating
+  })
+}
+test('queued projection cancellation never consumes an HTTP connection and failures release the slot',async()=>{
+  const run=createPresentationQueue(1), hold=deferred(), controller=new AbortController()
+  const first=run(()=>hold.promise)
+  let sent=false
+  const cancelled=run(()=>{sent=true},controller.signal)
+  controller.abort()
+  await assert.rejects(cancelled,{name:'AbortError'})
+  hold.resolve();await first
+  await assert.rejects(run(()=>{throw Error('failed')}),/failed/)
+  assert.equal(await run(()=>42),42)
+  assert.equal(sent,false)
+})
+test('host mux read allowlist preserves dispatch, errors and cancellation, excluding origin-bound leases and writes',async()=>{
+  const source=await readFile(new URL('../tavern-plugin/lib/index.js',import.meta.url),'utf8')
+  const start=source.indexOf('async control(method, args, signal)'), end=source.indexOf('async * follow',start)
+  const calls=[]
+  // The stage owns its remote reads (dsh-tavern-stage lib/requests.js remoteRead); the host mux asks extensionRequests.
+  const {createExtensionRequests}=await import('../tavern-plugin/lib/domain/extension-requests.js')
+  const extensionRequests=createExtensionRequests(), reads=new Set(['getStageDirection','getStageModHistory','getDialogueBubbles'])
+  extensionRequests.register('stage',{methods:[...reads,'getAssetPackPresentation','getStagePhonePresentation','saveDialogueBubbles'],remoteRead:method=>reads.has(method),call(){}})
+  const service=vm.runInNewContext('({'+source.slice(start,end)+'})',{
+    runtimeGeneration:'test-runtime',str:String,extensionRequests,
+    requestPerformance:{serialize:(_method,_sessionId,result)=>JSON.stringify(result)},
+    dispatch:async(method,args)=>{calls.push(method);if(args.fail)throw Object.assign(Error('changed'),{code:'REVISION_CONFLICT'});return {turn:args.turn}},
+  })
+  for(const method of ['getStageDirection','getStageModHistory','getDialogueBubbles']) {
+    assert.deepEqual(JSON.parse(await service.control(method,{turn:17})),{ok:true,turn:17,runtimeGeneration:'test-runtime'})
+    assert.deepEqual(JSON.parse(await service.control(method,{fail:true})),{ok:false,error:'changed',errorCode:'REVISION_CONFLICT'})
+  }
+  for(const method of ['getAssetPackPresentation','getStagePhonePresentation','saveDialogueBubbles'])await assert.rejects(service.control(method,{}))
+  const count=calls.length, cancelled=AbortSignal.abort()
+  await assert.rejects(service.control('getStageDirection',{},cancelled),{name:'AbortError'})
+  assert.equal(calls.length,count)
+})
+
+test('the host mux carries a stage direction read only when it is readOnly, through the real stage requests', async () => {
+  const source=await readFile(new URL('../tavern-plugin/lib/index.js',import.meta.url),'utf8')
+  const start=source.indexOf('async control(method, args, signal)'), end=source.indexOf('async * follow',start)
+  const {createExtensionRequests}=await import('../tavern-plugin/lib/domain/extension-requests.js')
+  const {createStageRequests}=await import('../tavern-plugin/packages/dsh-tavern-stage/lib/requests.js')
+  const director=[]
+  const chat={id:'chat-1'}
+  const stage=createStageRequests({
+    chatForSession:async()=>chat, readRoundView:async()=>chat,
+    requestPerformance:{stage:(_name,run)=>run()},
+    stageDirector:{get:async(_chat,turn,_config,options)=>{director.push({turn,readOnly:options?.readOnly===true});return {status:'done',turn}}},
+  })
+  const extensionRequests=createExtensionRequests()
+  extensionRequests.register('stage',{methods:stage.methods,remoteRead:stage.remoteRead,call:(method,args)=>stage.call(method,args,null,false)})
+  const service=vm.runInNewContext('({'+source.slice(start,end)+'})',{
+    runtimeGeneration:'test-runtime',str:String,extensionRequests,
+    requestPerformance:{serialize:(_method,_sessionId,result)=>JSON.stringify(result)},
+    dispatch:(method,args)=>extensionRequests.call(method,args),
+  })
+  assert.deepEqual(JSON.parse(await service.control('getStageDirection',{sessionId:'s',turn:3,readOnly:true})),{ok:true,status:'done',turn:3,runtimeGeneration:'test-runtime'})
+  await assert.rejects(service.control('getStageDirection',{sessionId:'s',turn:4}),/不支持的运行时控制请求/)
+  assert.deepEqual(director,[{turn:3,readOnly:true}],'a direction request that may run the director never runs through the mux')
+})
+
+// Exercise the shipped Remote bundle, not a stub of tavernSessionSignals.control:
+// stale embedded codecs reject locally, and the bubble store retains null forever.
+async function mountedRemote(t) {
+  const { hostBrowserEntry } = await import('./helpers/host-browser-entry.mjs')
+  const require = createRequire(process.env.DSH_BOOT_MODULE || new URL('../tavern-plugin/package.json', import.meta.url))
+  const { Context } = require('@deepseek-ai/cordis')
+  function loadBundle(source, gateway) {
+    let entry
+    vm.runInNewContext(source, {
+      window: { __ModuleLoader__: { load(value) { entry = value } } },
+      crypto: globalThis.crypto, AbortController, AbortSignal, setTimeout, clearTimeout,
+      Error, Promise, console,
+    })
+    return entry.factory(id => id === '@deepseek-ai/dsh-api-gateway/client' ? gateway : require(id))
+  }
+  const gateway = loadBundle(await readFile(hostBrowserEntry(require, '@deepseek-ai/dsh-api-gateway'), 'utf8'))
+  const ctx = new Context(), calls = []
+  const { TYPERT_REMOTE: hostContract } = await import('../tavern-plugin/packages/dsh-tavern-remote/lib/typert.remote-client.js')
+  const methodCodec = hostContract.descriptors.find(d => d.method === 'control').parameters[0].codec
+  const methodSchema = methodCodec.create ? methodCodec.create() : methodCodec.schema
+  t.after(() => ctx.fiber.dispose())
+  let mounted
+  ctx.provide('typert', { remotes: { register(value) { mounted = value; return () => {} } } })
+  ctx.provide('connection', {
+    registerGenerationSource: () => () => {},
+    start: () => ({ stop() {} }),
+    rpc: { async *open(path, endpoint, payload, signal) {
+      signal.throwIfAborted()
+      // NEXT validates strict codecs at the Host boundary, not in its Client Gateway.
+      if (!methodSchema.safeParse(payload.args.method).success) throw new Error('Host rejected "method"')
+      calls.push({ path, endpoint, payload })
+      yield JSON.stringify({ ok: true, method: payload.args.method, config: { stage: { enabled: true } } })
+    } },
+  })
+  await ctx.plugin(gateway)
+  await ctx.plugin(loadBundle(remoteBundle, gateway))
+  return { service: ctx.tavernSessionSignals, calls, mounted }
+}
+
+test('shipped Remote bundle accepts all host control methods through the real Gateway', async t => {
+  const h = await mountedRemote(t)
+  const { TYPERT_REMOTE } = await import('../tavern-plugin/packages/dsh-tavern-remote/lib/typert.remote-client.js')
+  const declaredCodec = TYPERT_REMOTE.descriptors.find(d => d.method === 'control').parameters[0].codec
+  const bundledCodec = h.mounted.descriptors.find(d => d.method === 'control').parameters[0].codec
+  const declared = declaredCodec.create ? declaredCodec.create() : declaredCodec.schema
+  const bundled = bundledCodec.create ? bundledCodec.create() : bundledCodec.schema
+  const methods = declared.options.map(option => option.value)
+  assert.deepEqual(Array.from(bundled.options, option => option.value), methods, 'embedded contract must match generated descriptors')
+  for (const method of methods) {
+    const result = await h.service.control(method, { sessionId: 'session-stage', turn: 17 })
+    assert.equal(result.method, method)
+  }
+  assert.equal(h.calls.length, methods.length)
+  await assert.rejects(h.service.control('getAssetPackPresentation', {}), /rejected "method"/)
+  await assert.rejects(h.service.control('getDialogueBubbles', {}, AbortSignal.abort()), { name: 'AbortError' })
+  assert.equal(h.calls.length, methods.length, 'invalid or canceled requests never reach the host control implementation')
+})
+
+for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib/client.js']) {
+  test(`${file}: initial stage settings load survives the shipped Remote codec boundary`, async t => {
+    const h = await mountedRemote(t)
+    const source = await readFile(new URL(file, import.meta.url), 'utf8')
+    const start = source.indexOf('function rpc(method, args, sessionId, requestOptions)')
+    const end = source.indexOf('function rpcWithTimeout', start) // d6e5cb1ed
+    const bubbles = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')
+    const storeStart = bubbles.indexOf('const bubbleStore =')
+    const storeEnd = bubbles.indexOf('function useBubbles', storeStart)
+    const sandbox = {
+      window: { crypto: globalThis.crypto }, Date, performance, Promise, JSON, Error,
+      roundLoadCounts:new Map(), roundLoadTrace:{mark() {}}, rpcFetchPriority,
+      tavernSessionSignals: h.service,
+      performanceReportAt: Date.now(), pagePerformance: {},
+      tavernRuntimeGenerationMonitor: { observe() {} },
+      fetch() { assert.fail('origin-independent stage reads must not use HTTP') },
+    }
+    sandbox.clipExportTransport = null
+    const { rpc, store } = vm.runInNewContext(source.slice(start, end) + bubbles.slice(storeStart, storeEnd) + ';({rpc,store:bubbleStore})', sandbox)
+    let updates = 0
+    store.subscribe(() => updates++)
+    store.load('session-stage')
+    // Flush the actual async iterator/Gateway/store chain, with no network or timers.
+    for (let i = 0; i < 20 && !updates; i++) await new Promise(resolve => setImmediate(resolve))
+    assert.ok(store.get('session-stage')?.config.stage.enabled, 'initial rejection must not leave stage settings and avatars without configuration')
+    assert.equal(updates, 1)
+    for (const method of ['getStageDirection', 'getStageModHistory']) assert.equal((await rpc(method, { turn: 17, readOnly: true }, 'session-stage')).method, method)
+    assert.deepEqual(h.calls.map(row => row.payload.args.method), ['getDialogueBubbles', 'getStageDirection', 'getStageModHistory'])
+    assert.ok(h.calls.every(row => row.payload.args.args.sessionId === 'session-stage'))
   })
 }

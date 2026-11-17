@@ -1,7 +1,7 @@
 export type TavernJsonValue = null | boolean | number | string | TavernJsonValue[] | {
     [key: string]: TavernJsonValue;
 };
-export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernScriptWork' | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime' | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime';
+export type TavernRuntimeControlMethod = 'claimTavernScriptWork' | 'startTavernScriptWork' | 'getTavernScriptWorkState' | 'heartbeatTavernScriptRuntime' | 'completeTavernHelperEvent' | 'releaseTavernHelperRuntime' | 'getStageDirection' | 'getStageModHistory' | 'getDialogueBubbles';
 export interface TavernSessionSignal {
     readonly id: string;
     readonly sessionId: string;
