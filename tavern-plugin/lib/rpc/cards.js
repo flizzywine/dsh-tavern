@@ -52,8 +52,15 @@ export function createCardHandlers(deps) {
       return await cardMemory.experience(await chatForSession(args?.sessionId), args || {}, { manual: true })
     },
     async updateCard(args) {
-      const change = await updateCard(args && args.path, args && args.patch)
-      return { card: change.card, changed: change.changed }
+      const { path, updateCard } = deps
+
+        // Same host function the card Agent's tavern_update_card tool ends at: Card Preparation
+        // validation, the shared card lock and the projection bump. rawOperations (extension
+        // fields such as /data/extensions/regex_scripts) stay on that one path; the revision entry
+        // stays tool-owned so an RPC caller cannot write changelog records.
+        const change = await updateCard(args && args.path, args && args.patch, undefined, args && args.rawOperations, {expectedAssetRevision: args && args.expectedAssetRevision, expectedRevision: args && args.expectedRevision})
+        return { card: change.card, changed: change.changed }
+
     },
     // A log the host cannot open is repaired on demand: the client retries the open
     // once after this reports a rewrite, and untouched logs cost one read.

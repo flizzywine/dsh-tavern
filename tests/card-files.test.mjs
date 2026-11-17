@@ -6,6 +6,7 @@ import test from 'node:test'
 import { createHash } from 'node:crypto'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { openZipFile } from '../tavern-plugin/lib/domain/zip-file.js'
+import { projectDshCard } from '../tavern-plugin/lib/domain/dsh-card-export-projection.js'
 import { createAssetPacks } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createCardFiles } from '../tavern-plugin/lib/domain/card-files.js'
@@ -42,9 +43,11 @@ async function library(t, extra = {}) {
     exportRoot: join(root, "exports"),
     cardPreparation, fileResources, castAssets, assetPacks: createAssetPacks({ root, store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }), cardSummaries, readCardWorkspace,
     worldBooks: { characterBookForCard: async () => undefined },
-    cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }), presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), ...extra, pluginApi: () => assert.fail('not a plugin format')
+    cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }), presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), ...extra, pluginApi: () => assert.fail('not a plugin format'),
+    syncBubbles: async cardPath => { bubbleSyncs.push(cardPath) }
   })
-  return { root, files, fileResources, castAssets, cardPreparation, readCardWorkspace }
+  const bubbleSyncs = []
+  return { root, files, fileResources, castAssets, bubbleSyncs, cardPreparation, readCardWorkspace }
 }
 
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
@@ -120,7 +123,7 @@ test('an imported card with a cover exports as JSON, PNG or a DSH container', as
 // A DSH card with a pack and a plugin imports and goes back out whole; a figure left out of the export leaves with the
 // media only it uses, from the exported copy only.
 test('v1 card, bound pack and plugin round trip; PNG imports and exclusion only changes the exported copy', async t => {
-  const {root, files, fileResources} = await library(t)
+  const {root, files, fileResources, bubbleSyncs} = await library(t)
   const id = '11111111-1111-4111-8111-111111111111', omitted = '22222222-2222-4222-8222-222222222222', kept = '33333333-3333-4333-8333-333333333333'
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX2kAAAAASUVORK5CYII=', 'base64')
   const hash = 'a'.repeat(64), media = 'media/' + hash + '.png'
@@ -142,6 +145,7 @@ test('v1 card, bound pack and plugin round trip; PNG imports and exclusion only 
   const source = join(root,'source.dshcard')
   await writeFile(source,writeZipEntries(entries.map(([path,content])=>({path,content}))))
   const imported = await files.importCardArchiveFile(source,'source.dshcard')
+  assert.deepEqual(bubbleSyncs,[imported.path],'the import derives its own bubble format entry')
   const before = await fileResources.readText(imported.path)
   {
     const exported = await files.exportCardFile(imported.path,{excludeFigures:[omitted]})
@@ -192,6 +196,13 @@ test('invalid card plugin identity fails before persistence; retries stay failur
   assert.equal((await files.importCardArchiveFile(archive, 'legacy.dshcard')).duplicate, true)
 })
 
+
+test('the host-maintained bubble format entry never travels; authored entries do', async () => {
+  const bubble = {keys:[],comment:'格式要求',content:'- player|Player figure from a global pack',enabled:true,constant:true,extensions:{dsh_tavern_helper_extra:{forkDialogueBubbles:{version:1,cardKey:'source-card'}}}}
+  const authored = {keys:['Lore'],comment:'Lore',content:'Authored story',enabled:true}
+  const {card} = await projectDshCard({spec:'chara_card_v3',data:{name:'Bubbles',character_book:{entries:[bubble,authored]}}}, [], [])
+  assert.deepEqual(card.data.character_book.entries,[authored])
+})
 
 // The stage reads packs from the asset library: a card's packs install there too. A new pack is installed, an
 // identical one left as it is; a different installed version is not touched but reported. Importing the very same
