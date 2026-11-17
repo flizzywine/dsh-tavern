@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "68d35f833e33bcfc308134d7f13ea9bd5c7394b3",
-  "releaseSequence": 1738,
+  "revision": "c0378995364b9745b27bd8667942944781ba672c",
+  "releaseSequence": 1739,
   "version": "3.3.0",
   "files": [
     {
@@ -1416,8 +1416,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-export-settings.js",
-      "sha256": "2f7ff2ef6cc67d7bdb6ea2e0b95c9347b438455989c3fe3d4587b543b83ef393",
-      "size": 541
+      "sha256": "88296c59329305367ca67134b601fa1b0d259f74c9f70eb5f4592a9b802b8457",
+      "size": 450
     },
     {
       "path": "tavern-plugin/lib/domain/card-extension-reading.js",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "7fe8518b58e873e2629a2eacf58f0615d9b2efdf",
+    "commit": "40f64d058ca5792b9dedd60bee63e11b8d39c07d",
     "path": "runtime.zip",
-    "sha256": "dcb73d5d49c066dac15c84a6476026c86e036e4883f83a85caba8aaedb80bdf5",
-    "size": 16689223
+    "sha256": "f3f5a6563701cf434d750bdba60d9e6144b6b5ad4583e7d5b37f233b0abc0e20",
+    "size": 16689155
   }
 }
