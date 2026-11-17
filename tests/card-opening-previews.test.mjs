@@ -9,6 +9,20 @@ import { browserReactScript } from './fixtures/browser-react.mjs'
 
 const rule = (findRegex, replaceString) => ({ findRegex, replaceString, placement: [2], markdownOnly: true })
 
+test('the picker preserves explicit blank alternates without promoting missing or whitespace entries', async () => {
+  const { cardOpeningChoices, cardOpeningSwipes, resolveCardOpening } = await import('../tavern-plugin/lib/domain/card-openings.js')
+  const card = { first_mes: 'Existing opening', alternate_greetings: ['Another opening', '', null, '  '] }
+  assert.deepEqual(cardOpeningChoices(card).map(row => row.id), ['primary', 'alternate:0', 'alternate:1'])
+  assert.equal(resolveCardOpening(card, 'alternate:1'), '')
+  assert.throws(() => resolveCardOpening(card, 'alternate:2'))
+  assert.equal(cardOpeningSwipes(card).openingIds[2], 'alternate:1')
+  const preview = await projectCardOpeningPreviews({ card })
+  assert.equal(preview.openings.length, 3)
+  assert.equal(preview.openings[2].id, 'alternate:1')
+  assert.equal(preview.openings[2].text, '')
+  assert.deepEqual(preview.openings[2].projection.parts, [])
+})
+
 test('native swipe chooser receives opening bridge metadata without treating prose as a chooser', async () => {
   const card = { name: '选择台', first_mes: '<script>const ctx=SillyTavern.getContext();ctx.swipe.to(null,"right",{forceMesId:0,forceSwipeId:1});</script>', alternate_greetings: ['目标开场'] }
   const result = await projectCardOpeningPreviews({ card })
@@ -16,6 +30,19 @@ test('native swipe chooser receives opening bridge metadata without treating pro
   assert.equal(result.openings[0].openingPreview.openingIds[1], 'alternate:0')
   const prose = await projectCardOpeningPreviews({ card: { first_mes: 'He swiped his card. The character_menu appeared and he decided to jump.' } })
   assert.equal(prose.openings[0].openingPreview, null)
+})
+
+test('legacy angle-bracket names agree in preview, committed opening and display refresh without changing card source', async () => {
+  const {projectReplyLayers} = await import('../tavern-plugin/lib/domain/reply-presentation.js')
+  const source = '```start\n<user> visits <char>.\n```'
+  const card = {name:'Host',first_mes:source}
+  const options = {charName:card.name,macroState:{userName:'Guest'}}
+  const preview = await projectCardOpeningPreviews({card,userName:'Guest'})
+  assert.match(preview.openings[0].text,/Guest visits Host/)
+  assert.equal(projectOpeningCommit(source,options).bodyText,preview.openings[0].text)
+  assert.equal(projectReplyLayers(source,options).displayText,preview.openings[0].text)
+  assert.equal(card.first_mes,source)
+  assert.equal(projectReplyLayers('<user-card>unchanged</user-card>',options).displayText,'<user-card>unchanged</user-card>')
 })
 
 test('whole-message HTML replacements keep chained rules in previews, committed openings, and later replies', async () => {
