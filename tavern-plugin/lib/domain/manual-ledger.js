@@ -152,6 +152,8 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
     } catch (error) {
       await taskRun.fail(result)
       await store.updateChat(chat.id, current => {
+        // A cancelled old-branch worker must not resurrect its task marker after rollback.
+        if (current.timeline?.branchId !== taskRun.basedOn?.branchId || current.ledgerTask?.status !== 'running' || current.ledgerTask?.through !== backlog.through) return current
         current.ledgerTask = { status: 'failed', from: backlog.from, through: backlog.through, error: String(error.message || error) }
         return current
       })

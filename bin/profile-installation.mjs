@@ -66,11 +66,11 @@ function verifySource() {
   }
 }
 
-function prepareProfileConfiguration(host, dshVersion) {
-  const source = JSON.parse(readFileSync(path.join(SOURCE_ROOT, 'package.json'), 'utf8'))
-  const current = loadProfileManifest({ profileDir: PROFILE_DIR })
+export function prepareProfileConfiguration(host, dshVersion, { sourceRoot = SOURCE_ROOT, profileDir = PROFILE_DIR, dshHome = DSH_ROOT } = {}) {
+  const source = JSON.parse(readFileSync(path.join(sourceRoot, 'package.json'), 'utf8'))
+  let current = loadProfileManifest({ profileDir })
   const desktop = host === 'desktop' || host === 'next'
-  const legacyNext = desktop && hasNextTavern(DSH_ROOT)
+  const legacyNext = desktop && hasNextTavern(dshHome)
   if (desktop && current.dsh?.profile?.bundles?.includes('dsh-tavern-bundle') && !legacyNext) {
     throw new Error('无法核对现有 NEXT 酒馆包的来源，请先检查 tavern Profile。')
   }
@@ -78,29 +78,29 @@ function prepareProfileConfiguration(host, dshVersion) {
     throw new Error(`目标 profile 已属于其他项目：${current.name}`)
   }
 
-  const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin')
+  const pluginPath = path.join(sourceRoot, 'tavern-plugin')
   const manifest = mergeProfileManifest({
     source,
     current,
     previousLaunchers: [
-      ...launcherBundles(current, PROFILE_DIR, 'desktop'),
-      ...launcherBundles(current, PROFILE_DIR, 'next'),
+      ...launcherBundles(current, profileDir, 'desktop'),
+      ...launcherBundles(current, profileDir, 'next'),
       ...(legacyNext ? ['dsh-tavern-bundle'] : []),
     ],
     pluginPath,
-    dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }),
+    dataRoot: resolveTavernDataRoot({ dshHome }),
     host,
     dshVersion,
   })
   let patchText = prepareProfilePatch({
-    profileDir: PROFILE_DIR,
-    templateText: readFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), 'utf8'),
-    legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
+    profileDir,
+    templateText: readFileSync(path.join(sourceRoot, 'cordis.patch.yml'), 'utf8'),
+    legacyManagedText: readFileSync(path.join(sourceRoot, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
     host,
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
   if (desktop) {
-    assertLauncherSlotAvailable(current, PROFILE_DIR, { replaceNext: true })
+    assertLauncherSlotAvailable(current, profileDir, { replaceNext: true })
     manifest.dshTavern.officialDesktop = true
     manifest.dshTavern.profileBridge = true
     if (!manifest.dsh.profile.bundles.includes(LAUNCHER_BUNDLE)) manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
