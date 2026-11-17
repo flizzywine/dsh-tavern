@@ -17139,7 +17139,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 			// message (provider English, codes, ids) and the module-load details show only in the 调试视图 (body.dsh-fork-debug), and 复制 copies them.
 			const debugView = typeof document !== "undefined" && !!document.body && document.body.classList.contains("dsh-fork-debug");
 			const said = playerErrorText(item);
-			return h("section", { className: "dsh-tavern-error-center", role: "region", "aria-label": "DSH Tavern 错误记录" },
+			const panel = h("section", { className: "dsh-tavern-error-center", role: "region", "aria-label": "DSH Tavern 错误记录" },
 				h("div", { className: "dsh-tavern-error-center-head" }, h("span", null, "最新错误"), h("button", { className: "dsh-tavern-btn", onClick: function () { copyErrorText(text); } }, "复制"), h("button", { className: "dsh-tavern-btn", onClick: tavernErrorHub.clear }, "清除")),
 				h("div", { className: "dsh-tavern-error-list" }, h("article", { className: "dsh-tavern-error-item", key: item.id },
 					h("div", { className: "dsh-tavern-error-meta" }, h("span", null, item.source), item.count > 1 ? h("span", null, "重复 " + item.count + " 次") : null, h("time", { dateTime: new Date(item.lastAt).toISOString() }, formatErrorTime(item.lastAt))),
@@ -17152,6 +17152,12 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 						h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { window.location.reload(); } }, "刷新页面重试")) : null
 				))
 			);
+			// 手机端的侧栏是抽屉：宿主的 _sidebarCol 带 transform（收起时 translate3d(-101%) + visibility: hidden），
+			// 于是 position: fixed 的包含块变成抽屉本身，面板跟着抽屉滑出屏幕——正文界面里看不到，
+			// 只有拉开左侧栏才出现。挂到 body 上，面板始终相对视口定位，出错当场就浮在正文上面。
+			return typeof ReactDOM !== "undefined" && ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && document.body
+				? ReactDOM.createPortal(panel, document.body)
+				: panel;
 		}
 
 		// A closed <details> still mounts its body. Long lists of collapsed rows
