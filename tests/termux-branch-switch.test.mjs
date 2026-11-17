@@ -5,7 +5,9 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import test from 'node:test'
+import nativeTest from 'node:test'
+// The extracted heredoc needs a POSIX shell, which Windows does not provide.
+const test = (name, fn) => nativeTest(name, { skip: process.platform === 'win32' ? 'Requires POSIX/Termux shell' : false }, fn)
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const bash = process.env.TEST_BASH || 'bash'

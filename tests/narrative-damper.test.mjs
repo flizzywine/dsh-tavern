@@ -322,13 +322,15 @@ test('无 MVU 普通人物卡：楼层四维惯性状态演进与回退恢复', 
   assert.deepEqual(readDamperStateSnapshot(chat).data, afterGodmode)
 })
 
-test('前端构建产物：设置面板注册「叙事阻尼器」section', async () => {
+test('宿主设置里不再有「叙事阻尼器」页，楼层胶囊仍归宿主', async () => {
   const mainSource = await readFile(new URL('../tavern-plugin/src/client/main.js', import.meta.url), 'utf8')
   const builtClient = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  assert.match(mainSource, /id:\s*"dsh-tavern-narrative-damper"/)
-  assert.match(builtClient, /dsh-tavern-narrative-damper/)
-  assert.match(builtClient, /getNarrativeDamperSettings/)
-  assert.match(builtClient, /testNarrativeDamperConnection/)
+  // 设置页搬进了内置插件 dsh-tavern-narrative-damper：宿主不再注册这一节，也不再调它的旧 RPC。
+  assert.equal(mainSource.includes('"dsh-tavern-narrative-damper"'), false)
+  assert.equal(builtClient.includes('getNarrativeDamperSettings'), false)
+  assert.equal(builtClient.includes('testNarrativeDamperConnection'), false)
+  assert.equal(/label:\s*\(\)\s*=>\s*"叙事阻尼器"/.test(builtClient), false)
+  // 楼层胶囊在游玩界面里，随宿主渲染，不受这次搬迁影响。
   assert.match(builtClient, /StoryFloorDamperPill/)
   assert.match(builtClient, /DamperReceiptSummary/)
   assert.equal(desensitizeForDecisionJudge('普通日常对话'), '普通日常对话')

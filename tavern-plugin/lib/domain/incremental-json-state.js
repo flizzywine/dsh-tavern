@@ -156,7 +156,8 @@ export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decod
   if(node.type==='scalar')return node.value
   if(!['object','array'].includes(node.type))throw fail('Corrupt state value')
   const value=node.type==='array'?[]:{}
-  for(const [key,child] of (await entries(s,node.entries)).sort((a,b)=>a[2]-b[2])){
+  // A copy: the index node is shared and immutable.
+  for(const [key,child] of (await entries(s,node.entries)).slice().sort((a,b)=>a[2]-b[2])){
    Object.defineProperty(value,key,{value:await decode(s,child,false),enumerable:true,writable:true,configurable:true})
   }
   return value

@@ -266,6 +266,41 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
   )
 }
 
+// 输入框尾部工具区的紧凑入口（tavernUi.registerComposerTool，apiVersion 10）：
+// 只放一个图标，与模型席、提交键同一行。这样罗盘不再独占输入框上方的一行，
+// 也就不会把末尾正文挤进输入座位顶部的淡出带里。状态靠小圆点表达，文字放在 title。
+function PlotCompassComposerTool({ ui, sessionId, busy }) {
+  const id = String(sessionId || '')
+  const { state } = usePlotCompassState(ui, id)
+  if (!id || state.enabled !== true) return null
+
+  const compass = state.plotCompass || pcEmptyCompass()
+  const task = state.plotCompassTask || {}
+  const isRunning = task.status === 'running'
+  const active = pcActiveCompassSummary(compass)
+  const totalRoutes = (compass.shortTerm?.length || 0) + (compass.midTerm?.length || 0) + (compass.longTerm?.length || 0)
+  const routes = totalRoutes > 0 ? ' · ' + totalRoutes + ' 条路线' : ''
+  const label = active.any
+    ? '剧情罗盘 · 已锚定' + (active.any.tag || active.any.title) + routes
+    : '剧情罗盘' + routes
+
+  return h('button', {
+    type: 'button',
+    className: 'dsh-tavern-compass-tool-btn' + (active.any ? ' is-pinned' : '') + (isRunning ? ' is-running' : ''),
+    title: label,
+    'aria-label': label,
+    'data-busy': busy === true ? 'true' : undefined,
+    onClick: () => {
+      if (ui && typeof ui.openPanel === 'function') {
+        ui.openPanel(PC_PANEL_ID, id)
+      }
+    }
+  },
+    isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-tool-glyph' }, '🧭'),
+    active.any && !isRunning ? h('span', { className: 'dsh-tavern-compass-tool-dot', 'aria-hidden': 'true' }) : null
+  )
+}
+
 function PlotCompassStatusSection({ ui, gameId }) {
   const id = String(gameId || '')
   const { state } = usePlotCompassState(ui, id)

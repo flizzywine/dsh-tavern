@@ -8,7 +8,7 @@ import { mkdtemp } from 'node:fs/promises'
 
 import { createMobileCardImport } from '../tavern-plugin/lib/domain/mobile-card-import.js'
 
-test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按选择读取', async function (t) {
+test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按选择读取', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async function (t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-mobile-card-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const downloads = path.join(root, 'Download')

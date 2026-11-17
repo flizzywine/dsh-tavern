@@ -196,6 +196,31 @@
 				}));
 			}
 
+			// Compact composer tools (tavernUi.registerComposerTool, apiVersion 10): rendered into
+			// the host's trailing control row instead of the dock above the input card, so an
+			// icon like the plot compass never claims a row of its own.
+			function TavernComposerTools(props) {
+				useTavernUiExtensions();
+				const sessionId = String(props.sessionId || "");
+				const live = useLiveTavernView(sessionId, "composer-slot", [["mode"]]);
+				const mode = live && live.view && typeof live.view.mode === "string" ? live.view.mode : "";
+				const matchingTools = mode === ""
+					? []
+					: tavernUiExtensions.composerTools().filter(function (tool) {
+						return (tool.modes.indexOf(mode) >= 0 || (mode === "story" || mode === "script") && tool.modes.indexOf("play") >= 0) &&
+							tavernPluginAllowed(tool.owner, sessionId);
+					});
+				const busy = props.useSession(function (snapshot) { return snapshot.running === true; });
+
+				if (sessionId === "" || matchingTools.length === 0) return null;
+				const h = React.createElement;
+				return h(React.Fragment, null, matchingTools.map(function (tool) {
+					return h("div", { key: tool.key || tool.owner, className: "dsh-tavern-composer-tool", "data-plugin": tool.owner },
+						h(tavernPluginBoundary(), { owner: tool.owner, fallback: null },
+							h(tool.render, { sessionId: sessionId, busy: busy === true })));
+				}));
+			}
+
 			function register(input) {
 				const slots = input.slots;
 
@@ -209,6 +234,13 @@
 						return slots.register({ name: "conversation.input.dock", id: "dsh-tavern-plugin-slot", order: -290, label: "插件停靠区" }, TavernComposerSlot);
 					});
 				}, "dsh-tavern: plugin composer slot");
+				// The compact tool row lives inside the input card (before submit), so plugins that
+				// only need an icon there never occupy a dock row.
+				input.ctx.effect(function () {
+					return slots.inject("conversation.input.right", function () {
+						return slots.register({ name: "conversation.input.right", id: "dsh-tavern-plugin-tool", order: -290, label: "插件工具" }, TavernComposerTools);
+					});
+				}, "dsh-tavern: plugin composer tools");
 				return function () {};
 			}
 

@@ -96,6 +96,54 @@ const PC_CSS_TEXT = `
     height: 14px;
   }
 }
+/* 输入框尾部工具区（宿主的提交键 / 模型席同一行）里的罗盘图标：只占一个 28px 的圆点，
+   不再占据输入框上方的一整行，末行正文也就不会被挤进座位的淡出带。 */
+.dsh-tavern-compass-tool-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, var(--dsh-ink, inherit));
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.dsh-tavern-compass-tool-btn:hover,
+.dsh-tavern-compass-tool-btn:active {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+.dsh-tavern-compass-tool-btn.is-pinned {
+  color: #268265;
+  border-color: rgba(38, 130, 101, 0.24);
+  background: rgba(38, 130, 101, 0.1);
+}
+.dsh-tavern-compass-tool-glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+.dsh-tavern-compass-tool-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dsh-tavern-compass-tool-btn .dsh-tavern-compass-spinner {
+  width: 13px;
+  height: 13px;
+}
 .dsh-tavern-compass-spinner {
   display: inline-block;
   width: 12px;

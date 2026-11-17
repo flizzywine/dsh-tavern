@@ -89,13 +89,6 @@
 				try { window.localStorage.setItem("dsh-tavern-history-groups", JSON.stringify(historyGroupState)); } catch (_) {}
 			}, [historyGroupState]);
 			const [picking, setPicking] = React.useState(false);
-            const [updatingCard, setUpdatingCard] = React.useState(false);
-            const [updateTarget, setUpdateTarget] = React.useState('');
-            const [updateFile, setUpdateFile] = React.useState(null);
-            const [updateNotice, setUpdateNotice] = React.useState('');
-            const [updateError, setUpdateError] = React.useState('');
-            const [updateResult, setUpdateResult] = React.useState(null);
-            const updateInput = React.useRef(null);
 			const [busy, setBusy] = React.useState(false);
 			// 选卡到开局准备页之间要读人物卡、预热脚本、问舞台设置，这几秒面板一直停在卡片列表上，
 			// 看不出点中了什么。openingCardName 记住正在打开的那张卡，列表区换成带转轮的进度提示。
@@ -130,7 +123,12 @@
 			const [managerStatusFilter, setManagerStatusFilter] = React.useState("all");
 			const [managerRenaming, setManagerRenaming] = React.useState(null);
 			const attemptedPreviewIds = React.useRef(new Set());
-			const pickerOpen = !collapsed && (picking || historyManagerOpen || updatingCard);
+			// 批量管理 › 更新 (card-update-dialog.js): a card replaced or put back is read again, and an opening prepared from it dropped.
+			const cardUpdate = useTavernCardUpdate({ call, onChanged: async path => {
+				await refresh(); notifyDataChanged(['cards']);
+				if (openingPicker?.card?.path === path) { setOpeningPicker(null); playPrewarmRef.current.cancel(); }
+			} });
+			const pickerOpen = !collapsed && (picking || historyManagerOpen || cardUpdate.open);
 			function portalOverlay(node) {
 				return node && typeof ReactDOM !== "undefined" && ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && document.body ? ReactDOM.createPortal(node, document.body) : node;
 			}
@@ -1081,20 +1079,6 @@
 				} catch (err) { setOpeningPicker(null); playPrewarmRef.current.cancel(); setError(String(err && err.message || err)); }
 				finally { if (timing) timing.finish(successful); setBusy(false); }
 			}
-			async function replaceSelectedCard() {
-                if (!updateTarget || !updateFile || busy) return;
-                setBusy(true); setUpdateError(''); setUpdateNotice('正在备份并更新…');
-                try {
-                    const result = await importTavernCardFile(updateFile, call, setUpdateNotice, updateTarget);
-                    await refresh(); notifyDataChanged(['cards']);
-                    if (openingPicker?.card?.path === updateTarget) { setOpeningPicker(null); playPrewarmRef.current.cancel(); }
-                    const updated = await call('getCard', { path: updateTarget }).catch(() => null);
-                    setUpdateResult({ ...result.card, version: updated?.card?.character_version || '' });
-                    setUpdateFile(null);
-                    setUpdateNotice('');
-                } catch (err) { setUpdateNotice(''); setUpdateError(String(err?.message || err)); }
-                finally { setBusy(false); }
-            }
 			async function refreshImportedCards() {
 				await refresh(["cards"]);
 				notifyDataChanged(["cards"]);
@@ -1686,7 +1670,7 @@
 					h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				cardImportNotice,
 				pendingChatImport ? h("div", { className: "dsh-tavern-side-empty", role: "status", style: { padding: "4px 6px", display: "flex", alignItems: "center", gap: "8px" } }, h("span", null, "选择这份 SillyTavern 聊天记录对应的人物卡" + (pendingChatImport.characterName ? "（记录里的角色：" + pendingChatImport.characterName + "）" : "")), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setPendingChatImport(null); } }, "取消")) : null,
-				organization.toolbar(h('button', { className: 'dsh-tavern-btn', disabled: busy || cardBatch.paths.length !== 1, title: '选中一张人物卡后上传新版替换', onClick: function () { if (cardBatch.paths.length !== 1) return; setUpdateTarget(cardBatch.paths[0]); setUpdateFile(null); setUpdateNotice(''); setUpdateError(''); setUpdateResult(null); setUpdatingCard(true); } }, '更新')),
+				organization.toolbar(h('button', { className: 'dsh-tavern-btn', disabled: busy || cardBatch.paths.length !== 1, title: '选中一张人物卡后上传新版替换', onClick: function () { if (cardBatch.paths.length !== 1) return; const path = cardBatch.paths[0]; cardUpdate.start(path, cards.find(card => card.path === path)?.name || path); } }, '更新')),
 				(openingCardName || cardsLoading) ? h("div", { className: "dsh-tavern-picker-loading", role: "status", "aria-live": "polite" },
 					h(Spinner, {}),
 					h("div", null,
@@ -1832,8 +1816,9 @@
 					event.target.value = "";
 					void importPickedCards(files);
 				} }),
-                    h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{const file=e.target.files?.[0]; if(!file)return; setUpdateFile(file); setUpdatingCard(true);setUpdateNotice('');setUpdateError('');setUpdateResult(null);e.target.value='';}}),
-                !collapsed && updatingCard ? portalOverlay(h(TavernCardUpdateDialog, { target: updateTarget, name: cards.find(card => card.path === updateTarget)?.name || updateTarget, file: updateFile, notice: updateNotice, error: updateError, result: updateResult, busy, call, pick: () => updateInput.current.click(), close: () => setUpdatingCard(false), replace: replaceSelectedCard })) : null,
+				cardUpdate.input,
+				// the dialog is its own layer (Modal): a window narrow enough to fold the sidebar keeps it
+				cardUpdate.element,
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
 					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理"),
@@ -1858,7 +1843,7 @@
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet || updateAvailableQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
 				),
 				!collapsed ? portalOverlay(historyManagerPanel) : null,
-				!collapsed && (openingPicker || (picking && uiMode === "play")) ? portalOverlay(h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker)) : null,
+				!collapsed && (openingPicker || (picking && uiMode === "play")) ? portalOverlay(h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !cardUpdate.open ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker)) : null,
                 !collapsed && picking && uiMode === "card" ? portalOverlay(h("div", { key: "card-picker", className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, cardPicker)) : null,
 				cardZipImport ? cardZipImport.element : null
 			));

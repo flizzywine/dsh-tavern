@@ -6,7 +6,9 @@ import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
 import path from 'node:path'
-import test from 'node:test'
+import nativeTest from 'node:test'
+// The Android installer needs POSIX shell, process and link semantics, which Windows does not provide.
+const test = (name, ...args) => process.platform === 'win32' ? nativeTest(name, { skip: 'Requires Android/POSIX installer environment' }, () => {}) : nativeTest(name, ...args)
 
 import { createEntryHandler, createEntryManager, resolveEntryConfig } from '../android/dsh-tavern-entry/index.js'
 import { configureAndroidProfiles } from '../android/configure-profiles.mjs'

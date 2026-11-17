@@ -11,8 +11,9 @@ const stale = () => {throw Object.assign(new Error('CG presentation expired'),{c
 export function verifyCgPlayedReceipt(direction, receipt, ref, variant) {
   if (!receipt?.page || !direction.token || !receipt.expectedDirectionToken || direction.status === 'error' || direction.error) stale()
   const {page,through,binding,expectedDirectionToken:token} = receipt
+  // The receipt names the page the host projected; a page that only re-anchors in today's layout is another page.
   const coordinate = stageProjectionPage(direction,page.para,page)
-  if (!coordinate || page.para > through || through > direction.through || !Number.isSafeInteger(through)) stale()
+  if (!coordinate || coordinate.index !== page.index || coordinate.offset !== page.offset || page.para > through || through > direction.through || !Number.isSafeInteger(through)) stale()
   const checked = direction.record || direction.preview
   if (!checked) stale()
   if (!same(direction.token,token)) {

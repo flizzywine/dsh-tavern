@@ -115,6 +115,54 @@ const PC_CSS_TEXT = `
     height: 14px;
   }
 }
+/* 输入框尾部工具区（宿主的提交键 / 模型席同一行）里的罗盘图标：只占一个 28px 的圆点，
+   不再占据输入框上方的一整行，末行正文也就不会被挤进座位的淡出带。 */
+.dsh-tavern-compass-tool-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, var(--dsh-ink, inherit));
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.dsh-tavern-compass-tool-btn:hover,
+.dsh-tavern-compass-tool-btn:active {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+.dsh-tavern-compass-tool-btn.is-pinned {
+  color: #268265;
+  border-color: rgba(38, 130, 101, 0.24);
+  background: rgba(38, 130, 101, 0.1);
+}
+.dsh-tavern-compass-tool-glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+.dsh-tavern-compass-tool-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dsh-tavern-compass-tool-btn .dsh-tavern-compass-spinner {
+  width: 13px;
+  height: 13px;
+}
 .dsh-tavern-compass-spinner {
   display: inline-block;
   width: 12px;
@@ -1133,6 +1181,41 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
       isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-dock-glyph' }, '🧭'),
       h('span', { className: 'dsh-tavern-compass-dock-label' }, label)
     )
+  )
+}
+
+// 输入框尾部工具区的紧凑入口（tavernUi.registerComposerTool，apiVersion 10）：
+// 只放一个图标，与模型席、提交键同一行。这样罗盘不再独占输入框上方的一行，
+// 也就不会把末尾正文挤进输入座位顶部的淡出带里。状态靠小圆点表达，文字放在 title。
+function PlotCompassComposerTool({ ui, sessionId, busy }) {
+  const id = String(sessionId || '')
+  const { state } = usePlotCompassState(ui, id)
+  if (!id || state.enabled !== true) return null
+
+  const compass = state.plotCompass || pcEmptyCompass()
+  const task = state.plotCompassTask || {}
+  const isRunning = task.status === 'running'
+  const active = pcActiveCompassSummary(compass)
+  const totalRoutes = (compass.shortTerm?.length || 0) + (compass.midTerm?.length || 0) + (compass.longTerm?.length || 0)
+  const routes = totalRoutes > 0 ? ' · ' + totalRoutes + ' 条路线' : ''
+  const label = active.any
+    ? '剧情罗盘 · 已锚定' + (active.any.tag || active.any.title) + routes
+    : '剧情罗盘' + routes
+
+  return h('button', {
+    type: 'button',
+    className: 'dsh-tavern-compass-tool-btn' + (active.any ? ' is-pinned' : '') + (isRunning ? ' is-running' : ''),
+    title: label,
+    'aria-label': label,
+    'data-busy': busy === true ? 'true' : undefined,
+    onClick: () => {
+      if (ui && typeof ui.openPanel === 'function') {
+        ui.openPanel(PC_PANEL_ID, id)
+      }
+    }
+  },
+    isRunning ? h(PcSpinner) : h('span', { 'aria-hidden': 'true', className: 'dsh-tavern-compass-tool-glyph' }, '🧭'),
+    active.any && !isRunning ? h('span', { className: 'dsh-tavern-compass-tool-dot', 'aria-hidden': 'true' }) : null
   )
 }
 
@@ -2253,8 +2336,15 @@ function apply(ctx) {
     render: ({ gameId } = {}) => h(PlotCompassPanel, { ui, gameId })
   }))
 
-  // 2) 输入栏动作区：开启本局剧情罗盘时展示当前锚定/推演入口按钮
-  if (typeof ui.registerComposerSlot === 'function') {
+  // 2) 输入框尾部工具区（与模型席、提交键同一行）：只放一个图标，不占停靠区的一行。
+  //    宿主新版提供 tavernUi.registerComposerTool；旧宿主退回输入框上方的停靠区。
+  if (typeof ui.registerComposerTool === 'function') {
+    pcRegisterSafely(ctx, 'plot-compass: composer tool', () => ui.registerComposerTool({
+      id: PC_PANEL_ID,
+      modes: ['play'],
+      render: ({ sessionId, busy } = {}) => h(PlotCompassComposerTool, { ui, sessionId, busy })
+    }))
+  } else if (typeof ui.registerComposerSlot === 'function') {
     pcRegisterSafely(ctx, 'plot-compass: composer slot', () => ui.registerComposerSlot({
       id: PC_PANEL_ID,
       modes: ['play'],

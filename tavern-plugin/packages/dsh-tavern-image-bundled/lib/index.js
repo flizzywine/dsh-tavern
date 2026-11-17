@@ -3032,6 +3032,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
         extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
+        referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
       const currentInput = instruction ? `${body}\n\n<本次生图要求>\n${instruction}\n</本次生图要求>` : body
       const contextBoundary = system.indexOf('\n\n<本轮上下文>\n')
@@ -5455,7 +5456,10 @@ function createRuntime(ctx, overrides, logger, deps) {
           outfits: nextOutfits.map((item, i) => normalizeOutfit(item, i)),
         }
         try {
-          await definitionStore.update(async previous => { await handLinkedNames(deps.tavern, previous.characters, normalized.characters); return normalized }, { expectedRevision: next.revision, requireRevision: true })
+          await definitionStore.update(() => normalized, {
+            expectedRevision: next.revision, requireRevision: true,
+            commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save),
+          })
         } catch (error) {
           sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'FIGURE_EDIT_FAILED' ? 400 : 500, { ok: false, code: error.code, error: error.message })
           return
@@ -6128,10 +6132,10 @@ async function readJson(path, fallback) {
   }
 }
 
-async function writeJsonAtomic(path, value) {
+async function writeJsonAtomic(path, value, { flush = false } = {}) {
   const tmp = `${path}.${randomUUID()}.tmp`
   try {
-    await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+    await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', flush })
     for (let attempt = 0; ; attempt++) {
       try {
         await rename(tmp, path)
@@ -6540,7 +6544,7 @@ async function writeJsonRetry(path, value, tries = 6) {
   throw lastError ?? new Error('写入失败')
 }
 
-async function saveDefinitions(definitions) {
+async function saveDefinitions(definitions, receiptId) {
   definitions = { ...definitions, characters: (definitions.characters || []).filter(ch => !isEmptyCharacter(ch)) }
   const associations = new Set()
   for (const character of definitions.characters) {
@@ -6613,7 +6617,8 @@ async function saveDefinitions(definitions) {
     props: definitions.props ?? [],
     outfits: definitions.outfits ?? [],
   }
-  await writeJsonSafe(DEFS_PATH, saved, join(ROOT, 'backups'))
+  if (receiptId) await writeJsonAtomic(DEFS_PATH, { ...saved, _linkedFigureCommit: receiptId }, { flush: true })
+  else await writeJsonSafe(DEFS_PATH, saved, join(ROOT, 'backups'))
   return saved
 }
 
@@ -6877,23 +6882,40 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-/**
- * 关联了素材库人物的记录：名字和触发词的家在素材库人物。在人物库页改了它们，就交给宿主写到人物上（别名按增删的词），
- * 两边一致。宿主没有这个接口时只存在人物库。写不成就整页不保存，不留下两边不一致的名字。
- */
-async function handLinkedNames(tavern, before, after) {
-  if (typeof tavern?.editLinkedFigure !== 'function') return
-  for (const next of after) {
-    const old = before.find(item => item.id === next.id)
-    if (!old?.figureId || old.figureId !== next.figureId || old.figurePackId !== next.figurePackId) continue
-    const was = splitTags(old.match), now = splitTags(next.match)
-    const addAliases = now.filter(word => !was.includes(word)), removeAliases = was.filter(word => !now.includes(word))
-    if (old.name === next.name && !addAliases.length && !removeAliases.length) continue
-    try {
-      await tavern.editLinkedFigure({ packId: next.figurePackId, figureId: next.figureId, ...(old.name !== next.name ? { name: next.name } : {}), addAliases, removeAliases })
-    } catch (error) {
-      throw Object.assign(new Error('「' + next.name + '」是素材库人物，名字和触发词要一并写回素材库，这次没写成：' + (error?.message || error)), { code: 'FIGURE_EDIT_FAILED' })
+// The figure owns linked names and aliases. Save their canonical projection with the page.
+async function saveLinkedNames(tavern, previous, next, save) {
+  if (typeof tavern?.editLinkedFigures !== 'function') return await save(next)
+  const oldById = new Map(previous.characters.map(item => [item.id, item]))
+  const changes = []
+  for (const character of next.characters) {
+    const old = oldById.get(character.id)
+    if (!old?.figureId || old.figureId !== character.figureId || old.figurePackId !== character.figurePackId) continue
+    const was = new Set(splitTags(old.match)), now = new Set(splitTags(character.match))
+    const addAliases = [...now].filter(word => !was.has(word))
+    const removeAliases = [...was].filter(word => !now.has(word))
+    if (old.name === character.name && !addAliases.length && !removeAliases.length) {
+      character.match = old.match
+      continue
     }
+    changes.push({ packId: character.figurePackId, figureId: character.figureId,
+      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases })
+  }
+  if (!changes.length) return await save(next)
+  const receipt = { file: DEFS_PATH, id: randomUUID() }
+  let localFailure
+  try {
+    return await tavern.editLinkedFigures({ changes, receipt }, async identities => {
+      const byFigure = new Map(identities.map(identity => [JSON.stringify([identity.packId, identity.figureId]), identity]))
+      for (const character of next.characters) {
+        const identity = byFigure.get(JSON.stringify([character.figurePackId, character.figureId]))
+        if (identity) Object.assign(character, { name: identity.name, match: identity.match })
+      }
+      try { return await save(next, receipt.id) }
+      catch (error) { localFailure = error; throw error }
+    })
+  } catch (error) {
+    if (error === localFailure || error?.code === 'RECOVERY_REQUIRED') throw error
+    throw Object.assign(new Error('素材库人物名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
   }
 }
 

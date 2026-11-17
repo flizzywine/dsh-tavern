@@ -87,8 +87,12 @@ so export cannot combine one manifest with another generation's bytes.
    documents let a UI show exact recall/figure changes rather than only counts.
    Affected cards is explicitly `{status:'unknown'}`; Tavern owns that index.
 2. `applyImport({inspectionId,expectedRevision,decision})` requires one of the
-   preview choices: install/update/keep-both/noop/cancel. Update is never selected
-   by default. Apply revalidates bytes, global identities and frozen local CAS.
+   preview choices: install/update/merge/keep-both/noop/cancel. Update is never selected
+   by default. Update replaces the installed pack; merge (增量更新) installs the new
+   version plus the entries only the installed one has (the preview's `removed`,
+   `{kind,id,name}` in installed order) under their own ids / UUIDs with their media,
+   bundles, sprites, voices and credits, the new version winning on shared ids, and
+   keeps local enabled / recall / aliases by the catalogue's `mergeMetadata` rule. Apply revalidates bytes, global identities and frozen local CAS.
    Editing after inspection invalidates even a keep-both operation. Keep-both
    assigns a new pack UUID and every figure UUID, preserving short keys and
    remapping typed complete refs in author JSON; existing packs/cards/history

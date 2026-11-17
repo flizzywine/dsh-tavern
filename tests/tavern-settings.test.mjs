@@ -21,6 +21,26 @@ test('用户推进字数随配置保存和读回，旧配置默认 500 且拒绝
   }
 })
 
+test('候选快捷提示按模式更新，拒绝覆盖已变更的列表', () => {
+  const defaults = presentTavernSettings({}, {}).candidateGuidanceShortcuts
+  const save = (document, mode, items, expected = defaults[mode]) =>
+    applyTavernSettingsPatch(document, { candidateGuidanceShortcuts: { mode, items, expected } })
+  const story = save({}, 'story', [' 等夜深再出发\n让配角先开口 '])
+  const both = save(story, 'script', [])
+  const saved = presentTavernSettings(both, {}).candidateGuidanceShortcuts
+  assert.deepEqual(saved, { story: ['等夜深再出发\n让配角先开口'], script: [] })
+  assert.deepEqual(save(both, 'story', saved.story), both, '可重试已落盘的请求')
+  assert.throws(() => save(both, 'story', ['按原计划'], defaults.story), { code: 'CANDIDATE_SHORTCUTS_CHANGED' })
+  assert.deepEqual(presentTavernSettings(save(both, 'story', null, saved.story), {}).candidateGuidanceShortcuts,
+    { story: defaults.story, script: [] })
+  assert.deepEqual(presentTavernSettings({ candidateGuidanceShortcuts: { story: ['  '], script: [] } }, {}).candidateGuidanceShortcuts,
+    { story: defaults.story, script: [] })
+
+  assert.throws(() => save(both, 'card', []), /模式无效/)
+  assert.throws(() => save(both, 'script', ['   '], []), /不能为空/)
+  assert.throws(() => save(both, 'script', ['相同', ' 相同 '], []), /相同/)
+})
+
 // Exercise the real save/read call sites with durable storage, not a copied implementation.
 
 const settingsModuleSource = await readFile(new URL('../tavern-plugin/src/client/modules/global-settings.js', import.meta.url), 'utf8')

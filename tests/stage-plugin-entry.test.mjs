@@ -137,7 +137,7 @@ test('card pages: a card without pages adds no frames, keys or menu rows; an ope
   assert.match(controllerSource,/pageOpen \? h\(stageViews\.statusPanel\.Overlay/)
   // every pause the old status panel had reads pageOpen: the playback clock (auto / skip), the insert page's auto, read marks.
   assert.match(controllerSource,/usePlayback\(\{[^]*?overlay:backlog\|\|configOpen\|\|galleryOpen\|\|pageOpen\|\|menuOpen/)
-  assert.match(controllerSource,/if \(!auto \|\| hidden \|\| backlog \|\| configOpen \|\| galleryOpen \|\| pageOpen \|\| menuOpen\) return;/)
+  assert.match(controllerSource,/if \(!auto \|\| pictureHold \|\| hidden \|\| backlog \|\| configOpen \|\| galleryOpen \|\| pageOpen \|\| menuOpen\) return;/)
   // the keyboard: with a page open neither A (auto) nor a held Ctrl (skip) reaches the reader; Esc closes the page.
   const handlers = new Map(), timers = [], sent = []
   const target = {addEventListener:(type,fn) => handlers.set(type,[...(handlers.get(type) || []),fn]),removeEventListener(){}}

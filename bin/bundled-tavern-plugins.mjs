@@ -21,9 +21,19 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     source: ['tavern-plugin', 'packages', 'dsh-tavern-plot-compass'],
   },
   {
+    folder: 'dsh-tavern-narrative-damper',
+    packageName: 'dsh-tavern-narrative-damper',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-narrative-damper'],
+  },
+  {
     folder: 'dsh-tavern-audiobook',
     packageName: 'dsh-tavern-audiobook',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-audiobook'],
+  },
+  {
+    folder: 'dsh-tavern-fate-dice',
+    packageName: 'dsh-tavern-fate-dice',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-fate-dice'],
   },
 ])
 

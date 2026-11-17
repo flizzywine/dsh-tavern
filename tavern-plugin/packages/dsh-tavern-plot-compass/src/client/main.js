@@ -29,8 +29,15 @@ function apply(ctx) {
     render: ({ gameId } = {}) => h(PlotCompassPanel, { ui, gameId })
   }))
 
-  // 2) 输入栏动作区：开启本局剧情罗盘时展示当前锚定/推演入口按钮
-  if (typeof ui.registerComposerSlot === 'function') {
+  // 2) 输入框尾部工具区（与模型席、提交键同一行）：只放一个图标，不占停靠区的一行。
+  //    宿主新版提供 tavernUi.registerComposerTool；旧宿主退回输入框上方的停靠区。
+  if (typeof ui.registerComposerTool === 'function') {
+    pcRegisterSafely(ctx, 'plot-compass: composer tool', () => ui.registerComposerTool({
+      id: PC_PANEL_ID,
+      modes: ['play'],
+      render: ({ sessionId, busy } = {}) => h(PlotCompassComposerTool, { ui, sessionId, busy })
+    }))
+  } else if (typeof ui.registerComposerSlot === 'function') {
     pcRegisterSafely(ctx, 'plot-compass: composer slot', () => ui.registerComposerSlot({
       id: PC_PANEL_ID,
       modes: ['play'],

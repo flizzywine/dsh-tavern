@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-plot-compass",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DSH Tavern 剧情罗盘插件：今期/中期/长期多路线分支推演、防剧透盲盒、脑暴策划对话、自动节拍核对、候选角标联动与一键分叉试玩。",
   "type": "module",
   "main": "lib/index.js",

@@ -13,6 +13,7 @@ import { syncClock } from './fixtures/sync-clock.mjs'
 const require = createRequire(import.meta.url)
 const candidateTabs = require('../tavern-plugin/packages/dsh-presentation-protocol/src/candidate-tabs.cjs')
 const source = await readFile(new URL('../tavern-plugin/src/client/features/play-interaction-panels.js', import.meta.url), 'utf8')
+const shortcutsSource = await readFile(new URL('../tavern-plugin/src/client/features/candidate-guidance-shortcuts.js', import.meta.url), 'utf8')
 const refreshSource = await readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8')
 const polishSource = await readFile(new URL('../tavern-plugin/src/client/features/polish-compare.js', import.meta.url), 'utf8')
 test('panels use the flow interface and candidate selection preserves user edits', async t => {
@@ -23,6 +24,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
   const { createRoot } = await import('react-dom/client')
   const calls = [], errors = [], playEvents = []
+  let shortcutReads = 0
   const signals = createSessionSignalTransport(), invalidated = []
   let pendingPolish, requestId
   dom.window.addEventListener('error', event => errors.push(event.error))
@@ -31,6 +33,10 @@ test('panels use the flow interface and candidate selection preserves user edits
   const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
     tavernSessionSignals: signals, liveTavernView: { invalidate: id => invalidated.push(id) },
     rpc: async (method, args) => {
+      if (method === 'getCandidateGuidanceShortcuts') {
+        shortcutReads++
+        return { shortcuts: { story: ['让对手戏角色更主动'], script: ['侧重角色行动'] } }
+      }
       if (method === 'polishBody') {
         requestId = args.requestId
         pendingPolish = Promise.withResolvers()
@@ -41,7 +47,7 @@ test('panels use the flow interface and candidate selection preserves user edits
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
-  vm.runInContext(source, context)
+  vm.runInContext(shortcutsSource + '\n' + source, context)
   const usePanel = store => () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const panels = context.createPlayInteractionPanels({ interactions, useCandidatePanel: usePanel(interactions.candidates),
     useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration),
@@ -69,6 +75,8 @@ test('panels use the flow interface and candidate selection preserves user edits
   interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelectorAll(".dsh-tavern-regen-submit").length, 1)
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-candidate-shortcuts'), null)
+  assert.equal(shortcutReads, 1, '正文重生成不读候选快捷提示')
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
   assert.deepEqual(calls[1], ['regenBody', { guidance: '' }, 'a'])
   // 在途的重新生成面板在宿主报运行中（发送键已换成停止）时还要留着显示进度，
@@ -107,6 +115,43 @@ test('panels use the flow interface and candidate selection preserves user edits
   assert.deepEqual(invalidated, ['a'])
   assert.deepEqual(errors, [])
   await act(async () => root.unmount())
+})
+
+test('候选快捷提示保存尚未完成时重开面板，完成后直接看到新按钮', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(document.querySelector('main'))
+  t.after(async () => {
+    await act(async () => root.unmount())
+    Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
+    dom.window.close()
+  })
+  let story = ['先询问信件的来历'], reads = 0
+  const draft = '保持当前场景，让配角推进剧情'
+  const written = Promise.withResolvers()
+  const context = vm.createContext({ React, rpc: async (method, args) => {
+    if (method === 'getCandidateGuidanceShortcuts') reads++
+    else {
+      assert.equal(method, 'saveCandidateGuidanceShortcuts')
+      await written.promise
+      story = args.items
+    }
+    return { shortcuts: { story, script: [] } }
+  } })
+  vm.runInContext(shortcutsSource, context)
+  const render = open => act(async () => root.render(open ? React.createElement(context.CandidateGuidanceShortcuts,
+    { mode: 'story', guidance: draft, onPick() {} }) : null))
+  const buttons = () => Array.from(document.querySelectorAll('.dsh-tavern-candidate-shortcut-chip'), button => button.textContent)
+  await render(true)
+  assert.deepEqual(buttons(), story)
+  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '保存为快捷提示').click())
+  await render(false)
+  await render(true)
+  assert.equal(reads, 1, '重开时等上一笔保存落盘')
+  await act(async () => written.resolve())
+  assert.deepEqual(buttons(), ['先询问信件的来历', draft])
 })
 
 test('已打开的精修对比收到保存信号后自动刷新，首次读取失败可恢复', async t => {

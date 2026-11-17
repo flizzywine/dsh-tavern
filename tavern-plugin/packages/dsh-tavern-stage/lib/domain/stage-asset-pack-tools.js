@@ -196,8 +196,11 @@ export function validateAssetPackStage(state) {
     shapeSkin(state.skin)
   }
   if (state.performance !== undefined && state.performance !== null) {
-    validateAssetPackToolValue(state.performance,shape({ref:{},level:int(1,3),topic:{type:'string',minLength:1,maxLength:160},startedAt:shape({turn:int(1,Number.MAX_SAFE_INTEGER),page:int(0,Number.MAX_SAFE_INTEGER)}),phase:en(['entry','idle','turn','exit'])},['ref','level','startedAt','phase']),'$.performance')
+    const startedAt=shape({turn:int(1,Number.MAX_SAFE_INTEGER),page:int(0,Number.MAX_SAFE_INTEGER)})
+    validateAssetPackToolValue(state.performance,shape({ref:{},level:int(1,3),topic:{type:'string',minLength:1,maxLength:160},startedAt,phase:en(['entry','idle','turn','exit']),
+      cutIn:shape({ref:{},level:int(1,3),startedAt},['ref','level','startedAt'])},['ref','level','startedAt','phase']),'$.performance')
     validateAssetRef(state.performance.ref,'$.performance.ref','performances')
+    if (state.performance.cutIn) validateAssetRef(state.performance.cutIn.ref,'$.performance.cutIn.ref','performances')
   }
   const { format, scene, music, lighting, soundscape } = state
   validateAssetPackState({ format, scene, music, lighting, soundscape,
@@ -304,7 +307,8 @@ export function reduceAssetPackOperation(state, op, context, metadata = {}) {
   }
   if (definition.toggle === 'performance') {
     const {op:ignored,...params}=op, document=params.ref && context.performanceDocuments[assetRefKey(params.ref)]
-    const next=reducePerformanceCommand(clone(state),op.op,params,metadata,document,context.catalogue.candidates.performances,performanceBoundary,check)
+    const boundary=(previous,value,at,next)=>performanceBoundary(previous,value,at,next,previous && context.performanceDocuments[assetRefKey(previous.ref)])
+    const next=reducePerformanceCommand(clone(state),op.op,params,metadata,document,context.catalogue.candidates.performances,boundary,check)
     const linked=applyPerformanceInterop(state,next,{id:op.op.split('.')[1]},params,document,context,metadata)
     validateAssetPackStage(linked)
     return {state:linked,diagnostics:[],transitionMs:0,locationChanged:false}

@@ -228,18 +228,29 @@
 			});
 		}
 
+		// 面板是「刚才那一下出错了」的即时提示，不是常驻通知：显示 5 秒后自己收走。
+		// 同一条错误再次上报会刷新 lastAt，倒计时跟着重来，所以连续失败时面板不会一闪一闪。
+		const ERROR_AUTO_DISMISS_MS = 5000;
+
 		function TavernErrorCenter() {
 			const [items, setItems] = React.useState(tavernErrorHub.getSnapshot());
 			React.useEffect(function () { return tavernErrorHub.subscribe(setItems); }, []);
-			if (!items.length) return null;
+			const current = items[0] || null;
+			const stamp = current ? current.id + ":" + current.lastAt : "";
+			React.useEffect(function () {
+				if (!stamp) return;
+				const timer = setTimeout(function () { tavernErrorHub.clear(); }, ERROR_AUTO_DISMISS_MS);
+				return function () { clearTimeout(timer); };
+			}, [stamp]);
+			if (!current) return null;
 			const h = React.createElement;
-			const item = items[0];
+			const item = current;
 			const text = "[" + formatErrorTime(item.lastAt) + "] " + item.source + (item.count > 1 ? "（重复 " + item.count + " 次）" : "") + "\n" + (item.code ? item.code + ": " : "") + item.message + (item.moduleFailure ? "\n" + JSON.stringify(item.moduleFailure, null, 2) : "");
 			// the player reads the shared Chinese sentence; the raw
 			// message (provider English, codes, ids) and the module-load details show only in the 调试视图 (body.dsh-fork-debug), and 复制 copies them.
 			const debugView = typeof document !== "undefined" && !!document.body && document.body.classList.contains("dsh-fork-debug");
 			const said = playerErrorText(item);
-			return h("section", { className: "dsh-tavern-error-center", role: "region", "aria-label": "DSH Tavern 错误记录" },
+			const panel = h("section", { className: "dsh-tavern-error-center", role: "region", "aria-label": "DSH Tavern 错误记录" },
 				h("div", { className: "dsh-tavern-error-center-head" }, h("span", null, "最新错误"), h("button", { className: "dsh-tavern-btn", onClick: function () { copyErrorText(text); } }, "复制"), h("button", { className: "dsh-tavern-btn", onClick: tavernErrorHub.clear }, "清除")),
 				h("div", { className: "dsh-tavern-error-list" }, h("article", { className: "dsh-tavern-error-item", key: item.id },
 					h("div", { className: "dsh-tavern-error-meta" }, h("span", null, item.source), item.count > 1 ? h("span", null, "重复 " + item.count + " 次") : null, h("time", { dateTime: new Date(item.lastAt).toISOString() }, formatErrorTime(item.lastAt))),
@@ -252,4 +263,10 @@
 						h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { window.location.reload(); } }, "刷新页面重试")) : null
 				))
 			);
+			// 手机端的侧栏是抽屉：宿主的 _sidebarCol 带 transform（收起时 translate3d(-101%) + visibility: hidden），
+			// 于是 position: fixed 的包含块变成抽屉本身，面板跟着抽屉滑出屏幕——正文界面里看不到，
+			// 只有拉开左侧栏才出现。挂到 body 上，面板始终相对视口定位，出错当场就浮在正文上面。
+			return typeof ReactDOM !== "undefined" && ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && document.body
+				? ReactDOM.createPortal(panel, document.body)
+				: panel;
 		}

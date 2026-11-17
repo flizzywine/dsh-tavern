@@ -294,3 +294,40 @@ test('切回会话首读在途时，带目标版本的跟进刷新复用同一�
 	assert.equal(store.getSnapshot().revision, 3)
 	assert.equal(store.getSnapshot().transcript.messages[0].message.text, 's1-latest-floor')
 })
+
+test('storyResourceVersion 与全量 resourceVersion 解耦：其他窗口写无关扩展设置不击穿故事窗口签名，全局正则变化才失效', async () => {
+	let fullRes = 'ext-v1'
+	let storyRes = 'regex-v1'
+	let projections = 0
+	const reader = createSessionViewReader({
+		readStoryWindow: async () => storyWindow(),
+		project: { story: async value => { projections += 1; return { chatId: value.chat.id, storyTranscript: value.storyTranscript } } },
+		resourceVersion: async () => fullRes,
+		storyResourceVersion: async () => storyRes,
+		trace: { stage: (_name, fn) => fn(), state: () => {} }
+	})
+	const first = await reader.response({ sessionId: 's1', storyTranscript: 1 })
+	assert.equal(projections, 1)
+
+	// 其他窗口仅写非正则扩展设置或模板全局变量：fullRes 推进，storyRes 未变 -> 命中 unchanged
+	fullRes = 'ext-v2'
+	const unchanged = await reader.response({
+		sessionId: 's1',
+		storyTranscript: 1,
+		knownRevision: first.revision,
+		knownStorySignature: first.storySignature
+	})
+	assert.equal(unchanged.unchanged, true)
+	assert.equal(projections, 1)
+
+	// 全局展示正则或世界书绑定变化：storyRes 推进 -> 正常重投影
+	storyRes = 'regex-v2'
+	const rebuilt = await reader.response({
+		sessionId: 's1',
+		storyTranscript: 1,
+		knownRevision: first.revision,
+		knownStorySignature: first.storySignature
+	})
+	assert.notEqual(rebuilt.unchanged, true)
+	assert.equal(projections, 2)
+})

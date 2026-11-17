@@ -17,6 +17,11 @@
 			const illustrators = [];
 			const replyPresenters = [];
 			const composerSlots = [];
+			// Compact composer tools (apiVersion 10): icon-sized entries in the host's
+			// trailing control row (conversation.input.right), where the model seat and the
+			// submit action already live. Unlike composerSlots these never claim a dock row
+			// above the input card, so they cannot push the transcript up or sit on top of it.
+			const composerTools = [];
 			const headerTools = [];
 			// Latest reply per session, fed by the observer in the composer dock (reply-observer.js):
 			// the card workbench has no transcript in Tavern's session view, so DSH's own Chat
@@ -421,7 +426,7 @@
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 9,
+				apiVersion: 10,
 				// Tavern's own controls (apiVersion 9), so a plugin's UI looks and behaves like Tavern's: Slider, Segmented,
 				// Switch, SearchBox, Icon (Tavern's icon names), Spinner, EmptyState. Same props as Tavern uses (inline-field.js).
 				get components() { return Object.freeze({ Slider: Slider, Segmented: Segmented, Switch: Switch, SearchBox: SearchBox, Icon: Icon, Spinner: Spinner, EmptyState: EmptyState }); },
@@ -746,6 +751,20 @@
 						return addTo(composerSlots, entry);
 					}, "tavernUi.registerComposerSlot()");
 				},
+				// An icon-sized tool in the composer's trailing control row (apiVersion 10), next
+				// to the model seat and the submit action: render({ sessionId, busy, gameId }) returns
+				// React. Keep it to a glyph — the host row is one compact line and hides itself while
+				// the activity panel is expanded — and put the words in title/aria-label.
+				registerComposerTool(input) {
+					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerComposerTool 的 id 只能用小写字母、数字、点、下划线和连字符");
+					if (typeof input.render !== "function") throw new TypeError("registerComposerTool 需要 render 函数");
+					const owner = ownerOf(this);
+					const entry = { key: owner + ":" + input.id, owner: owner, modes: modesOf(input.modes, "registerComposerTool"), render: input.render };
+					return owned(this, function () {
+						if (composerTools.some(function (tool) { return tool.key === entry.key; })) throw new Error("输入栏工具 " + input.id + " 已注册");
+						return addTo(composerTools, entry);
+					}, "tavernUi.registerComposerTool()");
+				},
 				// What the stage shows (apiVersion 2): the latest turns with their dialogue annotations, and the card's characters.
 				getStage(gameId, options) {
 					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("getStage 需要 gameId"));
@@ -1018,6 +1037,7 @@
 				composerSlotFor: function (mode) { for (const slot of composerSlots) if (slot.modes.indexOf(mode) >= 0 || (mode === "story" || mode === "script") && slot.modes.indexOf("play") >= 0) return slot; return null; },
 				gameModeView: function (key) { return gameModeViews.get(key); },
 				composerSlots: function () { return composerSlots.slice(); },
+				composerTools: function () { return composerTools.slice(); },
 				headerTools: function () { return headerTools.slice(); }
 			};
 		}

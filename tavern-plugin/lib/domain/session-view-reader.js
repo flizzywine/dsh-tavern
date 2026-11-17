@@ -34,7 +34,7 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
  * Projections consume detached inputs; callers never receive a partial Chat.
  */
 export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, project, activity,
-  trace, foregroundRunning, synchronize, resourceVersion = async () => '' }) {
+  trace, foregroundRunning, synchronize, resourceVersion = async () => '', storyResourceVersion = resourceVersion }) {
   // 手机在 5~12 个对话之间来回切：缓存只留 8 条时，刚切一圈就会把最早那份视图踢掉，
   // 再切回去又要整条重投影。上限与客户端故事窗口缓存、楼层摘要快照缓存保持同一档。
   const VIEW_CACHE_LIMIT = 12
@@ -146,7 +146,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       // 同一份窗口快照 + 同一份外部资源（世界书/扩展）才算同一份正文。签名里带上
       // 全部投影输入，客户端把上次拿到的签名带回来时才能断言「屏幕上那份就是这份」。
       // 只凭 revision 相等不行：世界书被外部改过时 revision 不变、正文却变了。
-      const resources = await resourceVersion(window.chat)
+      const resources = await storyResourceVersion(window.chat)
       const storySignature = JSON.stringify([window.chat.id, window.revision, window.from, window.to,
         window.messageCount, resources, includeTools, deferRes])
       const knownSignature = typeof args.knownStorySignature === 'string' && args.knownStorySignature !== ''

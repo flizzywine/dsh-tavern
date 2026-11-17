@@ -39,7 +39,7 @@ function paintCgCaption(element, frame, snap) {
 }
 function useCgStage(sessionId, store, options) {
     const root = React.useRef(null), latest = React.useRef(options); latest.current=options;
-    const [visible,setVisible]=React.useState(false), [notice,setNotice]=React.useState('');
+    const [visible,setVisible]=React.useState(false), [notice,setNotice]=React.useState(''), [holdTick,setHoldTick]=React.useState(0);
     const slot=React.useMemo(()=>({current:null}),[sessionId,store]);
     React.useLayoutEffect(()=>{
         if (disposed) return;
@@ -62,6 +62,7 @@ function useCgStage(sessionId, store, options) {
         try {
             lease.consumer=createCgConsumer({clock:forkForeground,
                 onVisible:value=>{if(lease.live&&!disposed)setVisible(value);},
+                onHold:()=>{if(lease.live&&!disposed)setHoldTick(tick=>tick+1);},
                 onFrame:frame=>{
                     if (!lease.live || disposed) return false;
                     const painted=cgPaintFrame(root.current,frame);
@@ -100,7 +101,8 @@ function useCgStage(sessionId, store, options) {
         slot.current.snap=snap;
         return consumer.present(intent.accepted.cg,{snap,provenance:intent.accepted.provenanceByChannel.cg?.token});
     },[slot]);
-    return {visible,accept,notice,node:React.createElement('div',{ref:root,className:'fork-cg-stage','aria-hidden':true,'data-paused':options.paused ? 'true' : undefined},React.createElement('img',{draggable:false}),React.createElement('img',{draggable:false}),React.createElement('div',{className:'fork-cg-caption',hidden:true}),React.createElement('div',{className:'fork-cg-white'}))};
+    const holdMs=()=>slot.current?.consumer?.holdMs() ?? 0;
+    return {visible,accept,notice,holdTick,holdMs,node:React.createElement('div',{ref:root,className:'fork-cg-stage','aria-hidden':true,'data-paused':options.paused ? 'true' : undefined},React.createElement('img',{draggable:false}),React.createElement('img',{draggable:false}),React.createElement('div',{className:'fork-cg-caption',hidden:true}),React.createElement('div',{className:'fork-cg-white'}))};
 }
 return {useStage:useCgStage, dispose() { if(disposed)return;disposed=true;clean([...cleanups]); }};
 }

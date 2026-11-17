@@ -4,7 +4,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import test from 'node:test'
+import nativeTest from 'node:test'
+// Android setup needs a POSIX/Termux shell, which Windows does not provide.
+const test = (name, fn) => nativeTest(name, { skip: process.platform === 'win32' ? 'Requires POSIX/Termux shell' : false }, fn)
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const bash = process.env.TEST_BASH || 'bash'

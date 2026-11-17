@@ -464,7 +464,7 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 
 ## 决策判定模型（`capabilities.decisionJudge === 1`）
 
-当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在 Tavern「叙事阻尼器」中配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
+当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
 
 ### `decisionJudgeStatus()`
 
@@ -525,3 +525,27 @@ const res = await ctx.tavern.judgeDecision({ gameId, input: contextText, questio
 - `TAVERN_PLUGIN_DECISION_TIMEOUT` / `TAVERN_PLUGIN_DECISION_ABORTED`：请求超时或被 `AbortSignal` 取消。
 - `TAVERN_PLUGIN_DECISION_INVALID_RESPONSE` / `TAVERN_PLUGIN_DECISION_FAILED`：返回结构无效或请求失败。
 
+## 叙事阻尼器设置（`capabilities.damperSettings === 1`）
+
+「插件 › 叙事阻尼器」面板属于内置插件 `dsh-tavern-narrative-damper`；宿主把同一份设置实现开给插件，
+插件可以读写它，不必自己维护密钥或另造一套配置。密钥只回 `{ configured, source, keyName }`，
+明文留在宿主安全凭据库。
+
+```js
+const { config, credential } = await ctx.tavern.readDamperSettings()
+// config 字段：enabled / showTurnStatus / mode / judgeMode / provider / model / baseUrl /
+//              keyName / godmodeThreshold / desensitizeR18 / clampMvuDelta /
+//              fallbackStateForPlainCards / timeoutMs / preamble
+
+// 只发改动字段；服务端照旧校验，非法值抛 DAMPER_INVALID_CONFIG
+await ctx.tavern.updateDamperSettings({ patch: { mode: 'strict' } })
+
+// 保存（字符串）或清除（null）密钥；传环境变量名时保存键名引用并清掉已存明文
+await ctx.tavern.setDamperKey({ provider: 'gemini', value: 'GEMINI_API_KEY' })
+
+// 用当前或草稿设置真发一次决策请求
+const probe = await ctx.tavern.testDamperConnection({})
+// probe => { ok: true, latencyMs: 12, sampleProbability: 0.87 } | { ok: false, latencyMs, error: { code, message } }
+```
+
+宿主接口缺失时调用抛 `TAVERN_PLUGIN_NOT_FOUND`；`decisionJudge` 仍可单独使用。

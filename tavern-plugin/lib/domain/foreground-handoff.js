@@ -63,7 +63,7 @@ export function createForegroundHandoff(options = {}) {
     if (chat !== undefined) await options.beforeNextTurn?.(chat)
     // A failed turn is cleaned up after the failure, but that may not have happened (no live
     // session then, or it failed). Its input must not reach this request beside the new one.
-    if (chat !== undefined) await options.clearFailedTurns?.(input.sessionId)
+    if (chat !== undefined) await options.clearFailedTurns?.(input.sessionId, { requestId: input.requestId, turn: input.turn })
     // The stable prefix is rebuilt after this, so a world book edit received by
     // the previous turn must be adopted now rather than one turn later.
     if (chat !== undefined) await options.syncWorldBook?.(chat)

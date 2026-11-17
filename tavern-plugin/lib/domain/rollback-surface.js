@@ -636,6 +636,86 @@ export function replayablePersistedTurn(chat, { events = [], nodes = [] } = {}) 
   return Object.freeze(target)
 }
 
+function activeTailPlayerInputs({ events = [], nodes = [], currentRequestId = '' } = {}) {
+  const activeRpcIds = new Set()
+  const unkeyedTexts = new Map()
+  const reqId = typeof currentRequestId === 'string' ? currentRequestId.trim() : ''
+  if (reqId !== '') activeRpcIds.add(reqId)
+  const addUnkeyed = text => {
+    const trimmed = typeof text === 'string' ? text.trim() : ''
+    if (trimmed !== '') unkeyedTexts.set(trimmed, (unkeyedTexts.get(trimmed) || 0) + 1)
+  }
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const event = eventAt(events, Number(nodes[index]))
+    if (event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events)) break
+    if (!event || event.type !== 'user/message' || isRollbackUserTombstone(event)) continue
+    const rpcId = typeof event.data?.source?.rpcId === 'string' ? event.data.source.rpcId.trim() : ''
+    if (rpcId !== '') activeRpcIds.add(rpcId)
+    else if (event.data?.source?.kind === 'user') addUnkeyed(contentText(event.data))
+  }
+  const queues = new Map()
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event?.type !== 'agent/inbox/spliced') continue
+    const target = typeof event.data?.target === 'string' && event.data.target !== '' ? event.data.target : 'next-turn'
+    const queue = queues.get(target) || []
+    const start = Math.max(0, Number(event.data?.start) || 0)
+    const removed = Math.max(0, Number(event.data?.removedCount) || 0)
+    const inserted = Array.isArray(event.data?.inserted) ? event.data.inserted : []
+    queue.splice(start, removed, ...inserted)
+    queues.set(target, queue)
+  }
+  for (const queue of queues.values()) {
+    for (const item of queue) {
+      const rpcId = typeof item?.source?.rpcId === 'string' ? item.source.rpcId.trim() : ''
+      if (rpcId !== '') activeRpcIds.add(rpcId)
+      else if (item?.source?.kind === 'user') addUnkeyed(contentText(item))
+    }
+  }
+  return { activeRpcIds, unkeyedTexts }
+}
+
+// Player inputs persisted to chat.messages on composer submission can outlive a turn
+// that died before step/start (never reaching session.surface) or was cleared from
+// session.surface when the next turn starts. Identify only unanswered native tail user
+// rows absent from both the cleaned surface and live inbox; split-round floors kept
+// after deleting a committed reply carry an explicit positive turn and stay untouched.
+export function supersededTailPlayerInputIndices(messages, options = {}) {
+  const length = Number(messages?.length)
+  if (!Number.isSafeInteger(length) || length <= 0) return []
+  const { activeRpcIds, unkeyedTexts } = activeTailPlayerInputs(options)
+  const indices = []
+  for (let index = length - 1; index >= 0; index -= 1) {
+    const row = messages[index]
+    if (!row || typeof row !== 'object') break
+    if (row.role === 'assistant') {
+      if (row.placeholder !== true) break
+      continue
+    }
+    if (row.role !== 'user' || row.native !== true || row.greeting === true) continue
+    if (Number.isSafeInteger(Number(row.turn)) && Number(row.turn) > 0) continue
+    const rpcId = typeof row.source?.rpcId === 'string' ? row.source.rpcId.trim() : ''
+    if (rpcId !== '' && activeRpcIds.has(rpcId)) continue
+    const text = String(row.sourceText ?? row.text ?? '').trim()
+    const remaining = text !== '' ? (unkeyedTexts.get(text) || 0) : 0
+    if (remaining > 0) {
+      unkeyedTexts.set(text, remaining - 1)
+      continue
+    }
+    indices.push(index)
+  }
+  return indices.sort((a, b) => a - b)
+}
+
+export function pruneSupersededTailPlayerInputs(chat, options = {}) {
+  if (!chat || !Array.isArray(chat.messages)) return 0
+  const indices = supersededTailPlayerInputIndices(chat.messages, options)
+  if (indices.length === 0) return 0
+  const next = [...chat.messages]
+  for (let index = indices.length - 1; index >= 0; index -= 1) next.splice(indices[index], 1)
+  chat.messages = next
+  return indices.length
+}
+
 /** 存档行记着的原生位置就是这一条：投影/修复换了轮号也仍然是这一轮。 */
 export function anchoredToSaveRow(target, row) {
   const reply = Number(row && row.nativeAnchor ? row.nativeAnchor.reply : NaN)
