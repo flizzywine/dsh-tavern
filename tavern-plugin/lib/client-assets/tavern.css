@@ -240,9 +240,11 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-user-copy:hover, .dsh-tavern-user-edit:hover, .dsh-tavern-user-fork:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-user-edit:disabled, .dsh-tavern-user-fork:disabled { cursor: wait; opacity: .55; }
 .dsh-tavern-user-edit svg, .dsh-tavern-user-fork svg { width: 15px; height: 15px; }
-.dsh-tavern-message-select { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 24px; height: 24px; color: var(--dsw-alias-label-secondary); cursor: pointer; }
-.dsh-tavern-message-select input { width: 16px; height: 16px; margin: 0; accent-color: var(--dsh-tavern-accent); cursor: inherit; }
-.dsh-tavern-message-select:has(input:disabled) { cursor: wait; opacity: .55; }
+/* fork: the pick is the multi-select's self-drawn tick (.ap-pack-check + .ap-check-mark), not a native checkbox. */
+button.dsh-tavern-message-select { display: inline-grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+button.dsh-tavern-message-select:hover:not(:disabled) { background: var(--fork-hover); }
+button.dsh-tavern-message-select:focus-visible { outline: var(--fork-focus); outline-offset: 0; }
+button.dsh-tavern-message-select:disabled { cursor: wait; }
 .dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { position: relative; box-sizing: border-box; padding-right: 30px; }
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user),
 .dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant) { cursor: pointer; }
@@ -250,13 +252,13 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:disabled) { cursor: wait; }
 .dsh-tavern-message-select.assistant { position: absolute; z-index: 1; top: 0; right: 0; }
 /* 勾选不仅改变小框：整条楼层用主题色底和双层描边，跨轮检查时已选目标一眼可辨。 */
-.dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked),
-.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:checked) {
+.dsh-tavern-user-row:has(.dsh-tavern-message-select.user[aria-checked=true]),
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant[aria-checked=true]) {
   border-radius: 12px;
   background: var(--dsh-tavern-accent-soft);
   box-shadow: 0 0 0 2px var(--dsh-tavern-accent), 0 0 0 6px var(--dsh-tavern-accent-soft);
 }
-.dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked) .dsh-tavern-user-bubble { box-shadow: 0 0 0 1px var(--dsh-tavern-accent); }
+.dsh-tavern-user-row:has(.dsh-tavern-message-select.user[aria-checked=true]) .dsh-tavern-user-bubble { box-shadow: 0 0 0 1px var(--dsh-tavern-accent); }
 .dsh-tavern-message-deletion-dock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; box-sizing: border-box; width: 100%; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary); }
 .dsh-tavern-message-deletion-count { flex: 1; min-width: 80px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
 .dsh-tavern-message-deletion-actions { display: flex; align-items: center; gap: 7px; }
@@ -1783,7 +1785,7 @@ header.dsh-tavern-immersive-header button.dsh-tavern-play-fullscreen {
 .dsh-tavern-worldbook-entry-actions { gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .dsh-tavern-worldbook-entry-actions > label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-worldbook-entry-actions input { margin: 0; }
-.dsh-tavern-worldbook-kind.is-background { cursor: default; color: var(--dsw-alias-label-secondary); border-color: var(--dsw-alias-border-l2); background: transparent; }
+.dsh-tavern-worldbook-kind.is-background { display: inline-flex; align-items: center; gap: 4px; cursor: default; color: var(--dsw-alias-label-secondary); border-color: var(--dsw-alias-border-l2); background: transparent; }
 .dsh-tavern-worldbook-kind.is-active { border-color: var(--dsh-tavern-accent); background: var(--dsh-tavern-accent); color: var(--dsw-alias-label-primary-foreground, #fff); }
 .dsh-tavern-worldbook-content > label { font-size: 12px; color: var(--dsw-alias-label-primary); margin-bottom: 7px; }
 .dsh-tavern-worldbook-content textarea.large { min-height: 280px; max-height: 70vh; padding: 12px; font-size: 13px; line-height: 1.75; background: var(--dsw-specific-input-major); }

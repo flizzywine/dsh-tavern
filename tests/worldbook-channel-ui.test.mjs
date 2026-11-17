@@ -14,6 +14,8 @@ const entries = [
 
 // A tiny stateful renderer: the editor re-renders through its own setters, so a
 // click can be observed the same way a browser would see it.
+// The channel menu is the shared InlineField (kind: 'menu'); its element carries value/options/onCommit.
+function InlineField() {}
 function mount() {
   const state = []
   let index = 0
@@ -41,6 +43,7 @@ function mount() {
     useTavernConfirm: () => async () => true,
     usePersistentError: () => ['', () => {}],
     EmptyState() {},
+    InlineField,
     WorldBookKeyInput() {},
     notifyTavernDataChanged() {},
     rpc: async (method, args) => { calls.push([method, args]); return {} }
@@ -68,7 +71,7 @@ test('整本开关一次改掉全部条目，并记成整本默认', async () =>
   page.nodes(bar()).find(child => child.tag === 'button' && page.text(child) === '稳定前缀').props.onClick()
 
   // Every entry switches at once, including the one pinned to 'tail'.
-  const selects = () => page.nodes(page.tree).filter(node => node.tag === 'select' && node.props['aria-label'] === '注入通道')
+  const selects = () => page.nodes(page.tree).filter(node => node.tag === InlineField && node.props.label === '注入通道')
   assert.deepEqual(Array.from(selects().map(node => node.props.value)), ['prefix', 'prefix'])
   const view = page.find(node => node.props.className === 'dsh-tavern-card-field' && page.text(node).includes('整本注入通道'))
   assert.match(page.text(view), /当前默认：稳定前缀/)
@@ -86,16 +89,16 @@ test('整本开关一次改掉全部条目，并记成整本默认', async () =>
 
 test('条目下拉提供“跟随整本”，清除覆盖时写入 auto 让扩展键真正删除', async () => {
   const page = mount()
-  const selects = page.nodes(page.tree).filter(node => node.tag === 'select')
+  const selects = page.nodes(page.tree).filter(node => node.tag === InlineField && node.props.label === '注入通道')
   assert.ok(selects.length >= 2, '每个条目应有注入通道下拉')
   const inherited = selects.find(node => node.props.value === '')
   assert.ok(inherited, '继承条目应显示跟随整本')
-  const options = inherited.children.flat().map(option => option.children[0])
+  const options = inherited.props.options.map(option => option.label)
   assert.ok(options.includes('跟随整本（自动）'))
 
   const explicit = selects.find(node => node.props.value === 'tail')
   assert.ok(explicit, '单独设过通道的条目应显示该通道')
-  explicit.props.onChange({ target: { value: '' } })
+  explicit.props.onCommit('')
 
   const save = page.find(node => node.tag === 'button' && page.text(node) === '保存世界书')
   await save.props.onClick()

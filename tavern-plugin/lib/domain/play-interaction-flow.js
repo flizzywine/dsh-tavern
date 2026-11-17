@@ -1,6 +1,6 @@
 /** Candidate and regeneration interaction state, independent of React and the host composer. */
 function panelMessageKey(value) { return String(value == null ? "" : value); }
-function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, notifyRegenerating = function () {}, timers = globalThis }) {
+function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, bodyErrorText = error => String(error?.message || error), notifyRegenerating = function () {}, timers = globalThis }) {
     function store(normalize = value => value) {
         let value = null;
         const listeners = new Set();
@@ -120,7 +120,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
                 if (regeneration.getSnapshot() === loading) regeneration.set(null);
             } catch (error) {
                 reportError("正文重新生成", error);
-                if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: String(error?.message || error) });
+                if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: bodyErrorText(error) });
             } finally { notifyRegenerating(panel.sessionId, false); }
         });
     }

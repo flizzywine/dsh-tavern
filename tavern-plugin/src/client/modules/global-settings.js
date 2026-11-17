@@ -21,8 +21,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     const profile = await rpc("getUserPreferenceProfile", { globalDefaults: true });
                     setData(current => ({ ...current, profile: profile.userProfile }));
                 } else setData(current => ({ ...current, ...result.settings.defaultPlaySettings }));
-                if (patch && Object.hasOwn(patch, "statusBarPlacement")) { notifySettingsChanged(); setMessage("已保存，所有对局使用此状态栏位置。"); }
-                else setMessage("已保存，新游戏继承此设置，已有游戏保持不变。");
+                if (patch && Object.hasOwn(patch, "statusBarPlacement")) notifySettingsChanged();
+                setMessage("已保存");
             } catch (err) { setMessage("保存失败：" + err.message); }
             finally { setBusy(false); }
         }
@@ -33,8 +33,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             return h(TavernSettingRow, { key, title, help: text, className: "dsh-tavern-background-task" },
                 h(Switch, { label: title, disabled, checked: task ? data?.backgroundTasks[key] === true : data?.[key] === true, onChange: checked => save(task ? { backgroundTasks: { [key]: checked } } : { [key]: checked }) }));
         }
-        function menu(title, value, options, commit, text) {
-            return h(TavernSettingRow, { title, help: text },
+        function menu(title, value, options, commit) {
+            return h(TavernSettingRow, { title },
                 h(InlineField, { kind: "menu", label: title, hideLabel: true, disabled, value, options, onCommit: commit }));
         }
         const loading = !data && !message;

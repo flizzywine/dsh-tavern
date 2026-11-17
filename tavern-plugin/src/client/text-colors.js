@@ -251,7 +251,9 @@ function TavernColoredMarkdown(props) {
     const stageHidden = React.useSyncExternalStore(
         typeof galActive === "undefined" ? () => () => {} : galActive.subscribe,
         () => Boolean(props.stageTranscript && typeof galActive !== "undefined" && galActive.get()));
-    const suspend = props.streaming === true || props.suspendTextColors || stageHidden;
+    // a streaming reply keeps its quote colours live (each streamed commit refreshes below),
+    // so only an explicit suspension or the occluding stage releases them.
+    const suspend = props.suspendTextColors || stageHidden;
     const root = React.useRef(null), colors = React.useRef(null), mounted = React.useRef(false);
     React.useLayoutEffect(function () {
         if (suspend) return undefined;

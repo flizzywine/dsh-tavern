@@ -46,7 +46,7 @@ test('Chromium：/delete 进入选择模式，用户与 AI 跨轮多选后批量
   await page.evaluate(() => deleteCommand.ui.run({ sessionId: 'game' }))
   await page.locator('.dsh-tavern-user-bubble').click()
   await page.locator('.dsh-tavern-assistant-body').click()
-  assert.deepEqual(await page.locator('input[type="checkbox"]').evaluateAll(nodes => nodes.map(node => node.checked)), [true, true])
+  assert.deepEqual(await page.getByRole('checkbox').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-checked') === 'true')), [true, true])
   await page.waitForTimeout(100)
   const highlighted = await page.evaluate(() => [...document.querySelectorAll('.dsh-tavern-user-row,.dsh-tavern-assistant')].map(node => {
     const style = getComputedStyle(node)
