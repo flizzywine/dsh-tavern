@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a9a27b04f6a0c36ba4f4b65853bcad469ff538f0",
-  "releaseSequence": 1751,
+  "revision": "1d54b013089d6b0460bd6cc8e94878f5b90c2955",
+  "releaseSequence": 1752,
   "version": "3.3.0",
   "files": [
     {
@@ -8336,8 +8336,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/cg-played-receipt.js",
-      "sha256": "476e595202e36b6b04fe3867b39ed45483d5cb31a71b08c6701b698a195a14de",
-      "size": 3442
+      "sha256": "87423c056f448d88e28ed664fd955316edfbe07ed9143a8676bc1a5fd30e3422",
+      "size": 3629
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/clip-export-timeline.js",
@@ -8446,8 +8446,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-projection.js",
-      "sha256": "6123ddbd2cd6ed9d6ace6a95ec0daf6a9e23d9cd7d435491e0933c3a788f989a",
-      "size": 23958
+      "sha256": "74f677e005b79d5921bfaf10d4b3d6c94afe29952e55c275221619f346bc29b7",
+      "size": 24569
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-sfx-categories.js",
@@ -9416,9 +9416,9 @@
     }
   ],
   "archive": {
-    "commit": "fe4001766ce4f0c92b44bae52d4e58749ca945d3",
+    "commit": "edb0564bee915e046f8f273ce4c4680dc7d0e1d5",
     "path": "runtime.zip",
-    "sha256": "8c11aa07046fca910f082a149469720c52c9d60e10e43dd0545aedb3b80d3b17",
-    "size": 16723820
+    "sha256": "29c5e676c6da1e9575649cf8a766995a9b69d7b5660c872f78a867a31752a025",
+    "size": 16724086
   }
 }
