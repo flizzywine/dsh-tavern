@@ -406,6 +406,16 @@ exports.apply = function(ctx) {
           // × sits beside the box, not inside it: the box's own end holds the shared edit ✎ (ui-design R23).
           stored && h('button',{type:'button',className:'dtts-key-clear','aria-label':'清除 ' + f.label,title:'清除已保存的 ' + f.label,disabled:busy,onClick:() => commit({secrets:{...editor.secrets,[f.key]:''}})},h(Icon,{name:'close',size:14})),
           last && editor.mode !== 'edit' && h(Button,{link:true,disabled:testing || busy,title:costly ? '会真的合成一个字来验证 API Key，可能产生极少费用' : undefined,onClick:probe},'测试'))) }
+    // 默认模型: what a figure's voice that picks no model of its own speaks with. A service with one model just names it.
+    const modelField = () => {
+      const saved = editor.mode === 'edit' && configured.find(c => c.id === editor.id), models = saved?.models || []
+      if (!models.length) return null
+      const help = '人物的声音没有单独选模型时用它。', label = id => models.find(m => m.id === id)?.label || id
+      const warning = saved.defaultModelMissing && h(Warn,{title:'这个服务里没有「' + editor.config.defaultModel + '」，现在用 ' + label(saved.defaultModel)})
+      if (models.length === 1) return h(Field,{label:'默认模型',help,warning},h('span',{className:'dtts-value'},models[0].label))
+      return h(Field,{label:'默认模型',help,warning},menu({label:'默认模型',value:saved.defaultModelMissing ? editor.config.defaultModel : saved.defaultModel,
+        options:[...(saved.defaultModelMissing ? [[editor.config.defaultModel,editor.config.defaultModel]] : []),...models.map(m => [m.id,m.label])],onChange:id => commit({config:{...editor.config,defaultModel:id}})}))
+    }
     function Form() {
       const kind = descriptor(editor.kind)
       if (!kind) return null
@@ -414,6 +424,7 @@ exports.apply = function(ctx) {
         h(Field,{label:'显示名称'},textField({label:'显示名称',value:editor.label,onCommit:label => commit({label})})),
         kind.fields.filter(f => !f.secret && !f.more).map(fieldView),
         kind.fields.filter(f => f.secret).map((f,i,all) => secretField(f,i === all.length - 1)),
+        modelField(),
         // 自定义语音服务: the preset fills the request and response; they sit under 高级.
         kind.fields.some(f => f.more) && h('details',{className:'dtts-details'},h('summary',null,'高级：请求与返回格式'),kind.fields.filter(f => f.more).map(fieldView)),
         // a new service with no key field (a local server) tests from its own row before it is added.

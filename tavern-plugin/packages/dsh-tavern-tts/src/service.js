@@ -117,6 +117,8 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       if (voice.kind === 'reference' ? !p.capabilities?.voiceKinds?.includes('reference') : voice.kind === 'service' ? !p.capabilities?.serviceVoiceEngines?.includes(voice.engine) : p.kind !== voice.kind) fail('REFERENCE_UNSUPPORTED')
       const ref = voice.references?.[0]
       const params = structuredClone(voice.params)
+      // a voice that names no model speaks with the service's default (Provider.defaultModel), part of the line's identity.
+      if (params.model === undefined) { const model = p.defaultModel?.(); if (model) params.model = model }
       const resolveMood = Object.hasOwn(moodResolvers, p.kind) ? moodResolvers[p.kind] : undefined
       const spoken = text => normalizeDashes(readings.apply(text, input.language))
       const text = p.kind === 'fish-audio' ? fishSpeechText(input.text, params, p.speaking ? p.speaking(params.model).voiceDirections : p.capabilities?.voiceDirections, spoken) : voiceCues.projectVoiceCues(input.text, {spoken})
@@ -165,11 +167,12 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const provider = providers.get(selected.id).provider
       if (!readOnly) await provider.discover?.()
       // what this source's own model costs and can do (a Fish figure's model choice), over the service's capabilities.
-      const capabilities = () => ({...structuredClone(provider.capabilities),...provider.speaking?.(source.model)})
-      if (readOnly) return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:{...selected.capabilities,...provider.speaking?.(source.model)}},issues:[]}
+      const model = source.model ?? provider.defaultModel?.()
+      const capabilities = () => ({...structuredClone(provider.capabilities),...provider.speaking?.(model)})
+      if (readOnly) return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:{...selected.capabilities,...provider.speaking?.(model)}},issues:[]}
       const health = provider.health ? await provider.health({}) : {state:'ready'}
       if (health.state === 'credentials-required') return {effective:null,issues:[{code:'CREDENTIALS_REQUIRED'}]}
-      const validation = provider.validateModel ? await provider.validateModel(source.model, source.voiceName) : {issues:[]}
+      const validation = provider.validateModel ? await provider.validateModel(model, source.voiceName) : {issues:[]}
       return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:capabilities()},issues:validation.issues}
     },
     reading: () => structuredClone(reading()),

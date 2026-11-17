@@ -5242,6 +5242,9 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-set { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; justify-items: start; gap: 0 20px; margin-top: 10px; padding-bottom: 12px; font-size: var(--fork-fs-body); }
 .ap-vx-set-label { display: flex; align-items: center; min-height: 34px; color: var(--fork-ink-2); }
 .ap-vx-set > .ap-popover-anchor { margin-left: -6px; }
+.ap-vx-model { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-left: -6px; }
+.ap-ui .ap-vx-model button.ap-link { color: var(--fork-accent); font-size: var(--fork-fs-meta); }
+.ap-ui .ap-vx-model button.ap-link:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-accent); }
 .ap-vx-set > .ap-slider { width: 100%; max-width: 340px; }
 .ap-vx-set > .ap-vx-param-text { width: 100%; }
 .ap-vx-add-foot { display: flex; align-items: center; gap: 14px; padding: 12px 20px 14px 24px; border-top: 1px solid var(--fork-hairline); }
