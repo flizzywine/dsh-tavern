@@ -4,7 +4,7 @@ import { identifyHelperModelMessages } from './helper-generation.js'
 // Which model a request uses, and one plain text call to it. The session's own choice wins
 // over the default; background work uses the game's background model when it set one.
 export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, sessionProjections: getSessionProjections, backgroundConfigForSession, catalogTtlMs = 30 * 1000 }) {
-  function modelSelection(sessionId) {
+  function modelSelection(sessionId, useDefault = true) {
     // 会话级选择优先：与官方 api-proxy 相同的读取路径
     if (typeof sessionId === 'string' && sessionId !== '') {
       try {
@@ -21,7 +21,7 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
         console.error('dsh-tavern: 读取会话模型失败', err)
       }
     }
-    if (agentDefaultModel !== undefined) {
+    if (useDefault && agentDefaultModel !== undefined) {
       try {
         const sel = agentDefaultModel.currentSelection()
         if (sel !== null && typeof sel === 'object' && typeof sel.provider === 'string' && typeof sel.model === 'string') {
@@ -60,7 +60,7 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
           providerName: provider.name || provider.id,
           models: models.filter(function (model) {
             return !Array.isArray(model.inputModalities) || model.inputModalities.includes('text')
-          }).map(function (model) { return { id: model.id, name: model.name || model.id } })
+          }).map(function (model) { return { id: model.id, name: model.name || model.id, image: Array.isArray(model.inputModalities) && model.inputModalities.includes('image') } })
         }
       } catch (error) {
         console.warn('dsh-tavern: 读取后台模型目录失败:', provider.id, error)

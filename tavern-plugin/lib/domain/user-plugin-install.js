@@ -5,6 +5,8 @@ import { readZipEntries } from './zip-entries.js'
 import { DISABLED_FILE, RESTART_FILE, scanUserPlugins, STATUS_FILE, userPluginPaths } from './user-plugins.js'
 import { pluginDataFile } from './plugin-data-store.js'
 import { pluginManifestProblem } from './plugin-manifest.js'
+// The first-party mods (one per tavern-plugin/mods folder); their managed copies are listed as built in.
+import { firstPartyManifestIds } from '../mod-system-distributions.js'
 
 // 应用内安装插件：粘贴 GitHub 地址或上传 zip，放进 <data>/plugins/<文件夹>；
 // 之后的加载仍由 plugins/ 目录同步负责（宿主侧几秒内加载，浏览器侧刷新后出现）。
@@ -396,7 +398,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const source = recorded?.kind === 'builtin'
           ? { kind: 'builtin', bundled: true, version: String(recorded.version || '') }
           : pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' }
-            : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: ['dsh.dice', 'dsh.phone', 'dsh.textcard', 'dsh.timer'].includes(card.modId) } : { kind: 'card' })
+            : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: firstPartyManifestIds.includes(card.modId) } : { kind: 'card' })
               : recorded || { kind: 'folder' }
         // Install sources from before the replaced flag: infer a past replacement from the backup's load record.
         const replacedBefore = !isDisabled && !problem && source.replaced === undefined && !status && !restart && (source.kind === 'github' || source.kind === 'zip')

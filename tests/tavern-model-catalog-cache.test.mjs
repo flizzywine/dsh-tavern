@@ -14,7 +14,7 @@ function harness({catalogTtlMs = 30000, listDelay = 0} = {}){
 
 test('模型目录在 TTL 内复用，过期后重新遍历', async () => {
   const h = harness({ catalogTtlMs: 20 })
-  assert.deepEqual(await h.calls.tavernModelCatalog(), [{ provider: 'p1', providerName: 'P1', models: [{ id: 'm1', name: 'M1' }] }])
+  assert.deepEqual(await h.calls.tavernModelCatalog(), [{ provider: 'p1', providerName: 'P1', models: [{ id: 'm1', name: 'M1', image: false }] }])
   await h.calls.tavernModelCatalog()
   assert.equal(h.walks(), 1, 'TTL 内不重复遍历 provider')
   await new Promise(resolve => setTimeout(resolve, 30))
