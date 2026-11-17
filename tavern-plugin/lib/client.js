@@ -129,7 +129,8 @@ window.__ModuleLoader__.load({
 			// portals the sidebar theme menu into the host logo row.
 			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
-		// SHA-256 fallback adapted from PR #113; scoped to card frames without native SubtleCrypto.
+		// SHA-256 fallback adapted from PR #113; installed in the main page and card frames without native SubtleCrypto
+		// (outside a secure context, e.g. http on a LAN address).
 		function installTavernCryptoSubtlePolyfill(host) {
 			try {
 				if (!host || !host.crypto || host.crypto.subtle) return;
@@ -183,6 +184,19 @@ window.__ModuleLoader__.load({
 				Object.defineProperty(host.crypto, "subtle", { configurable: true, value: subtle });
 			} catch (_error) {}
 		}
+		// http on a LAN address is not a secure context: no crypto.subtle, no crypto.randomUUID.
+		if (typeof window !== "undefined") installTavernCryptoSubtlePolyfill(window);
+		// 客户端随机 id 的唯一实现。crypto.randomUUID 只在安全上下文（https、localhost）存在；
+		// 手机用 http://局域网 IP 打开时没有它，这里用任何上下文都有的 crypto.getRandomValues 拼同格式的 UUID v4。
+		function randomId(crypto = globalThis.crypto) {
+		    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+		    const bytes = crypto.getRandomValues(new Uint8Array(16));
+		    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+		    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+		    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+		    return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+		}
+		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { randomId };
 		function installTavernStylesheet(doc, css, features) {
 		    // DSH 0.2.1 DesktopUpdateIndicator / DesktopUpdateBadge. Tavern owns its
 		    // update workflow; never offer the host's independent upgrade in its shell.
@@ -25257,6 +25271,14 @@ function tavernModelRefusalNotice(text) {
 		    const match = /(?:^|[^0-9a-f])([0-9a-f]{64})(?![0-9a-f])/.exec(String(identity || ""));
 		    return match ? match[1] : null;
 		}
+		// Freezes a param's glide in progress at its current value before a new target. Firefox has no cancelAndHoldAtTime:
+		// there the value the param reports now is pinned instead.
+		function holdAudioParam(param, time) {
+		    if (typeof param.cancelAndHoldAtTime === "function") { param.cancelAndHoldAtTime(time); return; }
+		    const value = param.value;
+		    param.cancelScheduledValues(time);
+		    param.setValueAtTime(value, time);
+		}
 		function audioPreferences(storage) {
 		    // quarter-strength UI cues; migrate the saved slider once, in the same record.
 		    // every bus slider defaults to 1; the bus targets carry the balance.
@@ -25392,13 +25414,13 @@ function tavernModelRefusalNotice(text) {
 		        };
 		    }
 		    // One trigger changed: each bus glides to its new dip - down at the attack of the trigger now setting it, up after
-		    // the hold and at the release of the trigger that set it. cancelAndHoldAtTime keeps a glide in progress continuous.
+		    // the hold and at the release of the trigger that set it. holdAudioParam keeps a glide in progress continuous.
 		    function retarget() {
 		        if (context) for (const layer of Object.keys(buses)) {
 		            const bus = buses[layer], dip = dipOf(layer);
 		            if (dip.db === bus.db) { bus.by = dip.by; continue; }
 		            const now = context.currentTime, deeper = dip.db < bus.db, time = AUDIO_DUCK_TIME[deeper ? dip.by : bus.by];
-		            bus.duck.gain.cancelAndHoldAtTime(now);
+		            holdAudioParam(bus.duck.gain, now);
 		            bus.duck.gain.setTargetAtTime(Math.pow(10, dip.db / 20), deeper ? now : now + time.hold, deeper ? time.attack : time.release);
 		            bus.db = dip.db; bus.by = dip.by; bus.to = Math.pow(10, dip.db / 20);
 		        }
@@ -25719,8 +25741,7 @@ function tavernModelRefusalNotice(text) {
 		            const cutoff = Math.max(20, Math.min((context.sampleRate || 48000) / 2, cutoffHz));
 		            if (typeof frequency.setTargetAtTime === "function") {
 		                // Hold an in-progress target where supported before retargeting it.
-		                if (typeof frequency.cancelAndHoldAtTime === "function") frequency.cancelAndHoldAtTime(time);
-		                else if (typeof frequency.cancelScheduledValues === "function") frequency.cancelScheduledValues(time);
+		                holdAudioParam(frequency, time);
 		                frequency.setTargetAtTime(cutoff, time, 0.05);
 		            } else frequency.value = cutoff;
 		            return true;
@@ -38675,7 +38696,7 @@ function tavernFloorHeightRecall(key, width) {
 					if (actionLocks.has(sessionId) && input.op !== 'stop') return false;
 					if (input.op !== 'stop') actionLocks.add(sessionId);
 					setPending(true); setError('');
-					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
+					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: randomId() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
 					catch (e) { setError(e.message); setPaused(true); return false; }
 					finally { if (input.op !== 'stop') actionLocks.delete(sessionId); setPending(false); }
 				}

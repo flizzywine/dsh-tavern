@@ -1,4 +1,5 @@
 // Stage widget placement, reading projection, phone settings and avatar preparation.
+const stageRandomId = typeof randomId === 'function' ? randomId : require('../../../dsh-presentation-protocol/src/random-id.cjs').randomId;
 function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
 const {character:bubbleCharacter,actor:stageActorCharacter,face:bubbleCardFace}=characters || {};
@@ -1332,7 +1333,7 @@ function useWidgetSettingsFeedback(props,items,context) {
 // Committed signals wake bounded reads; navigation clears values synchronously, never by polling.
 function useWidgetVariables(props,items) {
     const owner=React.useRef(null), [values,setValues]=React.useState({key:'',items:{}});
-    if (!owner.current) owner.current={id:crypto.randomUUID(),epoch:0,key:'',busy:new Map(),requests:new Map(),proposals:new Map()};
+    if (!owner.current) owner.current={id:stageRandomId(crypto),epoch:0,key:'',busy:new Map(),requests:new Map(),proposals:new Map()};
     const state=owner.current, hasReads=item=>item.definition.document.variables || Object.keys(item.definition.settingsOverride?.bindings || {}).length,
         active=items.filter(item=>hasReads(item) && !item.presentation.suspended);
     const key=JSON.stringify([props.sessionId,props.source,props.turn,props.page,props.revealed,props.mode,active.map(item=>[item.identity,item.presentation.state,item.definition.settingsOverride,item.definition.settingsDefaults])]);
@@ -1399,7 +1400,7 @@ function useWidgetVariables(props,items) {
             const requestKey=item.identity+':'+request.requestId,digest=JSON.stringify([request.contextKey,request.revision,request.operations]),previous=state.proposals.get(requestKey);
             if(previous)return previous.digest===digest ? call('widgetVariableStatus',{...state.requests.get(previous.operationId)?.input,operationId:previous.operationId}) : {status:'rejected',reason:'request-id-reused'};
             if([...state.busy.values()].some(work=>work.sessionId===props.sessionId))return {status:'rejected',reason:'operation-pending'};
-            const operationId=crypto.randomUUID(),query={...input,contextKey:request.contextKey,revision:request.revision};
+            const operationId=stageRandomId(crypto),query={...input,contextKey:request.contextKey,revision:request.revision};
             state.requests.set(operationId,{mount:item.identity,input:query});state.busy.set(operationId,query);
             state.proposals.set(requestKey,{digest,operationId});while(state.proposals.size>16)state.proposals.delete(state.proposals.keys().next().value);
             while(state.requests.size>16)state.requests.delete(state.requests.keys().next().value);
