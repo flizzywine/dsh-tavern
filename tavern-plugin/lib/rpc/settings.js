@@ -110,6 +110,15 @@ export function createSettingsHandlers(deps) {
 
     },
 
+    async getCandidateGuidanceShortcuts() {
+      const settings = await readTavernSettings()
+      return { shortcuts: settings.candidateGuidanceShortcuts }
+    },
+    async saveCandidateGuidanceShortcuts(args) {
+      const settings = await updateTavernSettings({ candidateGuidanceShortcuts: args })
+      return { shortcuts: settings.candidateGuidanceShortcuts }
+    },
+
     async getTavernSettings(args) {
       const { scoringCatalog, readTavernSettings, slotDeclarations, tavernModelCatalog } = deps
       // Several surfaces read this at mount and the saved-settings event fans out to

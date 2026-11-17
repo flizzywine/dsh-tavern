@@ -1,6 +1,7 @@
 import { compactionPolicy } from './auto-compaction.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
+import { patchCandidateGuidanceShortcuts, readCandidateGuidanceShortcuts } from './candidate-guidance.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from './narrative-damper.js'
 
@@ -325,6 +326,9 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.candidateTabs !== 'boolean') throw new Error('无效的候选 Tab 设置')
     next.candidateTabs = input.candidateTabs
   }
+  if (Object.hasOwn(input, 'candidateGuidanceShortcuts')) {
+    next.candidateGuidanceShortcuts = patchCandidateGuidanceShortcuts(object(next.candidateGuidanceShortcuts), input.candidateGuidanceShortcuts)
+  }
   if (Object.hasOwn(input, 'showPlayProcess')) {
     if (typeof input.showPlayProcess !== 'boolean') throw new Error('无效的游玩过程显示设置')
     next.showPlayProcess = input.showPlayProcess
@@ -524,6 +528,7 @@ export function presentTavernSettings(document, defaults) {
     candidateAutoGenerate: object(document).candidateAutoGenerate === true,
     // 设置 › 高级 › 候选多角色 / 全局 Tab：默认关闭，候选卡只显示精选一组。
     candidateTabs: object(document).candidateTabs === true,
+    candidateGuidanceShortcuts: readCandidateGuidanceShortcuts(document?.candidateGuidanceShortcuts),
     // 自动精修: off by default, since it reviews and rewords every reply.
     polishPrereview: object(document).polishPrereview === true,
     storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',
