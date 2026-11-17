@@ -537,6 +537,9 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-card-update-backup { margin-top: 16px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-card-update-backup summary { cursor: pointer; }
 .dsh-tavern-card-update-backup code { display: block; margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-tavern-card-update-request { display: grid; gap: 6px; }
+.dsh-tavern-card-update-request code { overflow-wrap: anywhere; font-size: 12px; margin-bottom: 8px; }
+.dsh-tavern-card-update-request ul { margin: 0; padding-left: 18px; font-size: 13px; }
 @media (max-width: 480px) {
   .dsh-tavern-card-update-head { padding: 20px 18px 0; }
   .dsh-tavern-card-update-body { padding: 16px 18px 20px; }

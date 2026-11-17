@@ -61,9 +61,11 @@ async function readTavernCardUpdateMetadata(file) {
 function TavernCardUpdateDialog(props) {
     const h = React.createElement;
     useWindowFullscreen(true); // the overlay covers the window (inline-field.js)
-    const [current, setCurrent] = React.useState(null), [incoming, setIncoming] = React.useState(null), [previewing, setPreviewing] = React.useState(false);
+    const [current, setCurrent] = React.useState(null);
+    let [incoming, setIncoming] = React.useState(null), [previewing, setPreviewing] = React.useState(false);
     React.useEffect(() => {
         if (props.result) return;
+        if (props.request) { setCurrent(props.request.current); return; }
         let cancelled = false;
         setCurrent(null);
         props.call('getCard', { path: props.target }).then(reply => { if (!cancelled) setCurrent(tavernCardUpdateMetadata(reply.card)); }, () => { if (!cancelled) setCurrent({ name: props.name, version: '' }); });
@@ -76,19 +78,22 @@ function TavernCardUpdateDialog(props) {
         readTavernCardUpdateMetadata(props.file).then(value => { if (!cancelled) setIncoming(value); }, () => { if (!cancelled) setIncoming({ name: '', version: '', unavailable: true }); }).finally(() => { if (!cancelled) setPreviewing(false); });
         return () => { cancelled = true; };
     }, [props.file]);
+    const request = props.request;
+    if (request) incoming = request.incoming;
     const complete = Boolean(props.result), nextVersion = complete ? props.result.version || incoming?.version : incoming?.version;
     const version = (label, name, value, pending) => h('section', { className: 'dsh-tavern-card-update-version' }, h('span', { className: 'dsh-tavern-card-update-label' }, label), h('strong', null, pending ? '读取中…' : value || '未标注'), h('span', { className: 'dsh-tavern-card-update-name' }, name || '等待选择新版文件'));
     return h('div', { className: 'dsh-tavern-picker-overlay' }, h('div', { className: 'dsh-tavern-card-update', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dsh-tavern-card-update-title' },
         h('header', { className: 'dsh-tavern-card-update-head' }, h('div', null, h('span', { className: 'dsh-tavern-card-update-label' }, '人物卡管理'), h('h2', { id: 'dsh-tavern-card-update-title' }, complete ? '人物卡已更新' : '更新人物卡')), h('button', { className: 'dsh-tavern-btn', disabled: props.busy, onClick: props.close, 'aria-label': '关闭更新人物卡' }, '关闭')),
         h('div', { className: 'dsh-tavern-card-update-body' },
-            h('p', { className: 'dsh-tavern-card-update-description' }, complete ? '新版已替换原卡，历史会话、收藏和分组均已保留。' : '选择新版文件，确认版本后原位更新。历史会话、收藏和分组会保留，旧卡自动备份。'),
-            h('div', { className: 'dsh-tavern-card-update-versions' }, version(complete ? '更新前' : '当前版本', current?.name || props.name, current?.version, !current), h('span', { className: 'dsh-tavern-card-update-arrow', 'aria-hidden': 'true' }, '→'), version(complete ? '已更新至' : '新版版本', incoming?.name || (complete ? props.result.name : ''), nextVersion || (incoming?.unavailable ? '待校验' : !props.file && !complete ? '待选择' : ''), previewing)),
-            !complete && h('div', { className: 'dsh-tavern-card-update-file' }, h('div', null, h('strong', null, props.file?.name || '选择新版人物卡'), h('span', null, props.file ? '已选择 · ' + (props.file.size / 1024 / 1024).toFixed(1) + ' MB' : '支持 JSON、PNG、CHARX、DSHCARD')), h('button', { className: 'dsh-tavern-btn', disabled: props.busy, onClick: props.pick }, props.file ? '更换文件' : '选择文件')),
+            h('p', { className: 'dsh-tavern-card-update-description' }, complete ? '新版已替换原卡，历史会话、收藏和分组均已保留。' : request ? '这张卡的脚本要把它更新到新版本。确认后原位更新：历史会话、素材绑定、收藏和分组会保留，旧卡自动备份。' : '选择新版文件，确认版本后原位更新。历史会话、收藏和分组会保留，旧卡自动备份。'),
+            h('div', { className: 'dsh-tavern-card-update-versions' }, version(complete ? '更新前' : '当前版本', current?.name || props.name, current?.version, !current), h('span', { className: 'dsh-tavern-card-update-arrow', 'aria-hidden': 'true' }, '→'), version(complete ? '已更新至' : '新版版本', incoming?.name || (complete ? props.result.name : ''), nextVersion || (incoming?.unavailable ? '待校验' : !props.file && !request && !complete ? '待选择' : ''), previewing)),
+            !complete && request && h('div', { className: 'dsh-tavern-card-update-request' }, h('span', { className: 'dsh-tavern-card-update-label' }, '来源'), h('code', null, request.source || '这张卡的脚本'), h('span', { className: 'dsh-tavern-card-update-label' }, '会改动'), h('ul', null, ...request.changes.map((change, i) => h('li', { key: i }, change)))),
+            !complete && !request && h('div', { className: 'dsh-tavern-card-update-file' }, h('div', null, h('strong', null, props.file?.name || '选择新版人物卡'), h('span', null, props.file ? '已选择 · ' + (props.file.size / 1024 / 1024).toFixed(1) + ' MB' : '支持 JSON、PNG、CHARX、DSHCARD')), h('button', { className: 'dsh-tavern-btn', disabled: props.busy, onClick: props.pick }, props.file ? '更换文件' : '选择文件')),
             incoming?.unavailable && !complete && h('p', { className: 'dsh-tavern-card-update-description' }, '此文件暂时无法预览版本，更新时会完整校验。'),
             props.error && h('p', { role: 'alert', className: 'dsh-tavern-dock-error' }, props.error),
             props.notice && !complete && h('p', { role: 'status', className: 'dsh-tavern-card-update-description' }, props.notice),
             complete && h('div', { className: 'dsh-tavern-card-update-success', role: 'status' }, h('strong', null, '✓ 更新完成'), h('p', null, props.result.plugins?.length ? '卡内插件已替换。请重启桌面版或刷新页面，让新版插件生效。' : '已有对局不会重置，可以继续使用这张卡。')),
             complete && props.result.libraryNotices?.length ? h('ul', null, ...props.result.libraryNotices.map((notice, i) => h('li', { key: i }, notice))) : null,
             complete && props.result.backupPath && h('details', { className: 'dsh-tavern-card-update-backup' }, h('summary', null, '查看旧卡备份位置'), h('code', null, props.result.backupPath))),
-        h('footer', { className: 'dsh-tavern-card-update-foot' }, h('span', null, complete ? '旧卡已备份' : '更新前会自动备份原卡'), !complete && h('button', { className: 'dsh-tavern-btn', disabled: props.busy, onClick: props.close }, '取消'), h('button', { className: 'dsh-tavern-question-primary', disabled: props.busy || (!complete && (!props.file || !current || previewing)), onClick: complete ? props.close : props.replace }, complete ? '完成' : props.busy ? '正在更新…' : '确认更新'))));
+        h('footer', { className: 'dsh-tavern-card-update-foot' }, h('span', null, complete ? '旧卡已备份' : '更新前会自动备份原卡'), !complete && h('button', { className: 'dsh-tavern-btn', disabled: props.busy, onClick: props.close }, '取消'), h('button', { className: 'dsh-tavern-question-primary', disabled: props.busy || (!complete && (!(props.file || request) || !current || previewing)), onClick: complete ? props.close : props.replace }, complete ? '完成' : props.busy ? '正在更新…' : '确认更新'))));
 }
