@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c0378995364b9745b27bd8667942944781ba672c",
-  "releaseSequence": 1739,
+  "revision": "0fa089164f2fdeeb8e605e80f99d87dab6b518ec",
+  "releaseSequence": 1741,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ca7ff2a17d5820b0de1a4824b4ba6d518b9a53c45a522ef83c6f66deeb9a16bf",
-      "size": 6279992
+      "sha256": "d4e6d4db038fec49a3d6906bd9496315a1b46acc13371fe72e2d994607877ee0",
+      "size": 6280711
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2441,8 +2441,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mods/interop.js",
-      "sha256": "d8ff34ece92ae4d8ec511823b585afbf8aa47b1d1c29e904a511acb0b82180b7",
-      "size": 5855
+      "sha256": "ab57b23f9fc6dcdf8ed657910b5e2209ad572ec12803fb705ab145e7b6043b6e",
+      "size": 6067
     },
     {
       "path": "tavern-plugin/lib/domain/mods/notices.cjs",
@@ -7116,8 +7116,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs",
-      "sha256": "72390c0cafccc9f14e8c97ba8357620bb8769805003ff8de431aa99edca1d722",
-      "size": 4594
+      "sha256": "f7ab277c19453b7ac796cbe2920f3340226052ff113e48356d561710a2ecd6da",
+      "size": 5313
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/performance-timeline.cjs",
@@ -8201,8 +8201,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "822c5af4ed2dd45fbc13d74368227ade511601e1bef34a57e69448148cc38701",
-      "size": 3689228
+      "sha256": "d1de3bd61e2e6e33e9307366a8c627f1fefe77386bdf7a447d98d69f232f071a",
+      "size": 3689972
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8311,8 +8311,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js",
-      "sha256": "a4a9141d52f3c0cc7717eeb784dd5feaebf0a6261cc668f40cf876564b4c70e6",
-      "size": 48904
+      "sha256": "1ccec066a69ce1ff8ac383c544aeeb6b81080239f1627d245cc731627e37175c",
+      "size": 49658
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js",
@@ -8346,8 +8346,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/performance-projection.js",
-      "sha256": "647979d43007bb0410f007e63207d4468a90b189762da2b72989d3d4e4870a29",
-      "size": 8915
+      "sha256": "71605b034d0b2bc374c67a45e15fbeacaed96a4102783c398edc995e8a6897eb",
+      "size": 10377
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js",
@@ -8366,8 +8366,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js",
-      "sha256": "688517aab233b4103bf3cb0cdba30219b93b883b88a997a1937ac256cfbff1ee",
-      "size": 34015
+      "sha256": "1c1b86b4936e276dc0578ba2af545ea9865d8af52a2eebaf4c24d5081fc13bc1",
+      "size": 34383
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-validation.js",
@@ -8441,8 +8441,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-projection.js",
-      "sha256": "14cde72ef6cc9591c8fff9f71f303b0280ac42d7454af1ca624e34c277fc29b5",
-      "size": 23916
+      "sha256": "6123ddbd2cd6ed9d6ace6a95ec0daf6a9e23d9cd7d435491e0933c3a788f989a",
+      "size": 23958
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-sfx-categories.js",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "40f64d058ca5792b9dedd60bee63e11b8d39c07d",
+    "commit": "18d67ea5fe9a784f681f4a6a6ff3744bb75bbfc3",
     "path": "runtime.zip",
-    "sha256": "f3f5a6563701cf434d750bdba60d9e6144b6b5ad4583e7d5b37f233b0abc0e20",
-    "size": 16689155
+    "sha256": "3595d804f13e3122a7590255a8e2cf5c7c8251c95225f0da469081e5dd728c0f",
+    "size": 16690560
   }
 }
