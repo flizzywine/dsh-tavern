@@ -1,0 +1,49 @@
+{
+  "name": "dsh-tavern-fate-dice",
+  "version": "1.4.2",
+  "description": "DSH Tavern 命运之骰：插件区极简工作台、无感自动真骰检定、LLM 四源（角色卡/世界书/MVU/正文）动态角色能力推演与叙事阻尼器单趟双向联动。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "client.js",
+    "build.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bigmalove/dsh-tavern-fate-dice.git"
+  },
+  "homepage": "https://github.com/bigmalove/dsh-tavern-fate-dice#readme",
+  "bugs": {
+    "url": "https://github.com/bigmalove/dsh-tavern-fate-dice/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-tavern-plugin"
+      ]
+    },
+    "compatibility": {
+      "tavernApiVersion": 8
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:check": "node build.mjs --check",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "license": "MIT"
+}
