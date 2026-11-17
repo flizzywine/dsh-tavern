@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "80a458ecfe14277fa6952f278358364890058867",
-  "releaseSequence": 1728,
+  "revision": "25df0d81174cf41990014483518f7944196be80b",
+  "releaseSequence": 1729,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "978640cdf7a8000e1b580551fbfe237a851c7243d64ae619092a972b6ef25a1d",
-      "size": 6267678
+      "sha256": "e26e062cd8616c79d320587ab80f6034e7ce05d3c58784cc418dae4e0f3c71b3",
+      "size": 6276929
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2666,8 +2666,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plain-settlement-engine.js",
-      "sha256": "59444ef10dd0fba908a5ef13d6fe5f4e8009392a0d4f230cf64838e547c8d10e",
-      "size": 5713
+      "sha256": "a20275a5ef7f46e64959bb0d95164217f2f456fb358d7033db4c1babd61f0a66",
+      "size": 5531
     },
     {
       "path": "tavern-plugin/lib/domain/play-card-snapshots.js",
@@ -9406,9 +9406,9 @@
     }
   ],
   "archive": {
-    "commit": "1262d53c9af1db5ade7c71c8ce37d3284c88f948",
+    "commit": "20124ca271888d31fddb6085df0a88b88e167dc8",
     "path": "runtime.zip",
-    "sha256": "c16af7687fd79732ad5c941c06b15bf79ac617a9f0b9a635eaea2b9e45593baa",
-    "size": 16670761
+    "sha256": "26a2a1fbdfe88e9b70f2b973b77b3abfe2730bb1c7335f53c296f5a0f522a43c",
+    "size": 16673670
   }
 }
