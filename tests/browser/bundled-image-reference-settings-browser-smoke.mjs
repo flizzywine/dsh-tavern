@@ -17,10 +17,13 @@ const executablePath = [process.env.DSH_BROWSER_EXECUTABLE, 'C:\\Program Files\\
 const screenshotPath = join(tmpdir(), 'dsh-tavern-pr421-image-settings.png')
 const clientSource = await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/client.js', import.meta.url), 'utf8')
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
+const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
 let uploads = 0, libraryRevision = 1, promptRevision = 1, cardEnabled = false
 let playDeleted = false, failGalleryDelete = false
+let extraGalleryJobs = [], failGalleryExport = false
+const exportRequests = []
 let cardBook = { version: 3, revision: 'card-1', buckets: ['rules', 'examples'].map(id => ({ id, label: id, entries: [{ id: 'shared-entry', title: id + ' title', content: id + ' original', enabled: true, mode: 'always' }] })) }
 let cardRevision = 1
 let failCardWrites = 0
@@ -74,7 +77,15 @@ try {
     const url = new URL(route.request().url()), path = url.pathname.replace('/plugins/dsh-tavern-image', ''), method = route.request().method()
     if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
     if (path === '/reference-image' && method === 'GET') return route.fulfill({ contentType: 'image/png', body: png })
-    if (path === '/jobs' && url.searchParams.has('image') || url.pathname.startsWith('/dsh-tavern-gen/img/')) return route.fulfill({ contentType: 'image/png', body: png })
+    if (path === '/jobs' && url.searchParams.has('image')) {
+      const id = url.searchParams.get('id')
+      if (extraGalleryJobs.length && route.request().resourceType() === 'fetch') {
+        exportRequests.push(id)
+        if (id === 'export-gif' && failGalleryExport) return route.fulfill({ status: 404 })
+      }
+      return id === 'export-gif' ? route.fulfill({ contentType: 'image/gif', body: gif }) : route.fulfill({ contentType: 'image/png', body: png })
+    }
+    if (url.pathname.startsWith('/dsh-tavern-gen/img/')) return route.fulfill({ contentType: 'image/png', body: png })
     const body = method === 'POST' ? route.request().postDataJSON() : null
     calls.push({ path, method, query: Object.fromEntries(url.searchParams), body })
     let response = { ok: true }
@@ -192,7 +203,7 @@ try {
     else if (path === '/loras-available') response = { ok: true, loras: [] }
     else if (path === '/history') {
       const mode = url.searchParams.get('gallery')
-      response = { ok: true, jobs: (playDeleted ? [] : [playGalleryJob]).filter(job => mode === 'trash' ? job.trashedAt : !job.trashedAt && (mode !== 'favorite' || job.favorite)) }
+      response = { ok: true, jobs: (playDeleted ? [] : [playGalleryJob, ...extraGalleryJobs]).filter(job => mode === 'trash' ? job.trashedAt : !job.trashedAt && (mode !== 'favorite' || job.favorite)) }
     }
     else if (path === '/gallery-item') {
       if (body.operation === 'favorite' || body.operation === 'unfavorite') playGalleryJob.favorite = body.operation === 'favorite'
@@ -1099,6 +1110,69 @@ try {
   await viewer.waitFor()
   await page.keyboard.press('Escape')
   await viewer.waitFor({ state: 'hidden' })
+
+  extraGalleryJobs = [
+    { ...playGalleryJob, id: 'export-twin' },
+    { ...playGalleryJob, id: 'export-gif', label: '动画/原图' },
+    { ...playGalleryJob, id: 'export-unselected', label: '未选中的图' },
+  ]
+  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByRole('img', { name: '未选中的图', exact: true }).waitFor()
+  await page.getByRole('button', { name: '☑ 批量选择', exact: true }).click()
+  assert.equal(await page.getByRole('button', { name: '导出选中图片（0）', exact: true }).isDisabled(), true)
+  for (const id of ['play-only', 'export-twin', 'export-gif']) await page.locator(`[data-play-job-id="${id}"] img`).click()
+  const exportSelected = page.getByRole('button', { name: '导出选中图片（3）', exact: true })
+  await page.evaluate(() => {
+    const files = new Map([['配图-剧情配图.PNG', [1]]])
+    window.galleryExportFiles = files
+    window.showDirectoryPicker = async ({ mode }) => {
+      if (mode !== 'readwrite') throw new Error('expected write access')
+      return {
+        keys: () => files.keys(),
+        async getFileHandle(name, { create }) {
+          if (!create || [...files.keys()].some(key => key.toLowerCase() === name.toLowerCase())) throw new Error('name collision')
+          return { async createWritable() {
+            let bytes
+            return {
+              async write(blob) { bytes = Array.from(new Uint8Array(await blob.arrayBuffer())) },
+              async close() { files.set(name, bytes) },
+            }
+          } }
+        },
+      }
+    }
+  })
+  failGalleryExport = true
+  await exportSelected.click()
+  await page.getByText('已保存 2 张图片，1 张失败', { exact: true }).waitFor()
+  await page.getByText('动画/原图：读取原图失败（HTTP 404）', { exact: true }).waitFor()
+  assert.deepEqual(exportRequests, ['play-only', 'export-twin', 'export-gif'])
+  failGalleryExport = false
+  await page.getByRole('button', { name: '重试失败项', exact: true }).click()
+  await page.getByText('已保存 1 张图片', { exact: true }).waitFor()
+  assert.deepEqual(exportRequests.slice(3), ['export-gif'])
+  assert.deepEqual(await page.evaluate(() => [...window.galleryExportFiles]), [
+    ['配图-剧情配图.PNG', [1]], ['配图-剧情配图 (2).png', [...png]],
+    ['配图-剧情配图 (3).png', [...png]], ['配图-动画_原图.gif', [...gif]],
+  ])
+  await page.evaluate(() => { window.showDirectoryPicker = async () => { throw new DOMException('Cancelled', 'AbortError') } })
+  await exportSelected.click()
+  await page.getByText('已取消导出', { exact: true }).waitFor()
+  assert.equal(exportRequests.length, 4)
+  await page.evaluate(() => { window.showDirectoryPicker = undefined })
+  const names = ['配图-剧情配图.png', '配图-剧情配图 (2).png', '配图-动画_原图.gif']
+  const [downloads] = await Promise.all([
+    Promise.all(names.map(name => page.waitForEvent('download', { predicate: download => download.suggestedFilename() === name }))),
+    exportSelected.click(),
+  ])
+  await page.getByText(/已发起 3 张图片的下载/).waitFor()
+  assert.deepEqual(await Promise.all(downloads.map(async download => readFile(await download.path()))), [png, png, gif])
+  assert.deepEqual(exportRequests.slice(4), ['play-only', 'export-twin', 'export-gif'])
+  extraGalleryJobs = []
+  await page.getByRole('button', { name: '✖ 退出批量', exact: true }).click()
+  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByRole('img', { name: '未选中的图', exact: true }).waitFor({ state: 'hidden' })
+
   // Permanent deletion works even when the host disables native confirmation dialogs.
   await page.evaluate(() => { window.confirm = () => false })
   await page.getByLabel('回收 剧情配图', { exact: true }).click()

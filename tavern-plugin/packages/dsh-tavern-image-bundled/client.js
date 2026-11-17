@@ -4604,6 +4604,67 @@ function versionsOf(jobId) {
           h('div', null, h('button', { type: 'button', style: buttonStyle, onClick: saveRequirements }, '保存角色与服装要求'))))
     }
 
+    const GALLERY_IMAGE_EXTENSIONS = new Map([
+      ['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp'], ['image/gif', 'gif'],
+    ])
+    const galleryImageUrl = id => BASE + '/jobs?id=' + encodeURIComponent(id) + '&image=1'
+
+    async function createGalleryImageSaver() {
+      let directory
+      if (typeof window.showDirectoryPicker === 'function') {
+        try {
+          directory = await window.showDirectoryPicker({ mode: 'readwrite' })
+        } catch (error) {
+          if (error.name !== 'SecurityError') throw error
+        }
+      }
+      const fileNames = new Set()
+      const nameKey = name => name.normalize('NFC').toLowerCase()
+      if (directory) {
+        for await (const name of directory.keys()) fileNames.add(nameKey(name))
+      }
+      return {
+        directory,
+        async save(job) {
+          const response = await fetch(galleryImageUrl(job.id))
+          if (!response.ok) throw new Error('读取原图失败（HTTP ' + response.status + '）')
+          const extension = GALLERY_IMAGE_EXTENSIONS.get(response.headers.get('content-type')?.split(';')[0].trim().toLowerCase())
+          if (!extension) throw new Error('无法识别原图格式')
+          const blob = await response.blob()
+          if (!blob.size) throw new Error('原图文件为空')
+          const label = String(job.label || job.id).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim()
+          const stem = '配图-' + Array.from(label).slice(0, 48).join('')
+          let name = stem + '.' + extension
+          for (let i = 2; fileNames.has(nameKey(name)); i++) name = stem + ' (' + i + ').' + extension
+          fileNames.add(nameKey(name))
+
+          if (directory) {
+            const file = await directory.getFileHandle(name, { create: true })
+            let stream
+            try {
+              stream = await file.createWritable()
+              await stream.write(blob)
+              await stream.close()
+            } catch (error) {
+              await stream?.abort().catch(() => {})
+              await directory.removeEntry(name).catch(() => {})
+              throw error
+            }
+          } else {
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = name
+            document.body.appendChild(link)
+            try { link.click() } finally {
+              link.remove()
+              setTimeout(() => URL.revokeObjectURL(url), 30_000)
+            }
+          }
+        },
+      }
+    }
+
     function SettingsPanel() {
       const [data, setDataState] = React.useState(null)
       // 让定时器/异步回调读到"最新的" data，而不用把它写进 effect 依赖
@@ -4751,6 +4812,7 @@ function versionsOf(jobId) {
       // 历史图：批量选择模式
       const [gallerySelect, setGallerySelect] = React.useState(false)
       const [galleryPicked, setGalleryPicked] = React.useState({})
+      const [galleryExport, setGalleryExport] = React.useState(null)
       const [galleryDeletion, setGalleryDeletion] = React.useState(null)
       const [galleryDeleting, setGalleryDeleting] = React.useState(false)
       const galleryDeleteBusy = React.useRef(false)
@@ -6980,9 +7042,35 @@ function versionsOf(jobId) {
       }
 
       // ---- 历史图 ----
+      async function exportGalleryImages(jobs) {
+        if (!jobs.length || galleryExport?.busy || galleryDeleting) return
+        setGalleryExport({ busy: true, note: '正在准备导出…' })
+        try {
+          const saver = await createGalleryImageSaver()
+          const failed = []
+          const action = saver.directory ? '保存' : '发起下载'
+          for (const [index, job] of jobs.entries()) {
+            setGalleryExport({ busy: true, note: `正在${action}第 ${index + 1} / ${jobs.length} 张图片…` })
+            try { await saver.save(job) } catch (error) { failed.push({ job, reason: error.message }) }
+          }
+          const count = jobs.length - failed.length
+          const completed = saver.directory ? `已保存 ${count} 张图片` : `已发起 ${count} 张图片的下载`
+          const failure = failed.length ? `，${failed.length} 张失败` : ''
+          const downloadHint = !saver.directory && count ? '。请在浏览器下载列表查看，如有提示请允许多文件下载。' : ''
+          setGalleryExport({ note: completed + failure + downloadHint, failed })
+        } catch (error) {
+          if (error.name === 'AbortError') {
+            setGalleryExport({ ...galleryExport, note: '已取消导出' })
+          } else {
+            setGalleryExport({ note: '导出失败：' + error.message })
+          }
+        }
+      }
+
       function galleryTab() {
         const nativeImages = galleryMode ? [] : legacyImages
         const done = historyJobs.filter(function (job) { return job.hasImage && (job.source === 'play' || job.source !== 'card' && job.label !== '卡片工作台') })
+        const picked = done.filter(job => galleryPicked[job.id])
         const preview = image => {
           const orderedImages = ordered.flatMap(group => group.items)
           if (!orderedImages.length) return
@@ -7024,7 +7112,7 @@ function versionsOf(jobId) {
             },
           },
             h('img', {
-              src: BASE + '/jobs?id=' + encodeURIComponent(job.id) + '&image=1',
+              src: galleryImageUrl(job.id),
               loading: 'lazy',
               decoding: 'async',
               alt: job.label || '图',
@@ -7125,9 +7213,10 @@ function versionsOf(jobId) {
           h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '点缩略图查看原图，按页面顺序切图。右键插件图可查看操作。'),
           h('div', { style: S.row },
             [['', '全部图片'], ['favorite', '收藏'], ['trash', '回收站']].map(([key, label]) =>
-              h('button', { key, type: 'button', style: S.tab(galleryMode === key), 'aria-pressed': galleryMode === key, disabled: galleryDeleting, onClick: () => {
+              h('button', { key, type: 'button', style: S.tab(galleryMode === key), 'aria-pressed': galleryMode === key, disabled: galleryDeleting || galleryExport?.busy, onClick: () => {
                 if (galleryMode === key) return
                 setGalleryMode(key); setHistoryJobs([]); setGalleryPicked({}); setGallerySelect(false); setGalleryDeletion(null); setGalleryDeleteNote('')
+                setGalleryExport(null)
               } }, label)),
             h('button', { style: buttonStyle, onClick: function () { setHistoryNote('读取中…'); setHistoryTick(n => n + 1) } }, '🔄 刷新'),
             h('button', { style: buttonStyle, onClick: () => preview(), disabled: !ordered.length }, '浏览全部'),
@@ -7141,6 +7230,8 @@ function versionsOf(jobId) {
               setGalleryPicked(next)
             } }, '全选') : null,
             gallerySelect ? h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: function () { setGalleryPicked({}) } }, '取消全选') : null,
+            gallerySelect ? h('button', { type: 'button', style: buttonStyle, disabled: galleryDeleting || galleryExport?.busy || !picked.length,
+              onClick: () => exportGalleryImages(picked) }, `导出选中图片（${picked.length}）`) : null,
             gallerySelect ? h('button', {
               style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }),
               disabled: galleryDeleting || !Object.values(galleryPicked).some(Boolean),
@@ -7152,6 +7243,12 @@ function versionsOf(jobId) {
             }, (galleryMode === 'trash' ? '彻底删除（' : '移到回收站（') + Object.keys(galleryPicked).filter(k => galleryPicked[k]).length + '）') : null,
             historyNote ? h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, historyNote) : null,
           ),
+          galleryExport ? h('div', { style: { fontSize: 12 } },
+            h('p', { role: 'status' }, galleryExport.note),
+            galleryExport.failed?.length ? h(React.Fragment, null,
+              h('ul', null, galleryExport.failed.map(({ job, reason }) => h('li', { key: job.id }, (job.label || job.id) + '：' + reason))),
+              h('button', { type: 'button', style: buttonStyle, disabled: galleryDeleting,
+                onClick: () => exportGalleryImages(galleryExport.failed.map(({ job }) => job)) }, '重试失败项')) : null) : null,
           galleryMode === 'trash' && galleryDeletion ? h('div', { role: 'group', 'aria-label': '确认彻底删除图片', style: { ...S.card, marginTop: 10 } },
             h('p', { style: { margin: '0 0 8px', fontSize: 13 } }, galleryDeletion.all ? '清空回收站中的全部图片？删除后无法恢复。' : '彻底删除这 ' + galleryDeletion.ids.length + ' 张图片？删除后无法恢复。'),
             h('div', { style: S.row },
