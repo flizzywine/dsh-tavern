@@ -1,7 +1,7 @@
 import { createHostBehaviorPolicies } from './domain/plugin-host-behavior.js'
 import { MAX_PLUGIN_DATA } from './domain/plugin-data-store.js'
-import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
 import { createHash } from 'node:crypto'
+import { isMvuUpdateEntry } from './domain/worldbook-mvu-entry.js'
 import { createPluginGameModes } from './domain/plugin-game-mode.js'
 import { createGameModeAgents } from './domain/game-mode-agents.js'
 import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
@@ -839,7 +839,8 @@ export function createTavernPluginApi(deps) {
 
     // Draw one picture on the channel the image plugin offers (tavern.imageProvider), the one Tavern's asset pictures use:
     // { prompt, width, height, background?, quality?, references?: [{ data, mediaType }] (PNG/JPEG/WebP, ≤ 8 MiB each),
-    // signal? } → { data, mediaType }. Shares their limit of four in flight. Errors carry code NOT_CONFIGURED /
+    // signal? } → { data, mediaType, provider?, model?, cost: { usd, estimated, model, usage } } (cost from the usage the
+    // channel returned, else estimated from the request; usd is null for a model without a listed price). Shares their limit of four in flight. Errors carry code NOT_CONFIGURED /
     // UNSUPPORTED_CHANNEL / INVALID_ARGUMENT / BUSY / GENERATION_FAILED; mayHaveCharged === true when a request went out.
     async generateImage(input = {}) {
       if (!deps.generateImage) throw Object.assign(new Error('当前版本不支持生图'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })

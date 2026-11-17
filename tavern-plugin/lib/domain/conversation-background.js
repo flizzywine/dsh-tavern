@@ -1,6 +1,6 @@
 import { configuredChatBackgroundModel, normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
-import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
+import { applyTavernSettingsPatch, normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 // Legacy settings are read only when adopting an old save. New games own defaults.
 export function adoptConversationBackground(chat, legacy = {}) {
@@ -12,6 +12,7 @@ export function adoptConversationBackground(chat, legacy = {}) {
 
 export function patchConversationBackground(chat, patch) {
   const next = { ...chat, backgroundConfigVersion: 1 }
+  if (Object.hasOwn(patch, 'modModelSelection')) next.modModels = applyTavernSettingsPatch({modModels:chat.modModels || {}}, {modModelSelection:patch.modModelSelection}).modModels
   if (Object.hasOwn(patch, 'backgroundModel')) {
     next.backgroundModelSelection = normalizeBackgroundModel(patch.backgroundModel)
     if (patch.backgroundModel !== null && !next.backgroundModelSelection) throw new Error('后台模型配置无效')

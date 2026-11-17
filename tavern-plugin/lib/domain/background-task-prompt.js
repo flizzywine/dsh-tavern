@@ -1,6 +1,7 @@
 // Common background request assembly. Keep this production seam independent of DSH.
 import { promptSection } from './prompt-section.js'
 import { prependSystemInstruction } from './system-append.js'
+import { managedPromptText } from './mod-system-prompt-adapter.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -67,8 +68,12 @@ export function backgroundSystemPrompt({ input, sections, persona, systemAppend 
 }
 
 export function backgroundTaskPrompt({ input, messages = input.messages, turnContext = input.turnContext, foregroundReads, worldbook, systemUpdate, pluginText }) {
+  const contributions = input.task === 'stage-director' ? undefined : input.modPrompts
   return [foregroundReads, worldbook?.rendered, systemUpdate?.rendered,
-    backgroundPrompt(messages, turnContext, input.task, input.system, input), pluginText].filter(Boolean).join('\n\n')
+    managedPromptText(contributions, 'background', 'rules.after-core'),
+    managedPromptText(contributions, 'background', 'catalogue'),
+    backgroundPrompt(messages, turnContext, input.task, input.system, input), pluginText,
+    managedPromptText(contributions, 'background', 'task')].filter(Boolean).join('\n\n')
 }
 
 // Directors may opt into the existing shared read adapters, never settlement writes.
