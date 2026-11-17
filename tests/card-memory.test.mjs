@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createCardMemory } from '../tavern-plugin/packages/dsh-tavern-card-memory/index.js'
+// The native Mnemon module aborts Node on Windows (0xC0000409), so it is not loaded there.
+const { createCardMemory } = process.platform === 'win32' ? {} : await import('../tavern-plugin/packages/dsh-tavern-card-memory/index.js')
 
 async function fixture(t) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'tavern-memory-中文 空格-'))
@@ -11,7 +12,7 @@ async function fixture(t) {
   return { dataRoot, memory: createCardMemory({ dataRoot }), chat: { id: 'card-editor', mode: 'card', cardPath: 'cards/中文 卡片.json', sessionId: 'session-a' } }
 }
 
-test('card-specific errors never leak to other cards; shared experience is searchable and can be archived', async t => {
+test('card-specific errors never leak to other cards; shared experience is searchable and can be archived', { skip: process.platform === 'win32' ? 'Native Mnemon dependency aborts with 0xC0000409' : false }, async t => {
   const { dataRoot, memory, chat } = await fixture(t)
   const privateRow = await memory.experience(chat, { title: '中文状态栏空白', problem: '本卡金币字段错了', status: 'unverified' })
   const sharedRow = await memory.experience(chat, { scope: 'shared', title: '状态栏验证流程', problem: '静态校验不足', solution: '浏览器实测', status: 'unverified' })

@@ -5,7 +5,9 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import test from 'node:test'
+import nodeTest from 'node:test'
+// Termux runs on Android (POSIX paths, sh and links), which Windows cannot exercise.
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const bash = process.env.TEST_BASH || 'bash'

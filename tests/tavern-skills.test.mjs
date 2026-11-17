@@ -28,7 +28,7 @@ test('写作与后台用途默认分配，旧 Skill 保留卡片用途，停用�
   await assert.rejects(skills.assign('writing', ['unknown']), /用途/)
 })
 
-test('参考文件独立于素材，覆盖保留引用，拒绝路径越界与符号链接', async t => {
+test('参考文件独立于素材，覆盖保留引用，拒绝路径越界与符号链接', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async t => {
   const { skills, root, user } = await harness(t)
   const source = path.join(root, 'teaching.md')
   await writeFile(source, '现成教学方法')

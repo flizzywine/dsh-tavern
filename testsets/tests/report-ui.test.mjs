@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createReportServer } from '../report-ui.mjs'
 
-test('report viewer lists nested results and exposes evidence without serving credentials or escaped paths', async t => {
+test('report viewer lists nested results and exposes evidence without serving credentials or escaped paths', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-viewer-'))
   const results = path.join(root, 'results'), run = path.join(results, 'case/run-test')
   await mkdir(run, { recursive: true })
