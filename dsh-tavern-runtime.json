@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "de5b37ff25c0349f4662fd11a9c611162b4bd7d2",
-  "releaseSequence": 1735,
+  "revision": "cfa8ea142b16986f19e702a2fde61a822f8b9cbb",
+  "releaseSequence": 1736,
   "version": "3.3.0",
   "files": [
     {
@@ -3231,8 +3231,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-projection.js",
-      "sha256": "5128bf287e4408e8f1b856ecc24615e9f0abf4db5fab01e511f04c46c2bf2f41",
-      "size": 41379
+      "sha256": "a190f1bd43eb63608769ff43d3f2300083c5d09a5cc132f8279c886f5dc45038",
+      "size": 41631
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-reader.js",
@@ -4116,8 +4116,8 @@
     },
     {
       "path": "tavern-plugin/lib/http/routes.js",
-      "sha256": "315e39599ca69000045541618ff0a1f9a7b348e8311cbb53f7f974b01e57dce3",
-      "size": 30636
+      "sha256": "cb39e3e436d73ada3a9dec08e3de993bcdfc9ec508d1d1baa42a42d254a645e2",
+      "size": 30769
     },
     {
       "path": "tavern-plugin/lib/image-character-follow.js",
@@ -4241,8 +4241,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/media.js",
-      "sha256": "3defe42641ae6d7f5734e2e9bbd5d636d9bce31ddd0ad668c9146d78555dc633",
-      "size": 3808
+      "sha256": "6ea1beca17e95c44ed7e5851581b91c8ef62d3ca120a393c7ee138f3494a9e2f",
+      "size": 4068
     },
     {
       "path": "tavern-plugin/lib/rpc/opening.js",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "21a4abdd4c21a413ee6c788acb64d11a9d7ab251",
+    "commit": "b05dd2bdc8a77e7e231073a4da5023f8d76301a7",
     "path": "runtime.zip",
-    "sha256": "04a822cd118a7e114884f3b0515d70a579e1639b6e075bbd26893eaa1526f291",
-    "size": 16687304
+    "sha256": "09afc0b2bfe330e2ebe85a9f920a52b74289f6b12fb0688b6a13d560321287a5",
+    "size": 16687422
   }
 }
