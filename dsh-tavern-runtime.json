@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9464511bd8fad7db990be91c2e7d4cd59f5aad7c",
-  "releaseSequence": 1749,
+  "revision": "120fd105cfe81f035d3b2cd58f79e5fa32de7640",
+  "releaseSequence": 1750,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "08d95c59baa6be85bcc9bf900e1818a707313308e191ec7605506bcc333cd7c0",
-      "size": 6299285
+      "sha256": "801d06fd66dd6479af7d2f98a981dfbd933794bca95a299c20a3b57595ab070a",
+      "size": 6301667
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1481,8 +1481,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-plugins.js",
-      "sha256": "046ce0ef96c7af3fc61452516b6d6d8050d16a034a76bce68ef66aef02dbac08",
-      "size": 12572
+      "sha256": "e64f742663794f55c13650ad47f092b8dadafc18256b22cbe3ff83c70fa767be",
+      "size": 29126
     },
     {
       "path": "tavern-plugin/lib/domain/card-preparation.js",
@@ -1551,8 +1551,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/cast-assets.js",
-      "sha256": "d3c96e5e3af7f3c4749bedf2ce2c76051d72d634d89f6d0c6e7c7e0cc294a759",
-      "size": 16083
+      "sha256": "02a834ca4cfff709839188122136030edebbef814942ec630f3f5a3a4bdf5161",
+      "size": 17431
     },
     {
       "path": "tavern-plugin/lib/domain/character-design-document.js",
@@ -4131,8 +4131,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "550578e15ad2e74e3f34e956171e3fccdf6a336d4241eaddb43f6d6d45868f19",
-      "size": 320821
+      "sha256": "ce63cadd41388645596872454685b21d655d5706650cf6ddd431772bd541df26",
+      "size": 323098
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4221,8 +4221,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/cards.js",
-      "sha256": "ac4507f5096a095387e2759d3584da4daf61525e82586e5f1b349c7f8ea719cf",
-      "size": 11303
+      "sha256": "c419b16ee78421d46122c99cdebc7fb0c0638482406e1414412a57093634a3c1",
+      "size": 12189
     },
     {
       "path": "tavern-plugin/lib/rpc/conversations.js",
@@ -9416,9 +9416,9 @@
     }
   ],
   "archive": {
-    "commit": "de8edaeba983dcf05d5aa6343b33fa0ccf4958ca",
+    "commit": "f2a455801aa84ad22a9c00c37cb5869d938be9b4",
     "path": "runtime.zip",
-    "sha256": "f1f623a9817b99d5dee4947f3999e757a7de3e2262df9138667c56d93c9dac4f",
-    "size": 16717565
+    "sha256": "e4f38467d5547e1c40507c85b1fcf115366fa44ad7ec0aa5da249b39ac7f5fee",
+    "size": 16723445
   }
 }
