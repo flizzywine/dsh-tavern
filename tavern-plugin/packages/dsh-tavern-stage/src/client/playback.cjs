@@ -76,7 +76,7 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
         const remaining=timing.remaining(autoDeadline.current.at-now(),holds);
         if(remaining===Infinity)return;
         return timeout(() => advance(), remaining);
-    }, [sessionId, auto, skipping, hidden, overlay, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, current && current.text, current?.pending, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, audible]);
+    }, [sessionId, auto, skipping, hidden, overlay, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, current && current.text, current?.pending, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, audible, performance.holdKey]);
     // skip turns a page every GAL_SKIP_PAGE_MS and never waits for a performance (a
     // text card, title or anything still sounding is cut by the next turn); staging snaps and nothing sounds. Only data
     // holds it: a streaming page's text and a paragraph's director prefix. Input, the round's end, its choices or
