@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b1c046faf75434f329211ce4086666d6f0e7e96b",
-  "releaseSequence": 1734,
+  "revision": "de5b37ff25c0349f4662fd11a9c611162b4bd7d2",
+  "releaseSequence": 1735,
   "version": "3.3.0",
   "files": [
     {
@@ -166,8 +166,8 @@
     },
     {
       "path": "bin/check-dsh-upgrade.mjs",
-      "sha256": "7cf6df78f3b16ed49ed7f14f26870adfa58f9a75cc3e1b7b874fc995ddc3585d",
-      "size": 8307
+      "sha256": "47b3b07d7e622874c4a0bb74c64aaaba42c9bd0da28ac5fc0b48467bd1bb6226",
+      "size": 8319
     },
     {
       "path": "bin/cli-runtime.mjs",
@@ -361,8 +361,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "381c4c664004a80d03071a4fe30bd09093cf4ac0b8b0f62b9201748acf0683f5",
-      "size": 35375
+      "sha256": "b6bbaa0c1a63e73c50f593d84ffbbee592932a9277bcf1037eaef610714f4027",
+      "size": 35417
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -1236,8 +1236,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/background-progress.js",
-      "sha256": "2af666edfb41289c42267099ed00ca6b2da64743256ac6eee790204af37ed752",
-      "size": 2128
+      "sha256": "308c52d4bba93ce62cf8784b1c0702f657d05d209ef09276d85117cb601f084b",
+      "size": 2272
     },
     {
       "path": "tavern-plugin/lib/domain/background-request-temperature.js",
@@ -1336,8 +1336,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-generation.js",
-      "sha256": "618392b3b171eebabfe5fca72a9426a032a6bfebf70f8b213806c36a08d38f14",
-      "size": 43639
+      "sha256": "5528afc13c0a536296ef5d78ce0b8ccaab15d9cf149960b74cc492d0da7db998",
+      "size": 43824
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-script-context.js",
@@ -1716,8 +1716,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-initialization.js",
-      "sha256": "ef471e513c34fdf7f98f9578fe19db05ae6936f39f767e3599d0dc3738d92c5e",
-      "size": 29710
+      "sha256": "608ae7edce2fce37849c94e0c61e916ef0bd2d87382cc0d95178331b370bf583",
+      "size": 29925
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-page-store.js",
@@ -2276,8 +2276,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/manual-ledger.js",
-      "sha256": "4b4d25712c1ba88f3417458932dd2f8ffc9a178a49081be1d54395799ffc0fc1",
-      "size": 9266
+      "sha256": "3c78dd75a958be4c3a691fe532f5356313320d11fe2a98663668273d30cceb71",
+      "size": 9538
     },
     {
       "path": "tavern-plugin/lib/domain/message-deletion.js",
@@ -2671,8 +2671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-card-snapshots.js",
-      "sha256": "3c2a40e4e1821409ac89241183f05f24699072560d63168e1c081489610946b1",
-      "size": 21563
+      "sha256": "c17f543dec4212dfbb6ca2a39058f4e4af7541a7c08dd772ed917afa5386f9f0",
+      "size": 22929
     },
     {
       "path": "tavern-plugin/lib/domain/play-chat-debug.js",
@@ -3131,8 +3131,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/server-template-sync.js",
-      "sha256": "03688a066e166e8f0a1ad97bb22cebb73249cd6f403173211d4f26f8873deadb",
-      "size": 3286
+      "sha256": "dbad8cbeefc514d1009abbdbbe4dfda72e867ec61dc98b301a92e61ca362bf98",
+      "size": 3710
     },
     {
       "path": "tavern-plugin/lib/domain/server-template-worker.js",
@@ -3211,8 +3211,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-turn-result.js",
-      "sha256": "ebe5ee131750fc9afff249c415df3eb9ffdc41348233db58f16d29f90114b26c",
-      "size": 1955
+      "sha256": "cf591cbb0a29a2aa55588e7c6118e700fc2d975ee0da70621182639dd9ec9f4a",
+      "size": 2497
     },
     {
       "path": "tavern-plugin/lib/domain/session-upgrade-references.js",
@@ -4126,8 +4126,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "5822da626806d73bef6c52738bda91e9318957b2f9b5b1e25b897b3a597275a3",
-      "size": 318192
+      "sha256": "c9dea8c51af43235bd44de7d3ad779a966ff7763ce1b06d7a111651a9dac3e94",
+      "size": 318919
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4251,8 +4251,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
-      "sha256": "35c2621b04f83ac3eeef4eaff8ec280f9c4d331160da990024c409c7e3b65bb8",
-      "size": 26578
+      "sha256": "e225c04b3e25a3e1eace627f57645fb3ca3f0d7a390726b6f65c0e248af746ca",
+      "size": 26464
     },
     {
       "path": "tavern-plugin/lib/rpc/plugins.js",
@@ -9411,9 +9411,9 @@
     }
   ],
   "archive": {
-    "commit": "de7ff770385c238a5c151f34339798fde5a82dfb",
+    "commit": "21a4abdd4c21a413ee6c788acb64d11a9d7ab251",
     "path": "runtime.zip",
-    "sha256": "8dc41063fed8100138a4a010d5aa57a38b9fc0a5a82438050b2a5c7d782f6396",
-    "size": 16685922
+    "sha256": "04a822cd118a7e114884f3b0515d70a579e1639b6e075bbd26893eaa1526f291",
+    "size": 16687304
   }
 }
