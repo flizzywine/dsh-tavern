@@ -522,3 +522,16 @@ test('故事准备首次落盘与重复 prepare 均把最新阻尼裁定写入�
   assert.deepEqual(hPatch.chat().messages.at(-1).narrativeDamper, [updatedOutcome])
 })
 
+test('回合在进入 prepare 前报错或中止时，discard 退去 appendUser 留下的 placeholder 标记以供失败尾重生成识别', async () => {
+  const { unansweredTailIndex } = await import('../tavern-plugin/lib/domain/rollback-surface.js')
+  const h = harness('story')
+  await h.orchestrator.appendUser({ sessionId: 'session-1', requestId: 'req-pre-step-fail', text: '被后台结算拦下的输入' })
+  assert.equal(h.chat().messages.at(-1).placeholder, true)
+  assert.equal(unansweredTailIndex(h.chat()), -1)
+
+  const changed = await h.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+  assert.equal(changed, true)
+  assert.equal(h.chat().messages.at(-1).placeholder, undefined)
+  assert.equal(unansweredTailIndex(h.chat()), 0)
+})
+

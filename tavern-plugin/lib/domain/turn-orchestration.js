@@ -1464,6 +1464,19 @@ export function createTurnOrchestrator(options) {
               }
             }
           }
+        } else if (!Object.values(timeline.inspect({ chat }).operations).some(function (item) {
+          return item.kind === 'body' && item.status === 'running'
+        })) {
+          // A turn that failed or aborted before prepare created an operation still
+          // left appendUser's placeholder flag on the tail row; retire that flag so
+          // unansweredTailIndex recognizes it for regeneration just like post-prepare failures.
+          const tailIndex = Array.isArray(chat.messages) ? chat.messages.length - 1 : -1
+          const tail = tailIndex >= 0 ? chat.messages[tailIndex] : null
+          if (tail?.role === 'user' && tail.native === true && tail.placeholder === true && str(tail.source?.rpcId).trim()) {
+            chat.messages[tailIndex] = { ...tail }
+            delete chat.messages[tailIndex].placeholder
+            changed = true
+          }
         }
       }
       return changed ? chat : undefined

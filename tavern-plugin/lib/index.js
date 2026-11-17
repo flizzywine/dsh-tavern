@@ -254,7 +254,7 @@ import { createServerScriptExecutor } from './domain/server-script-executor.js'
 import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/display-runtime-store.js'
 import { createPresetLibrary } from './domain/preset-library.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
-import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns } from './domain/rollback-surface.js'
+import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns, supersededTailPlayerInputIndices, pruneSupersededTailPlayerInputs } from './domain/rollback-surface.js'
 import { replyBody, voiceBackfillLines, voiceBackfillKept } from './domain/round-body.js'
 import { paragraphSpeech } from './domain/paragraph-speech.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
@@ -4120,38 +4120,58 @@ export async function apply(ctx) {
         if (full) await playCardSnapshots.autoSync(full, undefined, { busy: false })
       } catch (error) { console.warn('dsh-tavern: 世界书自动更新失败，本轮沿用本局快照：', str(error && error.message || error)) }
     },
-    clearFailedTurns: async function (sessionId) {
+    clearFailedTurns: async function (sessionId, turnInput) {
       const mode = await turnOrchestrator.modeFor(sessionId)
       if (mode !== 'story' && mode !== 'script') return 0
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
       // A failed tail sits after the save's latest round, and the walk stops there: the
       // header and the latest floors (that round's input and reply) are all it reads.
-      const chat = session && await chatHeaderWithLatestFloors(sessionId, 3)
+      const chat = session && await chatHeaderWithLatestFloors(sessionId, 8)
       if (!chat) return 0
       const availability = rollbackAvailability(chat, { events: sessionEvents(session), nodes: session.surface?.nodes || [] })
       let cleared = 0
       // A turn the server stopped in the middle never ended, so nothing cleaned it up.
       const turns = new Set([...(availability.unclearedTurns || []), ...interruptedSurfaceTurns({ events: sessionEvents(session), nodes: session.surface?.nodes || [] })])
       for (const turn of turns) cleared += clearFailedTurnSurface({ session, turn })
-      if (cleared) {
-        await sessionStore.flush(session)
+      if (cleared) await sessionStore.flush(session)
+      const currentRequestId = str(turnInput?.requestId).trim()
+      const staleInputs = supersededTailPlayerInputIndices(chat.messages, {
+        events: sessionEvents(session),
+        nodes: session.surface?.nodes || [],
+        currentRequestId
+      })
+      if (cleared || staleInputs.length > 0 || chat.foregroundError) {
         const clearedTurns = [...turns]
         await updateChat(chat.id, current => {
-          if (!current || !current.userInputEdits || typeof current.userInputEdits !== 'object') return undefined
-          const next = { ...current.userInputEdits }
+          if (!current) return undefined
           let changed = false
-          for (const turn of clearedTurns) {
-            if (!Object.hasOwn(next, String(turn))) continue
-            delete next[String(turn)]
+          if (pruneSupersededTailPlayerInputs(current, {
+            events: sessionEvents(session),
+            nodes: session.surface?.nodes || [],
+            currentRequestId
+          }) > 0) changed = true
+          if (current.foregroundError) {
+            current.foregroundError = null
             changed = true
           }
-          if (!changed) return undefined
-          current.userInputEdits = next
-          return current
+          if (clearedTurns.length && current.userInputEdits && typeof current.userInputEdits === 'object') {
+            const next = { ...current.userInputEdits }
+            let editsChanged = false
+            for (const turn of clearedTurns) {
+              if (!Object.hasOwn(next, String(turn))) continue
+              delete next[String(turn)]
+              editsChanged = true
+            }
+            if (editsChanged) {
+              current.userInputEdits = next
+              changed = true
+            }
+          }
+          return changed ? current : undefined
         }, { source: 'failed-turn.cleanup' })
       }
       else if (!availability.canRollback && availability.reason && /失败回合/.test(availability.reason)) console.warn('dsh-tavern: 上一次失败回合的残留无法清理，本轮请求可能带上它:', availability.reason)
-      return cleared
+      return cleared + staleInputs.length
     },
     cleanupFailedTurn: async function (input) {
       // Keep the failed turn (input and output) on the surface until the player
