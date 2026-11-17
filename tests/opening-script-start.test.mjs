@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import { createOpeningPreparation } from '../tavern-plugin/lib/domain/opening-preparation.js'
+import { parseOpeningCommand } from '../tavern-plugin/lib/domain/opening-command.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
 import { initializationFixture } from './fixtures/conversation-initialization.mjs'
 
@@ -83,6 +84,16 @@ test('invalid opening targets fail before publishing any conversation', async ()
     await assert.rejects(service.callRuntime(draft.id, 'prepareOpeningCommand', { line: '/trigger', scriptStart }), /剧本起点/)
     assert.deepEqual(service.resolve(draft.id, h.card.path, 'primary'), preparation)
   }
+})
+
+test('opening submissions project dialogue through the shared parser without leaking stage protocol', () => {
+  const message = 'Morning.\n`@bubble:guide|Guide|calm|[Welcome.]|[Bonjour.]`\n@bubble：guest｜Guest｜｜[*Time to leave.*]\n@bubble:broken|[A fragment.]'
+  const command = parseOpeningCommand('/send ' + message + '|/trigger')
+  assert.equal(command.input, 'Morning.\nGuide：“Welcome.”\nGuest：（Time to leave.）\nA fragment.')
+  assert.equal(command.input.includes('@bubble'), false)
+  assert.equal(command.input.includes('Bonjour'), false)
+  assert.equal(parseOpeningCommand('/send Line one.\n\nLine two.\\|More.|/trigger').input, 'Line one.\n\nLine two.|More.')
+  assert.equal(parseOpeningCommand('/sys ' + message + '|/trigger').systemText, message)
 })
 
 test('the form bridge carries the route separately from the player message', async () => {

@@ -1,3 +1,5 @@
+import { parseBubbles, stripBubbleCodeQuote } from '../../src/client/bubble-line.cjs'
+
 // An explicit opening choice overrides alignment only for a new conversation.
 export function parseOpeningScriptStart(value) {
   if (value === undefined) return undefined
@@ -6,6 +8,14 @@ export function parseOpeningScriptStart(value) {
     if (Number.isSafeInteger(value.chunk) && value.chunk >= 1) return { chunk: value.chunk }
   }
   throw new Error('剧本起点须为 { chunk: 从 1 开始的整数 } 或 { mode: "story" }')
+}
+
+export function projectOpeningInput(text) {
+  // Forms may quote a greeting; player messages are plain text, not stage protocol.
+  if (!text.split('\n').some(line => /^\s*@bubble/.test(stripBubbleCodeQuote(line)))) return text
+  return parseBubbles(text, false).map(part => part.kind === 'bubble'
+    ? (part.name ? part.name + '：' : '') + (part.thought ? '（' + part.text + '）' : '“' + part.text + '”')
+    : part.text).join('\n')
 }
 
 // ---- openingSetup version 2 (docs/specs/opening-setup-v2.md) -------------------------------
