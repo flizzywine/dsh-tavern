@@ -3142,6 +3142,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui button.ap-state-tag[data-state=off]:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-ink) 16%, transparent); }
 .ap-ui button.ap-state-tag[data-state=card]:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-state-card) 25%, transparent); }
 .ap-ui button.ap-state-tag[data-state=global]:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-state-global) 25%, transparent); }
+/* 「自动」 marks an automatic pack: a quiet neutral pill (no state colour), so it reads as a badge, not loose text. */
+.ap-state-tag.is-auto { background: color-mix(in srgb, var(--fork-ink) 14%, var(--fork-surface)); color: color-mix(in srgb, var(--fork-ink) 78%, var(--fork-surface)); }
 .ap-state-anchor .ap-popover { min-width: 196px; padding: 5px; }
 .ap-ui button.ap-state-opt { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 0; height: 38px; padding: 0 10px 0 6px; border: 0; border-radius: 8px; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 500; }
 .ap-ui button.ap-state-opt:hover:not(:disabled) { background: var(--fork-hover); }
@@ -5008,7 +5010,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-quiet .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
 
 /* 参考音频 / 本地引擎 clips: № · ▶ · what it says · language · length / size · ⋯; the dashed ＋ row adds clips. */
-.ap-clips-wrap { display: grid; gap: 6px; min-width: 0; }
 .ap-clips { margin: 0; padding: 0; list-style: none; }
 .ap-clip { display: grid; grid-template-columns: 22px 32px minmax(0, 1fr) auto 104px 32px; align-items: center; gap: 8px; min-height: 48px; padding: 6px 0; border-bottom: 1px solid var(--ap-border); }
 .ap-clip-no { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; text-align: right; }
@@ -5018,7 +5019,12 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui .ap-clip input.ap-clip-text:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { height: 32px; }
 .ap-ui .ap-clip-lang button.ap-voice-pick { height: 28px; font-size: var(--fork-fs-meta); }
 .ap-clip-meta { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-.ap-clip-add-row { padding: 8px 0 0; }
+.ap-clip-add-row { display: flex; align-items: stretch; gap: 8px; padding: 8px 0 0; }
+.ap-clip-add-row > .ap-clip-add { flex: 1; width: auto; }
+.ap-ui button.ap-clip-rec { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 64px; min-height: 40px; padding: 0 12px; border: 1.5px dashed var(--ap-border-strong); border-radius: 10px; background: none; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; cursor: pointer; }
+.ap-ui button.ap-clip-rec:hover { border-color: var(--fork-accent); color: var(--fork-accent); }
+.ap-ui button.ap-clip-rec[aria-pressed="true"] { border-style: solid; border-color: var(--fork-danger); color: var(--fork-danger); }
+.ap-ui button.ap-clip-rec[aria-pressed="true"] .ap-glyph path { fill: currentColor; }
 .ap-clip-add { position: relative; display: grid; place-items: center; width: 100%; height: 40px; border: 1.5px dashed var(--ap-border-strong); border-radius: 10px; color: var(--fork-ink-2); cursor: pointer; }
 .ap-clip-add:hover { border-color: var(--fork-accent); color: var(--fork-accent); }
 .ap-clip-add:focus-within { outline: 2px solid var(--fork-accent); outline-offset: 2px; }
@@ -5064,7 +5070,7 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-dialog { width: min(460px, 100%); }
 
 /* ---- 声音 tab: 配音 · the voice (▶ · name ⌄ · one line of where it comes from · 试听) · 参考音频;
-   选择声音 (a floating list), 添加声音 (services | what one offers), 舞台设置 › 配音 rows. One voice row (.ap-vx-row) for all. */
+   选择声音 (a floating list), 新建声音 / 编辑声音 (services | what one needs), 舞台设置 › 配音 rows. One voice row (.ap-vx-row) for all. */
 .ap-vx-tab { display: flex; flex-direction: column; min-width: 0; }
 .ap-vx-onoff { margin: 0 0 12px; }
 .ap-vx-onoff .ap-switch-row { padding: 0; border: 0; }
@@ -5095,9 +5101,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-name-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: -4px; }
 .ap-vx-hero-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; --fork-spinner-size: 16px; }
 .ap-vx-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; min-height: 28px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
-.ap-vx-meta > i { font-style: normal; color: var(--fork-ink-3); }
-.ap-ui .ap-vx-meta button.ap-pick-pill { height: 26px; padding: 0 4px 0 6px; gap: 4px; color: var(--fork-ink-2); }
-.ap-ui .ap-vx-meta button.ap-pick-pill > .ap-glyph:first-child { width: 13px; height: 13px; color: var(--fork-ink-3); }
 /* 试听 is one field: the frame is the field's edge (as fork-edit draws it), the ▶ 试听 button and the 语气 pick sit inside. */
 .ap-vx-say { display: flex; align-items: center; gap: 4px; min-height: 40px; margin-top: 10px; padding: 0 4px; border-radius: 6px; background: var(--dsw-alias-bg-base); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fork-ink) 28%, transparent); }
 .ap-vx-say:focus-within { box-shadow: inset 0 0 0 1px var(--fork-accent); }
@@ -5112,6 +5115,9 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-filter-head { padding: 6px 12px 2px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .ap-vx-warn { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 28px; margin: 0; color: var(--fork-ink); font-size: var(--fork-fs-body); }
 .ap-vx-warn > .ap-glyph { flex: none; width: 15px; height: 15px; color: var(--fork-warn); }
+/* a long reason stays beside its ⚠ and wraps there (not under it). */
+.ap-vx-warn > span { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 21px); }
+.ap-vx-pane > .ap-vx-warn { margin-bottom: 8px; }
 .ap-vx-try-error { margin: 6px 0 0; }
 
 .ap-vx-faces { display: inline-flex; align-items: center; flex: none; }
@@ -5153,33 +5159,43 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-pick-foot { flex: none; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--fork-hairline); }
 .ap-ui button.ap-cat-add.ap-vx-add { width: 100%; height: 36px; }
 
-.ap-ui .ap-modal.ap-vx-add-modal { display: flex; flex-direction: column; width: min(820px, 100%); height: min(600px, calc(100dvh - 32px)); padding: 0; overflow: hidden; }
+/* 新建声音 / 编辑声音: the services | the voice's name over what the chosen service needs; the footer is 试听 and the one button. */
+.ap-ui .ap-modal.ap-vx-add-modal { display: flex; flex-direction: column; width: min(880px, 100%); height: min(620px, calc(100dvh - 32px)); padding: 0; overflow: hidden; }
 .ap-ui .ap-modal.ap-vx-add-modal > header { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 14px 16px 12px 24px; }
+.ap-vx-add-tools { display: inline-flex; align-items: center; gap: 4px; }
 .ap-vx-add-modal > .ap-modal-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; overflow: hidden; }
-.ap-vx-add-cols { display: grid; grid-template-columns: 184px minmax(0, 1fr); flex: 1; min-height: 0; border-top: 1px solid var(--fork-hairline); }
-.ap-vx-nav { display: flex; flex-direction: column; min-height: 0; padding: 12px; border-right: 1px solid var(--fork-hairline); }
+.ap-vx-add-cols { display: grid; grid-template-columns: 184px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); flex: 1; min-height: 0; border-top: 1px solid var(--fork-hairline); }
+.ap-vx-nav { grid-row: 1 / span 2; display: flex; flex-direction: column; min-height: 0; padding: 12px; border-right: 1px solid var(--fork-hairline); }
 .ap-vx-nav-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; }
 .ap-ui button.ap-vx-nav-item { display: flex; align-items: center; justify-content: flex-start; gap: 8px; height: 36px; padding: 0 10px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); text-align: left; cursor: pointer; }
 .ap-ui button.ap-vx-nav-item:hover { background: var(--fork-hover); }
 .ap-ui button.ap-vx-nav-item[data-current] { background: var(--fork-accent-soft); color: var(--fork-accent); font-weight: 600; }
+.ap-vx-nav-clips { display: inline-flex; align-items: center; gap: 1px; margin-left: auto; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); font-weight: 400; font-variant-numeric: tabular-nums; }
+.ap-vx-nav-clips .ap-glyph { width: 13px; height: 13px; }
 .ap-vx-nav-warn { display: inline-flex; margin-left: auto; color: var(--fork-warn); }
+.ap-vx-nav-clips + .ap-vx-nav-warn { margin-left: 0; }
 .ap-vx-nav-warn .ap-glyph { width: 15px; height: 15px; }
 .ap-ui button.ap-vx-nav-foot { margin-top: auto; align-self: flex-start; padding: 0 10px; color: var(--fork-ink-2); }
-.ap-vx-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 14px 20px 0 16px; overflow-y: auto; }
+.ap-vx-ident { display: flex; align-items: center; min-width: 0; min-height: 36px; padding: 12px 20px 0 8px; }
+.ap-ui .ap-vx-ident input.ap-vx-name-input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { flex: 1; min-width: 0; height: 36px; padding: 0 8px; font-size: var(--fork-fs-title); font-weight: 600; }
+.ap-ui .ap-vx-ident > button.ap-vx-name[data-empty] > span { color: var(--fork-ink-3); }
+.ap-vx-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 20px 0 16px; overflow-y: auto; }
+.ap-vx-pane > .ap-vx-try-error { margin: 0 0 8px; }
 .ap-vx-pane-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ap-vx-pane-tools > .ap-search { flex: 1; min-width: 0; }
-.ap-vx-pane-tools.is-head:not(:has(.ap-vx-ways)) { display: none; }
-.ap-vx-service-pick { display: none; }
-.ap-vx-pane-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.ap-vx-pane-list { flex: 1 1 auto; min-height: 84px; overflow-y: auto; }
 .ap-vx-pane .ap-vx-row { min-height: 42px; }
 .ap-vx-heat { color: var(--fork-ink-2); }
-.ap-vx-add-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 20px 16px; border-top: 1px solid var(--fork-hairline); }
-.ap-ui .ap-vx-add-foot button.ap-primary { min-width: 96px; height: 34px; border-radius: 17px; font-weight: 600; }
 .ap-vx-clone { display: grid; gap: 14px; padding-top: 2px; }
-.ap-vx-params { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); align-items: center; gap: 2px 14px; margin-top: auto; padding: 10px 0 12px; border-top: 1px solid var(--fork-hairline); font-size: var(--fork-fs-body); }
-.ap-vx-params.is-form { margin-top: 4px; padding-top: 0; border-top: 0; grid-template-columns: max-content minmax(0, 1fr); }
-.ap-vx-param-label { color: var(--fork-ink-2); }
-.ap-vx-params .ap-slider { max-width: 340px; }
+/* 模型 · 配音语言 · the service's parameters: a label and its control each. */
+.ap-vx-set { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; justify-items: start; gap: 0 20px; margin-top: 10px; padding-bottom: 12px; font-size: var(--fork-fs-body); }
+.ap-vx-set-label { display: flex; align-items: center; min-height: 34px; color: var(--fork-ink-2); }
+.ap-vx-set > .ap-popover-anchor { margin-left: -6px; }
+.ap-vx-set > .ap-slider { width: 100%; max-width: 340px; }
+.ap-vx-set > .ap-vx-param-text { width: 100%; }
+.ap-vx-add-foot { display: flex; align-items: center; gap: 14px; padding: 12px 20px 14px 24px; border-top: 1px solid var(--fork-hairline); }
+.ap-vx-add-foot > .ap-vx-say { flex: 1; min-width: 0; margin-top: 0; }
+.ap-ui .ap-vx-add-foot button.ap-primary { flex: none; min-width: 96px; height: 34px; border-radius: 17px; font-weight: 600; }
 
 .ap-vx-auto-row { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 0; border-bottom: 1px solid var(--fork-hairline); }
 .ap-ui .ap-vx-auto-row > button.ap-vx-row-play { width: 36px; height: 36px; background: var(--fork-accent-soft); color: var(--fork-accent); }
@@ -5196,21 +5212,28 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui .ap-vx-stage-row button.ap-vx-go:hover { background: var(--fork-hover); }
 
 @media (max-width: 720px) {
-  /* 声音 tab on a phone: the 试听 line under the whole hero; 选择声音 a bottom sheet; 添加声音 full screen with its services
-     as one 「服务名 ⌄」 at the top of the pane. */
+  /* 声音 tab on a phone: the 试听 line under the whole hero; 选择声音 a bottom sheet; 新建声音 / 编辑声音 full screen, one
+     column that scrolls — the name, the services in a row that wraps, what the service needs — over the fixed footer. */
   .ap-vx-hero > .ap-vx-say, .ap-vx-hero > .ap-vx-try-error { grid-column: 1 / -1; margin-top: 10px; }
   .ap-ui .ap-popover.is-floating:has(> .ap-vx-pick) { top: auto !important; bottom: 0; left: 0 !important; right: 0; width: auto !important; max-width: none !important; max-height: 85dvh !important; border-radius: 16px 16px 0 0; padding: 12px 12px 20px; }
   .ap-vx-pick { flex: 1; width: auto; max-width: none; }
   .ap-vx-row { min-height: 44px; }
   .ap-modal-scrim:has(> .ap-vx-add-modal) { padding: 0; }
   .ap-ui .ap-modal.ap-vx-add-modal { width: 100%; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
-  .ap-vx-add-cols { grid-template-columns: minmax(0, 1fr); }
-  .ap-vx-nav { display: none; }
-  .ap-vx-pane-tools.is-head:not(:has(.ap-vx-ways)) { display: flex; }
-  .ap-vx-service-pick { display: inline-flex; margin-right: auto; }
-  .ap-vx-pane { padding: 12px 12px 0; }
+  .ap-vx-add-cols { display: flex; flex-direction: column; overflow-y: auto; }
+  .ap-vx-ident { order: 1; padding: 10px 12px 0 4px; }
+  .ap-vx-nav { order: 2; display: block; padding: 8px 4px 0; border-right: 0; }
+  .ap-vx-nav-list { flex-direction: row; flex-wrap: wrap; gap: 4px 2px; overflow: visible; }
+  .ap-vx-nav-clips, .ap-vx-nav-warn { margin-left: 0; }
+  .ap-ui button.ap-vx-nav-foot { display: none; }
+  .ap-vx-pane { order: 3; flex: none; padding: 10px 12px 0; overflow: visible; }
+  .ap-vx-pane-list { flex: none; min-height: 0; overflow: visible; }
   .ap-vx-pane-tools { flex-wrap: wrap; }
-  .ap-vx-params { grid-template-columns: max-content minmax(0, 1fr); }
+  .ap-vx-set-label { min-height: 40px; }
+  .ap-vx-add-foot { flex-wrap: wrap; gap: 10px; padding: 10px 12px 14px; }
+  .ap-vx-add-foot > .ap-vx-say { flex: 1 1 100%; }
+  .ap-vx-add-foot > .ap-primary { margin-left: auto; }
+  .ap-ui button.ap-clip-rec { min-height: 44px; }
   /* Phone: the 声音 tab is the figure's top bar, its tabs and the voice — no preview stage. */
   .ap-figure-editor[data-tab="voice"] > .ap-figure-stage { display: none; }
   .ap-voice-page > .ap-voice-error { top: 60px; }

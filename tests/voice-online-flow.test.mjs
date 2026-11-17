@@ -57,7 +57,7 @@ for(const kind of ['minimax','qwen'])test(`${kind} only: new figure -> online vo
   const figureId=pack.manifest.figures[0]
   assert.equal(pack.figures[figureId].voice,undefined)
   const ctx=ui(),voiceId=kind==='minimax'?'female-shaonv':'Cherry'
-  // 添加声音 › this service: its voices are rows; 「使用」 makes the picked one a new voice of the pack the figure speaks with.
+  // 新建声音 › this service: its voices are rows; 「使用」 makes the picked one a new voice of the pack the figure speaks with.
   const serviceId=kind==='minimax'?'mm':'qw'
   ctx.testVoices=[{id:voiceId,label:'少女',languages:['zh']},{id:kind==='minimax'?'female-yujie':'Serena',label:'御姐',languages:['zh']}]
   const writer=ctx.useVoiceWriter({binding:{service:library},pack,figure:pack.figures[figureId],setError:message=>assert.equal(message,''),commitVoice:async job=>{const result=await job(pack);pack=result.snapshot;return result}})
@@ -80,8 +80,8 @@ for(const kind of ['minimax','qwen'])test(`${kind} only: new figure -> online vo
   api.close({scope:preview.scope})
 })
 
-// 添加声音 lists the services set up in 语音后端 (浏览器朗读 is its own); a service that offers no source kind is not listed.
-test('添加声音 services: the catalog order, without 浏览器朗读 or a service with nothing to offer',()=>{
+// 新建声音 / 编辑声音 list the services set up in 语音后端 (浏览器朗读 is its own); a service that offers no source kind is not listed.
+test('新建声音 services: the catalog order, without 浏览器朗读 or a service with nothing to offer',()=>{
   const ctx=ui()
   assert.equal(ctx.catalogServices({services:[{id:'browser',kind:'browser',sources:['preset']}]}).length,0)
   const listed=ctx.catalogServices({services:[{id:'q',kind:'qwen',sources:['preset']},{id:'x',kind:'minimax',sources:[]},{id:'m',kind:'minimax',sources:['preset']}]})
@@ -98,9 +98,9 @@ test('preview warning is per failed audition, not the selected provider',()=>{
   for(const provider of ['minimax','qwen'])assert.match(ctx.voiceIssueText('SERVICE_REQUIRED',{provider}),/^这个声音绑定的语音服务还没设置.*重新选择/)
 })
 
-// 语音服务 ⌄ on the 声音 tab: the same voice moves to another service of its kind (本地 Drama 3 → Fish Audio online); a 模型
-// the new service does not offer goes, everything else of the voice stays.
-test('语音服务 ⌄: a voice moves to another service of its kind, keeping the rest of its source',async t=>{
+// 编辑声音's 保存 (useVoiceWriter saveVoice): the figure's voice becomes what the editor showed — the same voice, moved to
+// another service, its other sources kept — and the figure speaks with it as it is (no source or language of its own left).
+test('编辑声音 保存: the same voice is rewritten as the editor showed it; the figure speaks with it as it is',async t=>{
   const root=new URL('../.tmp/',import.meta.url);await mkdir(root,{recursive:true})
   const library=createAssetPackService({assetRoot:await mkdtemp(fileURLToPath(new URL('service-switch-',root))),authorizeLease:async()=>true})
   t.after(()=>library.dispose())
@@ -109,13 +109,14 @@ test('语音服务 ⌄: a voice moves to another service of its kind, keeping th
   const figureId=pack.manifest.figures[0],ctx=ui()
   const commitVoice=async job=>{const result=await job(pack);pack=result.snapshot;return result}
   const writer=()=>ctx.useVoiceWriter({binding:{service:library},pack,figure:pack.figures[figureId],setError:message=>assert.equal(message,''),commitVoice})
-  const voiceId='a'.repeat(32)
-  await writer().createVoice({name:'声音',language:'ja',defaultSource:'fish',sources:{fish:{kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'local',model:'drama-3'}}})
+  const voiceId='a'.repeat(32),fish={kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'local',model:'drama-3'}
+  await writer().createVoice({name:'声音',language:'ja',defaultSource:'fish',sources:{fish}})
   const id=pack.figures[figureId].voice.voice
-  await writer().setSourceService('fish',{id:'cloud',models:[{id:'s1'},{id:'s2'}]})
-  assert.deepEqual(pack.manifest.voiceLibrary.voices[id].sources.fish,{kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'cloud'})
-  await writer().setSourceModel('fish','s2')
-  await writer().setSourceService('fish',{id:'other',models:[{id:'s2'}]})
-  assert.deepEqual(pack.manifest.voiceLibrary.voices[id].sources.fish,{kind:'voice-id',provider:'fish-audio',voiceId,serviceId:'other',model:'s2'},'a 模型 the new service offers stays')
-  assert.equal(pack.figures[figureId].voice.voice,id,'the figure keeps the same voice')
+  pack=(await library.saveFigureVoiceBinding({packId:pack.manifest.id,figureId,expectedRevision:pack.revision,binding:{voice:id,source:'fish',language:'zh'}})).snapshot
+  const azure={kind:'preset',provider:'azure',voiceName:'ja-JP-NanamiNeural'}
+  await writer().saveVoice({name:'新名字',language:'ja',defaultSource:'azure',sources:{fish:{...fish,serviceId:'cloud'},azure},variants:{normal:{name:'原声',tuning:{azure:{rate:10}}}}})
+  const saved=pack.manifest.voiceLibrary.voices[id]
+  assert.deepEqual([saved.name,saved.defaultSource,saved.sources.azure,saved.sources.fish.serviceId],['新名字','azure',azure,'cloud'])
+  assert.deepEqual(saved.variants.normal.tuning,{azure:{rate:10}},'the parameters stay with the voice')
+  assert.deepEqual(pack.figures[figureId].voice,{voice:id},'the same voice; the source and language the figure had chosen before are gone')
 })

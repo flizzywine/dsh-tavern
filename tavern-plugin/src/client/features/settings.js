@@ -566,7 +566,7 @@
             // 内置插件（随酒馆发行、装进 plugins/ 的那几个）照常列出：可停用、随酒馆更新、不可删除。
             // 只有内置舞台模组不进这个列表——它们在「管理模组」里。
             const plugins = (data?.plugins || []).filter(plugin => !(plugin.source.kind === "managed" && plugin.source.builtin));
-            return h("div", { className: "dsh-tavern-settings-group dsh-tavern-user-plugins" },
+            return h("div", { className: "dsh-tavern-user-plugins" },
                 h("div", { className: "dsh-tavern-user-plugins-install" },
                     // the shared inline text field; Enter keeps the address, 安装 installs it.
                     h(InlineField, { kind: "text", label: "插件地址", hideLabel: true, value: url, disabled: busy, placeholder: "粘贴插件的 GitHub 地址，例如 https://github.com/作者/仓库",

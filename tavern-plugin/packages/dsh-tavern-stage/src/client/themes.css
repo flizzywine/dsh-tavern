@@ -2292,6 +2292,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config-value-reset { display: grid; grid-template-columns: auto var(--gal-cfg-hit); justify-content: start; align-items: center; gap: 0; }
 /* a select / segmented value with its ↺ after it (本卡皮肤, 顶栏按钮); the ↺ shows only while set. */
 .fork-gal-config-value-reset.is-select { display: flex; flex-wrap: wrap; gap: var(--gal-cfg-gap); }
+/* the skin select shrinks to leave the ↺ on its row, never a row of its own (any skin). */
+.fork-gal-config-value-reset.is-select:has(> .fork-gal-skin-pick) { flex-wrap: nowrap; align-items: center; }
+.fork-gal-config-value-reset.is-select > .fork-gal-skin-pick { flex: 0 1 auto; min-width: 0; }
+.fork-gal-config-value-reset.is-select > .fork-gal-skin-pick .fork-gal-skin-trigger { max-width: 100%; }
 /* a switch with its reset beside it (解锁手机位置 · 恢复默认位置). */
 .fork-gal-config-inline { display: inline-flex; align-items: center; gap: var(--gal-cfg-gap); }
 .fork-gal-config-caption-alert { color: var(--gal-ui-widget-warning); font-size: var(--gal-cfg-t0); font-weight: 400; letter-spacing: 0; }
