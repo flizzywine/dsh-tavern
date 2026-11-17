@@ -524,7 +524,7 @@ export function formatMvuUpdateCommand(value) {
   return [
     '<UpdateVariable>',
     '<JSONPatch>',
-    JSON.stringify(officialMvuOperations(submission.operations), null, 2),
+    JSON.stringify(officialMvuOperations(submission.operations), null, 2).replace(/[<>&]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')),
     '</JSONPatch>',
     '</UpdateVariable>'
   ].join('\n')

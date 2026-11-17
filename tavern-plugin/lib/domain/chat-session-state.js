@@ -43,7 +43,7 @@ export function projectChatSessionState(chat, options = {}) {
   for (const key of ['id', 'sessionId', '_storageRevision', 'mode', 'cardPath', 'cardContextRevision',
     'backgroundConfigVersion', 'conversationFeaturesVersion', 'backgroundTasks', 'disabledWritingSkills', 'contextCompaction', 'updatedAt', 'timeline', 'candidateAgent',
     'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'taskMailbox', 'regenInProgress',
-    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'failedRegenerationTarget', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
+    'settleError', 'scriptState', 'ledger', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'failedRegenerationTarget', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   if (chat.regenInProgress === true && chat.regenRecovery && typeof chat.regenRecovery === 'object') {
@@ -341,7 +341,7 @@ export function projectDisplayRuntimeState(chat, requestedTurn) {
 export function projectChatBackgroundConfig(chat) {
   const selected = {}
   for (const key of ['id', 'sessionId', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion',
-    'backgroundModelSelection', 'backgroundModelRevision', 'backgroundTasks','worldbookStrategy', 'webSearchEnabled', 'disabledForegroundTools', 'cardContextRevision']) {
+    'modModels', 'backgroundModelSelection', 'backgroundModelRevision', 'backgroundTasks','worldbookStrategy', 'webSearchEnabled', 'disabledForegroundTools', 'cardContextRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   selected.backgroundSessionStatus = chat.timeline?.participants?.background?.status
