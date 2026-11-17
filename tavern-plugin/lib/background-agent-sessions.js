@@ -1,5 +1,5 @@
 import { appendSessionEvent, matchesEventType, sessionEvents } from './domain/session-events.js'
-import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { STAGE_DIRECTOR_DESCRIPTOR, subagentDescriptor } from './domain/background-descriptors.js'
 import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 import { createBackgroundRunLedger } from './background-run-ledger.js'
@@ -180,15 +180,12 @@ export function createBackgroundAgentSessions(options, task) {
 
   function descriptorFor(input, persistent) {
     const member = persistent ? pluginMember(input.member) : null
-    if (member) return snapshotSubagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-plugin-member-v1', label: '插件成员：' + member.name })
-    if (input.task === 'polish') return snapshotSubagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-polish', label: '正文精修', agentProvider: input.selection.provider, agentModel: input.selection.model, persona: '只审读正文，通过精修工具逐处提交修改。' })
-    if (input.task === 'stage-director') return snapshotSubagentDescriptor({
-      mode: 'one-shot', provider: 'dsh-tavern-stage-director', label: '舞台导演',
-      persona: '独立处理已完成正文的增量演出，与变量和姿势任务并行；不改写剧情或变量。'
-    })
-    if (input.task === 'plugin') return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '插件任务' + (input.pluginName ? '：' + String(input.pluginName).slice(0, 60) : '') })
-    if (!persistent) return snapshotSubagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '候选研究' })
-    return snapshotSubagentDescriptor({
+    if (member) return subagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-plugin-member-v1', label: '插件成员：' + member.name })
+    if (input.task === 'polish') return subagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-polish', label: '正文精修', agentProvider: input.selection.provider, agentModel: input.selection.model, persona: '只审读正文，通过精修工具逐处提交修改。' })
+    if (input.task === 'stage-director') return STAGE_DIRECTOR_DESCRIPTOR
+    if (input.task === 'plugin') return subagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '插件任务' + (input.pluginName ? '：' + String(input.pluginName).slice(0, 60) : '') })
+    if (!persistent) return subagentDescriptor({ mode: 'one-shot', provider: LEGACY_BACKGROUND_PROVIDER, label: '候选研究' })
+    return subagentDescriptor({
       mode: 'continuable',
       provider: BACKGROUND_PROVIDER,
       label: '酒馆后台 Agent',
