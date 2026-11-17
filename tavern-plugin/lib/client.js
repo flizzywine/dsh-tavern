@@ -64347,8 +64347,18 @@ function compilePerformance(document) {
     return {blocks, bgm:document.bgm || null, sfxMap:document.sfxMap || {},
         onLevel:document.timeline.turn?.onLevel ?? 3, idleEvery:document.timeline.idle?.every || null};
 }
-function performanceBoundary(previous, {ref, level, topic, off = false}, {turn, page}, document) {
-    if (off) return !previous || previous.phase === 'exit' ? previous : {...previous, startedAt:{turn,page}, phase:'exit'};
+const performanceOnce = document => document?.keyframes?.playback === 'once';
+// document: the new performance's; previousDocument: the held one's. A once cut-in (an objection, a time-up card) set while
+// a held performance is on plays over it: the held one stays current - no exit, no new entry, its skin mode, shot, timer
+// and widgets carry on - and `cutIn` records the one page the cut-in plays on (performance-keyframes.md「once」).
+function performanceBoundary(previous, {ref, level, topic, off = false}, {turn, page}, document, previousDocument) {
+    if (off) {
+        if (!previous || previous.phase === 'exit') return previous;
+        const {cutIn, ...held} = previous;
+        return {...held, startedAt:{turn,page}, phase:'exit'};
+    }
+    if (performanceOnce(document) && previous && previous.phase !== 'exit' && !performanceOnce(previousDocument))
+        return {...previous, cutIn:{ref, level, startedAt:{turn,page}}};
     const same = previous && previous.phase !== 'exit' && previous.ref.packId === ref.packId && previous.ref.assetId === ref.assetId && previous.topic === topic;
     if (same && previous.level === level) return previous;
     const threshold = document.timeline.turn?.onLevel ?? 3;

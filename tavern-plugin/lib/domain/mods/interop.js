@@ -34,7 +34,9 @@ export function applyPerformanceInterop(previous,next,command,params,document,co
   }
   const edges=document?.interop || []
   check(edges.length || params.sec===undefined,'$.sec','A duration override requires a performance with a countdown.','ARG_INVALID')
-  if(JSON.stringify(next.performance)===JSON.stringify(previous.performance)) {
+  // A once cut-in over a held performance leaves the held one current: its controls (the countdown) stay granted.
+  const held=value=>{if(!value)return value;const {cutIn,...rest}=value;return rest}
+  if(JSON.stringify(held(next.performance))===JSON.stringify(held(previous.performance))) {
     check(params.sec===undefined,'$.sec','An existing topic keeps its remaining time; omit the duration override.','ARG_INVALID')
     return next
   }

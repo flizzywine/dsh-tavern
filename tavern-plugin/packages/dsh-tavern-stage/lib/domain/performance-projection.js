@@ -61,7 +61,7 @@ export const opKey = (record, entry, op) => [eventSource(record),record.binding.
 
 export function foldPerformanceAt({checked, page, turn, resolveDocument, predecessor = []}) {
   const chain = [...predecessor,checked]
-  let current = null, instanceKey = null, phaseKey = null, restore = null, music = null, retiring = null
+  let current = null, instanceKey = null, phaseKey = null, restore = null, music = null, retiring = null, cutInKey = null
   for (const record of chain) {
     const target = record.binding.target, local = record === checked
     if (current?.phase === 'exit' && current.startedAt.turn !== target.turn) {current = null; instanceKey = null; phaseKey = null; restore = null}
@@ -85,8 +85,14 @@ export function foldPerformanceAt({checked, page, turn, resolveDocument, predece
         const ref = op.op === 'perform' ? op.id : current?.ref
         const document = ref && resolveDocument(ref)
         const level = op.level ?? document?.levels?.default ?? 1
-        const next = performanceBoundary(current,{ref,level,topic:op.topic,off:op.op === 'perform.off'},start,document || {timeline:{}})
+        const next = performanceBoundary(current,{ref,level,topic:op.topic,off:op.op === 'perform.off'},start,document || {timeline:{}},current && resolveDocument(current.ref))
         if (next === current) continue
+        // A once cut-in plays over the held performance: same instance, its own phase key.
+        if (next.cutIn && next.cutIn !== current?.cutIn) {
+          current = next
+          cutInKey = [instanceKey,eventSource(record),entryOrdinal,opOrdinal]
+          continue
+        }
         if (next.phase === 'entry') {
           if (current && current.phase !== 'exit' && local && start.page === page.index) {
             retiring = {instanceKey,phaseKey,ref:clone(current.ref),plan:planFor(current,'exit',resolveDocument),dependencies:[]}
@@ -105,6 +111,17 @@ export function foldPerformanceAt({checked, page, turn, resolveDocument, predece
   if (!current) return null
   const trigger = current.startedAt.turn === turn && current.startedAt.page === page.index
   if (current.phase === 'exit' && !trigger) return null
+  const cut = !trigger && current.phase !== 'exit' && current.cutIn
+  if (cut && cut.startedAt.turn === turn && cut.startedAt.page === page.index) {
+    // The cut-in page: the cut-in's entry plays; the held performance's sustained layer (skin, BGM, widgets, idle) carries
+    // on underneath and `resume` is what the stage rests on once the cut-in ends.
+    const {cutIn, ...held} = current
+    const heldPlan = planFor(held,'idle',resolveDocument), plan = planFor(cut,'entry',resolveDocument)
+    const merged = plan && heldPlan && {...plan,bgm:heldPlan.bgm,sustainedEvents:heldPlan.sustainedEvents,idleEvery:heldPlan.idleEvery,idleEvents:heldPlan.idleEvents,sfxMap:{...heldPlan.sfxMap,...plan.sfxMap}}
+    return {instanceKey,phaseKey:cutInKey,ref:clone(cut.ref),level:cut.level,startedAt:clone(cut.startedAt),phase:'entry',page:clone(page),plan:merged,
+      resume:{instanceKey,phaseKey,...clone(held),phase:'idle'},retiring:null,sustained:performanceSustained(heldPlan),restore,
+      dependencies:[],unavailable:merged ? null : {code:'PERFORMANCE_DEPENDENCY_UNAVAILABLE',ref:clone(plan ? held.ref : cut.ref)}}
+  }
   const phase = trigger ? current.phase : 'idle'
   const plan = planFor(current,phase,resolveDocument)
   return {instanceKey,phaseKey,...clone(current),phase,page:clone(page),plan,
