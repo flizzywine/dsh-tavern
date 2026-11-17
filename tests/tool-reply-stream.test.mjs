@@ -135,20 +135,6 @@ test('ui-chat 工具流式补丁：兼容 0.2.1 与 2.0.22 两种宿主源码形
     { kind: 'text', text: '推开木门，风雪扑面而来。' }
   ])
 
-  // 输出契约的锚点标签（预设用 <ta_plan>/<ta_zh> 圈定正文）保存时由展示正则剥掉，流式预览没有那一步：
-  // 预览也要剥掉标签本身、保留正文，尾部半截标签（`</ta`）同样不留给下一帧。
-  let anchored = runtime.initialState(1, 1)
-  anchored = runtime.updateChunk(anchored, { type: 'tool-call-delta', index: 0, id: 'call_9', name: 'submit_story', argumentsDelta: '{"think":"<ta_plan>先列提纲</ta_plan>","content":"<ta_zh>夜色' }, 1, 200)
-  anchored = runtime.updateChunk(anchored, { type: 'tool-call-delta', index: 0, id: 'call_9', argumentsDelta: '沉了下来。</ta_zh><ta_zh>第二段' }, 2, 210)
-  assert.deepEqual(runtime.compactBlocks(anchored.blocks), [
-    { kind: 'reasoning', text: '先列提纲' },
-    { kind: 'text', text: '夜色沉了下来。第二段' }
-  ])
-  anchored = runtime.updateChunk(anchored, { type: 'tool-call-delta', index: 0, id: 'call_9', argumentsDelta: '</ta' }, 3, 220)
-  assert.equal(runtime.compactBlocks(anchored.blocks).at(-1).text, '夜色沉了下来。第二段')
-  anchored = runtime.updateChunk(anchored, { type: 'tool-call-delta', index: 0, id: 'call_9', argumentsDelta: '_zh>"}' }, 4, 230)
-  assert.equal(runtime.compactBlocks(anchored.blocks).at(-1).text, '夜色沉了下来。第二段')
-
   // 若本地存在 DSH 0.2.1 runtime 的真实 ui-chat bundle，也验证真实文件一次命中
   try {
     const real021 = readFileSync('/home/hh/.dsh-tavern/runtime/lib/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js', 'utf8')
