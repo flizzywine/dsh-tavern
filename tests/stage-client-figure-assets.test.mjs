@@ -32,3 +32,16 @@ test('scene accepts only the newest picture request even when identity returns t
  pending[2](latest);await Promise.resolve();pending[0](first);pending[1](second);await Promise.resolve()
  assert.equal(entry.figureAsset,latest);assert.deepEqual(attached,[latest.sprite]);assert.equal(committed.length,1);assert.equal(first.dead,1);assert.equal(second.dead,1);assert.equal(latest.dead,0)
 })
+
+test('a pack Spine figure is sized through the same head rule as a picture, with its rig head',async()=>{
+ const seen=[],texture={width:100,height:200}
+ class Sprite{constructor(){this.anchor={set(...v){this.values=v}}}destroy(){this.destroyed=true}}
+ const metrics={source:s=>s,anatomy:(input,canvas)=>{seen.push(['anatomy',input.head,canvas]);return {headTop:.1,chin:.2}},record:input=>{seen.push(['record',input.anatomy]);return {}},resolve:()=>({mode:'physical',supportX:50,feet:400}),bodyX:()=>null}
+ const body=new Sprite(),figure={body,frame:[0,0,100,200],measured:{candidate:{auto:{}}},head:{top:.1,chin:.2,x:60},mood(){},destroy(){}}
+ const owner=createStageFigureAssets({metrics,spineFigures:{prepare:async()=>figure}})
+ const scope=owner.create({PIXI:{Sprite},renderer:{},screen:{width:800,height:600},textures:{},centred:(anatomy,canvas,centre)=>({...anatomy,supportX:centre(anatomy)/canvas[0]})})
+ await scope.spine({url:'m',identity:'m',config:{},input:{pack:true,source:'m'}})
+ assert.deepEqual(seen,[['anatomy',{top:.1,chin:.2},[100,200]],['record',{headTop:.1,chin:.2,supportX:.6}]])
+ assert.deepEqual(body.figureInput.anatomy,{headTop:.1,chin:.2,supportX:.6});assert.deepEqual(body.anchor.values,[.5,2])
+ owner.dispose()
+})

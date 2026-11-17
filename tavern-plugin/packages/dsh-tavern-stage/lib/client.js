@@ -5908,12 +5908,12 @@ function createStageSpineFigures({rig,bottomFade}) {
         try {
             figure=rig.spineFigure(PIXI,loaded,config);
             const frame=rig.spineFrame(figure.spine,config.frame);
-            const measured=anatomy?null:rig.spineMeasure(figure.spine,frame,identity,renderer,PIXI);
+            const measured=anatomy?null:rig.spineMeasure(figure.spine,frame,identity,renderer,PIXI),head=rig.spineHead(figure.spine,frame);
             const fade=bottomFade(config.bottomFade,anatomy,measured?.candidate.auto,frame[3]);
             if(fade)rig.spineBottomFade(PIXI,figure,frame,fade);
             body=rig.spineBody(PIXI,figure.spine,frame);
             body.forkHeadTop=anatomy?anatomy.headTop:measured.headTop;
-            owned={spine:figure.spine,body,frame,measured,
+            owned={spine:figure.spine,body,frame,measured,head,
                 mood(...args){if(!closed)figure.mood(...args);},voice(...args){if(!closed)figure.voice(...args);},update(...args){if(!closed)figure.update(...args);},
                 debug:()=>figure.debug(),destroy};
             figures.add(owned);return owned;
@@ -17767,11 +17767,14 @@ function createStageFigureAssets({spineFigures,metrics}) {
             if(closed){figure.destroy();return null;}
             let candidate=null;
             try {
-                const {frame,measured,body}=figure,canvas=[frame[2],frame[3]];
+                const {frame,measured,body,head}=figure,canvas=[frame[2],frame[3]];
                 body.figureInput = null;
                 if (input?.pack && input.source) {
                     candidate = measured ? measured.candidate : null;
-                    body.figureInput = {...input,metrics:metrics.record(input,canvas,candidate)};
+                    // Sized by the rig's own head (its head slot) unless its anatomy really knows head and feet, as a picture by its crop.
+                    const sized = head ? {...input,head:{top:head.top,chin:head.chin}} : input;
+                    const anatomy = centred(metrics.anatomy(sized, canvas, candidate), canvas, () => head?.x);
+                    body.figureInput = {...sized,anatomy,metrics:metrics.record({...sized,anatomy},canvas,candidate)};
                     const sizing = metrics.resolve({ ...body.figureInput, W: screen.width, H: screen.height, canvas });
                     if (sizing.mode === "physical") body.anchor.set(sizing.supportX / canvas[0], sizing.feet / canvas[1]);
                 }
