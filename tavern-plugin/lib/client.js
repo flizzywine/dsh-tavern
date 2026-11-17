@@ -53602,6 +53602,8 @@ const transferFeature = createTransferFeatureModule()
 			const [plugins, setPlugins] = React.useState(null);
 			const [busy, setBusy] = React.useState(false);
 			const [message, setMessage] = React.useState("");
+			const fileInput = React.useRef(null);
+			const updating = React.useRef("");
 			React.useEffect(function () {
 				let active = true;
 				setPlugins(null); setMessage("");
@@ -53620,12 +53622,42 @@ const transferFeature = createTransferFeatureModule()
 				} catch (error) { setMessage("失败：" + String(error.message || error)); }
 				finally { setBusy(false); }
 			}
+			// A newer version of one plugin from its ZIP (or a .dshcard carrying it): preview, confirm, replace.
+			async function update(event) {
+				const file = event.target.files && event.target.files[0], pluginName = updating.current;
+				event.target.value = "";
+				if (!file) return;
+				setBusy(true); setMessage("");
+				try {
+					const response = await fetch("/api/dsh-tavern/card-upload?purpose=card-plugin-update", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+					let reply = null;
+					try { reply = await response.json(); } catch (_error) {}
+					if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
+					const preview = await rpc("previewCardPluginUpdate", { path: props.path, pluginName: pluginName, uploadId: reply.uploadId });
+					const changed = preview.changes.length;
+					const ok = await askTavernConfirm("把插件 " + preview.pluginName + " 从 " + (preview.before.version || "？") + " 更新到 " + (preview.after.version || "？") + "？" +
+						(changed ? "有 " + changed + " 个文件不同。" : "文件内容相同。") + "插件会运行在你的电脑上，只用信任的作者发布的版本。", { confirmText: "更新" });
+					if (!ok) return;
+					const result = await rpc("updateCardPlugin", { path: props.path, inspectionId: preview.inspectionId, acceptPluginRisk: true });
+					const next = await rpc("cardPlugins", { path: props.path });
+					setPlugins(next.plugins || []);
+					window.dispatchEvent(new CustomEvent("dsh-tavern-card-plugins-changed"));
+					setMessage("已更新到 " + (result.afterVersion || "新版本") + (result.restartRequired ? "，重启 DSH 后生效" : ""));
+				} catch (error) { setMessage("失败：" + String(error.message || error)); }
+				finally { setBusy(false); }
+			}
+			function chooseUpdate(plugin) {
+				updating.current = plugin.name;
+				if (fileInput.current) fileInput.current.click();
+			}
 			return h("section", { className: "dsh-tavern-card-plugins", "aria-label": "卡内插件" },
 				h("div", { className: "dsh-tavern-card-plugins-head" }, h("strong", null, "卡内插件"),
 					h("button", { type: "button", className: "dsh-tavern-btn" + (enabled ? "" : " primary"), disabled: busy, onClick: toggle }, enabled ? "停用" : "启用")),
 				h("ul", null, plugins.map(function (plugin) {
-					return h("li", { key: plugin.folder }, h("span", null, plugin.name), plugin.purpose ? h("small", null, plugin.purpose) : null, h("small", null, plugin.enabled ? "已启用" : "未启用"));
+					return h("li", { key: plugin.folder }, h("span", null, plugin.name), plugin.purpose ? h("small", null, plugin.purpose) : null, h("small", null, plugin.enabled ? "已启用" : "未启用"),
+						h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, title: "上传插件的新版本", onClick: function () { chooseUpdate(plugin); } }, "更新…"));
 				})),
+				h("input", { ref: fileInput, type: "file", accept: ".zip,.dshcard,application/zip", style: { display: "none" }, onChange: update }),
 				h("p", { className: "dsh-tavern-settings-desc" }, "只在这张卡的游戏里生效。"),
 				message ? h("p", { role: "status", className: "dsh-tavern-settings-desc" }, message) : null);
 		}

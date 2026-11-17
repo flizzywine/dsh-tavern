@@ -143,6 +143,21 @@ export function createCardHandlers(deps) {
     async setCardPlugins(args) {
       return { plugins: await setCardPlugins(args && args.path, args && args.enabled === true) }
     },
+    async previewCardPluginUpdate(args) {
+      const cardPath = normalizeResourcePath(args?.path, 'card')
+      if (await fileResources.readCard(cardPath) === undefined) throw new Error('人物卡不存在')
+      const upload = await deps.cardPluginUploads.take(args?.uploadId)
+      try { return await deps.cardPluginUpdates.preview({cardPath, file:upload.file, pluginName:args?.pluginName}) }
+      finally { await upload.remove() }
+    },
+    async recoverCardPluginUpdate() {
+      return await deps.cardPluginUpdates.recover()
+    },
+    async updateCardPlugin(args) {
+      const cardPath = normalizeResourcePath(args?.path, 'card')
+      if (await fileResources.readCard(cardPath) === undefined) throw new Error('人物卡不存在')
+      return await deps.cardPluginUpdates.confirm({cardPath, inspectionId:args?.inspectionId, acceptPluginRisk:args?.acceptPluginRisk})
+    },
     async cardPluginScopes(args) {
       return { scopes: Object.fromEntries([...await cardPlugins.scope()].map(([name, scope]) => [name, scope.cards])) }
     },
