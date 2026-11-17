@@ -29,12 +29,16 @@ export function createCardStorage({dataRoot, profileData}) {
     if (typeof cardPath !== 'string' || !cardPath.startsWith('cards/') || cardPath.includes('\\') || cardPath.split('/').some(s => !s || s === '.' || s === '..' || /[:\x00-\x1f]/.test(s))) throw new Error('Invalid card path')
     return profileData.readJson('resources/' + cardPath)
   }
-  async function resolve(cardPath) {
+  async function findId(cardPath) {
     const id = (await readWorkspace(cardPath))?.meta?.id
-    if (!CARD_ID.test(id || '')) throw new Error('Card has no identity')
+    return typeof id === 'string' && CARD_ID.test(id) ? id : undefined
+  }
+  async function resolve(cardPath) {
+    const id = await findId(cardPath)
+    if (id === undefined) throw new Error('Card has no identity')
     return id
   }
-  return {dataRoot:path.resolve(dataRoot), readWorkspace, resolve, withCardLock(cardId, task) {
+  return {dataRoot:path.resolve(dataRoot), readWorkspace, findId, resolve, withCardLock(cardId, task) {
     if (!CARD_ID.test(cardId)) throw new Error('Invalid cardId')
     const outer = held.getStore() || new Set()
     if (outer.has(cardId)) throw Object.assign(new Error('Card lock reentry'), {code:'LOCK_REENTRY'})

@@ -1059,7 +1059,7 @@ export async function apply(ctx) {
     withCardLock: (id, edit) => cardStorage.withCardLock(id, edit), cardAssetWorkspaceRevision })
   const resourceWorkspaceProjection = createResourceWorkspaceProjection({ root: dataRoot + '/resources' })
   const mobileCardImport = createMobileCardImport({ runtimeHost: process.env.DSH_TAVERN_RUNTIME_HOST })
-  const cardDeletion = createCardDeletion({ resources: fileResources })
+  const cardDeletion = createCardDeletion({ resources: fileResources, cardStorage })
   const cardTaskPrompts = Object.freeze({
     edit: 'card-task-edit',
     extract: 'card-task-extract',
@@ -1815,9 +1815,8 @@ export async function apply(ctx) {
   }
   async function deleteCard(cardPath) {
     const normalized = normalizeResourcePath(cardPath, 'card')
-    const cardId = await cardStorage.resolve(normalized)
     const plugins = (await castAssets.read(normalized)).plugins || []
-    const result = await cardStorage.withCardLock(cardId,() => cardDeletion.remove(cardPath))
+    const result = await cardDeletion.remove(normalized)
     if (result.deleted) {
       if (plugins.length) await cardPlugins.remove({ cardKey: castAssets.keyOf(normalized), cardPath: normalized, plugins })
       await cardOrganization.movePath(normalized, null)
