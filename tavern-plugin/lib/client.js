@@ -60229,6 +60229,7 @@ function CandidateGuidanceShortcutManager({ mode, items, busy, feedback, onSave,
     const h = React.createElement;
     const [editor, setEditor] = React.useState(null);
     const addButton = React.useRef(null);
+    const editorInput = React.useRef(null);
     const restoreFocus = React.useRef(null);
     const value = editor?.value.trim() || "";
     const editIndex = editor ? items.indexOf(editor.original) : -1;
@@ -60257,6 +60258,8 @@ function CandidateGuidanceShortcutManager({ mode, items, busy, feedback, onSave,
         const next = items.slice();
         if (editIndex < 0) next.push(value);
         else next[editIndex] = value;
+        // The save button is disabled during the request. The draft stays focusable.
+        editorInput.current?.focus({ preventScroll: true });
         if (await onSave(next)) closeEditor();
     }
 
@@ -60281,11 +60284,11 @@ function CandidateGuidanceShortcutManager({ mode, items, busy, feedback, onSave,
     return h(LargeModal, { open: true, title: "管理快捷提示", subtitle: mode === "script" ? "剧本模式" : "普通模式",
         className: "dsh-tavern-candidate-shortcut-modal", onClose },
         h("div", { className: "dsh-tavern-candidate-shortcut-actions" },
-            h("button", { type: "button", className: "dsh-tavern-btn", ref: addButton, "data-autofocus": "", disabled: busy || Boolean(editor), onClick: () => startEdit(null) }, "新增快捷提示"),
+            h("button", { type: "button", className: "dsh-tavern-btn", ref: addButton, "data-autofocus": busy ? undefined : "", disabled: busy || Boolean(editor), onClick: () => startEdit(null) }, "新增快捷提示"),
             h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || Boolean(editor), onClick: event => saveList(event, null) }, "恢复默认")),
         feedback,
         editor ? h("div", { className: "dsh-tavern-candidate-shortcut-editor" },
-            h(TextArea, { className: "dsh-tavern-regen-input", rows: 3, autoFocus: true, label: "快捷提示内容", placeholder: "输入生成要求", value: editor.value, readOnly: busy,
+            h(TextArea, { className: "dsh-tavern-regen-input", rows: 3, autoFocus: true, inputRef: editorInput, label: "快捷提示内容", placeholder: "输入生成要求", value: editor.value, readOnly: busy,
                 "data-fork-draft": editor.value !== (editor.original || "") ? "" : undefined,
                 onChange: text => { clearNotice(); setEditor({ ...editor, value: text }); },
                 onKeyDown: event => {

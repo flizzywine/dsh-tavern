@@ -224,6 +224,47 @@ test('候选快捷提示可保存、编辑和排序，重开后按模式读回�
   }
 })
 
+test('候选快捷提示管理弹窗在键盘保存期间保留焦点，失败后可重试', async t => {
+  const pendingDraft = Promise.withResolvers()
+  const pendingEdit = Promise.withResolvers()
+  let saves = 0
+  const settings = {
+    getCandidateGuidanceShortcuts: async () => ({ shortcuts: { story: [] } }),
+    saveCandidateGuidanceShortcuts: async ({ items }) => {
+      saves++
+      if (saves === 1) await pendingDraft.promise
+      if (saves === 2) await pendingEdit.promise
+      return { shortcuts: { story: items } }
+    },
+  }
+  const { page } = await mount(t, 'guide', { settings })
+  await page.getByRole('button', { name: '重新生成候选项', exact: true }).click()
+  await page.getByPlaceholder('对候选的要求（可选）').fill('先调查门口')
+  await page.getByRole('button', { name: '保存为快捷提示' }).press('Enter')
+  await page.getByText('正在保存快捷提示…').waitFor()
+  await page.getByRole('button', { name: '管理', exact: true }).press('Enter')
+  const dialog = page.getByRole('dialog', { name: '管理快捷提示' })
+  await dialog.getByText('正在保存快捷提示…').waitFor()
+  assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true)
+  pendingDraft.resolve()
+  await dialog.getByRole('button', { name: '编辑第 1 条快捷提示' }).and(page.locator(':enabled')).press('Enter')
+
+  const editor = dialog.getByRole('textbox', { name: '快捷提示内容' })
+  const save = dialog.getByRole('button', { name: '保存', exact: true })
+  await editor.fill('再调查窗户')
+  await save.press('Enter')
+  await dialog.getByText('正在保存快捷提示…').waitFor()
+  assert.equal(await editor.evaluate(node => node === document.activeElement), true)
+  pendingEdit.reject(new Error('模拟保存失败'))
+  await dialog.getByText(/模拟保存失败/).waitFor()
+  assert.equal(await editor.evaluate(node => node === document.activeElement), true)
+  assert.equal(await editor.inputValue(), '再调查窗户')
+  await save.press('Enter')
+  await editor.waitFor({ state: 'hidden' })
+  await dialog.getByText('再调查窗户', { exact: true }).waitFor()
+  await dialog.getByRole('button', { name: '新增快捷提示' }).and(page.locator(':focus')).waitFor()
+})
+
 for (const [outcome, contract] of [
   ['recover', '网络失败后复用请求标识并恢复提交'],
   ['timeout', '响应超时会取消请求并使用同一标识重试'],
