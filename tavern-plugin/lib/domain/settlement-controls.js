@@ -26,7 +26,7 @@ export function createSettlementControls(deps) {
   }
 
   async function retrySettlement(sessionId, turn, guidance) {
-    const { backgroundTasks, chatForSession, mvuSettlementEngine, patchChat, projectOpeningWindow, queueSettlement, readChatCard, readOpeningWindow, storyTimeline, view } = deps
+    const { backgroundTasks, chatForSession, mvuSettlementEngine, patchChat, projectOpeningWindow, queueSettlement, readChatCard, readOpeningWindow, readSlice, storyTimeline, view } = deps
     for (let attempt=0;attempt<5;attempt++) {
       const recent = await readOpeningWindow(sessionId)
       const window = recent && recent.chat.timeline?.schemaVersion === 1
@@ -49,6 +49,14 @@ export function createSettlementControls(deps) {
       }
       if (target === null || Math.max(0, Number(target.message.turn) || 0) !== Math.max(0, Number(turn) || 0)) {
         throw new Error('只能重试当前最新正文的后台结算')
+      }
+      if (window) {
+        // The display window omits settlement baselines and participant records.
+        // Read only this reply in full, and restart if the window is already stale.
+        const selected = await readSlice(chat.id, [target.messageId], ['id', '_storageRevision'])
+        if (!selected || selected.chat._storageRevision !== chat._storageRevision) continue
+        target.message = selected.chat.messages[0]
+        chat.messages[target.messageId - window.from] = target.message
       }
       const mvuRetry = mvuSettlementEngine.prepareRetry({ chat, target, guidance, activity })
       if (mvuRetry === 'redeliver') {
