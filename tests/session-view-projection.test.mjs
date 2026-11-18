@@ -9,6 +9,56 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { sessionViewMessageFields } from '../tavern-plugin/lib/domain/session-view-projection.js'
 import { planShowsRow } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
 
+test('冷启动窗口和故事视图保留手动及自动精修标记', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'polish-window-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const f = projectionFixture()
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const saved = await persistence.write({ ...f.chat, _storageRevision: undefined, messages: [f.chat.messages[0],
+    { role: 'assistant', turn: 2, text: '手动精修', polished: true },
+    { role: 'assistant', turn: 3, text: '自动精修', polishedFrom: 'original-source-digest' }
+  ] })
+  const full = await f.projection.project.full(saved)
+  const cold = createChatJournalStore({ dataRoot: root })
+  const window = await cold.readWindow(saved.id, { limit: 2, messageFields: sessionViewMessageFields })
+  assert.equal(window.from, 1)
+  for (const project of [f.projection.project.opening, f.projection.project.story]) {
+    const view = await project(window)
+    assert.deepEqual(view.polishedTurns, full.polishedTurns)
+    assert.deepEqual(view.autoPolishedTurns, full.autoPolishedTurns)
+  }
+  assert.deepEqual(full.polishedTurns, [2, 3])
+  assert.deepEqual(full.autoPolishedTurns, [3])
+})
+
+test('增量投影随精修、再次编辑和新增轮次更新精修标记', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'polish-delta-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const f = projectionFixture()
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const saved = await persistence.write({ ...f.chat, _storageRevision: undefined, messages: [f.chat.messages[0],
+    { role: 'assistant', turn: 2, text: '手动精修', polished: true },
+    { role: 'assistant', turn: 3, text: '自动精修', polishedFrom: 'original-source-digest' }
+  ] })
+  const full = await f.projection.project.full(saved)
+  const updated = await persistence.update(saved.id, chat => {
+    delete chat.messages[1].polished
+    chat.messages[1].text = '再次编辑'
+    chat.messages[2].polished = true
+    delete chat.messages[2].polishedFrom
+    chat.messages.push({ role: 'assistant', turn: 4, text: '新精修', polishedFrom: 'next-source-digest' })
+    return chat
+  })
+  const delta = await persistence.readViewDelta(saved.id, saved._storageRevision)
+  assert.ok(delta)
+  const dirty = await f.projection.project.dirty(delta.chat, full, new Set(delta.indices), { busy: false }, delta)
+  const expected = await f.projection.project.full(updated)
+  assert.deepEqual(dirty.polishedTurns, expected.polishedTurns)
+  assert.deepEqual(dirty.autoPolishedTurns, expected.autoPolishedTurns)
+  assert.deepEqual(dirty.polishedTurns, [3, 4])
+  assert.deepEqual(dirty.autoPolishedTurns, [4])
+})
+
 for (const projected of [false, true]) test('cold bounded view preserves plugin output; dual projection=' + projected, async t => {
   const root = await mkdtemp(join(tmpdir(), 'plugin-output-view-'))
   t.after(() => rm(root, { recursive: true, force: true }))

@@ -447,7 +447,7 @@ export function buildPlannerSystem({ rules, dynamicRules = '', visualEntries = '
     '输出只包含 XML。若本轮启用角色视觉历史，先完整输出一次 <character_updates>{"updates":[]}</character_updates>（有变化时填入更新）；随后完整输出且只输出一次 <decision>draw</decision> 或 <decision>skip</decision>，紧接一个 <reason>简短具体原因</reason>；decision 之后不可修改。skip 时不输出 image。draw 时按顺序逐张尽快输出完整 image 块，使用以下结构，不输出额外长思考：',
     // Reference planning picks each picture's references from <subjects>; the template must carry it, or planners copy the template and drop it.
     '<images><image><regex>正文中逐字一致的一句话</regex><title_styled>一句简短标题</title_styled><size>...</size>'
-      + (referenceSubjects ? '<subjects>[{"characterId":"本张出镜人物的精确角色ID","outfitId":""}]</subjects>' : '')
+      + (referenceSubjects ? '<subjects>[{"characterId":"本张出镜人物的精确角色ID"}]</subjects>' : '')
       + '<prompts>完整画面提示词</prompts></image></images>',
     '若输出分角色 XML，必须保留输入角色块的 character_N 编号；不能按输出顺序重新编号。',
     '每张图承担不同叙事功能、景别或动作，并先呈现最重要的瞬间。每张按正文对应时点写服装、地点和外貌；若正文没有写出变化，才沿用此前已确立的状态。只根据正文，不编造。',

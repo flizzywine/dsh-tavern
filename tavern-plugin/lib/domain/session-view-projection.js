@@ -32,6 +32,7 @@ export const sessionViewMessageFields = Object.freeze([
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
   'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'voiceBackfill', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'narrativeDamper', 'damperState',
+  'polished', 'polishedFrom',
   'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'bodyPluginProjection', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
@@ -149,7 +150,7 @@ export function createSessionViewProjection({
       replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions,{storyTranscript:storyTranscriptRead})
     }
     const activity = activityOf(chat)
-    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat, !storyTranscriptRead)
+    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder, polishedTurns, autoPolishedTurns } = latestTurnFields(chat, !storyTranscriptRead)
     const forkTurnsByMessageId = storyTranscriptRead ? {} : forkTurnsForChat(chat)
     const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)
     const cardUpdate = ['story', 'script'].includes(chat.mode || 'story') && chat.requestMode !== 'sillytavern'
@@ -262,8 +263,8 @@ export function createSessionViewProjection({
       mvuReceipts: mvuReceiptsOf(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.
-      polishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && (message.polished || message.polishedFrom)).map(message => Number(message.turn) || 0),
-      autoPolishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && message.polishedFrom).map(message => Number(message.turn) || 0),
+      polishedTurns,
+      autoPolishedTurns,
       tavernHelper: helperContext ? { ...helperContext, mvuVisibility: cardExtensions.mvuVisibility || null, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
@@ -297,9 +298,11 @@ export function createSessionViewProjection({
   // so plugin actions never target a turn from an earlier view.
   function latestTurnFields(chat, includeNative = true) {
     const messages = Array.isArray(chat.messages) ? chat.messages : []
-    const displayRoundOrder = []
+    const displayRoundOrder = [], polishedTurns = [], autoPolishedTurns = []
     for (const message of messages) {
       if (!message || message.role !== 'assistant') continue
+      if (message.polished || message.polishedFrom) polishedTurns.push(Number(message.turn) || 0)
+      if (message.polishedFrom) autoPolishedTurns.push(Number(message.turn) || 0)
       const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
       if (turn > 0) displayRoundOrder.push(turn)
     }
@@ -315,7 +318,7 @@ export function createSessionViewProjection({
     const latestAssistantTurn = Number(debugTurns[0]?.turn) || 0
     const liveSession = includeNative ? sessionStore.get(str(chat.sessionId)) || agentRegistry.get(str(chat.sessionId))?.session : null
     const latestAssistant = includeNative && latestAssistantTurn > 0 ? assistantResultForTurn(liveSession, latestAssistantTurn) : null
-    return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id), displayRoundOrder }
+    return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id), displayRoundOrder, polishedTurns, autoPolishedTurns }
   }
   function replyProjectionsOf(chat) {
     const messages = Array.isArray(chat && chat.messages) ? chat.messages : []

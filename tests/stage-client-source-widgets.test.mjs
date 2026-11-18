@@ -36,6 +36,15 @@ test('widget controller reads plugin session context and releases geometry and p
  act(()=>late());assert.equal(f.jobs.size,0)
  }finally{f.close()}
 })
+test('outside a secure context (http on a LAN address, no crypto.randomUUID) the stage widgets still mount',()=>{
+ const draws=[]
+ const f=fixture({prepare:window=>Object.defineProperty(window,'crypto',{configurable:true,value:{getRandomValues:bytes=>{draws.push(bytes.length);return globalThis.crypto.getRandomValues(bytes)}}})})
+ function View(){f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters:[]},widgets:[],pages:[],turn:1,page:0,enabled:true,mode:'live'});return null}
+ try {
+ act(()=>f.root.render(React.createElement(View)))
+ assert.ok(draws.includes(16),'the widget owner id comes from getRandomValues')
+ }finally{f.close()}
+})
 test('stopping phone settings prevents queued writes after an in-flight config read',async()=>{
  let finish;const calls=[]
  const f=fixture({rpc:(method,args)=>{calls.push(method);if(method==='getModConfig')return new Promise(resolve=>finish=resolve);return Promise.resolve({sources:[]})}})

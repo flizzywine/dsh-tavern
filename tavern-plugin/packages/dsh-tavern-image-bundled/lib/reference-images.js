@@ -619,8 +619,8 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
   const lib = catalog(definitions)
   const lines = ['【参考图模式规划规则】',
     '只为当前这张 image 中实际出现的人物选择参考图，不得把整个图库或仅在正文被提及但不出镜的人物传入。',
-    '每个 <image> 内必须输出一次 <subjects>JSON数组</subjects>，例如 <subjects>[{"characterId":"精确角色ID","outfitId":"当刻精确服装ID或空字符串"}]</subjects>。ID 必须从下列清单原样复制，不使用姓名代替 ID，不猜测 ID。无人时输出 []。',
-    '同一角色仅列一次。outfitId 必须对应该角色在这一张画面、这一时刻实际穿的服装；需要沿用舞台当刻服装时省略 outfitId。明确不选图库服装、裸露、衣物不可见或用纯文字描述衣物时填 ""，不要因此补常穿。未知或未建库人物保留在画面描述中，可在 subjects 中写 {"name":"该人物名称"}，不要编造 characterId；若穿通用服装，可另外填写该通用服装的 outfitId。',
+    '每个 <image> 内必须输出一次 <subjects>JSON数组</subjects>，例如 <subjects>[{"characterId":"精确角色ID"}]</subjects>。ID 必须从下列清单原样复制，不使用姓名代替 ID，不猜测 ID。无人时输出 []。',
+    '同一角色仅列一次。outfitId 可省略：省略时按舞台当刻让这个人穿的服装出图；只有正文明确这一刻穿的是清单里另一套服装时，才填那套的精确 outfitId。没有舞台服装时，不选图库服装、裸露、衣物不可见或用纯文字描述衣物也省略 outfitId，不要因此补常穿。未知或未建库人物保留在画面描述中，可在 subjects 中写 {"name":"该人物名称"}，不要编造 characterId；若穿通用服装，可另外填写该通用服装的 outfitId。',
     '服装可以只用文字描述，不必从图库挑一套；当前剧情明确的衣着、状态变化优先，脱下、拿在手中或放在一旁的衣服不作为正在穿着的服装。',
     '有图对象以图片及其一致性补充约束固定外观，不再完整堆叠它的固定 traits 或服装标签；缺图对象继续使用完整文字描述。角色图不继承服装、姿势或背景，服装图不继承模特身份；动作和场景依据当前剧情。',
     '取图顺序由插件决定，照常填写 characterId 与 outfitId 即可：服装标有 characterOutfitImage（角色×服装设定图）时只用这一张同时约束身份与服装；否则用角色图加服装图；服装没有图时保留服装文字。',
