@@ -7596,6 +7596,13 @@ const SIM_DT = 1 / 120
 const MAX_STEPS = 380
 const PARTICLE_CAP = 900
 
+function dieFloorZ(meshKey, radius) {
+  if (meshKey === 'd4') return radius / 3
+  if (meshKey === 'd6' || meshKey === 'df' || meshKey === 'd8') return radius * 0.57735
+  if (meshKey === 'd10' || meshKey === 'd100_tens' || meshKey === 'd100_ones') return radius * 0.6687
+  return radius * 0.7947
+}
+
 function qMul(ax, ay, az, aw, bx, by, bz, bw, out) {
   out[0] = aw * bx + ax * bw + ay * bz - az * by
   out[1] = aw * by - ax * bz + ay * bw + az * bx
@@ -7726,9 +7733,9 @@ class CinematicDiceStage {
     this.dragHistory = []
     this.pendingSpecBuilder = options.buildSpecOnDragRelease || null
 
-    this.baseEye = [0, -395, 435]
-    this.camEye = [0, -395, 435]
-    this.camTarget = [0, 8, 14]
+    this.baseEye = [0, -148, 485]
+    this.camEye = [0, -148, 485]
+    this.camTarget = [0, 4, 12]
     this.camFov = (38 * Math.PI) / 180
     this.shakeAmp = 0
     this.chroma = 0.06
@@ -7797,8 +7804,9 @@ class CinematicDiceStage {
     const aspect = w / Math.max(1, h)
     const distScale = aspect > 2.1 ? 0.66 : aspect < 0.9 ? 1.15 : 0.88
     this.baseEye[0] = 0
-    this.baseEye[1] = -335 * distScale
-    this.baseEye[2] = 395 * distScale
+    this.baseEye[1] = -148 * distScale
+    this.baseEye[2] = 485 * distScale
+    if (!this.running) this._snapCameraToRest()
     this.renderSingleFrame()
   }
 
@@ -7943,6 +7951,7 @@ class CinematicDiceStage {
     }
     this.particles.active.fill(0)
     this.particles.aliveCount = 0
+    this._snapCameraToRest()
     this.renderSingleFrame()
   }
 
@@ -8225,7 +8234,7 @@ class CinematicDiceStage {
       }
 
       const radius = baseR * (ds.meshKey === 'd4' ? 1.12 : 1.0)
-      const floorZ = radius * (ds.meshKey === 'd4' ? 0.52 : ds.meshKey === 'd6' || ds.meshKey === 'df' ? 0.62 : 0.76)
+      const floorZ = dieFloorZ(ds.meshKey, radius)
       const fromPos = !spec.silentStatic && spec.fromPositions && spec.fromPositions[i] ? spec.fromPositions[i] : null
       const prevPos = prevDiceSnap && prevDiceSnap[i] ? prevDiceSnap[i] : null
 
@@ -8476,7 +8485,7 @@ class CinematicDiceStage {
       let sumZ = 0
       for (let i = 0; i < count; i++) {
         const d = sim[i]
-        const floorZ = d.radius * (d.meshKey === 'd4' ? 0.52 : d.meshKey === 'd6' || d.meshKey === 'df' ? 0.62 : 0.76)
+        const floorZ = dieFloorZ(d.meshKey, d.radius)
 
         if (!d._simSettled) {
           d.vz -= gravity * SIM_DT
@@ -8677,7 +8686,7 @@ class CinematicDiceStage {
     this.fateApexTime = Math.max(0.08, best.peakStep * SIM_DT)
     this.bounceQueue.sort((a, b) => a.simTime - b.simTime)
 
-    // 逆向四元数对齐：确保目标面最终稳稳朝上微倾面向摄像机，且 det(W * L^T) = (-1)*(-1) = +1 严格属于 SO(3)！
+    // 逆向四元数对齐：确保骰子底面平贴台面（D4 以对面平放桌面、目标面斜朝向镜头，其余骰目标面严格朝上），且 det(W * L^T) = (-1)*(-1) = +1 严格属于 SO(3)！
     const qDesired = new Float32Array(4)
     const qInit = new Float32Array(4)
     const qBaked = new Float32Array(4)
@@ -8685,14 +8694,21 @@ class CinematicDiceStage {
     for (let i = 0; i < count; i++) {
       const d = dice[i]
       const tf = d.targetFace
-      const tiltCam = d.meshKey === 'd4' ? 0.44 : 0.28
-      const wnX = 0, wnY = -Math.sin(tiltCam), wnZ = Math.cos(tiltCam)
+      const tiltCam = d.meshKey === 'd4' ? Math.acos(1 / 3) : 0
+      const wn0Y = -Math.sin(tiltCam), wn0Z = Math.cos(tiltCam)
+      const wv0Y = -Math.cos(tiltCam), wv0Z = -Math.sin(tiltCam)
 
       const yaw = (Math.random() - 0.5) * (isFate ? 0.10 : 0.22)
       const cy = Math.cos(yaw), sy = Math.sin(yaw)
-      const wvX = sy
-      const wvY = -cy * Math.cos(tiltCam)
-      const wvZ = -cy * Math.sin(tiltCam)
+
+      // 绕世界 Z 轴施加偏航 yaw，保证无论是否为 D4，底面都平贴水平桌面
+      const wnX = -sy * wn0Y
+      const wnY = cy * wn0Y
+      const wnZ = wn0Z
+
+      const wvX = -sy * wv0Y
+      const wvY = cy * wv0Y
+      const wvZ = wv0Z
 
       const wuX = wnY * wvZ - wnZ * wvY
       const wuY = wnZ * wvX - wnX * wvZ
@@ -9551,16 +9567,31 @@ class CinematicDiceStage {
     p.aliveCount = alive
   }
 
-  _updateSpringCamera(dt) {
-    let cx = 0, cy = 8, cz = 14
+  _computeCameraFocus() {
+    let cx = 0, cy = 4, cz = 12
     if (this.dice.length > 0) {
       let sx = 0, sy = 0, sz = 0
       for (const d of this.dice) { sx += d.x; sy += d.y; sz += d.z }
-      cx = (sx / this.dice.length) * 0.42
-      cy = (sy / this.dice.length) * 0.42
+      cx = (sx / this.dice.length) * 0.52
+      cy = (sy / this.dice.length) * 0.52
       const zWeight = (this.charging && this.chargeMode === 'fate') || this.fateSlowAmount > 0.05 ? 0.46 : 0.35
       cz = Math.min(this.theaterMode ? 54 : 66, (sz / this.dice.length) * zWeight)
     }
+    return [cx, cy, cz]
+  }
+
+  _snapCameraToRest() {
+    const [cx, cy, cz] = this._computeCameraFocus()
+    this.camTarget[0] = cx
+    this.camTarget[1] = cy
+    this.camTarget[2] = cz
+    this.camEye[0] = cx * 0.65
+    this.camEye[1] = this.baseEye[1] + cy * 0.72
+    this.camEye[2] = this.baseEye[2] + cz * 0.35
+  }
+
+  _updateSpringCamera(dt) {
+    const [cx, cy, cz] = this._computeCameraFocus()
 
     let zoom = 1.0
     if (this.cinematicCamEnabled) {
@@ -9588,9 +9619,9 @@ class CinematicDiceStage {
     const shakeY = (Math.random() - 0.5) * 2 * this.shakeAmp
     const shakeZ = (Math.random() - 0.5) * 1.4 * this.shakeAmp
 
-    const targetEyeX = cx * 0.35 + shakeX
-    const targetEyeY = this.baseEye[1] * zoom + cy * 0.25 + shakeY
-    const targetEyeZ = this.baseEye[2] * zoom + shakeZ
+    const targetEyeX = cx * 0.65 + shakeX
+    const targetEyeY = this.baseEye[1] * zoom + cy * 0.72 + shakeY
+    const targetEyeZ = this.baseEye[2] * zoom + cz * 0.35 + shakeZ
 
     const smooth = Math.min(1, dt * 8.5)
     this.camEye[0] += (targetEyeX - this.camEye[0]) * smooth
@@ -10037,11 +10068,9 @@ class CinematicDiceStage {
       const aspect = w / Math.max(1, h)
       const distScale = aspect > 2.15 ? 0.64 : aspect < 0.9 ? 1.12 : 0.84
       this.baseEye[0] = 0
-      this.baseEye[1] = -325 * distScale
-      this.baseEye[2] = 385 * distScale
-      this.camEye[0] = this.baseEye[0]
-      this.camEye[1] = this.baseEye[1]
-      this.camEye[2] = this.baseEye[2]
+      this.baseEye[1] = -142 * distScale
+      this.baseEye[2] = 475 * distScale
+      if (!this.running) this._snapCameraToRest()
     }
 
     _renderAll() {

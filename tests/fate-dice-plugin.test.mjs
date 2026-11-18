@@ -741,6 +741,53 @@ test('逆命重投与孤注一掷：长按蓄力与点按即投具备差异化�
   )
   assert.ok(Math.abs(qLen - 1) < 1e-3, '落定四元数必须严格保持单位正交')
 
+  // 1E) 平贴台面 + 矩阵对位精度 + 微偏移俯视运镜校验（覆盖含 Z 分量的 D6 1/6 面与 D4/D8/D10/D12/D20）
+  const rotateVec = (q, v) => {
+    const [qx, qy, qz, qw] = q
+    const x2 = qx + qx, y2 = qy + qy, z2 = qz + qz
+    const xx = qx * x2, xy = qx * y2, xz = qx * z2
+    const yy = qy * y2, yz = qy * z2, zz = qz * z2
+    const wx = qw * x2, wy = qw * y2, wz = qw * z2
+    return [
+      (1 - (yy + zz)) * v[0] + (xy - wz) * v[1] + (xz + wy) * v[2],
+      (xy + wz) * v[0] + (1 - (xx + zz)) * v[1] + (yz - wx) * v[2],
+      (xz - wy) * v[0] + (yz + wx) * v[1] + (1 - (xx + yy)) * v[2],
+    ]
+  }
+  for (const spec of [
+    { meshKey: 'd6', sides: 6, targetValue: 1 },
+    { meshKey: 'd6', sides: 6, targetValue: 6 },
+    { meshKey: 'd8', sides: 8, targetValue: 8 },
+    { meshKey: 'd10', sides: 10, targetValue: 10 },
+    { meshKey: 'd12', sides: 12, targetValue: 12 },
+    { meshKey: 'd20', sides: 20, targetValue: 20 },
+  ]) {
+    stage.setStaticRoll({ diceSpecs: [spec], mode: 'normal', tier: 'success' })
+    const die = stage.dice[0]
+    const wn = rotateVec([die.qx, die.qy, die.qz, die.qw], die.targetFace.normal)
+    assert.ok(wn[2] > 0.999, `${spec.meshKey}=${spec.targetValue} 目标面法线应严格朝上平贴台面(wn.z=${wn[2]})`)
+    const lowestZ = die.z + Math.min(...die.mesh.faces.map(f => rotateVec([die.qx, die.qy, die.qz, die.qw], f.center)[2])) * die.radius
+    assert.ok(Math.abs(lowestZ) < 0.6, `${spec.meshKey} 底部面应贴合 z=0 台面(lowestZ=${lowestZ})`)
+  }
+
+  stage.setStaticRoll({ diceSpecs: [{ meshKey: 'd4', sides: 4, targetValue: 1 }], mode: 'normal', tier: 'success' })
+  const d4Die = stage.dice[0]
+  const d4Wn = rotateVec([d4Die.qx, d4Die.qy, d4Die.qz, d4Die.qw], d4Die.targetFace.normal)
+  assert.ok(Math.abs(d4Wn[2] - 1 / 3) < 1e-3 && d4Wn[1] < -0.9, `D4 应以对面平放桌面且目标面朝向镜头(d4Wn=${d4Wn.join(',')})`)
+  const d4OppositeZ = Math.min(...d4Die.mesh.faces.map(f => rotateVec([d4Die.qx, d4Die.qy, d4Die.qz, d4Die.qw], f.normal)[2]))
+  assert.ok(d4OppositeZ < -0.999, `D4 底面法线应严格垂直朝下(d4OppositeZ=${d4OppositeZ})`)
+
+  // 微偏移俯视视角与跟随运镜校验
+  const camDx = stage.camTarget[0] - stage.camEye[0]
+  const camDy = stage.camTarget[1] - stage.camEye[1]
+  const camDz = stage.camEye[2] - stage.camTarget[2]
+  const offsetDeg = Math.atan2(Math.hypot(camDx, camDy), camDz) * 180 / Math.PI
+  assert.ok(offsetDeg >= 10 && offsetDeg <= 24, `相机应保持微偏移俯视视角(offsetDeg=${offsetDeg.toFixed(1)}°)`)
+  stage.dice[0].x = 90
+  stage.dice[0].y = 40
+  stage._updateSpringCamera(0.1)
+  assert.ok(stage.camTarget[0] > 1 && stage.camEye[0] > 0.5, '镜头运镜应平滑跟随骰子位移')
+
   // 1D) 移出取消蓄力：无损还原坐标与临时预览主题
   stage.setTheme(FD3D.resolveTheme('bounce', 'normal', false))
   assert.equal(stage.theme.id, 'astral')
