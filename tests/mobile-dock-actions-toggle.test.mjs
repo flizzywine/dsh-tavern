@@ -60,7 +60,7 @@ test('移动端展开/收起按钮控制 dsh-tavern-dock-actions 显隐、保持
     buildReactPrelude(),
   ])
 
-  const sliceStart = client.indexOf('function MobileComposerStatsToggle(')
+  const sliceStart = client.indexOf('function CandidateDockActions(')
   const sliceEnd = client.indexOf('function observeTurnErrorProjection(')
   assert.ok(sliceStart > 0 && sliceEnd > sliceStart, '定位 CandidateDockActions 与移动端开关源码片段')
   const dockSlice = client.slice(sliceStart, sliceEnd)
@@ -175,14 +175,13 @@ test('移动端展开/收起按钮控制 dsh-tavern-dock-actions 显隐、保持
   assert.ok(expandedGeom.tabBottom <= expandedGeom.cardTop + 1, '展开按钮排在输入框卡片上方且不压住输入卡')
   assert.ok(expandedGeom.centerDelta <= 1, `展开按钮水平居中对齐输入框(偏差 ${expandedGeom.centerDelta}px)`)
 
-  // 先点开运行状态面板，验证收起操作栏时会一并隐藏运行状态面板
-  await statsToggle.click()
-  assert.equal(await hostDock.isVisible(), true, '展开运行信息后宿主状态栏可见')
+  assert.equal(await statsToggle.count(), 0, '操作栏不再渲染运行状态展开按钮')
+  assert.equal(await hostDock.isVisible(), false, '移动端宿主状态栏始终折叠隐藏')
 
   // 2. 点击收起：隐藏 dsh-tavern-dock-actions，释放底部输入区高度，持久化偏好
   await toggleBtn.click()
   assert.equal(await dockActions.isVisible(), false, '收起后隐藏 dsh-tavern-dock-actions')
-  assert.equal(await hostDock.isVisible(), false, '收起操作栏时一并隐藏展开的运行状态栏')
+  assert.equal(await hostDock.isVisible(), false, '收起操作栏时宿主状态栏保持隐藏')
   assert.equal(await toggleBtn.isVisible(), true, '收起后展开按钮本身仍在输入框上方可见')
   assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'false')
   assert.equal(await toggleBtn.getAttribute('aria-label'), '展开操作栏')
@@ -211,10 +210,10 @@ test('移动端展开/收起按钮控制 dsh-tavern-dock-actions 显隐、保持
   assert.notEqual(desktopView.dockDisplay, 'none', '桌面端忽略移动端收起标记，保持 dsh-tavern-dock-actions 显示')
   assert.equal(desktopView.rowDisplay, 'none', '桌面端隐藏移动端展开/收起按钮行')
 
-  // 4. 移动端再次点击展开：恢复显示 dsh-tavern-dock-actions 与此前打开的运行信息
+  // 4. 移动端再次点击展开：恢复显示 dsh-tavern-dock-actions
   await toggleBtn.click()
   assert.equal(await dockActions.isVisible(), true, '再次点击恢复显示 dsh-tavern-dock-actions')
-  assert.equal(await hostDock.isVisible(), true, '再次展开恢复运行状态栏')
+  assert.equal(await hostDock.isVisible(), false, '展开操作栏后宿主状态栏仍保持隐藏')
   assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'true')
   assert.equal(await page.evaluate(() => window.__readStorage()), '1', '展开偏好已更新到 localStorage')
 

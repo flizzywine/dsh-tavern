@@ -525,7 +525,7 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 /* 「接下来的行动」的下移入口：桌面上由收起卡片承担，手机才在操作行里出现。 */
 .dsh-tavern-candidate-entry { display: none; }
 .dsh-tavern-dock-actions-primary { display: contents; }
-.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle-row { display: none; }
+.dsh-tavern-mobile-dock-toggle-row { display: none; }
 .dsh-tavern-notice-dismiss { margin-left: 6px; padding: 0 4px; border: 0; background: none; color: inherit; font: inherit; line-height: 1; cursor: pointer; opacity: .7; }
 .dsh-tavern-notice-dismiss:hover { opacity: 1; }
 .dsh-tavern-more-actions { position: relative; }
@@ -3193,7 +3193,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-assistant { font-size: var(--dsh-content-font-size, 14px); line-height: 1.7; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
   .dsh-tavern-user-bubble { font-size: var(--dsh-content-font-size, 14px); line-height: 1.6; padding: 8px 12px; border-radius: 16px; }
   .dsh-tavern-user-stack { max-width: 90%; }
-  /* 方案 B 的上半层：高频动作留在操作行，窄了横滑、绝不折行；完整运行状态折进右侧箭头。 */
+  /* 方案 B 的上半层：高频动作留在操作行，窄了横滑、绝不折行；运行状态收纳进模型菜单末行。 */
   .dsh-tavern-dock-actions { order: 2; justify-content: flex-start; padding: 0 6px; gap: 2px; flex-wrap: wrap; }
   .dsh-tavern-dock-actions > * { flex-shrink: 0; }
   .dsh-tavern-dock-actions-primary {
@@ -3210,19 +3210,6 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-dock-actions .dsh-tavern-choice-trigger:is([data-fork-action="choices"], [data-fork-action="choices-again"], [data-fork-action="open-choices"]) {
     background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, transparent); color: var(--dsh-tavern-accent);
   }
-  .dsh-tavern-mobile-stats-toggle {
-    display: inline-flex; align-items: center; justify-content: center;
-    flex: 0 0 44px; box-sizing: border-box; width: 44px; min-height: 44px; margin-left: 0; padding: 0;
-    border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; touch-action: manipulation;
-  }
-  .dsh-tavern-mobile-stats-glyph {
-    display: grid; place-items: center; width: 30px; height: 30px; box-sizing: border-box;
-    border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px;
-    background: var(--dsw-specific-sidebar-fill); font: 17px/1 var(--dsw-font-family, sans-serif);
-    transition: transform 160ms ease;
-  }
-  .dsh-tavern-mobile-stats-toggle:hover { background: transparent; color: var(--dsh-tavern-accent); }
-  .dsh-tavern-mobile-stats-toggle[aria-expanded="true"] .dsh-tavern-mobile-stats-glyph { transform: rotate(180deg); }
   .dsh-tavern-dock-actions[data-mobile-collapsed="true"] { display: none !important; }
   .dsh-tavern-mobile-dock-toggle-row {
     order: 3; display: flex; align-items: center; justify-content: center;
@@ -3259,21 +3246,12 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   .dsh-tavern-mobile-dock-toggle-icon { display: block; flex-shrink: 0; transition: transform 160ms ease; }
   .dsh-tavern-mobile-dock-toggle[aria-expanded="false"] .dsh-tavern-mobile-dock-toggle-icon { transform: rotate(180deg); }
-  /* 展开时让宿主 InputBar 的卡片与状态栏参与同一纵向布局，状态卡排在操作行上方。 */
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle) [class*="_composerStack"] { display: flex; flex-direction: column; }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle) [data-slot="conversation.composer.bar"] > :has(> [data-composer-card]) { display: contents; }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle) [data-composer-card] { order: 4; }
-  /* 折叠整条宿主状态栏；只藏插槽会留下原生上下文计量，等于没省高度。 */
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle) [data-composer-dock] { display: none !important; }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle[aria-expanded="true"]):not(:has(.dsh-tavern-mobile-dock-toggle[aria-expanded="false"])) [data-composer-dock] {
-    order: 1; display: flex !important; flex-wrap: wrap; align-items: center; gap: 8px 14px; box-sizing: border-box;
-    width: calc(100% - 16px); max-width: var(--dsh-composer-card-max-width, 780px); max-height: min(30dvh, 180px);
-    margin: 0 auto 6px; padding: 11px 12px; overflow-y: auto; overscroll-behavior: contain;
-    border: 1px solid var(--dsw-alias-border-l2); border-radius: 13px; background: var(--dsw-specific-sidebar-fill);
-  }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle[aria-expanded="true"]) [data-slot="conversation.composer.dock"] {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: 1 1 180px; gap: 8px 14px;
-  }
+  /* 让宿主 InputBar 的卡片与操作栏参与同一纵向布局，折叠舌头排在操作行与输入卡之间。 */
+  [data-composer-seat]:has(.dsh-tavern-dock-actions, .dsh-tavern-mobile-dock-toggle) [class*="_composerStack"] { display: flex; flex-direction: column; }
+  [data-composer-seat]:has(.dsh-tavern-dock-actions, .dsh-tavern-mobile-dock-toggle) [data-slot="conversation.composer.bar"] > :has(> [data-composer-card]) { display: contents; }
+  [data-composer-seat]:has(.dsh-tavern-dock-actions, .dsh-tavern-mobile-dock-toggle) [data-composer-card] { order: 4; }
+  /* 移动端折叠整条宿主状态栏（移入模型菜单末行）；只藏插槽会留下原生上下文计量，等于没省高度。 */
+  body.dsh-tavern-shell-active [data-composer-seat] [data-composer-dock] { display: none !important; }
   /* 面板窄于屏幕时也允许内容收缩，长名称、代码和下拉选项不能撑开整个页面。 */
   .dsh-tavern-library, .dsh-tavern-status, .dsh-local-settings, .dsh-template-panel,
   .dsh-tavern-settings-section, .dsh-tavern-worldbook-editor { min-width: 0; min-height: 0; }
