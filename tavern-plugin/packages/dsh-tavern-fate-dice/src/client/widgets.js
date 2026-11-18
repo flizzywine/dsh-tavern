@@ -88,7 +88,7 @@ function LiveRollBanner(props) {
   const [tickFace, setTickFace] = useState('?')
   const [revealed, setRevealed] = useState(false)
 
-  const animation = event && event.animation ? event.animation : 'bounce'
+  const animation = event && event.animation ? event.animation : 'atelier'
   const isSetup = Boolean(event && event.kind === 'setup-required')
   const isSkipped = Boolean(event && event.kind === 'skipped')
   const isFree = Boolean(event && event.kind === 'free')
@@ -1613,7 +1613,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
     if (baseKey && !eventKey && fdPlayedRollAnimKeys.has(baseKey)) return false
   }
 
-  const pref = String(animationPref || fdGetCachedAnimationPref() || 'bounce')
+  const pref = String(animationPref || fdGetCachedAnimationPref() || 'atelier')
   const hidden = Boolean(roll.hidden)
   const mode = FD3D.resolveThemeMode(roll, hidden)
   let theme = null
@@ -1668,6 +1668,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
   const wrap = fdEl(doc, 'div', 'fd-floor-roll-overlay')
   wrap.setAttribute('aria-hidden', 'true')
   wrap.setAttribute('data-tier', tier)
+  if (theme && theme.id) wrap.setAttribute('data-skin', theme.id)
 
   const backdrop = fdEl(doc, 'div', 'fd-floor-roll-backdrop')
   const stageMask = fdEl(doc, 'div', 'fd-floor-roll-stage-mask')
@@ -1906,6 +1907,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
     fdToggleNodeClass(wrap, 'is-fading', false)
     fdToggleNodeClass(wrap, 'has-presend-gate', ov.pinnedByGate)
     wrap.setAttribute('data-tier', next.tier)
+    if (next.theme && next.theme.id) wrap.setAttribute('data-skin', next.theme.id)
     kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode)
     fdPopulateFloorRollReadout(doc, readout, next.roll, next.hidden)
     try {
@@ -2375,7 +2377,7 @@ function fdMountImperativeFloorHeaders(ui) {
     if (roll) {
       const animPref = (record && record.animation) || fdGetCachedAnimationPref()
       // 胶囊里只出静态骰面：智能切换（bounce）下重投专属皮肤不外带，静止展示一律回默认星穹
-      const animPrefStr = String(animPref || 'bounce')
+      const animPrefStr = String(animPref || 'atelier')
       const theme3d = FD3D.resolveTheme(
         animPref,
         animPrefStr === 'bounce' ? 'normal' : FD3D.resolveThemeMode(roll, false),

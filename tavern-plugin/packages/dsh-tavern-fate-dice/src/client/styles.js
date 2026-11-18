@@ -1437,6 +1437,56 @@ article.dsh-tavern-story-floor {
   animation: none;
 }
 
+/* 典藏级皮肤宽银幕剧场专属导轨与亮色底面文字高对比适配 */
+.fd-floor-roll-overlay[data-skin="atelier"] {
+  --fd-theater-accent: #d4a853;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] {
+  --fd-theater-accent: #ffd84d;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-stage-mask {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-rail {
+  height: 3px;
+  background: #f4f1ea;
+  box-shadow: 0 3px 0 #0e0b16, 0 -3px 0 #0e0b16;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-kicker,
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-readout {
+  font-family: ui-monospace, "Courier New", "PingFang SC", monospace;
+  text-shadow: 2px 2px 0 #0e0b16, -1px -1px 0 #0e0b16;
+}
+.fd-floor-roll-overlay[data-skin="etching"] {
+  --fd-theater-accent: #9c2519;
+}
+.fd-floor-roll-overlay[data-skin="etching"] .fd-floor-roll-backdrop {
+  background: linear-gradient(180deg, rgba(42, 31, 21, 0) 0%, rgba(235, 222, 198, 0.88) 18%, rgba(235, 222, 198, 0.94) 82%, rgba(42, 31, 21, 0) 100%);
+}
+.fd-floor-roll-overlay[data-skin="etching"] .fd-floor-roll-kicker {
+  color: #3d2c1e;
+  text-shadow: 0 1px 0 rgba(255, 250, 240, 0.9);
+}
+.fd-floor-roll-overlay[data-skin="etching"] .fd-floor-roll-readout {
+  color: #1e150e;
+  text-shadow: 0 1px 0 rgba(255, 250, 240, 0.92);
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] {
+  --fd-theater-accent: #ff4f00;
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] .fd-floor-roll-backdrop {
+  background: linear-gradient(180deg, rgba(220, 218, 212, 0) 0%, rgba(232, 230, 225, 0.90) 18%, rgba(232, 230, 225, 0.95) 82%, rgba(220, 218, 212, 0) 100%);
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] .fd-floor-roll-kicker {
+  color: #46484d;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] .fd-floor-roll-readout {
+  color: #141517;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
 /* 离场：天际线向中心回缩 + 宽银幕沿水平中线合拢消散 */
 .fd-floor-roll-overlay.is-fading {
   animation: fd-theater-close 0.86s cubic-bezier(0.65, 0, 0.35, 1) forwards;

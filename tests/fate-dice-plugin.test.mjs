@@ -120,7 +120,18 @@ test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停�
   const workbench = await api.callHandler('fate-dice:workbench', {})
   assert.ok(workbench && typeof workbench === 'object')
   assert.equal(DEFAULT_GLOBAL_SETTINGS.enabled, false)
+  assert.equal(DEFAULT_GLOBAL_SETTINGS.animation, 'atelier')
   assert.equal(workbench.settings?.enabled, false)
+  assert.equal(workbench.settings?.animation, 'atelier')
+
+  for (const skin of ['pixel', 'etching', 'urushi', 'bauhaus', 'murano', 'bounce', 'atelier']) {
+    const skinRes = await api.callHandler('fate-dice:save-global-settings', { settings: { animation: skin } })
+    assert.equal(skinRes.ok, true)
+    assert.equal(skinRes.settings?.animation, skin)
+  }
+
+  const invalidSkinRes = await api.callHandler('fate-dice:save-global-settings', { settings: { animation: 'non-existent-skin' } })
+  assert.equal(invalidSkinRes.settings?.animation, 'atelier')
 
   const enabledRes = await api.callHandler('fate-dice:save-global-settings', { settings: { enabled: true } })
   assert.equal(enabledRes.ok, true)
@@ -135,6 +146,9 @@ test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停�
 
   const clientText = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
   assert.match(clientText, /启用命运之骰/)
+  for (const label of ['绅士赌桌', '勇者地牢', '达芬奇手稿', '京都黑漆', '包豪斯白瓷', '深海星仪']) {
+    assert.ok(clientText.includes(label), `client.js 缺少典藏皮肤文案：${label}`)
+  }
 
   fiber.dispose()
   await assert.rejects(api.callHandler('fate-dice:free-roll', { expression: '1d20' }), /没有名为 fate-dice:free-roll 的插件处理函数/)

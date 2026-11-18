@@ -42,6 +42,12 @@ export const PLUGIN_VERSION = '1.4.2'
 const TONE_BIAS_BONUS = Object.freeze({ balanced: 0, heroic: 1, gritty: -1 })
 const SENSITIVITY_VALUES = Object.freeze(['strict', 'normal', 'rare'])
 const ANIMATION_VALUES = Object.freeze([
+  'atelier',
+  'pixel',
+  'etching',
+  'urushi',
+  'bauhaus',
+  'murano',
   'bounce',
   'prism',
   'inferno',
@@ -69,7 +75,7 @@ export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
   sensitivity: 'normal',
   toneBias: 'balanced',
   allowHidden: true,
-  animation: 'bounce',
+  animation: 'atelier',
   /* 失败 / 大失败时暂停正文发送，等玩家选择是否用命运点逆命重投或孤注一掷 */
   preSendPause: false,
   preSendScope: 'both',
@@ -1859,7 +1865,7 @@ export function apply(ctx) {
       rule: normalizeRule(settings.rule),
       autoCheck: Boolean(settings.autoCheck),
       preSendPause: Boolean(settings.preSendPause),
-      animation: settings.animation || 'bounce'
+      animation: settings.animation || 'atelier'
     }
     // 重新生成流式期间，DOM 楼层带目标 storyTurn 且 streaming=true，兼容 storyTurn / rawTurn / streaming 读取
     if (pending && (
@@ -2001,7 +2007,7 @@ export function apply(ctx) {
       autoCheck: Boolean(settings.autoCheck),
       preSendPause: Boolean(settings.preSendPause),
       rule: normalizeRule(settings.rule),
-      animation: settings.animation || 'bounce',
+      animation: settings.animation || 'atelier',
       fate: game.fate,
       turns: {},
       latest: null
