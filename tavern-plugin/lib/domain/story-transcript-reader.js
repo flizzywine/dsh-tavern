@@ -122,7 +122,7 @@ export function createStoryTranscriptReader({
         : null
       const cached = key ? readCachedTranscript(key) : null
       if (cached) return { ...window, storyTranscript: cached }
-      const summaryPage = await readRecentSummaries(chatId, window.messageCount, { revision: window.revision })
+      const summaryPage = await readRecentSummaries(chatId, window.messageCount, { revision: window.revision, stamp: window.stamp })
       if (summaryPage?.revision === window.revision && summaryPage.stamp === window.stamp && summaryPage.from === 0
         && summaryPage.messageCount === window.messageCount
         && Array.isArray(summaryPage.messages)) {

@@ -13,6 +13,21 @@ export const storyContextMessageFields = Object.freeze([
 const legacyStory = chat => Object.values(chat?.timeline?.operations || {}).some(operation =>
   operation?.kind === 'body' && operation.status === 'foreground-completed')
 
+function windowSnapshot({ revision, stamp }) {
+  return { revision, stamp }
+}
+
+async function readPinnedWindow(readWindow, chatId, snapshot, options) {
+  let page
+  try { page = await readWindow(chatId, { ...options, ...snapshot }) } catch (error) {
+    if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') return undefined
+    throw error
+  }
+  if (!page || page.revision !== snapshot.revision
+    || (Object.hasOwn(snapshot, 'stamp') && page.stamp !== snapshot.stamp)) return undefined
+  return page
+}
+
 /** Story rows a world-book scan of `depth` reads: user/assistant floors, greetings excluded. */
 export function scannedStoryRows(rows, depth) {
   let count = 0
@@ -40,12 +55,13 @@ export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows
       || head.conversationFeaturesVersion !== 1 || legacyStory(head)) return undefined
     const depth = typeof storyRows === 'function' ? await storyRows(head) : storyRows
     if (!Number.isSafeInteger(depth) || depth < 0) return undefined
+    const snapshot = windowSnapshot(first)
     let rows = head.messages, from = first.from
     const satisfied = () => scannedStoryRows(rows, depth) && (!lastAssistant || rows.some(row => row?.role === 'assistant')) && enough(rows)
     while (from > 0 && !satisfied()) {
       if (rows.length >= maxRows) return undefined
-      const page = await readWindow(chatId, { limit: Math.min(500, Math.max(pageSize, rows.length)), before: from, revision: first.revision, fields: ['_storageRevision'], ...projection })
-      if (!page || page.revision !== first.revision || page.to !== from - 1) return undefined
+      const page = await readPinnedWindow(readWindow, chatId, snapshot, { limit: Math.min(500, Math.max(pageSize, rows.length)), before: from, fields: ['_storageRevision'], ...projection })
+      if (!page || page.to !== from - 1) return undefined
       rows = page.chat.messages.concat(rows)
       from = page.from
     }
@@ -55,24 +71,24 @@ export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows
       if (position === undefined) return undefined
       if (position !== null) {
         if (position >= from) return undefined
-        const page = await readWindow(chatId, { limit: 1, before: position + 1, revision: first.revision, fields: ['_storageRevision'], ...projection })
-        const row = page?.revision === first.revision ? page.chat.messages[0] : undefined
+        const page = await readPinnedWindow(readWindow, chatId, snapshot, { limit: 1, before: position + 1, fields: ['_storageRevision'], ...projection })
+        const row = page?.chat.messages[0]
         if (!row || row.role === 'tavern-helper' || lastTavernHelperVariables([row]) === undefined) return undefined
         entries.unshift([position, row])
       }
     }
-    // Named floors outside the window, read on the same revision.
+    // Named floors outside the window, read on the same snapshot.
     for (const position of new Set(include)) {
       if (!Number.isSafeInteger(position) || position < 0 || position >= first.messageCount) return undefined
       if (position >= from || entries.some(([at]) => at === position)) continue
-      const page = await readWindow(chatId, { limit: 1, before: position + 1, revision: first.revision, fields: ['_storageRevision'], ...projection })
-      if (page?.revision !== first.revision || !page.chat.messages[0]) return undefined
+      const page = await readPinnedWindow(readWindow, chatId, snapshot, { limit: 1, before: position + 1, fields: ['_storageRevision'], ...projection })
+      if (!page?.chat.messages[0]) return undefined
       entries.unshift([position, page.chat.messages[0]])
     }
     const { messages: _rows, ...header } = head
     return {
       chat: { ...header, messages: createScopedMessages(first.messageCount, entries) },
-      messageCount: first.messageCount, from, revision: first.revision, ...projection
+      messageCount: first.messageCount, from, ...snapshot, ...projection
     }
   }
   return Object.freeze({
@@ -90,7 +106,7 @@ export async function readRowsAt(readWindow, chatId, revision, indices) {
   const sorted = [...new Set(indices)].sort((a, b) => a - b)
   if (sorted.some(index => !Number.isSafeInteger(index) || index < 0)) return undefined
   const rows = new Map()
-  let header, messageCount
+  let first, snapshot = { revision }
   const groups = []
   for (const index of sorted) {
     const group = groups.at(-1)
@@ -98,15 +114,15 @@ export async function readRowsAt(readWindow, chatId, revision, indices) {
     else groups.push([index, index])
   }
   for (const [start, end] of groups.length ? groups : [[null, null]]) {
-    let window
-    try { window = await readWindow(chatId, start === null ? { limit: 1, revision, includeCheckpoints: true } : { limit: end - start + 1, before: end + 1, revision, includeCheckpoints: true }) }
-    catch (error) { if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') return undefined; throw error }
-    if (!window || window.revision !== revision || (start !== null && window.from !== start)) return undefined
-    header ??= window.chat; messageCount = window.messageCount
+    const range = start === null ? { limit: 1 } : { limit: end - start + 1, before: end + 1 }
+    const headerFields = first ? { fields: ['_storageRevision'] } : { includeCheckpoints: true }
+    const window = await readPinnedWindow(readWindow, chatId, snapshot, { ...range, ...headerFields })
+    if (!window || (start !== null && window.from !== start)) return undefined
+    if (!first) { first = window; snapshot = windowSnapshot(first) }
     if (start !== null) window.chat.messages.forEach((row, offset) => rows.set(start + offset, row))
   }
-  const { messages: _rows, ...head } = header
-  return { chat: { ...head, messages: sorted.map(index => rows.get(index)) }, messageCount, denseMessages: sorted.every(index => rows.has(index)) }
+  const { messages: _rows, ...head } = first.chat
+  return { chat: { ...head, messages: sorted.map(index => rows.get(index)) }, messageCount: first.messageCount, denseMessages: sorted.every(index => rows.has(index)) }
 }
 
 /** The latest `limit` floors, extended on the same revision back to `from` when
@@ -126,8 +142,8 @@ export async function readRecentWindow(readWindow, chatId, { limit, from, requir
     }
     let stitched = true
     while (window && extended && window.from > from) {
-      const page = await readWindow(chatId, { limit: Math.min(500, window.from - from), before: window.from, revision: window.revision, fields: ['_storageRevision'], ...projection })
-      if (!page || page.revision !== window.revision || page.stamp !== window.stamp || page.to !== window.from - 1) { stitched = false; break }
+      const page = await readPinnedWindow(readWindow, chatId, windowSnapshot(window), { limit: Math.min(500, window.from - from), before: window.from, fields: ['_storageRevision'], ...projection })
+      if (!page || page.to !== window.from - 1) { stitched = false; break }
       window = { ...window, from: page.from, chat: { ...window.chat, messages: page.chat.messages.concat(window.chat.messages) } }
     }
     if (stitched) return window

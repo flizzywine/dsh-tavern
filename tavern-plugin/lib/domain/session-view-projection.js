@@ -46,11 +46,21 @@ export function createSessionViewProjection({
   sessionDebugEvidence, cardViewOf, projectLedgerTask, projectCharacterDesignTask, projectPhoneChat,
   readPromptTemplateGlobalVariables, sessionStore, readChatCard, workspaceViewOf, helperHistoryAccess,
   readLiveCardStage = async () => null, stageReadScope = () => false, readStageChat,
-  readCardStageMode = async () => NO_STAGE
+  readCardStageMode = async () => NO_STAGE, readCardResourceVersions = async () => null,
+  readSettingsVersion = async () => '', readGlobalVariablesVersion = async () => ''
 }) {
   const inputFieldsProjection = createInputFieldsProjection()
   const incrementalReplyView = createIncrementalReplyView({ readChanges })
   const mvuVisibilityByCardPath = new Map()
+  // These files supply the story view's settings, regex, Helper config and
+  // global variables. Their versions can be read without materializing floors.
+  async function storyVersion(chat) {
+    const stageMode = chat.cardPath && chat.mode !== 'card' ? readCardStageMode(chat.cardPath) : NO_STAGE
+    return JSON.stringify(await Promise.all([
+      readCardResourceVersions(chat), readSettingsVersion(), tavernExtensionSettings.version?.(),
+      readGlobalVariablesVersion(), stageMode
+    ]))
+  }
   function rememberCardMvuVisibility(cardPath, visibility) {
     const key = str(cardPath)
     if (!key) return
@@ -611,5 +621,5 @@ export function createSessionViewProjection({
 
   return Object.freeze({ view, replyDisplay: replyDisplayForChat, status: chat => sessionStateView.status(chat), stats: () => incrementalReplyView.stats(),
     project: Object.freeze({ full: projectFullSessionView, cached: projectCachedSessionView, dirty: projectDirtySessionView, opening: projectOpeningWindow,
-      story: (window, options = {}) => projectOpeningWindow(window, { ...options, storyTranscript: true }) }) })
+      story: (window, options = {}) => projectOpeningWindow(window, { ...options, storyTranscript: true }), storyVersion }) })
 }

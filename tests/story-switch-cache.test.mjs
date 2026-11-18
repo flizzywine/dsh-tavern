@@ -341,7 +341,7 @@ test('切回会话首读在途时，带目标版本的跟进刷新复用同一�
 	assert.equal(store.getSnapshot().transcript.messages[0].message.text, 's1-latest-floor')
 })
 
-test('storyResourceVersion 与全量 resourceVersion 解耦：其他窗口写无关扩展设置不击穿故事窗口签名，全局正则变化才失效', async () => {
+test('故事窗口可使用独立的投影版本，完整视图版本变化不自动使它失效', async () => {
 	let fullRes = 'ext-v1'
 	let storyRes = 'regex-v1'
 	let projections = 0

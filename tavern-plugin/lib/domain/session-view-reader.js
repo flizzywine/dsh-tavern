@@ -35,7 +35,7 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
  * Projections consume detached inputs; callers never receive a partial Chat.
  */
 export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, readStoryVersion, project, activity,
-  trace, foregroundRunning, synchronize, resourceVersion = async () => '', storyResourceVersion = resourceVersion }) {
+  trace, foregroundRunning, synchronize, resourceVersion = async () => '', storyResourceVersion = project?.storyVersion ?? resourceVersion }) {
   // 手机在 5~12 个对话之间来回切：缓存只留 8 条时，刚切一圈就会把最早那份视图踢掉，
   // 再切回去又要整条重投影。上限与客户端故事窗口缓存、楼层摘要快照缓存保持同一档。
   const VIEW_CACHE_LIMIT = 12
@@ -131,9 +131,10 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
   async function read(sessionId, options) { return (await load(sessionId, options)).view }
   async function response(args = {}) {
     const sessionId = args.sessionId
+    const helperWorldbookSync = args.helperWorldbookSync === 1
     // New clients read the worldbook from Helper context; old clients keep the alias.
     const transportView = view => {
-      if (args.helperWorldbookSync !== 1 || !view?.tavernHelper || !Object.hasOwn(view.tavernHelper, 'worldbook')) return view
+      if (!helperWorldbookSync || !view?.tavernHelper || !Object.hasOwn(view.tavernHelper, 'worldbook')) return view
       const { tavernHelperWorldbook: _alias, ...result } = view
       return result
     }
@@ -145,6 +146,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       const knownSignature = typeof args.knownStorySignature === 'string' && args.knownStorySignature !== '' ? args.knownStorySignature : null
       const previous = !includeTools && readStoryVersion && storyCache.get(knownSignature)?.snapshot
       if (previous && previous.sessionId === sessionId && previous.historyFrom === historyFrom && previous.deferRes === deferRes
+        && previous.helperWorldbookSync === helperWorldbookSync
         && await readStoryVersion(sessionId, previous.chat.id) === previous.stamp
         && await storyResourceVersion(previous.chat) === previous.resources) {
         const cached = storyCache.get(knownSignature)
@@ -162,7 +164,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       // Tool results can arrive in the host log without a Chat write.
       const toolsStamp = includeTools ? createHash('sha256').update(JSON.stringify(window.storyTranscript.messages.map(entry => entry.toolCalls || null))).digest('hex') : null
       const storySignature = JSON.stringify([window.chat.id, window.revision, window.from, window.to,
-        window.messageCount, resources, includeTools, deferRes, window.stamp, toolsStamp])
+        window.messageCount, resources, includeTools, deferRes, window.stamp, toolsStamp, helperWorldbookSync])
       if (knownSignature !== null && knownSignature === storySignature) {
         trace.state({viewRebuild:'story-cache',helperMessageCount:window.chat.messages.length})
         return {unchanged:true,revision:window.revision,storySignature}
@@ -183,7 +185,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       // Keep only the metadata needed to revalidate conditional reads. The cache
       // already owns the projected view, so there is no second copy of the floors.
       const snapshot = !includeTools && window.stamp ? {
-        sessionId, historyFrom, deferRes, resources, stamp: window.stamp,
+        sessionId, historyFrom, deferRes, helperWorldbookSync, resources, stamp: window.stamp,
         revision: window.revision, count: window.chat.messages.length,
         chat: { id: window.chat.id, cardPath: window.chat.cardPath, mode: window.chat.mode },
       } : null

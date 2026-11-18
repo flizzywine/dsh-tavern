@@ -2289,12 +2289,26 @@ export async function apply(ctx) {
     return Object.assign({}, operation, { result: { candidates } })
   }
   const helperHistoryAccess = createHelperHistoryAccess({read: (id,args) => chatPersistence.readHelperContext(id,args)})
+  async function readCardResourceVersions(chat) {
+    if (!chat.cardPath || chat.mode === 'card') return null
+    const [binding, scriptPath, scriptsVersion] = await Promise.all([
+      fileResources.worldBookBindingForCard(chat.cardPath),
+      chat.mode === 'script' ? fileResources.scriptForCard(chat.cardPath) : null,
+      cardScripts.version(chat.cardPath)
+    ])
+    const paths = new Set([chat.cardPath])
+    for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
+    if (scriptPath) paths.add(scriptPath)
+    const versions = await Promise.all([...paths].map(file => profileData.version('resources/' + file)))
+    return [binding, [...paths], versions, scriptsVersion, stageRuntime.status()]
+  }
   const sessionProjection = createSessionViewProjection({
     readChanges: (id, revision) => chatPersistence.readChangedSlice(id, revision, 'settlement'),
     scheduleTemplateSync,
     warmCandidates: sessionId => candidateWorldbookPreparation?.warm(sessionId),
     requestPerformance,
     readTavernSettings,
+    readSettingsVersion: () => profileData.version(TAVERN_SETTINGS_PATH),
     readScript,
     scriptContinuity,
     groupOfMode,
@@ -2302,6 +2316,7 @@ export async function apply(ctx) {
     readCardExtensions: (cardPath, chat, settings) => readCardExtensions(cardPath, chat, false, settings),
     readLiveCardStage, stageReadScope, readStageChat,
     readCardStageMode: cardPath => stageRuntime.assets.cardStageMode(cardPath),
+    readCardResourceVersions,
     tavernRemoteAssets,
     liveCardUpdate,
     activityOf: chat => backgroundTasks.activity(chat),
@@ -2316,6 +2331,7 @@ export async function apply(ctx) {
     projectCharacterDesignTask: chat => manualCharacterDesign.project(chat),
 
     readPromptTemplateGlobalVariables,
+    readGlobalVariablesVersion: promptTemplateGlobalVariables.version,
     sessionStore,
     readChatCard,
     workspaceViewOf,
@@ -2386,23 +2402,8 @@ export async function apply(ctx) {
     readStoryVersion: async (sessionId, chatId) => (await readSessionMap())[str(sessionId)] === chatId ? chatPersistence.version(chatId) : '',
     resourceVersion: async chat => {
       if (!chat.cardPath || chat.mode === 'card') return ''
-      const binding = await fileResources.worldBookBindingForCard(chat.cardPath)
-      const paths = new Set([chat.cardPath])
-      for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
-      const versions = await Promise.all([...paths].map(path => profileData.version('resources/' + path)))
       // machine-local mute changes invalidate the cached helper-script view.
-      // The stage runtime state too: view.stage (readCardStageMode) has no stage until the runtime is there.
-      return JSON.stringify([binding, versions, await profileData.version('tavern-extension-settings.json'), await profileData.version('prompt-template-variables.json'), await cardScripts.version(chat.cardPath), stageRuntime.status()])
-    },
-    storyResourceVersion: async chat => {
-      if (!chat.cardPath || chat.mode === 'card') return ''
-      const binding = await fileResources.worldBookBindingForCard(chat.cardPath)
-      const paths = new Set([chat.cardPath])
-      for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
-      const versions = await Promise.all([...paths].map(path => profileData.version('resources/' + path)))
-      const extensionSettings = await tavernExtensionSettings.read().catch(() => ({}))
-      const globalRegexDigest = createHash('sha256').update(JSON.stringify(extensionSettings?.regex ?? null)).digest('hex')
-      return JSON.stringify([binding, versions, globalRegexDigest, await cardScripts.version(chat.cardPath), stageRuntime.status()])
+      return JSON.stringify(await Promise.all([readCardResourceVersions(chat), tavernExtensionSettings.version(), promptTemplateGlobalVariables.version()]))
     },
     readChanges: chatPersistence.readChangedIndices,
     readViewDelta: chatPersistence.readViewDelta,
