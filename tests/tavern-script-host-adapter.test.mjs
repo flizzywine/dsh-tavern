@@ -211,6 +211,26 @@ for (const concurrent of [false, true, 'conflict']) test(`prompt updates use exa
   assert.equal(result.context.messages[0].message,'旧正文')
 })
 
+test('an unchanged prompt leaves the active MVU context and receipt sequence intact', async () => {
+  const value = chat(), prompt = { id: 'guide', content: '原提示', position: 'in_chat', role: 'system', depth: 0 }
+  value.tavernScriptPrompts = [{ ...prompt, should_scan: true, once: false }]
+  const { adapter } = harness(value, { scriptDispatch: { async dispatch(sessionId, _name, _args, context, work) {
+    assert.match(context.messages[0].message, /<UpdateVariable\/>/)
+    assert.equal(context.transaction.eventId, work.eventId)
+    const same = await adapter.updatePrompts(sessionId, { kind: 'inject', prompts: [prompt] }, 2, work.eventId)
+    assert.deepEqual(same, { updated: false, transactional: true })
+    const next = await adapter.updatePrompts(sessionId, { kind: 'inject', prompts: [{ ...prompt, content: '新提示' }] }, 2, work.eventId)
+    assert.equal(next.contextDelta.baseSequence, 0)
+    assert.equal(next.contextDelta.eventId, work.eventId)
+    assert.equal(next.contextDelta.scriptPrompts[0].content, '新提示')
+    return { handled: true }
+  } } })
+  const result = await adapter.settleMvuUpdate({ operationId: 'prompt', sessionId: 'session-1', messageId: 0,
+    swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>', compactContext: true })
+  assert.equal(result.updated, true)
+  assert.equal(value.tavernScriptPrompts[0].content, '原提示')
+})
+
 for(const type of ['global','character'])test(type+' variable writes validate Chat headers without reading message history',async()=>{
  const header=chat();delete header.messages
  let saved

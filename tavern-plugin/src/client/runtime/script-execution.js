@@ -64,6 +64,8 @@
 			let chatAnnouncements = 0;
 			let chatAnnounceTimer = null;
 			let chatAnnounceWaiting = false;
+			let chatAnnouncement = null;
+			let chatAnnounced = false;
 			const chatAnnounceDelays = [1500, 4000, 9000];
 			function cancelChatAnnouncements() {
 				chatAnnounceWaiting = false;
@@ -72,20 +74,28 @@
 				chatAnnounceTimer = null;
 			}
 			function announceChat(force) {
-				if (!active || !runtime || !input) return Promise.resolve();
+				if (!active || !runtime || !input || delivery) return Promise.resolve();
+				if (chatAnnouncement) return chatAnnouncement;
 				const chatId = String(input.view && input.view.chatId || "");
 				if (!chatId) return Promise.resolve();
 				const context = input.view && input.view.tavernHelper;
-				if (force !== true) return Promise.resolve(runtime.emit("CHAT_CHANGED", [chatId], context));
+				const currentLease = lease, currentRuntime = runtime;
 				// MVU remembers the chat it last initialized and ignores a repeated
 				// CHAT_CHANGED for that same chat, so announcing the current chat again
 				// cannot re-run its chat-level initialization. Announce an identity it
 				// cannot adopt first — that only resets the chat it tracks, because its
 				// own current-chat guard rejects the transition — and then the real chat,
 				// which performs a genuine re-initialization and applies [InitVar].
-				return Promise.resolve()
-					.then(function () { return runtime.emit("CHAT_CHANGED", [""], context); })
-					.then(function () { return runtime.emit("CHAT_CHANGED", [chatId], context); });
+				chatAnnouncement = Promise.resolve().then(async function () {
+					if (lease !== currentLease) return;
+					if (force === true) await currentRuntime.emit("CHAT_CHANGED", [""], context);
+					if (lease === currentLease) await currentRuntime.emit("CHAT_CHANGED", [chatId], context);
+				}).finally(function () {
+					if (lease !== currentLease) return;
+					chatAnnouncement = null;
+					chatAnnounced = true;
+				});
+				return chatAnnouncement;
 			}
 			function scheduleChatAnnouncement() {
 				if (chatAnnounceTimer !== null || !chatAnnounceWaiting) return;
@@ -106,6 +116,8 @@
 			}
 			function dispose() {
 				cancelChatAnnouncements();
+				chatAnnouncement = null;
+				chatAnnounced = false;
 				const previousLease = lease;
 				lease = null;
                 delivery = null;
@@ -150,6 +162,7 @@
 					onReady: function (readySessionId) {
 						if (lease !== currentLease || !active || !readySessionId || !input || input.sessionId !== readySessionId) return;
 						if (!String(input.view && input.view.chatId || "")) { void claimWork(); return; }
+						chatAnnounced = false;
 						return announceChat().finally(function () { void claimWork(); });
 					}
 				});
@@ -249,7 +262,11 @@
 					if (lease !== currentLease) return;
 					// A ready viewer cannot advertise settlement readiness: promotion
 					// rebuilds the sandbox with the official core before accepting work.
-					const inspection = ownershipKnown && !active ? { scripts: [] } : currentRuntime.inspect();
+					let inspection = ownershipKnown && !active ? { scripts: [] } : currentRuntime.inspect();
+					// InitVar and other CHAT_CHANGED writes must finish before the host reserves an MVU draft.
+					if (input.view?.tavernMvuRuntime?.owner === "official" && input.view.chatId && (!chatAnnounced || chatAnnouncement)) {
+						inspection = { ...inspection, mvuDataReady: false };
+					}
 					const result = await invokeWithDeadline("claimTavernScriptWork", currentLease, inspection, {contextBaseline: inspection.contextBaseline || {workContextVersion:1,full:true}, foreground: foreground, pageActive: pageActive()});
 					if (lease !== currentLease) {
 						if (result && result.active) releaseLease(currentLease);
@@ -260,6 +277,7 @@
 					if (!ownershipKnown || Boolean(result && result.active) !== active) {
 						ownershipKnown = true;
 						active = Boolean(result && result.active);
+						chatAnnounced = false;
 						currentRuntime.sync(input.sessionId, runtimeView(input.view));
 					}
 						currentEvent = result && result.event;

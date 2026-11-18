@@ -173,10 +173,10 @@ export function registerTavernHttpRoutes({
       })
     }
   }
-  // In-process callers (the server script runtime) share these exact routes.
-  exposeHandler?.(handleTavernRequest)
+  // The script executor validates the method and pins the session before reaching this entry.
+  exposeHandler?.((req, res) => handleTavernRequest(req, res, false))
 
-  async function handleTavernRequest(req, res, external = false) {
+  async function handleTavernRequest(req, res, external = true) {
       {
         let pathname
         try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname) }
@@ -191,14 +191,16 @@ export function registerTavernHttpRoutes({
         const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
         const readsCapability = req.method === 'GET' && ['/api/dsh-tavern/session-resource', '/api/dsh-tavern/helper-history'].includes(pathname)
         const cookieFree = req.method === 'GET' && (readsCapability || readsCachedAsset || readsStaticAsset || readsOfficialMvu || readsFullTemplate || readsRuntimeAsset || readsClientAsset || readsPluginAsset)
-        if (cookieFree) {
-          if (!isTrustedHostRequest(req, ctx.get('connection')?.trustedHosts)) {
-            res.writeHead(403); res.end('forbidden'); return
+        if (external) {
+          if (cookieFree) {
+            if (!isTrustedHostRequest(req, ctx.get('connection')?.trustedHosts)) {
+              res.writeHead(403); res.end('forbidden'); return
+            }
+          } else {
+            const connection = ctx.get('connection')
+            const rejection = connection ? connection.requestRejection(req) : 503
+            if (rejection) { res.writeHead(rejection); res.end('forbidden'); return }
           }
-        } else {
-          const connection = ctx.get('connection')
-          const rejection = connection ? connection.requestRejection(req) : 503
-          if (rejection) { res.writeHead(rejection); res.end('forbidden'); return }
         }
         const origin = req.headers.origin
         if (!isSameOriginRequest({ host: req.headers.host, origin }) && !(cookieFree && origin === 'null')) {

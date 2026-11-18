@@ -168,7 +168,12 @@ export function createTavernScriptHostAdapter(options = {}) {
       const chat = await mutationChat(sessionId, eventId)
       await assertScriptEnabled(chat)
       if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
-      if (!mutateScriptPrompts(chat, operation)) return { updated: false, context: await fullContext(chat) }
+      if (!mutateScriptPrompts(chat, operation)) {
+        // An unchanged prompt needs no receipt. Replacing the executing context
+        // here would discard the draft's event ID and its injected MVU command.
+        if (settlement.has(str(sessionId))) return { updated: false, transactional: true }
+        return { updated: false, context: await fullContext(chat) }
+      }
       const transactional = await transactionResult(sessionId, { type: 'prompts' }, false, eventId)
       if (transactional !== null) return transactional
       let saved

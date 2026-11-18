@@ -130,6 +130,26 @@ test('script owner acquires one lease, reuses sandbox on variable changes, initi
   assert.equal(h.calls.filter(x => x.method === 'releaseTavernHelperRuntime').length, 1)
 })
 
+test('the official MVU owner waits for the chat announcement before accepting settlement work', async t => {
+  const h = execution(), ready = deferred()
+  t.after(() => h.module.dispose())
+  h.module.sync('A', mvuView())
+  await h.settle()
+  const runtime = h.runtimes[0]
+  runtime.emit = () => ready.promise
+  const announcement = runtime.options.onReady('A')
+  runtime.options.onMvuLoadState({ phase: 'ready' })
+  h.wake()
+  await h.settle()
+  const claims = () => h.calls.filter(row => row.method === 'claimTavernScriptWork')
+  assert.ok(claims().length > 1)
+  assert.ok(claims().every(row => row.args.ready === false))
+  ready.resolve([])
+  await announcement
+  await h.settle()
+  assert.equal(claims().at(-1).args.ready, true)
+})
+
 test('初始变量尚未保存时重发 CHAT_CHANGED，让卡脚本重跑聊天级初始化且重发有界', async () => {
   const h = execution(), input = view()
   h.module.sync('A', input)
@@ -233,6 +253,26 @@ test('helper sandbox accepts nested worldbooks and legacy aliases without overwr
     assert.deepEqual(delivered.context.worldbook, nested === undefined ? input.tavernHelperWorldbook : nested)
     h.runtime.dispose()
   }
+})
+
+test('finishing a different event does not replace an active settlement draft with a refreshed save', async t => {
+  const h = sandbox()
+  t.after(() => h.runtime.dispose())
+  h.runtime.sync('A', view())
+  const frame = h.ready()
+  const initialization = h.runtime.emit('UPDATE', [], null, [], 'initialization')
+  const draft = { ...context(), chatId: 'tavern-chat', transaction: { eventId: 'settlement', sequence: 0 } }
+  const settlement = h.runtime.emit('UPDATE', [], draft, [], 'settlement')
+  const delivered = () => frame.contentWindow.messages.filter(row => row.type === 'dsh-tavern-helper-context').length
+  const initial = delivered()
+  h.runtime.sync('A', view(2))
+  assert.equal(delivered(), initial)
+  h.message(frame, 'dsh-tavern-helper-event-complete', { eventId: 'initialization', args: [] })
+  await initialization
+  assert.equal(delivered(), initial)
+  h.message(frame, 'dsh-tavern-helper-event-complete', { eventId: 'settlement', args: [] })
+  await settlement
+  assert.equal(delivered(), initial + 1)
 })
 
 test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝重复、伪造和旧窗口重试', () => {

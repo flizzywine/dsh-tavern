@@ -34135,7 +34135,7 @@ function bindTavernFontZoom(node, win) {
 				+ 'try{'
 				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'
-                + 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n'
+                + (input && input.trustedCardMode ? 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n' : '')
                 + 'const installNodeCompatibility=' + installTavernNodeCompatibility.toString() + ';installNodeCompatibility(window);\n'
 				+ 'for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{'
 				+ 'if(script.system==="official-mvu"&&script.assetUrl){const loader=createMvuLoader({fetch:window.fetch.bind(window),evaluate:source=>loadModule(source,script.id,false,installComposer),onDiagnostic(diagnostic){parent.postMessage({type:"dsh-tavern-mvu-load-diagnostic",token,diagnostic},"*");},onState(state){parent.postMessage({type:"dsh-tavern-mvu-load-state",token,state},"*");}});'
@@ -34971,7 +34971,7 @@ function bindTavernFontZoom(node, win) {
 						closeEventId(eventId);
 						hostWindow.clearTimeout(pending.timer);
                         post(record, { type: "dsh-tavern-helper-event-ack", eventId: eventId });
-                        if (record.deferredContext) {
+                        if (record.deferredContext && !pendingEvents.has(record.context.transaction?.eventId)) {
                             const committed = record.deferredContext;
                             const deferredEvents = record.deferredEvents || [];
                             record.deferredContext = null;
@@ -35329,6 +35329,8 @@ function bindTavernFontZoom(node, win) {
 			let chatAnnouncements = 0;
 			let chatAnnounceTimer = null;
 			let chatAnnounceWaiting = false;
+			let chatAnnouncement = null;
+			let chatAnnounced = false;
 			const chatAnnounceDelays = [1500, 4000, 9000];
 			function cancelChatAnnouncements() {
 				chatAnnounceWaiting = false;
@@ -35337,20 +35339,28 @@ function bindTavernFontZoom(node, win) {
 				chatAnnounceTimer = null;
 			}
 			function announceChat(force) {
-				if (!active || !runtime || !input) return Promise.resolve();
+				if (!active || !runtime || !input || delivery) return Promise.resolve();
+				if (chatAnnouncement) return chatAnnouncement;
 				const chatId = String(input.view && input.view.chatId || "");
 				if (!chatId) return Promise.resolve();
 				const context = input.view && input.view.tavernHelper;
-				if (force !== true) return Promise.resolve(runtime.emit("CHAT_CHANGED", [chatId], context));
+				const currentLease = lease, currentRuntime = runtime;
 				// MVU remembers the chat it last initialized and ignores a repeated
 				// CHAT_CHANGED for that same chat, so announcing the current chat again
 				// cannot re-run its chat-level initialization. Announce an identity it
 				// cannot adopt first — that only resets the chat it tracks, because its
 				// own current-chat guard rejects the transition — and then the real chat,
 				// which performs a genuine re-initialization and applies [InitVar].
-				return Promise.resolve()
-					.then(function () { return runtime.emit("CHAT_CHANGED", [""], context); })
-					.then(function () { return runtime.emit("CHAT_CHANGED", [chatId], context); });
+				chatAnnouncement = Promise.resolve().then(async function () {
+					if (lease !== currentLease) return;
+					if (force === true) await currentRuntime.emit("CHAT_CHANGED", [""], context);
+					if (lease === currentLease) await currentRuntime.emit("CHAT_CHANGED", [chatId], context);
+				}).finally(function () {
+					if (lease !== currentLease) return;
+					chatAnnouncement = null;
+					chatAnnounced = true;
+				});
+				return chatAnnouncement;
 			}
 			function scheduleChatAnnouncement() {
 				if (chatAnnounceTimer !== null || !chatAnnounceWaiting) return;
@@ -35371,6 +35381,8 @@ function bindTavernFontZoom(node, win) {
 			}
 			function dispose() {
 				cancelChatAnnouncements();
+				chatAnnouncement = null;
+				chatAnnounced = false;
 				const previousLease = lease;
 				lease = null;
                 delivery = null;
@@ -35415,6 +35427,7 @@ function bindTavernFontZoom(node, win) {
 					onReady: function (readySessionId) {
 						if (lease !== currentLease || !active || !readySessionId || !input || input.sessionId !== readySessionId) return;
 						if (!String(input.view && input.view.chatId || "")) { void claimWork(); return; }
+						chatAnnounced = false;
 						return announceChat().finally(function () { void claimWork(); });
 					}
 				});
@@ -35514,7 +35527,11 @@ function bindTavernFontZoom(node, win) {
 					if (lease !== currentLease) return;
 					// A ready viewer cannot advertise settlement readiness: promotion
 					// rebuilds the sandbox with the official core before accepting work.
-					const inspection = ownershipKnown && !active ? { scripts: [] } : currentRuntime.inspect();
+					let inspection = ownershipKnown && !active ? { scripts: [] } : currentRuntime.inspect();
+					// InitVar and other CHAT_CHANGED writes must finish before the host reserves an MVU draft.
+					if (input.view?.tavernMvuRuntime?.owner === "official" && input.view.chatId && (!chatAnnounced || chatAnnouncement)) {
+						inspection = { ...inspection, mvuDataReady: false };
+					}
 					const result = await invokeWithDeadline("claimTavernScriptWork", currentLease, inspection, {contextBaseline: inspection.contextBaseline || {workContextVersion:1,full:true}, foreground: foreground, pageActive: pageActive()});
 					if (lease !== currentLease) {
 						if (result && result.active) releaseLease(currentLease);
@@ -35525,6 +35542,7 @@ function bindTavernFontZoom(node, win) {
 					if (!ownershipKnown || Boolean(result && result.active) !== active) {
 						ownershipKnown = true;
 						active = Boolean(result && result.active);
+						chatAnnounced = false;
 						currentRuntime.sync(input.sessionId, runtimeView(input.view));
 					}
 						currentEvent = result && result.event;

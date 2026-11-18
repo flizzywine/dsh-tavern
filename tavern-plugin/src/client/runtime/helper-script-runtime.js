@@ -806,7 +806,7 @@
 						closeEventId(eventId);
 						hostWindow.clearTimeout(pending.timer);
                         post(record, { type: "dsh-tavern-helper-event-ack", eventId: eventId });
-                        if (record.deferredContext) {
+                        if (record.deferredContext && !pendingEvents.has(record.context.transaction?.eventId)) {
                             const committed = record.deferredContext;
                             const deferredEvents = record.deferredEvents || [];
                             record.deferredContext = null;

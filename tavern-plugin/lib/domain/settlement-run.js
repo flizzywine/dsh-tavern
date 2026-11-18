@@ -78,7 +78,6 @@ export function createSettlementRun(deps) {
         }
         if (mvuTarget) deps.settlementParticipants?.settled(snapshot, completed.chat, mvuTarget, mvuResult)
         console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
-        console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
         return
       } catch (err) {
         if (signal?.aborted) return
