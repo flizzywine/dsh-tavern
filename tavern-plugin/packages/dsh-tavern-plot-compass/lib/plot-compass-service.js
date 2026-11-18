@@ -56,7 +56,6 @@ export function defaultGameRecord(defaults = {}) {
   return {
     version: 1,
     enabled: Boolean(defaults.enabled),
-    modelSelection: normalizePlotCompassModel(defaults.modelSelection) || 'background',
     compass: baseCompass,
     task: { status: 'idle', scope: 'all', error: '', updatedAt: 0 }
   }
@@ -69,7 +68,6 @@ export function normalizeGameRecord(raw, defaults = {}) {
   return {
     version: 1,
     enabled: typeof src.enabled === 'boolean' ? src.enabled : Boolean(defaults.enabled),
-    modelSelection: normalizePlotCompassModel(src.modelSelection) || normalizePlotCompassModel(defaults.modelSelection) || 'background',
     compass: readPlotCompass(src.compass),
     task: {
       status: str(taskRaw.status) || 'idle',
@@ -134,6 +132,7 @@ export function createPlotCompassService({
 }) {
   const jobs = new Map()
   const progressJobs = new Set()
+  let fallbackModelSelection = 'background'
 
   function projectTask(record, gameId) {
     const raw = record?.task && typeof record.task === 'object'
@@ -566,16 +565,16 @@ export function createPlotCompassService({
   }
 
   async function setModel({ gameId, model } = {}) {
-    const id = str(gameId)
-    if (!id) throw new Error('请先打开游玩会话')
     const normalized = normalizePlotCompassModel(model)
     if (!normalized) throw new Error('剧情罗盘模型配置无效')
-    const saved = await store.updateGame(id, current => {
-      current.modelSelection = normalized
-      return current
-    })
-    onStatus(id)
-    return { plotCompassModel: saved.modelSelection }
+    const savedModel = typeof store?.saveModel === 'function'
+      ? (normalizePlotCompassModel(await store.saveModel(normalized, gameId)) || normalized)
+      : (fallbackModelSelection = normalized)
+    if (typeof store?.saveModel !== 'function') {
+      const id = str(gameId)
+      if (id) onStatus(id)
+    }
+    return { modelSelection: savedModel, plotCompassModel: savedModel }
   }
 
   async function pin({ gameId, horizon, routeId, exact = false } = {}) {
@@ -780,10 +779,13 @@ export function createPlotCompassService({
     return await syncTurnProgress({ gameId: id, turn: latestTurn })
   }
 
-  function viewState(record, gameId, latestTurn = 0) {
+  function viewState(record, gameId, latestTurn = 0, modelSelection) {
     return {
       enabled: isPlotCompassEnabled(record),
-      modelSelection: normalizePlotCompassModel(record?.modelSelection) || 'background',
+      modelSelection: normalizePlotCompassModel(modelSelection)
+        || normalizePlotCompassModel(record?.modelSelection)
+        || normalizePlotCompassModel(fallbackModelSelection)
+        || 'background',
       plotCompass: readPlotCompass(record?.compass),
       plotCompassTask: projectTask(record, gameId),
       latestAssistantTurn: Math.max(0, Number(latestTurn) || 0)

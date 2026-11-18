@@ -393,4 +393,154 @@ test('候选联动仅透传戏剧意图而不硬塞备选具体步骤，强制�
   assert.match(PLOT_COMPASS_PROGRESS_SYSTEM, /DRAMATIC EQUIVALENCE/)
 })
 
+test('推演模型设置全局一致：跨对话共享、不写入单局存档、广播同步与旧存档平滑迁移', async () => {
+  const storyEvents = createStoryEvents()
+  const gameDataMap = new Map()
+  const pluginDataMap = new Map()
+  const publishedStates = []
+  const runTaskCalls = []
 
+  const games = {
+    g1: { chatId: 'c1', sessionId: 'g1', fg: { provider: 'fg-1', model: 'fg-model-1' }, bg: { provider: 'bg-1', model: 'bg-model-1' } },
+    g2: { chatId: 'c2', sessionId: 'g2', fg: { provider: 'fg-2', model: 'fg-model-2' }, bg: { provider: 'bg-2', model: 'bg-model-2' } },
+    gLegacyDefault: { chatId: 'c-def', sessionId: 'gLegacyDefault', fg: { provider: 'fg-d', model: 'm' }, bg: { provider: 'bg-d', model: 'm' } },
+    gLegacyCustom: { chatId: 'c-cus', sessionId: 'gLegacyCustom', fg: { provider: 'fg-c', model: 'm' }, bg: { provider: 'bg-c', model: 'm' } },
+    gLegacyStale: { chatId: 'c-stale', sessionId: 'gLegacyStale', fg: { provider: 'fg-s', model: 'm' }, bg: { provider: 'bg-s', model: 'm' } }
+  }
+
+  // 预置旧版按对话保存的残留数据
+  gameDataMap.set('c-def:dsh-tavern-plot-compass', {
+    version: 1,
+    enabled: true,
+    modelSelection: 'background',
+    compass: { version: 1 }
+  })
+  gameDataMap.set('c-cus:dsh-tavern-plot-compass', {
+    version: 1,
+    enabled: true,
+    modelSelection: { provider: 'migrated-prov', model: 'migrated-model', reasoningEffort: 'high' },
+    compass: { version: 1 }
+  })
+  gameDataMap.set('c-stale:dsh-tavern-plot-compass', {
+    version: 1,
+    enabled: true,
+    modelSelection: { provider: 'stale-prov', model: 'stale-model' },
+    compass: { version: 1 }
+  })
+
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    workflow: { register() { return () => {} } },
+    resolveGame: async gameId => games[gameId] || null,
+    readLatestSettledTurn: async sessionId => ({ chatId: games[sessionId]?.chatId, sessionId, turn: 2, key: '2:0', text: '夜色沉沉。' }),
+    readPendingTurn: async sessionId => ({ chatId: games[sessionId]?.chatId, sessionId, turn: 2, key: '2:0', text: '夜色沉沉。' }),
+    currentKey: async () => '2:0',
+    readTurn: async sessionId => ({ chatId: games[sessionId]?.chatId, sessionId, key: '2:0', turn: 2, rawText: '夜色沉沉。', text: '夜色沉沉。' }),
+    readHistory: async () => [{ turn: 2, input: '环顾四周', rawText: '夜色沉沉。', text: '夜色沉沉。' }],
+    readCard: async () => ({ name: '林月', description: '旅人' }),
+    readPlayerName: async () => '你',
+    backgroundModel: async sessionId => games[sessionId]?.bg || null,
+    foregroundModel: async sessionId => games[sessionId]?.fg || null,
+    data: {
+      readGame: async ({ chatId, owner }) => gameDataMap.get(`${chatId}:${owner}`) || null,
+      saveGame: async ({ chatId, owner, data }) => { gameDataMap.set(`${chatId}:${owner}`, structuredClone(data)) },
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      writeSettings: async () => {}
+    },
+    pluginData: {
+      read: async owner => pluginDataMap.get(owner) ?? null,
+      save: async (owner, data) => { pluginDataMap.set(owner, structuredClone(data)) }
+    },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: (gameId, plugin, name) => publishedStates.push({ gameId, plugin, name }),
+    runTask: async input => {
+      runTaskCalls.push(input)
+      await input.call('plot_compass_submit', {
+        targetScope: 'all',
+        playArchetypes: ['悬疑调查'],
+        situationDigest: '夜色潜行。',
+        shortTerm: [
+          { id: 'st-1', tag: '查探', title: '查探窗影', summary: '靠近窗边查看动静。', beats: ['屏息靠近'] },
+          { id: 'st-2', tag: '退避', title: '退入暗巷', summary: '先隐入暗巷观察。', beats: ['借阴影掩护'] }
+        ],
+        midTerm: [
+          { id: 'mt-1', tag: '追查', title: '顺藤摸瓜', summary: '查清夜行者来历。', milestones: ['锁定踪迹'] },
+          { id: 'mt-2', tag: '设局', title: '引蛇出洞', summary: '放出假消息设伏。', milestones: ['散布风声'] }
+        ],
+        longTerm: [
+          { id: 'lt-1', tag: '破局', title: '揭开真相', vision: '水落石出。' },
+          { id: 'lt-2', tag: '远遁', title: '全身而退', vision: '离开是非之地。' }
+        ]
+      })
+      return { text: '', traceSessionId: 'trace-global-model' }
+    }
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx)
+
+  // 1. 先打开仅带默认 background 的旧存档，不应锁死迁移；再打开带自定义独立模型的旧存档，应自动提升为全局模型
+  const defBefore = await pluginApi.callHandler('plot-compass:state', { gameId: 'gLegacyDefault' })
+  assert.equal(defBefore.modelSelection, 'background')
+  assert.equal(pluginDataMap.has('dsh-tavern-plot-compass'), false)
+
+  const cusState = await pluginApi.callHandler('plot-compass:state', { gameId: 'gLegacyCustom' })
+  assert.deepEqual(cusState.modelSelection, { provider: 'migrated-prov', model: 'migrated-model', reasoningEffort: 'high' })
+  assert.deepEqual(pluginDataMap.get('dsh-tavern-plot-compass')?.modelSelection, {
+    provider: 'migrated-prov',
+    model: 'migrated-model',
+    reasoningEffort: 'high'
+  })
+
+  // 已打开过的 gLegacyDefault 以及全新对话 g1 均立即共享迁移后的全局独立模型
+  const defAfter = await pluginApi.callHandler('plot-compass:state', { gameId: 'gLegacyDefault' })
+  assert.deepEqual(defAfter.modelSelection, { provider: 'migrated-prov', model: 'migrated-model', reasoningEffort: 'high' })
+  const g1Initial = await pluginApi.callHandler('plot-compass:state', { gameId: 'g1' })
+  assert.deepEqual(g1Initial.modelSelection, { provider: 'migrated-prov', model: 'migrated-model', reasoningEffort: 'high' })
+
+  // 2. 在 g1 修改推演模型为新的独立模型，应只写全局 pluginData，不写单局 gameData，且 g2 同步生效
+  const setRes = await pluginApi.callHandler('plot-compass:set-model', {
+    gameId: 'g1',
+    model: { provider: 'ind-prov', model: 'ind-model', reasoningEffort: 'low' }
+  })
+  assert.deepEqual(setRes.modelSelection, { provider: 'ind-prov', model: 'ind-model', reasoningEffort: 'low' })
+  assert.equal(gameDataMap.has('c1:dsh-tavern-plot-compass'), false, '修改全局模型不应产生单局存档')
+
+  // 开启 g1 与 g2：验证单局保存的记录里不再携带 modelSelection 字段
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g2', enabled: true })
+  assert.equal('modelSelection' in gameDataMap.get('c1:dsh-tavern-plot-compass'), false)
+  assert.equal('modelSelection' in gameDataMap.get('c2:dsh-tavern-plot-compass'), false)
+
+  const g2State = await pluginApi.callHandler('plot-compass:state', { gameId: 'g2' })
+  assert.deepEqual(g2State.modelSelection, { provider: 'ind-prov', model: 'ind-model', reasoningEffort: 'low' })
+
+  await pluginApi.callHandler('plot-compass:generate', { gameId: 'g2', scope: 'all', wait: true })
+  assert.equal(runTaskCalls.length, 1)
+  assert.deepEqual(runTaskCalls[0].selection, { provider: 'ind-prov', model: 'ind-model', reasoningEffort: 'low' })
+
+  // 3. 在 g2 切换为 foreground，g1 会收到状态广播，并在推演时自动使用 g1 自己的前台模型
+  publishedStates.length = 0
+  await pluginApi.callHandler('plot-compass:set-model', { gameId: 'g2', model: 'foreground' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const broadcastedGames = new Set(publishedStates.filter(s => s.name === 'compass').map(s => s.gameId))
+  assert.ok(broadcastedGames.has('g1') && broadcastedGames.has('g2'), '所有已打开会话都应收到最新模型状态广播')
+
+  const g1AfterFg = await pluginApi.callHandler('plot-compass:state', { gameId: 'g1' })
+  assert.equal(g1AfterFg.modelSelection, 'foreground')
+  await pluginApi.callHandler('plot-compass:generate', { gameId: 'g1', scope: 'all', wait: true })
+  assert.equal(runTaskCalls.length, 2)
+  assert.deepEqual(runTaskCalls[1].selection, { provider: 'fg-1', model: 'fg-model-1' })
+
+  // 4. 切换回全局 background 后，打开带有陈旧独立模型的旧存档 gLegacyStale，绝不能被旧存档覆盖
+  await pluginApi.callHandler('plot-compass:set-model', { gameId: 'g1', model: 'background' })
+  const staleState = await pluginApi.callHandler('plot-compass:state', { gameId: 'gLegacyStale' })
+  assert.equal(staleState.modelSelection, 'background')
+  await pluginApi.callHandler('plot-compass:generate', { gameId: 'gLegacyStale', scope: 'all', wait: true })
+  assert.equal(runTaskCalls.length, 3)
+  assert.deepEqual(runTaskCalls[2].selection, { provider: 'bg-s', model: 'm' })
+
+  mounted.dispose()
+})

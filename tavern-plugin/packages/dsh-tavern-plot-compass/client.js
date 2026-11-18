@@ -973,9 +973,9 @@ const PC_PACE_OPTIONS = Object.freeze([
 ])
 
 const PC_MODEL_OPTIONS = Object.freeze([
-  { key: 'background', label: '跟随后台', title: '使用本局或全局后台模型' },
-  { key: 'foreground', label: '跟随前台', title: '使用当前对话前台模型' },
-  { key: 'independent', label: '独立', title: '单独为剧情罗盘指定独立模型' }
+  { key: 'background', label: '跟随后台', title: '全局使用当前对话或全局后台模型（所有对话共用）' },
+  { key: 'foreground', label: '跟随前台', title: '全局使用当前对话前台模型（所有对话共用）' },
+  { key: 'independent', label: '独立', title: '为剧情罗盘指定全局独立模型（所有对话共用）' }
 ])
 
 const PC_AUTO_UPDATE_PRESETS = Object.freeze([
@@ -1371,7 +1371,7 @@ function PlotCompassPanel({ ui, gameId }) {
       if (activeEffect) setModelReasoning({ key: compassModelKey, value: null, error: String(err && err.message || err) })
     })
     return () => { activeEffect = false }
-  }, [ui, compassEnabled, compassModelKey, sessionId])
+  }, [ui, compassEnabled, compassModelKey])
 
   useEffect(() => {
     if (chatHistory.length > 0 && task.scope === 'chat') {
@@ -1384,14 +1384,15 @@ function PlotCompassPanel({ ui, gameId }) {
   }, [customDirective, sessionId])
 
   async function saveCompassModel(nextModel, message) {
-    if (!sessionId || busyAction) return
+    if (busyAction) return
     setBusyAction('model')
     setLocalError('')
     setLocalNotice('')
     try {
       const res = await pcCall(ui, 'plot-compass:set-model', { gameId: sessionId, model: nextModel })
-      if (res.modelSelection) {
-        setState(prev => ({ ...prev, modelSelection: res.modelSelection }))
+      const savedModel = res.modelSelection || res.plotCompassModel
+      if (savedModel) {
+        setState(prev => ({ ...prev, modelSelection: savedModel }))
       }
       await refresh()
       setPickingIndependentModel(false)
@@ -2087,7 +2088,7 @@ function PlotCompassPanel({ ui, gameId }) {
                       }
                       setPickingIndependentModel(false)
                       if (compassModelMode !== opt.key) {
-                        saveCompassModel(opt.key, '剧情罗盘模型已切换为「' + opt.label + '」。')
+                        saveCompassModel(opt.key, '剧情罗盘推演模型已切换为「' + opt.label + '」（全局生效）。')
                       }
                     }
                   }, opt.label)
@@ -2109,7 +2110,7 @@ function PlotCompassPanel({ ui, gameId }) {
                     onChange: e => {
                       const val = e.target.value
                       if (!val) return
-                      saveCompassModel(JSON.parse(val), '已切换剧情罗盘独立模型。')
+                      saveCompassModel(JSON.parse(val), '已切换剧情罗盘独立模型（全局生效）。')
                     }
                   },
                     !compassModelIsObject ? h('option', { value: '' }, catalogLoading ? '正在加载模型…' : '选择独立模型') : null,
@@ -2130,7 +2131,7 @@ function PlotCompassPanel({ ui, gameId }) {
                     onChange: e => {
                       const next = { provider: compassModel.provider, model: compassModel.model }
                       if (e.target.value) next.reasoningEffort = e.target.value
-                      saveCompassModel(next, '已更新剧情罗盘推理强度。')
+                      saveCompassModel(next, '已更新剧情罗盘推理强度（全局生效）。')
                     }
                   },
                     h('option', { value: '' }, '模型默认'),
