@@ -703,6 +703,15 @@ const PC_CSS_TEXT = `
   color: #fff;
   font-weight: 600;
 }
+.dsh-tavern-compass-pace-btn.is-strict.is-active {
+  background: #b84a39;
+  color: #fff;
+}
+.dsh-tavern-compass-pill.is-warn {
+  color: #b84a39;
+  background: rgba(184, 74, 57, 0.14);
+  font-weight: 600;
+}
 .dsh-tavern-compass-interval-row {
   display: flex;
   flex-wrap: wrap;

@@ -148,15 +148,37 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
   await pluginApi.callHandler('plot-compass:pin', { gameId: 'g1', horizon: 'shortTerm', routeId: 'st-1' })
   await pluginApi.callHandler('plot-compass:pin', { gameId: 'g1', horizon: 'longTerm', routeId: 'lt-1' })
 
-  // 验证 turnSection / candidateSection / compactionSection / worldbookScanText
+  // 验证默认强牵引（guided）走 position: 'last'，以及 settlementSection / candidateSection / compactionSection / worldbookScanText
   const turnCtx = await pluginApi.turnContext({ gameId: 'g1', turn: 3, target: 'story' })
   assert.equal(turnCtx.length, 1)
+  assert.equal(turnCtx[0].position, 'last')
+  assert.match(turnCtx[0].text, /强牵引导演指令/)
   assert.match(turnCtx[0].text, /挪开神龛查探密道/)
+  assert.match(turnCtx[0].text, /routeTag="探神龛"/)
   assert.match(turnCtx[0].text, /风雪夜行中始终有故人剑意回响/)
+
+  const settleSections = await pluginApi.settlement.sections({ gameId: 'g1', turn: 3 })
+  assert.equal(settleSections.length, 1)
+  assert.match(settleSections[0].text, /挪开神龛查探密道/)
+
+  // 切换为软铺垫（soft）时自动回落到常规 after 槽位；切换为硬性兑现（strict）时恢复 position: 'last'
+  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', strength: 'soft' })
+  const softTurnCtx = await pluginApi.turnContext({ gameId: 'g1', turn: 3, target: 'story' })
+  assert.equal(softTurnCtx.length, 1)
+  assert.equal(softTurnCtx[0].position ?? 'after', 'after')
+  assert.match(softTurnCtx[0].text, /软铺垫模式/)
+
+  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', strength: 'strict' })
+  const strictTurnCtx = await pluginApi.turnContext({ gameId: 'g1', turn: 3, target: 'story' })
+  assert.equal(strictTurnCtx.length, 1)
+  assert.equal(strictTurnCtx[0].position, 'last')
+  assert.match(strictTurnCtx[0].text, /硬性兑现裁定/)
+  assert.match(strictTurnCtx[0].text, /本轮必达目标/)
 
   const candSections = await pluginApi.candidate.sections({ gameId: 'g1', turn: 3 })
   assert.equal(candSections.length, 1)
   assert.match(candSections[0].text, /探神龛/)
+  assert.match(candSections[0].text, /top 2 featured\/actor choices directly trigger/)
 
   const compNotes = await pluginApi.compactionNotes({ gameId: 'g1' })
   assert.equal(compNotes.length, 1)
@@ -174,3 +196,162 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
 
   mounted.dispose()
 })
+
+test('turnSection 支持 position: last 且排在预设中段之后，旧宿主不支持 last 时罗盘自动降级回 after', async () => {
+  const { foregroundFrameInputs } = await import('../tavern-plugin/lib/domain/turn-orchestration.js')
+
+  const storyEvents = createStoryEvents()
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    workflow: { register() { return () => {} } },
+    resolveGame: async gameId => gameId === 'g1' ? { chatId: 'c1', sessionId: 'g1' } : null,
+    data: {
+      readGame: async () => null,
+      saveGame: async () => {},
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      writeSettings: async () => {}
+    },
+    pluginData: { read: async () => null, save: async () => {} },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {}
+  })
+
+  const probe = createPluginFiber('probe-plugin', pluginApi.service)
+  assert.throws(
+    () => probe.ctx.tavern.turnSection({ name: 'bad', position: 'middle', text: 'x' }),
+    /position 只能是 'before'、'after' 或 'last'/
+  )
+  probe.ctx.tavern.turnSection({ name: 'early', position: 'after', text: 'AFTER_PLUGIN' })
+  probe.ctx.tavern.turnSection({ name: 'late', position: 'last', text: 'LAST_PLUGIN' })
+
+  const pluginSections = await pluginApi.turnContext({ gameId: 'g1', turn: 1, target: 'story' })
+  const frameInputs = foregroundFrameInputs(
+    { sections: [{ kind: 'guide', required: false, text: 'GUIDE_TEXT' }] },
+    '玩家行动',
+    '玩家行动',
+    { middle: { entries: [{ id: 'p1', role: 'system', content: 'PRESET_MIDDLE_RULE' }] } },
+    {},
+    pluginSections
+  )
+  const texts = frameInputs.map(item => item.text).filter(Boolean)
+  const afterIdx = texts.indexOf('AFTER_PLUGIN')
+  const presetIdx = texts.indexOf('PRESET_MIDDLE_RULE')
+  const lastIdx = texts.indexOf('LAST_PLUGIN')
+  assert.ok(afterIdx >= 0 && presetIdx > afterIdx && lastIdx > presetIdx, 'last 插件段落须排在预设 middle 之后')
+  probe.dispose()
+
+  // 模拟只允许 before/after 的旧宿主：applyPlotCompass 应捕获异常并回退走 after
+  const legacySections = []
+  let savedRecord = {
+    version: 1,
+    enabled: true,
+    compass: {
+      version: 1,
+      strength: 'strict',
+      shortTerm: [{ id: 's1', tag: '破门', title: '破门突入', summary: '踹开木门', beats: [{ text: '踹门而入', done: false }] }],
+      midTerm: [],
+      longTerm: [],
+      pinned: { shortTerm: 's1', midTerm: null, longTerm: null }
+    }
+  }
+  const legacyTavern = {
+    readPluginData: async () => null,
+    readGameData: async () => savedRecord,
+    saveGameData: async ({ data }) => { savedRecord = data },
+    turnSection(spec) {
+      if (!['before', 'after'].includes(spec.position || 'after')) {
+        throw new Error("position 只能是 'before' 或 'after'")
+      }
+      legacySections.push(spec)
+      return () => {}
+    }
+  }
+  const cleanup = applyPlotCompass({ tavern: legacyTavern })
+  assert.equal(legacySections.length, 1)
+  assert.equal(legacySections[0].position, 'after')
+  const fallbackText = await legacySections[0].text({ gameId: 'g1' })
+  assert.match(fallbackText, /硬性兑现裁定/)
+  assert.match(fallbackText, /踹门而入/)
+  if (typeof cleanup === 'function') cleanup()
+})
+
+test('剧情罗盘节拍进度链、sceneTrigger、久拖自动加压、未点亮微调指令与仅中期锚定均正确生成', async () => {
+  const {
+    applyPlotCompassAutoProgress,
+    applyPlotCompassPreferences,
+    applyPlotCompassStepToggle,
+    plotCompassBodyText,
+    plotCompassSettlementNote,
+    plotCompassWorldbookScanText,
+    readPlotCompass
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
+
+  // 1. 未点亮任何路线，但填写了 customDirective 时不再被短路吞掉
+  const directiveOnly = applyPlotCompassPreferences({ version: 1 }, { customDirective: '多写雨夜冷寂与拔剑前的心理暗战' })
+  const directiveBody = plotCompassBodyText(directiveOnly)
+  assert.match(directiveBody, /多写雨夜冷寂与拔剑前的心理暗战/)
+  assert.match(plotCompassWorldbookScanText(directiveOnly), /多写雨夜冷寂与拔剑前的心理暗战/)
+  assert.match(plotCompassSettlementNote(directiveOnly), /多写雨夜冷寂与拔剑前的心理暗战/)
+
+  // 2. 仅点亮中期路线（未点亮今期）时，自动将 entryHook 提升为本轮推进目标
+  const midOnly = readPlotCompass({
+    version: 1,
+    strength: 'guided',
+    midTerm: [{
+      id: 'm1',
+      tag: '潜入旧寨',
+      title: '夜探北岭旧寨',
+      summary: '查明旧寨异动根源',
+      entryHook: '向苏晚追问残图背面的北岭暗记',
+      milestones: [{ text: '辨认暗记', done: false }, { text: '潜入寨门', done: false }]
+    }],
+    pinned: { shortTerm: null, midTerm: 'm1', longTerm: null }
+  })
+  assert.match(plotCompassBodyText(midOnly), /【▶ 本轮推进目标〔入线铺垫〕：向苏晚追问残图背面的北岭暗记】/)
+
+  // 3. 今期完整节拍链、sceneTrigger 与连续停滞自动加压（stalledTurns >= 2）
+  let compass = readPlotCompass({
+    version: 1,
+    basedOnTurn: 2,
+    lastCheckedTurn: 2,
+    strength: 'guided',
+    shortTerm: [{
+      id: 's1',
+      tag: '探神龛',
+      title: '挪开神龛查探密道',
+      summary: '发现密道入口',
+      causalBasis: '神龛底座有新鲜刮痕',
+      sceneTrigger: '神龛后忽然漏出一缕夹杂湿土味的冷风吹偏烛火',
+      beats: [
+        { text: '试探神龛底座', done: true },
+        { text: '点燃火折入道', done: false },
+        { text: '查看石壁刻字', done: false }
+      ]
+    }],
+    pinned: { shortTerm: 's1', midTerm: null, longTerm: null }
+  })
+
+  const initialBody = plotCompassBodyText(compass)
+  assert.match(initialBody, /\[✓ 1\.试探神龛底座\] → 【▶ 2\.点燃火折入道（本轮推进目标）】 → \[○ 3\.查看石壁刻字（后续留白）\]/)
+  assert.match(initialBody, /场面切入抓手.*冷风吹偏烛火/)
+  assert.doesNotMatch(initialBody, /久拖破局加压/)
+
+  // 第 3、4 轮连续无新节拍完成 -> stalledTurns 升至 2，触发久拖破局加压
+  compass = applyPlotCompassAutoProgress(compass, { completed: [], lapsed: [] }, { turn: 3 }).compass
+  assert.equal(compass.stalledTurns, 1)
+  compass = applyPlotCompassAutoProgress(compass, { completed: [], lapsed: [] }, { turn: 4 }).compass
+  assert.equal(compass.stalledTurns, 2)
+  assert.match(plotCompassBodyText(compass), /⚠ 久拖破局加压：节拍「点燃火折入道」已连续 2 轮未达成/)
+
+  // 软铺垫模式下不输出久拖强推压迫语
+  const softStalled = applyPlotCompassPreferences(compass, { strength: 'soft' })
+  assert.doesNotMatch(plotCompassBodyText(softStalled), /久拖破局加压/)
+
+  // 手动或自动完成第 2 拍后，stalledTurns 清零
+  compass = applyPlotCompassStepToggle(compass, { horizon: 'shortTerm', routeId: 's1', stepIndex: 1 })
+  assert.equal(compass.stalledTurns, 0)
+  assert.doesNotMatch(plotCompassBodyText(compass), /久拖破局加压/)
+})
+

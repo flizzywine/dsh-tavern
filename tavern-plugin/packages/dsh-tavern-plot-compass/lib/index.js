@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs'
 import {
+  normalizePlotCompassStrength,
   plotCompassBodyText,
   plotCompassCandidateText,
   plotCompassCompactionNote,
+  plotCompassSettlementNote,
   plotCompassWorldbookScanText,
   readPlotCompass
 } from './plot-compass.js'
@@ -41,6 +43,7 @@ function normalizeGlobalDefaults(raw) {
   return {
     version: 1,
     enabled: typeof src.enabled === 'boolean' ? src.enabled : false,
+    strength: normalizePlotCompassStrength(src.strength),
     autoUpdateInterval: interval,
     modelSelection: normalizePlotCompassModel(src.modelSelection) || 'background'
   }
@@ -349,6 +352,26 @@ export function apply(ctx, options = {}) {
 
   // ── 提示词与世界书扩展点 ──────────────────────────────────────────
   if (typeof tavern.turnSection === 'function') {
+    let supportsLastPosition = false
+    try {
+      keep(tavern.turnSection({
+        name: 'plot-compass-director',
+        position: 'last',
+        target: 'story',
+        async text({ gameId } = {}) {
+          if (!gameId) return ''
+          const record = await readGame(gameId)
+          if (!record.enabled) return ''
+          const compass = readPlotCompass(record.compass)
+          if (compass.strength === 'soft') return ''
+          return plotCompassBodyText(compass)
+        }
+      }))
+      supportsLastPosition = true
+    } catch {
+      supportsLastPosition = false
+    }
+
     keep(tavern.turnSection({
       name: 'plot-compass',
       position: 'after',
@@ -357,7 +380,21 @@ export function apply(ctx, options = {}) {
         if (!gameId) return ''
         const record = await readGame(gameId)
         if (!record.enabled) return ''
-        return plotCompassBodyText(record.compass)
+        const compass = readPlotCompass(record.compass)
+        if (supportsLastPosition && compass.strength !== 'soft') return ''
+        return plotCompassBodyText(compass)
+      }
+    }))
+  }
+
+  if (typeof tavern.settlementSection === 'function') {
+    keep(tavern.settlementSection({
+      name: 'plot-compass',
+      async text({ gameId } = {}) {
+        if (!gameId) return ''
+        const record = await readGame(gameId)
+        if (!record.enabled) return ''
+        return plotCompassSettlementNote(record)
       }
     }))
   }
@@ -539,8 +576,8 @@ export function apply(ctx, options = {}) {
     return { ok: true, plotCompass }
   })
 
-  handle('plot-compass:set-preferences', async ({ gameId, pace, blindBox, customDirective, autoUpdateInterval } = {}) => {
-    const plotCompass = await service.setPreferences({ gameId, pace, blindBox, customDirective, autoUpdateInterval })
+  handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval } = {}) => {
+    const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval })
     return { ok: true, plotCompass }
   })
 

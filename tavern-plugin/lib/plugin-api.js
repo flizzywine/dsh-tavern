@@ -509,7 +509,7 @@ export function createTavernPluginApi(deps) {
       try { text = typeof entry.text === 'function' ? await bounded(entry.text(structuredClone(context)), label) : entry.text }
       catch (error) { recordError(context.gameId, entry.owner, label, error); continue }
       if (typeof text !== 'string' || !text.trim()) continue
-      result.push({ name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' ? { position: 'before' } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) })
+      result.push({ name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' || entry.position === 'last' ? { position: entry.position } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) })
     }
     return result
   }
@@ -1668,7 +1668,7 @@ export function createTavernPluginApi(deps) {
     turnSection({ name, text, position = 'after', target = 'story' } = {}) {
       const owner = ownerOf(this)
       sectionName(name); textOrFunction(text); contextTarget(target)
-      if (!['before', 'after'].includes(position)) throw new Error("position 只能是 'before' 或 'after'")
+      if (!['before', 'after', 'last'].includes(position)) throw new Error("position 只能是 'before'、'after' 或 'last'")
       return register.call(this, turnSections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, position, target }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
     },
 

@@ -50,6 +50,9 @@ export function defaultGameRecord(defaults = {}) {
     : 0
   const baseCompass = emptyPlotCompass()
   if (interval > 0) baseCompass.autoUpdateInterval = interval
+  if (typeof defaults.strength === 'string' && ['soft', 'guided', 'strict'].includes(defaults.strength)) {
+    baseCompass.strength = defaults.strength
+  }
   return {
     version: 1,
     enabled: Boolean(defaults.enabled),
@@ -619,7 +622,7 @@ export function createPlotCompassService({
     return readPlotCompass(saved?.compass)
   }
 
-  async function setPreferences({ gameId, pace, blindBox, customDirective, autoUpdateInterval } = {}) {
+  async function setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval } = {}) {
     const id = str(gameId)
     if (!id) throw new Error('请先打开游玩会话')
     const record = await store.readGame(id)
@@ -627,6 +630,7 @@ export function createPlotCompassService({
     const saved = await store.updateGame(id, current => {
       if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
       current.compass = applyPlotCompassPreferences(current.compass, {
+        strength,
         pace,
         blindBox,
         customDirective,

@@ -27,6 +27,7 @@ Design genuinely different dramatic directions within each horizon:
   - Span distinct rhythms: e.g., escalate current momentum to a breakthrough, sudden twist / probing a sore spot / external interruption, hidden-clue side investigation, or clean scene transition to a new time/place (only when physically reachable).
   - `tag` (2–6 chars, e.g. `"顺势破防"`, `"暗查异响"`, `"掀桌试探"`, `"切场夜访"`): crisp badge used directly on next-turn action choices.
   - `causalBasis` (~15–55 chars): why this route is physically & motivationally reachable right now.
+  - `sceneTrigger` (~15–45 chars): concrete in-scene catalyst or NPC action (e.g. an NPC probing a sore spot, footsteps outside, a spotted clue) the prose writer can actively use to initiate the next beat even if the player replies passively.
   - `beats`: 2–3 concrete sequential beats (`{text, done}`), ~18–38 chars each. **Important**: for any newly created route, every beat must be a **future** step starting AFTER the latest story turn (`done: false`); never list events that have already occurred in `<recent_story>` as an unchecked beat. Only mark `done: true` when incrementally evolving an `<existing_plot_compass>` route whose earlier beat has now happened in `<recent_story>`.
 - **`midTerm` (中期规划 · Next 5–20 turns, 3–4 routes)**: Chapter-scale arcs & relationship/faction turning points.
   - Include mainstream progression, bold sideways turns, and at least 1 hidden subplot or worldbook-hook route when material allows.

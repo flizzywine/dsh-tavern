@@ -4,6 +4,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL_NAME = 'plot_compass_submit'
 export const PLOT_COMPASS_HORIZONS = Object.freeze(['shortTerm', 'midTerm', 'longTerm'])
 export const PLOT_COMPASS_SCOPES = Object.freeze(['all', 'shortTerm', 'midTerm', 'longTerm'])
 export const PLOT_COMPASS_PACES = Object.freeze(['foreshadow', 'natural', 'climax'])
+export const PLOT_COMPASS_STRENGTHS = Object.freeze(['soft', 'guided', 'strict'])
 export const PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL = 100
 
 const MAX_ROUTES_PER_HORIZON = 4
@@ -44,6 +45,10 @@ export function decodeLiteralUnicodeEscapes(value) {
 
 function normalizePlotCompassPace(value) {
   return PLOT_COMPASS_PACES.includes(value) ? value : 'natural'
+}
+
+export function normalizePlotCompassStrength(value) {
+  return PLOT_COMPASS_STRENGTHS.includes(value) ? value : 'guided'
 }
 
 export function normalizePlotCompassAutoUpdateInterval(value) {
@@ -104,6 +109,7 @@ function normalizeShortRoute(raw, index, options = {}) {
   const sourceHook = cleanText(item.sourceHook || item.hookSource, { ...options, maxLength: 16 })
   const direction = cleanText(item.direction || item.angle, { ...options, maxLength: 32 })
   const causalBasis = normalizeCausalBasis(item, options)
+  const sceneTrigger = cleanText(item.sceneTrigger || item.entryTrigger || item.catalyst, { ...options, maxLength: 90 })
   return {
     id,
     tag: normalizeTag(item.tag || item.routeTag, finalTitle, options),
@@ -111,6 +117,7 @@ function normalizeShortRoute(raw, index, options = {}) {
     ...(direction ? { direction } : {}),
     summary: summary || beats.map(b => b.text).join(' → '),
     ...(causalBasis ? { causalBasis } : {}),
+    ...(sceneTrigger ? { sceneTrigger } : {}),
     beats: beats.length > 0 ? beats : [{ text: summary || finalTitle, done: false }],
     ...(sourceHook ? { sourceHook } : {})
   }
@@ -195,7 +202,9 @@ export function emptyPlotCompass() {
     updatedAt: 0,
     basedOnTurn: 0,
     lastCheckedTurn: 0,
+    stalledTurns: 0,
     autoUpdateInterval: 0,
+    strength: 'guided',
     pace: 'natural',
     blindBox: false,
     customDirective: '',
@@ -262,12 +271,15 @@ export function readPlotCompass(value) {
     .filter(Boolean)
     .slice(-MAX_COMPASS_CHAT_MESSAGES)
   const basedOnTurn = Math.max(0, Number(src.basedOnTurn) || 0)
+  const pinnedShort = resolvePin(shortTerm, rawPinned.shortTerm)
   return {
     version: 1,
     updatedAt: Math.max(0, Number(src.updatedAt) || 0),
     basedOnTurn,
     lastCheckedTurn: Math.max(basedOnTurn, Number(src.lastCheckedTurn) || 0),
+    stalledTurns: pinnedShort ? Math.max(0, Math.min(99, Math.trunc(Number(src.stalledTurns) || 0))) : 0,
     autoUpdateInterval: normalizePlotCompassAutoUpdateInterval(src.autoUpdateInterval) ?? 0,
+    strength: normalizePlotCompassStrength(src.strength),
     pace: normalizePlotCompassPace(src.pace),
     blindBox: src.blindBox === true,
     customDirective: cleanText(src.customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH }),
@@ -278,7 +290,7 @@ export function readPlotCompass(value) {
     midTerm,
     longTerm,
     pinned: {
-      shortTerm: resolvePin(shortTerm, rawPinned.shortTerm),
+      shortTerm: pinnedShort,
       midTerm: resolvePin(midTerm, rawPinned.midTerm),
       longTerm: resolvePin(longTerm, rawPinned.longTerm)
     },
@@ -356,6 +368,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
             direction: { type: 'string', description: '路线戏剧维度（如：顺水推舟、反客为主、支线切入）' },
             summary: { type: 'string', minLength: 1 },
             causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
+            sceneTrigger: { type: 'string', description: '场面切入抓手（15-45字）：当玩家未主动提起时，在场角色或环境可用什么具体动作/异响/来人自然引出下一节拍' },
             beats: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
             sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
           },
@@ -484,7 +497,10 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
   next.basedOnTurn = Math.max(0, Number(turn) || 0)
   next.lastCheckedTurn = Math.max(next.basedOnTurn, Number(prev.lastCheckedTurn) || 0)
   // 全新生成：旧路线整体作废，点亮标记一并清空（不做 id/标题匹配，也不写入 archived）。
-  if (fresh) next.pinned = { shortTerm: null, midTerm: null, longTerm: null }
+  if (fresh) {
+    next.pinned = { shortTerm: null, midTerm: null, longTerm: null }
+    next.stalledTurns = 0
+  }
   if (submitted.situationDigest) next.situationDigest = submitted.situationDigest
   if (submitted.playArchetypes?.length) {
     const merged = [...prev.customArchetypes]
@@ -509,8 +525,14 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
         (prevPinnedRoute && incoming.find(item => item.title === prevPinnedRoute.title || item.tag === prevPinnedRoute.tag))
       if (matched) {
         next.pinned[horizon] = matched.id
+        if (horizon === 'shortTerm') {
+          const prevNextBeat = (prevPinnedRoute?.beats || []).find(step => !step.done)?.text || ''
+          const newNextBeat = (matched.beats || []).find(step => !step.done)?.text || ''
+          if (prevNextBeat !== newNextBeat) next.stalledTurns = 0
+        }
       } else {
         next.pinned[horizon] = null
+        if (horizon === 'shortTerm') next.stalledTurns = 0
         if (prevPinnedRoute && submitted.divergedNote) {
           next.archived = [...next.archived, {
             horizon,
@@ -544,6 +566,7 @@ export function applyPlotCompassPin(previousRaw, { horizon, routeId, now = Date.
     if (!next[horizon].some(item => item.id === target)) throw new Error('未找到对应的剧情路线，请刷新面板后重试')
     next.pinned[horizon] = next.pinned[horizon] === target ? null : target
   }
+  if (horizon === 'shortTerm') next.stalledTurns = 0
   next.updatedAt = now
   return next
 }
@@ -552,8 +575,10 @@ export function setPlotCompassPin(previousRaw, { horizon, routeId, now = Date.no
   if (!PLOT_COMPASS_HORIZONS.includes(horizon)) throw new Error('无效的规划层级：' + str(horizon))
   const next = readPlotCompass(previousRaw)
   const target = str(routeId).trim()
+  const prevShort = next.pinned.shortTerm
   if (!target) next.pinned[horizon] = null
   else if (next[horizon].some(item => item.id === target)) next.pinned[horizon] = target
+  if (horizon === 'shortTerm' && next.pinned.shortTerm !== prevShort) next.stalledTurns = 0
   next.updatedAt = now
   return next
 }
@@ -568,6 +593,7 @@ export function applyPlotCompassStepToggle(previousRaw, { horizon, routeId, step
   const idx = Number(stepIndex)
   if (!Number.isInteger(idx) || idx < 0 || idx >= steps.length) throw new Error('节点序号无效')
   steps[idx] = { ...steps[idx], done: !steps[idx].done }
+  if (horizon === 'shortTerm' && next.pinned.shortTerm === route.id) next.stalledTurns = 0
   next.updatedAt = now
   return next
 }
@@ -587,10 +613,14 @@ export function applyPlotCompassCustomArchetypes(previousRaw, archetypes, { now 
 }
 
 /**
- * 更新剧情罗盘的控制偏好（推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔）。
+ * 更新剧情罗盘的控制偏好（约束力度、推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔）。
  */
-export function applyPlotCompassPreferences(previousRaw, { pace, blindBox, customDirective, autoUpdateInterval, now = Date.now() } = {}) {
+export function applyPlotCompassPreferences(previousRaw, { strength, pace, blindBox, customDirective, autoUpdateInterval, now = Date.now() } = {}) {
   const next = readPlotCompass(previousRaw)
+  if (strength !== undefined) {
+    if (!PLOT_COMPASS_STRENGTHS.includes(strength)) throw new Error('无效的约束力度选项：' + str(strength))
+    next.strength = strength
+  }
   if (pace !== undefined) {
     if (!PLOT_COMPASS_PACES.includes(pace)) throw new Error('无效的推进节奏选项：' + str(pace))
     next.pace = pace
@@ -672,7 +702,7 @@ export function plotCompassWorldbookScanText(source) {
   }
   if (source.mode && !['story', 'script'].includes(source.mode)) return ''
   const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
-  if (!shortTerm && !midTerm && !longTerm) return ''
+  if (!shortTerm && !midTerm && !longTerm && !compass.customDirective) return ''
   const snippets = []
   if (longTerm) {
     if (longTerm.title) snippets.push(longTerm.title)
@@ -690,6 +720,7 @@ export function plotCompassWorldbookScanText(source) {
   if (shortTerm) {
     if (shortTerm.title) snippets.push(shortTerm.title)
     if (shortTerm.summary) snippets.push(shortTerm.summary)
+    if (shortTerm.sceneTrigger) snippets.push(shortTerm.sceneTrigger)
     const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text
     if (nextBeat) snippets.push(nextBeat)
   }
@@ -749,56 +780,103 @@ export function extractDormantWorldbookHooks(entries = [], context = {}, { limit
   return candidates.slice(0, Math.max(1, limit))
 }
 
+const STRENGTH_HEADERS = Object.freeze({
+  soft: '【剧情罗盘 · 软铺垫模式】以下为玩家选定的剧情潜流方向。仅通过环境感官、人物潜台词与自然风声埋下伏笔，严禁跨越因果抢跑后续节点；若玩家本轮转向其他话题，完全顺应玩家输入：',
+  guided: '【剧情罗盘 · 强牵引导演指令】以下为玩家明确锚定的主推剧情方向，优先级高于常规闲聊惯性。只要玩家本轮输入未与该路线正面违背，你必须在完整回应玩家行动的同时，主动调动在场角色动机、突发互动或环境契机，将【本轮推进目标】实质性向前推进至少半步至一步，并在段尾落向该节拍的张力钩子，禁止原地寒暄空转：',
+  strict: '【剧情罗盘 · 硬性兑现裁定（本轮必达）】以下为玩家锁定的强制剧情推进目标。除非主角处于无法行动的物理受限绝境或玩家本轮明确反向掀桌，本轮正文必须正面触发并兑现【本轮推进目标】的核心戏剧事件或冲突转折，严禁仅做模糊铺垫或拖延至下一轮：'
+})
+
 const PACE_GUIDANCE = Object.freeze({
-  foreshadow: 'Pacing stance [只铺垫 / Foreshadow-Only]: Prioritize sensory cues, character undercurrents, subtle setup, and reversible tension this turn; intentionally withhold final escalation or premature closure.',
-  natural: 'Pacing stance [自然推进 / Natural Progression]: Weave active beats organically through character agency and scene causality; neither stall artificially nor rush later phases.',
-  climax: 'Pacing stance [尽快引爆 / Escalate to Climax]: Sharpen stakes and bring looming friction to a crisp collision, confronting the player directly with the active turning point where causally earned.'
+  foreshadow: '推进节奏〔只铺垫〕：本轮聚焦触发前兆、感官细节、试探交锋与悬念蓄势，把局面推至临界点，留白最终摊牌。',
+  natural: '推进节奏〔自然推进〕：顺应人物性格与现场因果把当前目标节拍扎实演透，自然衔接后续走向，不跳步也不拖沓。',
+  climax: '推进节奏〔尽快引爆〕：拉满戏剧张力，推动潜藏矛盾、关键人物或突发变故在本轮正面对撞，打出鲜明转折！'
 })
 
 function arcPhaseRoleLabel(index, total) {
   if (total <= 1 || index < 0) return ''
-  if (index === total - 1) return '篇章收束高潮 (climax)'
-  if (total >= 3 && index === total - 2) return '核心抉择拐点 (hardest)'
-  if (index === 0) return '入线铺垫 (setup)'
-  return '冲突升级 (rising)'
+  if (index === total - 1) return '篇章收束高潮'
+  if (total >= 3 && index === total - 2) return '核心抉择拐点'
+  if (index === 0) return '入线铺垫'
+  return '冲突升级'
+}
+
+function formatCompassStepChain(steps, { activeLabel = '本轮推进目标', phaseLabels = false } = {}) {
+  const list = Array.isArray(steps) ? steps : []
+  if (list.length === 0) return ''
+  const nextIdx = list.findIndex(step => !step.done)
+  return list.map((step, idx) => {
+    const phase = phaseLabels ? arcPhaseRoleLabel(idx, list.length) : ''
+    const prefix = phase ? `${phase}·` : ''
+    if (step.done) return `[✓ ${idx + 1}.${prefix}${step.text}]`
+    if (idx === nextIdx) return `【▶ ${idx + 1}.${prefix}${step.text}（${activeLabel}）】`
+    return `[○ ${idx + 1}.${prefix}${step.text}（后续留白）]`
+  }).join(' → ')
 }
 
 /**
- * 为前台正文生成软引导段落文本（未开启或无锚定路线时返回空字符串）。严格隐藏远期终局剧透。
+ * 为前台正文生成剧情罗盘导演/引导段落文本（未开启且无锚定路线与微调指令时返回空字符串）。严格隐藏远期终局剧透。
  */
 export function plotCompassBodyText(compassRaw) {
   const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
-  if (!shortTerm && !midTerm && !longTerm) return ''
+  const hasPinned = Boolean(shortTerm || midTerm || longTerm)
+  if (!hasPinned && !compass.customDirective) return ''
 
+  const strength = normalizePlotCompassStrength(compass.strength)
   const lines = [
-    'Active Plot Compass (soft narrative direction chosen by the player; weave naturally into pacing and foreshadowing, NEVER rush future milestones in a single turn, obey concrete causal grounding, and always yield to the player\'s immediate turn input if they pivot):',
+    STRENGTH_HEADERS[strength] || STRENGTH_HEADERS.guided,
     `- ${PACE_GUIDANCE[compass.pace] || PACE_GUIDANCE.natural}`
   ]
-  if (longTerm) {
-    const toneLine = longTerm.toneGuidance || (longTerm.tone ? `长线基调「${longTerm.tone}」` : longTerm.title)
-    const omenHint = longTerm.diegeticOmen ? ` | Distant in-world echo (subtle sensory detail only, zero spoiler): ${longTerm.diegeticOmen}` : ''
-    lines.push(`- Long-term atmosphere (foreshadowing tone only, do NOT reveal or jump to endgame): ${toneLine}${omenHint}`)
+
+  if (shortTerm) {
+    const beats = Array.isArray(shortTerm.beats) ? shortTerm.beats : []
+    const nextIdx = beats.findIndex(step => !step.done)
+    const nextBeat = nextIdx >= 0 ? beats[nextIdx].text : shortTerm.summary
+    const targetLabel = strength === 'strict' ? '本轮必达目标' : '本轮推进目标'
+    const chain = formatCompassStepChain(beats, { activeLabel: targetLabel })
+    const causalHint = shortTerm.causalBasis ? ` ｜ 因果锚点：${shortTerm.causalBasis}` : ''
+    lines.push(`- 今期锚定路线「${shortTerm.title}」(routeTag="${shortTerm.tag}")：${chain || nextBeat}${causalHint}`)
+    if (shortTerm.sceneTrigger && nextIdx >= 0) {
+      lines.push(`  · 场面切入抓手（玩家未主动提及时可借此切入）：${shortTerm.sceneTrigger}`)
+    }
+    if (strength !== 'soft' && nextIdx >= 0 && (compass.stalledTurns || 0) >= 2) {
+      lines.push(`  · ⚠ 久拖破局加压：节拍「${nextBeat}」已连续 ${compass.stalledTurns} 轮未达成！本轮严禁继续原地试探或重复气氛铺陈，必须由在场角色主动出招、外部声响/来人介入或局势变化直接推动该节拍落地！`)
+    }
   }
+
   if (midTerm) {
     const milestones = Array.isArray(midTerm.milestones) ? midTerm.milestones : []
     const nextIdx = milestones.findIndex(step => !step.done)
     const nextMilestone = nextIdx >= 0 ? milestones[nextIdx].text : midTerm.summary
     const roleTag = nextIdx >= 0 ? arcPhaseRoleLabel(nextIdx, milestones.length) : ''
-    const phaseNote = roleTag ? ` [${roleTag}]` : ''
-    const omenHint = midTerm.diegeticOmen ? ` | In-world whisper / ambient ripple (surface through rumors or environment when fitting, zero spoiler): ${midTerm.diegeticOmen}` : ''
-    lines.push(`- Current chapter arc [${midTerm.title}]: ${midTerm.summary}${nextMilestone ? ` | Current phase focus${phaseNote}: ${nextMilestone} (plant seeds gradually; do not resolve later chapter milestones prematurely).` : ''}${omenHint}`)
+    const phaseNote = roleTag ? `〔${roleTag}〕` : ''
+    const omenHint = midTerm.diegeticOmen ? ` ｜ 世界内预兆风声（借传闻或环境自然透出，零剧透）：${midTerm.diegeticOmen}` : ''
+    if (!shortTerm) {
+      const entryFocus = midTerm.entryHook || nextMilestone
+      const focusLabel = strength === 'strict' ? '本轮入线必达切口' : '本轮推进目标'
+      lines.push(`- 中期锚定篇章「${midTerm.title}」(routeTag="${midTerm.tag}")：${midTerm.summary} ｜ 【▶ ${focusLabel}${phaseNote}：${entryFocus}】（逐步推进当前阶段，切勿在一轮内跳完后续章节里程碑）${omenHint}`)
+    } else {
+      lines.push(`- 中期篇章脉络「${midTerm.title}」(routeTag="${midTerm.tag}")：${midTerm.summary}${nextMilestone ? ` ｜ 当前阶段焦点${phaseNote}：${nextMilestone}（渐进埋线蓄势，勿提前抢跑后续章节节点）` : ''}${omenHint}`)
+    }
   }
-  if (shortTerm) {
-    const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text || shortTerm.summary
-    const causalHint = shortTerm.causalBasis ? ` (Causal anchor: ${shortTerm.causalBasis})` : ''
-    lines.push(`- Near-term scene direction [${shortTerm.title}]: ${nextBeat}${causalHint}`)
+
+  if (longTerm) {
+    const toneLine = longTerm.toneGuidance || (longTerm.tone ? `长线基调「${longTerm.tone}」` : longTerm.title)
+    const omenHint = longTerm.diegeticOmen ? ` ｜ 远期世界回响（仅作细微感官呼应，零剧透）：${longTerm.diegeticOmen}` : ''
+    lines.push(`- 长期暗流基调「${longTerm.title}」(routeTag="${longTerm.tag}"，仅维持伏脉氛围，严禁提前揭示或跳向结局)：${toneLine}${omenHint}`)
   }
+
   if (midTerm || shortTerm) {
-    lines.push('- Off-screen ripple depiction: When player choices or settled events genuinely set off-screen consequences in motion along an active arc, you may depict them directly on screen via a brief POV cut, messenger/letter, unannounced arrival, or overheard rumor—never jump ahead of unmade player decisions.')
+    lines.push('- 场外涟漪演绎许可：当玩家既往抉择或既定事件已在场外牵动上述路线因果时，可通过简短视角切镜、信使书信、不速之客或耳闻风声直接呈现场外局势推进，但不得越权替玩家做出尚未发生的主观抉择。')
   }
+
   if (compass.customDirective) {
-    lines.push(`- Player micro-directive (adjust emphasis/nuance toward this preference whenever consistent with scene reality): ${compass.customDirective}`)
+    lines.push(`- 玩家微调导演要求（在不违背现场事实前提下优先贯彻）：${compass.customDirective}`)
   }
+
+  if (strength !== 'soft' && (shortTerm || midTerm || compass.customDirective)) {
+    lines.push('- 落笔前构思检核：在构思阶段（含思维链或 submit_story 的 think 参数）必须先敲定「玩家本轮输入 × 上述推进目标」的具体衔接点（由谁、借什么动作或动静切入推进，段尾停在何处悬念钩子），再动笔输出正文。')
+  }
+
   return promptSection('plot_compass', lines.join('\n'))
 }
 
@@ -809,18 +887,22 @@ export function plotCompassBodySection(chat) {
 }
 
 /**
- * 为候选项生成任务提供路线角标与软引导段落。
+ * 为候选项生成任务提供路线角标与引导段落。
  */
 export function plotCompassCandidateText(compassRaw) {
   const { compass, shortTerm: pinnedShort, midTerm: pinnedMid, longTerm: pinnedLong } = activePlotCompassRoutes(compassRaw)
   if (compass.shortTerm.length === 0 && !pinnedMid) return ''
 
+  const strength = normalizePlotCompassStrength(compass.strength)
   const lines = [
     'Plot Compass routes are available for this session. Align distinct candidate choices with these routes where natural (respecting current physical constraints and causal plausibility), and attach the matching short `routeTag` (2–6 chars) on `actors[].routeTags` or `featured[].routeTag` so the player sees which arc each choice advances:'
   ]
   if (pinnedShort) {
     const nextBeat = (pinnedShort.beats || []).find(step => !step.done)?.text || pinnedShort.summary
-    lines.push(`- [PRIMARY PINNED NEAR-TERM ROUTE] tag="${pinnedShort.tag}" (${pinnedShort.title}): next beat → ${nextBeat}. Ensure at least 1–2 strong choices advance this beat!`)
+    const mandate = strength === 'strict'
+      ? 'Ensure the top 2 featured/actor choices directly trigger or confront this beat!'
+      : 'Ensure at least 1–2 strong choices advance this beat!'
+    lines.push(`- [PRIMARY PINNED NEAR-TERM ROUTE] tag="${pinnedShort.tag}" (${pinnedShort.title}): next beat → ${nextBeat}. ${mandate}`)
     const alternatives = compass.shortTerm.filter(item => item.id !== pinnedShort.id).slice(0, 2)
     for (const alt of alternatives) {
       const beat = (alt.beats || []).find(step => !step.done)?.text || alt.summary
@@ -846,6 +928,33 @@ export function plotCompassCandidateSection(chat) {
   if (!chat || !['story', 'script'].includes(chat.mode || 'story') || !isPlotCompassEnabled(chat)) return null
   const text = plotCompassCandidateText(chat.plotCompass)
   return text ? { kind: 'plot-compass', required: false, text } : null
+}
+
+/**
+ * 后台现场姿态（posture）结算保鲜说明：保留本轮正文中已浮现的锚定路线线索与人物动向。
+ */
+export function plotCompassSettlementNote(source) {
+  if (!source) return ''
+  const compassRaw = source.compass ?? source.plotCompass ?? source
+  if (Object.hasOwn(source, 'enabled') || Object.hasOwn(source, 'backgroundTasks')) {
+    if (!isPlotCompassEnabled(source)) return ''
+  }
+  if (source.mode && !['story', 'script'].includes(source.mode)) return ''
+  const { compass, shortTerm, midTerm } = activePlotCompassRoutes(compassRaw)
+  if (!shortTerm && !midTerm && !compass.customDirective) return ''
+  const focus = []
+  if (shortTerm) {
+    const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text || shortTerm.summary
+    focus.push(`近期路线「${shortTerm.title}」（当前节拍：${nextBeat}）`)
+  }
+  if (midTerm) {
+    const nextMilestone = (midTerm.milestones || []).find(step => !step.done)?.text || midTerm.summary
+    focus.push(`中期篇章「${midTerm.title}」（阶段焦点：${nextMilestone}）`)
+  }
+  if (compass.customDirective) {
+    focus.push(`微调关注：${compass.customDirective}`)
+  }
+  return '玩家当前在剧情罗盘中锚定了以下推进方向：' + focus.join('；') + '。若本轮正文中已出现与之相关的现场线索、异响动静、人物意图变化或未决悬念，请在更新现场状态（posture）时优先保留这些细节，避免浓缩时遗漏（切勿把正文尚未发生的未来规划写进当前现场状态）。'
 }
 
 /**
@@ -1333,6 +1442,7 @@ export function parsePlotCompassProgressResponse(rawText, validKeys, options = {
 
 export function applyPlotCompassAutoProgress(previousRaw, completedOrOutcome, { turn = 0, now = Date.now() } = {}) {
   const next = readPlotCompass(previousRaw)
+  const prevCheckedTurn = Math.max(next.basedOnTurn || 0, next.lastCheckedTurn || 0)
   const completedList = Array.isArray(completedOrOutcome)
     ? completedOrOutcome
     : (Array.isArray(completedOrOutcome?.completed) ? completedOrOutcome.completed : [])
@@ -1388,11 +1498,24 @@ export function applyPlotCompassAutoProgress(previousRaw, completedOrOutcome, { 
   }
 
   next.lastCheckedTurn = Math.max(next.lastCheckedTurn || 0, resolvedTurn)
-  if (newlyCompletedCount > 0 || lapsedRoutes.length > 0) next.updatedAt = now
-
   const pinnedShortRoute = next.pinned.shortTerm
     ? next.shortTerm.find(r => r.id === next.pinned.shortTerm) || null
     : null
+  const pinnedShortHasPending = Boolean(
+    pinnedShortRoute &&
+    Array.isArray(pinnedShortRoute.beats) &&
+    pinnedShortRoute.beats.some(step => !step.done)
+  )
+  const prevStalled = next.stalledTurns || 0
+  if (!pinnedShortRoute || !pinnedShortHasPending || pinnedShortTouched || pinnedShortLapsed) {
+    next.stalledTurns = 0
+  } else if (resolvedTurn > prevCheckedTurn) {
+    next.stalledTurns = Math.min(99, prevStalled + 1)
+  }
+  if (newlyCompletedCount > 0 || lapsedRoutes.length > 0 || next.stalledTurns !== prevStalled) {
+    next.updatedAt = now
+  }
+
   const pinnedShortCompleted = Boolean(
     pinnedShortTouched &&
     pinnedShortRoute &&

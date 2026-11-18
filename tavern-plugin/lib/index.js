@@ -4092,6 +4092,12 @@ export async function apply(ctx) {
         text: promptSection('style_reference_reminder', '写正文之前，先按 <foreground_style_reference> 的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。') })
     }
     if (header?.backgroundTasks?.foregroundCandidates === true) {
+      const candidateExtras = await Promise.resolve(pluginApi.candidate?.sections?.({ gameId: str(input.gameId), turn: input.turn })).catch(() => []) || []
+      for (const extra of candidateExtras) {
+        if (str(extra?.text).trim()) {
+          sections.push({ owner: str(extra.owner || 'dsh-tavern'), name: str(extra.name || 'candidate'), position: 'after', text: str(extra.text).trim() })
+        }
+      }
       sections.push({ owner: 'dsh-tavern', name: 'foreground-candidates', position: 'after',
         text: promptSection('story_choices_reminder', '正文全部写完后，在最末尾另起一行附上 `<story_choices>{"actors":[{"name":"...","actions":["..."]}],"event":"...","scene":"..."}</story_choices>`（按焦点角色优先排列的在场角色行动分组 + 1 条当前场景突发互动/事件 + 1 条场景切换，每条约 40 字）。') })
     }

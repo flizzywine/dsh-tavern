@@ -137,7 +137,8 @@ export function callRequest({library, contact, persona, language, playerName, ch
   if (last?.role === 'user' && sections.length) last.content[0].text = [
     ...sections.filter(row => row.position === 'before').map(row => row.text),
     last.content[0].text,
-    ...sections.filter(row => row.position !== 'before').map(row => row.text),
+    ...sections.filter(row => row.position !== 'before' && row.position !== 'last').map(row => row.text),
+    ...sections.filter(row => row.position === 'last').map(row => row.text),
   ].join('\n\n')
   const bytes = {system:utf8(system), sections:Object.fromEntries(parts.map(([name, text]) => [name, utf8(text)])), messages:messages.reduce((sum, row) => sum + utf8(row.content[0].text), 0), turns:messages.length}
   return {system, messages, bytes}
