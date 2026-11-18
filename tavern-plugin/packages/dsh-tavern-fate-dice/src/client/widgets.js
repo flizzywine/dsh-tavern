@@ -46,11 +46,37 @@ function DieGlyph(props) {
 function formatRollSummary(roll, revealed) {
   if (!roll) return ''
   if (roll.hidden && !revealed) return `${roll.check}暗骰 · 等待揭晓`
+  if (roll.autoSuccess) return `${roll.check}稳压 · 免骰直通`
+  if (roll.checkType === 'contest' && roll.contest) {
+    const z = Number(roll.contest.margin) || 0
+    const zText = z > 0 ? `+${z}` : String(z)
+    return `${roll.check}交锋 · ${roll.total} vs ${roll.contest.rivalTotal}(z${zText}) · ${roll.tierLabel}`
+  }
   const mod = roll.modifier ? (roll.modifier > 0 ? `+${roll.modifier}` : String(roll.modifier)) : ''
   const dicePart = Array.isArray(roll.dice) && roll.dice.length > 1
     ? `[${roll.dice.join('+')}]${mod}=${roll.total}`
     : `${roll.total}${mod ? `(${mod})` : ''}`
   return `${roll.check}检定 · ${dicePart} · ${roll.tierLabel}`
+}
+
+function fdFormatProfileChanges(changes) {
+  if (!Array.isArray(changes) || !changes.length) return ''
+  return changes.map(item => {
+    if (!item) return ''
+    if (item.kind === 'init') return `初始建档(${item.count}项)`
+    if (item.kind === 'removed') return `移除「${item.name}」`
+    const val = Number(item.delta)
+    const sign = Number.isFinite(val) && val > 0 ? `+${val}` : (Number.isFinite(val) ? String(val) : '')
+    return `${item.name}${sign ? `(${sign})` : ''}`
+  }).filter(Boolean).join('、')
+}
+
+function fdCollectResistanceFactors(roll) {
+  const fromRoll = Array.isArray(roll && roll.resistanceFactors) ? roll.resistanceFactors : []
+  const fromBd = Array.isArray(roll && roll.modifierBreakdown && roll.modifierBreakdown.resistanceFactors)
+    ? roll.modifierBreakdown.resistanceFactors
+    : []
+  return fromRoll.length ? fromRoll : fromBd
 }
 
 function fdDamperChip(roll) {
@@ -91,7 +117,9 @@ function LiveRollBanner(props) {
   const animation = event && event.animation ? event.animation : 'atelier'
   const isSetup = Boolean(event && event.kind === 'setup-required')
   const isSkipped = Boolean(event && event.kind === 'skipped')
+  const isTape = Boolean(event && event.kind === 'tape')
   const isFree = Boolean(event && event.kind === 'free')
+  const isDelayedReveal = Boolean(event && event.kind === 'check' && event.revealTiming === 'stream-end' && !(event.roll && event.roll.autoSuccess))
   const roll = isFree ? null : (event && event.roll) || null
   const isReused = Boolean((event && event.reused) || (roll && roll.reusedOnRegenerate))
   const freeResult = isFree ? (event && event.result) || null : null
@@ -108,12 +136,12 @@ function LiveRollBanner(props) {
       }, 5000)
       return () => clearTimeout(closer)
     }
-    /* 本轮无需检定：只留一行浅提示，6 秒后自动收起，不播骰子动画 */
-    if (isSkipped) {
+    /* 本轮无需检定 / 宿命序列就绪 / 正文落定后揭晓：只留一行轻量提示，不播骰子动画 */
+    if (isSkipped || isTape || isDelayedReveal) {
       setRolling(false)
       const closer = setTimeout(() => {
         if (typeof onDismiss === 'function') onDismiss()
-      }, 6000)
+      }, isDelayedReveal ? 3200 : 6000)
       return () => clearTimeout(closer)
     }
     /* 重新生成复用本轮已锁定的首次真骰结果：直接展示原骰面，不再假播滚动随机点数 */
@@ -171,20 +199,23 @@ function LiveRollBanner(props) {
       '请前往酒馆「设置 › 叙事阻尼器」填写决策模型与 API Key（轻触收起）')))
   }
 
-  if (isSkipped) {
+  if (isSkipped || isTape || isDelayedReveal) {
+    const noteText = isTape
+      ? (event.message || '宿命序列已就绪')
+      : (isDelayedReveal ? '命运真骰已暗定，待本轮正文落定揭晓' : (event.message || '本轮无需检定'))
     return h('div', { className: 'fd-root', style: { padding: '2px 0' } },
       h('div', {
         className: 'fd-skip-note',
         role: 'status',
         'aria-live': 'polite',
-        title: event.reason ? String(event.reason) : '本轮未被判定为需要检定',
+        title: event.reason ? String(event.reason) : noteText,
         onClick: () => {
           if (typeof onDismiss === 'function') onDismiss()
         }
       },
-      h('span', { className: 'fd-skip-icon', 'aria-hidden': 'true' }, '🎲'),
-      h('span', { className: 'fd-skip-text' }, event.message || '本轮无需检定'),
-      event.check ? h('span', { className: 'fd-skip-check' }, `· ${event.check}`) : null))
+      h('span', { className: 'fd-skip-icon', 'aria-hidden': 'true' }, isTape ? '📜' : '🎲'),
+      h('span', { className: 'fd-skip-text' }, noteText),
+      event.check && !isDelayedReveal ? h('span', { className: 'fd-skip-check' }, `· ${event.check}`) : null))
   }
 
   if (!roll && !freeResult) return null
@@ -436,29 +467,17 @@ function ComposerDicePopover(props) {
       }, '×'))),
   roll
     ? h(Fragment, null,
-      h(Fd3DDiceStage, {
-        roll,
-        revealed: !covered,
-        animation: record && record.animation,
-        compact: true,
-        animateOnMount: false,
-        stageRef
-      }),
-      h('dl', { className: 'fd-turn-details' },
-        h('dt', { className: 'fd-turn-dt' }, '骰面算式'),
-        h('dd', { className: 'fd-turn-dd' },
-          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`),
-        h('dt', { className: 'fd-turn-dt' }, '能力修正'),
-        h('dd', { className: 'fd-turn-dd' },
-          `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`),
-        damper
-          ? h(Fragment, null,
-            h('dt', { className: 'fd-turn-dt' }, '叙事阻尼器'),
-            h('dd', { className: 'fd-turn-dd' },
-              `${damper.applied === false ? '未联动' : '双向联动'}${quota ? ` · 配额 ${quota}` : ''}${damper.reason ? ` · ${damper.reason}` : ''}`))
-          : null,
-        h('dt', { className: 'fd-turn-dt' }, '难度理由'),
-        h('dd', { className: 'fd-turn-dd' }, `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)),
+      !roll.autoSuccess
+        ? h(Fd3DDiceStage, {
+          roll,
+          revealed: !covered,
+          animation: record && record.animation,
+          compact: true,
+          animateOnMount: false,
+          stageRef
+        })
+        : null,
+      fdBuildTurnDetails(record, !covered),
       h(FdRerollActionBox, {
         rerollState,
         fate,
@@ -830,16 +849,36 @@ function fdBuildTurnDetails(record, peeked) {
   }
 
   const rows = []
-  rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '骰面算式'))
-  rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
-    `${roll.rule || 'd6'} 原骰 [${(roll.dice || []).join(', ')}]`
-    + ` = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`))
+  if (roll.autoSuccess) {
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '免骰直通'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`))
+  } else if (roll.checkType === 'contest' && roll.contest) {
+    const c = roll.contest
+    const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '交锋对抗'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`))
+  } else {
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '骰面算式'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `${roll.rule || 'd6'} 原骰 [${(roll.dice || []).join(', ')}]`
+      + ` = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`))
+  }
 
   const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
   rows.push(h('dt', { key: 'dt-skill', className: 'fd-turn-dt' }, '角色能力修正'))
   rows.push(h('dd', { key: 'dd-skill', className: 'fd-turn-dd' },
     `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}`
     + (roll.modifier ? `（总修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : '')))
+
+  const factors = fdCollectResistanceFactors(roll)
+  if (factors.length) {
+    rows.push(h('dt', { key: 'dt-factors', className: 'fd-turn-dt' }, '外部阻力'))
+    rows.push(h('dd', { key: 'dd-factors', className: 'fd-turn-dd' },
+      h('div', { className: 'fd-factor-row' },
+        factors.map((f, idx) => h('span', { key: idx, className: 'fd-factor-chip' }, `${f.label} ${f.delta}`)))))
+  }
 
   if (fdNumber(breakdown.varModifier, 0) || (Array.isArray(breakdown.matchedVars) && breakdown.matchedVars.length)) {
     const matched = Array.isArray(breakdown.matchedVars) ? breakdown.matchedVars : []
@@ -862,6 +901,12 @@ function fdBuildTurnDetails(record, peeked) {
 
   rows.push(h('dt', { key: 'dt-diff', className: 'fd-turn-dt' }, '难度理由'))
   rows.push(h('dd', { key: 'dd-diff', className: 'fd-turn-dd' }, `${roll.difficultyLabel || '判定'} · ${roll.reason || '本地启发式快判'}`))
+
+  const deltaText = fdFormatProfileChanges(record.profileChanges)
+  if (deltaText) {
+    rows.push(h('dt', { key: 'dt-delta', className: 'fd-turn-dt' }, '能力演进'))
+    rows.push(h('dd', { key: 'dd-delta', className: 'fd-turn-dd' }, `✦ ${deltaText}`))
+  }
 
   return h('dl', { className: 'fd-turn-details' }, rows)
 }
@@ -1125,6 +1170,10 @@ function MediaTurnRollCapsule(props) {
 
 function fdFormatCompactDice(roll) {
   if (!roll) return ''
+  if (roll.autoSuccess) return '免骰直通'
+  if (roll.checkType === 'contest' && roll.contest) {
+    return `${roll.total}vs${roll.contest.rivalTotal}`
+  }
   if (roll.rule === 'd100') {
     return `${roll.total}/${roll.target === undefined ? 100 : roll.target}`
   }
@@ -1389,6 +1438,8 @@ function fdRecordFromLiveEvent(gameId, fallbackTurn, data, prevRecord) {
     gameId: gameId || (prevRecord && prevRecord.gameId) || '',
     turn: fdNumber(data.turn, fallbackTurn) || fallbackTurn || 0,
     streaming: true,
+    revealTiming: data.revealTiming || (prevRecord && prevRecord.revealTiming) || 'immediate',
+    animation: data.animation || (prevRecord && prevRecord.animation) || 'atelier',
     textVersion: null,
     roll: kind === 'check' && data.roll ? data.roll : null,
     setupRequiredReason: kind === 'setup-required' ? String(data.reason || 'SETUP_REQUIRED') : null,
@@ -1520,6 +1571,9 @@ function fdBuildFloorRollKickerText(roll, hidden, mode, power) {
   const rerollBadge = mode === 'push'
     ? ` · 🔥孤注一掷${pwrText}`
     : (mode === 'fate' ? ` · ✦逆命重投${pwrText}` : (pwrText ? ` · ${pwrText}` : ''))
+  if (roll && roll.checkType === 'contest' && roll.contest && !rerollBadge) {
+    return `⚔ 双骰交锋对抗 · ${checkTitle} vs ${roll.contest.rivalName || '对手'}${diffTitle} ✦`
+  }
   return `✦ 命运真骰裁定 · ${checkTitle}检定${diffTitle}${rerollBadge} ✦`
 }
 
@@ -1531,6 +1585,18 @@ function fdPopulateFloorRollReadout(doc, readout, roll, hidden) {
   if (hidden) {
     readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-formula', `${checkTitle}检定`))
     readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-tier', '暗骰封存'))
+    return
+  }
+  if (roll.checkType === 'contest' && roll.contest) {
+    const c = roll.contest
+    const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+    readout.appendChild(fdEl(
+      doc,
+      'span',
+      'fd-floor-roll-readout-formula',
+      `我方 ${roll.total} vs ${c.rivalName || '对手'} ${c.rivalTotal}（z = ${zSign}）`
+    ))
+    readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-tier', roll.tierLabel || '判定'))
     return
   }
   const rawDiceText = Array.isArray(roll.dice) && roll.dice.length ? `[${roll.dice.join('+')}]` : String(roll.total ?? '')
@@ -1598,7 +1664,7 @@ function fdDisposeFloorRollOverlay(entry) {
 }
 
 function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
-  if (!roll) return false
+  if (!roll || roll.autoSuccess) return false
   if (entry && entry.disposed) return false
   const baseKey = fdFloorRollAnimKey(roll)
   const eventKey = options && options.eventKey ? String(options.eventKey) : ''
@@ -2086,9 +2152,11 @@ function fdMountImperativeFloorHeaders(ui) {
       entry.retryCount = FD_STREAM_POLL_DELAYS.length
       entry.record = optimistic
       entry.gotLiveStreamRecord = true
-      /* 判定结果一落定立刻在正文中央投骰，不等正文写完、也不进胶囊 */
+      /* 若设了随正文落定揭晓且当前正流式生成中（且未触发发前暂停），暂不提前剧透投骰剧场 */
       const evTurn = fdNumber(data && data.turn, 0)
-      if (optimistic.roll && (!evTurn || !entry.turn || evTurn === entry.turn)) {
+      const deferReveal = data.revealTiming === 'stream-end'
+        && !(typeof fdIsPreSendGateHoldingOverlay === 'function' && fdIsPreSendGateHoldingOverlay())
+      if (optimistic.roll && !deferReveal && (!evTurn || !entry.turn || evTurn === entry.turn)) {
         fdPlayFloorRollAnim(entry.article, entry, optimistic.roll, data.animation)
       }
       renderEntry(entry)
@@ -2120,11 +2188,12 @@ function fdMountImperativeFloorHeaders(ui) {
     const off2 = fdWatch(ui, id, 'live-roll', data => {
       latestLiveEvent = data && typeof data === 'object' ? { gameId: id, data } : null
       if (data && typeof data === 'object') {
-        /* 决策模型结果一落定即刻在对话视口正中央起全宽剧场，绝不等流式楼层 DOM 插入 */
+        /* 决策模型结果一落定即刻在对话视口正中央起全宽剧场（除非选择了随正文落定揭晓），绝不等流式楼层 DOM 插入 */
         if (data.kind === 'check' && data.roll) {
           const ts = fdNumber(data.emittedAt, fdNumber(data.roll.rolledAt, 0))
           const isFresh = !ts || Math.abs(Date.now() - ts) < 25000
-          if (isFresh) {
+          const deferForStreamEnd = data.revealTiming === 'stream-end'
+          if (isFresh && !deferForStreamEnd) {
             fdPlayFloorRollAnim(null, null, data.roll, data.animation, { eventKey: data.id || '' })
           }
           if (
@@ -2289,8 +2358,9 @@ function fdMountImperativeFloorHeaders(ui) {
     const judged = record.judged || null
     const setupReason = record.setupRequiredReason || ''
     const fate = fdNormalizeFate(record.fate)
-    const covered = Boolean(roll && roll.hidden && !entry.peeked)
     const isStreaming = Boolean(entry.streaming || record.streaming)
+    const delayedCover = Boolean(roll && !roll.autoSuccess && record.revealTiming === 'stream-end' && isStreaming)
+    const covered = Boolean(roll && ((roll.hidden && !entry.peeked) || delayedCover))
 
     let tone = 'skipped'
     let pillText = '真骰 · 免检定'
@@ -2298,7 +2368,10 @@ function fdMountImperativeFloorHeaders(ui) {
 
     if (roll) {
       tone = covered ? 'hidden' : fdTierOf(roll.tier)
-      if (covered) {
+      if (delayedCover) {
+        pillText = `🎲 ${roll.check || '检定'} · 待正文落定揭晓`
+        tooltip = '已设置随正文落定揭晓（点击可提前偷看，或待正文写完自动播骰）'
+      } else if (covered) {
         pillText = `暗骰 · ${roll.check || '感知'} · 点按偷看`
         tooltip = '感知/洞察暗骰（点击揭晓并展开详情）'
       } else {
@@ -2426,16 +2499,33 @@ function fdMountImperativeFloorHeaders(ui) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', label))
         dl.appendChild(fdEl(doc, 'dd', 'fd-turn-dd', value))
       }
-      addRow(
-        '骰面算式',
-        `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
-      )
+      if (roll.autoSuccess) {
+        addRow('免骰直通', `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`)
+      } else if (roll.checkType === 'contest' && roll.contest) {
+        const c = roll.contest
+        const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+        addRow('交锋对抗', `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
+      } else {
+        addRow(
+          '骰面算式',
+          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
+        )
+      }
       const breakdown = roll.modifierBreakdown || {}
       const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
       addRow(
         '能力修正',
         `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`
       )
+      const factors = fdCollectResistanceFactors(roll)
+      if (factors.length) {
+        dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', '外部阻力'))
+        const ddFactors = fdEl(doc, 'dd', 'fd-turn-dd')
+        const row = fdEl(doc, 'div', 'fd-factor-row')
+        factors.forEach(f => row.appendChild(fdEl(doc, 'span', 'fd-factor-chip', `${f.label} ${f.delta}`)))
+        ddFactors.appendChild(row)
+        dl.appendChild(ddFactors)
+      }
       const damper = roll.damper || roll.damperSync || null
       if (damper) {
         const quota = damper.quota || damper.quotaSync || ''
@@ -2445,6 +2535,10 @@ function fdMountImperativeFloorHeaders(ui) {
         )
       }
       addRow('难度理由', `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)
+      const deltaText = fdFormatProfileChanges(record.profileChanges)
+      if (deltaText) {
+        addRow('能力演进', `✦ ${deltaText}`)
+      }
       panel.appendChild(dl)
 
       const rerollState = record.rerollState && typeof record.rerollState === 'object'
@@ -2590,10 +2684,12 @@ function fdMountImperativeFloorHeaders(ui) {
       if (nextRecord) {
         fdNoteRuntimeFlags(data.gameId || activeGameId, nextRecord)
         if (nextRecord.streaming === true) entry.gotLiveStreamRecord = true
+        const finishedNow = Boolean(entry.justFinishedStream && !entry.streaming && nextRecord.streaming !== true)
         entry.justFinishedStream = false
         entry.record = nextRecord
-        /* 生成期间首次读到本轮真骰（实时事件可能先到）：同样在正文中央补播一次 */
-        if (nextRecord.roll && (nextRecord.streaming === true || entry.streaming)) {
+        const deferReveal = nextRecord.revealTiming === 'stream-end' && (nextRecord.streaming === true || entry.streaming)
+        /* 判定即播：流式期间首次读到真骰立即播；随正文落定揭晓：等到正文刚落定（finishedNow）时再在视口中央补播 */
+        if (nextRecord.roll && !deferReveal && (nextRecord.streaming === true || entry.streaming || (finishedNow && nextRecord.revealTiming === 'stream-end'))) {
           fdPlayFloorRollAnim(entry.article, entry, nextRecord.roll, nextRecord.animation)
         }
       } else if (entry.streaming && entry.gotLiveStreamRecord && entry.record) {
@@ -2708,7 +2804,9 @@ function fdMountImperativeFloorHeaders(ui) {
         }
         entries.set(article, entry)
         if (seedRecord) {
-          if (seedRecord.roll && streaming) fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
+          if (seedRecord.roll && streaming && seedRecord.revealTiming !== 'stream-end') {
+            fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
+          }
           renderEntry(entry)
         }
         loadEntry(entry, { force: Boolean(wasStreaming && !streaming) })

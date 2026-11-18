@@ -875,4 +875,275 @@ test('逆命重投与孤注一掷：长按蓄力与点按即投具备差异化�
   fdDisposeFloorRollOverlay(dummyEntry)
 })
 
+test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示词防讨好与极值 / 白盒阻力与MVU提权 / 局势骰 / 宿命序列', async () => {
+  const {
+    canAutoSucceed,
+    evaluateContestOutcome,
+    generateFateTape,
+    parseTapeUsageFromText,
+    rollCheck,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/dice-engine.js')
+  const {
+    diffCharacterProfiles,
+    summarizeMvuVariables,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/auto-profiler.js')
+  const {
+    buildEncounterInjection,
+    buildFateTapeInjection,
+    buildTurnInjection,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/prompt-builder.js')
+
+  // 1) MVU 关键属性提权采样（30+ 杂项键不应挤掉后面的核心力量/伤势/天气）
+  const noisyVars = { stat_data: {} }
+  for (let i = 1; i <= 30; i += 1) {
+    noisyVars.stat_data[`杂项笔记${i}`] = `记录内容_${i}`
+  }
+  noisyVars.stat_data['力量'] = 9
+  noisyVars.stat_data['生命值'] = 32
+  noisyVars.stat_data['当前天气'] = '暴雨'
+  noisyVars.stat_data['左臂受伤'] = true
+  const mvu = summarizeMvuVariables(noisyVars)
+  const paths = mvu.entries.map(e => e.path)
+  assert.ok(paths.includes('力量'), 'MVU 提权应保留核心属性 力量')
+  assert.ok(paths.includes('生命值'), 'MVU 提权应保留 生命值')
+  assert.ok(paths.includes('当前天气'), 'MVU 提权应保留 当前天气')
+  assert.ok(mvu.environmentCues.some(c => c.label.includes('暴雨')), '应识别天气阻力线索')
+  assert.ok(mvu.environmentCues.some(c => c.label.includes('左臂受伤')), '应识别伤病阻力线索')
+
+  // 画像差异对比
+  const diff = diffCharacterProfiles(
+    { traits: [{ name: '剑术精通', tier: 2 }, { name: '潜行', tier: 0 }] },
+    { traits: [{ name: '剑术精通', tier: 3 }, { name: '左臂挂彩', tier: -1 }] }
+  )
+  assert.ok(diff.some(d => d.kind === 'changed' && d.name === '剑术精通' && d.delta === 1))
+  assert.ok(diff.some(d => d.kind === 'added' && d.name === '左臂挂彩' && d.tier === -1))
+  assert.ok(diff.some(d => d.kind === 'removed' && d.name === '潜行'))
+
+  // 2) 实力碾压免骰直通（2d6 最小掷出 2 + 加值 4 = 6 >= 容易目标 6）
+  assert.equal(canAutoSucceed({ rule: '2d6', skillBonus: 4, modifier: 0, difficulty: 'easy' }), true)
+  assert.equal(canAutoSucceed({ rule: '2d6', skillBonus: 4, modifier: 0, difficulty: 'hard' }), false)
+  const autoRoll = rollCheck({ rule: '2d6', skillBonus: 4, modifier: 0, difficulty: 'easy', check: '攀爬' })
+  assert.equal(autoRoll.autoSuccess, true)
+  assert.equal(autoRoll.tier, 'success')
+  assert.deepEqual(autoRoll.dice, [])
+  const autoInj = buildTurnInjection(autoRoll)
+  assert.match(autoInj, /免骰直通/)
+  // forceRoll: true 时应绕过免骰实际掷骰
+  const forcedRoll = rollCheck({ rule: '2d6', skillBonus: 4, modifier: 0, difficulty: 'easy', forceRoll: true })
+  assert.equal(Boolean(forcedRoll.autoSuccess), false)
+  assert.equal(forcedRoll.dice.length, 2)
+
+  // 3) 交锋对抗裁定 & 提示词防讨好/位阶/极值巧合/阻力白盒
+  const loseContest = evaluateContestOutcome({
+    rule: '2d6',
+    dice: [2, 3],
+    rivalDice: [5, 4],
+    skillBonus: 1,
+    modifier: 0,
+    difficulty: 'moderate',
+  })
+  assert.equal(loseContest.margin, -3)
+  assert.equal(loseContest.counterAttack, true)
+  assert.equal(loseContest.tier, 'failure')
+
+  const contestRoll = rollCheck({
+    rule: '2d6',
+    checkType: 'contest',
+    check: '挥剑劈砍',
+    rivalName: '哥布林剑士',
+    skillBonus: 1,
+    difficulty: 'moderate',
+  }, () => 3)
+  assert.equal(contestRoll.checkType, 'contest')
+  assert.equal(contestRoll.contest.rivalName, '哥布林剑士')
+  assert.equal(contestRoll.contest.rivalDice.length, 2)
+
+  const critInj = buildTurnInjection({
+    rule: '2d6',
+    check: '斩击',
+    dice: [6, 6],
+    rawTotal: 12,
+    total: 14,
+    target: 10,
+    skillBonus: 2,
+    modifier: 0,
+    tier: 'critical',
+    tierLabel: '大成功',
+    difficultyLabel: '困难',
+    resistanceFactors: [{ label: '暴雨', delta: '-1' }],
+  })
+  assert.match(critInj, /位阶与反讨好校验/)
+  assert.match(critInj, /命运巧合（天然极值）/)
+  assert.match(critInj, /暴雨\(-1\)/)
+
+  // 4) 3D 对抗双骰渲染规约与左右碰撞物理
+  const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
+  let loadedFactory = null
+  const sandbox = {
+    console: quiet,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    requestAnimationFrame: () => 1,
+    cancelAnimationFrame: () => {},
+    Promise,
+    Map,
+    Set,
+    WeakMap,
+    Number,
+    String,
+    Boolean,
+    Object,
+    Array,
+    Math,
+    Date,
+    JSON,
+    RegExp,
+    Error,
+    Uint8Array,
+    Float32Array,
+    Uint16Array,
+    Int32Array,
+    performance: { now: () => 1000 },
+    window: {
+      __ModuleLoader__: { load(spec) { loadedFactory = spec.factory } },
+      location: { search: '', hash: '', pathname: '/' },
+      addEventListener() {},
+      removeEventListener() {},
+    },
+  }
+  vm.runInNewContext(clientCode, sandbox, { filename: 'dsh-tavern-fate-dice/client.js' })
+  const mod = loadedFactory(id => {
+    if (id === 'react') {
+      return {
+        Fragment: Symbol('Fragment'),
+        createElement: (type, props, ...children) => ({ type, props, children }),
+        useEffect() {},
+        useMemo: fn => fn(),
+        useRef: init => ({ current: init }),
+        useState: init => [typeof init === 'function' ? init() : init, () => {}],
+      }
+    }
+    throw new Error('unexpected require: ' + id)
+  })
+  const { FD3D, formatRollSummary } = mod.__test
+  assert.match(formatRollSummary(autoRoll, true), /免骰直通/)
+  assert.match(formatRollSummary(contestRoll, true), /交锋/)
+
+  const stageSpec = FD3D.rollToStageSpec(contestRoll, false)
+  assert.equal(stageSpec.mode, 'contest')
+  assert.equal(stageSpec.diceSpecs.length, 4)
+  assert.equal(stageSpec.diceSpecs.filter(d => d.side === 'ally').length, 2)
+  assert.equal(stageSpec.diceSpecs.filter(d => d.side === 'rival').length, 2)
+
+  const stage = new FD3D.CinematicDiceStage({
+    getBoundingClientRect: () => ({ width: 800, height: 320 }),
+    clientWidth: 800,
+    clientHeight: 320,
+    width: 800,
+    height: 320,
+  }, null, {
+    _preRenderer: {
+      resize() {},
+      render() {},
+      projectToUV: () => ({ u: 0.5, v: 0.5, visible: true }),
+      unprojectToPlane: () => ({ x: 0, y: 0, z: 85 }),
+    },
+    interactive: false,
+    theater: true,
+  })
+  stage.stop()
+  stage.throwDice(stageSpec)
+  stage.stop()
+  assert.equal(stage.dice.length, 4)
+  assert.ok(stage.dice[0].trajPos[0] < 0, '我方骰应从左翼抛入')
+  assert.ok(stage.dice[2].trajPos[0] > 0, '对手骰应从右翼抛入')
+
+  // 5) 宿命序列（无小模型真骰带）与局势/奇遇骰端到端接线
+  const tape = generateFateTape({ rule: '2d6', count: 6 }, () => 4)
+  assert.equal(tape.slots.length, 6)
+  const tapeText = buildFateTapeInjection(tape)
+  assert.match(tapeText, /①\(4,4\)=8/)
+  const parsedTapeRoll = parseTapeUsageFromText('一段紧张的交涉剧情...\n<!-- fate-dice-tape: ① check=说服 diff=moderate mod=1 -->', tape)
+  assert.equal(parsedTapeRoll.tapeSlot, '①')
+  assert.equal(parsedTapeRoll.total, 9)
+  assert.equal(parsedTapeRoll.tier, 'costly')
+
+  assert.match(buildEncounterInjection({ expression: '2d6', dice: [6, 6], sides: 6, total: 12 }), /大吉奇遇/)
+
+  // 宿主集成：无决策模型下开启 tapeFallbackEnabled + 挂载局势骰 + 随正文落定揭晓设置 + 正文结算自动登记胶囊
+  const handlers = new Map()
+  const turnSections = []
+  const settledListeners = []
+  const attaches = []
+  const gameStore = new Map()
+  const turnStore = new Map()
+  const tavern = {
+    capabilities: { decisionJudge: false, narrativeDamper: false },
+    handle(name, fn) { handlers.set(name, fn) },
+    turnSection(spec) { turnSections.push(spec) },
+    settlementSection() {},
+    settlementTool() {},
+    onTurnSettled(fn) { settledListeners.push(fn) },
+    onTimelineChanged() {},
+    onGameRemoved() {},
+    async publishState() {},
+    async readGameData({ gameId }) { return gameStore.get(gameId) ?? null },
+    async saveGameData({ gameId, data }) { gameStore.set(gameId, structuredClone(data)) },
+    async readTurnData({ gameId, turn }) { return turnStore.get(`${gameId}:${turn}`) ?? null },
+    async saveTurnData({ gameId, turn, textVersion, data }) {
+      turnStore.set(`${gameId}:${turn}`, { turn, textVersion, data: structuredClone(data) })
+    },
+    async getTurnState() { return { turn: 1, settled: false, greeting: false } },
+    async getTurn() { return { text: '主角试探着推开石门。\n<!-- fate-dice-tape: ① check=力量 diff=moderate mod=2 -->' } },
+    async attach(item) { attaches.push(item) },
+    async variables() { return {} },
+  }
+  const cleanups = []
+  const dispose = applyFateDicePlugin({
+    tavern,
+    inject(_d, cb) { if (typeof cb === 'function') cb({ llm: null }) },
+    effect(fn) { const off = fn(); if (typeof off === 'function') cleanups.push(off); return off },
+  })
+  if (typeof dispose === 'function') cleanups.push(dispose)
+  try {
+    const saveSettings = handlers.get('fate-dice:save-global-settings')
+    const freeRoll = handlers.get('fate-dice:free-roll')
+    const readTurn = handlers.get('fate-dice:read-turn')
+
+    const saved = await saveSettings({
+      settings: {
+        enabled: true,
+        tapeFallbackEnabled: true,
+        revealTiming: 'stream-end',
+        autoSuccessEnabled: true,
+        contestEnabled: true,
+      },
+    })
+    assert.equal(saved.settings.tapeFallbackEnabled, true)
+    assert.equal(saved.settings.revealTiming, 'stream-end')
+
+    const encRes = await freeRoll({ gameId: 'g-tape', expression: '2d6', injectAsEncounter: true })
+    assert.equal(encRes.ok, true)
+    assert.equal(encRes.injectAsEncounter, true)
+
+    const injected = await turnSections[0].text({ gameId: 'g-tape', turn: 1, input: '推开沉重的石门' })
+    assert.match(injected, /本轮宿命序列/)
+    assert.match(injected, /本轮局势 \/ 奇遇命运骰已落定/)
+
+    for (const fn of settledListeners) {
+      await fn({ gameId: 'g-tape', turn: 1, textVersion: 'v1' })
+    }
+    assert.equal(attaches.length, 1, '宿命序列被消费后应自动挂出楼层胶囊')
+    const turnView = await readTurn({ gameId: 'g-tape', turn: 1 })
+    assert.equal(turnView.revealTiming, 'stream-end')
+    assert.equal(turnView.roll?.checkType, 'tape')
+    assert.equal(turnView.roll?.check, '力量')
+  } finally {
+    for (const fn of cleanups.splice(0)) fn()
+  }
+})
+
+
 

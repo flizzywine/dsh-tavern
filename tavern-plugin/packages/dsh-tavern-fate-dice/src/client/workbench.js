@@ -30,21 +30,26 @@ function fdLocalRollExpression(expression) {
   }
 }
 
-/* 自由骰小工具：默认折叠，纯娱乐投掷，不写入剧情也不触发阻尼器（支持 3D 舞台与长按按钮聚能蓄力！） */
+/* 自由骰小工具：默认折叠，纯娱乐投掷或挂载为下轮局势/奇遇骰（支持 3D 舞台与长按按钮聚能蓄力！） */
 function FreeRollCard(props) {
-  const { gameId, notify, ui, animation } = props || {}
+  const { gameId, notify, ui, animation, pendingEncounter, onEncounterChange } = props || {}
   const [expr, setExpr] = useState('2d6')
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [asEncounter, setAsEncounter] = useState(false)
   const stageRef = useRef(null)
 
   const roll = value => {
     const expression = String(value || expr || '').trim()
     if (!expression) return
     setBusy(true)
-    fdFreeRoll(ui, gameId, expression).then(res => {
-      if (res.ok && res.data && res.data.result) setResult(res.data.result)
-      else {
+    const injectAsEncounter = Boolean(asEncounter && gameId)
+    fdFreeRoll(ui, gameId, expression, { injectAsEncounter }).then(res => {
+      if (res.ok && res.data && res.data.result) {
+        setResult(res.data.result)
+        if (injectAsEncounter && typeof onEncounterChange === 'function') onEncounterChange(res.data.result)
+        if (injectAsEncounter && notify) notify(`已挂载下轮局势骰：${res.data.result.expression} = ${res.data.result.total}`)
+      } else {
         const local = fdLocalRollExpression(expression)
         if (local.ok) {
           setResult(local.result)
@@ -52,6 +57,14 @@ function FreeRollCard(props) {
         } else if (notify) notify(local.error)
       }
     }).finally(() => setBusy(false))
+  }
+
+  const clearEncounter = () => {
+    if (!gameId) return
+    fdFreeRoll(ui, gameId, '', { clearEncounter: true }).then(() => {
+      if (typeof onEncounterChange === 'function') onEncounterChange(null)
+      if (notify) notify('已取消下轮局势骰挂载')
+    })
   }
 
   const holdCharge = useFdHoldCharge({
@@ -73,17 +86,34 @@ function FreeRollCard(props) {
   const previewRoll = result || idlePreview
 
   return h(FdCollapse, {
-    title: '🎲 自由骰小工具',
-    sub: '默认折叠 · 支持长按按钮聚能蓄力',
+    title: '🎲 自由骰 / 局势奇遇骰',
+    sub: pendingEncounter ? `已挂载下轮局势：${pendingEncounter.expression}=${pendingEncounter.total}` : '默认折叠 · 支持长按蓄力与下轮局势注入',
     right: h(FdHelp, {
-      title: '自由骰小工具',
+      title: '自由骰与局势奇遇骰',
       text: [
         '支持 ndm 与加减修正量表达式，例如 2d6+1、1d20、3d10-2：前缀为骰子个数，d 后为面数，后面可跟 +N / -N。',
         '点击「投掷」即刻出点；长按「投掷」按钮可激活 3D 引力聚能旋涡蓄力，松手爆发投出（蓄力途中移出按钮可无损取消）。',
-        '这里只投骰与展示骰面，不写入剧情行动文本，也不会触发叙事阻尼器请求；结果仅留在本机界面。'
+        '打开「挂载为下轮局势 / 奇遇骰」后，在赶路、探索或休整轮次投出一骰（高点=顺风奇遇、低点=突发波折或险兆），结果会自动注入下一轮环境上下文，消费后自动清空。'
       ]
     })
   },
+  gameId
+    ? h(FdRow, {
+      plain: true,
+      title: '作为下轮局势 / 奇遇骰注入',
+      sub: asEncounter ? '投出后自动附入下轮场景上下文（适合赶路/探索）' : '仅娱乐展示，不写入任何对话上下文'
+    }, h(FdSwitch, { on: asEncounter, label: '作为下轮局势 / 奇遇骰注入', onChange: setAsEncounter }))
+    : null,
+  pendingEncounter
+    ? h('div', { className: 'fd-profile-delta' },
+      `✦ 下轮已挂载局势骰：${pendingEncounter.expression} = ${pendingEncounter.total}（下轮发送行动时自动生效）`,
+      h('button', {
+        type: 'button',
+        className: 'fd-chip',
+        style: { marginLeft: '8px' },
+        onClick: clearEncounter
+      }, '取消挂载'))
+    : null,
   h('div', { className: 'fd-btn-row' },
     ['2d6+1', '1d20', '1d100', '2d6', '1d6'].map(item => h(FdChip, {
       key: item,
@@ -143,7 +173,8 @@ function DecisionModelGuideBanner(props) {
   const steps = [
     '1. 打开酒馆左侧/顶栏「设置 › 叙事阻尼器」；',
     '2. 选择决策模型提供方（如 gemini / jev / openai-compatible），填入模型与 API Key 并点击「测试连接」；',
-    '3. 配好密钥后命运之骰即可直接复用该模型自动判难与选技能（无需强行打开「启用叙事阻尼器」拦截开关也能独立使用；若开启阻尼器则自动合并为单趟请求并双向联动配额）。'
+    '3. 配好密钥后命运之骰即可直接复用该模型自动判难与选技能（无需强行打开「启用叙事阻尼器」拦截开关也能独立使用；若开启阻尼器则自动合并为单趟请求并双向联动配额）；',
+    '4. 若暂不想配置决策模型，也可前往「检定设置」开启「宿命序列真骰带」实现零小模型开销的多检定。'
   ]
 
   return h('div', { className: 'fd-guide-banner', role: 'alert' },
@@ -292,6 +323,9 @@ function WorkbenchPanel(props) {
         characterProfile: profile ? fdNormalizeCharacterProfile(profile) : prev.characterProfile,
         contextSources: contextSources ? fdNormalizeContextSources(contextSources) : prev.contextSources
       }))
+    },
+    setPendingEncounter(encounter) {
+      patch(() => ({ pendingEncounter: encounter || null }))
     }
   }
 

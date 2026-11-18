@@ -76,6 +76,11 @@ const FD_PRE_SEND_WAIT_OPTIONS = [
   { value: '24', label: '24 秒（慢慢想）' }
 ]
 
+const FD_REVEAL_TIMING_OPTIONS = [
+  { value: 'immediate', label: '判定即播（发送后立即投骰）' },
+  { value: 'stream-end', label: '随正文落定揭晓（防发前剧透）' }
+]
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -84,6 +89,10 @@ const FD_DEFAULT_SETTINGS = {
   autoHidden: true,
   damperLinkage: true,
   allowHeuristicFallback: false,
+  tapeFallbackEnabled: false,
+  autoSuccessEnabled: true,
+  contestEnabled: true,
+  revealTiming: 'immediate',
   animation: 'atelier',
   preSendPause: false,
   preSendScope: 'both',

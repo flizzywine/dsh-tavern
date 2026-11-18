@@ -389,6 +389,13 @@ function ChecksTab(props) {
               h('span', { className: 'fd-hint' }, item.hidden ? '暗骰' : `${item.total} ${item.tierLabel}`)))))
         : h('div', { className: 'fd-hint' }, '本局尚无检定记录，发送一轮行动后开始记录')),
 
-    /* ---------------- 5. 自由骰小工具（默认折叠） ---------------- */
-    h(FreeRollCard, { ui, gameId, notify, animation: settings.animation }))
+    /* ---------------- 5. 自由骰 / 局势奇遇骰（默认折叠） ---------------- */
+    h(FreeRollCard, {
+      ui,
+      gameId,
+      notify,
+      animation: settings.animation,
+      pendingEncounter: view.pendingEncounter || null,
+      onEncounterChange: enc => (actions && actions.setPendingEncounter ? actions.setPendingEncounter(enc) : undefined)
+    }))
 }

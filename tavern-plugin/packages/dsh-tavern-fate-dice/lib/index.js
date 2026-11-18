@@ -8,8 +8,10 @@ import {
   RULE_LABELS,
   RULE_TARGETS,
   SKILL_BUDGET_SPECS,
+  generateFateTape,
   normalizeDifficulty,
   normalizeRule,
+  parseTapeUsageFromText,
   rollCheck,
   rollExpression
 } from './dice-engine.js'
@@ -17,13 +19,14 @@ import {
   SKILL_CATEGORIES,
   buildProfileDigest,
   collectCharacterMaterial,
+  diffCharacterProfiles,
   normalizeCharacterProfile,
   refreshProfileWithBackgroundLlm,
   summarizeMvuVariables
 } from './auto-profiler.js'
 import { buildDamperJudgeQuestions, resolveCheckFromDamperContext } from './damper-bridge.js'
 import { judgeActionDifficulty } from './difficulty-judge.js'
-import { buildTurnInjection, extractContextSnippet } from './prompt-builder.js'
+import { buildEncounterInjection, buildFateTapeInjection, buildTurnInjection, extractContextSnippet } from './prompt-builder.js'
 import {
   PRE_SEND_GATE_HOST_BUDGET_MS,
   PRE_SEND_GATE_IDLE_MS,
@@ -58,6 +61,7 @@ const ANIMATION_VALUES = Object.freeze([
   'none'
 ])
 const TONE_VALUES = Object.freeze(Object.keys(TONE_BIAS_BONUS))
+const REVEAL_TIMING_VALUES = Object.freeze(['immediate', 'stream-end'])
 const GLOBAL_GAME_ID = '__fate_dice_global__'
 const MAX_CACHE_ENTRIES = 60
 const MAX_SETTLED_LOCKS = 60
@@ -71,6 +75,10 @@ export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
   alwaysRoll: false,
   damperLinkage: true,
   allowHeuristicFallback: false,
+  tapeFallbackEnabled: false,
+  autoSuccessEnabled: true,
+  contestEnabled: true,
+  revealTiming: 'immediate',
   rule: '2d6',
   sensitivity: 'normal',
   toneBias: 'balanced',
@@ -103,7 +111,10 @@ function settingsCacheSignature(settings) {
     settings.alwaysRoll ? 1 : 0,
     settings.allowHidden ? 1 : 0,
     settings.damperLinkage ? 1 : 0,
-    settings.allowHeuristicFallback ? 1 : 0
+    settings.allowHeuristicFallback ? 1 : 0,
+    settings.tapeFallbackEnabled ? 1 : 0,
+    settings.autoSuccessEnabled !== false ? 1 : 0,
+    settings.contestEnabled !== false ? 1 : 0
   ].join(':')
 }
 
@@ -176,7 +187,11 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
   const base = { ...DEFAULT_GLOBAL_SETTINGS, ...(fallback || {}) }
   const next = { ...base }
   const source = input && typeof input === 'object' ? input : {}
-  for (const key of ['enabled', 'autoCheck', 'alwaysRoll', 'damperLinkage', 'allowHidden', 'allowHeuristicFallback', 'preSendPause']) {
+  for (const key of [
+    'enabled', 'autoCheck', 'alwaysRoll', 'damperLinkage',
+    'allowHidden', 'allowHeuristicFallback', 'tapeFallbackEnabled',
+    'autoSuccessEnabled', 'contestEnabled', 'preSendPause'
+  ]) {
     if (source[key] !== undefined) next[key] = Boolean(source[key])
   }
   if (source.autoHidden !== undefined && source.allowHidden === undefined) next.allowHidden = Boolean(source.autoHidden)
@@ -187,6 +202,7 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
   if (source.sensitivity !== undefined && SENSITIVITY_VALUES.includes(source.sensitivity)) next.sensitivity = source.sensitivity
   if (source.animation !== undefined && ANIMATION_VALUES.includes(source.animation)) next.animation = source.animation
   if (source.toneBias !== undefined && TONE_VALUES.includes(source.toneBias)) next.toneBias = source.toneBias
+  if (source.revealTiming !== undefined && REVEAL_TIMING_VALUES.includes(source.revealTiming)) next.revealTiming = source.revealTiming
   if (source.preSendScope !== undefined) next.preSendScope = source.preSendScope
   if (source.preSendWait !== undefined) next.preSendWait = source.preSendWait
   const gateDefaults = normalizePreSendGateSettings(next)
@@ -402,6 +418,8 @@ export function apply(ctx) {
   const turnCacheByGame = new Map()
   const pendingByGame = new Map()
   const pendingProfileByGame = new Map()
+  const pendingEncounterByGame = new Map()
+  const pendingTapeByGame = new Map()
   const attachedCapsuleKeys = new Set()
   const gameStateCache = new Map()
   const gameReadInflight = new Map()
@@ -670,6 +688,10 @@ export function apply(ctx) {
       alwaysRoll: Boolean(settings.alwaysRoll),
       damperLinkage: settings.damperLinkage,
       allowHeuristicFallback: Boolean(settings.allowHeuristicFallback),
+      tapeFallbackEnabled: Boolean(settings.tapeFallbackEnabled),
+      autoSuccessEnabled: settings.autoSuccessEnabled !== false,
+      contestEnabled: settings.contestEnabled !== false,
+      revealTiming: settings.revealTiming || 'immediate',
       animation: settings.animation,
       preSendPause: Boolean(settings.preSendPause),
       preSendScope: normalizePreSendGateSettings(settings).scope,
@@ -874,6 +896,7 @@ export function apply(ctx) {
     let judged = null
     let damperUsed = false
     let setupRequiredReason = ''
+    let fateTape = null
 
     if (settings.damperLinkage) {
       const damperContext = (await readDamperContext(gameId, damperTurn))
@@ -881,9 +904,9 @@ export function apply(ctx) {
       if (damperContext) {
         const bypassedCode = damperContext.outcome?.status === 'bypassed' ? String(damperContext.outcome.code || '') : ''
         const unconfiguredDamper = bypassedCode === 'DAMPER_NO_KEY' || bypassedCode === 'DAMPER_INVALID_CONFIG' || bypassedCode === 'DAMPER_AUTH_ERROR'
-        if (unconfiguredDamper && !settings.allowHeuristicFallback) {
+        if (unconfiguredDamper && !settings.allowHeuristicFallback && !settings.tapeFallbackEnabled) {
           setupRequiredReason = bypassedCode
-        } else {
+        } else if (!unconfiguredDamper || settings.allowHeuristicFallback) {
           damperUsed = true
           judged = resolveCheckFromDamperContext({
             damperContext,
@@ -911,7 +934,12 @@ export function apply(ctx) {
         }
       }
       if (!judgeReady && !settings.allowHeuristicFallback) {
-        setupRequiredReason = judgeReason
+        if (settings.tapeFallbackEnabled) {
+          fateTape = generateFateTape({ rule: activeRule, count: 6 })
+          pendingTapeByGame.set(gameId, { turn: storyTurn, rawTurn: damperTurn, tape: fateTape })
+        } else {
+          setupRequiredReason = judgeReason
+        }
       } else {
         const material = await collectCharacterMaterial({ tavern, gameId, turn: storyTurn }).catch(() => null)
         const characterMaterial = buildProfileDigest(
@@ -955,8 +983,24 @@ export function apply(ctx) {
       const toneBonus = TONE_BIAS_BONUS[settings.toneBias] || 0
       const edgeBonus = Number(judged.edgeBonus) || 0
       const skillBonus = Number(judged.skillBonus) || 0
+      const resistanceFactors = [
+        ...(Array.isArray(judged.resistanceFactors) ? judged.resistanceFactors : []),
+        ...(Array.isArray(mvuNow.environmentCues)
+          ? mvuNow.environmentCues.map(c => ({ label: c.label, delta: '场景', source: c.source }))
+          : [])
+      ]
+      if (toneBonus > 0) resistanceFactors.push({ label: '英雄基调', delta: `+${toneBonus}`, source: 'tone' })
+      else if (toneBonus < 0) resistanceFactors.push({ label: '严苛基调', delta: `${toneBonus}`, source: 'tone' })
+
+      const checkType = settings.contestEnabled !== false && judged.checkType === 'contest' && !judged.hidden
+        ? 'contest'
+        : 'normal'
+
       roll = rollCheck({
         rule: activeRule,
+        checkType,
+        allowAutoSuccess: settings.autoSuccessEnabled !== false && !rerollMode,
+        forceRoll: Boolean(rerollMode),
         skillId: judged.skillId,
         skillName: judged.skillName || judged.check,
         check: judged.check,
@@ -968,12 +1012,14 @@ export function apply(ctx) {
         reason: judged.reason,
         stakes: '成功推动预期进展；失败产生真实阻力与新变化'
       })
+      roll.resistanceFactors = resistanceFactors.slice(0, 6)
       roll.modifierBreakdown = {
         skillBonus,
         edgeBonus,
         varModifier: 0,
         matchedVars: mvuNow.highlights?.slice(0, 4).map(h => ({ label: h.key, value: h.value })) || [],
-        toneBonus
+        toneBonus,
+        resistanceFactors: roll.resistanceFactors
       }
       roll.judgeSource = judged.source || 'heuristic'
       roll.judgeTier = judged.judgeTier || null
@@ -1001,7 +1047,12 @@ export function apply(ctx) {
       settings
     })
 
-    const injection = buildTurnInjection(roll)
+    const encounterRoll = pendingEncounterByGame.get(gameId) || null
+    const baseInjection = roll ? buildTurnInjection(roll) : (fateTape ? buildFateTapeInjection(fateTape) : '')
+    const encounterInjection = encounterRoll ? buildEncounterInjection(encounterRoll) : ''
+    const injection = [baseInjection, encounterInjection].filter(Boolean).join('\n\n')
+    const revealTiming = roll?.autoSuccess ? 'immediate' : (settings.revealTiming || 'immediate')
+
     const record = {
       gameId,
       turn: storyTurn,
@@ -1011,6 +1062,9 @@ export function apply(ctx) {
       injection,
       roll,
       judged,
+      fateTape,
+      encounterRoll,
+      revealTiming,
       damperUsed,
       damperShiftResult,
       rerollCount: rerollMode ? 1 : 0,
@@ -1035,8 +1089,22 @@ export function apply(ctx) {
           turn: storyTurn,
           kind: 'check',
           roll,
+          revealTiming,
           animation: settings.animation,
           emittedAt: Date.now()
+        }
+      }).catch(() => {})
+    } else if (fateTape) {
+      await tavern.publishState?.({
+        gameId,
+        name: 'live-roll',
+        data: {
+          id: `tape-${storyTurn}-${fateTape.createdAt}`,
+          turn: storyTurn,
+          kind: 'tape',
+          tape: fateTape,
+          message: `宿命序列已注入 ${fateTape.slots.length} 组 ${fateTape.rule} 真骰（按需顺位取用）`,
+          animation: 'compact'
         }
       }).catch(() => {})
     } else if (setupRequiredReason) {
@@ -1397,7 +1465,9 @@ export function apply(ctx) {
 
         const latestVars = (await readLatestContextAndVars(gameId, Number(turn) + 1)).variables
         const mvuNow = summarizeMvuVariables(latestVars)
-        let characterProfile = profileOf(game, activeRule)
+        const prevCharacterProfile = profileOf(game, activeRule)
+        let characterProfile = prevCharacterProfile
+        let profileChanges = []
         if (syncedProfile) {
           characterProfile = normalizeCharacterProfile({
             ...characterProfile,
@@ -1409,8 +1479,28 @@ export function apply(ctx) {
             updatedTurn: Number(turn) || game.lastTurn,
             updatedAt: Date.now()
           }, activeRule)
+          profileChanges = diffCharacterProfiles(prevCharacterProfile, characterProfile)
         } else if (mvuNow.highlights?.length) {
           characterProfile = { ...characterProfile, mvuHighlights: mvuNow.highlights.slice(0, 12) }
+        }
+
+        // 若本轮走了无小模型「宿命序列」模式，在结算时读取正文里的隐藏取骰标记并落盘为胶囊
+        const pendingTape = pendingTapeByGame.get(gameId)
+        if (activePending && !activePending.roll && pendingTape && pendingTape.tape && typeof tavern.getTurn === 'function') {
+          try {
+            const settledTurnSnap = await tavern.getTurn({ gameId, turn: Number(turn) })
+            const turnText = String(settledTurnSnap?.text || settledTurnSnap?.content || settledTurnSnap?.output || '')
+            const tapeRoll = parseTapeUsageFromText(turnText, pendingTape.tape)
+            if (tapeRoll) {
+              activePending.roll = tapeRoll
+            }
+          } catch {}
+        }
+        if (pendingTape && Number(pendingTape.turn) === Number(turn)) {
+          pendingTapeByGame.delete(gameId)
+        }
+        if (activePending?.encounterRoll && pendingEncounterByGame.get(gameId) === activePending.encounterRoll) {
+          pendingEncounterByGame.delete(gameId)
         }
 
         const turnNum = toInt(turn, 0)
@@ -1525,7 +1615,8 @@ export function apply(ctx) {
           preSendHandled: effectivePreSendHandled,
           roll: effectiveRoll,
           judged: effectiveJudged,
-          characterProfile
+          characterProfile,
+          profileChanges
         }
         try {
           await tavern.saveTurnData?.({
@@ -1592,6 +1683,8 @@ export function apply(ctx) {
             fate: nextFate,
             summary: nextSummary,
             characterProfile,
+            profileChanges,
+            pendingEncounter: pendingEncounterByGame.get(gameId) || null,
             lastRoll: nextGame.lastRoll
           }
         }).catch(() => {})
@@ -1624,6 +1717,7 @@ export function apply(ctx) {
       if (kind !== 'regenerate' && kind !== 'edit') {
         pendingByGame.delete(gameId)
         pendingProfileByGame.delete(gameId)
+        pendingTapeByGame.delete(gameId)
       }
       invalidateGameReadCaches(gameId)
       for (const key of [...turnCacheByGame.keys()]) {
@@ -1637,6 +1731,8 @@ export function apply(ctx) {
       if (!gameId) return
       pendingByGame.delete(gameId)
       pendingProfileByGame.delete(gameId)
+      pendingEncounterByGame.delete(gameId)
+      pendingTapeByGame.delete(gameId)
       invalidateGameReadCaches(gameId)
       for (const key of [...turnCacheByGame.keys()]) {
         if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
@@ -1700,6 +1796,7 @@ export function apply(ctx) {
       damperLinkage: settings.damperLinkage,
       judgeStatus,
       fate: game.fate,
+      pendingEncounter: gameId ? (pendingEncounterByGame.get(gameId) || null) : null,
       summary: game.summary || emptySummary(),
       lastRoll: game.lastRoll,
       lastTurn: game.lastTurn,
@@ -1865,6 +1962,7 @@ export function apply(ctx) {
       rule: normalizeRule(settings.rule),
       autoCheck: Boolean(settings.autoCheck),
       preSendPause: Boolean(settings.preSendPause),
+      revealTiming: settings.revealTiming || 'immediate',
       animation: settings.animation || 'atelier'
     }
     // 重新生成流式期间，DOM 楼层带目标 storyTurn 且 streaming=true，兼容 storyTurn / rawTurn / streaming 读取
@@ -1939,6 +2037,7 @@ export function apply(ctx) {
         roll: storedRoll,
         judged: stored.data.judged || null,
         characterProfile: stored.data.characterProfile || null,
+        profileChanges: Array.isArray(stored.data.profileChanges) ? stored.data.profileChanges : [],
         fate: game.fate,
         rerollState: evaluateRerollEligibility({
           turn,
@@ -2326,18 +2425,45 @@ export function apply(ctx) {
 
   async function handleFreeRoll(params = {}) {
     const gameId = params.gameId || ''
+    if (params.clearEncounter && gameId) {
+      pendingEncounterByGame.delete(gameId)
+      for (const key of [...turnCacheByGame.keys()]) {
+        if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
+      }
+      await tavern.publishState?.({
+        gameId,
+        name: 'workbench-sync',
+        data: { pendingEncounter: null }
+      }).catch(() => {})
+      return { ok: true, cleared: true }
+    }
     const globalStore = await readGlobal()
     const game = gameId ? await readGame(gameId, globalStore.settings.rule) : null
     const settings = effectiveSettings(globalStore, game)
     const result = rollExpression(params.expression || '2d6')
+    const injectAsEncounter = Boolean(params.injectAsEncounter && gameId)
+    if (injectAsEncounter) {
+      result.injectAsEncounter = true
+      pendingEncounterByGame.set(gameId, result)
+      for (const key of [...turnCacheByGame.keys()]) {
+        if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
+      }
+    }
     if (gameId) {
       await tavern.publishState?.({
         gameId,
         name: 'live-roll',
         data: { id: `free-${result.rolledAt}`, turn: 0, kind: 'free', result, animation: settings.animation }
       }).catch(() => {})
+      if (injectAsEncounter) {
+        await tavern.publishState?.({
+          gameId,
+          name: 'workbench-sync',
+          data: { pendingEncounter: result }
+        }).catch(() => {})
+      }
     }
-    return { ok: true, result }
+    return { ok: true, result, injectAsEncounter }
   }
   handle('fate-dice:free-roll', handleFreeRoll)
 }

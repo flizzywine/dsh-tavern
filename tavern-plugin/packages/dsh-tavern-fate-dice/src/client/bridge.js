@@ -160,6 +160,10 @@ function fdNormalizeSettings(raw) {
   if (typeof src.damperLinkage === 'boolean') settings.damperLinkage = src.damperLinkage
   if (typeof src.allowHeuristicFallback === 'boolean') settings.allowHeuristicFallback = src.allowHeuristicFallback
   else if (typeof src.heuristicFallback === 'boolean') settings.allowHeuristicFallback = src.heuristicFallback
+  if (typeof src.tapeFallbackEnabled === 'boolean') settings.tapeFallbackEnabled = src.tapeFallbackEnabled
+  if (typeof src.autoSuccessEnabled === 'boolean') settings.autoSuccessEnabled = src.autoSuccessEnabled
+  if (typeof src.contestEnabled === 'boolean') settings.contestEnabled = src.contestEnabled
+  if (FD_REVEAL_TIMING_OPTIONS.some(o => o.value === src.revealTiming)) settings.revealTiming = src.revealTiming
   if (typeof src.preSendPause === 'boolean') settings.preSendPause = src.preSendPause
   if (FD_PRE_SEND_SCOPE_OPTIONS.some(o => o.value === src.preSendScope)) settings.preSendScope = src.preSendScope
   const waitSec = fdNumber(src.preSendWait, settings.preSendWait)
@@ -369,6 +373,9 @@ function fdMergeWorkbench(base, raw) {
   }
   if (payload.judgeStatus) view.judgeStatus = payload.judgeStatus
   if (payload.fate) view.fate = fdNormalizeFate(payload.fate)
+  if (Object.prototype.hasOwnProperty.call(payload, 'pendingEncounter')) {
+    view.pendingEncounter = payload.pendingEncounter || null
+  }
   if (payload.lastTurn !== undefined) view.lastTurn = Math.max(0, fdNumber(payload.lastTurn, view.lastTurn || 0))
   else if (payload.turn !== undefined && fdNumber(payload.turn, 0) > 0) view.lastTurn = Math.max(view.lastTurn || 0, fdNumber(payload.turn, 0))
   if (payload.summary) {
@@ -737,8 +744,14 @@ function fdPersistBinding(ui, gameId, binding) {
   return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: { autoCheck } })
 }
 
-function fdFreeRoll(ui, gameId, expression) {
-  return fdCall(ui, FD_RPC.freeRoll, { gameId: gameId || null, expression })
+function fdFreeRoll(ui, gameId, expression, options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  return fdCall(ui, FD_RPC.freeRoll, {
+    gameId: gameId || null,
+    expression,
+    ...(opts.injectAsEncounter ? { injectAsEncounter: true } : {}),
+    ...(opts.clearEncounter ? { clearEncounter: true } : {})
+  })
 }
 
 /* ---- AI 角色动态画像：刷新提取 / 备注保存 ---- */

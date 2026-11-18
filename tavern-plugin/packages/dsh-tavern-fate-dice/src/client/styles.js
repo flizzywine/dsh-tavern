@@ -1986,6 +1986,33 @@ article.dsh-tavern-story-floor {
   .fd-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
+.fd-factor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.fd-factor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--fd-fg, currentColor) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fd-fg, currentColor) 18%, transparent);
+}
+.fd-profile-delta {
+  margin-top: 4px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  background: color-mix(in srgb, var(--fd-ok, #2f8f66) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fd-ok, #2f8f66) 32%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fd-die-svg.is-rolling, .fd-die-svg.is-settled, .fd-live-card, .fd-composer-popover { animation: none !important; }
 }

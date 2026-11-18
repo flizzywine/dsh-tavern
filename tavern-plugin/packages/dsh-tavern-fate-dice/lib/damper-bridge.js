@@ -3,7 +3,7 @@ import {
   normalizeDifficulty,
   shiftDifficulty
 } from './dice-engine.js'
-import { heuristicAssessWithSkills } from './difficulty-judge.js'
+import { detectContestIntent, heuristicAssessWithSkills } from './difficulty-judge.js'
 import {
   CAPABILITY_CRITERIA,
   DOMAIN_FALLBACKS,
@@ -459,11 +459,34 @@ export function resolveCheckFromDamperContext({
     }
   }
 
+  const resistanceFactors = []
+  if (edgeBonus > 0) resistanceFactors.push({ label: '铺陈契机', delta: `+${edgeBonus}`, source: 'leverage' })
+  else if (edgeBonus < 0) resistanceFactors.push({ label: '铺陈不足', delta: `${edgeBonus}`, source: 'leverage' })
+  if (Array.isArray(damperSync.difficultyShifts)) {
+    for (const shift of damperSync.difficultyShifts) {
+      if (!shift) continue
+      const label = shift.source === 'psychological_guard'
+        ? '心理防线高企'
+        : (shift.source === 'intimacy_trust' ? '亲密信任减阻' : '张力高压')
+      resistanceFactors.push({
+        label,
+        delta: `${shift.delta > 0 ? '+' : ''}${shift.delta}档`,
+        source: shift.source
+      })
+    }
+  }
+  if (damperSync.violationEscalation) {
+    resistanceFactors.push({ label: '越权宣言升难', delta: '≥困难', source: 'violation' })
+  }
+  const checkType = !hidden && detectContestIntent(text, category) ? 'contest' : 'normal'
+
   return {
     shouldRoll,
     needProbability,
     threshold,
     check,
+    checkType,
+    resistanceFactors,
     skillId,
     skillName: check,
     skillBonus,

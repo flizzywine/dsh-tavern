@@ -39,6 +39,14 @@ const HEURISTIC_RULES = [
 
 const HIGH_STAKES_CUE = /强行|拼死|当面|守卫|防备|严密|不可能|徒手|几乎|违抗|高空|重伤|绝境|暗杀/
 const EASY_CUE = /顺手|悄悄检查|尝试|打听|轻微|试探|简单/
+const CONTEST_CUE = /挥剑|拔剑|砍向|劈向|刺向|开枪|射击|攻击|格挡|迎战|交手|决斗|搏斗|拼刀|反击|追逐|追击|擒拿|压制|硬刚|对峙/
+
+export function detectContestIntent(input, category = 'physical') {
+  const text = String(input || '')
+  if (!text) return false
+  if (category === 'insight' || category === 'stealth') return false
+  return CONTEST_CUE.test(text)
+}
 
 function scoreToEdgeBonus(scoreValue) {
   const num = Number(scoreValue)
@@ -174,11 +182,20 @@ function assess(input, sensitivity, allowHidden, skills) {
     }
   }
   let difficulty = 'moderate'
-  if (HIGH_STAKES_CUE.test(text)) difficulty = 'hard'
-  else if (EASY_CUE.test(text)) difficulty = 'easy'
+  const resistanceFactors = []
+  if (HIGH_STAKES_CUE.test(text)) {
+    difficulty = 'hard'
+    resistanceFactors.push({ label: '高压险境', delta: '困难', source: 'scene' })
+  } else if (EASY_CUE.test(text)) {
+    difficulty = 'easy'
+    resistanceFactors.push({ label: '轻试探', delta: '容易', source: 'scene' })
+  }
   const hidden = Boolean(allowHidden && (matchedSkill?.hidden || meta.hidden))
+  const checkType = !hidden && detectContestIntent(text, category) ? 'contest' : 'normal'
   return {
     ...base,
+    checkType,
+    resistanceFactors,
     shouldRoll: Boolean(hit) || sensitivity === 'strict' || text.length >= 12,
     needProbability: Math.min(1, Math.max(threshold, Boolean(hit) ? 0.7 : 0.3)),
     threshold,
@@ -327,12 +344,18 @@ export async function judgeActionDifficulty({
       const category = domain ? domain.category : (matched?.category || catKey)
       const hiddenMeta = CATEGORY_META[category] || meta
       const hidden = Boolean(allowHidden && (domain?.hidden || matched?.hidden || hiddenMeta.hidden))
+      const checkType = !hidden && detectContestIntent(input, category) ? 'contest' : 'normal'
+      const resistanceFactors = []
+      if (edgeBonus > 0) resistanceFactors.push({ label: '铺垫/地利', delta: `+${edgeBonus}`, source: 'edge' })
+      else if (edgeBonus < 0) resistanceFactors.push({ label: '仓促/被动', delta: `${edgeBonus}`, source: 'edge' })
 
       return {
         shouldRoll: prob >= threshold,
         needProbability: Math.round(prob * 100) / 100,
         threshold,
         check,
+        checkType,
+        resistanceFactors,
         skillId: domain?.kind === 'trait'
           ? String(domain.trait.id)
           : (domain?.kind === 'domain' ? String(domain.name) : (matched?.id || 'general')),
@@ -418,23 +441,31 @@ export async function judgeActionDifficulty({
     const isHidden = Boolean(allowHidden && hiddenProb >= 0.65)
     const guessed = pickSkillForInput(String(input || ''), skillList)
     const check = guessed?.name || (isHidden ? '察觉' : '行动')
+    const category = guessed?.category || (isHidden ? 'insight' : 'physical')
+    const finalHidden = Boolean(isHidden || (allowHidden && guessed?.hidden))
+    const checkType = !finalHidden && detectContestIntent(input, category) ? 'contest' : 'normal'
+    const resistanceFactors = []
+    if (edgeBonus > 0) resistanceFactors.push({ label: '有利处境', delta: '+1', source: 'edge' })
+    else if (edgeBonus < 0) resistanceFactors.push({ label: '不利处境', delta: '-1', source: 'edge' })
 
     return {
       shouldRoll: prob >= threshold,
       needProbability: Math.round(prob * 100) / 100,
       threshold,
       check,
+      checkType,
+      resistanceFactors,
       skillId: guessed?.id || 'general',
       skillName: check,
       skillBonus: capabilityBonus,
       capabilityTier,
       capabilityScore: null,
       profileDomain: null,
-      category: guessed?.category || (isHidden ? 'insight' : 'physical'),
+      category,
       difficulty,
       difficultyLabel: DIFFICULTY_LABELS[difficulty],
       edgeBonus,
-      hidden: Boolean(isHidden || (allowHidden && guessed?.hidden)),
+      hidden: finalHidden,
       rule,
       reason: `决策模型(${response.judgeTier || 'full'}): 触发概率 ${Math.round(prob * 100)}%`,
       source: 'decision-judge',

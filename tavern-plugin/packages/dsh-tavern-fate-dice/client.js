@@ -99,6 +99,11 @@ const FD_PRE_SEND_WAIT_OPTIONS = [
   { value: '24', label: '24 秒（慢慢想）' }
 ]
 
+const FD_REVEAL_TIMING_OPTIONS = [
+  { value: 'immediate', label: '判定即播（发送后立即投骰）' },
+  { value: 'stream-end', label: '随正文落定揭晓（防发前剧透）' }
+]
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -107,6 +112,10 @@ const FD_DEFAULT_SETTINGS = {
   autoHidden: true,
   damperLinkage: true,
   allowHeuristicFallback: false,
+  tapeFallbackEnabled: false,
+  autoSuccessEnabled: true,
+  contestEnabled: true,
+  revealTiming: 'immediate',
   animation: 'atelier',
   preSendPause: false,
   preSendScope: 'both',
@@ -2116,6 +2125,33 @@ article.dsh-tavern-story-floor {
   .fd-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
+.fd-factor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.fd-factor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--fd-fg, currentColor) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fd-fg, currentColor) 18%, transparent);
+}
+.fd-profile-delta {
+  margin-top: 4px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  background: color-mix(in srgb, var(--fd-ok, #2f8f66) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fd-ok, #2f8f66) 32%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fd-die-svg.is-rolling, .fd-die-svg.is-settled, .fd-live-card, .fd-composer-popover { animation: none !important; }
 }
@@ -2284,6 +2320,10 @@ function fdNormalizeSettings(raw) {
   if (typeof src.damperLinkage === 'boolean') settings.damperLinkage = src.damperLinkage
   if (typeof src.allowHeuristicFallback === 'boolean') settings.allowHeuristicFallback = src.allowHeuristicFallback
   else if (typeof src.heuristicFallback === 'boolean') settings.allowHeuristicFallback = src.heuristicFallback
+  if (typeof src.tapeFallbackEnabled === 'boolean') settings.tapeFallbackEnabled = src.tapeFallbackEnabled
+  if (typeof src.autoSuccessEnabled === 'boolean') settings.autoSuccessEnabled = src.autoSuccessEnabled
+  if (typeof src.contestEnabled === 'boolean') settings.contestEnabled = src.contestEnabled
+  if (FD_REVEAL_TIMING_OPTIONS.some(o => o.value === src.revealTiming)) settings.revealTiming = src.revealTiming
   if (typeof src.preSendPause === 'boolean') settings.preSendPause = src.preSendPause
   if (FD_PRE_SEND_SCOPE_OPTIONS.some(o => o.value === src.preSendScope)) settings.preSendScope = src.preSendScope
   const waitSec = fdNumber(src.preSendWait, settings.preSendWait)
@@ -2493,6 +2533,9 @@ function fdMergeWorkbench(base, raw) {
   }
   if (payload.judgeStatus) view.judgeStatus = payload.judgeStatus
   if (payload.fate) view.fate = fdNormalizeFate(payload.fate)
+  if (Object.prototype.hasOwnProperty.call(payload, 'pendingEncounter')) {
+    view.pendingEncounter = payload.pendingEncounter || null
+  }
   if (payload.lastTurn !== undefined) view.lastTurn = Math.max(0, fdNumber(payload.lastTurn, view.lastTurn || 0))
   else if (payload.turn !== undefined && fdNumber(payload.turn, 0) > 0) view.lastTurn = Math.max(view.lastTurn || 0, fdNumber(payload.turn, 0))
   if (payload.summary) {
@@ -2861,8 +2904,14 @@ function fdPersistBinding(ui, gameId, binding) {
   return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: { autoCheck } })
 }
 
-function fdFreeRoll(ui, gameId, expression) {
-  return fdCall(ui, FD_RPC.freeRoll, { gameId: gameId || null, expression })
+function fdFreeRoll(ui, gameId, expression, options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  return fdCall(ui, FD_RPC.freeRoll, {
+    gameId: gameId || null,
+    expression,
+    ...(opts.injectAsEncounter ? { injectAsEncounter: true } : {}),
+    ...(opts.clearEncounter ? { clearEncounter: true } : {})
+  })
 }
 
 /* ---- AI 角色动态画像：刷新提取 / 备注保存 ---- */
@@ -8292,6 +8341,23 @@ class CinematicDiceStage {
         wx = (Math.random() < 0.5 ? -1 : 1) * nSpin
         wy = (Math.random() < 0.5 ? -1 : 1) * nSpin * 0.92
         wz = (Math.random() - 0.5) * nSpin * 1.1
+      } else if (!spec.silentStatic && this.mode === 'contest') {
+        // ⚔️ 双边交锋对抗：我方从左翼抛入、对手从右翼迎面抛入，中央碰撞后各据左右半区
+        const isRival = ds.side === 'rival'
+        const sideSign = isRival ? 1 : -1
+        const sideLane = isRival ? (i - Math.floor(count / 2)) : i
+        startX = sideSign * boundX * (0.94 + Math.random() * 0.06)
+        startY = -boundY * (0.62 + (sideLane % 2) * 0.24) + (Math.random() - 0.5) * 14
+        startZ = baseR + (this.theaterMode ? 116 : 96) + sideLane * 14 + Math.random() * 24
+        const aimX = sideSign * Math.min(boundX * 0.42, baseR * 1.15)
+        const aimY = (sideLane - 0.35) * baseR * 0.65 + 4
+        const tFlight = (this.theaterMode ? 0.48 : 0.36) + Math.random() * 0.05
+        vx = (aimX - startX) / tFlight + (Math.random() - 0.5) * 42
+        vy = (aimY - startY) / tFlight + (Math.random() - 0.5) * 36
+        vz = (this.theaterMode ? 150 : 128) + Math.random() * 72
+        wx = (Math.random() < 0.5 ? -1 : 1) * (16 + Math.random() * 12)
+        wy = (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 12)
+        wz = (Math.random() - 0.5) * 18
       } else {
         // 🎲 普通短按投掷（及静态摆盘）：经典双翼弧线抛入
         const side = (i % 2 === 0 ? -1 : 1) * (0.86 + Math.random() * 0.12)
@@ -8323,6 +8389,8 @@ class CinematicDiceStage {
         meshKey: ds.meshKey,
         sides: ds.sides || mesh.faceCount,
         faceValue: ds.targetValue,
+        side: ds.side || null,
+        ownerLabel: ds.ownerLabel || '',
         targetFace,
         radius,
         x: startX, y: startY, z: startZ,
@@ -8362,11 +8430,12 @@ class CinematicDiceStage {
     }
   }
 
-  _bakeTrajectoriesAndExactLanding(dice, boundX, boundY) {
+  _runSinglePhysicsTake(dice, boundX, boundY, takeJitter) {
     const count = dice.length
     const gravity = 1680
     const isFate = this.mode === 'fate'
     const isPush = this.mode === 'push'
+    const isContest = this.mode === 'contest'
     const power = this.lastChargePower || 0
     const maxBounces = isFate ? 2 : (isPush ? (power > 0 ? 6 : 5) : (power > 0 ? 5 : 4))
     const minBounceImpV = (isPush || power > 0) ? 38 : 60
@@ -8374,17 +8443,39 @@ class CinematicDiceStage {
     const wallSpin = isPush ? 8.5 : 5.0
     const maxReboundVz = this.theaterMode ? 405 : 510
 
-    this.bounceQueue.length = 0
+    const sim = dice.map((d, idx) => {
+      const a = takeJitter ? (idx * 2.39996 + takeJitter) : 0
+      const dvx = takeJitter ? Math.cos(a) * takeJitter * 18 : 0
+      const dvy = takeJitter ? Math.sin(a) * takeJitter * 16 : 0
+      return {
+        x: d.x, y: d.y, z: d.z,
+        vx: d.vx + dvx, vy: d.vy + dvy, vz: d.vz,
+        wx: d.wx, wy: d.wy, wz: d.wz,
+        qx: d.qx, qy: d.qy, qz: d.qz, qw: d.qw,
+        radius: d.radius,
+        meshKey: d.meshKey,
+        side: d.side,
+        bounces: 0,
+        _simSettled: false,
+        settleStep: MAX_STEPS - 1,
+        trajPos: new Float32Array(MAX_STEPS * 3),
+        trajQuat: new Float32Array(MAX_STEPS * 4),
+        trajSpeed: new Float32Array(MAX_STEPS)
+      }
+    })
+
+    const bounceQueue = []
     const dq = new Float32Array(4)
     const qNext = new Float32Array(4)
     let maxSettleStep = 48
     let peakAvgZ = -Infinity
     let peakStep = 24
+    let pairCollisions = 0
 
     for (let step = 0; step < MAX_STEPS; step++) {
       let sumZ = 0
       for (let i = 0; i < count; i++) {
-        const d = dice[i]
+        const d = sim[i]
         const floorZ = d.radius * (d.meshKey === 'd4' ? 0.52 : d.meshKey === 'd6' || d.meshKey === 'df' ? 0.62 : 0.76)
 
         if (!d._simSettled) {
@@ -8420,7 +8511,7 @@ class CinematicDiceStage {
               d.wy = d.wy * (isFate ? 0.55 : 0.66) + d.vx * 0.05 + (Math.random() - 0.5) * spinKick
               d.wz *= isFate ? 0.58 : 0.72
               const strengthBoost = (d.bounces === 0 && (isPush || power > 0)) ? (0.18 + power * 0.25) : 0
-              this.bounceQueue.push({
+              bounceQueue.push({
                 simTime: step * SIM_DT,
                 x: d.x,
                 y: d.y,
@@ -8434,8 +8525,9 @@ class CinematicDiceStage {
               d.vz = 0
               d.vx *= isFate ? 0.68 : 0.80
               d.vy *= isFate ? 0.68 : 0.80
-              d.wx *= isFate ? 0.66 : 0.76
-              d.wy *= isFate ? 0.66 : 0.76
+              // 地面摩擦滚动耦合：线性滑移顺势带出细腻角速度衰减
+              d.wx = d.wx * (isFate ? 0.66 : 0.76) - d.vy * 0.004
+              d.wy = d.wy * (isFate ? 0.66 : 0.76) + d.vx * 0.004
               d.wz *= isFate ? 0.66 : 0.76
               if (Math.hypot(d.vx, d.vy) < 5.5 && Math.hypot(d.wx, d.wy, d.wz) < 0.42 && step > 40) {
                 d.vx = 0; d.vy = 0; d.vz = 0
@@ -8468,10 +8560,10 @@ class CinematicDiceStage {
         }
       }
 
-      const pairRest = isPush ? 0.90 : 0.84
+      const pairRest = isPush ? 0.90 : (isContest ? 0.92 : 0.84)
       for (let i = 0; i < count; i++) {
         for (let j = i + 1; j < count; j++) {
-          const a = dice[i], b = dice[j]
+          const a = sim[i], b = sim[j]
           const minDist = (a.radius + b.radius) * 0.96
           const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z
           const d2 = dx * dx + dy * dy + dz * dz
@@ -8484,6 +8576,7 @@ class CinematicDiceStage {
             const rvx = b.vx - a.vx, rvy = b.vy - a.vy, rvz = b.vz - a.vz
             const vn = rvx * nx + rvy * ny + rvz * nz
             if (vn < 0) {
+              pairCollisions += 1
               const imp = -pairRest * vn
               a.vx -= nx * imp; a.vy -= ny * imp; a.vz -= nz * imp * 0.35
               b.vx += nx * imp; b.vy += ny * imp; b.vz += nz * imp * 0.35
@@ -8492,8 +8585,8 @@ class CinematicDiceStage {
                 b._simSettled = false
               }
               const hs = Math.min(1, imp / 260)
-              if (hs > 0.25 && this.bounceQueue.length < 96) {
-                this.bounceQueue.push({
+              if (hs > 0.25 && bounceQueue.length < 96) {
+                bounceQueue.push({
                   simTime: step * SIM_DT,
                   x: (a.x + b.x) * 0.5,
                   y: (a.y + b.y) * 0.5,
@@ -8509,7 +8602,7 @@ class CinematicDiceStage {
       }
 
       for (let i = 0; i < count; i++) {
-        const d = dice[i]
+        const d = sim[i]
         const po = step * 3
         d.trajPos[po] = d.x; d.trajPos[po + 1] = d.y; d.trajPos[po + 2] = d.z
         d.trajSpeed[step] = Math.hypot(d.vx, d.vy, d.vz)
@@ -8519,13 +8612,69 @@ class CinematicDiceStage {
     }
 
     for (let i = 0; i < count; i++) {
-      if (!dice[i]._simSettled) {
-        dice[i].settleStep = MAX_STEPS - 2
+      if (!sim[i]._simSettled) {
+        sim[i].settleStep = MAX_STEPS - 2
         maxSettleStep = MAX_STEPS - 2
       }
     }
-    this.maxSimDuration = maxSettleStep * SIM_DT
-    this.fateApexTime = Math.max(0.08, peakStep * SIM_DT)
+
+    // 构图质量评分（越低越好）：中心聚集度 + 防重叠 + 防过散 + 对抗阵营不串边
+    let centerX = 0
+    let centerY = 0
+    for (let i = 0; i < count; i++) {
+      centerX += sim[i].x
+      centerY += sim[i].y
+    }
+    centerX /= Math.max(1, count)
+    centerY /= Math.max(1, count)
+    let layoutCost = Math.hypot(centerX, centerY) * 0.9
+    for (let i = 0; i < count; i++) {
+      const a = sim[i]
+      if (isContest && a.side === 'ally' && a.x > -8) layoutCost += (a.x + 8) * 3.2
+      if (isContest && a.side === 'rival' && a.x < 8) layoutCost += (8 - a.x) * 3.2
+      for (let j = i + 1; j < count; j++) {
+        const b = sim[j]
+        const sep = Math.hypot(a.x - b.x, a.y - b.y)
+        const minSep = (a.radius + b.radius) * 1.15
+        const maxSep = (a.radius + b.radius) * 4.2
+        if (sep < minSep) layoutCost += (minSep - sep) * 4.5
+        else if (sep > maxSep) layoutCost += (sep - maxSep) * 1.4
+      }
+    }
+    if (isContest && pairCollisions > 0) layoutCost -= 18
+
+    return { sim, bounceQueue, maxSettleStep, peakStep, layoutCost }
+  }
+
+  _bakeTrajectoriesAndExactLanding(dice, boundX, boundY) {
+    const count = dice.length
+    const isFate = this.mode === 'fate'
+    const isContest = this.mode === 'contest'
+    const takeCount = (count >= 2 && (this.mode === 'normal' || isContest)) ? 8 : 1
+    let best = null
+    for (let t = 0; t < takeCount; t++) {
+      const jitter = t === 0 ? 0 : (t * 0.95)
+      const candidate = this._runSinglePhysicsTake(dice, boundX, boundY, jitter)
+      if (!best || candidate.layoutCost < best.layoutCost) best = candidate
+    }
+
+    for (let i = 0; i < count; i++) {
+      const d = dice[i]
+      const s = best.sim[i]
+      d.x = s.x; d.y = s.y; d.z = s.z
+      d.vx = s.vx; d.vy = s.vy; d.vz = s.vz
+      d.wx = s.wx; d.wy = s.wy; d.wz = s.wz
+      d.qx = s.qx; d.qy = s.qy; d.qz = s.qz; d.qw = s.qw
+      d.bounces = s.bounces
+      d.settleStep = s.settleStep
+      d.trajPos = s.trajPos
+      d.trajQuat = s.trajQuat
+      d.trajSpeed = s.trajSpeed
+    }
+
+    this.bounceQueue = best.bounceQueue
+    this.maxSimDuration = best.maxSettleStep * SIM_DT
+    this.fateApexTime = Math.max(0.08, best.peakStep * SIM_DT)
     this.bounceQueue.sort((a, b) => a.simTime - b.simTime)
 
     // 逆向四元数对齐：确保目标面最终稳稳朝上微倾面向摄像机，且 det(W * L^T) = (-1)*(-1) = +1 严格属于 SO(3)！
@@ -8562,7 +8711,7 @@ class CinematicDiceStage {
       const m21 = wuZ * uy + wvZ * vy + wnZ * ny
 
       const m02 = wuX * uz + wvX * vz + wnX * nz
-      const m12 = wuY * uz + wvY * vz + wnZ * nz
+      const m12 = wuY * uz + wvY * vz + wnY * nz
       const m22 = wuZ * uz + wvZ * vz + wnZ * nz
 
       mat3ToQuat(m00, m10, m20, m01, m11, m21, m02, m12, m22, qDesired)
@@ -9784,6 +9933,30 @@ class CinematicDiceStage {
     const mode = resolveThemeMode(roll, roll.hidden)
     const tier = fdTierOf(roll.tier)
 
+    if (roll.checkType === "contest" && roll.contest && Array.isArray(roll.contest.rivalDice) && roll.contest.rivalDice.length && !roll.hidden) {
+      const cSides = rule === "d20" ? 20 : rule === "d10" ? 10 : rule === "d100" ? 10 : (Number(roll.sides) || 6)
+      const cMk = meshKeyForSides(cSides)
+      const cMax = GL_MESHES[cMk] ? GL_MESHES[cMk].faceCount : cSides
+      const toSpec = (v, side, label) => ({
+        meshKey: cMk,
+        sides: cSides,
+        targetValue: rule === "d100"
+          ? Math.max(1, Math.min(cMax, Math.ceil((Number(v) || 50) / 10)))
+          : Math.max(1, Math.min(cMax, Math.round(Number(v) || 1))),
+        side,
+        ownerLabel: label
+      })
+      const allySpecs = rawDice.slice(0, 6).map(v => toSpec(v, "ally", "我方"))
+      const rivalSpecs = roll.contest.rivalDice.slice(0, 6).map(v => toSpec(v, "rival", roll.contest.rivalName || "对手"))
+      return {
+        diceSpecs: [...allySpecs, ...rivalSpecs],
+        tier,
+        mode: mode === "normal" ? "contest" : mode,
+        total: Number(roll.total) || 0,
+        checkName: roll.check || "交锋对抗"
+      }
+    }
+
     if (rule === "d100") {
       const pct = Math.max(1, Math.min(100, Math.round(Number(rawDice[0]) || Number(roll.total) || 50)))
       const tens = pct === 100 ? 0 : Math.floor(pct / 10) * 10
@@ -9936,6 +10109,46 @@ class CinematicDiceStage {
           fadeStart: this.pinSettled ? Infinity : (this.theaterMode ? 2.85 : 1.9),
           pinSettled: Boolean(this.pinSettled)
         })
+      }
+
+      if (this.mode === "contest" && this.settled && !this.charging && !hiddenMask && (this.pinSettled || this.settleTime < 2.8) && !this.compactMode) {
+        const fade = (!this.pinSettled && this.settleTime > 2.1) ? Math.max(0, 1 - (this.settleTime - 2.1) / 0.7) : Math.min(1, this.settleTime * 5)
+        ctx.save()
+        ctx.globalAlpha = fade
+        ctx.font = '700 10.5px system-ui, -apple-system, "PingFang SC", sans-serif'
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        const grouped = { ally: { sumX: 0, sumY: 0, count: 0, label: "我方" }, rival: { sumX: 0, sumY: 0, count: 0, label: "对手" } }
+        for (let i = 0; i < this.dice.length; i++) {
+          const d = this.dice[i]
+          if (d.side !== "ally" && d.side !== "rival") continue
+          const uv = this.renderer.projectToUV(d.x, d.y, d.z, this._uvTmp)
+          if (!uv.visible) continue
+          const bucket = grouped[d.side]
+          bucket.sumX += uv.u * W
+          bucket.sumY += (1 - uv.v) * H
+          bucket.count += 1
+          if (d.ownerLabel) bucket.label = d.ownerLabel
+        }
+        for (const [sideKey, info] of Object.entries(grouped)) {
+          if (!info.count) continue
+          const cx = info.sumX / info.count
+          const cy = Math.max(24, info.sumY / info.count - 36)
+          const strokeCol = sideKey === "ally" ? "#4ad295" : "#f06a54"
+          const txt = sideKey === "ally" ? `⚔ ${info.label}` : `🛡 ${info.label}`
+          const tw = Math.ceil(ctx.measureText(txt).width) + 16
+          ctx.fillStyle = isLightSurface ? "rgba(250, 245, 235, 0.9)" : "rgba(10, 12, 20, 0.84)"
+          ctx.strokeStyle = strokeCol
+          ctx.lineWidth = 1.2
+          ctx.beginPath()
+          if (typeof ctx.roundRect === "function") ctx.roundRect(cx - tw / 2, cy - 10, tw, 20, 10)
+          else ctx.rect(cx - tw / 2, cy - 10, tw, 20)
+          ctx.fill()
+          ctx.stroke()
+          ctx.fillStyle = strokeCol
+          ctx.fillText(txt, cx, cy + 0.5)
+        }
+        ctx.restore()
       }
 
       if (this.theme.themeIndex === 3 && this.settled && !this.charging && !hiddenMask && (this.pinSettled || this.settleTime < 2.4) && this.dice.length <= 4 && !this.compactMode) {
@@ -10362,11 +10575,37 @@ function DieGlyph(props) {
 function formatRollSummary(roll, revealed) {
   if (!roll) return ''
   if (roll.hidden && !revealed) return `${roll.check}暗骰 · 等待揭晓`
+  if (roll.autoSuccess) return `${roll.check}稳压 · 免骰直通`
+  if (roll.checkType === 'contest' && roll.contest) {
+    const z = Number(roll.contest.margin) || 0
+    const zText = z > 0 ? `+${z}` : String(z)
+    return `${roll.check}交锋 · ${roll.total} vs ${roll.contest.rivalTotal}(z${zText}) · ${roll.tierLabel}`
+  }
   const mod = roll.modifier ? (roll.modifier > 0 ? `+${roll.modifier}` : String(roll.modifier)) : ''
   const dicePart = Array.isArray(roll.dice) && roll.dice.length > 1
     ? `[${roll.dice.join('+')}]${mod}=${roll.total}`
     : `${roll.total}${mod ? `(${mod})` : ''}`
   return `${roll.check}检定 · ${dicePart} · ${roll.tierLabel}`
+}
+
+function fdFormatProfileChanges(changes) {
+  if (!Array.isArray(changes) || !changes.length) return ''
+  return changes.map(item => {
+    if (!item) return ''
+    if (item.kind === 'init') return `初始建档(${item.count}项)`
+    if (item.kind === 'removed') return `移除「${item.name}」`
+    const val = Number(item.delta)
+    const sign = Number.isFinite(val) && val > 0 ? `+${val}` : (Number.isFinite(val) ? String(val) : '')
+    return `${item.name}${sign ? `(${sign})` : ''}`
+  }).filter(Boolean).join('、')
+}
+
+function fdCollectResistanceFactors(roll) {
+  const fromRoll = Array.isArray(roll && roll.resistanceFactors) ? roll.resistanceFactors : []
+  const fromBd = Array.isArray(roll && roll.modifierBreakdown && roll.modifierBreakdown.resistanceFactors)
+    ? roll.modifierBreakdown.resistanceFactors
+    : []
+  return fromRoll.length ? fromRoll : fromBd
 }
 
 function fdDamperChip(roll) {
@@ -10407,7 +10646,9 @@ function LiveRollBanner(props) {
   const animation = event && event.animation ? event.animation : 'atelier'
   const isSetup = Boolean(event && event.kind === 'setup-required')
   const isSkipped = Boolean(event && event.kind === 'skipped')
+  const isTape = Boolean(event && event.kind === 'tape')
   const isFree = Boolean(event && event.kind === 'free')
+  const isDelayedReveal = Boolean(event && event.kind === 'check' && event.revealTiming === 'stream-end' && !(event.roll && event.roll.autoSuccess))
   const roll = isFree ? null : (event && event.roll) || null
   const isReused = Boolean((event && event.reused) || (roll && roll.reusedOnRegenerate))
   const freeResult = isFree ? (event && event.result) || null : null
@@ -10424,12 +10665,12 @@ function LiveRollBanner(props) {
       }, 5000)
       return () => clearTimeout(closer)
     }
-    /* 本轮无需检定：只留一行浅提示，6 秒后自动收起，不播骰子动画 */
-    if (isSkipped) {
+    /* 本轮无需检定 / 宿命序列就绪 / 正文落定后揭晓：只留一行轻量提示，不播骰子动画 */
+    if (isSkipped || isTape || isDelayedReveal) {
       setRolling(false)
       const closer = setTimeout(() => {
         if (typeof onDismiss === 'function') onDismiss()
-      }, 6000)
+      }, isDelayedReveal ? 3200 : 6000)
       return () => clearTimeout(closer)
     }
     /* 重新生成复用本轮已锁定的首次真骰结果：直接展示原骰面，不再假播滚动随机点数 */
@@ -10487,20 +10728,23 @@ function LiveRollBanner(props) {
       '请前往酒馆「设置 › 叙事阻尼器」填写决策模型与 API Key（轻触收起）')))
   }
 
-  if (isSkipped) {
+  if (isSkipped || isTape || isDelayedReveal) {
+    const noteText = isTape
+      ? (event.message || '宿命序列已就绪')
+      : (isDelayedReveal ? '命运真骰已暗定，待本轮正文落定揭晓' : (event.message || '本轮无需检定'))
     return h('div', { className: 'fd-root', style: { padding: '2px 0' } },
       h('div', {
         className: 'fd-skip-note',
         role: 'status',
         'aria-live': 'polite',
-        title: event.reason ? String(event.reason) : '本轮未被判定为需要检定',
+        title: event.reason ? String(event.reason) : noteText,
         onClick: () => {
           if (typeof onDismiss === 'function') onDismiss()
         }
       },
-      h('span', { className: 'fd-skip-icon', 'aria-hidden': 'true' }, '🎲'),
-      h('span', { className: 'fd-skip-text' }, event.message || '本轮无需检定'),
-      event.check ? h('span', { className: 'fd-skip-check' }, `· ${event.check}`) : null))
+      h('span', { className: 'fd-skip-icon', 'aria-hidden': 'true' }, isTape ? '📜' : '🎲'),
+      h('span', { className: 'fd-skip-text' }, noteText),
+      event.check && !isDelayedReveal ? h('span', { className: 'fd-skip-check' }, `· ${event.check}`) : null))
   }
 
   if (!roll && !freeResult) return null
@@ -10752,29 +10996,17 @@ function ComposerDicePopover(props) {
       }, '×'))),
   roll
     ? h(Fragment, null,
-      h(Fd3DDiceStage, {
-        roll,
-        revealed: !covered,
-        animation: record && record.animation,
-        compact: true,
-        animateOnMount: false,
-        stageRef
-      }),
-      h('dl', { className: 'fd-turn-details' },
-        h('dt', { className: 'fd-turn-dt' }, '骰面算式'),
-        h('dd', { className: 'fd-turn-dd' },
-          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`),
-        h('dt', { className: 'fd-turn-dt' }, '能力修正'),
-        h('dd', { className: 'fd-turn-dd' },
-          `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`),
-        damper
-          ? h(Fragment, null,
-            h('dt', { className: 'fd-turn-dt' }, '叙事阻尼器'),
-            h('dd', { className: 'fd-turn-dd' },
-              `${damper.applied === false ? '未联动' : '双向联动'}${quota ? ` · 配额 ${quota}` : ''}${damper.reason ? ` · ${damper.reason}` : ''}`))
-          : null,
-        h('dt', { className: 'fd-turn-dt' }, '难度理由'),
-        h('dd', { className: 'fd-turn-dd' }, `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)),
+      !roll.autoSuccess
+        ? h(Fd3DDiceStage, {
+          roll,
+          revealed: !covered,
+          animation: record && record.animation,
+          compact: true,
+          animateOnMount: false,
+          stageRef
+        })
+        : null,
+      fdBuildTurnDetails(record, !covered),
       h(FdRerollActionBox, {
         rerollState,
         fate,
@@ -11146,16 +11378,36 @@ function fdBuildTurnDetails(record, peeked) {
   }
 
   const rows = []
-  rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '骰面算式'))
-  rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
-    `${roll.rule || 'd6'} 原骰 [${(roll.dice || []).join(', ')}]`
-    + ` = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`))
+  if (roll.autoSuccess) {
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '免骰直通'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`))
+  } else if (roll.checkType === 'contest' && roll.contest) {
+    const c = roll.contest
+    const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '交锋对抗'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`))
+  } else {
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '骰面算式'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `${roll.rule || 'd6'} 原骰 [${(roll.dice || []).join(', ')}]`
+      + ` = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`))
+  }
 
   const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
   rows.push(h('dt', { key: 'dt-skill', className: 'fd-turn-dt' }, '角色能力修正'))
   rows.push(h('dd', { key: 'dd-skill', className: 'fd-turn-dd' },
     `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}`
     + (roll.modifier ? `（总修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : '')))
+
+  const factors = fdCollectResistanceFactors(roll)
+  if (factors.length) {
+    rows.push(h('dt', { key: 'dt-factors', className: 'fd-turn-dt' }, '外部阻力'))
+    rows.push(h('dd', { key: 'dd-factors', className: 'fd-turn-dd' },
+      h('div', { className: 'fd-factor-row' },
+        factors.map((f, idx) => h('span', { key: idx, className: 'fd-factor-chip' }, `${f.label} ${f.delta}`)))))
+  }
 
   if (fdNumber(breakdown.varModifier, 0) || (Array.isArray(breakdown.matchedVars) && breakdown.matchedVars.length)) {
     const matched = Array.isArray(breakdown.matchedVars) ? breakdown.matchedVars : []
@@ -11178,6 +11430,12 @@ function fdBuildTurnDetails(record, peeked) {
 
   rows.push(h('dt', { key: 'dt-diff', className: 'fd-turn-dt' }, '难度理由'))
   rows.push(h('dd', { key: 'dd-diff', className: 'fd-turn-dd' }, `${roll.difficultyLabel || '判定'} · ${roll.reason || '本地启发式快判'}`))
+
+  const deltaText = fdFormatProfileChanges(record.profileChanges)
+  if (deltaText) {
+    rows.push(h('dt', { key: 'dt-delta', className: 'fd-turn-dt' }, '能力演进'))
+    rows.push(h('dd', { key: 'dd-delta', className: 'fd-turn-dd' }, `✦ ${deltaText}`))
+  }
 
   return h('dl', { className: 'fd-turn-details' }, rows)
 }
@@ -11441,6 +11699,10 @@ function MediaTurnRollCapsule(props) {
 
 function fdFormatCompactDice(roll) {
   if (!roll) return ''
+  if (roll.autoSuccess) return '免骰直通'
+  if (roll.checkType === 'contest' && roll.contest) {
+    return `${roll.total}vs${roll.contest.rivalTotal}`
+  }
   if (roll.rule === 'd100') {
     return `${roll.total}/${roll.target === undefined ? 100 : roll.target}`
   }
@@ -11705,6 +11967,8 @@ function fdRecordFromLiveEvent(gameId, fallbackTurn, data, prevRecord) {
     gameId: gameId || (prevRecord && prevRecord.gameId) || '',
     turn: fdNumber(data.turn, fallbackTurn) || fallbackTurn || 0,
     streaming: true,
+    revealTiming: data.revealTiming || (prevRecord && prevRecord.revealTiming) || 'immediate',
+    animation: data.animation || (prevRecord && prevRecord.animation) || 'atelier',
     textVersion: null,
     roll: kind === 'check' && data.roll ? data.roll : null,
     setupRequiredReason: kind === 'setup-required' ? String(data.reason || 'SETUP_REQUIRED') : null,
@@ -11836,6 +12100,9 @@ function fdBuildFloorRollKickerText(roll, hidden, mode, power) {
   const rerollBadge = mode === 'push'
     ? ` · 🔥孤注一掷${pwrText}`
     : (mode === 'fate' ? ` · ✦逆命重投${pwrText}` : (pwrText ? ` · ${pwrText}` : ''))
+  if (roll && roll.checkType === 'contest' && roll.contest && !rerollBadge) {
+    return `⚔ 双骰交锋对抗 · ${checkTitle} vs ${roll.contest.rivalName || '对手'}${diffTitle} ✦`
+  }
   return `✦ 命运真骰裁定 · ${checkTitle}检定${diffTitle}${rerollBadge} ✦`
 }
 
@@ -11847,6 +12114,18 @@ function fdPopulateFloorRollReadout(doc, readout, roll, hidden) {
   if (hidden) {
     readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-formula', `${checkTitle}检定`))
     readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-tier', '暗骰封存'))
+    return
+  }
+  if (roll.checkType === 'contest' && roll.contest) {
+    const c = roll.contest
+    const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+    readout.appendChild(fdEl(
+      doc,
+      'span',
+      'fd-floor-roll-readout-formula',
+      `我方 ${roll.total} vs ${c.rivalName || '对手'} ${c.rivalTotal}（z = ${zSign}）`
+    ))
+    readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-tier', roll.tierLabel || '判定'))
     return
   }
   const rawDiceText = Array.isArray(roll.dice) && roll.dice.length ? `[${roll.dice.join('+')}]` : String(roll.total ?? '')
@@ -11914,7 +12193,7 @@ function fdDisposeFloorRollOverlay(entry) {
 }
 
 function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
-  if (!roll) return false
+  if (!roll || roll.autoSuccess) return false
   if (entry && entry.disposed) return false
   const baseKey = fdFloorRollAnimKey(roll)
   const eventKey = options && options.eventKey ? String(options.eventKey) : ''
@@ -12402,9 +12681,11 @@ function fdMountImperativeFloorHeaders(ui) {
       entry.retryCount = FD_STREAM_POLL_DELAYS.length
       entry.record = optimistic
       entry.gotLiveStreamRecord = true
-      /* 判定结果一落定立刻在正文中央投骰，不等正文写完、也不进胶囊 */
+      /* 若设了随正文落定揭晓且当前正流式生成中（且未触发发前暂停），暂不提前剧透投骰剧场 */
       const evTurn = fdNumber(data && data.turn, 0)
-      if (optimistic.roll && (!evTurn || !entry.turn || evTurn === entry.turn)) {
+      const deferReveal = data.revealTiming === 'stream-end'
+        && !(typeof fdIsPreSendGateHoldingOverlay === 'function' && fdIsPreSendGateHoldingOverlay())
+      if (optimistic.roll && !deferReveal && (!evTurn || !entry.turn || evTurn === entry.turn)) {
         fdPlayFloorRollAnim(entry.article, entry, optimistic.roll, data.animation)
       }
       renderEntry(entry)
@@ -12436,11 +12717,12 @@ function fdMountImperativeFloorHeaders(ui) {
     const off2 = fdWatch(ui, id, 'live-roll', data => {
       latestLiveEvent = data && typeof data === 'object' ? { gameId: id, data } : null
       if (data && typeof data === 'object') {
-        /* 决策模型结果一落定即刻在对话视口正中央起全宽剧场，绝不等流式楼层 DOM 插入 */
+        /* 决策模型结果一落定即刻在对话视口正中央起全宽剧场（除非选择了随正文落定揭晓），绝不等流式楼层 DOM 插入 */
         if (data.kind === 'check' && data.roll) {
           const ts = fdNumber(data.emittedAt, fdNumber(data.roll.rolledAt, 0))
           const isFresh = !ts || Math.abs(Date.now() - ts) < 25000
-          if (isFresh) {
+          const deferForStreamEnd = data.revealTiming === 'stream-end'
+          if (isFresh && !deferForStreamEnd) {
             fdPlayFloorRollAnim(null, null, data.roll, data.animation, { eventKey: data.id || '' })
           }
           if (
@@ -12605,8 +12887,9 @@ function fdMountImperativeFloorHeaders(ui) {
     const judged = record.judged || null
     const setupReason = record.setupRequiredReason || ''
     const fate = fdNormalizeFate(record.fate)
-    const covered = Boolean(roll && roll.hidden && !entry.peeked)
     const isStreaming = Boolean(entry.streaming || record.streaming)
+    const delayedCover = Boolean(roll && !roll.autoSuccess && record.revealTiming === 'stream-end' && isStreaming)
+    const covered = Boolean(roll && ((roll.hidden && !entry.peeked) || delayedCover))
 
     let tone = 'skipped'
     let pillText = '真骰 · 免检定'
@@ -12614,7 +12897,10 @@ function fdMountImperativeFloorHeaders(ui) {
 
     if (roll) {
       tone = covered ? 'hidden' : fdTierOf(roll.tier)
-      if (covered) {
+      if (delayedCover) {
+        pillText = `🎲 ${roll.check || '检定'} · 待正文落定揭晓`
+        tooltip = '已设置随正文落定揭晓（点击可提前偷看，或待正文写完自动播骰）'
+      } else if (covered) {
         pillText = `暗骰 · ${roll.check || '感知'} · 点按偷看`
         tooltip = '感知/洞察暗骰（点击揭晓并展开详情）'
       } else {
@@ -12742,16 +13028,33 @@ function fdMountImperativeFloorHeaders(ui) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', label))
         dl.appendChild(fdEl(doc, 'dd', 'fd-turn-dd', value))
       }
-      addRow(
-        '骰面算式',
-        `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
-      )
+      if (roll.autoSuccess) {
+        addRow('免骰直通', `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`)
+      } else if (roll.checkType === 'contest' && roll.contest) {
+        const c = roll.contest
+        const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+        addRow('交锋对抗', `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
+      } else {
+        addRow(
+          '骰面算式',
+          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
+        )
+      }
       const breakdown = roll.modifierBreakdown || {}
       const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
       addRow(
         '能力修正',
         `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`
       )
+      const factors = fdCollectResistanceFactors(roll)
+      if (factors.length) {
+        dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', '外部阻力'))
+        const ddFactors = fdEl(doc, 'dd', 'fd-turn-dd')
+        const row = fdEl(doc, 'div', 'fd-factor-row')
+        factors.forEach(f => row.appendChild(fdEl(doc, 'span', 'fd-factor-chip', `${f.label} ${f.delta}`)))
+        ddFactors.appendChild(row)
+        dl.appendChild(ddFactors)
+      }
       const damper = roll.damper || roll.damperSync || null
       if (damper) {
         const quota = damper.quota || damper.quotaSync || ''
@@ -12761,6 +13064,10 @@ function fdMountImperativeFloorHeaders(ui) {
         )
       }
       addRow('难度理由', `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)
+      const deltaText = fdFormatProfileChanges(record.profileChanges)
+      if (deltaText) {
+        addRow('能力演进', `✦ ${deltaText}`)
+      }
       panel.appendChild(dl)
 
       const rerollState = record.rerollState && typeof record.rerollState === 'object'
@@ -12906,10 +13213,12 @@ function fdMountImperativeFloorHeaders(ui) {
       if (nextRecord) {
         fdNoteRuntimeFlags(data.gameId || activeGameId, nextRecord)
         if (nextRecord.streaming === true) entry.gotLiveStreamRecord = true
+        const finishedNow = Boolean(entry.justFinishedStream && !entry.streaming && nextRecord.streaming !== true)
         entry.justFinishedStream = false
         entry.record = nextRecord
-        /* 生成期间首次读到本轮真骰（实时事件可能先到）：同样在正文中央补播一次 */
-        if (nextRecord.roll && (nextRecord.streaming === true || entry.streaming)) {
+        const deferReveal = nextRecord.revealTiming === 'stream-end' && (nextRecord.streaming === true || entry.streaming)
+        /* 判定即播：流式期间首次读到真骰立即播；随正文落定揭晓：等到正文刚落定（finishedNow）时再在视口中央补播 */
+        if (nextRecord.roll && !deferReveal && (nextRecord.streaming === true || entry.streaming || (finishedNow && nextRecord.revealTiming === 'stream-end'))) {
           fdPlayFloorRollAnim(entry.article, entry, nextRecord.roll, nextRecord.animation)
         }
       } else if (entry.streaming && entry.gotLiveStreamRecord && entry.record) {
@@ -13024,7 +13333,9 @@ function fdMountImperativeFloorHeaders(ui) {
         }
         entries.set(article, entry)
         if (seedRecord) {
-          if (seedRecord.roll && streaming) fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
+          if (seedRecord.roll && streaming && seedRecord.revealTiming !== 'stream-end') {
+            fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
+          }
           renderEntry(entry)
         }
         loadEntry(entry, { force: Boolean(wasStreaming && !streaming) })
@@ -13834,21 +14145,26 @@ function fdLocalRollExpression(expression) {
   }
 }
 
-/* 自由骰小工具：默认折叠，纯娱乐投掷，不写入剧情也不触发阻尼器（支持 3D 舞台与长按按钮聚能蓄力！） */
+/* 自由骰小工具：默认折叠，纯娱乐投掷或挂载为下轮局势/奇遇骰（支持 3D 舞台与长按按钮聚能蓄力！） */
 function FreeRollCard(props) {
-  const { gameId, notify, ui, animation } = props || {}
+  const { gameId, notify, ui, animation, pendingEncounter, onEncounterChange } = props || {}
   const [expr, setExpr] = useState('2d6')
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [asEncounter, setAsEncounter] = useState(false)
   const stageRef = useRef(null)
 
   const roll = value => {
     const expression = String(value || expr || '').trim()
     if (!expression) return
     setBusy(true)
-    fdFreeRoll(ui, gameId, expression).then(res => {
-      if (res.ok && res.data && res.data.result) setResult(res.data.result)
-      else {
+    const injectAsEncounter = Boolean(asEncounter && gameId)
+    fdFreeRoll(ui, gameId, expression, { injectAsEncounter }).then(res => {
+      if (res.ok && res.data && res.data.result) {
+        setResult(res.data.result)
+        if (injectAsEncounter && typeof onEncounterChange === 'function') onEncounterChange(res.data.result)
+        if (injectAsEncounter && notify) notify(`已挂载下轮局势骰：${res.data.result.expression} = ${res.data.result.total}`)
+      } else {
         const local = fdLocalRollExpression(expression)
         if (local.ok) {
           setResult(local.result)
@@ -13856,6 +14172,14 @@ function FreeRollCard(props) {
         } else if (notify) notify(local.error)
       }
     }).finally(() => setBusy(false))
+  }
+
+  const clearEncounter = () => {
+    if (!gameId) return
+    fdFreeRoll(ui, gameId, '', { clearEncounter: true }).then(() => {
+      if (typeof onEncounterChange === 'function') onEncounterChange(null)
+      if (notify) notify('已取消下轮局势骰挂载')
+    })
   }
 
   const holdCharge = useFdHoldCharge({
@@ -13877,17 +14201,34 @@ function FreeRollCard(props) {
   const previewRoll = result || idlePreview
 
   return h(FdCollapse, {
-    title: '🎲 自由骰小工具',
-    sub: '默认折叠 · 支持长按按钮聚能蓄力',
+    title: '🎲 自由骰 / 局势奇遇骰',
+    sub: pendingEncounter ? `已挂载下轮局势：${pendingEncounter.expression}=${pendingEncounter.total}` : '默认折叠 · 支持长按蓄力与下轮局势注入',
     right: h(FdHelp, {
-      title: '自由骰小工具',
+      title: '自由骰与局势奇遇骰',
       text: [
         '支持 ndm 与加减修正量表达式，例如 2d6+1、1d20、3d10-2：前缀为骰子个数，d 后为面数，后面可跟 +N / -N。',
         '点击「投掷」即刻出点；长按「投掷」按钮可激活 3D 引力聚能旋涡蓄力，松手爆发投出（蓄力途中移出按钮可无损取消）。',
-        '这里只投骰与展示骰面，不写入剧情行动文本，也不会触发叙事阻尼器请求；结果仅留在本机界面。'
+        '打开「挂载为下轮局势 / 奇遇骰」后，在赶路、探索或休整轮次投出一骰（高点=顺风奇遇、低点=突发波折或险兆），结果会自动注入下一轮环境上下文，消费后自动清空。'
       ]
     })
   },
+  gameId
+    ? h(FdRow, {
+      plain: true,
+      title: '作为下轮局势 / 奇遇骰注入',
+      sub: asEncounter ? '投出后自动附入下轮场景上下文（适合赶路/探索）' : '仅娱乐展示，不写入任何对话上下文'
+    }, h(FdSwitch, { on: asEncounter, label: '作为下轮局势 / 奇遇骰注入', onChange: setAsEncounter }))
+    : null,
+  pendingEncounter
+    ? h('div', { className: 'fd-profile-delta' },
+      `✦ 下轮已挂载局势骰：${pendingEncounter.expression} = ${pendingEncounter.total}（下轮发送行动时自动生效）`,
+      h('button', {
+        type: 'button',
+        className: 'fd-chip',
+        style: { marginLeft: '8px' },
+        onClick: clearEncounter
+      }, '取消挂载'))
+    : null,
   h('div', { className: 'fd-btn-row' },
     ['2d6+1', '1d20', '1d100', '2d6', '1d6'].map(item => h(FdChip, {
       key: item,
@@ -13947,7 +14288,8 @@ function DecisionModelGuideBanner(props) {
   const steps = [
     '1. 打开酒馆左侧/顶栏「设置 › 叙事阻尼器」；',
     '2. 选择决策模型提供方（如 gemini / jev / openai-compatible），填入模型与 API Key 并点击「测试连接」；',
-    '3. 配好密钥后命运之骰即可直接复用该模型自动判难与选技能（无需强行打开「启用叙事阻尼器」拦截开关也能独立使用；若开启阻尼器则自动合并为单趟请求并双向联动配额）。'
+    '3. 配好密钥后命运之骰即可直接复用该模型自动判难与选技能（无需强行打开「启用叙事阻尼器」拦截开关也能独立使用；若开启阻尼器则自动合并为单趟请求并双向联动配额）；',
+    '4. 若暂不想配置决策模型，也可前往「检定设置」开启「宿命序列真骰带」实现零小模型开销的多检定。'
   ]
 
   return h('div', { className: 'fd-guide-banner', role: 'alert' },
@@ -14096,6 +14438,9 @@ function WorkbenchPanel(props) {
         characterProfile: profile ? fdNormalizeCharacterProfile(profile) : prev.characterProfile,
         contextSources: contextSources ? fdNormalizeContextSources(contextSources) : prev.contextSources
       }))
+    },
+    setPendingEncounter(encounter) {
+      patch(() => ({ pendingEncounter: encounter || null }))
     }
   }
 
@@ -14527,8 +14872,15 @@ function ChecksTab(props) {
               h('span', { className: 'fd-hint' }, item.hidden ? '暗骰' : `${item.total} ${item.tierLabel}`)))))
         : h('div', { className: 'fd-hint' }, '本局尚无检定记录，发送一轮行动后开始记录')),
 
-    /* ---------------- 5. 自由骰小工具（默认折叠） ---------------- */
-    h(FreeRollCard, { ui, gameId, notify, animation: settings.animation }))
+    /* ---------------- 5. 自由骰 / 局势奇遇骰（默认折叠） ---------------- */
+    h(FreeRollCard, {
+      ui,
+      gameId,
+      notify,
+      animation: settings.animation,
+      pendingEncounter: view.pendingEncounter || null,
+      onEncounterChange: enc => (actions && actions.setPendingEncounter ? actions.setPendingEncounter(enc) : undefined)
+    }))
 }
 
 /* ===== src/client/tab-settings.js ===== */
@@ -14616,6 +14968,38 @@ function SettingsTab(props) {
       },
       h(FdSelect, { value: settings.animation, options: FD_ANIMATION_OPTIONS, onChange: value => apply({ animation: value }) })),
 
+      h(FdField, {
+        label: '结果揭晓时机',
+        help: [
+          '决定 3D 投骰剧场什么时候拉开帷幕。',
+          '判定即播（默认）：点发送后决策模型一出结果立刻全宽甩骰，最爽快直观。',
+          '随正文落定揭晓：发送后先保持悬念静默生成正文，等这一轮正文流式写完落定后再揭晓骰面，避免还没读剧情先被大成功/大失败剧透。开启「失败时暂停发送」并在本轮命中拦截时仍会照常发前弹出。'
+        ].join('\n')
+      },
+      h(FdSelect, { value: settings.revealTiming || 'immediate', options: FD_REVEAL_TIMING_OPTIONS, onChange: value => apply({ revealTiming: value }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '实力碾压免骰直通',
+        sub: '默认开启：能力稳压常规难度时直接达成，杜绝满级翻车',
+        help: [
+          '开启后，当行动难度为「极易」或「容易」，且角色能力加值 + 环境修正即便掷出最低骰面也稳跨目标值时，系统会直接判为「⚡ 稳妥达成（免骰直通）」。',
+          '可彻底避免高阶高手做寻常小事却骰出双 1 滑稽大失败的违和感；困难及以上或双骰对抗仍正常投骰。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: settings.autoSuccessEnabled !== false, label: '实力碾压免骰直通', onChange: next => apply({ autoSuccessEnabled: next }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '正面交锋双骰对抗',
+        sub: '默认开启：战斗拼刀/追逃/迎战时双边同台对撞掷骰',
+        help: [
+          '开启后，识别到战斗挥砍、格挡、追击、决斗等正面交锋行动时，我方与对手各掷一组真骰在 3D 舞台左右迎面对撞，按净差值 z 裁定胜负：',
+          'z > 0 我方占优压制；z = 0 势均力敌胶着僵持；z < 0 对手化解攻势并立即反击抢先手。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: settings.contestEnabled !== false, label: '正面交锋双骰对抗', onChange: next => apply({ contestEnabled: next }) })),
+
       h(FdRow, {
         plain: true,
         title: '感知类动作自动暗骰',
@@ -14651,7 +15035,18 @@ function SettingsTab(props) {
           '本地兜底的判定明显不如决策模型精细（不懂上下文、不辨语气、容易把「假装要打」当成「打」），只适合试玩、离线演示或临时救急；一旦配好 API Key 建议关回默认。'
         ].join('\n')
       },
-      h(FdSwitch, { on: Boolean(settings.allowHeuristicFallback), label: '无决策模型时使用本地关键词兜底', onChange: next => apply({ allowHeuristicFallback: next }) }))),
+      h(FdSwitch, { on: Boolean(settings.allowHeuristicFallback), label: '无决策模型时使用本地关键词兜底', onChange: next => apply({ allowHeuristicFallback: next }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '无决策模型时启用宿命序列真骰带',
+        sub: '默认关闭：每轮预掷 6 组真骰随主正文按需顺位取用',
+        help: [
+          '未配置决策模型且未开本地关键词兜底时生效：每轮发送行动前用密码学真随机预掷 6 组（①~⑥）骰点注入上下文，由主模型仅在遇到不确定性或连续事件时按顺序取骰并在末尾静默回传标记。',
+          '零小模型 API 消耗、且能在一个楼层内自然支撑连续多段检定；日常无阻力对话时主模型会自动跳过取骰。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: Boolean(settings.tapeFallbackEnabled), label: '无决策模型时启用宿命序列真骰带', onChange: next => apply({ tapeFallbackEnabled: next }) }))),
 
     h(FdSection, {
       title: '✦ 失败时暂停发送',

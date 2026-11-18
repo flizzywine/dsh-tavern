@@ -82,6 +82,38 @@ function SettingsTab(props) {
       },
       h(FdSelect, { value: settings.animation, options: FD_ANIMATION_OPTIONS, onChange: value => apply({ animation: value }) })),
 
+      h(FdField, {
+        label: '结果揭晓时机',
+        help: [
+          '决定 3D 投骰剧场什么时候拉开帷幕。',
+          '判定即播（默认）：点发送后决策模型一出结果立刻全宽甩骰，最爽快直观。',
+          '随正文落定揭晓：发送后先保持悬念静默生成正文，等这一轮正文流式写完落定后再揭晓骰面，避免还没读剧情先被大成功/大失败剧透。开启「失败时暂停发送」并在本轮命中拦截时仍会照常发前弹出。'
+        ].join('\n')
+      },
+      h(FdSelect, { value: settings.revealTiming || 'immediate', options: FD_REVEAL_TIMING_OPTIONS, onChange: value => apply({ revealTiming: value }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '实力碾压免骰直通',
+        sub: '默认开启：能力稳压常规难度时直接达成，杜绝满级翻车',
+        help: [
+          '开启后，当行动难度为「极易」或「容易」，且角色能力加值 + 环境修正即便掷出最低骰面也稳跨目标值时，系统会直接判为「⚡ 稳妥达成（免骰直通）」。',
+          '可彻底避免高阶高手做寻常小事却骰出双 1 滑稽大失败的违和感；困难及以上或双骰对抗仍正常投骰。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: settings.autoSuccessEnabled !== false, label: '实力碾压免骰直通', onChange: next => apply({ autoSuccessEnabled: next }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '正面交锋双骰对抗',
+        sub: '默认开启：战斗拼刀/追逃/迎战时双边同台对撞掷骰',
+        help: [
+          '开启后，识别到战斗挥砍、格挡、追击、决斗等正面交锋行动时，我方与对手各掷一组真骰在 3D 舞台左右迎面对撞，按净差值 z 裁定胜负：',
+          'z > 0 我方占优压制；z = 0 势均力敌胶着僵持；z < 0 对手化解攻势并立即反击抢先手。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: settings.contestEnabled !== false, label: '正面交锋双骰对抗', onChange: next => apply({ contestEnabled: next }) })),
+
       h(FdRow, {
         plain: true,
         title: '感知类动作自动暗骰',
@@ -117,7 +149,18 @@ function SettingsTab(props) {
           '本地兜底的判定明显不如决策模型精细（不懂上下文、不辨语气、容易把「假装要打」当成「打」），只适合试玩、离线演示或临时救急；一旦配好 API Key 建议关回默认。'
         ].join('\n')
       },
-      h(FdSwitch, { on: Boolean(settings.allowHeuristicFallback), label: '无决策模型时使用本地关键词兜底', onChange: next => apply({ allowHeuristicFallback: next }) }))),
+      h(FdSwitch, { on: Boolean(settings.allowHeuristicFallback), label: '无决策模型时使用本地关键词兜底', onChange: next => apply({ allowHeuristicFallback: next }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '无决策模型时启用宿命序列真骰带',
+        sub: '默认关闭：每轮预掷 6 组真骰随主正文按需顺位取用',
+        help: [
+          '未配置决策模型且未开本地关键词兜底时生效：每轮发送行动前用密码学真随机预掷 6 组（①~⑥）骰点注入上下文，由主模型仅在遇到不确定性或连续事件时按顺序取骰并在末尾静默回传标记。',
+          '零小模型 API 消耗、且能在一个楼层内自然支撑连续多段检定；日常无阻力对话时主模型会自动跳过取骰。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: Boolean(settings.tapeFallbackEnabled), label: '无决策模型时启用宿命序列真骰带', onChange: next => apply({ tapeFallbackEnabled: next }) }))),
 
     h(FdSection, {
       title: '✦ 失败时暂停发送',
