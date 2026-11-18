@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a4ee0ebe1532f433dfd791ca1e3261a686fa6faf",
-  "releaseSequence": 1773,
+  "revision": "eb07088d7d7ecef3c330e7c482fa71741d6a04af",
+  "releaseSequence": 1774,
   "version": "3.3.0",
   "files": [
     {
@@ -8281,8 +8281,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/build.mjs",
-      "sha256": "a6db77b382f88978f0482b9b6a06eef8552e89de924890112d6252ee1ebaceb7",
-      "size": 26569
+      "sha256": "faec8d9f8c3f0c0dedff288718f0b626538c5b4d7de900dc72fe1aaf5ecddeac",
+      "size": 27079
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/cordis.patch.yml",
@@ -8351,8 +8351,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "6cf85b0bb789e5802a6537304d1c03ebe9aacd6c413c4a91db1e7ed50560ccb7",
-      "size": 3698603
+      "sha256": "9618bfeb9ad3f3f2ea735b37bbf3e0d0d5c2d5774dffd084e4fa2587aec8c190",
+      "size": 3477207
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8743,6 +8743,11 @@
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/story-observer.js",
       "sha256": "73ddaf7407a35cb6385ffc20845cfa86a5c0d45690b70647aceb4b3d8f16c80e",
       "size": 4373
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/theme-parts.js",
+      "sha256": "23b4a2cc6b010a5410820d3087cda6a2eab451a4e7c0c8bd3bde1f0e437f73b6",
+      "size": 7163
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/voice-backfill.js",
@@ -9561,9 +9566,9 @@
     }
   ],
   "archive": {
-    "commit": "0b6203e0a81ad26931aa95102bc7e0b3b4c84459",
+    "commit": "8ea1f0573bb18226f72e94fb9b06b393a0446bab",
     "path": "runtime.zip",
-    "sha256": "cccf7afc9d2a447ffc5140dd96783358a077d02850ae61a8e3095731d1f769fa",
-    "size": 16957671
+    "sha256": "591206875183ef9e0da75f69218fe701046b1405003e73724dd9cbd3209e3b40",
+    "size": 16865930
   }
 }
