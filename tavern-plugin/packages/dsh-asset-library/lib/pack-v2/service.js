@@ -320,6 +320,20 @@ export function createAssetPackService(options) {
     return retained
   }
   async function all() { const packs = []; for (const id of await storage.listIds()) packs.push(await metadata(id)); return packs }
+  async function prepareMerge(source, before, input) {
+    const merged = mergePackContents(source,before,input)
+    trimAuthoringImages(merged.manifest,merged.files,{...source.figures,...before.figures})
+    await sealPack(merged.manifest,merged.files,before,storedCopyHashes(merged.files,[source,before]))
+    const bytes = merged.manifest.files.reduce((sum,row)=>sum+row.size,0)
+    budget(merged.files,limits)
+    const manifestBytes = jsonBytes(merged.manifest).length
+    check(bytes + manifestBytes <= limits.totalSize && manifestBytes <= limits.entrySize && merged.files.size + 1 <= limits.entries,'$.files','Merged pack exceeds budget','LIMIT_EXCEEDED')
+    const figures = Object.fromEntries(merged.manifest.figures.map(id=>[id,readDocument(merged.files.get('figures/'+id+'.json'))]))
+    const sprites = Object.fromEntries(Object.entries(merged.manifest.sprites).map(([key,file])=>[key,readDocument(merged.files.get(file))]))
+    const pack = {manifest:merged.manifest, files:merged.files, figures, sprites, local:before.local}
+    validatePackDocuments(pack)
+    return {pack, bytes, mapping:merged.mapping, bundleKeys:merged.bundleKeys, spriteKeys:merged.spriteKeys, voiceKeys:merged.voiceKeys}
+  }
   function emit(pack, before) {
     const event = {packId:pack?.manifest.id || before.manifest.id, revision:pack?.local.revision ?? null, kinds:[...new Set([...(before?.manifest.assets || []), ...(pack?.manifest.assets || [])].map(a => a.kind))], figures:[...new Set([...(before?.manifest.figures || []), ...(pack?.manifest.figures || [])])]}
     for (const listener of storage.subscribers) { try { listener(copy(event)) } catch { /* Observers cannot roll back a committed write. */ } }
@@ -891,20 +905,14 @@ export function createAssetPackService(options) {
         const source = await loadForExport(input.sourcePackId), before = await loadForExport(input.packId)
         cas(source,input.sourceRevision); cas(before,input.expectedRevision)
         check(source && before, '$', 'Both packs must exist', 'ASSET_UNAVAILABLE')
-        const merged = mergePackContents(source,before,input)
-        trimAuthoringImages(merged.manifest,merged.files,{...source.figures,...before.figures})
-        const hashes = storedCopyHashes(merged.files,[source,before])
-        await sealPack(merged.manifest,merged.files,before,hashes)
-        budget(merged.files,limits)
-        const checked = {figures:Object.fromEntries(merged.manifest.figures.map(id=>[id,readDocument(merged.files.get('figures/'+id+'.json'))])),sprites:Object.fromEntries(Object.entries(merged.manifest.sprites).map(([key,file])=>[key,readDocument(merged.files.get(file))]))}
-        validatePackDocuments({...checked,manifest:merged.manifest})
+        const {pack, ...details} = await prepareMerge(source,before,input)
         const installed = await all()
-        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),merged.manifest])
+        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),pack.manifest])
         const retired = new Set(before.local.retired || [])
-        for (const key of keys({...checked,manifest:merged.manifest})) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
-        const plan = {mapping:merged.mapping,bundleKeys:merged.bundleKeys,spriteKeys:merged.spriteKeys,voiceKeys:merged.voiceKeys,contentHash:merged.manifest.contentHash,figures:merged.manifest.figures.length,assets:merged.manifest.assets.length,bytes:merged.manifest.files.reduce((sum,row)=>sum+row.size,0)}
-        if (input.dryRun) return {status:'dry-run',...plan,...(input.includeSnapshot ? {snapshot:snapshot({...checked,manifest:merged.manifest,local:before.local})} : {})}
-        const pack = {...checked,manifest:merged.manifest,files:merged.files}, local = nextLocal(before.local)
+        for (const key of keys(pack)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
+        const plan = {...details,contentHash:pack.manifest.contentHash,figures:pack.manifest.figures.length,assets:pack.manifest.assets.length}
+        if (input.dryRun) return {status:'dry-run',...plan,...(input.includeSnapshot ? {snapshot:snapshot(pack)} : {})}
+        const local = nextLocal(before.local)
         await storage.publish(input.packId,pack,local,before)
         // The offline command owns a full two-pack backup and writes a partial receipt on failure.
         await storage.publish(input.sourcePackId,null,nextLocal(source.local))
@@ -912,6 +920,59 @@ export function createAssetPackService(options) {
         emit({...pack,local},before); emit(null,source)
         return {status:'merged',revision:local.revision,...plan}
       },input.dryRun === true)
+    },
+    // Replace only unbound sources. The card commit is the durable decision for the whole pack batch.
+    consolidatePacks(input) {
+      const {packId, expectedRevision, sources, name, card, dryRun, approvedContentHash, assetNames = []} = input
+      validateUuid(packId); validateUuid(expectedRevision)
+      check(Array.isArray(sources) && sources.length >= 1 && sources.length <= 8,'$.sources','Choose installed source packs')
+      for (const source of sources) {
+        shape(source,['packId','expectedRevision'],['packId','expectedRevision'],'$.sources')
+        validateUuid(source.packId); validateUuid(source.expectedRevision)
+      }
+      const sourceIds = sources.map(source=>source.packId), ids = new Set([packId,...sourceIds])
+      check(ids.size === sources.length+1,'$.sources','Choose distinct packs')
+      shape(card,['path','expectedRevision'],['path','expectedRevision'],'$.card')
+      check(typeof card.path === 'string' && typeof card.expectedRevision === 'string' && card.expectedRevision.length > 0,'$.card')
+      check(typeof name === 'string' && name.trim() && name.length <= 180,'$.name')
+      check(typeof dryRun === 'boolean' && Array.isArray(assetNames),'$.dryRun')
+      if (!dryRun) validateHash(approvedContentHash)
+      const cards = options.cardTransactions
+      return run([...ids],async()=>{
+        const currentCard = await cards.snapshot({path:card.path})
+        check(currentCard.raw && currentCard.revision === card.expectedRevision,'$.card','Card changed','REVISION_CONFLICT')
+        const oldCardPacks = cards.inspectRaw(currentCard.raw).boundPackIds
+        check(!oldCardPacks.some(id=>ids.has(id) && id !== packId),'$.card','Source still bound','REVISION_CONFLICT')
+        const before = await loadForExport(packId); cas(before,expectedRevision)
+        check(before && !isModConfigPack(before),'$.packId','Target must be a normal installed pack','ASSET_UNAVAILABLE')
+        let pack = before, bytes
+        const retire = [], mouthDebt = {...before.local.mouthDebt}, mappings = []
+        for (const row of sources) {
+          const source = await loadForExport(row.packId); cas(source,row.expectedRevision)
+          check(source && !isModConfigPack(source) && !source.local.autoWrite && !source.local.stageSetupCardId,'$.sources','Only normal unbound packs may be consolidated','ASSET_UNAVAILABLE')
+          await cards.requireUnboundPack({packId:row.packId})
+          check(!options.globalEnabledPackIds?.().includes(row.packId),'$.sources','Source is enabled globally','REVISION_CONFLICT')
+          const result = await prepareMerge(source,pack,{name,assetNames:sources.at(-1) === row ? assetNames : []})
+          pack = result.pack; bytes = result.bytes; mappings.push(result.mapping)
+          const debt = await readCopyMouthDebt(options.assetRoot,row.packId,source.local,options.mouthDebtRoot)
+          Object.assign(mouthDebt,copiedMouthDebt(source,pack,source.manifest.figures.map(id=>({kind:'figures',fromId:id,toId:id})),debt))
+          retire.push({source,entry:{removeId:row.packId,local:nextLocal(source.local)}})
+        }
+        const installed = await all()
+        validatePackIdentities([...installed.filter(item=>!ids.has(item.manifest.id)).map(item=>item.manifest),pack.manifest])
+        const retired = new Set(before.local.retired)
+        for (const key of keys(pack)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
+        const result = {packId,name,figures:pack.manifest.figures.length,assets:pack.manifest.assets.length,bytes,contentHash:pack.manifest.contentHash,sourceIds,card:card.path,mappings}
+        if (dryRun) return {status:'dry-run',...result}
+        check(result.contentHash === approvedContentHash,'$.approvedContentHash','Candidate differs from the verified pack','REVISION_CONFLICT')
+        const local = nextLocal({...before.local,mouthDebt})
+        await cards.withBoundPack({...card,packId},async transaction=>{
+          await storage.publishMany([{pack,local},...retire.map(row=>row.entry)],transaction)
+        })
+        evictMetadata(packId); emit({...pack,local},before)
+        for (const {source} of retire) { evictMetadata(source.manifest.id); emit(null,source) }
+        return {status:'merged',revision:local.revision,...result}
+      },dryRun)
     },
     // Host maintenance only, like mergePacks: figures keep their ids and change owner pack; the caller stops the profile and
     // rewrites the (pack, figure) references. Target first, then source; the offline command's backup covers an interruption.

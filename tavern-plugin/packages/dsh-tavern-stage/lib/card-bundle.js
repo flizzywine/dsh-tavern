@@ -105,6 +105,11 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
         return {path, cardId:item.cardId, cover:workspace ? await readCover(path) : undefined, revision:revision(workspace), raw:workspace ? cardPreparation.present({card:workspace,as:'raw'}) : null}
       })
     },
+    async requireUnboundPack({packId}) {
+      const affected = await dependencies({packId})
+      check(affected.available, '$.cards', 'Card bindings unavailable', 'ASSET_UNAVAILABLE')
+      check(!affected.count, '$.cards', 'Source pack is still bound to a card', 'REVISION_CONFLICT')
+    },
     async unbindPack({packId}) {
       const affected = await dependencies({packId})
       check(affected.available, '$.cards', 'Card bindings unavailable', 'ASSET_UNAVAILABLE')

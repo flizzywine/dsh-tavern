@@ -3,7 +3,7 @@ import {check} from '../asset-packs/common.js'
 import {jsonBytes,readDocument} from './validation.js'
 
 // Explicit one-time authoring, not a runtime identity alias.
-export function mergePackContents(source, target, {name, figureMerges = [], backgroundStyle} = {}) {
+export function mergePackContents(source, target, {name, figureMerges = [], backgroundStyle, assetNames = []} = {}) {
   check(source.manifest.schemaVersion === target.manifest.schemaVersion,'$.schemaVersion','Migrate both packs to the same image format before merging','UNSUPPORTED_SCHEMA_VERSION')
   const manifest = structuredClone(target.manifest), files = new Map(target.files), mapping = {source:source.manifest.id,target:target.manifest.id,figures:{},outfits:{}}
   const bundleKeys = {}, spriteKeys = {}, voiceKeys = {}
@@ -30,7 +30,23 @@ export function mergePackContents(source, target, {name, figureMerges = [], back
     return result
   }
   const fileName = name => name.replace(/^bundles\/([^/]+)\//,(_,key)=>'bundles/'+bundleKeys[key]+'/').replace(/^sprites\/([^/]+)\//,(_,key)=>'sprites/'+spriteKeys[key]+'/')
+  const resolutionKey = 'dsh.media-resolution', resolutionPath = 'credits/media-resolution.json'
+  const resolution = source.manifest.extensions?.[resolutionKey]
+  if (resolution) {
+    check(resolution.version === 1 && resolution.file === resolutionPath,'$.extensions','Unknown media resolution register')
+    const prior = manifest.extensions?.[resolutionKey]
+    check(prior ? isDeepStrictEqual(prior,resolution) : !files.has(resolutionPath),'$.extensions','Conflicting media resolution register')
+    const incoming = readDocument(source.files.get(resolutionPath)), old = prior ? readDocument(files.get(resolutionPath)) : {version:1,records:{}}
+    check(old.version === 1 && incoming.version === 1,'$.extensions','Unknown media resolution records')
+    for (const [id, value] of Object.entries(incoming.records)) {
+      check(!Object.hasOwn(old.records,id) || isDeepStrictEqual(old.records[id],value),'$.extensions','Conflicting media resolution record: '+id,'REVISION_CONFLICT')
+      old.records[id] = value
+    }
+    files.set(resolutionPath,jsonBytes(old))
+    ;(manifest.extensions ||= {})[resolutionKey] = structuredClone(resolution)
+  }
   for (const [name, bytes] of source.files) {
+    if (resolution && name === resolutionPath) continue;
     if (name.startsWith('figures/')) continue
     const nextName = fileName(name)
     if (files.has(nextName)) {
@@ -94,6 +110,11 @@ export function mergePackContents(source, target, {name, figureMerges = [], back
     if (!old) (manifest.tagIcons ||= []).push(structuredClone(row))
   }
   if (source.manifest.credits) manifest.credits = [...new Set([...(manifest.credits || []),...source.manifest.credits])]
+  for (const row of assetNames) {
+    const asset = manifest.assets.find(item=>item.kind === row?.kind && item.id === row?.id)
+    check(asset && typeof row.name === 'string' && row.name.trim(),'$.assetNames','Choose an existing asset and a nonempty name')
+    asset.name = row.name.trim()
+  }
   if (name) manifest.name = name
   Object.assign(mapping,{bundleKeys,spriteKeys,voiceKeys})
   return {manifest,files,mapping,bundleKeys,spriteKeys,voiceKeys}
