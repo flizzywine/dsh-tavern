@@ -79,8 +79,9 @@ test('draw-turn hands the planner the end of the previous reply', async t => {
   assert.match(calls[0].system, /认人按这个顺序/)
 })
 
-test('only reference planning shows <subjects> in the fixed output template', () => {
+// The template shows no outfitId: planners copy it, and a person the plan does not dress wears what the host (stage) says.
+test('only reference planning shows <subjects> in the fixed output template, without an outfitId', () => {
   const template = system => system.match(/<images><image>[^\n]*<\/images>/)[0]
-  assert.match(template(buildPlannerSystem({ count: 1, referenceSubjects: true })), /<size>\.\.\.<\/size><subjects>\[\{"characterId":"[^"]+","outfitId":""\}\]<\/subjects><prompts>/)
+  assert.match(template(buildPlannerSystem({ count: 1, referenceSubjects: true })), /<size>\.\.\.<\/size><subjects>\[\{"characterId":"[^"]+"\}\]<\/subjects><prompts>/)
   assert.doesNotMatch(template(buildPlannerSystem({ count: 1 })), /subjects/)
 })
