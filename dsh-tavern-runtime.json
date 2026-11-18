@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a01c55483bdc6069147cd258ffb31afcd6894194",
-  "releaseSequence": 1783,
+  "revision": "adda989fe04c593809f0f7f2da74941a24d105d1",
+  "releaseSequence": 1784,
   "version": "3.3.0",
   "files": [
     {
@@ -2896,8 +2896,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/provider-message-content.js",
-      "sha256": "1749a71580775b002cd6cd6f64eb897904e58d36ed39e0e46044624070fb1ae6",
-      "size": 431
+      "sha256": "8b3c7970c4b6788622ce987c0324a6292b6768de86704b7de717e51b72f14206",
+      "size": 926
     },
     {
       "path": "tavern-plugin/lib/domain/provider-overflow.js",
@@ -4071,8 +4071,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "43fa9ac3ffb173ee0919611c941652bc62184952ad89b837aaa09233043c0e50",
-      "size": 22072
+      "sha256": "9b8dab44d5d0ce3ca61078b44579cdbf7234baff39e4ca2677a016841571eadb",
+      "size": 22557
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -9576,9 +9576,9 @@
     }
   ],
   "archive": {
-    "commit": "8568057d56375732b77c2d79f5acd34c1b663e8a",
+    "commit": "d11eac77bdee29f5ce1a8bce83538c79c7533cd0",
     "path": "runtime.zip",
-    "sha256": "260e437557bf1b7759f4253cc30a97326c4f5168c406169a936145e4a3dde8e1",
-    "size": 16947443
+    "sha256": "4e4c81400933c91ce581027c7569fac43283103c2fab17e25d517d439448d4eb",
+    "size": 16947720
   }
 }
