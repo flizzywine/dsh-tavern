@@ -6091,12 +6091,12 @@ function versionsOf(jobId) {
             h('section', { 'aria-label': '角色与参考图设置', className: 'dti-roster-settings' },
               h('strong', null, '角色与参考图设置'),
               h('div', { className: 'dti-roster-identity' },
-                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', value: c.name || '',
+                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：保存时名字一并改到素材库' : undefined, value: c.name || '',
                   style: S.input, onChange: event => patchIdentity(i, { name: event.target.value }) }),
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: c.enabled !== false,
                   onChange: event => patch(i, { enabled: event.target.checked }) }), '启用'),
                 h('input', { type: 'text', placeholder: '分组', 'aria-label': '分组', value: c.group || '', style: S.input, onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
-                h('input', { type: 'text', placeholder: '触发别名', 'aria-label': '触发别名', value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
+                h('input', { type: 'text', placeholder: '触发别名', 'aria-label': '触发别名', title: c.figureId ? '关联着素材库人物：保存时增删的词一并改到素材库人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
               ),
               h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
               h(CharacterComfyLoras, { value: c.comfyLoras || [], workflows: data.workflows || [], onChange: comfyLoras => patch(i, { comfyLoras }) }),
@@ -6159,7 +6159,7 @@ function versionsOf(jobId) {
               h('div', { style: S.row },
                 h('button', { type: 'button', style: buttonStyle, onClick: () => copyCharacter(c) }, '复制角色'),
                 h('button', { type: 'button', style: buttonStyle, onClick: () => {
-                  if (!confirm('删掉「' + (c.name || '未命名') + '」？')) return
+                  if (!confirm(c.figureId ? '「' + (c.name || '未命名') + '」关联着素材库人物。删掉后它的生图外貌、服装文字和参考图一起删除；人物本身留在素材库，可在那里重新建记录。确定删掉？' : '删掉「' + (c.name || '未命名') + '」？')) return
                   setCharacters(current => current.filter(character => character.id !== c.id))
                   setPeopleActiveId('')
                 } }, '删除角色')),

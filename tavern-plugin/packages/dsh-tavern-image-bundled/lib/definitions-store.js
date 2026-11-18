@@ -18,13 +18,16 @@ export function createDefinitionsStore({ initial, persist, onCommit }) {
     return run
   }
   return {
-    update(change, { expectedRevision, requireRevision = false } = {}) {
+    update(change, { expectedRevision, requireRevision = false, commit } = {}) {
       return serial(async () => {
         if ((requireRevision || expectedRevision !== undefined) && expectedRevision !== current.revision) throw conflict()
-        const next = await change(structuredClone(current))
-        const saved = await persist(next)
-        if (saved === false) throw Object.assign(new Error('保存被拒绝，人物库未修改'), { code: 'SAVE_REFUSED' })
-        return publish(saved && typeof saved === 'object' ? saved : next)
+        const previous = structuredClone(current), next = await change(previous)
+        async function save(value, receiptId) {
+          const saved = await persist(value, receiptId)
+          if (saved === false) throw Object.assign(new Error('保存被拒绝，人物库未修改'), { code: 'SAVE_REFUSED' })
+          return saved && typeof saved === 'object' ? saved : value
+        }
+        return publish(commit ? await commit(previous, next, save) : await save(next))
       })
     },
     reload(load) { return serial(async () => publish(await load())) },

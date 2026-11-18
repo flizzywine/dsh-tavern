@@ -1112,6 +1112,45 @@ export function createAssetPackService(options) {
     createFigure(input) {
       return edit(input, async (manifest, files) => createFigure(manifest, files, input))
     },
+    editFigureIdentities(changes, receipt, save) {
+      const groups = Map.groupBy(changes, change => change.packId)
+      return run([...groups.keys()], async () => {
+        const entries = [], identities = []
+        for (const [id, edits] of groups) {
+          validateUuid(id)
+          const before = await metadata(id)
+          check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
+          const manifest = copy(before.manifest), figures = {...before.figures}, updates = new Map()
+          for (const {figureId, name, addAliases, removeAliases} of edits) {
+            validateUuid(figureId)
+            const current = figures[figureId]
+            check(current, '$.figureId', 'Figure missing', 'NOT_FOUND')
+            const aliases = [...new Set([...(current.aliases || []).filter(word => !removeAliases.includes(word)), ...addAliases])]
+            const figure = patchFigureDocument(current, {...(name === undefined ? {} : {name}), aliases})
+            figures[figureId] = figure
+            identities.push({packId:id, figureId, name:figure.name, aliases:figure.aliases})
+            if (canonicalJson(figure) !== canonicalJson(current)) updates.set('figures/' + figureId + '.json', jsonBytes(figure))
+          }
+          if (!updates.size) continue
+          validatePackDocuments({manifest, figures, sprites:before.sprites})
+          manifest.files = await Promise.all(manifest.files.map(async file => {
+            const bytes = updates.get(file.path)
+            return bytes ? {path:file.path, size:bytes.length, sha256:await sha256(bytes)} : file
+          }))
+          manifest.contentHash = await computeContentHash(manifest)
+          check([...updates.values()].every(bytes => bytes.length <= limits.entrySize)
+            && jsonBytes(manifest).length + manifest.files.reduce((sum, file) => sum + file.size, 0) <= limits.totalSize, '$.files', 'Pack budget exceeded', 'LIMIT_EXCEEDED')
+          const local = nextLocal(before.local)
+          entries.push({id, manifest, figures, updates, local, before})
+        }
+        const result = await storage.publishMetadataBatch(entries, receipt, () => save(identities))
+        for (const {id, manifest, figures, local, before} of entries) {
+          evictMetadata(id)
+          emit({...before, manifest, figures, local}, before)
+        }
+        return result
+      })
+    },
     patchFigure(input) {
       validateUuid(input.figureId)
       const patch = copy(input.patch)

@@ -603,7 +603,7 @@ export function apply(ctx) {
 
 Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图人物库」直接编辑同一条人物记录。可新建记录或选择已有记录，编辑名字、别名、分视角外貌、当前服装，并把素材包设定图写入配图参考图。多个人物库并存时需要选择来源。
 
-共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、别名、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。
+共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、别名、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。素材库人物被删除时，宿主用同样带 `expected` 的 `deleteCharacter` 一并删除记录，或把 `figureId` 与 `figurePackId` 都设为 `null` 断开关联、保留外貌；`deleteCharacter` 是可选接口，宿主从 `recordLibraries()` 的 `deletes` 得知是否可用。
 
 可选接口 `deleteCharacter({characterId, expected})` 删除一条记录（`expected` 与当前记录不一致时报 `REVISION_CONFLICT`），返回 `{deleted: characterId}`。`patchCharacter` 把 `figureId` 与 `figurePackId` 同时设为 `null` 即断开与素材库人物的关联；只设其一报 `INVALID_ARGUMENT`，记录本身保留。
 

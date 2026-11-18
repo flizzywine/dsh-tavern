@@ -18,7 +18,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 
 test('原子 JSON 写入短暂遇到 Windows rename 锁会有界重试，最终失败只清理临时文件', async () => {
   const source = await readFile(new URL('lib/index.js', SOURCE), 'utf8')
-  const start = source.indexOf('async function writeJsonAtomic(path, value) {')
+  const start = source.indexOf('async function writeJsonAtomic(')
   const next = source.indexOf('function cacheRoot(', start)
   const end = source.lastIndexOf('}', next)
   assert.ok(start >= 0 && end > start)

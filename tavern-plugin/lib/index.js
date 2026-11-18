@@ -356,7 +356,7 @@ import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { followImageCharacters } from './image-character-follow.js'
-import { appearanceFromImageCharacter, findFigureImageCharacter, imageCharacterExtension } from './domain/image-character-appearance.js'
+import { appearanceFromImageCharacter, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterExtension } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -3270,6 +3270,13 @@ export async function apply(ctx) {
       const own = (await cardStageExtension(cardPath))?.assetBindings.boundPackIds || []
       const global = ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []
       return [...new Set([...own, ...global])]
+    },
+    async editLinkedFigures(changes, receipt, save) {
+      const library = ctx.get('assetLibrary')
+      if (typeof library?.editFigureIdentities !== 'function') throw Object.assign(new Error('素材库未启用或版本过旧'), { code: 'NOT_CONFIGURED' })
+      return await library.editFigureIdentities(changes, receipt, identities => save(identities.map(figure => ({
+        packId: figure.packId, figureId: figure.figureId, name: figure.name, match: imageAliasesFromFigure(figure).join(', '),
+      }))))
     },
     // A linked image record's name or alias edit, written to its figure (tavern.editLinkedFigure).
     async editLinkedFigure({ packId, figureId, name, addAliases, removeAliases }) {
