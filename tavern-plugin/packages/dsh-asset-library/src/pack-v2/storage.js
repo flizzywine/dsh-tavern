@@ -410,13 +410,18 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
   }
   async function publishMany(entries, card) {
     const tx = await createTransaction(), packs = []
-    for (const entry of entries) packs.push({id:entry.pack.manifest.id, hadPack:await exists('packs/' + entry.pack.manifest.id), hadLocal:await exists(`local/${entry.pack.manifest.id}.json`)})
+    for (const {pack, removeId} of entries) {
+      const id = pack?.manifest.id ?? removeId
+      packs.push({id, hadPack:await exists('packs/' + id), hadLocal:await exists(`local/${id}.json`)})
+    }
     const journal = {version:2, packs, card:card.record}
     try {
-      for (const {pack, local} of entries) {
-        const base = `${tx}/${pack.manifest.id}`
-        await stageFiles(`${base}/new-pack`,pack)
-        await durableWrite(await locate(base + '/new-pack/manifest.json'), jsonBytes(pack.manifest))
+      for (const {pack, removeId, local} of entries) {
+        const base = `${tx}/${pack?.manifest.id ?? removeId}`
+        if (pack) {
+          await stageFiles(`${base}/new-pack`,pack)
+          await durableWrite(await locate(base + '/new-pack/manifest.json'), jsonBytes(pack.manifest))
+        }
         await durableWrite(await locate(base + '/new-local.json'), jsonBytes(local))
       }
       await durableWrite(await locate(tx + '/journal.json'), jsonBytes(journal))
@@ -427,7 +432,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
         if (item.hadPack) await rename(await locate('packs/' + item.id), await locate(base + '/old-pack'))
         if (item.hadLocal) await rename(await locate(`local/${item.id}.json`), await locate(base + '/old-local.json'))
         await fault('batch-backed-up', item.id)
-        await rename(await locate(base + '/new-pack'), await locate('packs/' + item.id))
+        if (await exists(base + '/new-pack')) await rename(await locate(base + '/new-pack'), await locate('packs/' + item.id))
         await fault('batch-pack-published', item.id)
         await rename(await locate(base + '/new-local.json'), await locate(`local/${item.id}.json`))
         await fault('batch-local-published', item.id)
