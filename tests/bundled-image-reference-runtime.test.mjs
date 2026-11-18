@@ -271,7 +271,7 @@ test('beforeImageGenerate: the host releases each picture with its subjects, or 
     if (skip) assert.ok(JSON.stringify(result.body).includes('not ready yet'), 'the reason reaches the turn warnings')
   })
 })
-test('beforeImageGenerate: inherit omitted outfits at the picture anchor, preserving explicit empty and selected outfits', async t => {
+test('beforeImageGenerate: a person the plan leaves undressed (omitted or empty outfitId) wears the host outfit at the picture anchor; a selected outfit stays', async t => {
   for (const mode of ['inherit', 'empty', 'explicit', 'legacy']) await t.test(mode, async t => {
     const calls = [], asked = []
     const subject = { characterId: 'lin', ...(mode === 'empty' ? { outfitId: '' } : mode === 'explicit' ? { outfitId: 'shirt' } : {}) }
@@ -288,7 +288,7 @@ test('beforeImageGenerate: inherit omitted outfits at the picture anchor, preser
     assert.equal(result.status, 200, JSON.stringify(result.body))
     const job = await runtime.terminal(result.body.plans[0].jobId)
     assert.equal(job.state, 'done', job.error)
-    const inherited = mode === 'inherit' || mode === 'legacy'
+    const inherited = mode !== 'explicit'
     assert.deepEqual(job.references.map(reference => reference.image.id), [inherited ? kimono.id : identity.id])
     if (inherited) assert.match(job.submittedPrompt, /林月／红和服/)
     else assert.doesNotMatch(job.submittedPrompt, /红和服|red kimono/)

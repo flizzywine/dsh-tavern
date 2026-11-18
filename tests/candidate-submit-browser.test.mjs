@@ -199,7 +199,7 @@ test('候选快捷提示可保存、编辑和排序，重开后按模式读回�
   await deleteFirst.click()
   await checkOrder(script.page, scriptDefaults.slice(1))
   await deleteFirst.press('Enter')
-  await script.dialog.getByText('还没有快捷提示。').waitFor()
+  await script.dialog.getByText('还没有快捷提示').waitFor()
   await checkOrder(script.page, [])
   await script.page.keyboard.press('Tab')
   assert.equal(await script.dialog.evaluate(dialog => dialog.contains(document.activeElement)), true, '键盘删除后焦点留在管理弹窗内')

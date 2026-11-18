@@ -104,7 +104,7 @@
 					if (actionLocks.has(sessionId) && input.op !== 'stop') return false;
 					if (input.op !== 'stop') actionLocks.add(sessionId);
 					setPending(true); setError('');
-					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
+					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: randomId() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
 					catch (e) { setError(e.message); setPaused(true); return false; }
 					finally { if (input.op !== 'stop') actionLocks.delete(sessionId); setPending(false); }
 				}

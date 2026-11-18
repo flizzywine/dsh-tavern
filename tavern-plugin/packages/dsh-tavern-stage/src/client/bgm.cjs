@@ -85,7 +85,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     function view() {
         const list = lists.get(active), current = target();
         return Object.freeze({sessionId:active, available:!!input?.available, enabled:!!input?.enabled,
-            follow:mine.follow, paused:silent(), error, loading:!!list?.loading, tracks:list?.tracks || [],
+            follow:mine.follow, paused:silent(), loopsPaused:!!mine.paused, error, loading:!!list?.loading, tracks:list?.tracks || [],
             cue:input?.cue ? {key:input.cue.key, name:input.cue.name} : null,
             current:current ? {key:current.key, name:current.name, source:current.source} : null});
     }

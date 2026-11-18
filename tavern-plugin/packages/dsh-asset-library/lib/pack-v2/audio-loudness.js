@@ -88,14 +88,3 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
     return changed
   } finally { if (temporary) await rmdir(temporary) }
 }
-
-export async function measureAudioBytes(bytes, extension) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-audio-write-'))
-  const file = path.join(directory, 'audio.' + extension)
-  try {
-    await writeFile(file, bytes)
-    const loudness = await measureAudioFile(file)
-    if (!loudness) throw new Error('无法测量音频响度，请检查音频文件和 ffmpeg')
-    return loudness
-  } finally { await unlink(file).catch(() => {}); await rmdir(directory) }
-}

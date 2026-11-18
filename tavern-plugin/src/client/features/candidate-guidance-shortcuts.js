@@ -173,5 +173,5 @@ function CandidateGuidanceShortcutManager({ mode, items, busy, feedback, onSave,
                     action("下移", "↓", event => move(event, index, 1), index === items.length - 1),
                     action("编辑", "编辑", () => startEdit(text)),
                     action("删除", "删除", event => saveList(event, items.filter(item => item !== text)), false, true)));
-        })) : h("p", { className: "dsh-tavern-candidate-shortcut-note" }, "还没有快捷提示。"));
+        })) : h(EmptyState, { compact: true, noun: "快捷提示" }));
 }

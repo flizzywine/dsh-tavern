@@ -3166,9 +3166,9 @@ function createRuntime(ctx, overrides, logger, deps) {
               const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, anchor: image.mount, subjects: gateSubjects, manual: Boolean(manual), signal: task.controller.signal })
               task.controller.signal.throwIfAborted()
               if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
-              // 省略 outfitId 才沿用舞台；明确的空字符串表示不选图库服装（例如裸露或只用文字描述）。
+              // 宿主（舞台）定此刻每人穿哪套：规划没写服装（省略或空字符串）的人一律沿用它；规划写了具体服装 ID 才用规划的。
               const worn = answer?.outfits
-              const inherit = subject => (subject.outfitId === undefined || image.subjects === undefined && !subject.outfitId) && worn?.[subject.characterId]
+              const inherit = subject => !subject.outfitId && worn?.[subject.characterId]
               if (gateSubjects.some(inherit)) {
                 image = { ...image, subjects: gateSubjects.map(subject => inherit(subject) ? { ...subject, outfitId: worn[subject.characterId] } : subject) }
               }

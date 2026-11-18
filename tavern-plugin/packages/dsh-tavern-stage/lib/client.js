@@ -3065,6 +3065,19 @@ const candidateTabs = (() => {
 })();
 if (typeof window === "undefined" && typeof module !== "undefined") module.exports = candidateTabs;
 
+        // dsh-presentation-protocol random-id.cjs: random ids that also work outside a secure context (http on a LAN address).
+        // 客户端随机 id 的唯一实现。crypto.randomUUID 只在安全上下文（https、localhost）存在；
+// 手机用 http://局域网 IP 打开时没有它，这里用任何上下文都有的 crypto.getRandomValues 拼同格式的 UUID v4。
+function randomId(crypto = globalThis.crypto) {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { randomId };
+
         'use strict';
 // The 语音服务 messages (dsh-presentation-protocol tts-messages.cjs): inlined into the stage bundle, required under node.
 function stageTtsMessages() {
@@ -4222,7 +4235,7 @@ function createAmbience({player, session, owner, authority}) {
     // pins: the loops the plan sounds, and the ones still fading out. leasing: descriptors whose lease is in flight.
     // epoch: bumped when the pins are dropped, so a lease that lands late is released instead of kept.
     const pins = new Map(), leasing = new Set();
-    let epoch = 0, disposed = false;
+    let epoch = 0, disposed = false, held = false;
     const sound = () => instance ||= player();
     function inputs(state) {
         return {plan:state?.accepted?.ambience || null,
@@ -4258,7 +4271,9 @@ function createAmbience({player, session, owner, authority}) {
     function apply(snap) {
         const layers = [...(input?.plan?.layers || [])];
         if (performance) layers.push({...performance, slot:'performance', id:performance.identity, lowpassHz:null});
-        const plan = {version:1, layers:layers.map(layer => sourced(layer, snap)).filter(Boolean), warnings:input?.plan?.warnings || []};
+        // While the loops are paused (hold) the plan is still pinned and tracked but sounds as empty, so resuming is instant.
+        const sourcedLayers = layers.map(layer => sourced(layer, snap)).filter(Boolean);
+        const plan = {version:1, layers:held ? [] : sourcedLayers, warnings:input?.plan?.warnings || []};
         sound().apply(plan, {snap});
         const done = sound().whenSettled();
         // A loop that left the plan keeps its pin until its fade-out has ended.
@@ -4309,6 +4324,8 @@ function createAmbience({player, session, owner, authority}) {
         performance(track, snap) { if (disposed) return; performance = track || null; return apply(snap); },
         // The runtime released or revoked its presentation: nothing of it sounds any more.
         release() { performance = null; if (input) input = {...input, plan:null}; stop(); },
+        // The BGM panel's pause covers every looping sound: on silences the plan (it keeps its pins), off brings it back.
+        hold(on) { on = !!on; if (disposed || held === on) return; held = on; if (input) void apply(false); },
         // A user gesture retries playback the autoplay policy refused.
         resume() { return instance?.resume(); },
         snapshot: () => ({plan:input?.plan || null, performance, player:instance?.snapshot() || null}),
@@ -10985,6 +11002,8 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         own(() => media.music.activate(null));
         own(() => media.background.activate(null));
         own(() => media.ambience.activate(null));
+        // The BGM pause is the pause of every looping sound: the ambience holds while the player's pause is on.
+        own(media.music.subscribe(() => media.ambience.hold(media.music.get().loopsPaused)));
         own(selection.list.subscribe(bgmSelect));
         const bgmKick = () => { if(!active())return; media.music.kick(); media.ambience.resume(); };
         document.addEventListener('pointerdown', bgmKick, true);
@@ -12609,6 +12628,7 @@ return {usePerformances:useModPerformances,createSurface:createModStageSurface,d
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageModSurface};
 
         // Stage widget placement, reading projection, phone settings and avatar preparation.
+const stageRandomId = typeof randomId === 'function' ? randomId : require('../../../dsh-presentation-protocol/src/random-id.cjs').randomId;
 function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
 const {character:bubbleCharacter,actor:stageActorCharacter,face:bubbleCardFace}=characters || {};
@@ -13942,7 +13962,7 @@ function useWidgetSettingsFeedback(props,items,context) {
 // Committed signals wake bounded reads; navigation clears values synchronously, never by polling.
 function useWidgetVariables(props,items) {
     const owner=React.useRef(null), [values,setValues]=React.useState({key:'',items:{}});
-    if (!owner.current) owner.current={id:crypto.randomUUID(),epoch:0,key:'',busy:new Map(),requests:new Map(),proposals:new Map()};
+    if (!owner.current) owner.current={id:stageRandomId(crypto),epoch:0,key:'',busy:new Map(),requests:new Map(),proposals:new Map()};
     const state=owner.current, hasReads=item=>item.definition.document.variables || Object.keys(item.definition.settingsOverride?.bindings || {}).length,
         active=items.filter(item=>hasReads(item) && !item.presentation.suspended);
     const key=JSON.stringify([props.sessionId,props.source,props.turn,props.page,props.revealed,props.mode,active.map(item=>[item.identity,item.presentation.state,item.definition.settingsOverride,item.definition.settingsDefaults])]);
@@ -14009,7 +14029,7 @@ function useWidgetVariables(props,items) {
             const requestKey=item.identity+':'+request.requestId,digest=JSON.stringify([request.contextKey,request.revision,request.operations]),previous=state.proposals.get(requestKey);
             if(previous)return previous.digest===digest ? call('widgetVariableStatus',{...state.requests.get(previous.operationId)?.input,operationId:previous.operationId}) : {status:'rejected',reason:'request-id-reused'};
             if([...state.busy.values()].some(work=>work.sessionId===props.sessionId))return {status:'rejected',reason:'operation-pending'};
-            const operationId=crypto.randomUUID(),query={...input,contextKey:request.contextKey,revision:request.revision};
+            const operationId=stageRandomId(crypto),query={...input,contextKey:request.contextKey,revision:request.revision};
             state.requests.set(operationId,{mount:item.identity,input:query});state.busy.set(operationId,query);
             state.proposals.set(requestKey,{digest,operationId});while(state.proposals.size>16)state.proposals.delete(state.proposals.keys().next().value);
             while(state.requests.size>16)state.requests.delete(state.requests.keys().next().value);
@@ -26436,7 +26456,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     function view() {
         const list = lists.get(active), current = target();
         return Object.freeze({sessionId:active, available:!!input?.available, enabled:!!input?.enabled,
-            follow:mine.follow, paused:silent(), error, loading:!!list?.loading, tracks:list?.tracks || [],
+            follow:mine.follow, paused:silent(), loopsPaused:!!mine.paused, error, loading:!!list?.loading, tracks:list?.tracks || [],
             cue:input?.cue ? {key:input.cue.key, name:input.cue.name} : null,
             current:current ? {key:current.key, name:current.name, source:current.source} : null});
     }
@@ -26771,8 +26791,9 @@ let StageBoundary;
 function boundaryType() {
     if (StageBoundary) return StageBoundary;
     StageBoundary = class extends React.Component {
-        state = {failed:false};
-        static getDerivedStateFromError() { return {failed:true}; }
+        state = {failed:false,reason:''};
+        // The reason rides in the notice so a player's screenshot carries it; the console keeps the stack.
+        static getDerivedStateFromError(error) { return {failed:true,reason:String(error?.message || error || '')}; }
         recover(exit = false) {
             const actions = [() => galUncover?.(), () => galEscapeLock(false)];
             if (exit) actions.push(() => (navigation.galLeaveNow || galLeave)());
@@ -26780,14 +26801,18 @@ function boundaryType() {
                 try { action(); } catch (error) { window.console?.error('Stage recovery failed',error); }
             }
         }
-        componentDidCatch() { this.recover(); }
+        componentDidCatch(error,info) {
+            window.console?.error('[dsh-tavern-stage] 舞台渲染失败',error,info?.componentStack || '');
+            this.recover();
+        }
         render() {
             if (!this.state.failed) return this.props.children;
             return React.createElement('div',{role:'alert','data-stage-failure':true},
                 React.createElement('p',null,'舞台显示出错，普通聊天仍可使用。'),
+                this.state.reason ? React.createElement('p',{'data-stage-failure-reason':true},'原因：'+this.state.reason) : null,
                 React.createElement('button',{type:'button',onClick:()=>{
                     this.recover(true);
-                    if (!galActive.get()) this.setState({failed:false});
+                    if (!galActive.get()) this.setState({failed:false,reason:''});
                 }},'返回普通聊天'));
         }
     };
