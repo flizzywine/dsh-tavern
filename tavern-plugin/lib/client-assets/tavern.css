@@ -3559,35 +3559,35 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [data-sidebar-right-panel] [data-dockkit-strip] { padding-left: 48px; }
   :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [data-sidebar-right-mode] { display: none; }
 
-  /* 宿主设置：188px 导航 + 内容的桌面双栏会把内容压成一字一行。 */
-  html:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) {
+  /* 宿主设置：188px 导航 + 内容的桌面双栏会把内容压成一字一行。设置浮层渲染在 body 下（不在 frame 内），所以用 body:has(frame) 判断外壳。 */
+  html:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) {
     position: fixed !important; top: var(--dsh-vv-top, 0px) !important; left: 0;
     flex-direction: column; width: 100vw; max-width: 100vw;
     height: var(--dsh-vv-height, 100dvh); max-height: var(--dsh-vv-height, 100dvh); border-radius: 0;
     padding-top: var(--dsh-play-top-inset, 0px); box-sizing: border-box;
   }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav {
     flex-direction: row; align-items: center; width: auto; gap: 0; padding: 4px 8px 0;
     overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
   }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navTitle"] { display: none; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navList"] { flex-direction: row; gap: 4px; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; white-space: nowrap; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] { min-height: 0; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navTitle"] { display: none; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav > [class*="_navList"] { flex-direction: row; gap: 4px; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav [class*="_navCell"] { flex: none; width: auto; white-space: nowrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] { min-height: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] {
     height: auto; align-items: center; padding: 6px 8px 6px 16px;
   }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] {
     flex-wrap: wrap; justify-content: flex-start; margin-left: 0;
   }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] * { flex-wrap: wrap; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] button { width: auto; white-space: nowrap; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_options"] {
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] * { flex-wrap: wrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > [class*="_content"] > [class*="_header"] > [class*="_actions"] button { width: auto; white-space: nowrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_options"] {
     padding: 0 16px max(24px, env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain;
   }
   /* 设置行：说明在左、控件在右；放不下时控件换到下一行，而不是把说明压成竖条。 */
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_row"]:has(> [class*="_rowText"]) { flex-wrap: wrap; }
-  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_row"]:has(> [class*="_rowText"]) { flex-wrap: wrap; }
+  :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
 }
 
 /* dsh-web-mobile 也会标记桌面 frame，但只有窄触屏才使用 minmax(0, 1fr) 0 0。
