@@ -80,10 +80,6 @@ export function finalizeStageItems(chat,index) {
   if (JSON.stringify({...message.stageItems,revision:undefined})===JSON.stringify({...next,revision:undefined})) return
   message.stageItems={...next,revision:(message.stageItems?.version===2 ? message.stageItems.revision : 0)+1}
 }
-export function stageItemPerformances(message,binding) {
-  const value=message?.stageItems
-  return value?.version===2 && value.directionDigest===binding?.digest ? value.performances.filter(row=>!row.removed) : []
-}
 
 // the 履历's performance records of each round - the same
 // stored records the stage played (direction.modPerformances: managed mod placements and core items), never a second history.
