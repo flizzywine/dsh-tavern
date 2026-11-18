@@ -363,20 +363,27 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
       ['getStageDirection',{turn:17,readOnly:true}],
       ['getStageModHistory',{turn:17}],
       ['getDialogueBubbles',{turn:17}],
-      ['getStoryTranscript',{}],
       ['syncSession',{}],
       ['pluginTurnState',{}],
       ['pluginState',{plugin:'plot-compass',name:'compass'}],
     ].map(([method,args])=>rpc(method,args,'session-A'))
     const projections = Array.from({length:8},()=>rpc('getAssetPackPresentation',{turn:17},'session-A'))
     await new Promise(resolve=>setImmediate(resolve))
-    assert.equal(multiplexed.length,7)
+    assert.equal(multiplexed.length,6)
     assert.ok(multiplexed.every(row=>row.args.sessionId==='session-A'))
     assert.equal(waiting.length,2,'only two origin-bound projection requests may occupy HTTP sockets')
     const small=rpc('getUpdateStatus',{})
     assert.equal(waiting.length,3,'unrelated HTTP calls are not queued behind projections')
     waiting[2].gate.resolve({json:async()=>({ok:true})})
     await small
+    // Large story window projections stay on HTTP so MB-scale frames never block the 2s mux WebSocket heartbeat.
+    const transcript=rpc('getStoryTranscript',{},'session-A')
+    await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(multiplexed.length,6)
+    const transcriptHttp=waiting.find(row=>row.url.endsWith('getStoryTranscript'))
+    assert.ok(transcriptHttp,'getStoryTranscript goes over HTTP instead of the WebSocket mux')
+    transcriptHttp.gate.resolve({json:async()=>({ok:true})})
+    await transcript
     remoteGate.resolve()
     await Promise.all(slow)
     for (let i=0;i<8;i++) {
@@ -389,7 +396,7 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
     // A direction request that is not readOnly may run and save the director: it keeps HTTP.
     const generating=rpc('getStageDirection',{turn:18},'session-A')
     await new Promise(resolve=>setImmediate(resolve))
-    assert.equal(multiplexed.length,7)
+    assert.equal(multiplexed.length,6)
     const sent=waiting.find(row=>row.url.endsWith('getStageDirection'))
     assert.ok(sent,'getStageDirection without readOnly goes over HTTP')
     sent.gate.resolve({json:async()=>({ok:true})})
