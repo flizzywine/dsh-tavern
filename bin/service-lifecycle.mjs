@@ -12,6 +12,8 @@ import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { resolveDesktopAsarCommand, resolveDshCliEntry, resolveHostDependencies } from './plugin-dependencies.mjs'
 import path from 'node:path'
+import { installBundledTavernPlugins } from './bundled-tavern-plugins.mjs'
+import { resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { PROFILE_DIR, PID_FILE, PROFILE, SOURCE_ROOT, CLI_PORT, CLI_HOST, LOG_DIR, LOG_FILE, DSH_ROOT, BACKUP_ROOT, FRONTEND_BOOTSTRAP_FILE, FRONTEND_BOOTSTRAP_VERSION, commandExists, runtimeEnvironment, RUNTIME_HOST, findDshCommand, resolveDshInvocation, sleep } from './launcher-environment.mjs'
@@ -411,6 +413,27 @@ async function ensureRuntimePatches(dsh, host) {
   } catch {}
 }
 
+export function syncBundledTavernPlugins({
+  sourceRoot = SOURCE_ROOT,
+  dshHome = DSH_ROOT,
+  profileDir = PROFILE_DIR,
+  dataRoot = resolveTavernDataRoot({ dshHome }),
+  logger = console,
+} = {}) {
+  const results = installBundledTavernPlugins({ sourceRoot, dataRoot, profileDir, logger })
+  for (const bundled of results) {
+    if (bundled.action === 'installed') {
+      logger.log?.(`已内置插件 ${bundled.packageName} ${bundled.version}：${bundled.target}`)
+    } else if (bundled.action === 'upgraded') {
+      const detail = bundled.installedVersion && bundled.installedVersion !== bundled.version
+        ? `从 ${bundled.installedVersion} 更新到 ${bundled.version}`
+        : `已同步最新副本（${bundled.version}）`
+      logger.log?.(`已同步内置插件 ${bundled.packageName}：${detail}`)
+    }
+  }
+  return results
+}
+
 export function serviceDshArgs(bindHost, port) {
   const args = ['--profile', PROFILE, '--host', bindHost, '--port', String(port), '--no-open']
   if (!isLoopbackHost(bindHost)) {
@@ -464,6 +487,8 @@ export async function startService() {
   })
   const prefixScanMs = Math.round(performance.now() - prefixScanStarted)
   if (prefixRepairs.length) console.log(`已兼容修复 ${prefixRepairs.length} 份旧会话的固定背景事件，原文件已备份。`)
+
+  syncBundledTavernPlugins()
 
   if (!isLoopbackHost(state.bindHost)) {
     console.warn(`安全提示：正在监听 ${state.bindHost}；此端口可执行远程代码，token 是访问凭证，请仅用于可信内网或 VPN，勿暴露到公网或分享完整链接。`)

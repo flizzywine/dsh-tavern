@@ -11,6 +11,7 @@ import {
   installBundledTavernPlugins,
   readBundledTavernPlugin,
 } from '../bin/bundled-tavern-plugins.mjs'
+import { syncBundledTavernPlugins } from '../bin/service-lifecycle.mjs'
 
 const FOLDER = 'dsh-tavern-plot-compass'
 const quiet = { warn() {}, log() {} }
@@ -150,4 +151,61 @@ test('发行副本不完整时报 unavailable，不去猜', t => {
   const [result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, logger: quiet })
   assert.equal(result.action, 'unavailable')
   assert.equal(existsSync(path.join(dataRoot, 'plugins', FOLDER)), false)
+})
+
+test('整目录替换更新时保留用户的 .tavern-disabled 停用标记', t => {
+  const dataRoot = makeData(t)
+  const first = makeSource(t, { version: '1.0.0' })
+  assert.equal(installBundledTavernPlugins({ sourceRoot: first.root, dataRoot, logger: quiet })[0].action, 'installed')
+
+  const disabledMarker = path.join(dataRoot, 'plugins', FOLDER, '.tavern-disabled')
+  writeFileSync(disabledMarker, 'disabled by user\n')
+
+  const unchanged = installBundledTavernPlugins({ sourceRoot: first.root, dataRoot, logger: quiet })[0]
+  assert.equal(unchanged.action, 'skipped')
+  assert.equal(existsSync(disabledMarker), true)
+
+  const edited = makeSource(t, { version: '1.1.0' })
+  writeFileSync(path.join(edited.dir, 'client.js'), '// updated client\n')
+  const upgraded = installBundledTavernPlugins({ sourceRoot: edited.root, dataRoot, logger: quiet })[0]
+  assert.equal(upgraded.action, 'upgraded')
+  assert.equal(existsSync(disabledMarker), true)
+  assert.equal(readFileSync(disabledMarker, 'utf8'), 'disabled by user\n')
+})
+
+test('服务启动同步函数会更新数据目录下的内置插件并在无改动时安静跳过', t => {
+  const source = makeSource(t, { version: '1.0.0' })
+  const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-service-home-'))
+  t.after(() => rmSync(dshHome, { recursive: true, force: true }))
+  const profileDir = path.join(dshHome, 'profiles', 'tavern')
+  mkdirSync(profileDir, { recursive: true })
+
+  const logs = []
+  const logger = { log: message => logs.push(message), warn: message => logs.push(message) }
+  const first = syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, profileDir, logger })
+  assert.equal(first[0].action, 'installed')
+  assert.ok(logs.some(line => line.includes(`已内置插件 ${FOLDER} 1.0.0`)))
+
+  logs.length = 0
+  const second = syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, profileDir, logger })
+  assert.equal(second[0].action, 'skipped')
+  assert.equal(logs.length, 0)
+
+  writeFileSync(path.join(source.dir, 'client.js'), '// rebuilt client\n')
+  const third = syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, profileDir, logger })
+  assert.equal(third[0].action, 'upgraded')
+  assert.ok(logs.some(line => line.includes(`已同步内置插件 ${FOLDER}：已同步最新副本（1.0.0）`)))
+  assert.equal(
+    readFileSync(path.join(dshHome, 'profile-data', 'tavern', 'data', 'plugins', FOLDER, 'client.js'), 'utf8'),
+    '// rebuilt client\n',
+  )
+})
+
+test('startService 在拉起 DSH 进程前调用 syncBundledTavernPlugins', () => {
+  const lifecycle = readFileSync(new URL('../bin/service-lifecycle.mjs', import.meta.url), 'utf8')
+  const start = lifecycle.slice(lifecycle.indexOf('export async function startService('))
+  const syncIndex = start.indexOf('syncBundledTavernPlugins()')
+  const spawnIndex = start.indexOf('child = spawn(')
+  assert.ok(syncIndex > 0, 'startService 应调用 syncBundledTavernPlugins()')
+  assert.ok(spawnIndex > syncIndex, 'syncBundledTavernPlugins() 应在拉起进程前执行')
 })

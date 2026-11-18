@@ -43,6 +43,8 @@ const REQUIRED = ['package.json', 'lib/index.js', 'client.js']
 const SKIP_NAMES = new Set(['node_modules', '.git', 'src', 'tests', 'build.mjs', '.github'])
 /** 内置来源标记，插件页据此显示「内置插件」并拒绝删除。 */
 export const SOURCE_FILE = '.tavern-source.json'
+/** 插件页停用插件后会在目录内留下该标记；整目录替换升级时需原样保留。 */
+const DISABLED_FILE = '.tavern-disabled'
 
 function readJson(file) {
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
@@ -138,6 +140,10 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
       return { action: 'skipped', reason: '已装的插件与内置副本相同，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
     writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
+    const disabledFile = path.join(target, DISABLED_FILE)
+    if (replacing && existsNoFollow(disabledFile) && lstatSync(disabledFile).isFile()) {
+      copyFileSync(disabledFile, path.join(staging, DISABLED_FILE))
+    }
     if (replacing) {
       rmSync(retired, { recursive: true, force: true })
       renameSync(target, retired)
