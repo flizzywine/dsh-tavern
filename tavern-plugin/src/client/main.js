@@ -535,6 +535,18 @@ window.__ModuleLoader__.load({
 
         // @include rpc-transport.cjs
         const presentationRequest = createPresentationQueue();
+        let tavernWsRpc = null;
+        function openTavernWsSocket(connectionService) {
+            if (connectionService && typeof connectionService.openWebSocket === "function") {
+                return connectionService.openWebSocket(TAVERN_WS_RPC_PATH);
+            }
+            if (typeof window === "undefined" || typeof window.WebSocket !== "function") return null;
+            const base = (typeof document !== "undefined" && document.baseURI) || (window.location && window.location.href) || "";
+            if (!/^https?:/i.test(base)) return null;
+            const url = new URL(TAVERN_WS_RPC_PATH, base);
+            url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+            return new window.WebSocket(url.href);
+        }
         // The isolated clip export page answers every request from its frozen export snapshot (clipReplayCore below).
         let clipExportTransport = null;
 		// A save whose session log cannot be upgraded may not open at all, so this works from the
@@ -570,7 +582,10 @@ window.__ModuleLoader__.load({
                 && roundLoadCounts.size < 64 && (roundLoadCounts.get(roundKey) || 0) < 3;
             if (roundTrace) {
                 roundLoadCounts.set(roundKey, (roundLoadCounts.get(roundKey) || 0) + 1);
-                roundLoadTrace.mark('rpc.begin', {method, sessionId:sessionId || args?.sessionId, channel:controlChannel ? 'mux' : 'http'});
+                const previewChannel = controlChannel
+                    ? 'mux'
+                    : (typeof tavernWsRpc !== "undefined" && tavernWsRpc && typeof tavernWsRpc.canCarry === "function" && tavernWsRpc.canCarry(method, 0, requestOptions) ? 'ws' : 'http');
+                roundLoadTrace.mark('rpc.begin', {method, sessionId:sessionId || args?.sessionId, channel:previewChannel});
             }
             const traced = ["getSession", "syncSession", "getCardOpenings", "initializeOpeningTemplate", "preparePlayStart", "startChat"].includes(method);
             const trace = traced ? { id: window.crypto?.randomUUID?.() || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const n = Math.floor(Math.random() * 16); return (c === "x" ? n : (n & 3) | 8).toString(16); }), method, sentAt: started, active: ++performanceActiveRequests } : null;
@@ -585,7 +600,12 @@ window.__ModuleLoader__.load({
 			}
 			if (!runtimeControl && (started - performanceReportAt >= 60000 || /diagnostic|export/i.test(method))) {
 				pagePerformance.observedMs = started - pagePerformanceStarted;
-				payload._performance = Object.assign({}, pagePerformance, { requests: performanceRequests.slice(), openingRequests: typeof openingPerformance !== "undefined" ? openingPerformance.requests() : [], openings: typeof openingPerformance !== "undefined" ? openingPerformance.read() : [] });
+				payload._performance = Object.assign({}, pagePerformance, {
+					requests: performanceRequests.slice(),
+					openingRequests: typeof openingPerformance !== "undefined" ? openingPerformance.requests() : [],
+					openings: typeof openingPerformance !== "undefined" ? openingPerformance.read() : [],
+					...(typeof tavernWsRpc !== "undefined" && tavernWsRpc && typeof tavernWsRpc.stats === "function" ? { wsRpc: tavernWsRpc.stats() } : {})
+				});
 				performanceReportAt = started;
 			}
 			if (trace) payload._traceId = trace.id;
@@ -630,12 +650,33 @@ window.__ModuleLoader__.load({
                 return result;
                 });
             };
-            // The authenticated Remote mux carries slow reads without HTTP/1.1 slots.
+            // The authenticated Remote mux carries small control reads; Tavern's own /api/dsh-tavern/ws
+            // channel multiplexes general JSON RPCs with relaxed keepalive outside the 6-socket HTTP/1.1 pool.
             // Projections mint origin-bound media leases, so retain their HTTP authority checks.
+            const wsChannel = !controlChannel
+                && typeof tavernWsRpc !== "undefined"
+                && tavernWsRpc
+                && typeof tavernWsRpc.canCarry === "function"
+                && tavernWsRpc.canCarry(method, requestBody.length, requestOptions)
+                ? tavernWsRpc : null;
+            const httpFallback = () => ['getAssetPackPresentation', 'getStagePhonePresentation'].includes(method)
+                ? presentationRequest(httpRead, request.signal) : httpRead();
             const responsePromise = controlChannel
                 ? Promise.resolve().then(() => controlChannel.control(method, JSON.parse(requestBody), requestOptions && requestOptions.signal))
-                : ['getAssetPackPresentation', 'getStagePhonePresentation'].includes(method)
-                    ? presentationRequest(httpRead, request.signal) : httpRead();
+                : wsChannel
+                    ? wsChannel.call(method, requestBody, {
+                        signal: request.signal,
+                        fallback: httpFallback,
+                        onBody: trace ? function (body) {
+                            trace.transport = "ws";
+                            trace.headersMs = Math.round(performance.now() - clockStart);
+                            trace.bodyChars = body.length;
+                        } : undefined,
+                        onParsed: trace ? function () {
+                            trace.parsedMs = Math.round(performance.now() - clockStart);
+                        } : undefined
+                    })
+                    : httpFallback();
 			function checkCancelled() {
 				if (request.signal && request.signal.aborted) {
 					if (typeof request.signal.throwIfAborted === "function") request.signal.throwIfAborted();
@@ -1190,6 +1231,29 @@ function clipReplayCore() {
 			ctx.effect(function () { return tavernTextLayoutFeature.register(ctx); }, "dsh-tavern: text layout in appearance settings");
 			ctx.effect(() => displayPreferences.start(), "dsh-tavern: global display preferences");
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
+			if (!window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid") {
+				ctx.effect(() => {
+					const client = createTavernWsRpcClient({
+						openSocket: () => openTavernWsSocket(ctx.connection)
+					}).start();
+					tavernWsRpc = client;
+					const onWake = () => {
+						if (typeof document === "undefined" || document.visibilityState !== "hidden") client.poke();
+					};
+					if (typeof window.addEventListener === "function") window.addEventListener("online", onWake);
+					if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+						document.addEventListener("visibilitychange", onWake);
+					}
+					return () => {
+						if (typeof window.removeEventListener === "function") window.removeEventListener("online", onWake);
+						if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+							document.removeEventListener("visibilitychange", onWake);
+						}
+						if (tavernWsRpc === client) tavernWsRpc = null;
+						client.dispose();
+					};
+				}, "dsh-tavern: dedicated websocket rpc");
+			}
 			ctx.effect(() => syncTavernSubagentCatalogs(ctx.sessions, ctx.tavernSessionSignals), "dsh-tavern: subagent catalog synchronization");
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
 			// Public browser API for third-party plugins (docs/plugin-api.md). Provided before the
