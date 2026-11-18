@@ -39,6 +39,7 @@ const FD_STORAGE_KEYS = {
 const FD_RPC = {
   status: 'fate-dice:status',
   readTurn: 'fate-dice:read-turn',
+  readTurns: 'fate-dice:read-turns',
   rerollTurn: 'fate-dice:reroll-turn',
   gateResolve: 'fate-dice:gate-resolve',
   gatePeek: 'fate-dice:gate-peek',
@@ -2441,25 +2442,322 @@ function fdMergeWorkbench(base, raw) {
   return view
 }
 
-/* 初次装载：宿主提供工作台快照则用宿主，否则以本地缓存 + 状态接口拼装（保证无宿主接口也可用） */
+/* ---- 运行态开关感知、按局楼层缓存与单帧微任务合批读取 ---- */
+const fdRuntimeFlags = {
+  known: false,
+  enabled: false,
+  autoCheck: true,
+  preSendPause: false,
+  byGame: new Map()
+}
+
+const fdTurnCacheByGame = new Map()
+const fdPendingTurnBatches = new Map()
+const fdBootstrapByUi = new WeakMap()
+const FD_MAX_CACHED_GAMES = 16
+const FD_MAX_CACHED_TURNS_PER_GAME = 256
+
+function fdNoteRuntimeFlags(gameId, raw) {
+  if (!raw || typeof raw !== 'object') return
+  const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : raw
+  const hasEnabled = typeof settings.enabled === 'boolean' || typeof raw.enabled === 'boolean'
+  const hasAuto = typeof settings.autoCheck === 'boolean' || typeof raw.autoCheck === 'boolean'
+  const hasPause = typeof settings.preSendPause === 'boolean' || typeof raw.preSendPause === 'boolean'
+  if (!hasEnabled && !hasAuto && !hasPause) return
+
+  const nextEnabled = typeof raw.enabled === 'boolean'
+    ? raw.enabled
+    : (typeof settings.enabled === 'boolean' ? settings.enabled : fdRuntimeFlags.enabled)
+  const nextAuto = typeof raw.autoCheck === 'boolean'
+    ? raw.autoCheck
+    : (typeof settings.autoCheck === 'boolean' ? settings.autoCheck : fdRuntimeFlags.autoCheck)
+  const nextPause = typeof raw.preSendPause === 'boolean'
+    ? raw.preSendPause
+    : (typeof settings.preSendPause === 'boolean' ? settings.preSendPause : fdRuntimeFlags.preSendPause)
+
+  if (!gameId || raw.settings || raw.globalSettings) {
+    fdRuntimeFlags.known = true
+    fdRuntimeFlags.enabled = nextEnabled
+    fdRuntimeFlags.autoCheck = nextAuto
+    fdRuntimeFlags.preSendPause = nextPause
+  }
+  const gid = String(gameId || '').trim()
+  if (gid && gid !== '__fate_dice_global__') {
+    const prev = fdRuntimeFlags.byGame.get(gid) || {
+      enabled: fdRuntimeFlags.enabled,
+      autoCheck: fdRuntimeFlags.autoCheck,
+      preSendPause: fdRuntimeFlags.preSendPause
+    }
+    if (fdRuntimeFlags.byGame.has(gid)) fdRuntimeFlags.byGame.delete(gid)
+    fdRuntimeFlags.byGame.set(gid, {
+      enabled: hasEnabled ? nextEnabled : prev.enabled,
+      autoCheck: hasAuto ? nextAuto : prev.autoCheck,
+      preSendPause: hasPause ? nextPause : prev.preSendPause
+    })
+    while (fdRuntimeFlags.byGame.size > FD_MAX_CACHED_GAMES) {
+      const oldest = fdRuntimeFlags.byGame.keys().next().value
+      if (!oldest) break
+      fdRuntimeFlags.byGame.delete(oldest)
+    }
+  }
+}
+
+function fdIsEnabledForGame(gameId) {
+  const gid = String(gameId || '').trim()
+  if (gid && fdRuntimeFlags.byGame.has(gid)) return fdRuntimeFlags.byGame.get(gid).enabled
+  if (fdRuntimeFlags.known) return fdRuntimeFlags.enabled
+  return null
+}
+
+function fdMayNeedPreSendGate(gameId) {
+  const gid = String(gameId || '').trim()
+  if (gid && fdRuntimeFlags.byGame.has(gid)) {
+    const entry = fdRuntimeFlags.byGame.get(gid)
+    return Boolean(entry.enabled && entry.autoCheck && entry.preSendPause)
+  }
+  if (fdRuntimeFlags.known) {
+    return Boolean(fdRuntimeFlags.enabled && fdRuntimeFlags.autoCheck && fdRuntimeFlags.preSendPause)
+  }
+  const localSettings = fdNormalizeSettings(fdStoreGet(FD_STORAGE_KEYS.settings, FD_DEFAULT_SETTINGS))
+  return Boolean(localSettings.enabled && localSettings.preSendPause)
+}
+
+function fdGetGameTurnCache(gameId) {
+  const gid = String(gameId || '').trim()
+  if (!gid) return null
+  let map = fdTurnCacheByGame.get(gid)
+  if (map) {
+    fdTurnCacheByGame.delete(gid)
+    fdTurnCacheByGame.set(gid, map)
+    return map
+  }
+  map = new Map()
+  fdTurnCacheByGame.set(gid, map)
+  while (fdTurnCacheByGame.size > FD_MAX_CACHED_GAMES) {
+    const oldest = fdTurnCacheByGame.keys().next().value
+    if (!oldest) break
+    fdTurnCacheByGame.delete(oldest)
+  }
+  return map
+}
+
+function fdRememberTurnRecord(gameId, turn, record) {
+  const t = Math.floor(fdNumber(turn, 0))
+  if (!gameId || t <= 0) return
+  if (record && record.streaming === true) return
+  const map = fdGetGameTurnCache(gameId)
+  if (!map) return
+  if (map.has(t)) map.delete(t)
+  map.set(t, record || null)
+  while (map.size > FD_MAX_CACHED_TURNS_PER_GAME) {
+    const oldest = map.keys().next().value
+    if (oldest === undefined) break
+    map.delete(oldest)
+  }
+}
+
+function fdInvalidateTurnCache(gameId, turn) {
+  const gid = String(gameId || '').trim()
+  if (!gid) {
+    fdTurnCacheByGame.clear()
+    return []
+  }
+  const map = fdTurnCacheByGame.get(gid)
+  if (!map) return turn > 0 ? [Math.floor(fdNumber(turn, 0))] : []
+  const targetTurn = Math.floor(fdNumber(turn, 0))
+  if (targetTurn <= 0) {
+    map.clear()
+    return []
+  }
+  const affected = new Set([targetTurn])
+  // 新轮次落盘会使此前允许重投的上一最新轮变为锁定状态，顺带仅失效该轮
+  map.forEach((cached, cachedTurn) => {
+    if (cached && cached.rerollState && cached.rerollState.allowed) {
+      affected.add(cachedTurn)
+    }
+  })
+  affected.forEach(t => map.delete(t))
+  return Array.from(affected)
+}
+
+function fdBootstrapActiveGame(ui) {
+  if (!ui || typeof ui !== 'object') return Promise.resolve(null)
+  const existing = fdBootstrapByUi.get(ui)
+  if (existing) return existing
+  const task = fdCall(ui, FD_RPC.status, {})
+    .then(res => {
+      if (res && res.ok && res.data) {
+        const active = res.data.activeGameId || res.data.gameId || ''
+        fdNoteRuntimeFlags(active, res.data)
+        if (active) fdNoteActiveGameId(String(active))
+        return res.data
+      }
+      return null
+    })
+    .catch(() => null)
+    .finally(() => {
+      fdBootstrapByUi.delete(ui)
+    })
+  fdBootstrapByUi.set(ui, task)
+  return task
+}
+
+function fdReadTurnBatched(ui, options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const gameId = String(opts.gameId || fdGetActiveGameId() || '').trim()
+  const turn = Math.floor(fdNumber(opts.turn, 0))
+  const streaming = Boolean(opts.streaming)
+  const latest = Boolean(opts.latest)
+  const force = Boolean(opts.force)
+
+  if (!ui || typeof ui.callHost !== 'function') {
+    return Promise.resolve({ ok: false, error: '宿主未提供 callHost' })
+  }
+  if (!gameId && turn <= 0 && !streaming && !latest) {
+    return Promise.resolve({ ok: true, data: null })
+  }
+
+  // 插件明确关闭时，流式中的新楼层不会产生检定，直接短路零请求
+  if (streaming && !latest && fdIsEnabledForGame(gameId) === false) {
+    return Promise.resolve({ ok: true, data: null })
+  }
+
+  if (gameId && turn > 0 && !streaming && !latest && !force) {
+    const map = fdTurnCacheByGame.get(gameId)
+    if (map && map.has(turn)) {
+      return Promise.resolve({ ok: true, data: map.get(turn), cached: true })
+    }
+  }
+
+  const batchKey = gameId || '__active__'
+  let batch = fdPendingTurnBatches.get(batchKey)
+  if (!batch || batch.ui !== ui) {
+    batch = {
+      ui,
+      gameId,
+      turns: new Set(),
+      streamingTurn: 0,
+      streamingOnly: false,
+      includeLatest: false,
+      latestTurn: 0,
+      latestStreaming: false,
+      waiters: []
+    }
+    fdPendingTurnBatches.set(batchKey, batch)
+    Promise.resolve().then(() => {
+      if (fdPendingTurnBatches.get(batchKey) === batch) fdPendingTurnBatches.delete(batchKey)
+      const turnsList = Array.from(batch.turns)
+      const payload = {
+        gameId: batch.gameId || undefined,
+        turns: turnsList,
+        ...(batch.streamingTurn > 0 ? { streamingTurn: batch.streamingTurn } : {}),
+        ...(batch.streamingOnly ? { streaming: true } : {}),
+        ...(batch.includeLatest ? {
+          includeLatest: true,
+          latestTurn: batch.latestTurn,
+          latestStreaming: batch.latestStreaming
+        } : {})
+      }
+      fdCall(batch.ui, FD_RPC.readTurns, payload).then(res => {
+        if (res && res.ok && res.data && typeof res.data === 'object' && res.data.turns && typeof res.data.turns === 'object') {
+          const resolvedId = String(res.data.gameId || batch.gameId || '').trim()
+          if (resolvedId) fdNoteActiveGameId(resolvedId)
+          fdNoteRuntimeFlags(resolvedId, res.data)
+          turnsList.forEach(t => {
+            const rec = Object.prototype.hasOwnProperty.call(res.data.turns, String(t))
+              ? res.data.turns[String(t)]
+              : null
+            if (t !== batch.streamingTurn && !(rec && rec.streaming === true)) {
+              fdRememberTurnRecord(resolvedId, t, rec)
+            }
+          })
+          if (res.data.latest && res.data.latest.turn > 0 && res.data.latest.streaming !== true && (res.data.latest.roll || res.data.latest.judged)) {
+            fdRememberTurnRecord(resolvedId, res.data.latest.turn, res.data.latest)
+          }
+          batch.waiters.forEach(w => {
+            let item = null
+            if (w.latest) {
+              item = res.data.latest || null
+            } else if (w.turn > 0) {
+              item = Object.prototype.hasOwnProperty.call(res.data.turns, String(w.turn))
+                ? res.data.turns[String(w.turn)]
+                : null
+            } else if (w.streaming) {
+              item = res.data.streamingRecord || null
+            }
+            w.resolve({ ok: true, data: item })
+          })
+          return
+        }
+        // 兼容未注册 fate-dice:read-turns 的旧宿主或极简单测桩：逐个回退到单轮 read-turn
+        batch.waiters.forEach(w => {
+          fdCall(batch.ui, FD_RPC.readTurn, {
+            gameId: batch.gameId || '',
+            turn: w.turn,
+            ...(w.streaming ? { streaming: true } : {}),
+            ...(w.latest ? { latest: true } : {})
+          }).then(single => {
+            const singleData = single && single.ok ? single.data : null
+            const resolvedId = String((singleData && singleData.gameId) || batch.gameId || '').trim()
+            if (singleData && typeof singleData === 'object') {
+              fdNoteRuntimeFlags(resolvedId, singleData)
+            }
+            if (resolvedId && w.turn > 0 && !w.streaming && !w.latest && single && single.ok && !(singleData && singleData.streaming === true)) {
+              fdRememberTurnRecord(resolvedId, w.turn, singleData || null)
+            }
+            w.resolve(single)
+          })
+        })
+      })
+    })
+  }
+
+  if (latest) {
+    batch.includeLatest = true
+    if (turn > batch.latestTurn) batch.latestTurn = turn
+    if (streaming) batch.latestStreaming = true
+  } else if (turn > 0) {
+    batch.turns.add(turn)
+    if (streaming) batch.streamingTurn = turn
+  } else if (streaming) {
+    batch.streamingOnly = true
+  }
+
+  return new Promise(resolve => {
+    batch.waiters.push({ turn, streaming, latest, resolve })
+  })
+}
+
+/* 初次装载：宿主 workbench 已包含完整状态与汇总，仅在失败或缺字段时才回退调用 status */
 function fdLoadWorkbench(ui, gameId) {
   const base = fdEmptyWorkbench()
+  const finalizeView = view => {
+    const cachedProfile = fdLoadProfileCache(gameId)
+    const hasHostProfile = Boolean(view.characterProfile && (view.characterProfile.traits || []).length)
+    let next = view
+    if (!hasHostProfile && (cachedProfile.traits.length || cachedProfile.customNote)) {
+      next = { ...next, characterProfile: cachedProfile }
+    }
+    if (!gameId) next.source = 'local'
+    return next
+  }
   return fdCall(ui, FD_RPC.workbench, { gameId: gameId || null })
     .then(res => {
-      let view = base
-      if (res.ok && res.data) view = fdMergeWorkbench(base, res.data)
+      if (res.ok && res.data && typeof res.data === 'object') {
+        fdNoteRuntimeFlags(gameId, res.data)
+        const view = fdMergeWorkbench(base, res.data)
+        if (res.data.summary !== undefined || res.data.judgeStatus !== undefined || res.data.settings !== undefined) {
+          return finalizeView(view)
+        }
+      }
       return fdCall(ui, FD_RPC.status, { gameId: gameId || undefined }).then(status => {
+        let view = res.ok && res.data ? fdMergeWorkbench(base, res.data) : base
         if (status.ok && status.data) {
+          fdNoteRuntimeFlags(gameId, status.data)
           view = fdBindStatusSummary(view, status.data)
           if (!gameId) view.judgeStatus = status.data.judgeStatus || view.judgeStatus
         }
-        const cachedProfile = fdLoadProfileCache(gameId)
-        const hasHostProfile = Boolean(view.characterProfile && (view.characterProfile.traits || []).length)
-        if (!hasHostProfile && (cachedProfile.traits.length || cachedProfile.customNote)) {
-          view = { ...view, characterProfile: cachedProfile }
-        }
-        if (!gameId) view.source = 'local'
-        return view
+        return finalizeView(view)
       })
     })
     .catch(() => base)
@@ -2468,13 +2766,24 @@ function fdLoadWorkbench(ui, gameId) {
 function fdPersistSettings(ui, settings) {
   const normalized = fdNormalizeSettings(settings)
   fdStoreSet(FD_STORAGE_KEYS.settings, normalized)
-  return fdCall(ui, FD_RPC.saveSettings, { settings: normalized }).then(res => ({ ...res, local: true }))
+  fdNoteRuntimeFlags('', { settings: normalized })
+  fdRuntimeFlags.byGame.forEach(entry => {
+    entry.enabled = normalized.enabled
+    entry.preSendPause = normalized.preSendPause
+  })
+  fdInvalidateTurnCache('')
+  return fdCall(ui, FD_RPC.saveSettings, { settings: normalized }).then(res => {
+    if (res && res.ok && res.data) fdNoteRuntimeFlags('', res.data)
+    return { ...res, local: true }
+  })
 }
 
 /* 本局绑定仅同步「自动行动检定」开关与骰制 */
 function fdPersistBinding(ui, gameId, binding) {
   if (!gameId) return Promise.resolve({ ok: false, error: '需要进入对话后绑定' })
   const autoCheck = binding && typeof binding.autoCheck === 'boolean' ? binding.autoCheck : undefined
+  if (typeof autoCheck === 'boolean') fdNoteRuntimeFlags(gameId, { autoCheck })
+  fdInvalidateTurnCache(gameId)
   return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: { autoCheck } })
 }
 
@@ -2520,6 +2829,7 @@ function fdSaveProfileNote(ui, gameId, payload) {
       updatedAt: Date.now()
     })
   }
+  if (rule) fdInvalidateTurnCache(gameId || '')
   const body = { gameId: gameId || null, customNote, rule }
   if (!rule) delete body.rule
   return fdCall(ui, FD_RPC.saveProfileNote, body).then(res => ({ ...res, customNote }))
@@ -7550,6 +7860,9 @@ function Fd3DDiceStage(props) {
  * 三处挂载点在无数据时均返回 null 或原 children（零占位、零样式污染）
  * ------------------------------------------------------------------ */
 
+const FD_STREAM_POLL_DELAYS = [1200, 2800, 5500]
+const FD_POST_SETTLE_DELAYS = [600, 1600]
+
 function DieGlyph(props) {
   const { sides, label, rolling, tier, hidden } = props || {}
   const faceCount = fdNumber(sides, 6)
@@ -8074,7 +8387,7 @@ function ComposerLiveDock(props) {
       }
     }
 
-    const loadLatest = () => {
+    const loadLatest = opts => {
       if (!alive) return
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current)
@@ -8084,37 +8397,48 @@ function ComposerLiveDock(props) {
       reqSeqRef.current = seq
       const dom = fdLatestDomFloorInfo()
       const streamingHint = Boolean(dom.streaming || replyStreamingRef.current)
-      fdCall(ui, FD_RPC.readTurn, {
+      if (streamingHint && fdIsEnabledForGame(stateKey) === false) {
+        return
+      }
+      fdReadTurnBatched(ui, {
         gameId: stateKey,
         turn: dom.turn,
         latest: true,
-        streaming: streamingHint
+        streaming: streamingHint,
+        force: Boolean(opts && opts.force)
       }).then(res => {
         if (!alive || reqSeqRef.current !== seq) return
         const data = res && res.ok && res.data && typeof res.data === 'object' ? res.data : null
         if (data) {
+          fdNoteRuntimeFlags(stateKey, data)
           syncTurnReset(data.turn)
           setRecord(data)
         }
+        const pluginActive = fdIsEnabledForGame(stateKey) !== false
+          && !(data && (data.enabled === false || data.autoCheck === false))
         const hasPayload = Boolean(data && (data.roll || data.setupRequiredReason || (data.judged && data.judged.shouldRoll === false)))
         const stillStreaming = Boolean(streamingHint || (data && data.streaming))
-        if (stillStreaming && !hasPayload && retryCountRef.current < 40) {
+        if (pluginActive && stillStreaming && !hasPayload && retryCountRef.current < FD_STREAM_POLL_DELAYS.length) {
+          const delay = FD_STREAM_POLL_DELAYS[retryCountRef.current]
           retryCountRef.current += 1
-          retryTimerRef.current = setTimeout(loadLatest, 500)
+          retryTimerRef.current = setTimeout(() => loadLatest({ force: true }), delay)
         }
       })
     }
 
     const acceptLive = data => {
       if (!alive) return
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = 0
+      }
       if (!data) {
         setLiveEvent(null)
         return
       }
       syncTurnReset(data.turn)
       setRecord(prev => fdRecordFromLiveEvent(stateKey, data.turn, data, prev) || prev)
-      retryCountRef.current = 0
-      loadLatest()
+      retryCountRef.current = FD_STREAM_POLL_DELAYS.length
       /* 关闭动画时不再展示骰面卡，但未配置决策模型的引导提示仍需露面 */
       if (data.animation === 'none' && data.kind !== 'setup-required' && data.kind !== 'skipped') {
         setLiveEvent(null)
@@ -8128,18 +8452,38 @@ function ComposerLiveDock(props) {
 
     const refresh = () => {
       retryCountRef.current = 0
-      loadLatest()
+      loadLatest({ force: true })
     }
 
     loadLatest()
     const offs = []
+    let lastTurnObserved = 0
+    let lastSettledObserved = true
     keys.forEach(key => {
       offs.push(fdWatch(ui, key, 'live-roll', acceptLive))
-      offs.push(fdWatch(ui, key, 'turn-check', refresh))
-      offs.push(fdWatch(ui, key, 'workbench-sync', refresh))
+      offs.push(fdWatch(ui, key, 'turn-check', data => {
+        fdInvalidateTurnCache(key, data && data.turn)
+        refresh()
+      }))
+      offs.push(fdWatch(ui, key, 'workbench-sync', payload => {
+        fdNoteRuntimeFlags(key, payload)
+        if (payload && (payload.settings || payload.rule || payload.binding)) {
+          refresh()
+        } else if (payload && payload.fate) {
+          setRecord(prev => (prev && typeof prev === 'object' ? { ...prev, fate: fdNormalizeFate(payload.fate) } : prev))
+        }
+      }))
       if (ui && typeof ui.watchTurnState === 'function') {
         try {
-          const offTurn = ui.watchTurnState(key, refresh)
+          const offTurn = ui.watchTurnState(key, st => {
+            if (fdIsEnabledForGame(key) === false) return
+            const nextTurn = fdNumber(st && st.turn, 0)
+            const nextSettled = Boolean(st && st.settled)
+            const settledChanged = nextSettled && (!lastSettledObserved || nextTurn !== lastTurnObserved)
+            lastTurnObserved = nextTurn
+            lastSettledObserved = nextSettled
+            if (settledChanged) refresh()
+          })
           if (typeof offTurn === 'function') offs.push(offTurn)
         } catch {}
       }
@@ -8149,7 +8493,8 @@ function ComposerLiveDock(props) {
             const nextStreaming = Boolean(reply && (reply.streaming || reply.busy))
             const changed = nextStreaming !== replyStreamingRef.current
             replyStreamingRef.current = nextStreaming
-            if (changed || (reply && reply.turn > 0)) refresh()
+            if (fdIsEnabledForGame(key) === false) return
+            if (changed) refresh()
           })
           if (typeof offReply === 'function') offs.push(offReply)
         } catch {}
@@ -8159,7 +8504,8 @@ function ComposerLiveDock(props) {
     const onWindowStoryEvent = ev => {
       const sid = ev && ev.detail && ev.detail.sessionId
       if (sid && String(sid).trim() !== String(stateKey)) return
-      refresh()
+      if (ev && ev.type !== 'dsh-tavern-session-changed' && fdIsEnabledForGame(stateKey) === false) return
+      if (ev && ev.type === 'dsh-tavern-session-changed') refresh()
     }
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('dsh-tavern-session-changed', onWindowStoryEvent)
@@ -8240,6 +8586,7 @@ function ComposerLiveDock(props) {
         const data = res && res.ok ? res.data : null
         const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
         if (nextRoll) {
+          fdInvalidateTurnCache(stateKey, effectiveTurn)
           setRecord(prev => ({
             ...(prev || {}),
             turn: effectiveTurn,
@@ -8272,11 +8619,12 @@ function ComposerLiveDock(props) {
     setOpen(nextOpen)
     if (nextOpen) {
       const latestDom = fdLatestDomFloorInfo()
-      fdCall(ui, FD_RPC.readTurn, {
+      fdReadTurnBatched(ui, {
         gameId: stateKey,
         turn: latestDom.turn,
         latest: true,
-        streaming: Boolean(latestDom.streaming || replyStreamingRef.current)
+        streaming: Boolean(latestDom.streaming || replyStreamingRef.current),
+        force: true
       }).then(res => {
         const data = res && res.ok && res.data && typeof res.data === 'object' ? res.data : null
         if (data) setRecord(data)
@@ -8400,8 +8748,8 @@ function TurnRollCapsule(props) {
       return undefined
     }
     let alive = true
-    const reload = () => {
-      fdCall(ui, FD_RPC.readTurn, { gameId, turn }).then(res => {
+    const reload = opts => {
+      fdReadTurnBatched(ui, { gameId, turn, force: Boolean(opts && opts.force) }).then(res => {
         if (!alive) return
         const data = res && res.ok ? res.data : null
         setRecord(data && typeof data === 'object' ? data : null)
@@ -8411,8 +8759,14 @@ function TurnRollCapsule(props) {
     setPeeked(false)
     setRerollHint('')
     reload()
-    const offSync = fdWatch(ui, gameId, 'workbench-sync', () => {
-      if (alive) reload()
+    const offSync = fdWatch(ui, gameId, 'workbench-sync', payload => {
+      if (!alive) return
+      fdNoteRuntimeFlags(gameId, payload)
+      if (payload && (payload.settings || payload.rule || payload.binding || fdNumber(payload.turn, 0) === fdNumber(turn, 0))) {
+        reload({ force: true })
+      } else if (payload && payload.fate) {
+        setRecord(prev => (prev && typeof prev === 'object' ? { ...prev, fate: fdNormalizeFate(payload.fate) } : prev))
+      }
     })
     return () => {
       alive = false
@@ -8455,6 +8809,7 @@ function TurnRollCapsule(props) {
         const data = res && res.ok ? res.data : null
         const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
         if (nextRoll) {
+          fdInvalidateTurnCache(gameId, turn)
           setRecord(prev => ({
             ...(prev || {}),
             roll: nextRoll,
@@ -8650,11 +9005,12 @@ function StoryFloorDiceItem(props) {
   useEffect(() => {
     if (!turn) return undefined
     let alive = true
-    const load = () => {
-      fdCall(ui, FD_RPC.readTurn, {
+    const load = opts => {
+      fdReadTurnBatched(ui, {
         gameId: gameId || '',
         turn,
-        streaming: Boolean(streaming)
+        streaming: Boolean(streaming),
+        force: Boolean(opts && opts.force)
       }).then(res => {
         if (!alive) return
         const data = res && res.ok ? res.data : null
@@ -8663,9 +9019,30 @@ function StoryFloorDiceItem(props) {
     }
     load()
     const watchKey = gameId || fdGetActiveGameId()
-    const offCheck = watchKey ? fdWatch(ui, watchKey, 'turn-check', () => { if (alive) load() }) : fdNoop
-    const offSync = watchKey ? fdWatch(ui, watchKey, 'workbench-sync', () => { if (alive) load() }) : fdNoop
-    const offLive = watchKey ? fdWatch(ui, watchKey, 'live-roll', () => { if (alive) load() }) : fdNoop
+    const offCheck = watchKey ? fdWatch(ui, watchKey, 'turn-check', data => {
+      if (!alive) return
+      const evTurn = fdNumber(data && data.turn, 0)
+      const affected = fdInvalidateTurnCache(watchKey, evTurn)
+      if (!evTurn || evTurn === fdNumber(turn, 0) || affected.includes(fdNumber(turn, 0))) {
+        load({ force: true })
+      }
+    }) : fdNoop
+    const offSync = watchKey ? fdWatch(ui, watchKey, 'workbench-sync', data => {
+      if (!alive) return
+      fdNoteRuntimeFlags(watchKey, data)
+      if (data && (data.settings || data.rule || data.binding)) {
+        load({ force: true })
+      } else if (data && data.fate) {
+        setRecord(prev => (prev && typeof prev === 'object' ? { ...prev, fate: fdNormalizeFate(data.fate) } : prev))
+      }
+    }) : fdNoop
+    const offLive = watchKey ? fdWatch(ui, watchKey, 'live-roll', data => {
+      if (!alive || !data) return
+      const evTurn = fdNumber(data.turn, 0)
+      if (streaming || (evTurn && evTurn === fdNumber(turn, 0))) {
+        setRecord(prev => fdRecordFromLiveEvent(watchKey, turn, data, prev) || prev)
+      }
+    }) : fdNoop
     return () => {
       alive = false
       offCheck()
@@ -8743,6 +9120,7 @@ function StoryFloorDiceItem(props) {
         const data = res && res.ok ? res.data : null
         const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
         if (nextRoll) {
+          fdInvalidateTurnCache(gameId || fdGetActiveGameId(), effectiveTurn)
           setRecord(prev => ({
             ...(prev || {}),
             roll: nextRoll,
@@ -9519,20 +9897,39 @@ function fdMountImperativeFloorHeaders(ui) {
   let latestLiveEvent = null
   let stopWatches = fdNoop
 
-  const refreshAll = () => {
+  const refreshAll = opts => {
     if (disposed) return
     entries.forEach(entry => {
       entry.retryCount = 0
-      loadEntry(entry)
+      loadEntry(entry, opts)
+    })
+  }
+
+  const refreshTurns = (affectedTurns, opts) => {
+    if (disposed) return
+    const turnSet = new Set((affectedTurns || []).map(t => fdNumber(t, 0)).filter(t => t > 0))
+    entries.forEach(entry => {
+      const allowWasOpen = Boolean(entry.record && entry.record.rerollState && entry.record.rerollState.allowed)
+      if (entry.streaming || allowWasOpen || turnSet.has(entry.turn)) {
+        entry.retryCount = 0
+        loadEntry(entry, opts)
+      }
     })
   }
 
   const applyLiveEventToStreamingEntries = (gameId, data) => {
-    if (disposed || !data || typeof data !== 'object') return
+    if (disposed || !data || typeof data !== 'object') return false
+    let matched = false
     entries.forEach(entry => {
       if (!entry.streaming) return
       const optimistic = fdRecordFromLiveEvent(gameId, entry.turn, data, entry.record)
       if (!optimistic) return
+      matched = true
+      if (entry.retryTimer) {
+        clearTimeout(entry.retryTimer)
+        entry.retryTimer = 0
+      }
+      entry.retryCount = FD_STREAM_POLL_DELAYS.length
       entry.record = optimistic
       entry.gotLiveStreamRecord = true
       /* 判定结果一落定立刻在正文中央投骰，不等正文写完、也不进胶囊 */
@@ -9542,6 +9939,7 @@ function fdMountImperativeFloorHeaders(ui) {
       }
       renderEntry(entry)
     })
+    return matched
   }
 
   const bindGameWatches = nextId => {
@@ -9553,7 +9951,18 @@ function fdMountImperativeFloorHeaders(ui) {
     stopWatches()
     watchedGameId = id
     latestLiveEvent = null
-    const off1 = fdWatch(ui, id, 'turn-check', refreshAll)
+    let lastObservedTurn = 0
+    let lastObservedSettled = true
+
+    const off1 = fdWatch(ui, id, 'turn-check', data => {
+      const evTurn = fdNumber(data && data.turn, 0)
+      const affected = fdInvalidateTurnCache(id, evTurn)
+      if (evTurn > 0 || affected.length > 0) {
+        refreshTurns(affected, { force: true })
+      } else {
+        refreshAll({ force: true })
+      }
+    })
     const off2 = fdWatch(ui, id, 'live-roll', data => {
       latestLiveEvent = data && typeof data === 'object' ? { gameId: id, data } : null
       if (data && typeof data === 'object') {
@@ -9564,20 +9973,63 @@ function fdMountImperativeFloorHeaders(ui) {
           if (isFresh) {
             fdPlayFloorRollAnim(null, null, data.roll, data.animation, { eventKey: data.id || '' })
           }
-          if (!data.roll.hidden && (data.roll.tier === 'failure' || data.roll.tier === 'fumble') && typeof fdProbePreSendGate === 'function') {
+          if (
+            !data.roll.hidden
+            && (data.roll.tier === 'failure' || data.roll.tier === 'fumble')
+            && typeof fdProbePreSendGate === 'function'
+            && (typeof fdMayNeedPreSendGate !== 'function' || fdMayNeedPreSendGate(id))
+          ) {
             setTimeout(() => fdProbePreSendGate(id), 60)
             setTimeout(() => fdProbePreSendGate(id), 260)
           }
         }
-        applyLiveEventToStreamingEntries(id, data)
+        const matched = applyLiveEventToStreamingEntries(id, data)
+        const evTurn = fdNumber(data.turn, 0)
+        if (!matched && evTurn > 0) {
+          refreshTurns([evTurn], { force: true })
+        }
       }
-      refreshAll()
     })
-    const off3 = fdWatch(ui, id, 'workbench-sync', refreshAll)
+    const off3 = fdWatch(ui, id, 'workbench-sync', data => {
+      fdNoteRuntimeFlags(id, data)
+      if (data && (data.settings || data.rule || data.binding)) {
+        fdInvalidateTurnCache(id)
+        refreshAll({ force: true })
+        return
+      }
+      if (data && data.fate) {
+        const nextFate = fdNormalizeFate(data.fate)
+        entries.forEach(entry => {
+          if (entry.record && typeof entry.record === 'object') {
+            entry.record = { ...entry.record, fate: nextFate }
+            if (entry.record.rerollState && entry.record.rerollState.allowed) {
+              entry.record.rerollState = {
+                ...entry.record.rerollState,
+                fatePoints: nextFate.points,
+                fateMax: nextFate.max,
+                canFate: nextFate.points > 0
+              }
+            }
+            renderEntry(entry)
+          }
+        })
+      }
+    })
     let off4 = fdNoop
     if (ui && typeof ui.watchTurnState === 'function') {
       try {
-        const stopTurnState = ui.watchTurnState(id, () => refreshAll())
+        const stopTurnState = ui.watchTurnState(id, st => {
+          if (fdIsEnabledForGame(id) === false) return
+          const nextTurn = fdNumber(st && st.turn, 0)
+          const nextSettled = Boolean(st && st.settled)
+          const settledChanged = nextSettled && (!lastObservedSettled || (nextTurn > 0 && nextTurn !== lastObservedTurn))
+          lastObservedTurn = nextTurn
+          lastObservedSettled = nextSettled
+          if (settledChanged) {
+            const affected = fdInvalidateTurnCache(id, nextTurn)
+            refreshTurns(affected.length ? affected : [nextTurn], { force: true })
+          }
+        })
         if (typeof stopTurnState === 'function') off4 = stopTurnState
       } catch {}
     }
@@ -9597,9 +10049,9 @@ function fdMountImperativeFloorHeaders(ui) {
     if (sid) fdNoteActiveGameId(String(sid))
     if (disposed) return
     schedule()
-    if (!sid || String(sid).trim() === prevId) {
+    if (ev && ev.type === 'dsh-tavern-session-changed' && (!sid || String(sid).trim() === prevId)) {
       entries.forEach(entry => {
-        if (entry.streaming || !entry.record) {
+        if (!entry.loadedOnce) {
           entry.retryCount = 0
           loadEntry(entry)
         }
@@ -9613,6 +10065,8 @@ function fdMountImperativeFloorHeaders(ui) {
   }
   if (fdGetActiveGameId()) {
     bindGameWatches(fdGetActiveGameId())
+  } else if (typeof fdBootstrapActiveGame === 'function') {
+    fdBootstrapActiveGame(ui)
   } else {
     fdCall(ui, FD_RPC.status, {}).then(res => {
       const active = res && res.ok && res.data && (res.data.activeGameId || res.data.gameId)
@@ -9637,8 +10091,10 @@ function fdMountImperativeFloorHeaders(ui) {
     const hasRecordPayload = Boolean(
       record && (record.roll || record.setupRequiredReason || (record.judged && record.judged.shouldRoll === false))
     )
+    const pluginActive = fdIsEnabledForGame(watchedGameId || fdGetActiveGameId()) !== false
+      && !(record && (record.enabled === false || record.autoCheck === false))
     const awaitingLiveRoll = Boolean(
-      entry.streaming && (!hasRecordPayload || (record.streaming !== true && !entry.gotLiveStreamRecord))
+      pluginActive && entry.streaming && (!hasRecordPayload || (record.streaming !== true && !entry.gotLiveStreamRecord))
     )
     const hasContent = awaitingLiveRoll || hasRecordPayload
     if (!hasContent) {
@@ -9856,17 +10312,20 @@ function fdMountImperativeFloorHeaders(ui) {
           entry.rerolling = true
           entry.rerollHint = ''
           renderEntry(entry)
-          fdCall(ui, FD_RPC.rerollTurn, { gameId: fdGetActiveGameId(), turn: effectiveTurn, mode })
+          const activeId = fdGetActiveGameId()
+          fdCall(ui, FD_RPC.rerollTurn, { gameId: activeId, turn: effectiveTurn, mode })
             .then(res => {
               const data = res && res.ok ? res.data : null
               const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
               if (nextRoll) {
+                fdInvalidateTurnCache(activeId, effectiveTurn)
                 entry.record = {
                   ...(entry.record || {}),
                   roll: nextRoll,
                   fate: data.fate || fate,
                   rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
                 }
+                fdRememberTurnRecord(activeId, effectiveTurn, entry.record)
                 /* 重投同样是「结果一到就投」：中央爆发，胶囊里只更新静态骰面 */
                 fdPlayFloorRollAnim(entry.article, entry, nextRoll, entry.record.animation, { power })
                 entry.rerollHint = data.mode === 'push'
@@ -9949,7 +10408,7 @@ function fdMountImperativeFloorHeaders(ui) {
     panelSlot.appendChild(panel)
   }
 
-  function loadEntry(entry) {
+  function loadEntry(entry, opts) {
     if (disposed) return
     if (entry.retryTimer) {
       clearTimeout(entry.retryTimer)
@@ -9958,16 +10417,24 @@ function fdMountImperativeFloorHeaders(ui) {
     const reqSeq = (entry.reqSeq || 0) + 1
     entry.reqSeq = reqSeq
     const activeGameId = fdGetActiveGameId()
-    fdCall(ui, FD_RPC.readTurn, {
+    if (entry.streaming && fdIsEnabledForGame(activeGameId) === false) {
+      entry.loadedOnce = true
+      entry.record = null
+      renderEntry(entry)
+      return
+    }
+    fdReadTurnBatched(ui, {
       gameId: activeGameId,
       turn: entry.turn,
-      streaming: Boolean(entry.streaming)
+      streaming: Boolean(entry.streaming),
+      force: Boolean(opts && opts.force)
     }).then(res => {
       if (disposed || entry.disposed || entry.reqSeq !== reqSeq) return
       const data = res && res.ok ? res.data : null
       if (data && data.gameId) fdNoteActiveGameId(String(data.gameId))
       const nextRecord = data && typeof data === 'object' ? data : null
       if (nextRecord) {
+        fdNoteRuntimeFlags(data.gameId || activeGameId, nextRecord)
         if (nextRecord.streaming === true) entry.gotLiveStreamRecord = true
         entry.justFinishedStream = false
         entry.record = nextRecord
@@ -9977,23 +10444,35 @@ function fdMountImperativeFloorHeaders(ui) {
         }
       } else if (entry.streaming && entry.gotLiveStreamRecord && entry.record) {
         /* 保持已收到的实时检定快照，避免轮询间隙闪回「定难中」 */
-      } else if (!entry.streaming && entry.justFinishedStream && entry.gotLiveStreamRecord && entry.record && (entry.retryCount || 0) < 8) {
+      } else if (!entry.streaming && entry.justFinishedStream && entry.gotLiveStreamRecord && entry.record && (entry.retryCount || 0) < FD_POST_SETTLE_DELAYS.length) {
         /* 流式刚结束、后台结算正在写入的极短窗口内保留流式检定显示并继续重试确认 */
         entry.record = { ...entry.record, streaming: false }
       } else {
         entry.record = null
       }
+      if (!entry.streaming && !(nextRecord && nextRecord.streaming === true)) {
+        entry.loadedOnce = true
+      }
       renderEntry(entry)
+      const pluginActive = fdIsEnabledForGame(activeGameId) !== false
+        && !(nextRecord && (nextRecord.enabled === false || nextRecord.autoCheck === false))
       const hasPayload = Boolean(
         entry.record && (entry.record.roll || entry.record.setupRequiredReason || (entry.record.judged && entry.record.judged.shouldRoll === false))
       )
       const awaitingLive = Boolean(
-        entry.streaming && (!hasPayload || (entry.record.streaming !== true && !entry.gotLiveStreamRecord))
+        pluginActive && entry.streaming && (!hasPayload || (entry.record.streaming !== true && !entry.gotLiveStreamRecord))
       )
-      const awaitingPostStreamSettle = Boolean(!entry.streaming && entry.justFinishedStream && !nextRecord && (entry.retryCount || 0) < 8)
-      if ((awaitingLive && (entry.retryCount || 0) < 40) || awaitingPostStreamSettle) {
+      const awaitingPostStreamSettle = Boolean(
+        pluginActive && !entry.streaming && entry.justFinishedStream && !nextRecord && (entry.retryCount || 0) < FD_POST_SETTLE_DELAYS.length
+      )
+      if (awaitingLive && (entry.retryCount || 0) < FD_STREAM_POLL_DELAYS.length) {
+        const delay = FD_STREAM_POLL_DELAYS[entry.retryCount || 0]
         entry.retryCount = (entry.retryCount || 0) + 1
-        entry.retryTimer = setTimeout(() => loadEntry(entry), awaitingPostStreamSettle ? 400 : 500)
+        entry.retryTimer = setTimeout(() => loadEntry(entry, { force: true }), delay)
+      } else if (awaitingPostStreamSettle) {
+        const delay = FD_POST_SETTLE_DELAYS[entry.retryCount || 0]
+        entry.retryCount = (entry.retryCount || 0) + 1
+        entry.retryTimer = setTimeout(() => loadEntry(entry, { force: true }), delay)
       } else if (!entry.streaming) {
         entry.justFinishedStream = false
       }
@@ -10026,6 +10505,7 @@ function fdMountImperativeFloorHeaders(ui) {
       if (!entry || entry.head !== head || entry.host !== host) {
         const inheritedRecord = entry && entry.gotLiveStreamRecord && entry.record ? entry.record : null
         const inheritedLive = Boolean(entry && entry.gotLiveStreamRecord)
+        const wasStreaming = Boolean(entry && entry.streaming)
         if (entry) {
           entry.disposed = true
           if (entry.retryTimer) clearTimeout(entry.retryTimer)
@@ -10058,7 +10538,8 @@ function fdMountImperativeFloorHeaders(ui) {
           streaming,
           record: seedRecord,
           gotLiveStreamRecord: seedGotLive,
-          justFinishedStream: false,
+          justFinishedStream: Boolean(wasStreaming && !streaming),
+          loadedOnce: false,
           expanded: false,
           peeked: false,
           rerolling: false,
@@ -10076,7 +10557,7 @@ function fdMountImperativeFloorHeaders(ui) {
           if (seedRecord.roll && streaming) fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
           renderEntry(entry)
         }
-        loadEntry(entry)
+        loadEntry(entry, { force: Boolean(wasStreaming && !streaming) })
       } else {
         const prevStreaming = entry.streaming
         const changed = entry.turn !== turn || prevStreaming !== streaming
@@ -10096,8 +10577,9 @@ function fdMountImperativeFloorHeaders(ui) {
           host.appendChild(entry.panelSlot)
         }
         if (changed) {
+          entry.loadedOnce = false
           entry.retryCount = 0
-          loadEntry(entry)
+          loadEntry(entry, { force: Boolean(prevStreaming && !streaming) })
         }
       }
     }
@@ -10730,11 +11212,16 @@ function fdProbePreSendGate(hintGameId) {
 
 function fdSchedulePreSendGateProbes(hintGameId) {
   if (!fdPreSendGate.ui || fdPreSendGate.disposed) return
+  const targetId = String(hintGameId || fdGetActiveGameId() || fdPreSendGate.gameId || '').trim()
+  if (typeof fdMayNeedPreSendGate === 'function' && !fdMayNeedPreSendGate(targetId)) return
   fdClearGateProbeTimers()
-  const delays = [180, 650, 1500, 2800]
+  const delays = [260, 1100]
   for (let i = 0; i < delays.length; i++) {
     const timer = setTimeout(() => {
-      if (!fdPreSendGate.disposed && !fdPreSendGate.payload) fdProbePreSendGate(hintGameId)
+      if (!fdPreSendGate.disposed && !fdPreSendGate.payload) {
+        if (typeof fdMayNeedPreSendGate === 'function' && !fdMayNeedPreSendGate(targetId)) return
+        fdProbePreSendGate(hintGameId)
+      }
     }, delays[i])
     fdPreSendGate.probeTimers.push(timer)
   }
@@ -10761,7 +11248,9 @@ function fdMountPreSendGate(ui) {
     try { fdPreSendGate.offWatch() } catch {}
     fdPreSendGate.gameId = id
     fdPreSendGate.offWatch = fdWatch(ui, id, FD_GATE_STATE, data => fdApplyPreSendGatePayload(data, id))
-    fdProbePreSendGate(id)
+    if (typeof fdMayNeedPreSendGate !== 'function' || fdMayNeedPreSendGate(id)) {
+      fdProbePreSendGate(id)
+    }
   }
 
   fdPreSendGate.offGame = fdSubscribeActiveGameId(bindGame)
@@ -10819,6 +11308,7 @@ function fdMountPreSendGate(ui) {
 
   const active = fdGetActiveGameId()
   if (active) bindGame(active)
+  else if (typeof fdBootstrapActiveGame === 'function') fdBootstrapActiveGame(ui)
   else fdCall(ui, FD_RPC.status, {}).then(res => {
     const nextActive = res && res.ok && res.data && (res.data.activeGameId || res.data.gameId)
     if (nextActive) fdNoteActiveGameId(String(nextActive))
@@ -11838,7 +12328,7 @@ exports.name = FD_PLUGIN_ID
 exports.inject = ['tavernUi']
 exports.apply = apply
 exports.WorkbenchPanel = WorkbenchPanel
-exports.__test = { fdMountPreSendGate, fdProbePreSendGate, fdRenderPreSendGate, fdClearPreSendGate, fdGateSecondsLeft, fdGateDiceText, fdSyncPreSendGateLayout, fdIsPreSendGateHoldingOverlay, DieGlyph, formatRollSummary, LiveRollBanner, ComposerLiveDock, ComposerDicePopover, fdResolveFloorToneAndLabel, fdComputePopoverStyle, TurnRollCapsule, FdRerollActionBox, StoryFloorDiceItem, fdExtractFloorTurn, fdMountImperativeFloorHeaders, fdNoteActiveGameId, fdGetActiveGameId, WorkbenchPanel, ChecksTab, DecisionModelGuideBanner, FdHelp, SettingsTab, FD3D, Fd3DDiceStage, useFdHoldCharge, fdAttachHoldChargeToDomBtn, fdPlayFloorRollAnim, fdDisposeFloorRollOverlay, fdFloorRollAnimKey, fdGetPrimaryFloorRollOverlay }
+exports.__test = { fdMountPreSendGate, fdProbePreSendGate, fdSchedulePreSendGateProbes, fdRenderPreSendGate, fdClearPreSendGate, fdGateSecondsLeft, fdGateDiceText, fdSyncPreSendGateLayout, fdIsPreSendGateHoldingOverlay, fdReadTurnBatched, fdInvalidateTurnCache, fdNoteRuntimeFlags, fdIsEnabledForGame, fdMayNeedPreSendGate, fdLoadWorkbench, DieGlyph, formatRollSummary, LiveRollBanner, ComposerLiveDock, ComposerDicePopover, fdResolveFloorToneAndLabel, fdComputePopoverStyle, TurnRollCapsule, FdRerollActionBox, StoryFloorDiceItem, fdExtractFloorTurn, fdMountImperativeFloorHeaders, fdNoteActiveGameId, fdGetActiveGameId, WorkbenchPanel, ChecksTab, DecisionModelGuideBanner, FdHelp, SettingsTab, FD3D, Fd3DDiceStage, useFdHoldCharge, fdAttachHoldChargeToDomBtn, fdPlayFloorRollAnim, fdDisposeFloorRollOverlay, fdFloorRollAnimKey, fdGetPrimaryFloorRollOverlay }
     return module.exports
   }
 })

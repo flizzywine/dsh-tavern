@@ -16,6 +16,7 @@ const FD_STORAGE_KEYS = {
 const FD_RPC = {
   status: 'fate-dice:status',
   readTurn: 'fate-dice:read-turn',
+  readTurns: 'fate-dice:read-turns',
   rerollTurn: 'fate-dice:reroll-turn',
   gateResolve: 'fate-dice:gate-resolve',
   gatePeek: 'fate-dice:gate-peek',

@@ -397,19 +397,97 @@ export function apply(ctx) {
   const pendingByGame = new Map()
   const pendingProfileByGame = new Map()
   const attachedCapsuleKeys = new Set()
+  const gameStateCache = new Map()
+  const gameReadInflight = new Map()
+  const liveTurnCache = new Map()
+  const storedTurnDataCache = new Map()
+  const MAX_GAME_CACHE = 32
+  const MAX_STORED_TURN_CACHE = 512
+  const LIVE_TURN_TTL_MS = 250
   /* 发前重投闸门：一次「暂停发送」= 一个 broker 等待，由浏览器 RPC 或超时收口 */
   const preSendGateBroker = createPreSendGateBroker()
   const activeGatePayloadByGame = new Map()
   let globalCache = null
   let lastActiveGameId = ''
 
+  function rememberBounded(map, key, value, limit) {
+    if (map.has(key)) map.delete(key)
+    map.set(key, value)
+    while (map.size > limit) {
+      const oldest = map.keys().next().value
+      if (oldest === undefined) break
+      map.delete(oldest)
+    }
+    return value
+  }
+
+  function invalidateGameReadCaches(gameId, turn = 0) {
+    if (!gameId) return
+    liveTurnCache.delete(gameId)
+    if (turn > 0) {
+      storedTurnDataCache.delete(`${gameId}:${turn}`)
+      return
+    }
+    gameStateCache.delete(gameId)
+    gameReadInflight.delete(gameId)
+    for (const key of [...storedTurnDataCache.keys()]) {
+      if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
+    }
+  }
+
+  function gameHasAnyHistory(game) {
+    if (!game || typeof game !== 'object') return false
+    if (toInt(game.lastTurn, 0) > 0 || Boolean(game.lastRoll)) return true
+    if (game.settledRolls && Object.keys(game.settledRolls).length > 0) return true
+    if (game.summary && toInt(game.summary.total, 0) > 0) return true
+    return false
+  }
+
+  async function readStoredTurnCached(gameId, turn, game = null) {
+    const turnNum = toInt(turn, 0)
+    if (!gameId || turnNum <= 0 || typeof tavern.readTurnData !== 'function') return null
+    // saveTurnData 仅在 writeGame 写入本局历史之后才会被调用；空局无需扫描历史楼层
+    if (game && typeof tavern.readGameData === 'function' && !gameHasAnyHistory(game)) {
+      return null
+    }
+    const cacheKey = `${gameId}:${turnNum}`
+    if (storedTurnDataCache.has(cacheKey)) {
+      const cached = storedTurnDataCache.get(cacheKey)
+      return cached ? structuredClone(cached) : null
+    }
+    let stored = null
+    try {
+      const raw = await tavern.readTurnData({ gameId, turn: turnNum })
+      if (raw && toInt(raw.turn, 0) === turnNum && raw.data) {
+        stored = raw
+      }
+    } catch {
+      stored = null
+    }
+    rememberBounded(storedTurnDataCache, cacheKey, stored ? structuredClone(stored) : null, MAX_STORED_TURN_CACHE)
+    return stored
+  }
+
   async function readLiveLatestTurn(gameId) {
     if (!gameId || typeof tavern.getTurnState !== 'function') return 0
-    try {
-      const st = await tavern.getTurnState({ gameId })
-      if (st && st.greeting !== true) return Math.max(0, toInt(st.turn, 0))
-    } catch {}
-    return 0
+    const now = Date.now()
+    const entry = liveTurnCache.get(gameId)
+    if (entry) {
+      if (entry.inflight) return entry.inflight
+      if (now - entry.at < LIVE_TURN_TTL_MS) return entry.turn
+    }
+    const inflight = (async () => {
+      try {
+        const st = await tavern.getTurnState({ gameId })
+        if (st && st.greeting !== true) return Math.max(0, toInt(st.turn, 0))
+      } catch {}
+      return 0
+    })().then(value => {
+      liveTurnCache.set(gameId, { turn: value, at: Date.now(), inflight: null })
+      return value
+    })
+    rememberBounded(liveTurnCache, gameId, { turn: entry ? entry.turn : 0, at: now, inflight }, MAX_GAME_CACHE)
+    return inflight
   }
 
   async function readGlobal() {
@@ -453,18 +531,39 @@ export function apply(ctx) {
 
   async function readGame(gameId, fallbackRule = '2d6') {
     if (!gameId) return normalizeGameState(null, fallbackRule)
-    let raw = null
-    try {
-      if (typeof tavern.readGameData === 'function') raw = await tavern.readGameData({ gameId })
-    } catch {
-      raw = null
+    if (gameStateCache.has(gameId)) {
+      return normalizeGameState(structuredClone(gameStateCache.get(gameId)), fallbackRule)
     }
-    return normalizeGameState(raw && raw.data !== undefined ? raw.data : raw, fallbackRule)
+    if (gameReadInflight.has(gameId)) {
+      const shared = await gameReadInflight.get(gameId)
+      return normalizeGameState(structuredClone(shared), fallbackRule)
+    }
+    const work = (async () => {
+      let raw = null
+      let loaded = false
+      try {
+        if (typeof tavern.readGameData === 'function') {
+          raw = await tavern.readGameData({ gameId })
+          loaded = true
+        }
+      } catch {
+        raw = null
+      }
+      const normalized = normalizeGameState(raw && raw.data !== undefined ? raw.data : raw, fallbackRule)
+      if (loaded) rememberBounded(gameStateCache, gameId, structuredClone(normalized), MAX_GAME_CACHE)
+      return normalized
+    })().finally(() => {
+      if (gameReadInflight.get(gameId) === work) gameReadInflight.delete(gameId)
+    })
+    gameReadInflight.set(gameId, work)
+    const result = await work
+    return structuredClone(result)
   }
 
   async function writeGame(gameId, data) {
     if (!gameId) return data
     const next = { ...data, updatedAt: Date.now() }
+    rememberBounded(gameStateCache, gameId, structuredClone(next), MAX_GAME_CACHE)
     try {
       if (typeof tavern.saveGameData === 'function') await tavern.saveGameData({ gameId, data: next })
     } catch {}
@@ -1412,23 +1511,34 @@ export function apply(ctx) {
         }
         await writeGame(gameId, nextGame)
 
+        const savedTurnPayload = {
+          input: effectiveInput,
+          inputHash: effectiveInputHash,
+          damperUsed: effectiveDamperUsed,
+          rerollCount: effectiveRerollCount,
+          preSendHandled: effectivePreSendHandled,
+          roll: effectiveRoll,
+          judged: effectiveJudged,
+          characterProfile
+        }
         try {
           await tavern.saveTurnData?.({
             gameId,
             turn,
             textVersion,
-            data: {
-              input: effectiveInput,
-              inputHash: effectiveInputHash,
-              damperUsed: effectiveDamperUsed,
-              rerollCount: effectiveRerollCount,
-              preSendHandled: effectivePreSendHandled,
-              roll: effectiveRoll,
-              judged: effectiveJudged,
-              characterProfile
-            }
+            data: savedTurnPayload
           })
-        } catch {}
+          if (turnNum > 0) {
+            rememberBounded(storedTurnDataCache, `${gameId}:${turnNum}`, {
+              turn: turnNum,
+              textVersion: textVersion ?? null,
+              data: structuredClone(savedTurnPayload)
+            }, MAX_STORED_TURN_CACHE)
+          }
+        } catch {
+          invalidateGameReadCaches(gameId, turnNum)
+        }
+        liveTurnCache.delete(gameId)
 
         // 必须在 writeGame 与 saveTurnData 都完成后再移除内存 pending，杜绝结算异步窗口期前端 read-turn 读空导致胶囊闪烁消失
         if (activePending && pendingByGame.get(gameId) === activePending) {
@@ -1509,6 +1619,7 @@ export function apply(ctx) {
         pendingByGame.delete(gameId)
         pendingProfileByGame.delete(gameId)
       }
+      invalidateGameReadCaches(gameId)
       for (const key of [...turnCacheByGame.keys()]) {
         if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
       }
@@ -1520,6 +1631,7 @@ export function apply(ctx) {
       if (!gameId) return
       pendingByGame.delete(gameId)
       pendingProfileByGame.delete(gameId)
+      invalidateGameReadCaches(gameId)
       for (const key of [...turnCacheByGame.keys()]) {
         if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
       }
@@ -1599,6 +1711,7 @@ export function apply(ctx) {
     const settings = sanitizeSettings(incoming, globalStore.settings)
     const saved = await saveGlobal({ ...globalStore, settings })
     turnCacheByGame.clear()
+    storedTurnDataCache.clear()
     const clientSettings = settingsForClient(saved.settings)
     if (lastActiveGameId) {
       await tavern.publishState?.({
@@ -1627,6 +1740,9 @@ export function apply(ctx) {
     await writeGame(gameId, { ...game, config, characterProfile })
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
+    }
+    for (const key of [...storedTurnDataCache.keys()]) {
+      if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
     }
     return { ok: true, config, rule: activeRule, autoCheck: config.autoCheck ?? globalStore.settings.autoCheck }
   }
@@ -1677,6 +1793,7 @@ export function apply(ctx) {
         const nextRule = normalizeRule(params.rule)
         const saved = await saveGlobal({ ...globalStore, settings: { ...globalStore.settings, rule: nextRule } })
         turnCacheByGame.clear()
+        storedTurnDataCache.clear()
         return { ok: true, rule: saved.settings.rule, characterProfile: null, contextSources: null }
       }
       return { ok: false, error: '缺少 gameId' }
@@ -1695,6 +1812,9 @@ export function apply(ctx) {
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
     }
+    for (const key of [...storedTurnDataCache.keys()]) {
+      if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
+    }
     const contextSources = buildContextSources(characterProfile)
     await tavern.publishState?.({
       gameId,
@@ -1705,40 +1825,47 @@ export function apply(ctx) {
   }
   handle('fate-dice:save-profile-note', handleSaveProfileNote)
 
-  async function handleReadTurn(params = {}) {
-    const gameId = params.gameId || lastActiveGameId || ''
-    const wantLatest = Boolean(params.latest)
-    let turn = toInt(params.turn, 0)
-    if (!gameId || (turn <= 0 && !params.streaming && !wantLatest)) return null
-    const globalStore = await readGlobal()
-    const game = await readGame(gameId, globalStore.settings.rule)
-    const settings = effectiveSettings(globalStore, game)
-    const pending = pendingByGame.get(gameId)
-    const liveLatestTurn = await readLiveLatestTurn(gameId)
+  function inferLatestTurn({ game, pending, liveLatestTurn }) {
+    const settledTurns = Object.keys(game.settledRolls || {}).map(k => toInt(k, 0)).filter(n => n > 0)
+    const recentTurn = Array.isArray(game.summary?.recent) && game.summary.recent[0] ? toInt(game.summary.recent[0].turn, 0) : 0
+    const storedLatest = (liveLatestTurn > 0 && toInt(game.lastTurn, 0) > liveLatestTurn && !game.settledRolls?.[String(game.lastTurn)])
+      ? liveLatestTurn
+      : toInt(game.lastTurn, 0)
+    return Math.max(
+      0,
+      toInt(pending?.turn, 0),
+      storedLatest,
+      recentTurn,
+      settledTurns.length ? Math.max(...settledTurns) : 0
+    )
+  }
+
+  async function resolveSingleTurnView({
+    gameId,
+    turn: rawTurn,
+    streaming = false,
+    wantLatest = false,
+    game,
+    settings,
+    pending,
+    liveLatestTurn
+  }) {
+    let turn = toInt(rawTurn, 0)
     if (turn <= 0 && wantLatest) {
-      const settledTurns = Object.keys(game.settledRolls || {}).map(k => toInt(k, 0)).filter(n => n > 0)
-      const recentTurn = Array.isArray(game.summary?.recent) && game.summary.recent[0] ? toInt(game.summary.recent[0].turn, 0) : 0
-      const storedLatest = (liveLatestTurn > 0 && toInt(game.lastTurn, 0) > liveLatestTurn && !game.settledRolls?.[String(game.lastTurn)])
-        ? liveLatestTurn
-        : toInt(game.lastTurn, 0)
-      turn = Math.max(
-        0,
-        toInt(pending?.turn, 0),
-        storedLatest,
-        recentTurn,
-        settledTurns.length ? Math.max(...settledTurns) : 0
-      )
+      turn = inferLatestTurn({ game, pending, liveLatestTurn })
     }
     const baseMeta = {
+      enabled: Boolean(settings.enabled),
       rule: normalizeRule(settings.rule),
       autoCheck: Boolean(settings.autoCheck),
+      preSendPause: Boolean(settings.preSendPause),
       animation: settings.animation || 'bounce'
     }
     // 重新生成流式期间，DOM 楼层带目标 storyTurn 且 streaming=true，兼容 storyTurn / rawTurn / streaming 读取
     if (pending && (
       Number(pending.turn) === turn
       || (Number(pending.rawTurn) > 0 && Number(pending.rawTurn) === turn)
-      || Boolean(params.streaming)
+      || Boolean(streaming)
     )) {
       const pTurn = turn > 0 ? turn : toInt(pending.turn, turn)
       const pLock = game.settledRolls?.[String(pTurn)] || null
@@ -1757,30 +1884,27 @@ export function apply(ctx) {
       }
     }
     const settledLock = turn > 0 ? (game.settledRolls?.[String(turn)] || null) : null
-    let stored = null
-    try {
-      if (turn > 0) stored = await tavern.readTurnData?.({ gameId, turn })
-    } catch {
-      stored = null
-    }
     if (settledLock?.roll) {
-      const storedRolledAt = Number(stored?.data?.roll?.rolledAt) || 0
+      const memTurnKey = `${gameId}:${turn}`
+      const memStored = storedTurnDataCache.has(memTurnKey) ? storedTurnDataCache.get(memTurnKey) : null
+      const storedRolledAt = Number(memStored?.data?.roll?.rolledAt) || 0
       const lockRolledAt = Number(settledLock.roll?.rolledAt) || 0
-      if (!stored?.data?.roll || lockRolledAt >= storedRolledAt) {
+      if (!memStored?.data?.roll || lockRolledAt >= storedRolledAt) {
         return {
           ...baseMeta,
           gameId,
           turn,
           streaming: false,
-          textVersion: stored?.textVersion ?? null,
+          textVersion: memStored?.textVersion ?? null,
           roll: settledLock.roll,
-          judged: settledLock.judged || stored?.data?.judged || null,
-          characterProfile: stored?.data?.characterProfile || game.characterProfile || null,
+          judged: settledLock.judged || memStored?.data?.judged || null,
+          characterProfile: memStored?.data?.characterProfile || game.characterProfile || null,
           fate: game.fate,
           rerollState: evaluateRerollEligibility({ turn, game, roll: settledLock.roll, settledLock, liveLatestTurn })
         }
       }
     }
+    const stored = turn > 0 ? await readStoredTurnCached(gameId, turn, game) : null
     const legacyLastRoll = (!settledLock?.roll && !stored?.data?.roll && !stored?.data?.judged && turn === toInt(game.lastTurn, 0) && game.lastRoll)
       ? game.lastRoll
       : null
@@ -1836,7 +1960,117 @@ export function apply(ctx) {
     }
     return null
   }
+
+  async function handleReadTurn(params = {}) {
+    const gameId = params.gameId || lastActiveGameId || ''
+    const wantLatest = Boolean(params.latest)
+    const turn = toInt(params.turn, 0)
+    if (!gameId || (turn <= 0 && !params.streaming && !wantLatest)) return null
+    const globalStore = await readGlobal()
+    const game = await readGame(gameId, globalStore.settings.rule)
+    const settings = effectiveSettings(globalStore, game)
+    const pending = pendingByGame.get(gameId)
+    const needsLiveTurn = wantLatest || Boolean(pending) || gameHasAnyHistory(game) || typeof tavern.readGameData !== 'function'
+    const liveLatestTurn = needsLiveTurn ? await readLiveLatestTurn(gameId) : 0
+    return resolveSingleTurnView({
+      gameId,
+      turn,
+      streaming: Boolean(params.streaming),
+      wantLatest,
+      game,
+      settings,
+      pending,
+      liveLatestTurn
+    })
+  }
   handle('fate-dice:read-turn', handleReadTurn)
+
+  async function handleReadTurns(params = {}) {
+    const gameId = params.gameId || lastActiveGameId || ''
+    const rawTurns = Array.isArray(params.turns) ? params.turns : []
+    const streamingTurn = toInt(params.streamingTurn, 0)
+    const includeStreamingOnly = Boolean(params.streaming) && streamingTurn <= 0 && rawTurns.length === 0
+    const includeLatest = Boolean(params.includeLatest)
+    const globalStore = await readGlobal()
+    const game = gameId ? await readGame(gameId, globalStore.settings.rule) : normalizeGameState(null, globalStore.settings.rule)
+    const settings = effectiveSettings(globalStore, game)
+    const baseResponse = {
+      ok: true,
+      gameId: gameId || null,
+      enabled: Boolean(settings.enabled),
+      autoCheck: Boolean(settings.autoCheck),
+      preSendPause: Boolean(settings.preSendPause),
+      rule: normalizeRule(settings.rule),
+      animation: settings.animation || 'bounce',
+      fate: game.fate,
+      turns: {},
+      latest: null
+    }
+    if (!gameId) return baseResponse
+
+    const uniqueTurns = []
+    const seen = new Set()
+    for (let i = 0; i < rawTurns.length && uniqueTurns.length < 200; i++) {
+      const t = toInt(rawTurns[i], 0)
+      if (t > 0 && !seen.has(t)) {
+        seen.add(t)
+        uniqueTurns.push(t)
+      }
+    }
+    if (streamingTurn > 0 && !seen.has(streamingTurn)) {
+      seen.add(streamingTurn)
+      uniqueTurns.push(streamingTurn)
+    }
+
+    const pending = pendingByGame.get(gameId)
+    const hasHistory = gameHasAnyHistory(game) || Boolean(pending) || typeof tavern.readGameData !== 'function'
+    const liveLatestTurn = (hasHistory || includeLatest) ? await readLiveLatestTurn(gameId) : 0
+
+    for (let i = 0; i < uniqueTurns.length; i++) {
+      const t = uniqueTurns[i]
+      const isStream = streamingTurn > 0 && t === streamingTurn
+      if (!hasHistory && !isStream) {
+        baseResponse.turns[String(t)] = null
+        continue
+      }
+      baseResponse.turns[String(t)] = await resolveSingleTurnView({
+        gameId,
+        turn: t,
+        streaming: isStream,
+        wantLatest: false,
+        game,
+        settings,
+        pending,
+        liveLatestTurn
+      })
+    }
+    if (includeStreamingOnly) {
+      baseResponse.streamingRecord = await resolveSingleTurnView({
+        gameId,
+        turn: 0,
+        streaming: true,
+        wantLatest: false,
+        game,
+        settings,
+        pending,
+        liveLatestTurn
+      })
+    }
+    if (includeLatest) {
+      baseResponse.latest = await resolveSingleTurnView({
+        gameId,
+        turn: toInt(params.latestTurn, 0),
+        streaming: Boolean(params.latestStreaming),
+        wantLatest: true,
+        game,
+        settings,
+        pending,
+        liveLatestTurn
+      })
+    }
+    return baseResponse
+  }
+  handle('fate-dice:read-turns', handleReadTurns)
 
   async function handleRerollTurn(params = {}) {
     const gameId = params.gameId || lastActiveGameId || ''
@@ -1849,12 +2083,7 @@ export function apply(ctx) {
 
     const turnKey = String(turn)
     const settledLock = game.settledRolls?.[turnKey] || null
-    let storedTurn = null
-    try {
-      storedTurn = await tavern.readTurnData?.({ gameId, turn })
-    } catch {
-      storedTurn = null
-    }
+    const storedTurn = await readStoredTurnCached(gameId, turn, game)
 
     const activePending = pendingRecord && Number(pendingRecord.turn) === turn ? pendingRecord : null
     const liveLatestTurn = await readLiveLatestTurn(gameId)
@@ -1908,6 +2137,7 @@ export function apply(ctx) {
     }
 
     const wasSettled = Boolean((settledLock || storedTurn?.data?.roll || legacyRoll) && !activePending)
+    invalidateGameReadCaches(gameId, turn)
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:${turn}:`)) turnCacheByGame.delete(key)
     }
@@ -1951,22 +2181,30 @@ export function apply(ctx) {
         updatedAt: Date.now()
       }
       await writeGame(gameId, nextGame)
+      const rerolledPayload = {
+        input: record.input,
+        inputHash: record.inputHash,
+        damperUsed: Boolean(record.damperUsed),
+        rerollCount: 1,
+        roll: record.roll || null,
+        judged: record.judged || null,
+        characterProfile: record.characterProfile || game.characterProfile
+      }
       try {
         await tavern.saveTurnData?.({
           gameId,
           turn,
           textVersion: storedTurn?.textVersion ?? undefined,
-          data: {
-            input: record.input,
-            inputHash: record.inputHash,
-            damperUsed: Boolean(record.damperUsed),
-            rerollCount: 1,
-            roll: record.roll || null,
-            judged: record.judged || null,
-            characterProfile: record.characterProfile || game.characterProfile
-          }
+          data: rerolledPayload
         })
-      } catch {}
+        rememberBounded(storedTurnDataCache, `${gameId}:${turn}`, {
+          turn,
+          textVersion: storedTurn?.textVersion ?? null,
+          data: structuredClone(rerolledPayload)
+        }, MAX_STORED_TURN_CACHE)
+      } catch {
+        invalidateGameReadCaches(gameId, turn)
+      }
       await tavern.publishState?.({ gameId, name: 'summary', data: nextSummary }).catch(() => {})
       await tavern.publishState?.({
         gameId,

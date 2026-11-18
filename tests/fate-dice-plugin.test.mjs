@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
 
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { apply as applyFateDicePlugin, DEFAULT_GLOBAL_SETTINGS, PLUGIN_VERSION } from '../tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js'
@@ -138,3 +139,341 @@ test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停�
   fiber.dispose()
   await assert.rejects(api.callHandler('fate-dice:free-roll', { expression: '1d20' }), /没有名为 fate-dice:free-roll 的插件处理函数/)
 })
+
+test('服务端 fate-dice:read-turns：空局零历史扫描，开启态命中内存锁与正负缓存并在时间线变更时精准失效', async () => {
+  const gameStore = new Map()
+  const turnStore = new Map()
+  const handlers = new Map()
+  const turnSections = []
+  const settledListeners = []
+  const timelineListeners = []
+  const stats = {
+    readGameData: 0,
+    saveGameData: 0,
+    readTurnData: 0,
+    saveTurnData: 0,
+    getTurnState: 0,
+  }
+  let currentLiveTurn = 0
+
+  const tavern = {
+    capabilities: { narrativeDamper: false },
+    handle(name, fn) {
+      handlers.set(name, fn)
+    },
+    turnSection(spec) {
+      turnSections.push(spec)
+    },
+    settlementSection() {},
+    settlementTool() {},
+    onTurnSettled(fn) {
+      settledListeners.push(fn)
+    },
+    onTimelineChanged(fn) {
+      timelineListeners.push(fn)
+    },
+    onGameRemoved() {},
+    async publishState() {},
+    async readGameData({ gameId }) {
+      stats.readGameData += 1
+      return gameStore.has(gameId) ? structuredClone(gameStore.get(gameId)) : null
+    },
+    async saveGameData({ gameId, data }) {
+      stats.saveGameData += 1
+      gameStore.set(gameId, structuredClone(data))
+    },
+    async readTurnData({ gameId, turn }) {
+      stats.readTurnData += 1
+      const key = `${gameId}:${turn}`
+      return turnStore.has(key) ? structuredClone(turnStore.get(key)) : null
+    },
+    async saveTurnData({ gameId, turn, textVersion, data }) {
+      stats.saveTurnData += 1
+      turnStore.set(`${gameId}:${turn}`, {
+        turn,
+        textVersion: textVersion ?? null,
+        data: structuredClone(data),
+      })
+    },
+    async getTurnState() {
+      stats.getTurnState += 1
+      return currentLiveTurn > 0 ? { turn: currentLiveTurn, settled: true, greeting: false } : { turn: 0, settled: true, greeting: false }
+    },
+    async variables() {
+      return {}
+    },
+  }
+
+  const cleanups = []
+  const dispose = applyFateDicePlugin({
+    tavern,
+    inject(_deps, cb) {
+      if (typeof cb === 'function') cb({ llm: null })
+    },
+    effect(fn) {
+      const off = fn()
+      if (typeof off === 'function') cleanups.push(off)
+      return off
+    },
+  })
+  if (typeof dispose === 'function') cleanups.push(dispose)
+
+  try {
+    const readTurns = handlers.get('fate-dice:read-turns')
+    const saveSettings = handlers.get('fate-dice:save-global-settings')
+    assert.equal(typeof readTurns, 'function')
+    assert.equal(typeof saveSettings, 'function')
+
+    const thirtyTurns = Array.from({ length: 30 }, (_, idx) => idx + 1)
+
+    // 1. 默认关闭态空局：一次批量读 30 层楼，不应触发任何底层 readTurnData 历史扫描与 getTurnState
+    const offRes = await readTurns({ gameId: 'game-empty', turns: thirtyTurns })
+    assert.equal(offRes.ok, true)
+    assert.equal(offRes.enabled, false)
+    assert.equal(stats.readTurnData, 0)
+    assert.equal(stats.getTurnState, 0)
+    for (const t of thirtyTurns) {
+      assert.equal(offRes.turns[String(t)], null)
+    }
+
+    // 二次批量读同一空局：命中内存缓存，连 readGameData 都为 0 次新增
+    const readsBeforeSecond = stats.readGameData
+    await readTurns({ gameId: 'game-empty', turns: thirtyTurns })
+    assert.equal(stats.readGameData, readsBeforeSecond)
+    assert.equal(stats.readTurnData, 0)
+
+    // 2. 开启命运之骰并走完 3 轮真实检定与落盘结算
+    await saveSettings({
+      settings: {
+        enabled: true,
+        alwaysRoll: true,
+        allowHeuristicFallback: true,
+        preSendPause: false,
+      },
+    })
+    assert.equal(turnSections.length, 1)
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      currentLiveTurn = turn
+      const injected = await turnSections[0].text({
+        gameId: 'game-active',
+        turn,
+        input: `第 ${turn} 轮玩家尝试撬开沉重的锈蚀铁锁`,
+      })
+      assert.ok(typeof injected === 'string' && injected.length > 0)
+      for (const listener of settledListeners) {
+        await listener({ gameId: 'game-active', turn, textVersion: `v-${turn}` })
+      }
+    }
+
+    // 首次批量读取 30 层楼（1..3 有检定锁，4..30 为空）：
+    // 1..3 直接命中 game.settledRolls 内存 O(1) 快路径，无需调用 readTurnData
+    const turnReadsBeforeActiveBatch = stats.readTurnData
+    const gameReadsBeforeActiveBatch = stats.readGameData
+    const activeBatch = await readTurns({
+      gameId: 'game-active',
+      turns: thirtyTurns,
+      includeLatest: true,
+      latestTurn: 3,
+    })
+    assert.equal(activeBatch.ok, true)
+    assert.equal(activeBatch.enabled, true)
+    assert.equal(stats.readGameData, gameReadsBeforeActiveBatch, 'writeGame 已写穿缓存，批量读取无需重读磁盘')
+    assert.ok(activeBatch.turns['1']?.roll, '第 1 轮应返回检定骰点')
+    assert.ok(activeBatch.turns['2']?.roll, '第 2 轮应返回检定骰点')
+    assert.ok(activeBatch.turns['3']?.roll, '第 3 轮应返回检定骰点')
+    assert.equal(activeBatch.turns['1'].rerollState?.allowed, false, '历史第 1 轮已自动锁定不可重投')
+    assert.equal(activeBatch.turns['2'].rerollState?.allowed, false, '历史第 2 轮已自动锁定不可重投')
+    assert.equal(activeBatch.latest?.turn, 3)
+    // 1..3 命中 settledRolls 零 readTurnData，仅 4..30 首次做负缓存探测
+    assert.equal(stats.readTurnData - turnReadsBeforeActiveBatch, 27)
+
+    // 紧接着二次批量读取同一 30 层楼：正缓存 + null 负缓存全部命中，底层 I/O 完全为 0
+    const snapReads = { ...stats }
+    const cachedBatch = await readTurns({ gameId: 'game-active', turns: thirtyTurns })
+    assert.equal(cachedBatch.turns['3']?.roll?.total, activeBatch.turns['3']?.roll?.total)
+    assert.equal(stats.readGameData, snapReads.readGameData)
+    assert.equal(stats.readTurnData, snapReads.readTurnData)
+
+    // 3. 时间线变更（删楼/回退）后，缓存精准失效，重读会同步最新磁盘状态
+    const mutatedGame = structuredClone(gameStore.get('game-active'))
+    delete mutatedGame.settledRolls['3']
+    mutatedGame.lastTurn = 2
+    gameStore.set('game-active', mutatedGame)
+    turnStore.delete('game-active:3')
+    currentLiveTurn = 2
+    for (const listener of timelineListeners) {
+      listener({ gameId: 'game-active', kind: 'delete', turn: 2 })
+    }
+
+    const afterDelete = await readTurns({ gameId: 'game-active', turns: [1, 2, 3] })
+    assert.ok(stats.readGameData > snapReads.readGameData, '时间线变更后应失效并重读最新局数据')
+    assert.equal(afterDelete.turns['3'], null, '被删掉的第 3 轮不应残留旧缓存')
+    assert.ok(afterDelete.turns['2']?.roll, '保留的第 2 轮仍正常返回')
+  } finally {
+    for (const fn of cleanups.splice(0)) fn()
+  }
+})
+
+test('客户端合批与缓存：同帧 30 层并发合并为 1 次 RPC、二次读取零请求、局部失效与关闭态短路', async () => {
+  const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
+  let loadedFactory = null
+  const sandbox = {
+    console: quiet,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    Promise,
+    Map,
+    Set,
+    WeakMap,
+    Number,
+    String,
+    Boolean,
+    Object,
+    Array,
+    Math,
+    Date,
+    JSON,
+    RegExp,
+    Error,
+    Uint8Array,
+    Float32Array,
+    Uint16Array,
+    Int32Array,
+    window: {
+      __ModuleLoader__: {
+        load(spec) {
+          loadedFactory = spec.factory
+        },
+      },
+      location: { search: '', hash: '', pathname: '/' },
+      addEventListener() {},
+      removeEventListener() {},
+    },
+  }
+  vm.runInNewContext(clientCode, sandbox, { filename: 'dsh-tavern-fate-dice/client.js' })
+  assert.equal(typeof loadedFactory, 'function')
+
+  const minimalReact = {
+    Fragment: Symbol('Fragment'),
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    useEffect() {},
+    useMemo: fn => fn(),
+    useRef: init => ({ current: init }),
+    useState: init => [typeof init === 'function' ? init() : init, () => {}],
+  }
+  const mod = loadedFactory(id => {
+    if (id === 'react') return minimalReact
+    throw new Error('unexpected require: ' + id)
+  })
+  const {
+    fdReadTurnBatched,
+    fdInvalidateTurnCache,
+    fdNoteRuntimeFlags,
+    fdMayNeedPreSendGate,
+    fdLoadWorkbench,
+  } = mod.__test
+
+  const calls = []
+  const ui = {
+    async callHost(rpc, payload) {
+      calls.push({ rpc, payload: structuredClone(payload) })
+      if (rpc === 'fate-dice:read-turns') {
+        const turnsOut = {}
+        for (const t of payload.turns || []) {
+          if (t === 29) {
+            turnsOut['29'] = {
+              gameId: payload.gameId,
+              turn: 29,
+              enabled: true,
+              autoCheck: true,
+              roll: { total: 5, tier: 'failure', tierLabel: '失败', check: '潜行', dice: [2, 3], rule: '2d6' },
+              rerollState: { allowed: true, canFate: true, canPush: true },
+            }
+          } else if (t === 30) {
+            turnsOut['30'] = {
+              gameId: payload.gameId,
+              turn: 30,
+              enabled: true,
+              autoCheck: true,
+              roll: { total: 9, tier: 'success', tierLabel: '成功', check: '交涉', dice: [4, 5], rule: '2d6' },
+              rerollState: { allowed: false, reason: '成功无需重投' },
+            }
+          } else {
+            turnsOut[String(t)] = null
+          }
+        }
+        return {
+          ok: true,
+          gameId: payload.gameId,
+          enabled: true,
+          autoCheck: true,
+          preSendPause: false,
+          turns: turnsOut,
+          latest: null,
+        }
+      }
+      if (rpc === 'fate-dice:workbench') {
+        return {
+          ok: true,
+          gameId: payload.gameId,
+          settings: { enabled: true, preSendPause: false },
+          judgeStatus: { available: true, provider: 'gemini' },
+          summary: { total: 2, counts: { success: 1, failure: 1 }, recent: [] },
+          fate: { points: 2, max: 3, failCount: 1 },
+        }
+      }
+      if (rpc === 'fate-dice:status') {
+        return { ok: true, gameId: payload.gameId }
+      }
+      return null
+    },
+  }
+
+  // 1. 同一帧并发读取 30 层楼 -> 合并为唯一 1 次 fate-dice:read-turns RPC
+  const thirty = Array.from({ length: 30 }, (_, i) => i + 1)
+  const firstResults = await Promise.all(
+    thirty.map(turn => fdReadTurnBatched(ui, { gameId: 'g-batch', turn }))
+  )
+  assert.equal(calls.length, 1, '30 层楼并发读取必须合批为单次 RPC')
+  assert.equal(calls[0].rpc, 'fate-dice:read-turns')
+  assert.equal(calls[0].payload.turns.length, 30)
+  assert.equal(firstResults[28].data?.roll?.total, 5)
+  assert.equal(firstResults[29].data?.roll?.total, 9)
+  assert.equal(firstResults[0].data, null)
+
+  // 2. 二次读取同一 30 层楼 -> 全部命中客户端正/负缓存，0 次 RPC
+  const secondResults = await Promise.all(
+    thirty.map(turn => fdReadTurnBatched(ui, { gameId: 'g-batch', turn }))
+  )
+  assert.equal(calls.length, 1, '命中客户端缓存时不应再发任何 RPC')
+  assert.equal(secondResults[28].cached, true)
+  assert.equal(secondResults[0].cached, true)
+
+  // 3. 新一轮结算局部失效：只失效目标轮（30）与此前允许重投的上一轮（29），1..28 保持缓存
+  const affected = fdInvalidateTurnCache('g-batch', 30).sort((a, b) => a - b)
+  assert.deepEqual(affected, [29, 30])
+  await Promise.all(thirty.map(turn => fdReadTurnBatched(ui, { gameId: 'g-batch', turn })))
+  assert.equal(calls.length, 2, '局部失效后重读整屏只需补发 1 次增量合批')
+  assert.deepEqual(calls[1].payload.turns.sort((a, b) => a - b), [29, 30])
+
+  // 4. 工作台加载：fate-dice:workbench 已返回完整状态时，不再重复串行调 fate-dice:status
+  calls.length = 0
+  const wb = await fdLoadWorkbench(ui, 'g-batch')
+  assert.equal(wb.settings.enabled, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].rpc, 'fate-dice:workbench')
+
+  // 5. 关闭态与未开启发前暂停：发前闸门与流式楼层读取直接零请求短路
+  assert.equal(fdMayNeedPreSendGate('g-batch'), false, '开启命运之骰但未开 preSendPause 时不应触发 gate-peek')
+  fdNoteRuntimeFlags('g-disabled', { settings: { enabled: false, preSendPause: true } })
+  assert.equal(fdMayNeedPreSendGate('g-disabled'), false, '插件关闭时不应触发 gate-peek')
+  calls.length = 0
+  const streamOff = await fdReadTurnBatched(ui, { gameId: 'g-disabled', turn: 8, streaming: true })
+  assert.equal(streamOff.ok, true)
+  assert.equal(streamOff.data, null)
+  assert.equal(calls.length, 0, '插件关闭态下流式读取必须零请求短路')
+})
+
