@@ -1908,6 +1908,14 @@ article.dsh-tavern-story-floor {
   transform: scale(0.985);
   box-shadow: 0 0 18px rgba(245, 185, 66, 0.42);
 }
+.fd-reroll-btn.is-fate.is-charging,
+.fd-hold-btn.is-fate.is-charging {
+  box-shadow: 0 0 18px rgba(120, 210, 226, 0.44);
+}
+.fd-reroll-btn.is-push.is-charging,
+.fd-hold-btn.is-push.is-charging {
+  box-shadow: 0 0 18px rgba(255, 92, 46, 0.46);
+}
 .fd-reroll-btn.is-charging::after,
 .fd-hold-btn.is-charging::after {
   content: "";
@@ -1919,6 +1927,16 @@ article.dsh-tavern-story-floor {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 240, 180, 0.36));
   border-right: 2px solid rgba(255, 255, 255, 0.85);
   pointer-events: none;
+}
+.fd-reroll-btn.is-fate.is-charging::after,
+.fd-hold-btn.is-fate.is-charging::after {
+  background: linear-gradient(90deg, rgba(112, 206, 224, 0.10), rgba(164, 232, 246, 0.34));
+  border-right-color: rgba(210, 248, 255, 0.92);
+}
+.fd-reroll-btn.is-push.is-charging::after,
+.fd-hold-btn.is-push.is-charging::after {
+  background: linear-gradient(90deg, rgba(235, 68, 36, 0.12), rgba(255, 118, 56, 0.38));
+  border-right-color: rgba(255, 178, 120, 0.94);
 }
 
 @keyframes fd-tumble {

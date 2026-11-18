@@ -243,16 +243,17 @@ async function fdResolvePreSendGate(action, power) {
   const ui = fdPreSendGate.ui
   if (!payload || !payload.gateId || fdPreSendGate.busy) return
   const isReroll = action === 'fate' || action === 'push'
+  const launchPower = isReroll ? Math.max(0, Number(power) || 0) : 0
   fdPreSendGate.busy = true
   fdPreSendGate.resolvingMode = isReroll ? action : ''
-  fdPreSendGate.pendingPower = isReroll ? Math.max(0, Number(power) || 0) : 0
+  fdPreSendGate.pendingPower = launchPower
   fdSetGateBusy(true, action)
   fdSetGateNotice('')
 
   const activeStage = isReroll && typeof fdGetActiveFloorRollStage === 'function'
     ? fdGetActiveFloorRollStage()
     : null
-  if (activeStage && !activeStage.charging && typeof activeStage.startButtonCharge === 'function') {
+  if (launchPower > 0.1 && activeStage && !activeStage.charging && typeof activeStage.startButtonCharge === 'function') {
     try { activeStage.startButtonCharge(action) } catch {}
   }
 

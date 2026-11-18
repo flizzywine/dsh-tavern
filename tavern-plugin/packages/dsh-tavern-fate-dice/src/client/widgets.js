@@ -720,7 +720,7 @@ function ComposerLiveDock(props) {
   const effectiveTurn = fdNumber((record && record.turn) || dom.turn, 0)
   const pillMeta = fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll)
 
-  const handleReroll = mode => {
+  const handleReroll = (mode, power) => {
     if (rerolling || !effectiveTurn) return
     setRerolling(true)
     setRerollHint('')
@@ -737,6 +737,7 @@ function ComposerLiveDock(props) {
             fate: data.fate || (prev && prev.fate),
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '🔥 已孤注一掷并同步配额！现在点下方「重新生成正文」即可按新结果与代价改写剧情'
             : '✦ 已消耗 1 点命运点逆命重投！现在点下方「重新生成正文」即可按新点数改写剧情')
@@ -943,7 +944,7 @@ function TurnRollCapsule(props) {
           : ((roll.tier === 'critical' || roll.tier === 'success') ? '检定已达成成功，无需重投' : ''))
     }
 
-  const manualReroll = mode => {
+  const manualReroll = (mode, power) => {
     if (rerolling || !gameId || !turn) return
     setRerolling(true)
     setRerollHint('')
@@ -959,7 +960,7 @@ function TurnRollCapsule(props) {
             fate: data.fate || (prev && prev.fate) || fate,
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
-          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation)
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '已孤注一掷并同步配额（点酒馆「重新生成」按新结果与代价重写正文）'
             : '已消耗 1 点命运点逆命重投（点酒馆「重新生成」按新点数重写正文）')
@@ -1035,13 +1036,13 @@ function FdRerollActionBox(props) {
     mode: 'fate',
     disabled: Boolean(rerolling),
     stageRef,
-    onTrigger: mode => (typeof onReroll === 'function' ? onReroll(mode) : undefined)
+    onTrigger: (mode, power) => (typeof onReroll === 'function' ? onReroll(mode, power) : undefined)
   })
   const pushHold = useFdHoldCharge({
     mode: 'push',
     disabled: Boolean(rerolling),
     stageRef,
-    onTrigger: mode => (typeof onReroll === 'function' ? onReroll(mode) : undefined)
+    onTrigger: (mode, power) => (typeof onReroll === 'function' ? onReroll(mode, power) : undefined)
   })
 
   if (isStreaming) {
@@ -1062,7 +1063,7 @@ function FdRerollActionBox(props) {
             type: 'button',
             className: 'fd-reroll-btn is-fate' + (fateHold.charging ? ' is-charging' : ''),
             disabled: Boolean(rerolling),
-            title: '消耗 1 点命运点稳妥重掷（点按即投；长按按钮激活 3D 星晶聚能旋涡蓄力，移出按钮可无损取消）',
+            title: '消耗 1 点命运点稳妥重掷（点按即投；长按按钮激活反重力星轨蓄力，松手冲霄逆命，移出按钮可无损取消）',
             ...fateHold.bindProps
           },
           h('span', { className: 'fd-reroll-btn-top' },
@@ -1071,22 +1072,22 @@ function FdRerollActionBox(props) {
                 ? '⏳ 重投中…'
                 : (fateHold.charging ? `✦ 逆命蓄力 ${fateHold.chargePct}% · 松手改命` : '✦ 逆命重投')),
             h('span', { className: 'fd-reroll-btn-tag' }, `-1 点 · 余 ${remPoints}/${maxPoints} ▸`)),
-          h('span', { className: 'fd-reroll-btn-sub' }, '无恶化与挂彩惩罚 · 长按按钮可聚能蓄力'))
+          h('span', { className: 'fd-reroll-btn-sub' }, '无恶化与挂彩惩罚 · 长按反重力星轨蓄力'))
           : null,
         h('button', {
           type: 'button',
           className: 'fd-reroll-btn is-push' + (pushHold.charging ? ' is-charging' : ''),
           disabled: Boolean(rerolling),
-          title: '不耗命运点强行一搏（点按即投；长按按钮激活 3D 焚天熔炉蓄力，移出按钮可无损取消）',
+          title: '不耗命运点强行一搏（点按即投；长按按钮激活掌心紧攥剧颤蓄力，松手雷霆猛砸，移出按钮可无损取消）',
           ...pushHold.bindProps
         },
         h('span', { className: 'fd-reroll-btn-top' },
           h('span', { className: 'fd-reroll-btn-title' },
             rerolling
               ? '⏳ 搏命中…'
-              : (pushHold.charging ? `🔥 熔炉蓄力 ${pushHold.chargePct}% · 松手搏命` : '🔥 孤注一掷')),
+              : (pushHold.charging ? `🔥 搏命蓄力 ${pushHold.chargePct}% · 松手猛砸` : '🔥 孤注一掷')),
           h('span', { className: 'fd-reroll-btn-tag' }, '0 点 · 成王败寇 ▸')),
-        h('span', { className: 'fd-reroll-btn-sub' }, '败则恶化大失败 · 长按按钮可熔炉蓄力'))),
+        h('span', { className: 'fd-reroll-btn-sub' }, '败则恶化大失败 · 长按紧攥剧颤蓄力'))),
       h('div', { className: 'fd-reroll-foot' },
         rerollHint || '直接点「重新生成正文」将自动复用原骰点；不重投认栽可攒回命运点'))
   }
@@ -1254,7 +1255,7 @@ function StoryFloorDiceItem(props) {
     ? record.rerollState
     : { allowed: false, reason: '本轮无重投项' }
 
-  const runManualReroll = mode => {
+  const runManualReroll = (mode, power) => {
     if (rerolling || !effectiveTurn) return
     setRerolling(true)
     setRerollHint('')
@@ -1270,6 +1271,7 @@ function StoryFloorDiceItem(props) {
             fate: data.fate || (prev && prev.fate) || fate,
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '已孤注一掷并同步阻尼配额！点击下方「重新生成正文」即可按新结果与代价改写剧情'
             : '已消耗 1 点命运点逆命重投！点击下方「重新生成正文」即可按新点数改写剧情')
@@ -1509,11 +1511,15 @@ function fdGetActiveFloorRollStage() {
   return ov && ov.stage ? ov.stage : null
 }
 
-function fdBuildFloorRollKickerText(roll, hidden, mode) {
+function fdBuildFloorRollKickerText(roll, hidden, mode, power) {
   const checkTitle = String((roll && roll.check) || '行动')
   if (hidden) return `✦ 命运暗骰 · ${checkTitle}检定 ✦`
   const diffTitle = roll && roll.difficultyLabel ? ` · ${roll.difficultyLabel}` : ''
-  const rerollBadge = mode === 'push' ? ' · 🔥孤注一掷' : (mode === 'fate' ? ' · ✦逆命重投' : '')
+  const pwrNum = Number(power) || 0
+  const pwrText = pwrNum > 0.1 ? `（蓄力 ${Math.round(pwrNum * 100)}%）` : ''
+  const rerollBadge = mode === 'push'
+    ? ` · 🔥孤注一掷${pwrText}`
+    : (mode === 'fate' ? ` · ✦逆命重投${pwrText}` : (pwrText ? ` · ${pwrText}` : ''))
   return `✦ 命运真骰裁定 · ${checkTitle}检定${diffTitle}${rerollBadge} ✦`
 }
 
@@ -1677,7 +1683,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
 
   const topRail = fdEl(doc, 'div', 'fd-floor-roll-rail is-top')
   const bottomRail = fdEl(doc, 'div', 'fd-floor-roll-rail is-bottom')
-  const kicker = fdEl(doc, 'div', 'fd-floor-roll-kicker', fdBuildFloorRollKickerText(roll, hidden, mode))
+  const kicker = fdEl(doc, 'div', 'fd-floor-roll-kicker', fdBuildFloorRollKickerText(roll, hidden, mode, power))
   const readout = fdEl(doc, 'div', 'fd-floor-roll-readout')
   fdPopulateFloorRollReadout(doc, readout, roll, hidden)
 
@@ -1908,16 +1914,19 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
     fdToggleNodeClass(wrap, 'has-presend-gate', ov.pinnedByGate)
     wrap.setAttribute('data-tier', next.tier)
     if (next.theme && next.theme.id) wrap.setAttribute('data-skin', next.theme.id)
-    kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode)
+    kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode, next.power)
     fdPopulateFloorRollReadout(doc, readout, next.roll, next.hidden)
     try {
       ov.stage.setTheme(next.theme)
       syncPaneGeometry()
       ov.stage.resize()
       const launchPower = Math.max(0, Number(next.power) || 0)
-      if ((launchPower > 0.1 || ov.stage.charging) && typeof ov.stage.releaseButtonCharge === 'function') {
-        ov.stage.releaseButtonCharge(next.spec, Math.max(launchPower, 0.48))
+      if (launchPower > 0.1 && typeof ov.stage.releaseButtonCharge === 'function') {
+        ov.stage.releaseButtonCharge(next.spec, launchPower)
       } else {
+        if (ov.stage.charging && typeof ov.stage.cancelButtonCharge === 'function') {
+          ov.stage.cancelButtonCharge()
+        }
         ov.stage.throwDice(next.spec)
       }
     } catch {}

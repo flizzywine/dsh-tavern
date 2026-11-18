@@ -2038,6 +2038,14 @@ article.dsh-tavern-story-floor {
   transform: scale(0.985);
   box-shadow: 0 0 18px rgba(245, 185, 66, 0.42);
 }
+.fd-reroll-btn.is-fate.is-charging,
+.fd-hold-btn.is-fate.is-charging {
+  box-shadow: 0 0 18px rgba(120, 210, 226, 0.44);
+}
+.fd-reroll-btn.is-push.is-charging,
+.fd-hold-btn.is-push.is-charging {
+  box-shadow: 0 0 18px rgba(255, 92, 46, 0.46);
+}
 .fd-reroll-btn.is-charging::after,
 .fd-hold-btn.is-charging::after {
   content: "";
@@ -2049,6 +2057,16 @@ article.dsh-tavern-story-floor {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 240, 180, 0.36));
   border-right: 2px solid rgba(255, 255, 255, 0.85);
   pointer-events: none;
+}
+.fd-reroll-btn.is-fate.is-charging::after,
+.fd-hold-btn.is-fate.is-charging::after {
+  background: linear-gradient(90deg, rgba(112, 206, 224, 0.10), rgba(164, 232, 246, 0.34));
+  border-right-color: rgba(210, 248, 255, 0.92);
+}
+.fd-reroll-btn.is-push.is-charging::after,
+.fd-hold-btn.is-push.is-charging::after {
+  background: linear-gradient(90deg, rgba(235, 68, 36, 0.12), rgba(255, 118, 56, 0.38));
+  border-right-color: rgba(255, 178, 120, 0.94);
 }
 
 @keyframes fd-tumble {
@@ -3897,7 +3915,7 @@ void main() {
         // [6: atelier] 绅士赌桌：北美黑胡桃木镶铜托盘 + 英式精纺墨绿细绒呢
         vec2 q = abs(hit.xy) / vec2(268.0, 178.0);
         float traySDF = length(max(q - vec2(0.74, 0.68), 0.0)) - 0.24;
-        float lampSpot = exp(-dot(p * vec2(0.85, 1.05), p * vec2(0.85, 1.05)) * 0.58);
+        float lampSpot = exp(-dot(p * vec2(0.85, 1.05), p * vec2(0.85, 1.05)) * (0.58 - u_charge * 0.14)) * (1.0 + u_charge * 0.20);
 
         if (traySDF < 0.0) {
           float weave = sin(hit.x * 1.8) * sin(hit.y * 1.8) * 0.015;
@@ -4031,7 +4049,7 @@ void main() {
         float sqBox = max(abs(p.x), abs(p.y));
         float redDiagram = smoothstep(aa * 1.1, 0.0, abs(sqBox - 0.568)) * 0.45
                          + smoothstep(aa * 1.1, 0.0, abs(r - 0.35)) * 0.42;
-        col = mix(col, cinnabarInk, clamp(redDiagram, 0.0, 1.0) * distFade * (0.65 + 0.35 * u_climax));
+        col = mix(col, cinnabarInk, clamp(redDiagram, 0.0, 1.0) * distFade * (0.65 + 0.35 * max(u_climax, u_charge)));
 
         for (int i = 0; i < 8; i++) {
           vec4 imp = u_impacts[i];
@@ -4071,7 +4089,7 @@ void main() {
                                + smoothstep(aa * 0.8, 0.0, abs(r - 0.878)) * 0.26;
         float moonCrescent = smoothstep(aa * 1.4, 0.0, abs(length(p - vec2(0.05, 0.0)) - 0.56))
                            * smoothstep(-0.15, 0.38, p.x) * 0.36;
-        vec3 makieGold = vec3(0.76, 0.58, 0.24);
+        vec3 makieGold = vec3(0.76, 0.58, 0.24) * (1.0 + u_charge * 0.45);
         col += makieGold * (outerLacquerGold + moonCrescent) * distFade;
 
         if (u_climax > 0.02 && u_tier == 1) {
@@ -4132,7 +4150,7 @@ void main() {
         col = mix(col, vec3(0.24, 0.25, 0.27), (dialRing + vernierTicks) * distFade);
 
         vec3 braunOrange = u_tier == 5 ? vec3(0.82, 0.14, 0.14) : vec3(1.0, 0.31, 0.0);
-        float orangeAccent = smoothstep(aa * 1.3, 0.0, abs(r - 0.89)) * (0.28 + 0.72 * u_climax) * distFade;
+        float orangeAccent = smoothstep(aa * 1.3, 0.0, abs(r - 0.89)) * (0.28 + 0.72 * max(u_climax, u_charge)) * distFade;
         col = mix(col, braunOrange, clamp(orangeAccent, 0.0, 1.0));
 
         for (int i = 0; i < 8; i++) {
@@ -4159,8 +4177,8 @@ void main() {
         float silverMask = silverAstrolabeInlay(p);
         vec3 H = normalize(lightDir - rayDir);
         float silverSpec = pow(max(dot(slateN, H), 0.0), 36.0);
-        vec3 silverCol = vec3(0.62, 0.68, 0.75) * (0.48 + 0.62 * slateDiff) + vec3(0.95, 0.98, 1.0) * silverSpec * 0.85;
-        col = mix(col, silverCol, clamp(silverMask * 0.82 * distFade, 0.0, 1.0));
+        vec3 silverCol = vec3(0.62, 0.68, 0.75) * (0.48 + 0.62 * slateDiff + u_charge * 0.32) + vec3(0.95, 0.98, 1.0) * silverSpec * (0.85 + u_charge * 0.35);
+        col = mix(col, silverCol, clamp(silverMask * (0.82 + u_charge * 0.15) * distFade, 0.0, 1.0));
 
         for (int i = 0; i < 8; i++) {
           vec4 imp = u_impacts[i];
@@ -6312,8 +6330,11 @@ class ProceduralDiceAudio {
     this.lastBounceAt = 0
     this.activeVoices = 0
     this.chargeOsc = null
+    this.chargeSubOsc = null
     this.chargeGain = null
     this._chargePreset = 'atelier'
+    this._chargeMode = 'normal'
+    this.lastRattleAt = 0
   }
 
   ensureContext() {
@@ -6357,28 +6378,67 @@ class ProceduralDiceAudio {
     }
   }
 
-  startChargeHum(preset = 'atelier') {
+  startChargeHum(preset = 'atelier', mode = 'normal') {
     const ctx = this.ensureContext()
     if (!ctx || this.chargeOsc) return
     const now = ctx.currentTime
     const osc = ctx.createOscillator()
     const g = ctx.createGain()
+    const m = mode || 'normal'
     this._chargePreset = preset
-    if (CURATED_SOUND_PRESETS.has(preset)) {
-      osc.type = preset === 'pixel' ? 'square' : preset === 'bauhaus' ? 'triangle' : 'sine'
-      osc.frequency.setValueAtTime(preset === 'pixel' ? 130.81 : 88, now)
+    this._chargeMode = m
+
+    if (preset === 'pixel') {
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(m === 'push' ? 82.41 : (m === 'fate' ? 196.0 : 130.81), now)
       g.gain.setValueAtTime(0.001, now)
-      g.gain.linearRampToValueAtTime(preset === 'pixel' ? 0.045 : 0.065, now + 0.12)
+      g.gain.linearRampToValueAtTime(0.045, now + 0.12)
+    } else if (CURATED_SOUND_PRESETS.has(preset)) {
+      if (m === 'push') {
+        osc.type = 'triangle'
+        osc.frequency.setValueAtTime(58, now)
+      } else if (m === 'fate') {
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(174.61, now)
+      } else {
+        osc.type = preset === 'bauhaus' ? 'triangle' : 'sine'
+        osc.frequency.setValueAtTime(88, now)
+      }
+      g.gain.setValueAtTime(0.001, now)
+      g.gain.linearRampToValueAtTime(0.068, now + 0.12)
     } else {
-      osc.type = preset === 'cyber' ? 'sawtooth' : preset === 'inferno' ? 'triangle' : 'sine'
-      osc.frequency.setValueAtTime(95, now)
+      osc.type = preset === 'cyber' ? 'sawtooth' : (preset === 'inferno' || m === 'push') ? 'triangle' : 'sine'
+      osc.frequency.setValueAtTime(m === 'push' ? 62 : (m === 'fate' ? 185 : 95), now)
       g.gain.setValueAtTime(0.001, now)
       g.gain.linearRampToValueAtTime(0.09, now + 0.12)
     }
     osc.connect(g)
     g.connect(this.masterGain)
     osc.start(now)
+
+    let subOsc = null
+    if (m === 'fate' && preset !== 'pixel') {
+      subOsc = ctx.createOscillator()
+      const sg = ctx.createGain()
+      subOsc.type = 'sine'
+      subOsc.frequency.setValueAtTime(CURATED_SOUND_PRESETS.has(preset) ? 261.63 : 277.18, now)
+      sg.gain.setValueAtTime(0.45, now)
+      subOsc.connect(sg)
+      sg.connect(g)
+      subOsc.start(now)
+    } else if (m === 'push' && preset !== 'pixel') {
+      subOsc = ctx.createOscillator()
+      const sg = ctx.createGain()
+      subOsc.type = 'sawtooth'
+      subOsc.frequency.setValueAtTime(60.5, now)
+      sg.gain.setValueAtTime(0.22, now)
+      subOsc.connect(sg)
+      sg.connect(g)
+      subOsc.start(now)
+    }
+
     this.chargeOsc = osc
+    this.chargeSubOsc = subOsc
     this.chargeGain = g
   }
 
@@ -6386,10 +6446,23 @@ class ProceduralDiceAudio {
     if (!this.chargeOsc || !this.ctx) return
     const now = this.ctx.currentTime
     const c = Math.max(0, Math.min(1, charge01))
+    const m = this._chargeMode || 'normal'
     if (this._chargePreset === 'pixel') {
-      const stepFreq = 130.81 * Math.pow(2, Math.floor(c * 10) / 12)
+      const base = m === 'push' ? 82.41 : (m === 'fate' ? 196.0 : 130.81)
+      const steps = m === 'fate' ? Math.floor(c * 14) : Math.floor(c * 10)
+      const stepFreq = base * Math.pow(2, steps / 12)
       this.chargeOsc.frequency.setValueAtTime(stepFreq, now)
-      this.chargeGain.gain.setTargetAtTime(0.035 + c * 0.04, now, 0.03)
+      this.chargeGain.gain.setTargetAtTime(0.038 + c * 0.045, now, 0.03)
+    } else if (m === 'fate') {
+      const f = (CURATED_SOUND_PRESETS.has(this._chargePreset) ? 174.61 : 185) + c * 225
+      this.chargeOsc.frequency.setTargetAtTime(f, now, 0.04)
+      if (this.chargeSubOsc) this.chargeSubOsc.frequency.setTargetAtTime(f * 1.498, now, 0.04)
+      this.chargeGain.gain.setTargetAtTime(0.038 + c * 0.08, now, 0.04)
+    } else if (m === 'push') {
+      const f = (CURATED_SOUND_PRESETS.has(this._chargePreset) ? 58 : 62) + c * c * 125
+      this.chargeOsc.frequency.setTargetAtTime(f, now, 0.03)
+      if (this.chargeSubOsc) this.chargeSubOsc.frequency.setTargetAtTime(f * 1.04 + c * 6, now, 0.03)
+      this.chargeGain.gain.setTargetAtTime(0.042 + c * 0.09, now, 0.03)
     } else if (CURATED_SOUND_PRESETS.has(this._chargePreset)) {
       this.chargeOsc.frequency.setTargetAtTime(88 + c * 175, now, 0.04)
       this.chargeGain.gain.setTargetAtTime(0.03 + c * 0.07, now, 0.04)
@@ -6404,33 +6477,124 @@ class ProceduralDiceAudio {
     const now = this.ctx.currentTime
     try {
       this.chargeGain.gain.cancelScheduledValues(now)
-      this.chargeGain.gain.setTargetAtTime(0.0001, now, 0.03)
-      this.chargeOsc.stop(now + 0.12)
+      this.chargeGain.gain.setTargetAtTime(0.0001, now, 0.025)
+      this.chargeOsc.stop(now + 0.1)
+      if (this.chargeSubOsc) this.chargeSubOsc.stop(now + 0.1)
     } catch {}
     this.chargeOsc = null
+    this.chargeSubOsc = null
     this.chargeGain = null
   }
 
-  playThrowWhoosh(preset = 'atelier', power = 1.0) {
+  playChargeRattle(preset = 'atelier', intensity = 0.5) {
+    const ctx = this.ensureContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+    if (now - this.lastRattleAt < 0.042 || this.activeVoices >= 8) return
+    this.lastRattleAt = now
+    const amp = Math.min(1, Math.max(0.15, intensity))
+    const osc = ctx.createOscillator()
+    const g = ctx.createGain()
+    const jitter = 0.92 + Math.random() * 0.18
+    if (preset === 'pixel') {
+      osc.type = 'square'
+      osc.frequency.setValueAtTime((520 + amp * 280) * jitter, now)
+      g.gain.setValueAtTime(0.032 * amp, now)
+      g.gain.exponentialRampToValueAtTime(0.0008, now + 0.022)
+      osc.connect(g); g.connect(this.masterGain)
+      osc.start(now); osc.stop(now + 0.025)
+      return
+    }
+    osc.type = (preset === 'bauhaus' || preset === 'cyber') ? 'triangle' : 'sine'
+    const baseF = preset === 'atelier' ? 1860 : (preset === 'murano' || preset === 'prism') ? 2150 : preset === 'urushi' ? 1240 : 1080
+    osc.frequency.setValueAtTime(baseF * jitter, now)
+    osc.frequency.exponentialRampToValueAtTime(baseF * 0.58, now + 0.026)
+    g.gain.setValueAtTime(0.042 * amp, now)
+    g.gain.exponentialRampToValueAtTime(0.0008, now + 0.03)
+    osc.connect(g)
+    this._connectPanned(g, (Math.random() - 0.5) * 0.5)
+    osc.start(now)
+    osc.stop(now + 0.034)
+  }
+
+  playFateApexChime(preset = 'atelier', power = 0.5) {
+    const ctx = this.ensureContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const p = Math.max(0.2, Math.min(1, power))
+    if (preset === 'pixel') {
+      const notes = [659.25, 987.77, 1318.5]
+      notes.forEach((f, i) => {
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+        osc.type = 'square'
+        osc.frequency.setValueAtTime(f, now + i * 0.032)
+        g.gain.setValueAtTime(0.048 * p, now + i * 0.032)
+        g.gain.exponentialRampToValueAtTime(0.0008, now + i * 0.032 + 0.14)
+        osc.connect(g); g.connect(this.masterGain)
+        osc.start(now + i * 0.032); osc.stop(now + i * 0.032 + 0.15)
+      })
+      return
+    }
+    const o1 = ctx.createOscillator()
+    const o2 = ctx.createOscillator()
+    const g = ctx.createGain()
+    o1.type = 'sine'; o2.type = 'sine'
+    const root = (preset === 'urushi' || preset === 'jianxin') ? 587.33 : (preset === 'murano' || preset === 'prism') ? 783.99 : 659.25
+    o1.frequency.setValueAtTime(root, now)
+    o2.frequency.setValueAtTime(root * 1.5, now)
+    g.gain.setValueAtTime(0.001, now)
+    g.gain.linearRampToValueAtTime(0.068 * (0.65 + p * 0.45), now + 0.02)
+    g.gain.exponentialRampToValueAtTime(0.0008, now + 0.36)
+    o1.connect(g); o2.connect(g)
+    g.connect(this.masterGain)
+    o1.start(now); o2.start(now)
+    o1.stop(now + 0.38); o2.stop(now + 0.38)
+  }
+
+  playThrowWhoosh(preset = 'atelier', power = 1.0, mode = 'normal') {
     this.stopChargeHum()
     const ctx = this.ensureContext()
     if (!ctx) return
     const now = ctx.currentTime
+    const pwr = Math.max(0.6, Math.min(1.8, Number(power) || 1.0))
 
     if (preset === 'pixel') {
       const osc = ctx.createOscillator()
       const g = ctx.createGain()
       osc.type = 'square'
-      osc.frequency.setValueAtTime(196, now)
-      osc.frequency.setValueAtTime(293.66, now + 0.035)
-      osc.frequency.setValueAtTime(440, now + 0.07)
-      g.gain.setValueAtTime(0.07, now)
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.12)
+      if (mode === 'push') {
+        osc.frequency.setValueAtTime(440 * pwr * 0.85, now)
+        osc.frequency.exponentialRampToValueAtTime(73.42, now + 0.11)
+      } else if (mode === 'fate') {
+        osc.frequency.setValueAtTime(220, now)
+        osc.frequency.setValueAtTime(329.63, now + 0.03)
+        osc.frequency.setValueAtTime(523.25, now + 0.065)
+        osc.frequency.setValueAtTime(659.25, now + 0.10)
+      } else {
+        osc.frequency.setValueAtTime(196, now)
+        osc.frequency.setValueAtTime(293.66, now + 0.035)
+        osc.frequency.setValueAtTime(440 * Math.min(1.3, pwr), now + 0.07)
+      }
+      g.gain.setValueAtTime(0.075 * Math.min(1.25, pwr), now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.14)
       osc.connect(g)
       g.connect(this.masterGain)
       osc.start(now)
-      osc.stop(now + 0.13)
+      osc.stop(now + 0.15)
       return
+    }
+
+    if (mode === 'push') {
+      const slam = ctx.createOscillator()
+      const sg = ctx.createGain()
+      slam.type = 'sine'
+      slam.frequency.setValueAtTime(155 * Math.min(1.3, pwr), now)
+      slam.frequency.exponentialRampToValueAtTime(42, now + 0.12)
+      sg.gain.setValueAtTime(0.16 * Math.min(1.4, pwr), now)
+      sg.gain.exponentialRampToValueAtTime(0.001, now + 0.14)
+      slam.connect(sg); sg.connect(this.masterGain)
+      slam.start(now); slam.stop(now + 0.15)
     }
 
     if (!this.noiseBuffer) return
@@ -6442,12 +6606,20 @@ class ProceduralDiceAudio {
     if (CURATED_SOUND_PRESETS.has(preset)) {
       filter.type = 'bandpass'
       const baseFreq = preset === 'murano' ? 1200 : preset === 'bauhaus' ? 980 : 540
-      filter.frequency.setValueAtTime(baseFreq * 0.6, now)
-      filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.4 + power * 0.4), now + 0.07)
-      filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.4, now + 0.22)
+      if (mode === 'fate') {
+        filter.frequency.setValueAtTime(baseFreq * 0.45, now)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.85 + pwr * 0.45), now + 0.18)
+      } else if (mode === 'push') {
+        filter.frequency.setValueAtTime(baseFreq * (1.65 + pwr * 0.45), now)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.32, now + 0.15)
+      } else {
+        filter.frequency.setValueAtTime(baseFreq * 0.6, now)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.4 + pwr * 0.4), now + 0.07)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.4, now + 0.22)
+      }
       filter.Q.value = 2.6
       gain.gain.setValueAtTime(0.001, now)
-      gain.gain.linearRampToValueAtTime(0.11 * Math.min(1.3, power), now + 0.04)
+      gain.gain.linearRampToValueAtTime(0.11 * Math.min(1.45, pwr), now + 0.035)
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22)
       src.connect(filter)
       filter.connect(gain)
@@ -6459,13 +6631,21 @@ class ProceduralDiceAudio {
 
     filter.type = preset === 'cyber' ? 'bandpass' : 'lowpass'
     const baseFreq = preset === 'prism' ? 1550 : preset === 'inferno' ? 360 : 760
-    filter.frequency.setValueAtTime(baseFreq * 0.5, now)
-    filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.9 + power * 0.6), now + 0.08)
-    filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.35, now + 0.26)
+    if (mode === 'fate') {
+      filter.frequency.setValueAtTime(baseFreq * 0.45, now)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * (2.1 + pwr * 0.5), now + 0.18)
+    } else if (mode === 'push') {
+      filter.frequency.setValueAtTime(baseFreq * (1.9 + pwr * 0.5), now)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.32, now + 0.16)
+    } else {
+      filter.frequency.setValueAtTime(baseFreq * 0.5, now)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.9 + pwr * 0.6), now + 0.08)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.35, now + 0.26)
+    }
     filter.Q.value = preset === 'jianxin' ? 5.2 : 2.2
 
     gain.gain.setValueAtTime(0.001, now)
-    gain.gain.linearRampToValueAtTime(0.18 * Math.min(1.4, power), now + 0.045)
+    gain.gain.linearRampToValueAtTime(0.18 * Math.min(1.45, pwr), now + 0.04)
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26)
 
     src.connect(filter)
@@ -7364,7 +7544,7 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, total = 0, settleTime, sx
 }
 
 const SIM_DT = 1 / 120
-const MAX_STEPS = 320
+const MAX_STEPS = 380
 const PARTICLE_CAP = 900
 
 function qMul(ax, ay, az, aw, bx, by, bz, bw, out) {
@@ -7485,8 +7665,15 @@ class CinematicDiceStage {
     this.bulletSoundPlayed = false
 
     this.charging = false
+    this.buttonCharging = false
+    this.chargeMode = 'normal'
     this.chargeTime = 0
-    this.chargeWorld = { x: 0, y: -60, z: 95 }
+    this.lastChargePower = 0
+    this.fateApexTime = 0.22
+    this.fateApexChimePlayed = false
+    this.fateSlowAmount = 0
+    this.nextChargeRattleAt = 0
+    this.chargeWorld = { x: 0, y: -40, z: 92 }
     this.dragHistory = []
     this.pendingSpecBuilder = options.buildSpecOnDragRelease || null
 
@@ -7588,7 +7775,7 @@ class CinematicDiceStage {
     this.wake()
   }
 
-  startButtonCharge(modeHint) {
+  startButtonCharge(modeHint = 'normal') {
     if (this.charging) return
     this.themeBeforeCharge = this.theme
     if (this.theme && this.theme.id === 'astral') {
@@ -7598,13 +7785,31 @@ class CinematicDiceStage {
     if (!this.dice || this.dice.length === 0) {
       this.setStaticRoll({ diceSpecs: [{ meshKey: 'd20', sides: 20, targetValue: 20 }], tier: 'success', mode: 'normal' })
     }
+    const cm = modeHint === 'fate' || modeHint === 'push' ? modeHint : 'normal'
+    for (let i = 0; i < this.dice.length; i++) {
+      const d = this.dice[i]
+      d._preChargeX = d.x; d._preChargeY = d.y; d._preChargeZ = d.z
+      d._preChargeQx = d.qx; d._preChargeQy = d.qy; d._preChargeQz = d.qz; d._preChargeQw = d.qw
+    }
+    this.chargeMode = cm
     this.charging = true
     this.buttonCharging = true
     this.chargeTime = 0
-    this.chargeWorld.x = 0
-    this.chargeWorld.y = -12
-    this.chargeWorld.z = 92
-    if (this.audio) this.audio.startChargeHum(this.theme.soundPreset)
+    this.nextChargeRattleAt = 0.08
+    if (cm === 'fate') {
+      this.chargeWorld.x = 0
+      this.chargeWorld.y = -4
+      this.chargeWorld.z = 84
+    } else if (cm === 'push') {
+      this.chargeWorld.x = 0
+      this.chargeWorld.y = -24
+      this.chargeWorld.z = 94
+    } else {
+      this.chargeWorld.x = 0
+      this.chargeWorld.y = -12
+      this.chargeWorld.z = 88
+    }
+    if (this.audio) this.audio.startChargeHum(this.theme.soundPreset, cm)
     this.wake()
   }
 
@@ -7615,17 +7820,24 @@ class CinematicDiceStage {
     if (!this.charging) return
     this.charging = false
     this.buttonCharging = false
+    this.chargeMode = 'normal'
     if (this.audio) this.audio.stopChargeHum()
-    // 恢复落定态原坐标与姿态
     for (let i = 0; i < this.dice.length; i++) {
       const d = this.dice[i]
-      const ep = (MAX_STEPS - 1) * 3
-      const eq = (MAX_STEPS - 1) * 4
-      d.x = d.trajPos[ep]; d.y = d.trajPos[ep + 1]; d.z = d.trajPos[ep + 2]
-      d.qx = d.trajQuat[eq]; d.qy = d.trajQuat[eq + 1]; d.qz = d.trajQuat[eq + 2]; d.qw = d.trajQuat[eq + 3]
+      if (d._preChargeX !== undefined) {
+        d.x = d._preChargeX; d.y = d._preChargeY; d.z = d._preChargeZ
+        d.qx = d._preChargeQx; d.qy = d._preChargeQy; d.qz = d._preChargeQz; d.qw = d._preChargeQw
+      } else {
+        const ep = (MAX_STEPS - 1) * 3
+        const eq = (MAX_STEPS - 1) * 4
+        d.x = d.trajPos[ep]; d.y = d.trajPos[ep + 1]; d.z = d.trajPos[ep + 2]
+        d.qx = d.trajQuat[eq]; d.qy = d.trajQuat[eq + 1]; d.qz = d.trajQuat[eq + 2]; d.qw = d.trajQuat[eq + 3]
+      }
       d.trailCount = 0
       d.settled = true
     }
+    this.particles.active.fill(0)
+    this.particles.aliveCount = 0
     this.settled = true
     // 无损取消：蓄力期间临时换上的逆命/熔炉主题必须还原，否则这张卡片会一直停留在熔炉皮肤
     if (this.themeBeforeCharge) {
@@ -7636,23 +7848,27 @@ class CinematicDiceStage {
   }
 
   /**
-   * 松开蓄力按钮：带着蓄力能量将旋涡中的骰群爆发砸向指定真骰结果！
+   * 松开蓄力按钮：带着蓄力能量将悬停/剧颤中的骰群无缝爆发投向真骰结果！
    */
   releaseButtonCharge(spec, charge01 = 0.6) {
-    const power = Math.max(0, Math.min(1, Number(charge01) || 0))
+    const rawC = Number(charge01) || 0
+    const power = rawC > 0.1 ? Math.max(0.18, Math.min(1, rawC)) : 0
+    const activeMode = (spec && spec.mode && spec.mode !== 'normal')
+      ? spec.mode
+      : (this.chargeMode !== 'normal' ? this.chargeMode : ((spec && spec.mode) || 'normal'))
+    const fromPositions = this.dice && this.dice.length
+      ? this.dice.map(d => ({ x: d.x, y: d.y, z: d.z }))
+      : null
     this.charging = false
     this.buttonCharging = false
+    this.chargeMode = 'normal'
     this.themeBeforeCharge = null
     if (this.audio) this.audio.stopChargeHum()
-    const enriched = { ...(spec || {}) }
-    if (power > 0.12) {
-      const angle = (Math.random() - 0.5) * 1.1 + Math.PI * 0.5
-      const spd = 220 + power * 420
-      enriched.launchOrigin = { x: 0, y: -24, z: 98 + power * 48 }
-      enriched.launchVelocity = {
-        vx: Math.cos(angle) * spd * 0.55,
-        vy: Math.sin(angle) * spd * 0.55
-      }
+    const enriched = {
+      ...(spec || {}),
+      mode: activeMode,
+      chargePower: power,
+      fromPositions
     }
     this.throwDice(enriched)
   }
@@ -7692,19 +7908,22 @@ class CinematicDiceStage {
 
     el.addEventListener('pointerdown', e => {
       if (e.button !== 0) return
-      // 若当前处于暗骰落定待揭晓状态，轻点直接撕开封印揭晓！
       if (this.mode === 'hidden' && !this.revealed && this.settled) {
         this.revealHidden()
         return
       }
       el.setPointerCapture(e.pointerId)
+      const cm = this.mode === 'fate' || this.mode === 'push' ? this.mode : 'normal'
+      this.chargeMode = cm
       this.charging = true
+      this.buttonCharging = false
       this.chargeTime = 0
+      this.nextChargeRattleAt = 0.08
       const wp = toWorld(e.clientX, e.clientY, 85)
       this.chargeWorld.x = Math.max(-210, Math.min(210, wp.x))
       this.chargeWorld.y = Math.max(-165, Math.min(165, wp.y))
       this.dragHistory = [{ x: this.chargeWorld.x, y: this.chargeWorld.y, t: performance.now() }]
-      if (this.audio) this.audio.startChargeHum(this.theme.soundPreset)
+      if (this.audio) this.audio.startChargeHum(this.theme.soundPreset, cm)
       this.wake()
     })
 
@@ -7720,10 +7939,12 @@ class CinematicDiceStage {
 
     const finishDrag = () => {
       if (!this.charging) return
+      const heldTime = this.chargeTime
+      const fromPositions = this.dice.map(d => ({ x: d.x, y: d.y, z: d.z }))
       this.charging = false
+      this.chargeMode = 'normal'
       if (this.audio) this.audio.stopChargeHum()
 
-      // 计算甩投初速度向量
       let vx = 0, vy = 0
       if (this.dragHistory.length >= 2) {
         const first = this.dragHistory[0]
@@ -7740,12 +7961,15 @@ class CinematicDiceStage {
 
       const spec = this.pendingSpecBuilder ? this.pendingSpecBuilder() : null
       if (spec) {
-        if (speed > 65 || this.chargeTime > 0.18) {
-          spec.launchOrigin = { x: this.chargeWorld.x, y: this.chargeWorld.y, z: 95 + Math.min(1, this.chargeTime) * 45 }
-          spec.launchVelocity = {
-            vx: speed > 65 ? vx : -this.chargeWorld.x * 2.4 + (Math.random() - 0.5) * 180,
-            vy: speed > 65 ? vy : -this.chargeWorld.y * 2.4 + (Math.random() - 0.5) * 180
-          }
+        const dragPower = Math.min(1, Math.max(0, (heldTime - 0.14) / 0.85))
+        if (speed > 65) {
+          spec.launchOrigin = { x: this.chargeWorld.x, y: this.chargeWorld.y, z: 95 + dragPower * 45 }
+          spec.launchVelocity = { vx, vy }
+          spec.chargePower = Math.max(0.25, dragPower)
+          spec.fromPositions = fromPositions
+        } else if (dragPower > 0.1) {
+          spec.chargePower = dragPower
+          spec.fromPositions = fromPositions
         }
         this.throwDice(spec)
       }
@@ -7794,6 +8018,79 @@ class CinematicDiceStage {
     p.mode[i] = opts.mode !== undefined ? opts.mode : (opts.pillar ? 1.0 : 0.0)
   }
 
+  _spawnMediumAccentParticle(x, y, z, vx, vy, vz, scale = 1.0, preferStar = false) {
+    const id = this.theme.themeIndex
+    if (id < 6) {
+      const col = this._themeHDRColor()
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: 2.6 * scale,
+        life: 0.36 + Math.random() * 0.2,
+        grav: preferStar ? 40 : 120,
+        drag: 1.4,
+        r: col[0], g: col[1], b: col[2], a: 0.92,
+        mode: 0.0
+      })
+      return
+    }
+    const v2 = id - 6
+    if (v2 === 1) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (preferStar ? 6.0 : 4.5) * scale,
+        life: 0.34 + Math.random() * 0.22,
+        grav: preferStar ? 60 : 210, drag: 2.0,
+        r: preferStar ? 1.0 : 0.92, g: preferStar ? 0.88 : 0.84, b: preferStar ? 0.28 : 0.72, a: 1.0,
+        mode: preferStar ? 3.0 : 2.0
+      })
+    } else if (v2 === 3) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (3.4 + Math.random() * 1.8) * scale,
+        life: 0.75 + Math.random() * 0.4,
+        grav: 46, drag: 2.2,
+        r: 0.96, g: 0.78, b: 0.34, a: 0.92,
+        mode: 4.0
+      })
+    } else if (v2 === 2) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (1.9 + Math.random() * 1.2) * scale,
+        life: 0.38 + Math.random() * 0.22,
+        grav: preferStar ? 65 : 380, drag: 1.9,
+        r: preferStar ? 0.70 : 0.16, g: preferStar ? 0.18 : 0.11, b: preferStar ? 0.13 : 0.08, a: 0.68,
+        mode: 5.0
+      })
+    } else if (v2 === 4) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (2.0 + Math.random() * 1.2) * scale,
+        life: 0.36 + Math.random() * 0.2,
+        grav: preferStar ? 55 : 320, drag: 2.0,
+        r: 1.0, g: 0.31, b: 0.02, a: 0.72,
+        mode: 5.0
+      })
+    } else if (v2 === 5) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (2.1 + Math.random() * 1.5) * scale,
+        life: 0.48 + Math.random() * 0.28,
+        grav: 85, drag: 1.8,
+        r: 0.66, g: 0.92, b: 0.98, a: 0.62,
+        mode: 5.0
+      })
+    } else {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (1.9 + Math.random() * 1.3) * scale,
+        life: 0.50 + Math.random() * 0.3,
+        grav: 50, drag: 2.3,
+        r: 0.96, g: 0.79, b: 0.42, a: 0.44,
+        mode: 5.0
+      })
+    }
+  }
+
   _spawnSlash(cx, cy, cz, radius, tilt, angle, width, life, r, g, b) {
     const sl = this.slashes[this.slashCursor % this.slashes.length]
     this.slashCursor++
@@ -7819,7 +8116,7 @@ class CinematicDiceStage {
   }
 
   /**
-   * 触发一次高精度真骰投掷！
+   * 触发一次高精度真骰投掷（区分普通点按/长按、✦逆命重投点按/长按、🔥孤注一掷点按/长按）
    */
   throwDice(spec = {}) {
     /* pace < 1 = 慢镜投骰（正文中央的演出用它拉长整套投掷动作；胶囊/蓄力默认 1 保持原速） */
@@ -7829,16 +8126,31 @@ class CinematicDiceStage {
       : [{ meshKey: 'd20', sides: 20, targetValue: 20 }]
     const count = diceSpecs.length
 
+    const prevDiceSnap = (!spec.silentStatic && this.dice && this.dice.length)
+      ? this.dice.map(d => ({ x: d.x, y: d.y, z: d.z }))
+      : null
+
+    if (!spec.silentStatic) {
+      this.charging = false
+      this.buttonCharging = false
+      this.chargeMode = 'normal'
+    }
+
     this.tier = spec.tier || 'success'
     this.mode = spec.mode || 'normal'
     this.revealed = false
     this.total = spec.total !== undefined ? spec.total : diceSpecs.reduce((s, d) => s + d.targetValue, 0)
     this.checkName = spec.checkName || '命运裁定'
 
+    const power = spec.silentStatic ? 0 : Math.max(0, Math.min(1, Number(spec.chargePower) || 0))
+    this.lastChargePower = power
+    this.fateApexChimePlayed = false
+    this.fateSlowAmount = 0
+
     // 清空上一轮瞬态残迹
     this.particles.active.fill(0)
     this.particles.aliveCount = 0
-    for (const imp of this.impacts) imp.strength = 0
+    for (const imp of this.impacts) { imp.strength = 0; imp._delay = 0 }
     for (const sl of this.slashes) sl.active = false
     this.shockAge = 99
     this.shockwave[3] = 0
@@ -7849,7 +8161,7 @@ class CinematicDiceStage {
     const baseR = count <= 1 ? 42 : count <= 2 ? 37 : count <= 4 ? 31 : count <= 8 ? 25 : count <= 14 ? 20 : 16
     const aspect = this.cssW / Math.max(1, this.cssH)
     const boundX = Math.min(this.theaterMode ? 285 : 225, Math.max(92, 155 * aspect)) - baseR
-    const boundY = (this.compactMode ? 88 : 138) - baseR
+    const boundY = (this.compactMode ? 88 : (this.theaterMode ? 124 : 138)) - baseR
 
     const dice = []
     for (let i = 0; i < count; i++) {
@@ -7863,22 +8175,129 @@ class CinematicDiceStage {
         }
       }
 
-      let startX, startY, startZ, vx, vy, vz
+      const radius = baseR * (ds.meshKey === 'd4' ? 1.12 : 1.0)
+      const floorZ = radius * (ds.meshKey === 'd4' ? 0.52 : ds.meshKey === 'd6' || ds.meshKey === 'df' ? 0.62 : 0.76)
+      const fromPos = !spec.silentStatic && spec.fromPositions && spec.fromPositions[i] ? spec.fromPositions[i] : null
+      const prevPos = prevDiceSnap && prevDiceSnap[i] ? prevDiceSnap[i] : null
+
+      let startX, startY, startZ, vx, vy, vz, wx, wy, wz
+
       if (spec.launchOrigin && spec.launchVelocity) {
         const spreadA = (i / Math.max(1, count)) * Math.PI * 2
         const spreadR = count > 1 ? 18 + (i % 3) * 10 : 0
-        startX = spec.launchOrigin.x + Math.cos(spreadA) * spreadR
-        startY = spec.launchOrigin.y + Math.sin(spreadA) * spreadR
-        startZ = spec.launchOrigin.z + (i % 4) * 12
-        vx = spec.launchVelocity.vx + (Math.random() - 0.5) * 95
-        vy = spec.launchVelocity.vy + (Math.random() - 0.5) * 95
-        vz = 140 + Math.random() * 130
+        startX = fromPos ? fromPos.x : spec.launchOrigin.x + Math.cos(spreadA) * spreadR
+        startY = fromPos ? fromPos.y : spec.launchOrigin.y + Math.sin(spreadA) * spreadR
+        startZ = fromPos ? Math.max(floorZ + 20, fromPos.z) : spec.launchOrigin.z + (i % 4) * 12
+        vx = spec.launchVelocity.vx + (Math.random() - 0.5) * 90
+        vy = spec.launchVelocity.vy + (Math.random() - 0.5) * 90
+        vz = this.mode === 'push' ? -(260 + power * 420) : (130 + Math.random() * 115)
+        const spinMul = 1.0 + power * 1.25
+        wx = (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 12) * spinMul
+        wy = (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 12) * spinMul
+        wz = (Math.random() - 0.5) * 18 * spinMul
+      } else if (!spec.silentStatic && this.mode === 'fate') {
+        // ✦ 逆命重投专属动作：拔地反重力升天 -> 穹顶时停凝滞翻转 -> 天命钦定落座！
+        const ringR = count === 1
+          ? 0
+          : (this.theaterMode
+            ? baseR * (1.0 + Math.sqrt(count) * 0.48)
+            : Math.min(boundX * 0.46, baseR * (1.28 + Math.sqrt(count) * 0.54)))
+        const slotA = (i / count) * Math.PI * 2 + Math.PI * 0.25
+        const aimX = Math.cos(slotA) * ringR * 0.88
+        const aimY = Math.sin(slotA) * ringR * 0.66 + 2
+
+        if (power > 0) {
+          const fallbackA = (i / Math.max(1, count)) * Math.PI * 2
+          const fallbackR = count === 1 ? 0 : 44
+          const maxHoldZ = this.theaterMode ? 82 : 104
+          startX = fromPos ? fromPos.x : Math.cos(fallbackA) * fallbackR
+          startY = fromPos ? fromPos.y : -4 + Math.sin(fallbackA) * fallbackR * 0.62
+          startZ = fromPos ? Math.min(maxHoldZ + 8, Math.max(floorZ + 28, fromPos.z)) : (maxHoldZ - 12 + power * 14)
+          vz = (this.theaterMode ? 155 : 205) + power * (this.theaterMode ? 95 : 145) + (i % 2) * 14
+          const tArc = 0.48 + power * 0.12
+          vx = (aimX - startX) / tArc + (Math.random() - 0.5) * 20
+          vy = (aimY - startY) / tArc + (Math.random() - 0.5) * 20
+          const fSpin = 28 + power * 28
+          const dir = i % 2 === 0 ? -1 : 1
+          wx = -fSpin * (0.88 + Math.random() * 0.24)
+          wy = dir * fSpin * (0.62 + Math.random() * 0.25)
+          wz = -dir * (14 + power * 18)
+        } else {
+          const originA = (i / Math.max(1, count)) * Math.PI * 2 + Math.PI
+          const originR = count === 1 ? 0 : Math.min(boundX * 0.36, 38 + count * 6)
+          startX = prevPos ? Math.max(-boundX * 0.85, Math.min(boundX * 0.85, prevPos.x)) : Math.cos(originA) * originR
+          startY = prevPos ? Math.max(-boundY * 0.85, Math.min(boundY * 0.85, prevPos.y)) : (Math.sin(originA) * originR * 0.7 - 6)
+          startZ = floorZ + 4 + (i % 3) * 3
+          vz = (this.theaterMode ? 410 : 485) + Math.random() * 36 + (i % 2) * 14
+          const tArc = (this.theaterMode ? 0.54 : 0.60) + Math.random() * 0.04
+          vx = (aimX - startX) / tArc + (Math.random() - 0.5) * 24
+          vy = (aimY - startY) / tArc + (Math.random() - 0.5) * 24
+          wx = -(23 + Math.random() * 10)
+          wy = (i % 2 === 0 ? 1 : -1) * (19 + Math.random() * 9)
+          wz = (Math.random() - 0.5) * 16
+        }
+
+        if (i < 4) {
+          const imp = this.impacts[this.impactCursor % this.impacts.length]
+          this.impactCursor++
+          imp.x = startX; imp.y = startY; imp.age = 0.001; imp.strength = 0.42 + power * 0.35
+        }
+      } else if (!spec.silentStatic && this.mode === 'push') {
+        // 🔥 孤注一掷专属动作：掌心紧攥剧颤 -> 雷霆陨石俯冲猛砸 -> 狂暴高弹互撞！
+        const ringR = count === 1
+          ? 0
+          : (this.theaterMode
+            ? baseR * (1.15 + Math.sqrt(count) * 0.56)
+            : Math.min(boundX * 0.55, baseR * (1.42 + Math.sqrt(count) * 0.62)))
+        const slotA = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4
+        const aimX = Math.cos(slotA) * ringR
+        const aimY = Math.sin(slotA) * ringR * 0.70 + (this.theaterMode ? 4 : 8)
+
+        if (power > 0) {
+          const jitterA = (i / Math.max(1, count)) * Math.PI * 2
+          startX = fromPos ? fromPos.x : Math.cos(jitterA) * (count > 1 ? 16 : 0)
+          startY = fromPos ? fromPos.y : -24 + Math.sin(jitterA) * (count > 1 ? 10 : 0)
+          startZ = fromPos ? Math.max(floorZ + 44, fromPos.z) : ((this.theaterMode ? 80 : 96) + power * (this.theaterMode ? 26 : 42))
+          vz = -(480 + power * 640 + Math.random() * 75)
+          const slamSpread = 165 + power * 260
+          vx = (aimX - startX) * (2.8 + power * 1.8) + (Math.random() - 0.5) * slamSpread
+          vy = (aimY - startY) * (3.0 + power * 1.6) + (Math.random() - 0.5) * slamSpread * 0.85
+          const pSpin = 40 + power * 38
+          wx = (Math.random() < 0.5 ? -1 : 1) * (pSpin + Math.random() * 14)
+          wy = (Math.random() < 0.5 ? -1 : 1) * (pSpin * 0.92 + Math.random() * 14)
+          wz = (Math.random() - 0.5) * pSpin * 1.15
+        } else {
+          startX = (i - (count - 1) * 0.5) * Math.min(34, (boundX * 1.2) / Math.max(1, count)) + (Math.random() - 0.5) * 18
+          startY = -boundY * 0.90
+          startZ = baseR + (this.theaterMode ? 102 : 124) + (i % 3) * 12 + Math.random() * 18
+          vz = -(380 + Math.random() * 110)
+          vx = (aimX - startX) * 2.8 + (Math.random() - 0.5) * 155
+          vy = (aimY - startY) * 3.0 + (Math.random() - 0.5) * 115
+          wx = (Math.random() < 0.5 ? -1 : 1) * (32 + Math.random() * 16)
+          wy = (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 16)
+          wz = (Math.random() - 0.5) * 36
+        }
+      } else if (!spec.silentStatic && power > 0) {
+        // 🎲 普通投掷 · 长按蓄力松手：从空中八字旋涡切向高速离心甩射
+        const fallbackA = (i / Math.max(1, count)) * Math.PI * 2
+        startX = fromPos ? fromPos.x : Math.cos(fallbackA) * 28
+        startY = fromPos ? fromPos.y : -14 + Math.sin(fallbackA) * 24
+        startZ = fromPos ? Math.max(floorZ + 32, fromPos.z) : ((this.theaterMode ? 76 : 88) + power * 28)
+        const flingAngle = (i % 2 === 0 ? 0.35 : Math.PI - 0.35) + (Math.random() - 0.5) * 0.55
+        const flingSpd = 380 + power * 420
+        vx = Math.cos(flingAngle) * flingSpd + (Math.random() - 0.5) * 90
+        vy = Math.abs(Math.sin(flingAngle)) * flingSpd * 0.68 + (Math.random() - 0.5) * 85
+        vz = -(220 + power * 360)
+        const nSpin = (18 + Math.random() * 12) * (1.0 + power * 1.55)
+        wx = (Math.random() < 0.5 ? -1 : 1) * nSpin
+        wy = (Math.random() < 0.5 ? -1 : 1) * nSpin * 0.92
+        wz = (Math.random() - 0.5) * nSpin * 1.1
       } else {
-        // 默认从近景两侧帅气弧线抛入舞台正中央星盘！剧场横幅模式从宽翼起跳，向中心黄金圆环精准聚拢碰撞
+        // 🎲 普通短按投掷（及静态摆盘）：经典双翼弧线抛入
         const side = (i % 2 === 0 ? -1 : 1) * (0.86 + Math.random() * 0.12)
         startX = this.theaterMode ? side * boundX * 0.96 : side * boundX * 0.88
         startY = -boundY * (0.72 + Math.random() * 0.30)
-        startZ = baseR + (this.theaterMode ? 132 : 105) + Math.random() * 68 + (i % 4) * 14
+        startZ = baseR + (this.theaterMode ? 126 : 105) + Math.random() * 62 + (i % 4) * 14
 
         const ringR = count === 1
           ? 0
@@ -7892,7 +8311,10 @@ class CinematicDiceStage {
         const jitter = this.theaterMode ? 36 : 65
         vx = (aimX - startX) / tFlight + (Math.random() - 0.5) * jitter
         vy = (aimY - startY) / tFlight + (Math.random() - 0.5) * jitter
-        vz = (this.theaterMode ? 168 : 135) + Math.random() * 105
+        vz = (this.theaterMode ? 162 : 135) + Math.random() * 98
+        wx = (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 12)
+        wy = (Math.random() < 0.5 ? -1 : 1) * (13 + Math.random() * 12)
+        wz = (Math.random() - 0.5) * 16
       }
 
       dice.push({
@@ -7902,12 +8324,10 @@ class CinematicDiceStage {
         sides: ds.sides || mesh.faceCount,
         faceValue: ds.targetValue,
         targetFace,
-        radius: baseR * (ds.meshKey === 'd4' ? 1.12 : 1.0),
+        radius,
         x: startX, y: startY, z: startZ,
         vx, vy, vz,
-        wx: (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 12),
-        wy: (Math.random() < 0.5 ? -1 : 1) * (13 + Math.random() * 12),
-        wz: (Math.random() - 0.5) * 16,
+        wx, wy, wz,
         qx: 0, qy: 0, qz: 0, qw: 1,
         speed: Math.hypot(vx, vy, vz),
         settled: false,
@@ -7934,23 +8354,37 @@ class CinematicDiceStage {
     this.bouncePlayCursor = 0
 
     if (this.audio && !spec.silentStatic) {
-      this.audio.playThrowWhoosh(this.theme.soundPreset, 1.1)
+      this.audio.playThrowWhoosh(this.theme.soundPreset, 0.95 + power * 0.75, this.mode)
     }
-    if (!spec.silentStatic) this.wake()
+    if (!spec.silentStatic) {
+      this._renderAll()
+      this.wake()
+    }
   }
 
   _bakeTrajectoriesAndExactLanding(dice, boundX, boundY) {
     const count = dice.length
     const gravity = 1680
+    const isFate = this.mode === 'fate'
+    const isPush = this.mode === 'push'
+    const power = this.lastChargePower || 0
+    const maxBounces = isFate ? 2 : (isPush ? (power > 0 ? 6 : 5) : (power > 0 ? 5 : 4))
+    const minBounceImpV = (isPush || power > 0) ? 38 : 60
+    const wallRest = isPush ? 0.80 : (power > 0 ? 0.74 : 0.68)
+    const wallSpin = isPush ? 8.5 : 5.0
+    const maxReboundVz = this.theaterMode ? 405 : 510
+
     this.bounceQueue.length = 0
     const dq = new Float32Array(4)
     const qNext = new Float32Array(4)
     let maxSettleStep = 48
+    let peakAvgZ = -Infinity
+    let peakStep = 24
 
     for (let step = 0; step < MAX_STEPS; step++) {
+      let sumZ = 0
       for (let i = 0; i < count; i++) {
         const d = dice[i]
-        // 内切距离使多面体真实贴合 z=0 台面
         const floorZ = d.radius * (d.meshKey === 'd4' ? 0.52 : d.meshKey === 'd6' || d.meshKey === 'df' ? 0.62 : 0.76)
 
         if (!d._simSettled) {
@@ -7962,39 +8396,47 @@ class CinematicDiceStage {
           d.vx *= 0.996
           d.vy *= 0.996
 
-          if (d.x < -boundX) { d.x = -boundX; d.vx = Math.abs(d.vx) * 0.68; d.wz += 5 }
-          else if (d.x > boundX) { d.x = boundX; d.vx = -Math.abs(d.vx) * 0.68; d.wz -= 5 }
-          if (d.y < -boundY) { d.y = -boundY; d.vy = Math.abs(d.vy) * 0.68; d.wx += 5 }
-          else if (d.y > boundY) { d.y = boundY; d.vy = -Math.abs(d.vy) * 0.68; d.wx -= 5 }
+          if (d.x < -boundX) { d.x = -boundX; d.vx = Math.abs(d.vx) * wallRest; d.wz += wallSpin }
+          else if (d.x > boundX) { d.x = boundX; d.vx = -Math.abs(d.vx) * wallRest; d.wz -= wallSpin }
+          if (d.y < -boundY) { d.y = -boundY; d.vy = Math.abs(d.vy) * wallRest; d.wx += wallSpin }
+          else if (d.y > boundY) { d.y = boundY; d.vy = -Math.abs(d.vy) * wallRest; d.wx -= wallSpin }
 
           if (d.z <= floorZ) {
             d.z = floorZ
             const impV = -d.vz
-            if (impV > 60 && d.bounces < 5) {
-              const rest = Math.max(0.24, 0.58 - d.bounces * 0.09)
-              d.vz = impV * rest
-              d.vx *= this.theaterMode ? 0.56 : 0.75
-              d.vy *= this.theaterMode ? 0.64 : 0.75
-              d.wx = d.wx * 0.65 - d.vy * 0.05 + (Math.random() - 0.5) * 6.5
-              d.wy = d.wy * 0.65 + d.vx * 0.05 + (Math.random() - 0.5) * 6.5
-              d.wz *= 0.72
+            if (impV > minBounceImpV && d.bounces < maxBounces) {
+              const baseRest = isFate
+                ? (0.28 + power * 0.05)
+                : (isPush ? (0.64 + power * 0.10) : (power > 0 ? 0.58 + power * 0.08 : 0.54))
+              const decay = isFate ? 0.13 : ((isPush || power > 0) ? 0.068 : 0.10)
+              const rest = Math.max(0.24, baseRest - d.bounces * decay)
+              d.vz = Math.min(maxReboundVz, impV * rest)
+              const xyKeepX = isFate ? 0.52 : (isPush ? 0.80 : (this.theaterMode ? 0.58 : 0.75))
+              const xyKeepY = isFate ? 0.54 : (isPush ? 0.80 : (this.theaterMode ? 0.65 : 0.75))
+              d.vx *= xyKeepX
+              d.vy *= xyKeepY
+              const spinKick = isPush ? (9.0 + power * 6.0) : (isFate ? 3.2 : 6.2)
+              d.wx = d.wx * (isFate ? 0.55 : 0.66) - d.vy * 0.05 + (Math.random() - 0.5) * spinKick
+              d.wy = d.wy * (isFate ? 0.55 : 0.66) + d.vx * 0.05 + (Math.random() - 0.5) * spinKick
+              d.wz *= isFate ? 0.58 : 0.72
+              const strengthBoost = (d.bounces === 0 && (isPush || power > 0)) ? (0.18 + power * 0.25) : 0
               this.bounceQueue.push({
                 simTime: step * SIM_DT,
                 x: d.x,
                 y: d.y,
                 z: 3,
-                strength: Math.min(1, impV / 540),
+                strength: Math.min(1.25, impV / 520 + strengthBoost),
                 bounceIndex: d.bounces,
                 dieIndex: i
               })
               d.bounces++
             } else {
               d.vz = 0
-              d.vx *= 0.80
-              d.vy *= 0.80
-              d.wx *= 0.76
-              d.wy *= 0.76
-              d.wz *= 0.76
+              d.vx *= isFate ? 0.68 : 0.80
+              d.vy *= isFate ? 0.68 : 0.80
+              d.wx *= isFate ? 0.66 : 0.76
+              d.wy *= isFate ? 0.66 : 0.76
+              d.wz *= isFate ? 0.66 : 0.76
               if (Math.hypot(d.vx, d.vy) < 5.5 && Math.hypot(d.wx, d.wy, d.wz) < 0.42 && step > 40) {
                 d.vx = 0; d.vy = 0; d.vz = 0
                 d.wx = 0; d.wy = 0; d.wz = 0
@@ -8015,9 +8457,18 @@ class CinematicDiceStage {
             d.qx = qNext[0]; d.qy = qNext[1]; d.qz = qNext[2]; d.qw = qNext[3]
           }
         }
+        sumZ += d.z
       }
 
-      // 多骰 3D 球体刚性互撞弹开
+      if (step <= 95) {
+        const avgZ = sumZ / Math.max(1, count)
+        if (avgZ > peakAvgZ) {
+          peakAvgZ = avgZ
+          peakStep = step
+        }
+      }
+
+      const pairRest = isPush ? 0.90 : 0.84
       for (let i = 0; i < count; i++) {
         for (let j = i + 1; j < count; j++) {
           const a = dice[i], b = dice[j]
@@ -8033,7 +8484,7 @@ class CinematicDiceStage {
             const rvx = b.vx - a.vx, rvy = b.vy - a.vy, rvz = b.vz - a.vz
             const vn = rvx * nx + rvy * ny + rvz * nz
             if (vn < 0) {
-              const imp = -0.84 * vn
+              const imp = -pairRest * vn
               a.vx -= nx * imp; a.vy -= ny * imp; a.vz -= nz * imp * 0.35
               b.vx += nx * imp; b.vy += ny * imp; b.vz += nz * imp * 0.35
               if (imp > 18) {
@@ -8047,7 +8498,7 @@ class CinematicDiceStage {
                   x: (a.x + b.x) * 0.5,
                   y: (a.y + b.y) * 0.5,
                   z: (a.z + b.z) * 0.5,
-                  strength: hs * 0.85,
+                  strength: hs * (isPush ? 1.0 : 0.85),
                   bounceIndex: 1,
                   dieIndex: i
                 })
@@ -8074,6 +8525,7 @@ class CinematicDiceStage {
       }
     }
     this.maxSimDuration = maxSettleStep * SIM_DT
+    this.fateApexTime = Math.max(0.08, peakStep * SIM_DT)
     this.bounceQueue.sort((a, b) => a.simTime - b.simTime)
 
     // 逆向四元数对齐：确保目标面最终稳稳朝上微倾面向摄像机，且 det(W * L^T) = (-1)*(-1) = +1 严格属于 SO(3)！
@@ -8084,14 +8536,11 @@ class CinematicDiceStage {
     for (let i = 0; i < count; i++) {
       const d = dice[i]
       const tf = d.targetFace
-      // 落定面法线向摄像机方向适度前倾 (0.28 rad ≈ 16°)，消除透视压缩，让顶面大号数字正对视线！
       const tiltCam = d.meshKey === 'd4' ? 0.44 : 0.28
       const wnX = 0, wnY = -Math.sin(tiltCam), wnZ = Math.cos(tiltCam)
 
-      // 保持极轻微偏航角 (±6°)，端正大气易读
-      const yaw = (Math.random() - 0.5) * 0.22
+      const yaw = (Math.random() - 0.5) * (isFate ? 0.10 : 0.22)
       const cy = Math.cos(yaw), sy = Math.sin(yaw)
-      // 基准 Wv 指向屏幕下方 (-Y 侧)，绕 Wn 偏航后并设 Wu = cross(Wn, Wv) 以严格对齐 gl-meshes 切空间手性
       const wvX = sy
       const wvY = -cy * Math.cos(tiltCam)
       const wvZ = -cy * Math.sin(tiltCam)
@@ -8146,74 +8595,98 @@ class CinematicDiceStage {
 
   _onBounceEvent(b) {
     const id = this.theme.themeIndex
+    const isPush = this.mode === 'push'
+    const isFate = this.mode === 'fate'
+    const power = this.lastChargePower || 0
+    const heavyFirstHit = b.bounceIndex === 0 && (isPush || power > 0.25)
+
     const imp = this.impacts[this.impactCursor % this.impacts.length]
     this.impactCursor++
     imp.x = b.x
     imp.y = b.y
     imp.age = 0.001
     imp.strength = b.strength
+    imp._delay = 0
+
+    // 孤注一掷或高蓄力首击：额外激发一圈滞后双震波涟漪，增强重锤砸桌质感
+    if (heavyFirstHit) {
+      const imp2 = this.impacts[this.impactCursor % this.impacts.length]
+      this.impactCursor++
+      imp2.x = b.x; imp2.y = b.y; imp2.age = 0.001; imp2.strength = 0
+      imp2._delay = 0.065; imp2._queuedStrength = b.strength * 0.78
+    }
 
     if (id >= 6) {
       const v2 = id - 6
-      this.shakeAmp = Math.min(6, this.shakeAmp + b.strength * (v2 === 1 ? 4.5 : 2.2))
+      const shakeCap = isPush ? (9.5 + power * 4.5) : (6.0 + power * 3.5)
+      const shakeGain = (v2 === 1 ? 4.5 : 2.2) * (heavyFirstHit ? (1.65 + power * 0.85) : 1.0)
+      this.shakeAmp = Math.min(shakeCap, this.shakeAmp + b.strength * shakeGain)
+      const burstMul = heavyFirstHit ? (1.8 + power * 1.4) : (isFate && b.bounceIndex === 0 ? (1.35 + power * 0.7) : 1.0)
 
       if (v2 === 1) {
-        // [pixel] 16-Bit 整数方块像素烟尘团
-        const n = Math.max(2, Math.round(5 * b.strength))
+        const n = Math.max(2, Math.round(5 * b.strength * burstMul))
         for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
-          const spd = (35 + Math.random() * 95) * b.strength
+          const spd = (35 + Math.random() * 95) * b.strength * (heavyFirstHit ? 1.35 : 1.0)
           this._spawnSpark({
             x: b.x + (Math.random() - 0.5) * 12,
             y: b.y + (Math.random() - 0.5) * 12,
             z: 6 + Math.random() * 8,
             vx: Math.cos(a) * spd,
             vy: Math.sin(a) * spd,
-            vz: 55 + Math.random() * 90,
+            vz: (55 + Math.random() * 90) * (heavyFirstHit ? 1.3 : 1.0),
             size: 5.0 + Math.floor(Math.random() * 2) * 2.5,
             life: 0.28 + Math.random() * 0.22,
             grav: 240,
             drag: 2.2,
-            r: 0.88, g: 0.84, b: 0.78, a: 1.0,
+            r: heavyFirstHit && isPush ? 1.0 : 0.88,
+            g: heavyFirstHit && isPush ? 0.62 : 0.84,
+            b: heavyFirstHit && isPush ? 0.36 : 0.78,
+            a: 1.0,
             mode: 2.0
           })
         }
-      } else if (v2 === 0 && b.strength > 0.4) {
-        // [atelier] 银行家台灯下的微弱暖金绒尘
-        for (let i = 0; i < 3; i++) {
+      } else if (v2 === 0 && (b.strength > 0.36 || heavyFirstHit)) {
+        const n = Math.round(3 * burstMul)
+        for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
+          const spd = (32 + Math.random() * 44) * (heavyFirstHit ? 1.4 : 1.0)
           this._spawnSpark({
             x: b.x, y: b.y, z: 6,
-            vx: Math.cos(a) * 32, vy: Math.sin(a) * 32, vz: 35 + Math.random() * 45,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: (35 + Math.random() * 50) * (heavyFirstHit ? 1.3 : 1.0),
             size: 1.8 + Math.random() * 1.4,
             life: 0.55 + Math.random() * 0.35,
             grav: 45, drag: 2.5,
-            r: 0.95, g: 0.78, b: 0.42, a: 0.35,
+            r: 0.95, g: 0.78, b: 0.42, a: heavyFirstHit ? 0.50 : 0.35,
             mode: 5.0
           })
         }
-      } else if (v2 === 2 && b.strength > 0.35) {
-        // [etching] 铁胆墨水细微飞墨滴
-        for (let i = 0; i < 4; i++) {
+      } else if (v2 === 2 && (b.strength > 0.32 || heavyFirstHit)) {
+        const n = Math.round(4 * burstMul)
+        for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
-          const spd = 40 + Math.random() * 80
+          const spd = (40 + Math.random() * 80) * (heavyFirstHit ? 1.35 : 1.0)
           this._spawnSpark({
             x: b.x, y: b.y, z: 5,
             vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: 60 + Math.random() * 80,
             size: 1.8 + Math.random() * 1.5,
             life: 0.35 + Math.random() * 0.25,
             grav: 480, drag: 1.8,
-            r: 0.16, g: 0.11, b: 0.08, a: 0.65,
+            r: heavyFirstHit ? 0.70 : 0.16,
+            g: heavyFirstHit ? 0.18 : 0.11,
+            b: heavyFirstHit ? 0.13 : 0.08,
+            a: 0.68,
             mode: 5.0
           })
         }
       } else if (v2 === 3) {
-        // [urushi] 京都 24K 摇曳金箔碎叶
-        for (let i = 0; i < 2; i++) {
+        const n = Math.round(2 * burstMul)
+        for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
+          const spd = (28 + Math.random() * 34) * (heavyFirstHit ? 1.35 : 1.0)
           this._spawnSpark({
             x: b.x + (Math.random() - 0.5) * 16, y: b.y + (Math.random() - 0.5) * 16, z: 12 + Math.random() * 16,
-            vx: Math.cos(a) * 28, vy: Math.sin(a) * 28, vz: 48 + Math.random() * 55,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: (48 + Math.random() * 60) * (heavyFirstHit ? 1.25 : 1.0),
             size: 3.6 + Math.random() * 2.2,
             life: 0.85 + Math.random() * 0.45,
             grav: 58, drag: 2.4,
@@ -8221,17 +8694,33 @@ class CinematicDiceStage {
             mode: 4.0
           })
         }
-      } else if (v2 === 5) {
-        // [murano] 威尼斯深海琉璃清冷水雾微星
-        for (let i = 0; i < 4; i++) {
+      } else if (v2 === 4 && (heavyFirstHit || b.strength > 0.5)) {
+        const n = Math.round(3 * burstMul)
+        for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2
+          const spd = 45 + Math.random() * 75
           this._spawnSpark({
             x: b.x, y: b.y, z: 6,
-            vx: Math.cos(a) * 48, vy: Math.sin(a) * 48, vz: 52 + Math.random() * 75,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: 55 + Math.random() * 70,
+            size: 2.0 + Math.random() * 1.2,
+            life: 0.32 + Math.random() * 0.2,
+            grav: 360, drag: 2.0,
+            r: 1.0, g: 0.31, b: 0.02, a: 0.72,
+            mode: 5.0
+          })
+        }
+      } else if (v2 === 5) {
+        const n = Math.round(4 * burstMul)
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = (48 + Math.random() * 44) * (heavyFirstHit ? 1.35 : 1.0)
+          this._spawnSpark({
+            x: b.x, y: b.y, z: 6,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: 52 + Math.random() * 75,
             size: 2.0 + Math.random() * 1.8,
             life: 0.45 + Math.random() * 0.3,
             grav: 120, drag: 1.9,
-            r: 0.65, g: 0.92, b: 0.96, a: 0.55,
+            r: 0.65, g: 0.92, b: 0.96, a: 0.58,
             mode: 5.0
           })
         }
@@ -8239,28 +8728,43 @@ class CinematicDiceStage {
 
       if (this.audio) {
         const pan = Math.max(-0.85, Math.min(0.85, b.x / 220))
-        this.audio.playBounce(this.theme.soundPreset, b.strength, pan)
+        this.audio.playBounce(this.theme.soundPreset, Math.min(1, b.strength * (heavyFirstHit ? 1.2 : 1.0)), pan)
       }
       return
     }
 
-    this.shakeAmp = Math.min(18, this.shakeAmp + b.strength * (id === 2 ? 12 : 7))
-    if (id === 3) {
-      this.chroma = Math.min(1.6, this.chroma + b.strength * 0.9)
+    const fanCap = isPush ? 24 : 18
+    const fanGain = (id === 2 || isPush ? 12 : 7) * (heavyFirstHit ? 1.35 : 1.0)
+    this.shakeAmp = Math.min(fanCap, this.shakeAmp + b.strength * fanGain)
+    if (id === 3 || heavyFirstHit) {
+      this.chroma = Math.min(1.6, this.chroma + b.strength * (id === 3 ? 0.9 : 0.45))
+    }
+    if (heavyFirstHit && isPush) {
+      const uv = this.renderer.projectToUV(b.x, b.y, 6, this._uvTmp)
+      if (uv.visible) {
+        this.shockwave[0] = uv.u
+        this.shockwave[1] = uv.v
+        this.shockwave[2] = 0.02
+        this.shockwave[3] = Math.min(0.95, 0.45 + power * 0.45)
+        this.shockAge = 0
+      }
     }
 
     const col = this._themeHDRColor()
-    const sparkCount = (this.quality === 'lite' ? 4 : this.quality === 'balanced' ? 9 : 15) * (b.bounceIndex === 0 ? 1.4 : 0.8)
+    const sparkCount = Math.round(
+      (this.quality === 'lite' ? 4 : this.quality === 'balanced' ? 9 : 15)
+      * (heavyFirstHit ? (1.9 + power * 0.8) : (b.bounceIndex === 0 ? 1.4 : 0.8))
+    )
     for (let i = 0; i < sparkCount; i++) {
       const ang = Math.random() * Math.PI * 2
-      const spd = (65 + Math.random() * 220) * b.strength
+      const spd = (65 + Math.random() * 220) * b.strength * (heavyFirstHit ? 1.3 : 1.0)
       this._spawnSpark({
         x: b.x,
         y: b.y,
         z: Math.max(4, b.z),
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        vz: (95 + Math.random() * 240) * b.strength,
+        vz: (95 + Math.random() * 240) * b.strength * (heavyFirstHit ? 1.25 : 1.0),
         size: 2.2 + Math.random() * 2.8,
         life: 0.32 + Math.random() * 0.36,
         grav: id === 5 ? 90 : 620,
@@ -8272,7 +8776,7 @@ class CinematicDiceStage {
 
     if (this.audio) {
       const pan = Math.max(-0.85, Math.min(0.85, b.x / 220))
-      this.audio.playBounce(this.theme.soundPreset, b.strength, pan)
+      this.audio.playBounce(this.theme.soundPreset, Math.min(1, b.strength * (heavyFirstHit ? 1.2 : 1.0)), pan)
     }
   }
 
@@ -8281,20 +8785,24 @@ class CinematicDiceStage {
     const id = this.theme.themeIndex
     const isCrit = this.tier === 'critical'
     const isFumble = this.tier === 'fumble'
+    const isDramatic = isCrit || isFumble || this.mode === 'fate' || this.mode === 'push'
+    const power = this.lastChargePower || 0
 
     if (id >= 6) {
       const v2 = id - 6
-      this.shakeAmp = Math.max(this.shakeAmp, isCrit ? 6.5 : 3.2)
+      this.shakeAmp = Math.max(this.shakeAmp, isCrit ? 6.5 : (this.mode === 'push' ? 4.8 + power * 2.4 : 3.2))
 
       for (let idx = 0; idx < this.dice.length; idx++) {
         const d = this.dice[idx]
         const imp = this.impacts[this.impactCursor % this.impacts.length]
         this.impactCursor++
-        imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp.strength = isCrit ? 1.0 : 0.6
+        imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp._delay = 0
+        imp.strength = isCrit ? 1.0 : (isDramatic ? 0.80 + power * 0.2 : 0.6)
 
-        if (v2 === 1 && isCrit) {
-          for (let k = 0; k < 8; k++) {
-            const a = (k / 8) * Math.PI * 2
+        if (v2 === 1 && (isCrit || this.mode === 'fate')) {
+          const count = isCrit ? 8 : 6
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2
             this._spawnSpark({
               x: d.x + Math.cos(a) * d.radius * 0.9,
               y: d.y + Math.sin(a) * d.radius * 0.9,
@@ -8309,9 +8817,10 @@ class CinematicDiceStage {
               mode: 3.0
             })
           }
-        } else if (v2 === 3 && isCrit) {
-          for (let k = 0; k < 10; k++) {
-            const a = (k / 10) * Math.PI * 2 + Math.random() * 0.3
+        } else if (v2 === 3 && (isCrit || this.mode === 'fate')) {
+          const count = isCrit ? 10 : 6
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2 + Math.random() * 0.3
             this._spawnSpark({
               x: d.x + Math.cos(a) * 18,
               y: d.y + Math.sin(a) * 18,
@@ -8326,12 +8835,25 @@ class CinematicDiceStage {
               mode: 4.0
             })
           }
+        } else if (isDramatic && idx < 6) {
+          const count = 4 + Math.round(power * 4)
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2 + Math.random() * 0.3
+            this._spawnMediumAccentParticle(
+              d.x + Math.cos(a) * d.radius * 0.7,
+              d.y + Math.sin(a) * d.radius * 0.7,
+              d.radius * 0.8,
+              Math.cos(a) * (42 + power * 35),
+              Math.sin(a) * (42 + power * 35),
+              65 + Math.random() * 55,
+              1.0,
+              true
+            )
+          }
         }
       }
       return
     }
-
-    const isDramatic = isCrit || isFumble || this.mode === 'fate' || this.mode === 'push'
 
     let cx = 0, cy = 0, cz = 0
     for (const d of this.dice) { cx += d.x; cy += d.y; cz += d.z }
@@ -8355,7 +8877,7 @@ class CinematicDiceStage {
       const d = this.dice[idx]
       const imp = this.impacts[this.impactCursor % this.impacts.length]
       this.impactCursor++
-      imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp.strength = isCrit ? 1.25 : 0.85
+      imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp._delay = 0; imp.strength = isCrit ? 1.25 : 0.85
 
       if ((isCrit || isFumble || this.mode === 'push') && idx < 6) {
         this._spawnSpark({
@@ -8434,7 +8956,7 @@ class CinematicDiceStage {
         this._emitTelemetry(true)
       }
 
-      const hasImpacts = this.impacts.some(imp => imp.strength > 0.001)
+      const hasImpacts = this.impacts.some(imp => imp.strength > 0.001 || (imp._delay && imp._delay > 0))
       const hasSlashes = this.slashes.some(sl => sl.active)
       const hiddenIdle = this.mode === 'hidden' && !this.revealed && this.settleTime < 3.2
       const sleepAfter = this.theaterMode ? 3.8 : 2.6
@@ -8486,62 +9008,231 @@ class CinematicDiceStage {
 
     if (this.charging) {
       this.chargeTime += rawDt
-      const c01 = Math.min(1, this.chargeTime / 0.85)
+      const c01 = Math.min(1, this.chargeTime / 0.88)
       if (this.audio) this.audio.updateChargeHum(c01)
+      this.fateSlowAmount *= Math.max(0, 1 - rawDt * 10)
+      this.bulletTimeAmount *= Math.max(0, 1 - rawDt * 10)
 
+      const cm = this.chargeMode || 'normal'
       const n = this.dice.length
-      for (let i = 0; i < n; i++) {
-        const d = this.dice[i]
-        const orbitR = n === 1 ? 6 : (26 + (1 - c01 * 0.35) * 28)
-        const ang = this.clock * (6.5 + c01 * 8.0) + (i / Math.max(1, n)) * Math.PI * 2
-        const tx = this.chargeWorld.x + Math.cos(ang) * orbitR
-        const ty = this.chargeWorld.y + Math.sin(ang) * orbitR
-        const tz = 82 + c01 * 38 + Math.sin(this.clock * 9 + i) * 8
-        d.x += (tx - d.x) * Math.min(1, rawDt * 18)
-        d.y += (ty - d.y) * Math.min(1, rawDt * 18)
-        d.z += (tz - d.z) * Math.min(1, rawDt * 18)
-        d.settled = false
 
-        const spin = (12 + c01 * 22) * rawDt * 0.5
-        qMul(Math.sin(spin) * 0.7, Math.sin(spin) * 0.7, 0, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
-        qNorm(this._qTmp)
-        d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
+      if (cm === 'fate') {
+        // ✦ 逆命重投蓄力动作：骰群反重力拔地悬升，呈横向舒展浑天星盘逆向公转/进动！
+        const baseZ = (this.theaterMode ? 50 : 58) + c01 * (this.theaterMode ? 28 : 44)
+        this.chargeWorld.z = baseZ
+        for (let i = 0; i < n; i++) {
+          const d = this.dice[i]
+          const orbitRx = n === 1 ? 0 : (52 + Math.sqrt(n) * 18) * (1 - c01 * 0.28)
+          const orbitRy = orbitRx * (this.theaterMode ? 0.44 : 0.65)
+          const ang = -this.clock * (3.0 + c01 * 5.8) + (i / Math.max(1, n)) * Math.PI * 2
+          const tx = this.chargeWorld.x + Math.cos(ang) * orbitRx
+          const ty = this.chargeWorld.y + Math.sin(ang) * orbitRy
+          const tz = baseZ + Math.sin(this.clock * 5.2 + i * 1.4) * 4
+          const followRate = Math.min(1, rawDt * (9.5 + c01 * 8.0))
+          d.x += (tx - d.x) * followRate
+          d.y += (ty - d.y) * followRate
+          d.z += (tz - d.z) * followRate
+          d.settled = false
 
-        const th = (d.trailHead + 1) % 28
-        d.trailHead = th
-        d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
-        if (d.trailCount < 18) d.trailCount++
-      }
+          const spin = -(6.5 + c01 * 18.0) * rawDt * 0.5
+          const s = Math.sin(spin)
+          qMul(s * 0.38, s * 0.52, s * 0.76, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
+          qNorm(this._qTmp)
+          d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
 
-      if (!isCuratedV2 && Math.random() < 0.85) {
-        const col = this._themeHDRColor()
-        const a = Math.random() * Math.PI * 2
-        const rad = 75 + Math.random() * 65
-        this._spawnSpark({
-          x: this.chargeWorld.x + Math.cos(a) * rad,
-          y: this.chargeWorld.y + Math.sin(a) * rad,
-          z: 20 + Math.random() * 60,
-          vx: -Math.cos(a) * 180,
-          vy: -Math.sin(a) * 180,
-          vz: 120,
-          size: 2.6,
-          life: 0.35,
-          grav: 0,
-          drag: 1.2,
-          r: col[0], g: col[1], b: col[2],
-          a: 0.9
-        })
+          const th = (d.trailHead + 1) % 28
+          d.trailHead = th
+          d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
+          if (d.trailCount < 20) d.trailCount++
+        }
+
+        if (Math.random() < (isCuratedV2 ? (0.45 + c01 * 0.45) : 0.85)) {
+          const a = Math.random() * Math.PI * 2
+          const r = 64 + Math.random() * 52
+          this._spawnMediumAccentParticle(
+            this.chargeWorld.x + Math.cos(a) * r,
+            this.chargeWorld.y + Math.sin(a) * r * 0.7,
+            16 + Math.random() * 38,
+            -Math.cos(a) * (110 + c01 * 75),
+            -Math.sin(a) * (90 + c01 * 60),
+            85 + c01 * 55,
+            0.9,
+            true
+          )
+        }
+      } else if (cm === 'push') {
+        // 🔥 孤注一掷蓄力动作：高举紧攥成团 + 随蓄力急剧加剧的狂暴高频剧颤与互撞！
+        const baseZ = (this.theaterMode ? 60 : 72) + c01 * (this.theaterMode ? 24 : 44)
+        this.chargeWorld.z = baseZ
+        const tremor = 1.4 + c01 * c01 * 8.8
+        for (let i = 0; i < n; i++) {
+          const d = this.dice[i]
+          const packR = n === 1 ? 0 : (18 + Math.sqrt(n) * 8) * (1 - c01 * 0.22)
+          const slotA = (i / Math.max(1, n)) * Math.PI * 2 + this.clock * 1.4
+          const jx = Math.sin(this.clock * 47.0 + i * 2.7) * tremor + (Math.random() - 0.5) * tremor * 0.85
+          const jy = Math.cos(this.clock * 53.0 + i * 1.9) * tremor + (Math.random() - 0.5) * tremor * 0.85
+          const jz = Math.sin(this.clock * 61.0 + i * 3.3) * tremor * 0.65
+          const tx = this.chargeWorld.x + Math.cos(slotA) * packR + jx
+          const ty = this.chargeWorld.y + Math.sin(slotA) * packR * 0.65 + jy
+          const tz = baseZ + (i % 2) * 5 + jz
+          const snap = Math.min(1, rawDt * 22)
+          d.x += (tx - d.x) * snap
+          d.y += (ty - d.y) * snap
+          d.z += (tz - d.z) * snap
+          d.settled = false
+
+          const spin = (15 + c01 * 32) * rawDt * 0.5
+          const ax = Math.sin(this.clock * 11 + i)
+          const ay = Math.cos(this.clock * 13 + i * 2)
+          const az = Math.sin(this.clock * 17 - i)
+          const invL = 1 / (Math.hypot(ax, ay, az) || 1)
+          const s = Math.sin(spin)
+          qMul(ax * invL * s, ay * invL * s, az * invL * s, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
+          qNorm(this._qTmp)
+          d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
+
+          const th = (d.trailHead + 1) % 28
+          d.trailHead = th
+          d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
+          if (d.trailCount < 16) d.trailCount++
+        }
+
+        if (c01 > 0.42) {
+          this.shakeAmp = Math.max(this.shakeAmp, (c01 - 0.42) * 1.6)
+        }
+
+        if (this.audio && this.chargeTime >= this.nextChargeRattleAt) {
+          this.audio.playChargeRattle(this.theme.soundPreset, 0.35 + c01 * 0.65)
+          this.nextChargeRattleAt = this.chargeTime + Math.max(0.052, 0.135 - c01 * 0.08)
+        }
+
+        if (Math.random() < (isCuratedV2 ? (0.35 + c01 * 0.55) : 0.85)) {
+          const a = Math.random() * Math.PI * 2
+          const spd = 55 + c01 * 115
+          this._spawnMediumAccentParticle(
+            this.chargeWorld.x + (Math.random() - 0.5) * 18,
+            this.chargeWorld.y + (Math.random() - 0.5) * 18,
+            baseZ + (Math.random() - 0.5) * 14,
+            Math.cos(a) * spd,
+            Math.sin(a) * spd,
+            40 + Math.random() * 80,
+            0.85,
+            false
+          )
+        }
+      } else {
+        // 🎲 普通投掷蓄力动作：手摇八字螺旋升空聚势
+        const baseZ = (this.theaterMode ? 56 : 70) + c01 * (this.theaterMode ? 24 : 38)
+        this.chargeWorld.z = baseZ
+        const swayX = Math.sin(this.clock * 7.8) * (10 + c01 * 14)
+        for (let i = 0; i < n; i++) {
+          const d = this.dice[i]
+          const orbitR = n === 1 ? 8 : (26 + (1 - c01 * 0.35) * 26)
+          const ang = this.clock * (6.2 + c01 * 7.8) + (i / Math.max(1, n)) * Math.PI * 2
+          const tx = this.chargeWorld.x + swayX + Math.cos(ang) * orbitR
+          const ty = this.chargeWorld.y + Math.sin(ang) * orbitR * 0.72
+          const tz = baseZ + Math.sin(this.clock * 9 + i) * 6
+          d.x += (tx - d.x) * Math.min(1, rawDt * 18)
+          d.y += (ty - d.y) * Math.min(1, rawDt * 18)
+          d.z += (tz - d.z) * Math.min(1, rawDt * 18)
+          d.settled = false
+
+          const spin = (12 + c01 * 20) * rawDt * 0.5
+          qMul(Math.sin(spin) * 0.7, Math.sin(spin) * 0.7, 0, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
+          qNorm(this._qTmp)
+          d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
+
+          const th = (d.trailHead + 1) % 28
+          d.trailHead = th
+          d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
+          if (d.trailCount < 18) d.trailCount++
+        }
+
+        if (n > 1 && this.audio && this.chargeTime >= this.nextChargeRattleAt) {
+          this.audio.playChargeRattle(this.theme.soundPreset, 0.25 + c01 * 0.4)
+          this.nextChargeRattleAt = this.chargeTime + Math.max(0.085, 0.16 - c01 * 0.06)
+        }
+
+        if (Math.random() < (isCuratedV2 ? (0.28 + c01 * 0.35) : 0.82)) {
+          const a = Math.random() * Math.PI * 2
+          const rad = 58 + Math.random() * 48
+          this._spawnMediumAccentParticle(
+            this.chargeWorld.x + swayX + Math.cos(a) * rad,
+            this.chargeWorld.y + Math.sin(a) * rad,
+            22 + Math.random() * 46,
+            -Math.cos(a) * 120,
+            -Math.sin(a) * 120,
+            90,
+            0.85,
+            false
+          )
+        }
       }
     } else if (!this.settled) {
       const remainingSim = this.maxSimDuration - this.simTime
+      const prog = this.simTime / Math.max(0.35, this.maxSimDuration)
+      const pwr = this.lastChargePower || 0
+      const apexT = this.fateApexTime || 0.22
+
+      // ✦ 逆命重投专属：精准锚定烘焙最高点时刻触发「穹顶时停凝滞改命」，清晰展现空中翻转改写点数！
+      const inFateApex = this.mode === 'fate'
+        && this.simTime >= Math.max(0.03, apexT - 0.09)
+        && this.simTime <= apexT + 0.16 + pwr * 0.10
+        && this.dice.length <= 12
+      this.fateSlowAmount += ((inFateApex ? 1.0 : 0.0) - this.fateSlowAmount) * Math.min(1, rawDt * 18)
+
+      if (inFateApex && !this.fateApexChimePlayed) {
+        this.fateApexChimePlayed = true
+        if (this.audio) this.audio.playFateApexChime(this.theme.soundPreset, Math.max(0.35, pwr))
+        for (let i = 0; i < Math.min(6, this.dice.length); i++) {
+          const d = this.dice[i]
+          for (let k = 0; k < 4; k++) {
+            const a = (k / 4) * Math.PI * 2 + i
+            this._spawnMediumAccentParticle(
+              d.x + Math.cos(a) * d.radius * 0.85,
+              d.y + Math.sin(a) * d.radius * 0.85,
+              d.z,
+              Math.cos(a) * 42,
+              Math.sin(a) * 42,
+              26,
+              0.95,
+              true
+            )
+          }
+        }
+      }
+
       let timeScale = 1.0
-      if (isCuratedV2) {
-        const wantSlow = (this.mode === 'fate' || this.tier === 'critical') && remainingSim > 0.03 && remainingSim < 0.24 && this.dice.length <= 6
-        timeScale = wantSlow ? 0.44 : (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.22 ? 0.65 : 1.0)
+      if (this.mode === 'fate') {
+        if (!isCuratedV2) {
+          this.bulletTimeAmount += (this.fateSlowAmount - this.bulletTimeAmount) * Math.min(1, rawDt * 14)
+        } else {
+          this.bulletTimeAmount = 0
+        }
+        if (this.fateSlowAmount > 0.02) {
+          const apexMinScale = 0.21 - pwr * 0.05
+          timeScale = 1.0 - this.fateSlowAmount * (1.0 - apexMinScale)
+        } else if (this.simTime > apexT + 0.16 + pwr * 0.10 && remainingSim > 0.14) {
+          timeScale = 1.14 + pwr * 0.12
+        } else if (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.20) {
+          timeScale = 0.72
+        }
+      } else if (isCuratedV2) {
         this.bulletTimeAmount = 0
+        if (this.mode === 'push') {
+          if (prog < 0.22) timeScale = 1.10 + pwr * 0.12
+          else if ((this.tier === 'critical' || this.tier === 'fumble') && remainingSim > 0.02 && remainingSim < 0.18 && this.dice.length <= 6) {
+            timeScale = 0.45
+          } else if (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.22) {
+            timeScale = 0.68
+          }
+        } else {
+          const wantSlow = this.tier === 'critical' && remainingSim > 0.03 && remainingSim < 0.24 && this.dice.length <= 6
+          timeScale = wantSlow ? 0.44 : (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.22 ? 0.65 : 1.0)
+        }
       } else {
         const wantBullet =
-          (this.theme.themeIndex === 1 || this.mode === 'fate' || this.tier === 'critical' || this.tier === 'fumble') &&
+          (this.theme.themeIndex === 1 || this.tier === 'critical' || this.tier === 'fumble') &&
           remainingSim > 0.03 &&
           remainingSim < 0.30 &&
           this.dice.length <= 6
@@ -8556,19 +9247,23 @@ class CinematicDiceStage {
         this.bulletTimeAmount += (targetBT - this.bulletTimeAmount) * Math.min(1, rawDt * 12)
         if (wantBullet && !this.bulletSoundPlayed) {
           this.bulletSoundPlayed = true
-          if (this.audio && (this.theme.themeIndex === 1 || this.mode === 'fate')) {
+          if (this.audio && this.theme.themeIndex === 1) {
             this.audio.playBulletTimeDrop()
           }
         }
-        timeScale = 1.0 - this.bulletTimeAmount * 0.76
+        if (this.mode === 'push' && prog < 0.22 && !wantBullet) {
+          timeScale = 1.12 + pwr * 0.12
+        } else {
+          timeScale = 1.0 - this.bulletTimeAmount * 0.76
+        }
       }
 
       const simDelta = rawDt * timeScale
       this.rollTime += rawDt
       this.simTime += simDelta * (this.simPace || 1)
 
-      // 像素风在空中运动阶段呈现 30fps 黄金精灵动画帧韵律，落定前恢复全精度对位
-      const quantizedTime = (this.theme.themeIndex === 7 && remainingSim > 0.14)
+      // 像素风在空中运动阶段呈现 30fps 黄金精灵动画帧韵律，落定前及逆命慢镜期间恢复全精度对位
+      const quantizedTime = (this.theme.themeIndex === 7 && remainingSim > 0.14 && this.fateSlowAmount < 0.2)
         ? Math.floor(this.simTime * 30) / 30
         : this.simTime
 
@@ -8606,6 +9301,7 @@ class CinematicDiceStage {
         this.settled = true
         this.settleTime = 0
         this.bulletTimeAmount = 0
+        this.fateSlowAmount = 0
         this.climax = 1.0
         for (let i = 0; i < this.dice.length; i++) {
           const d = this.dice[i]
@@ -8626,12 +9322,22 @@ class CinematicDiceStage {
       this.settleTime += rawDt
       this.climax = Math.max(0, 1.0 - this.settleTime * 0.48)
       this.bulletTimeAmount *= Math.max(0, 1 - rawDt * 10)
+      this.fateSlowAmount *= Math.max(0, 1 - rawDt * 10)
       for (let i = 0; i < this.dice.length; i++) {
         if (this.dice[i].trailCount > 0) this.dice[i].trailCount = Math.max(0, this.dice[i].trailCount - 2)
       }
     }
 
     for (const imp of this.impacts) {
+      if (imp._delay && imp._delay > 0) {
+        imp._delay -= rawDt
+        if (imp._delay <= 0) {
+          imp._delay = 0
+          imp.age = 0.001
+          imp.strength = imp._queuedStrength || 0.6
+        }
+        continue
+      }
       if (imp.strength <= 0) continue
       imp.age += rawDt
       const maxL = this.theme.themeIndex === 4 ? 2.4 : (isCuratedV2 ? 1.6 : 1.15)
@@ -8656,7 +9362,8 @@ class CinematicDiceStage {
       }
     }
 
-    this._stepParticles(rawDt * (1 - this.bulletTimeAmount * 0.65))
+    const slowParticleFactor = Math.max(this.bulletTimeAmount * 0.65, this.fateSlowAmount * 0.55)
+    this._stepParticles(rawDt * (1 - slowParticleFactor))
     this._updateSpringCamera(rawDt)
   }
 
@@ -8702,13 +9409,23 @@ class CinematicDiceStage {
       for (const d of this.dice) { sx += d.x; sy += d.y; sz += d.z }
       cx = (sx / this.dice.length) * 0.42
       cy = (sy / this.dice.length) * 0.42
-      cz = Math.min(48, (sz / this.dice.length) * 0.35)
+      const zWeight = (this.charging && this.chargeMode === 'fate') || this.fateSlowAmount > 0.05 ? 0.46 : 0.35
+      cz = Math.min(this.theaterMode ? 54 : 66, (sz / this.dice.length) * zWeight)
     }
 
     let zoom = 1.0
     if (this.cinematicCamEnabled) {
       if (this.charging) {
-        zoom = 1.08 + Math.min(1, this.chargeTime) * 0.08
+        const c01 = Math.min(1, this.chargeTime / 0.88)
+        if (this.chargeMode === 'fate') {
+          zoom = 1.02 - c01 * 0.06
+        } else if (this.chargeMode === 'push') {
+          zoom = 1.06 + c01 * 0.11
+        } else {
+          zoom = 1.05 + c01 * 0.08
+        }
+      } else if (this.fateSlowAmount > 0.04) {
+        zoom = 1.0 - this.fateSlowAmount * (0.14 + (this.lastChargePower || 0) * 0.06)
       } else if (this.bulletTimeAmount > 0.05) {
         zoom = 1.0 - this.bulletTimeAmount * 0.24
       } else if (this.settled && this.settleTime < 1.1 && (this.tier === 'critical' || this.tier === 'fumble') && this.dice.length <= 4) {
@@ -8739,15 +9456,115 @@ class CinematicDiceStage {
     this.chroma += (baseChroma - this.chroma) * Math.min(1, dt * 6.0)
   }
 
+  _drawChargeAndFateHud(ctx, W, H, isLightSurface) {
+    const drawPill = (text, cx, cy, borderCol) => {
+      ctx.save()
+      ctx.font = '600 11.5px system-ui, -apple-system, "PingFang SC", sans-serif'
+      const tw = Math.ceil(ctx.measureText(text).width)
+      const pw = tw + 20
+      const ph = 22
+      ctx.fillStyle = isLightSurface ? 'rgba(250, 245, 235, 0.90)' : 'rgba(12, 12, 16, 0.84)'
+      ctx.beginPath()
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, 11)
+      } else {
+        ctx.rect(cx - pw / 2, cy - ph / 2, pw, ph)
+      }
+      ctx.fill()
+      ctx.strokeStyle = borderCol || this.theme.accent
+      ctx.globalAlpha = 0.65
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.globalAlpha = 1
+      ctx.fillStyle = isLightSurface ? '#1e1915' : '#f7f3eb'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(text, cx, cy + 0.5)
+      ctx.restore()
+    }
+
+    if (this.charging) {
+      const uv = this.renderer.projectToUV(this.chargeWorld.x, this.chargeWorld.y, this.chargeWorld.z || 76, this._uvTmp)
+      if (uv.visible) {
+        const cm = this.chargeMode || 'normal'
+        const c01 = Math.min(1, this.chargeTime / 0.88)
+        const jitterX = cm === 'push' ? Math.sin(this.clock * 52) * c01 * 2.2 : 0
+        const jitterY = cm === 'push' ? Math.cos(this.clock * 59) * c01 * 2.2 : 0
+        const sx = uv.u * W + jitterX
+        const sy = Math.max(38, Math.min(H - 40, (1 - uv.v) * H)) + jitterY
+        const r = Math.min(H * 0.22, 30 + c01 * 16)
+        let ringCol = this.theme.accent
+
+        ctx.save()
+        if (cm === 'fate') {
+          ctx.strokeStyle = ringCol
+          ctx.lineWidth = 2.1
+          ctx.beginPath()
+          ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
+          ctx.stroke()
+
+          ctx.save()
+          ctx.translate(sx, sy)
+          ctx.rotate(-this.clock * 1.8)
+          if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 5])
+          ctx.lineWidth = 1.2
+          ctx.globalAlpha = 0.5 + c01 * 0.42
+          ctx.beginPath()
+          ctx.arc(0, 0, r * 0.76, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.restore()
+        } else if (cm === 'push') {
+          ringCol = isLightSurface ? '#b6291c' : (c01 > 0.65 ? '#ff6438' : this.theme.accent)
+          ctx.strokeStyle = ringCol
+          ctx.lineWidth = 2.4 + c01 * 0.8
+          const rr = r * (1.12 - c01 * 0.16)
+          ctx.beginPath()
+          ctx.arc(sx, sy, rr, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
+          ctx.stroke()
+
+          ctx.lineWidth = 1.4
+          ctx.globalAlpha = 0.42 + c01 * 0.52
+          for (let k = 0; k < 8; k++) {
+            const ka = (k / 8) * Math.PI * 2 + this.clock * 0.8
+            ctx.beginPath()
+            ctx.moveTo(sx + Math.cos(ka) * (rr + 3), sy + Math.sin(ka) * (rr + 3))
+            ctx.lineTo(sx + Math.cos(ka) * (rr + 8), sy + Math.sin(ka) * (rr + 8))
+            ctx.stroke()
+          }
+        } else {
+          ctx.strokeStyle = ringCol
+          ctx.lineWidth = 2.2
+          ctx.beginPath()
+          ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
+          ctx.stroke()
+        }
+        ctx.restore()
+
+        const pct = Math.round(c01 * 100)
+        const label = this.buttonCharging
+          ? (cm === 'fate'
+            ? `✦ 逆命改运 ${pct}% · 松手逆转天命`
+            : (cm === 'push' ? `🔥 孤注搏命 ${pct}% · 松手重注猛砸` : `蓄力 ${pct}% · 松手甩投`))
+          : '松开或划动甩投'
+        drawPill(label, sx, Math.min(H - 16, sy + r + 19), ringCol)
+      }
+    } else if (!this.settled && this.mode === 'fate' && this.fateSlowAmount > 0.25 && !this.compactMode) {
+      ctx.save()
+      ctx.globalAlpha = Math.min(1, (this.fateSlowAmount - 0.25) / 0.5)
+      drawPill('✦ 穹顶悬停 · 逆转天命 ✦', W * 0.5, Math.min(H - 16, H * 0.85), this.theme.accent)
+      ctx.restore()
+    }
+  }
+
   _renderAll() {
     const hiddenMask = this.mode === 'hidden' && !this.revealed
-    const tierCode = hiddenMask || !this.settled ? 0 : (TIER_CODE_MAP[this.tier] || 2)
+    const tierCode = hiddenMask || !this.settled || this.charging ? 0 : (TIER_CODE_MAP[this.tier] || 2)
 
     this.renderer.render({
       time: this.clock,
       themeId: this.theme.themeIndex,
       tierCode,
-      climax: this.climax,
+      climax: this.charging ? 0 : this.climax,
       charge: this.charging ? Math.min(1, this.chargeTime / 0.8) : 0,
       camEye: this.camEye,
       camTarget: this.camTarget,
@@ -8778,33 +9595,9 @@ class CinematicDiceStage {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
 
-    if (this.charging) {
-      const uv = this.renderer.projectToUV(this.chargeWorld.x, this.chargeWorld.y, 85, this._uvTmp)
-      if (uv.visible) {
-        const sx = uv.u * W
-        const sy = (1 - uv.v) * H
-        const c01 = Math.min(1, this.chargeTime / 0.85)
-        const r = 38 + c01 * 22
-        ctx.strokeStyle = this.theme.accent
-        ctx.lineWidth = 2.2
-        ctx.beginPath()
-        ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
-        ctx.stroke()
+    this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
 
-        ctx.font = '700 11.5px system-ui, sans-serif'
-        ctx.fillStyle = isLightSurface ? '#1e1915' : '#ffffff'
-        ctx.textAlign = 'center'
-        ctx.fillText(
-          this.buttonCharging
-            ? `蓄力 ${Math.round(c01 * 100)}% · 松手投掷`
-            : '松开或划动甩投',
-          sx,
-          sy + r + 18
-        )
-      }
-    }
-
-    if (this.settled && !hiddenMask && this.settleTime < 2.5 && !this.compactMode) {
+    if (this.settled && !this.charging && !hiddenMask && this.settleTime < 2.5 && !this.compactMode) {
       drawThemeSealOverlay(ctx, {
         themeIndex: this.theme.themeIndex,
         tier: this.tier,
@@ -8817,7 +9610,7 @@ class CinematicDiceStage {
       })
     }
 
-    if (this.theme.themeIndex === 3 && this.settled && !hiddenMask && this.settleTime < 2.4 && this.dice.length <= 6) {
+    if (this.theme.themeIndex === 3 && this.settled && !this.charging && !hiddenMask && this.settleTime < 2.4 && this.dice.length <= 6) {
       const fade = this.settleTime > 1.8 ? Math.max(0, 1 - (this.settleTime - 1.8) / 0.6) : Math.min(1, this.settleTime * 5)
       ctx.save()
       ctx.globalAlpha = fade
@@ -8849,7 +9642,7 @@ class CinematicDiceStage {
       ctx.restore()
     }
 
-    if (hiddenMask && this.settled) {
+    if (hiddenMask && this.settled && !this.charging) {
       ctx.save()
       const pulse = 0.55 + 0.45 * Math.sin(this.clock * 4.2)
       ctx.strokeStyle = isLightSurface
@@ -9086,13 +9879,13 @@ class CinematicDiceStage {
       this.renderer = sharedR
 
       const hiddenMask = this.mode === "hidden" && !this.revealed
-      const tierCode = hiddenMask || !this.settled ? 0 : (TIER_CODE_MAP[this.tier] || 2)
+      const tierCode = hiddenMask || !this.settled || this.charging ? 0 : (TIER_CODE_MAP[this.tier] || 2)
 
       sharedR.render({
         time: this.clock,
         themeId: this.theme.themeIndex,
         tierCode,
-        climax: this.climax,
+        climax: this.charging ? 0 : this.climax,
         charge: this.charging ? Math.min(1, this.chargeTime / 0.8) : 0,
         camEye: this.camEye,
         camTarget: this.camTarget,
@@ -9114,7 +9907,7 @@ class CinematicDiceStage {
       this.displayCtx.drawImage(sharedR.canvas, 0, 0, pw, ph, 0, 0, pw, ph)
       this.displayCtx.restore()
 
-      // 叠加锐利矢量前景（蓄力百分比圆环 / 水墨朱砂方印 / 赛博锁定准星）
+      // 叠加锐利矢量前景（三形态蓄力环 / 逆命穹顶悬停签 / 典藏铭牌 / 赛博准星）
       this.hudCtx = this.displayCtx
       this._renderCrispVectorOverlayNoClear(hiddenMask)
     }
@@ -9127,30 +9920,10 @@ class CinematicDiceStage {
       ctx.save()
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
 
-      if (this.charging) {
-        const uv = this.renderer.projectToUV(this.chargeWorld.x, this.chargeWorld.y, 85, this._uvTmp)
-        if (uv.visible) {
-          const sx = uv.u * W
-          const sy = (1 - uv.v) * H
-          const c01 = Math.min(1, this.chargeTime / 0.90)
-          const r = Math.min(H * 0.34, 32 + c01 * 18)
-          ctx.strokeStyle = this.theme.accent
-          ctx.lineWidth = 2.4
-          ctx.beginPath()
-          ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
-          ctx.stroke()
-
-          ctx.font = "700 11.5px system-ui, sans-serif"
-          ctx.fillStyle = isLightSurface ? "#1e1915" : "#fff8e7"
-          ctx.shadowColor = isLightSurface ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.85)"
-          ctx.shadowBlur = 5
-          ctx.textAlign = "center"
-          ctx.fillText("蓄力 " + Math.round(c01 * 100) + "% · 松开按钮投掷", sx, Math.min(H - 8, sy + r + 16))
-        }
-      }
+      this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
 
       const sealWindow = this.pinSettled ? Infinity : (this.theaterMode ? 3.5 : 2.5)
-      if (this.settled && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
+      if (this.settled && !this.charging && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
         const panelRightMargin = this.theme.themeIndex >= 6 ? 56 : 46
         drawThemeSealOverlay(ctx, {
           themeIndex: this.theme.themeIndex,
@@ -9165,7 +9938,7 @@ class CinematicDiceStage {
         })
       }
 
-      if (this.theme.themeIndex === 3 && this.settled && !hiddenMask && (this.pinSettled || this.settleTime < 2.4) && this.dice.length <= 4 && !this.compactMode) {
+      if (this.theme.themeIndex === 3 && this.settled && !this.charging && !hiddenMask && (this.pinSettled || this.settleTime < 2.4) && this.dice.length <= 4 && !this.compactMode) {
         const fade = (!this.pinSettled && this.settleTime > 1.8) ? Math.max(0, 1 - (this.settleTime - 1.8) / 0.6) : Math.min(1, this.settleTime * 5)
         ctx.save()
         ctx.globalAlpha = fade
@@ -9197,6 +9970,7 @@ class CinematicDiceStage {
     resolveTheme,
     resolveThemeMode,
     rollToStageSpec,
+    CinematicDiceStage,
     SharedBlitDiceStage,
     NEXTGEN_THEMES
   }
@@ -9217,7 +9991,7 @@ function fdGetCachedAnimationPref() {
 
 /**
  * 原生 DOM 按钮绑定「点按即投 + 长按蓄力旋涡 + 移出无损取消」
- * （供楼层顶栏原生面板与 Demo 复用）
+ * （供楼层顶栏原生面板与发前逆命弹窗复用）
  */
 function fdAttachHoldChargeToDomBtn(btn, options) {
   if (!btn || typeof btn.addEventListener !== "function") return
@@ -9227,11 +10001,19 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
   let downAt = 0
   let charging = false
   let pointerHandled = false
+  let capturedPointerId = null
 
-  const titleEl = btn.querySelector(".fd-reroll-btn-title")
+  const titleEl = btn.querySelector ? btn.querySelector(".fd-reroll-btn-title") : null
   const origTitle = baseLabel || (titleEl ? titleEl.textContent : btn.textContent)
 
   const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
+
+  const releaseCapture = () => {
+    if (capturedPointerId !== null && typeof btn.releasePointerCapture === "function") {
+      try { btn.releasePointerCapture(capturedPointerId) } catch {}
+    }
+    capturedPointerId = null
+  }
 
   const setChargingCls = on => {
     if (btn.classList) {
@@ -9258,6 +10040,7 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
   const cleanup = () => {
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0 }
     if (rafId && typeof cancelAnimationFrame === "function") { cancelAnimationFrame(rafId); rafId = 0 }
+    releaseCapture()
     setChargingCls(false)
     setChargeVar(null)
     if (titleEl) titleEl.textContent = origTitle
@@ -9266,18 +10049,39 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
   const tick = () => {
     if (!charging) return
     const pct = Math.min(1, Math.max(0, (nowMs() - downAt - FD_HOLD_THRESHOLD_MS) / FD_HOLD_FULL_MS))
-    setChargeVar(Math.round(pct * 100) + "%")
+    const pctNum = Math.round(pct * 100)
+    setChargeVar(pctNum + "%")
     if (titleEl) {
-      titleEl.textContent = (mode === "push" ? "🔥 熔炉蓄力 " : "✦ 逆命蓄力 ") + Math.round(pct * 100) + "% · 松手爆发"
+      titleEl.textContent = mode === "push"
+        ? `🔥 搏命蓄力 ${pctNum}% · 松手猛砸`
+        : (mode === "fate" ? `✦ 逆命蓄力 ${pctNum}% · 松手改命` : `蓄力 ${pctNum}% · 松手甩投`)
     }
     if (typeof requestAnimationFrame === "function") rafId = requestAnimationFrame(tick)
   }
 
+  const cancel = () => {
+    if (!downAt && !charging) return
+    downAt = 0
+    const wasCharging = charging
+    charging = false
+    cleanup()
+    if (wasCharging) {
+      const stg = typeof getStage === "function" ? getStage() : null
+      if (stg && typeof stg.cancelButtonCharge === "function") stg.cancelButtonCharge()
+    }
+  }
+
   btn.addEventListener("pointerdown", e => {
-    if (btn.disabled || (e.button !== undefined && e.button !== 0)) return
+    if (btn.disabled || (e && e.button !== undefined && e.button !== 0)) return
     pointerHandled = false
     charging = false
     downAt = nowMs()
+    if (e && e.pointerId !== undefined && typeof btn.setPointerCapture === "function") {
+      try {
+        btn.setPointerCapture(e.pointerId)
+        capturedPointerId = e.pointerId
+      } catch {}
+    }
     holdTimer = setTimeout(() => {
       charging = true
       setChargingCls(true)
@@ -9285,6 +10089,16 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
       if (stg && typeof stg.startButtonCharge === "function") stg.startButtonCharge(mode)
       tick()
     }, FD_HOLD_THRESHOLD_MS)
+  })
+
+  btn.addEventListener("pointermove", e => {
+    if ((!downAt && !charging) || capturedPointerId === null || !e || typeof btn.getBoundingClientRect !== "function") return
+    const r = btn.getBoundingClientRect()
+    if (!r || r.width <= 0 || r.height <= 0) return
+    const pad = 14
+    if (e.clientX < r.left - pad || e.clientX > r.right + pad || e.clientY < r.top - pad || e.clientY > r.bottom + pad) {
+      cancel()
+    }
   })
 
   btn.addEventListener("pointerup", () => {
@@ -9301,19 +10115,9 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
     if (typeof onTrigger === "function") onTrigger(mode, power)
   })
 
-  const cancel = () => {
-    if (!downAt && !charging) return
-    downAt = 0
-    const wasCharging = charging
-    charging = false
-    cleanup()
-    if (wasCharging) {
-      const stg = typeof getStage === "function" ? getStage() : null
-      if (stg) stg.cancelButtonCharge()
-    }
-  }
-
-  btn.addEventListener("pointerleave", cancel)
+  btn.addEventListener("pointerleave", () => {
+    if (capturedPointerId === null) cancel()
+  })
   btn.addEventListener("pointercancel", cancel)
   btn.addEventListener("click", e => {
     if (pointerHandled) {
@@ -10232,7 +11036,7 @@ function ComposerLiveDock(props) {
   const effectiveTurn = fdNumber((record && record.turn) || dom.turn, 0)
   const pillMeta = fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll)
 
-  const handleReroll = mode => {
+  const handleReroll = (mode, power) => {
     if (rerolling || !effectiveTurn) return
     setRerolling(true)
     setRerollHint('')
@@ -10249,6 +11053,7 @@ function ComposerLiveDock(props) {
             fate: data.fate || (prev && prev.fate),
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '🔥 已孤注一掷并同步配额！现在点下方「重新生成正文」即可按新结果与代价改写剧情'
             : '✦ 已消耗 1 点命运点逆命重投！现在点下方「重新生成正文」即可按新点数改写剧情')
@@ -10455,7 +11260,7 @@ function TurnRollCapsule(props) {
           : ((roll.tier === 'critical' || roll.tier === 'success') ? '检定已达成成功，无需重投' : ''))
     }
 
-  const manualReroll = mode => {
+  const manualReroll = (mode, power) => {
     if (rerolling || !gameId || !turn) return
     setRerolling(true)
     setRerollHint('')
@@ -10471,7 +11276,7 @@ function TurnRollCapsule(props) {
             fate: data.fate || (prev && prev.fate) || fate,
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
-          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation)
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '已孤注一掷并同步配额（点酒馆「重新生成」按新结果与代价重写正文）'
             : '已消耗 1 点命运点逆命重投（点酒馆「重新生成」按新点数重写正文）')
@@ -10547,13 +11352,13 @@ function FdRerollActionBox(props) {
     mode: 'fate',
     disabled: Boolean(rerolling),
     stageRef,
-    onTrigger: mode => (typeof onReroll === 'function' ? onReroll(mode) : undefined)
+    onTrigger: (mode, power) => (typeof onReroll === 'function' ? onReroll(mode, power) : undefined)
   })
   const pushHold = useFdHoldCharge({
     mode: 'push',
     disabled: Boolean(rerolling),
     stageRef,
-    onTrigger: mode => (typeof onReroll === 'function' ? onReroll(mode) : undefined)
+    onTrigger: (mode, power) => (typeof onReroll === 'function' ? onReroll(mode, power) : undefined)
   })
 
   if (isStreaming) {
@@ -10574,7 +11379,7 @@ function FdRerollActionBox(props) {
             type: 'button',
             className: 'fd-reroll-btn is-fate' + (fateHold.charging ? ' is-charging' : ''),
             disabled: Boolean(rerolling),
-            title: '消耗 1 点命运点稳妥重掷（点按即投；长按按钮激活 3D 星晶聚能旋涡蓄力，移出按钮可无损取消）',
+            title: '消耗 1 点命运点稳妥重掷（点按即投；长按按钮激活反重力星轨蓄力，松手冲霄逆命，移出按钮可无损取消）',
             ...fateHold.bindProps
           },
           h('span', { className: 'fd-reroll-btn-top' },
@@ -10583,22 +11388,22 @@ function FdRerollActionBox(props) {
                 ? '⏳ 重投中…'
                 : (fateHold.charging ? `✦ 逆命蓄力 ${fateHold.chargePct}% · 松手改命` : '✦ 逆命重投')),
             h('span', { className: 'fd-reroll-btn-tag' }, `-1 点 · 余 ${remPoints}/${maxPoints} ▸`)),
-          h('span', { className: 'fd-reroll-btn-sub' }, '无恶化与挂彩惩罚 · 长按按钮可聚能蓄力'))
+          h('span', { className: 'fd-reroll-btn-sub' }, '无恶化与挂彩惩罚 · 长按反重力星轨蓄力'))
           : null,
         h('button', {
           type: 'button',
           className: 'fd-reroll-btn is-push' + (pushHold.charging ? ' is-charging' : ''),
           disabled: Boolean(rerolling),
-          title: '不耗命运点强行一搏（点按即投；长按按钮激活 3D 焚天熔炉蓄力，移出按钮可无损取消）',
+          title: '不耗命运点强行一搏（点按即投；长按按钮激活掌心紧攥剧颤蓄力，松手雷霆猛砸，移出按钮可无损取消）',
           ...pushHold.bindProps
         },
         h('span', { className: 'fd-reroll-btn-top' },
           h('span', { className: 'fd-reroll-btn-title' },
             rerolling
               ? '⏳ 搏命中…'
-              : (pushHold.charging ? `🔥 熔炉蓄力 ${pushHold.chargePct}% · 松手搏命` : '🔥 孤注一掷')),
+              : (pushHold.charging ? `🔥 搏命蓄力 ${pushHold.chargePct}% · 松手猛砸` : '🔥 孤注一掷')),
           h('span', { className: 'fd-reroll-btn-tag' }, '0 点 · 成王败寇 ▸')),
-        h('span', { className: 'fd-reroll-btn-sub' }, '败则恶化大失败 · 长按按钮可熔炉蓄力'))),
+        h('span', { className: 'fd-reroll-btn-sub' }, '败则恶化大失败 · 长按紧攥剧颤蓄力'))),
       h('div', { className: 'fd-reroll-foot' },
         rerollHint || '直接点「重新生成正文」将自动复用原骰点；不重投认栽可攒回命运点'))
   }
@@ -10766,7 +11571,7 @@ function StoryFloorDiceItem(props) {
     ? record.rerollState
     : { allowed: false, reason: '本轮无重投项' }
 
-  const runManualReroll = mode => {
+  const runManualReroll = (mode, power) => {
     if (rerolling || !effectiveTurn) return
     setRerolling(true)
     setRerollHint('')
@@ -10782,6 +11587,7 @@ function StoryFloorDiceItem(props) {
             fate: data.fate || (prev && prev.fate) || fate,
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '已孤注一掷并同步阻尼配额！点击下方「重新生成正文」即可按新结果与代价改写剧情'
             : '已消耗 1 点命运点逆命重投！点击下方「重新生成正文」即可按新点数改写剧情')
@@ -11021,11 +11827,15 @@ function fdGetActiveFloorRollStage() {
   return ov && ov.stage ? ov.stage : null
 }
 
-function fdBuildFloorRollKickerText(roll, hidden, mode) {
+function fdBuildFloorRollKickerText(roll, hidden, mode, power) {
   const checkTitle = String((roll && roll.check) || '行动')
   if (hidden) return `✦ 命运暗骰 · ${checkTitle}检定 ✦`
   const diffTitle = roll && roll.difficultyLabel ? ` · ${roll.difficultyLabel}` : ''
-  const rerollBadge = mode === 'push' ? ' · 🔥孤注一掷' : (mode === 'fate' ? ' · ✦逆命重投' : '')
+  const pwrNum = Number(power) || 0
+  const pwrText = pwrNum > 0.1 ? `（蓄力 ${Math.round(pwrNum * 100)}%）` : ''
+  const rerollBadge = mode === 'push'
+    ? ` · 🔥孤注一掷${pwrText}`
+    : (mode === 'fate' ? ` · ✦逆命重投${pwrText}` : (pwrText ? ` · ${pwrText}` : ''))
   return `✦ 命运真骰裁定 · ${checkTitle}检定${diffTitle}${rerollBadge} ✦`
 }
 
@@ -11189,7 +11999,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
 
   const topRail = fdEl(doc, 'div', 'fd-floor-roll-rail is-top')
   const bottomRail = fdEl(doc, 'div', 'fd-floor-roll-rail is-bottom')
-  const kicker = fdEl(doc, 'div', 'fd-floor-roll-kicker', fdBuildFloorRollKickerText(roll, hidden, mode))
+  const kicker = fdEl(doc, 'div', 'fd-floor-roll-kicker', fdBuildFloorRollKickerText(roll, hidden, mode, power))
   const readout = fdEl(doc, 'div', 'fd-floor-roll-readout')
   fdPopulateFloorRollReadout(doc, readout, roll, hidden)
 
@@ -11420,16 +12230,19 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
     fdToggleNodeClass(wrap, 'has-presend-gate', ov.pinnedByGate)
     wrap.setAttribute('data-tier', next.tier)
     if (next.theme && next.theme.id) wrap.setAttribute('data-skin', next.theme.id)
-    kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode)
+    kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode, next.power)
     fdPopulateFloorRollReadout(doc, readout, next.roll, next.hidden)
     try {
       ov.stage.setTheme(next.theme)
       syncPaneGeometry()
       ov.stage.resize()
       const launchPower = Math.max(0, Number(next.power) || 0)
-      if ((launchPower > 0.1 || ov.stage.charging) && typeof ov.stage.releaseButtonCharge === 'function') {
-        ov.stage.releaseButtonCharge(next.spec, Math.max(launchPower, 0.48))
+      if (launchPower > 0.1 && typeof ov.stage.releaseButtonCharge === 'function') {
+        ov.stage.releaseButtonCharge(next.spec, launchPower)
       } else {
+        if (ov.stage.charging && typeof ov.stage.cancelButtonCharge === 'function') {
+          ov.stage.cancelButtonCharge()
+        }
         ov.stage.throwDice(next.spec)
       }
     } catch {}
@@ -12619,16 +13432,17 @@ async function fdResolvePreSendGate(action, power) {
   const ui = fdPreSendGate.ui
   if (!payload || !payload.gateId || fdPreSendGate.busy) return
   const isReroll = action === 'fate' || action === 'push'
+  const launchPower = isReroll ? Math.max(0, Number(power) || 0) : 0
   fdPreSendGate.busy = true
   fdPreSendGate.resolvingMode = isReroll ? action : ''
-  fdPreSendGate.pendingPower = isReroll ? Math.max(0, Number(power) || 0) : 0
+  fdPreSendGate.pendingPower = launchPower
   fdSetGateBusy(true, action)
   fdSetGateNotice('')
 
   const activeStage = isReroll && typeof fdGetActiveFloorRollStage === 'function'
     ? fdGetActiveFloorRollStage()
     : null
-  if (activeStage && !activeStage.charging && typeof activeStage.startButtonCharge === 'function') {
+  if (launchPower > 0.1 && activeStage && !activeStage.charging && typeof activeStage.startButtonCharge === 'function') {
     try { activeStage.startButtonCharge(action) } catch {}
   }
 
