@@ -146,6 +146,31 @@ export function registerTavernHttpRoutes({
           wsRpcServer.close()
         }
       }, 'dsh-tavern: ws rpc route')
+      ctx.inject?.(['ttsEnabledState'], child => {
+        const state = child.get('ttsEnabledState')
+        if (!state || typeof state.get !== 'function' || typeof state.subscribe !== 'function') return
+        child.effect(() => wsRpcServer.registerTopic('tts-enabled', ({ push }) => {
+          push({ enabled: Boolean(state.get()) })
+          return state.subscribe(enabled => {
+            push({ enabled: Boolean(enabled) })
+          })
+        }), 'dsh-tavern: ws tts-enabled topic')
+      })
+      ctx.inject?.(['assetPackFeed'], child => {
+        const feed = child.get('assetPackFeed')
+        if (!feed || typeof feed.read !== 'function' || typeof feed.subscribe !== 'function') return
+        child.effect(() => wsRpcServer.registerTopic('asset-pack-changes', ({ args, push }) => {
+          let cursor = Number.isSafeInteger(args?.since) && args.since >= 0 ? args.since : 0
+          const initial = feed.read(cursor)
+          cursor = initial.sequence
+          push({ ...feed.capabilities(), feed: initial })
+          return feed.subscribe(() => {
+            const next = feed.read(cursor)
+            cursor = next.sequence
+            push({ feed: next })
+          })
+        }), 'dsh-tavern: ws asset-pack-changes topic')
+      })
     }
   }
   // In-process callers (the server script runtime) share these exact routes.

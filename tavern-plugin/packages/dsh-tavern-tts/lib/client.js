@@ -96,13 +96,39 @@ exports.apply = function(ctx) {
     if (active && enabled && !unprovide) unprovide = ctx.provide('ttsClient',client)
   }
   ctx.effect(() => {
-    const events = new EventSource('/api/dsh-tts/v1/enabled')
-    events.onmessage = event => { void setEnabled(JSON.parse(event.data).enabled) }
-    // EventSource reconnects by itself (readyState CONNECTING) and the server then resends the
-    // current state, so only a closed stream means the service is gone; a reconnect keeps playback.
-    events.onerror = () => { if (events.readyState === EventSource.CLOSED) void setEnabled(false) }
+    let events, stopFeed
+    const closeEvents = () => { if (events) { events.close(); events = undefined } }
+    const openEvents = () => {
+      if (!active || events) return
+      events = new EventSource('/api/dsh-tts/v1/enabled')
+      events.onmessage = event => { void setEnabled(JSON.parse(event.data).enabled) }
+      // EventSource reconnects by itself (readyState CONNECTING) and the server then resends the
+      // current state, so only a closed stream means the service is gone; a reconnect keeps playback.
+      events.onerror = () => { if (events && events.readyState === EventSource.CLOSED) void setEnabled(false) }
+    }
+    const attachFeed = feed => {
+      if (!active || stopFeed || !feed || typeof feed.subscribe !== 'function') return false
+      closeEvents()
+      stopFeed = feed.subscribe({
+        onEnabled: value => { closeEvents(); void setEnabled(Boolean(value)) },
+        onClosed: () => { void setEnabled(false) },
+        onFallback: () => { openEvents() },
+        onReconnected: () => { closeEvents() },
+      })
+      return true
+    }
+    const earlyFeed = ctx.get?.('ttsEnabledFeed') || (typeof globalThis !== 'undefined' && globalThis[Symbol.for('dsh.tts.enabledFeed')])
+    if (!attachFeed(earlyFeed)) {
+      ctx.inject?.(['ttsEnabledFeed'], child => {
+        if (attachFeed(child.get?.('ttsEnabledFeed'))) {
+          child.effect?.(() => () => { if (stopFeed) { stopFeed(); stopFeed = undefined } })
+        }
+      })
+      openEvents()
+    }
     return () => {
-      events.close(); void setEnabled(false); active = false; stateListeners.clear(); managementListeners.clear()
+      if (stopFeed) { stopFeed(); stopFeed = undefined }
+      closeEvents(); void setEnabled(false); active = false; stateListeners.clear(); managementListeners.clear()
     }
   })
   // panel UI. one page — no

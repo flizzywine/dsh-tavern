@@ -536,6 +536,87 @@ window.__ModuleLoader__.load({
         // @include rpc-transport.cjs
         const presentationRequest = createPresentationQueue();
         let tavernWsRpc = null;
+        const TTS_ENABLED_FEED_KEY = Symbol.for("dsh.tts.enabledFeed");
+        function createTtsEnabledFeedBridge() {
+            const subscribers = new Set();
+            let wsClient = null;
+            let stopSub = null;
+            let latestEnabled;
+            let unavailable = false;
+            let fallbackMode = false;
+            function syncSubscription() {
+                if (!wsClient || typeof wsClient.subscribe !== "function" || subscribers.size === 0) {
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    return;
+                }
+                if (stopSub) return;
+                stopSub = wsClient.subscribe("tts-enabled", {
+                    onEvent(data) {
+                        fallbackMode = false;
+                        unavailable = false;
+                        latestEnabled = Boolean(data && data.enabled);
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onEnabled === "function") sub.onEnabled(latestEnabled); } catch (_) {}
+                        }
+                    },
+                    onUnavailable() {
+                        unavailable = true;
+                        latestEnabled = false;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onClosed === "function") sub.onClosed(); } catch (_) {}
+                        }
+                    },
+                    onFallback() {
+                        fallbackMode = true;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onFallback === "function") sub.onFallback(); } catch (_) {}
+                        }
+                    },
+                    onReconnected() {
+                        fallbackMode = false;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onReconnected === "function") sub.onReconnected(); } catch (_) {}
+                        }
+                    }
+                });
+            }
+            return {
+                attach(nextClient) {
+                    if (wsClient === nextClient) return;
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    wsClient = nextClient || null;
+                    syncSubscription();
+                },
+                detach(prevClient) {
+                    if (prevClient && wsClient !== prevClient) return;
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    wsClient = null;
+                },
+                subscribe(handlers) {
+                    const entry = typeof handlers === "function" ? { onEnabled: handlers } : (handlers || {});
+                    subscribers.add(entry);
+                    syncSubscription();
+                    if (fallbackMode && typeof entry.onFallback === "function") {
+                        try { entry.onFallback(); } catch (_) {}
+                    } else if (latestEnabled !== undefined && !unavailable && typeof entry.onEnabled === "function") {
+                        Promise.resolve().then(function () {
+                            if (subscribers.has(entry) && latestEnabled !== undefined && !unavailable) {
+                                try { entry.onEnabled(latestEnabled); } catch (_) {}
+                            }
+                        });
+                    }
+                    return function unsubscribe() {
+                        if (!subscribers.delete(entry)) return;
+                        if (subscribers.size === 0) syncSubscription();
+                    };
+                }
+            };
+        }
+        const ttsEnabledFeedBridge = (typeof window !== "undefined" && !window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid")
+            ? createTtsEnabledFeedBridge() : null;
+        if (ttsEnabledFeedBridge && typeof window !== "undefined") {
+            window[TTS_ENABLED_FEED_KEY] = ttsEnabledFeedBridge;
+        }
         function openTavernWsSocket(connectionService) {
             if (connectionService && typeof connectionService.openWebSocket === "function") {
                 return connectionService.openWebSocket(TAVERN_WS_RPC_PATH);
@@ -1232,11 +1313,15 @@ function clipReplayCore() {
 			ctx.effect(() => displayPreferences.start(), "dsh-tavern: global display preferences");
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
 			if (!window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid") {
+				if (ttsEnabledFeedBridge && typeof ctx.provide === "function") {
+					ctx.provide("ttsEnabledFeed", ttsEnabledFeedBridge);
+				}
 				ctx.effect(() => {
 					const client = createTavernWsRpcClient({
 						openSocket: () => openTavernWsSocket(ctx.connection)
 					}).start();
 					tavernWsRpc = client;
+					if (ttsEnabledFeedBridge) ttsEnabledFeedBridge.attach(client);
 					const onWake = () => {
 						if (typeof document === "undefined" || document.visibilityState !== "hidden") client.poke();
 					};
@@ -1249,6 +1334,7 @@ function clipReplayCore() {
 						if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
 							document.removeEventListener("visibilitychange", onWake);
 						}
+						if (ttsEnabledFeedBridge) ttsEnabledFeedBridge.detach(client);
 						if (tavernWsRpc === client) tavernWsRpc = null;
 						client.dispose();
 					};

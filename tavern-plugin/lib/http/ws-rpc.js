@@ -101,6 +101,7 @@ export function createTavernWsRpcServer({
   now = Date.now,
 } = {}) {
   const clients = new Set()
+  const topicHandlers = new Map()
   let closed = false
   let heartbeatTimer = null
 
@@ -186,9 +187,61 @@ export function createTavernWsRpcServer({
     const pendingQueue = []
     const inflightAborters = new Map()
     const cancelledIds = new Set()
+    const subscriptions = new Map()
+
+    function attachSubscription(subId, entry) {
+      entry.stop?.()
+      entry.stop = null
+      const handler = topicHandlers.get(entry.topic)
+      if (typeof handler !== 'function') return
+      let active = true
+      const push = payload => {
+        if (!active || socketClosing || subscriptions.get(subId) !== entry) return false
+        return client.sendText('E\t' + subId + '\n' + JSON.stringify(payload ?? null))
+      }
+      const closeSub = () => {
+        if (!active) return
+        active = false
+        entry.stop = null
+        if (subscriptions.get(subId) === entry) {
+          subscriptions.delete(subId)
+          client.sendText('X\t' + subId)
+        }
+      }
+      try {
+        const off = handler({ args: entry.args, trustedOrigin, push, close: closeSub })
+        if (!active) {
+          if (typeof off === 'function') { try { off() } catch {} }
+          return
+        }
+        entry.stop = () => {
+          if (!active) return
+          active = false
+          if (typeof off === 'function') { try { off() } catch {} }
+        }
+      } catch {
+        closeSub()
+      }
+    }
 
     const client = {
       lastSeenAt: now(),
+      activateTopic(topic) {
+        if (socketClosing) return
+        for (const [subId, entry] of subscriptions) {
+          if (entry.topic === topic && !entry.stop) attachSubscription(subId, entry)
+        }
+      },
+      closeTopic(topic) {
+        if (socketClosing) return
+        for (const [subId, entry] of [...subscriptions]) {
+          if (entry.topic !== topic) continue
+          subscriptions.delete(subId)
+          entry.stop?.()
+          entry.stop = null
+          client.sendText('X\t' + subId)
+        }
+      },
       sendControl(opcode, payload) {
         if (socketClosing || socket.destroyed || !socket.writable) return false
         try {
@@ -235,6 +288,10 @@ export function createTavernWsRpcServer({
         try { aborter.abort() } catch {}
       }
       inflightAborters.clear()
+      for (const sub of subscriptions.values()) {
+        sub.stop?.()
+      }
+      subscriptions.clear()
       chunks.length = 0
       bufferedBytes = 0
       fragments = []
@@ -364,6 +421,60 @@ export function createTavernWsRpcServer({
           if (cancelledIds.size >= 512) cancelledIds.clear()
           cancelledIds.add(reqId)
         }
+        return
+      }
+
+      if (text.startsWith('U\t')) {
+        const subId = text.slice(2).trim()
+        if (!subId || subId.length > 48) return
+        const existing = subscriptions.get(subId)
+        if (existing) {
+          subscriptions.delete(subId)
+          existing.stop?.()
+        }
+        return
+      }
+
+      if (text.startsWith('S\t')) {
+        const liveConn = ctx?.get?.('connection')
+        const liveRejection = liveConn ? liveConn.requestRejection(req) : 503
+        if (liveRejection) {
+          client.closeWithCode(1008, 'unauthorized')
+          return
+        }
+        const newlineAt = text.indexOf('\n')
+        const headerLine = newlineAt >= 0 ? text.slice(2, newlineAt) : text.slice(2)
+        const rawArgs = newlineAt >= 0 ? text.slice(newlineAt + 1) : '{}'
+        const tabAt = headerLine.indexOf('\t')
+        if (tabAt <= 0) {
+          client.closeWithCode(1002, 'malformed subscribe header')
+          return
+        }
+        const subId = headerLine.slice(0, tabAt)
+        const topic = headerLine.slice(tabAt + 1)
+        if (!subId || subId.length > 48 || !METHOD_PATTERN.test(topic)) {
+          if (subId && subId.length <= 48) client.sendText('X\t' + subId)
+          return
+        }
+        if (subscriptions.size >= 64 && !subscriptions.has(subId)) {
+          client.sendText('X\t' + subId)
+          return
+        }
+        let args = {}
+        try {
+          args = rawArgs.trim() === '' ? {} : JSON.parse(rawArgs)
+        } catch {
+          client.sendText('X\t' + subId)
+          return
+        }
+        const previous = subscriptions.get(subId)
+        if (previous) {
+          subscriptions.delete(subId)
+          previous.stop?.()
+        }
+        const entry = { topic, args, stop: null }
+        subscriptions.set(subId, entry)
+        attachSubscription(subId, entry)
         return
       }
 
@@ -524,8 +635,24 @@ export function createTavernWsRpcServer({
     }
   }
 
+  function registerTopic(topic, handler) {
+    if (typeof topic !== 'string' || !METHOD_PATTERN.test(topic) || typeof handler !== 'function') {
+      throw new Error('Invalid WebSocket topic registration')
+    }
+    topicHandlers.set(topic, handler)
+    if (!closed) {
+      for (const client of clients) client.activateTopic(topic)
+    }
+    return () => {
+      if (topicHandlers.get(topic) !== handler) return
+      topicHandlers.delete(topic)
+      for (const client of clients) client.closeTopic(topic)
+    }
+  }
+
   function close() {
     closed = true
+    topicHandlers.clear()
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
@@ -538,6 +665,7 @@ export function createTavernWsRpcServer({
 
   return {
     handleUpgrade,
+    registerTopic,
     close,
     get clientCount() {
       return clients.size

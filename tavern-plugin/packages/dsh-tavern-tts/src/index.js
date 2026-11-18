@@ -123,7 +123,9 @@ export function apply(ctx, config = {}) {
   services.sync()
   void syncEnabled()
   void settingsReady.then(async ok => { ready = ok; if (ok) await changed() }).catch(error => ctx.logger.warn(error))
-  registerEnabledRoute(ctx, { get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  const enabledState = Object.freeze({ get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  registerEnabledRoute(ctx, enabledState)
+  ctx.provide('ttsEnabledState', enabledState)
   const control=async (method,args = {}) => {
     switch (method) {
       case 'getEnabled': return {enabled:ready && source().enabled}

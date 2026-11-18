@@ -318,8 +318,20 @@ export function createAssetPackTransport({settings, ...options}) {
     leaseMedia:input => issue('leaseMedia',input), leaseBundle:input => issue('leaseBundle',input), leaseWidget:input => issue('leaseWidget',input), releaseLease:release,
     async dispose() { if (!active) return; active = false; detach(); stopChanges(); stopSettings?.(); clearInterval(timer); await thumbnails.dispose(); await core.dispose(); await Promise.all(cleanup) }
   })
+  const feed = Object.freeze({
+    capabilities: () => ({apiVersion:core.apiVersion, capabilities:[...core.capabilities]}),
+    read(since = 0) {
+      const from = Number.isSafeInteger(since) && since >= 0 ? since : 0
+      return {sequence, reset:from > sequence || from < (changes[0]?.sequence || 1) - 1, changes:changes.filter(event => event.sequence > from)}
+    },
+    subscribe(fn) {
+      const stream = {send: () => fn()}
+      changeStreams.add(stream)
+      return () => { changeStreams.delete(stream) }
+    }
+  })
   const timer = setInterval(sweep,30000); timer.unref?.()
-  return Object.freeze({service,
+  return Object.freeze({service, feed,
     attach(carrier) {
       alive(); check(!connection && carrier?.fetch?.register, '$.connection', 'Transport already attached or invalid')
       connection = carrier

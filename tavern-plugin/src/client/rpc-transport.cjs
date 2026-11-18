@@ -56,7 +56,9 @@ function createTavernWsRpcClient(options = {}) {
     const setTimer = options.setTimer || (typeof window !== 'undefined' && window.setTimeout ? window.setTimeout.bind(window) : setTimeout);
     const clearTimer = options.clearTimer || (typeof window !== 'undefined' && window.clearTimeout ? window.clearTimeout.bind(window) : clearTimeout);
     const now = options.now || Date.now;
-    const connectWaitMs = options.connectWaitMs ?? 120;
+    const explicitConnectWaitMs = options.connectWaitMs;
+    const initialConnectWaitMs = options.initialConnectWaitMs ?? explicitConnectWaitMs ?? 1200;
+    const reconnectWaitMs = explicitConnectWaitMs ?? 250;
     const pingIntervalMs = options.pingIntervalMs ?? 25000;
     const pongTimeoutMs = options.pongTimeoutMs ?? 15000;
     const backoffDelays = options.backoffDelays || [300, 800, 2000, 5000];
@@ -65,7 +67,9 @@ function createTavernWsRpcClient(options = {}) {
     let disposed = false;
     let socket = null;
     let detachSocket = null;
+    let everConnected = false;
     let nextReqId = 0;
+    let nextSubId = 0;
     let backoffIndex = 0;
     let cooldownUntil = 0;
     let reconnectTimer = null;
@@ -74,7 +78,30 @@ function createTavernWsRpcClient(options = {}) {
     let lastReceivedAt = 0;
     const openWaiters = new Set();
     const inflight = new Map();
+    const subscriptions = new Map();
     const stats = { sent: 0, completed: 0, fallbacks: 0, reconnects: 0 };
+
+    function sendSubscription(ws, subId, sub) {
+        if (disposed || !ws || ws.readyState !== 1) return;
+        let rawArgs = '{}';
+        try {
+            const val = typeof sub.getArgs === 'function' ? sub.getArgs() : (sub.args !== undefined ? sub.args : {});
+            rawArgs = JSON.stringify(val === undefined ? {} : val);
+        } catch (_) {}
+        try {
+            ws.send('S\t' + subId + '\t' + sub.topic + '\n' + rawArgs);
+        } catch (_) {}
+    }
+
+    function notifyInitialConnectFallback() {
+        if (everConnected || backoffIndex < 2 || !subscriptions.size) return;
+        for (const sub of subscriptions.values()) {
+            if (!sub.fallbackNotified) {
+                sub.fallbackNotified = true;
+                try { if (typeof sub.onFallback === 'function') sub.onFallback(); } catch (_) {}
+            }
+        }
+    }
 
     function clearHeartbeatTimers() {
         if (pingTimer !== null) { clearTimer(pingTimer); pingTimer = null; }
@@ -123,6 +150,7 @@ function createTavernWsRpcClient(options = {}) {
         const delay = backoffDelays[Math.min(backoffIndex, backoffDelays.length - 1)] || 1000;
         backoffIndex = Math.min(backoffIndex + 1, backoffDelays.length);
         cooldownUntil = now() + delay;
+        notifyInitialConnectFallback();
         reconnectTimer = setTimer(function () {
             reconnectTimer = null;
             if (!disposed) ensureConnecting();
@@ -164,6 +192,25 @@ function createTavernWsRpcClient(options = {}) {
             try { if (ws.readyState === 1) ws.send('O'); } catch (_) {}
             return;
         }
+        if (data.startsWith('E\t')) {
+            const subNewline = data.indexOf('\n');
+            if (subNewline <= 2) return;
+            const subId = data.slice(2, subNewline);
+            const sub = subscriptions.get(subId);
+            if (!sub || typeof sub.onEvent !== 'function') return;
+            let parsed;
+            try { parsed = JSON.parse(data.slice(subNewline + 1)); } catch (_) { return; }
+            try { sub.onEvent(parsed); } catch (_) {}
+            return;
+        }
+        if (data.startsWith('X\t')) {
+            const subId = data.slice(2).trim();
+            const sub = subscriptions.get(subId);
+            if (sub && typeof sub.onUnavailable === 'function') {
+                try { sub.onUnavailable(); } catch (_) {}
+            }
+            return;
+        }
         if (!data.startsWith('R\t')) return;
         const newlineAt = data.indexOf('\n');
         if (newlineAt <= 2) return;
@@ -193,10 +240,18 @@ function createTavernWsRpcClient(options = {}) {
         socket = ws;
         const onOpen = function () {
             if (disposed || socket !== ws) return;
+            everConnected = true;
             backoffIndex = 0;
             cooldownUntil = 0;
             lastReceivedAt = now();
             armPingTimer(ws);
+            for (const [subId, sub] of subscriptions) {
+                if (sub.fallbackNotified) {
+                    sub.fallbackNotified = false;
+                    try { if (typeof sub.onReconnected === 'function') sub.onReconnected(); } catch (_) {}
+                }
+                sendSubscription(ws, subId, sub);
+            }
             settleOpenWaiters(ws);
         };
         const onMessage = function (event) { handleMessage(ws, event); };
@@ -223,7 +278,8 @@ function createTavernWsRpcClient(options = {}) {
         const ws = ensureConnecting();
         if (!ws) return Promise.resolve(null);
         if (ws.readyState === 1) return Promise.resolve(ws);
-        if (connectWaitMs <= 0) return Promise.resolve(null);
+        const waitMs = everConnected ? reconnectWaitMs : initialConnectWaitMs;
+        if (waitMs <= 0) return Promise.resolve(null);
 
         return new Promise(function (resolve) {
             let done = false;
@@ -243,7 +299,7 @@ function createTavernWsRpcClient(options = {}) {
                 if (signal.aborted) { finish(null); return; }
                 signal.addEventListener('abort', onAbort, { once: true });
             }
-            waitTimer = setTimer(function () { finish(null); }, connectWaitMs);
+            waitTimer = setTimer(function () { finish(null); }, waitMs);
         });
     }
 
@@ -346,10 +402,44 @@ function createTavernWsRpcClient(options = {}) {
                 });
             });
         },
+        subscribe(topic, subOptions = {}) {
+            if (disposed || typeof topic !== 'string' || !topic) return function () {};
+            const subId = String(++nextSubId);
+            const entry = {
+                topic,
+                args: subOptions.args,
+                getArgs: subOptions.getArgs,
+                onEvent: subOptions.onEvent,
+                onUnavailable: subOptions.onUnavailable,
+                onFallback: subOptions.onFallback,
+                onReconnected: subOptions.onReconnected,
+                fallbackNotified: false
+            };
+            subscriptions.set(subId, entry);
+            if (socket && socket.readyState === 1) {
+                sendSubscription(socket, subId, entry);
+            } else {
+                if (reconnectTimer === null) ensureConnecting();
+                if (!everConnected && backoffIndex >= 2 && !entry.fallbackNotified) {
+                    entry.fallbackNotified = true;
+                    try { if (typeof entry.onFallback === 'function') entry.onFallback(); } catch (_) {}
+                }
+            }
+            let active = true;
+            return function unsubscribe() {
+                if (!active) return;
+                active = false;
+                if (!subscriptions.delete(subId)) return;
+                if (socket && socket.readyState === 1) {
+                    try { socket.send('U\t' + subId); } catch (_) {}
+                }
+            };
+        },
         stats() {
             return Object.assign({}, stats, {
                 connected: Boolean(socket && socket.readyState === 1),
-                inflight: inflight.size
+                inflight: inflight.size,
+                subscriptions: subscriptions.size
             });
         },
         dispose() {
@@ -357,6 +447,7 @@ function createTavernWsRpcClient(options = {}) {
             disposed = true;
             clearReconnectTimer();
             clearHeartbeatTimers();
+            subscriptions.clear();
             const current = socket;
             socket = null;
             if (detachSocket) { detachSocket(); detachSocket = null; }

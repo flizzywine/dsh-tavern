@@ -3574,9 +3574,9 @@ window.__ModuleLoader__.load({
 		}
 		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports={createVariableBindingsClient};
 		// browser port for the authenticated v2 package transport.
-		function createPackTransport({fetch: request = fetch, interval = 2000} = {}) {
+		function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {
 		    const root = '/api/dsh-asset-library/v2/', listeners = new Set(), unavailable = new Set(), jobs = new Set();
-		    let active = true, ready = false, sequence = 0, timer, events;
+		    let active = true, ready = false, sequence = 0, timer, events, stopWs;
 		    const failure = code => Object.assign(new Error(code), {code});
 		    async function send(path, options = {}, binary = false, timeoutMs = 30000) {
 		        if (!active) throw failure('ASSET_UNAVAILABLE');
@@ -3676,22 +3676,59 @@ window.__ModuleLoader__.load({
 		        if (feed.reset) { forget({type:'reset'}); for (const fn of listeners) fn({type:'reset'}); }
 		        for (const event of feed.changes) { forget(event); for (const fn of listeners) fn(event); }
 		    }
+		    function markUnavailable() {
+		        if (!ready) return;
+		        ready = false;
+		        details.clear();
+		        for (const fn of unavailable) fn();
+		        for (const fn of listeners) fn({type:'unavailable'});
+		    }
 		    async function connect() {
 		        try {
 		            const caps = await control('capabilities');
 		            if (!active) return;
 		            if (caps.apiVersion !== 2 || !caps.capabilities.includes('packs')) throw failure('ASSET_UNAVAILABLE');
 		            service.capabilities = [...caps.capabilities];
-		            ready = true; for (const fn of listeners) fn({type:'available'});
+		            if (!ready) { ready = true; for (const fn of listeners) fn({type:'available'}); }
+		            events?.close();
 		            events = new EventSource(root + 'changes?stream=1&since=' + sequence);
 		            events.onmessage = event => { if (active) acceptFeed(JSON.parse(event.data)); };
 		            // Reconnect from the last accepted sequence; no recurring requests while idle.
 		            events.onerror = () => { events?.close(); events = undefined; if (active) timer = setTimeout(connect, Math.max(interval,5000)); };
 		        } catch (error) {
 		            if (!active) return;
-		            if (ready) { ready = false; details.clear(); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); }
+		            markUnavailable();
 		            timer = setTimeout(connect, Math.max(interval,5000));
 		        }
+		    }
+		    function startStream() {
+		        if (!active) return;
+		        if (typeof subscribeChanges === 'function') {
+		            stopWs = subscribeChanges({
+		                getSince: () => sequence,
+		                onEvent(data) {
+		                    if (!active || !data) return;
+		                    if (Array.isArray(data.capabilities)) {
+		                        if (data.apiVersion !== 2 || !data.capabilities.includes('packs')) { markUnavailable(); return; }
+		                        service.capabilities = [...data.capabilities];
+		                        if (!ready) { ready = true; for (const fn of listeners) fn({type:'available'}); }
+		                    }
+		                    if (data.feed) acceptFeed(data.feed);
+		                },
+		                onUnavailable() {
+		                    if (active) markUnavailable();
+		                },
+		                onFallback() {
+		                    if (active && !events) void connect();
+		                },
+		                onReconnected() {
+		                    clearTimeout(timer);
+		                    if (events) { events.close(); events = undefined; }
+		                }
+		            });
+		            return;
+		        }
+		        void connect();
 		    }
 		    return {service, available:() => active && ready,
 		        settings:{read:() => control('settings'),save:args => control('saveSettings',args)},
@@ -3705,8 +3742,8 @@ window.__ModuleLoader__.load({
 		                if (!archive.download) setTimeout(() => URL.revokeObjectURL(url), 1000);
 		            }
 		        },
-		        start() { void connect(); },
-		        dispose() { if (!active) return; active = false; ready = false; details.clear(); clearTimeout(timer); events?.close(); for (const job of jobs) job.abort(failure('ASSET_UNAVAILABLE')); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); listeners.clear(); unavailable.clear(); }
+		        start() { startStream(); },
+		        dispose() { if (!active) return; active = false; ready = false; details.clear(); clearTimeout(timer); stopWs?.(); stopWs = undefined; events?.close(); events = undefined; for (const job of jobs) job.abort(failure('ASSET_UNAVAILABLE')); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); listeners.clear(); unavailable.clear(); }
 		    };
 		}
 		// Capability-scoped client adapter. Transport authentication belongs to the supplied ports.
@@ -15203,7 +15240,9 @@ window.__ModuleLoader__.load({
             const setTimer = options.setTimer || (typeof window !== 'undefined' && window.setTimeout ? window.setTimeout.bind(window) : setTimeout);
             const clearTimer = options.clearTimer || (typeof window !== 'undefined' && window.clearTimeout ? window.clearTimeout.bind(window) : clearTimeout);
             const now = options.now || Date.now;
-            const connectWaitMs = options.connectWaitMs ?? 120;
+            const explicitConnectWaitMs = options.connectWaitMs;
+            const initialConnectWaitMs = options.initialConnectWaitMs ?? explicitConnectWaitMs ?? 1200;
+            const reconnectWaitMs = explicitConnectWaitMs ?? 250;
             const pingIntervalMs = options.pingIntervalMs ?? 25000;
             const pongTimeoutMs = options.pongTimeoutMs ?? 15000;
             const backoffDelays = options.backoffDelays || [300, 800, 2000, 5000];
@@ -15212,7 +15251,9 @@ window.__ModuleLoader__.load({
             let disposed = false;
             let socket = null;
             let detachSocket = null;
+            let everConnected = false;
             let nextReqId = 0;
+            let nextSubId = 0;
             let backoffIndex = 0;
             let cooldownUntil = 0;
             let reconnectTimer = null;
@@ -15221,7 +15262,30 @@ window.__ModuleLoader__.load({
             let lastReceivedAt = 0;
             const openWaiters = new Set();
             const inflight = new Map();
+            const subscriptions = new Map();
             const stats = { sent: 0, completed: 0, fallbacks: 0, reconnects: 0 };
+
+            function sendSubscription(ws, subId, sub) {
+                if (disposed || !ws || ws.readyState !== 1) return;
+                let rawArgs = '{}';
+                try {
+                    const val = typeof sub.getArgs === 'function' ? sub.getArgs() : (sub.args !== undefined ? sub.args : {});
+                    rawArgs = JSON.stringify(val === undefined ? {} : val);
+                } catch (_) {}
+                try {
+                    ws.send('S\t' + subId + '\t' + sub.topic + '\n' + rawArgs);
+                } catch (_) {}
+            }
+
+            function notifyInitialConnectFallback() {
+                if (everConnected || backoffIndex < 2 || !subscriptions.size) return;
+                for (const sub of subscriptions.values()) {
+                    if (!sub.fallbackNotified) {
+                        sub.fallbackNotified = true;
+                        try { if (typeof sub.onFallback === 'function') sub.onFallback(); } catch (_) {}
+                    }
+                }
+            }
 
             function clearHeartbeatTimers() {
                 if (pingTimer !== null) { clearTimer(pingTimer); pingTimer = null; }
@@ -15270,6 +15334,7 @@ window.__ModuleLoader__.load({
                 const delay = backoffDelays[Math.min(backoffIndex, backoffDelays.length - 1)] || 1000;
                 backoffIndex = Math.min(backoffIndex + 1, backoffDelays.length);
                 cooldownUntil = now() + delay;
+                notifyInitialConnectFallback();
                 reconnectTimer = setTimer(function () {
                     reconnectTimer = null;
                     if (!disposed) ensureConnecting();
@@ -15311,6 +15376,25 @@ window.__ModuleLoader__.load({
                     try { if (ws.readyState === 1) ws.send('O'); } catch (_) {}
                     return;
                 }
+                if (data.startsWith('E\t')) {
+                    const subNewline = data.indexOf('\n');
+                    if (subNewline <= 2) return;
+                    const subId = data.slice(2, subNewline);
+                    const sub = subscriptions.get(subId);
+                    if (!sub || typeof sub.onEvent !== 'function') return;
+                    let parsed;
+                    try { parsed = JSON.parse(data.slice(subNewline + 1)); } catch (_) { return; }
+                    try { sub.onEvent(parsed); } catch (_) {}
+                    return;
+                }
+                if (data.startsWith('X\t')) {
+                    const subId = data.slice(2).trim();
+                    const sub = subscriptions.get(subId);
+                    if (sub && typeof sub.onUnavailable === 'function') {
+                        try { sub.onUnavailable(); } catch (_) {}
+                    }
+                    return;
+                }
                 if (!data.startsWith('R\t')) return;
                 const newlineAt = data.indexOf('\n');
                 if (newlineAt <= 2) return;
@@ -15340,10 +15424,18 @@ window.__ModuleLoader__.load({
                 socket = ws;
                 const onOpen = function () {
                     if (disposed || socket !== ws) return;
+                    everConnected = true;
                     backoffIndex = 0;
                     cooldownUntil = 0;
                     lastReceivedAt = now();
                     armPingTimer(ws);
+                    for (const [subId, sub] of subscriptions) {
+                        if (sub.fallbackNotified) {
+                            sub.fallbackNotified = false;
+                            try { if (typeof sub.onReconnected === 'function') sub.onReconnected(); } catch (_) {}
+                        }
+                        sendSubscription(ws, subId, sub);
+                    }
                     settleOpenWaiters(ws);
                 };
                 const onMessage = function (event) { handleMessage(ws, event); };
@@ -15370,7 +15462,8 @@ window.__ModuleLoader__.load({
                 const ws = ensureConnecting();
                 if (!ws) return Promise.resolve(null);
                 if (ws.readyState === 1) return Promise.resolve(ws);
-                if (connectWaitMs <= 0) return Promise.resolve(null);
+                const waitMs = everConnected ? reconnectWaitMs : initialConnectWaitMs;
+                if (waitMs <= 0) return Promise.resolve(null);
 
                 return new Promise(function (resolve) {
                     let done = false;
@@ -15390,7 +15483,7 @@ window.__ModuleLoader__.load({
                         if (signal.aborted) { finish(null); return; }
                         signal.addEventListener('abort', onAbort, { once: true });
                     }
-                    waitTimer = setTimer(function () { finish(null); }, connectWaitMs);
+                    waitTimer = setTimer(function () { finish(null); }, waitMs);
                 });
             }
 
@@ -15493,10 +15586,44 @@ window.__ModuleLoader__.load({
                         });
                     });
                 },
+                subscribe(topic, subOptions = {}) {
+                    if (disposed || typeof topic !== 'string' || !topic) return function () {};
+                    const subId = String(++nextSubId);
+                    const entry = {
+                        topic,
+                        args: subOptions.args,
+                        getArgs: subOptions.getArgs,
+                        onEvent: subOptions.onEvent,
+                        onUnavailable: subOptions.onUnavailable,
+                        onFallback: subOptions.onFallback,
+                        onReconnected: subOptions.onReconnected,
+                        fallbackNotified: false
+                    };
+                    subscriptions.set(subId, entry);
+                    if (socket && socket.readyState === 1) {
+                        sendSubscription(socket, subId, entry);
+                    } else {
+                        if (reconnectTimer === null) ensureConnecting();
+                        if (!everConnected && backoffIndex >= 2 && !entry.fallbackNotified) {
+                            entry.fallbackNotified = true;
+                            try { if (typeof entry.onFallback === 'function') entry.onFallback(); } catch (_) {}
+                        }
+                    }
+                    let active = true;
+                    return function unsubscribe() {
+                        if (!active) return;
+                        active = false;
+                        if (!subscriptions.delete(subId)) return;
+                        if (socket && socket.readyState === 1) {
+                            try { socket.send('U\t' + subId); } catch (_) {}
+                        }
+                    };
+                },
                 stats() {
                     return Object.assign({}, stats, {
                         connected: Boolean(socket && socket.readyState === 1),
-                        inflight: inflight.size
+                        inflight: inflight.size,
+                        subscriptions: subscriptions.size
                     });
                 },
                 dispose() {
@@ -15504,6 +15631,7 @@ window.__ModuleLoader__.load({
                     disposed = true;
                     clearReconnectTimer();
                     clearHeartbeatTimers();
+                    subscriptions.clear();
                     const current = socket;
                     socket = null;
                     if (detachSocket) { detachSocket(); detachSocket = null; }
@@ -15525,6 +15653,87 @@ window.__ModuleLoader__.load({
         }
         const presentationRequest = createPresentationQueue();
         let tavernWsRpc = null;
+        const TTS_ENABLED_FEED_KEY = Symbol.for("dsh.tts.enabledFeed");
+        function createTtsEnabledFeedBridge() {
+            const subscribers = new Set();
+            let wsClient = null;
+            let stopSub = null;
+            let latestEnabled;
+            let unavailable = false;
+            let fallbackMode = false;
+            function syncSubscription() {
+                if (!wsClient || typeof wsClient.subscribe !== "function" || subscribers.size === 0) {
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    return;
+                }
+                if (stopSub) return;
+                stopSub = wsClient.subscribe("tts-enabled", {
+                    onEvent(data) {
+                        fallbackMode = false;
+                        unavailable = false;
+                        latestEnabled = Boolean(data && data.enabled);
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onEnabled === "function") sub.onEnabled(latestEnabled); } catch (_) {}
+                        }
+                    },
+                    onUnavailable() {
+                        unavailable = true;
+                        latestEnabled = false;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onClosed === "function") sub.onClosed(); } catch (_) {}
+                        }
+                    },
+                    onFallback() {
+                        fallbackMode = true;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onFallback === "function") sub.onFallback(); } catch (_) {}
+                        }
+                    },
+                    onReconnected() {
+                        fallbackMode = false;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onReconnected === "function") sub.onReconnected(); } catch (_) {}
+                        }
+                    }
+                });
+            }
+            return {
+                attach(nextClient) {
+                    if (wsClient === nextClient) return;
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    wsClient = nextClient || null;
+                    syncSubscription();
+                },
+                detach(prevClient) {
+                    if (prevClient && wsClient !== prevClient) return;
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    wsClient = null;
+                },
+                subscribe(handlers) {
+                    const entry = typeof handlers === "function" ? { onEnabled: handlers } : (handlers || {});
+                    subscribers.add(entry);
+                    syncSubscription();
+                    if (fallbackMode && typeof entry.onFallback === "function") {
+                        try { entry.onFallback(); } catch (_) {}
+                    } else if (latestEnabled !== undefined && !unavailable && typeof entry.onEnabled === "function") {
+                        Promise.resolve().then(function () {
+                            if (subscribers.has(entry) && latestEnabled !== undefined && !unavailable) {
+                                try { entry.onEnabled(latestEnabled); } catch (_) {}
+                            }
+                        });
+                    }
+                    return function unsubscribe() {
+                        if (!subscribers.delete(entry)) return;
+                        if (subscribers.size === 0) syncSubscription();
+                    };
+                }
+            };
+        }
+        const ttsEnabledFeedBridge = (typeof window !== "undefined" && !window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid")
+            ? createTtsEnabledFeedBridge() : null;
+        if (ttsEnabledFeedBridge && typeof window !== "undefined") {
+            window[TTS_ENABLED_FEED_KEY] = ttsEnabledFeedBridge;
+        }
         function openTavernWsSocket(connectionService) {
             if (connectionService && typeof connectionService.openWebSocket === "function") {
                 return connectionService.openWebSocket(TAVERN_WS_RPC_PATH);
@@ -30255,7 +30464,17 @@ function tavernModelRefusalNotice(text) {
 		        child.effect(() => () => {off();offRate();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
 		    });
 		    ctx.effect(() => {
-		        const transport = createPackTransport(); packTransport = transport;
+		        const wsClient = typeof tavernWsRpc !== 'undefined' ? tavernWsRpc : null;
+		        const transport = createPackTransport(wsClient && typeof wsClient.subscribe === 'function' ? {
+		            subscribeChanges: handlers => wsClient.subscribe('asset-pack-changes', {
+		                getArgs: () => ({since: handlers.getSince()}),
+		                onEvent: handlers.onEvent,
+		                onUnavailable: handlers.onUnavailable,
+		                onFallback: handlers.onFallback,
+		                onReconnected: handlers.onReconnected
+		            })
+		        } : undefined);
+		        packTransport = transport;
 		        const stop = transport.service.subscribe(notifyPackChange);
 		        transport.start();
 		        return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };
@@ -66986,11 +67205,15 @@ function clipReplayCore() {
 			ctx.effect(() => displayPreferences.start(), "dsh-tavern: global display preferences");
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
 			if (!window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid") {
+				if (ttsEnabledFeedBridge && typeof ctx.provide === "function") {
+					ctx.provide("ttsEnabledFeed", ttsEnabledFeedBridge);
+				}
 				ctx.effect(() => {
 					const client = createTavernWsRpcClient({
 						openSocket: () => openTavernWsSocket(ctx.connection)
 					}).start();
 					tavernWsRpc = client;
+					if (ttsEnabledFeedBridge) ttsEnabledFeedBridge.attach(client);
 					const onWake = () => {
 						if (typeof document === "undefined" || document.visibilityState !== "hidden") client.poke();
 					};
@@ -67003,6 +67226,7 @@ function clipReplayCore() {
 						if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
 							document.removeEventListener("visibilitychange", onWake);
 						}
+						if (ttsEnabledFeedBridge) ttsEnabledFeedBridge.detach(client);
 						if (tavernWsRpc === client) tavernWsRpc = null;
 						client.dispose();
 					};

@@ -50,6 +50,7 @@ export function apply(ctx, config = {}) {
     try { return await backup.exportPack(input) } finally { await backup.dispose() }
   })
   ctx.provide('assetPackSettings',settings)
+  ctx.provide('assetPackFeed',transport.feed)
   registerAssetPackTransport(ctx,transport)
   ctx.effect(() => () => transport.service.dispose())
 }

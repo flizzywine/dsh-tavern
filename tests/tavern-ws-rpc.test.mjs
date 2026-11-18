@@ -24,7 +24,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-async function startWsTestHarness(t, { dispatch, authState = { rejection: undefined } } = {}) {
+async function startWsTestHarness(t, { dispatch, authState = { rejection: undefined }, services = {}, upgradeDelayMs = 0 } = {}) {
   const routes = new Map()
   const upgrades = new Map()
   const cleanups = []
@@ -46,6 +46,10 @@ async function startWsTestHarness(t, { dispatch, authState = { rejection: undefi
     const route = upgrades.get(pathname)
     if (!route) {
       socket.destroy()
+      return
+    }
+    if (upgradeDelayMs > 0) {
+      setTimeout(() => route.handler(req, socket, head), upgradeDelayMs)
       return
     }
     route.handler(req, socket, head)
@@ -75,7 +79,13 @@ async function startWsTestHarness(t, { dispatch, authState = { rejection: undefi
     get(name) {
       if (name === 'webServer') return webServer
       if (name === 'connection') return connection
+      if (Object.hasOwn(services, name)) return services[name]
       return undefined
+    },
+    inject(deps, fn) {
+      if (Array.isArray(deps) && deps.every(dep => Object.hasOwn(services, dep) && services[dep] !== undefined)) {
+        fn(ctx)
+      }
     },
     effect(fn) {
       const off = fn()
@@ -522,3 +532,117 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
     assert.equal(httpUrls[1].keepalive, true)
   })
 }
+
+test('冷启动慢握手窗口与主题推送流：首屏 350ms 慢建连不误掉回 HTTP，tts-enabled 与 asset-pack-changes 零 SSE 实时推送及断点续订', async t => {
+  let ttsEnabled = true
+  const ttsListeners = new Set()
+  const packEvents = []
+  let packSeq = 0
+  const packListeners = new Set()
+  const pushPackEvent = item => {
+    const row = { sequence: ++packSeq, ...item }
+    packEvents.push(row)
+    for (const fn of packListeners) fn()
+  }
+
+  let activeSocket = null
+  let delayUpgradeOnce = true
+  const harness = await startWsTestHarness(t, {
+    dispatch: async method => ({ method }),
+    services: {
+      ttsEnabledState: {
+        get: () => ttsEnabled,
+        subscribe(fn) { ttsListeners.add(fn); return () => ttsListeners.delete(fn) },
+      },
+      assetPackFeed: {
+        capabilities: () => ({ apiVersion: 2, capabilities: ['packs', 'url-install'] }),
+        read(since = 0) {
+          return { sequence: packSeq, reset: false, changes: packEvents.filter(e => e.sequence > since) }
+        },
+        subscribe(fn) { packListeners.add(fn); return () => packListeners.delete(fn) },
+      },
+    },
+    get upgradeDelayMs() {
+      if (delayUpgradeOnce) {
+        delayUpgradeOnce = false
+        return 300
+      }
+      return 0
+    },
+  })
+
+  // 模拟冷启动首屏握手耗时 300ms（超过旧的 120ms）
+  const wsClient = createTavernWsRpcClient({
+    backoffDelays: [40],
+    openSocket: () => {
+      const real = wrapNodeWsAsBrowserSocket(harness.wsUrl, { Origin: harness.httpBase })
+      activeSocket = real
+      return real
+    },
+  }).start()
+  t.after(() => wsClient.dispose())
+
+  // 1. 首屏立即发起 RPC：默认 1200ms 初始等待窗口确保 300ms 慢握手不会掉回 HTTP 队列
+  const firstRpc = await wsClient.call('getStoryTranscript', '{}', {
+    fallback: () => { throw new Error('冷启动 300ms 握手不应误掉回 HTTP') },
+  })
+  assert.equal(firstRpc.ok, true)
+  assert.equal(firstRpc.method, 'getStoryTranscript')
+
+  // 2. 订阅 tts-enabled 与 asset-pack-changes，零 EventSource 实时收帧 + 断线按最新游标续订
+  const ttsReceived = []
+  const packReceived = []
+  let currentSince = 0
+  const unsubTts = wsClient.subscribe('tts-enabled', {
+    onEvent: data => ttsReceived.push(data.enabled),
+  })
+  const unsubPack = wsClient.subscribe('asset-pack-changes', {
+    getArgs: () => ({ since: currentSince }),
+    onEvent: data => {
+      if (data.feed) currentSince = data.feed.sequence
+      packReceived.push(data)
+    },
+  })
+
+  await new Promise(r => setTimeout(r, 40))
+  assert.deepEqual(ttsReceived, [true])
+  assert.equal(packReceived.length, 1)
+  assert.deepEqual(packReceived[0].capabilities, ['packs', 'url-install'])
+
+  ttsEnabled = false
+  for (const fn of ttsListeners) fn(false)
+  pushPackEvent({ type: 'pack', packId: 'hero', revision: 'r1' })
+  await new Promise(r => setTimeout(r, 40))
+  assert.deepEqual(ttsReceived, [true, false])
+  assert.equal(currentSince, 1)
+  assert.equal(packReceived.at(-1).feed.changes[0].packId, 'hero')
+
+  // 模拟断线期间服务端又发生一次变更，重连后自动以 since=1 续订补齐 r2，不重复推 r1
+  activeSocket.terminate()
+  pushPackEvent({ type: 'pack', packId: 'hero', revision: 'r2' })
+  for (let i = 0; i < 40 && currentSince < 2; i++) {
+    await new Promise(r => setTimeout(r, 25))
+  }
+  assert.equal(currentSince, 2)
+  const resumedChanges = packReceived.at(-1).feed.changes
+  assert.equal(resumedChanges.length, 1)
+  assert.equal(resumedChanges[0].revision, 'r2')
+
+  unsubTts()
+  unsubPack()
+})
+
+test('订阅流降级兜底：不支持 WebSocket Upgrade 的环境下连续建连失败自动触发 onFallback', async t => {
+  let fallbackCount = 0
+  const wsClient = createTavernWsRpcClient({
+    backoffDelays: [15, 15],
+    openSocket: () => { throw new Error('upgrade blocked') },
+  }).start()
+  t.after(() => wsClient.dispose())
+  const unsub = wsClient.subscribe('tts-enabled', {
+    onFallback: () => { fallbackCount++ },
+  })
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(fallbackCount, 1, '首次建连连续失败后通知订阅方回退至 SSE')
+  unsub()
+})

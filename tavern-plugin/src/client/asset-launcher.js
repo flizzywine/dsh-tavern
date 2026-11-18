@@ -143,7 +143,17 @@ function installTavernAssetLaunchers(ctx, slots) {
         child.effect(() => () => {off();offRate();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
     });
     ctx.effect(() => {
-        const transport = createPackTransport(); packTransport = transport;
+        const wsClient = typeof tavernWsRpc !== 'undefined' ? tavernWsRpc : null;
+        const transport = createPackTransport(wsClient && typeof wsClient.subscribe === 'function' ? {
+            subscribeChanges: handlers => wsClient.subscribe('asset-pack-changes', {
+                getArgs: () => ({since: handlers.getSince()}),
+                onEvent: handlers.onEvent,
+                onUnavailable: handlers.onUnavailable,
+                onFallback: handlers.onFallback,
+                onReconnected: handlers.onReconnected
+            })
+        } : undefined);
+        packTransport = transport;
         const stop = transport.service.subscribe(notifyPackChange);
         transport.start();
         return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };
