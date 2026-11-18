@@ -54,9 +54,9 @@ function execution(options = {}) {
       })
     },
     createRuntime(options) {
-      const runtime = { options, syncs: [], emissions: [], disposed: 0,
+      const runtime = { options, syncs: [], emissions: [], disposed: 0, documentToken: 'document-1',
         sync(sessionId, view) { this.syncs.push({ sessionId, view }) },
-        inspect() { return { scripts: [{ subscriptionsReady: true }] } },
+        inspect() { return { documentToken: this.documentToken, scripts: [{ subscriptionsReady: true }] } },
         emit(...args) { this.emissions.push(args); return Promise.resolve(args[1]) },
         triggerButton: () => Promise.resolve('clicked'),
         dispose() { this.disposed++ }
@@ -146,6 +146,49 @@ test('the official MVU owner waits for the chat announcement before accepting se
   assert.ok(claims().every(row => row.args.ready === false))
   ready.resolve([])
   await announcement
+  await h.settle()
+  assert.equal(claims().at(-1).args.ready, true)
+})
+
+test('CHAT_CHANGED 失败后继续报告未就绪，成功重试后才申领 MVU 结算', async t => {
+  const h = execution()
+  t.after(() => h.module.dispose())
+  h.module.sync('A', mvuView())
+  await h.settle()
+  const runtime = h.runtimes[0]
+  runtime.emit = async () => { throw new Error('CHAT_CHANGED 失败') }
+  await assert.rejects(runtime.options.onReady('A'), /CHAT_CHANGED 失败/)
+  runtime.options.onMvuLoadState({ phase: 'ready' })
+  await h.settle()
+  const claims = () => h.calls.filter(row => row.method === 'claimTavernScriptWork')
+  assert.ok(claims().every(row => row.args.ready === false))
+  runtime.emit = async (...args) => { runtime.emissions.push(args); return [] }
+  runAnnouncement(h, 1500)
+  await h.settle()
+  assert.deepEqual(runtime.emissions.map(args => [...args[1]]), [[''], ['tavern-chat']])
+  assert.equal(claims().at(-1).args.ready, true)
+})
+
+test('旧沙箱迟到的 CHAT_CHANGED 回执不会让新沙箱提前就绪', async t => {
+  const h = execution(), oldReply = deferred(), newReply = deferred()
+  t.after(() => h.module.dispose())
+  h.module.sync('A', mvuView())
+  await h.settle()
+  const runtime = h.runtimes[0]
+  runtime.emit = () => oldReply.promise
+  const oldInitialization = runtime.options.onReady('A')
+  await h.settle()
+  runtime.documentToken = 'document-2'
+  runtime.emit = () => newReply.promise
+  const newInitialization = runtime.options.onReady('A')
+  oldReply.resolve([])
+  await oldInitialization
+  h.wake()
+  await h.settle()
+  const claims = () => h.calls.filter(row => row.method === 'claimTavernScriptWork')
+  assert.ok(claims().every(row => row.args.ready === false))
+  newReply.resolve([])
+  await newInitialization
   await h.settle()
   assert.equal(claims().at(-1).args.ready, true)
 })

@@ -54,70 +54,70 @@
 				releaseBarrier = Promise.all([releaseBarrier, request]).then(function () {});
 				return request;
 			}
-			// Card scripts read the card's worldbook and MVU applies its [InitVar]
-			// entry inside the chat-level initialization that CHAT_CHANGED triggers.
-			// MVU runs that initialization once and skips it when the chat identity
-			// or its own enablement is not ready yet, so an opening could be read
-			// with no initial variables until the player sent a first message. While
-			// MVU reports that its initial variables are still missing, announce the
-			// chat again a bounded number of times so the scripts re-run it.
-			let chatAnnouncements = 0;
-			let chatAnnounceTimer = null;
-			let chatAnnounceWaiting = false;
-			let chatAnnouncement = null;
-			let chatAnnounced = false;
-			const chatAnnounceDelays = [1500, 4000, 9000];
-			function cancelChatAnnouncements() {
-				chatAnnounceWaiting = false;
-				chatAnnouncements = 0;
-				if (chatAnnounceTimer !== null) hostWindow.clearTimeout(chatAnnounceTimer);
-				chatAnnounceTimer = null;
+			// CHAT_CHANGED owns chat-level initialization, including [InitVar].
+			// Keep its result tied to the lease, chat and sandbox document that ran it.
+			let chatInitialization = null;
+			const chatInitDelays = [1500, 4000, 9000];
+			function clearChatInitTimer(state) {
+				if (state?.timer != null) hostWindow.clearTimeout(state.timer);
+				if (state) state.timer = null;
 			}
-			function announceChat(force) {
-				if (!active || !runtime || !input || delivery) return Promise.resolve();
-				if (chatAnnouncement) return chatAnnouncement;
-				const chatId = String(input.view && input.view.chatId || "");
-				if (!chatId) return Promise.resolve();
-				const context = input.view && input.view.tavernHelper;
-				const currentLease = lease, currentRuntime = runtime;
-				// MVU remembers the chat it last initialized and ignores a repeated
-				// CHAT_CHANGED for that same chat, so announcing the current chat again
-				// cannot re-run its chat-level initialization. Announce an identity it
-				// cannot adopt first — that only resets the chat it tracks, because its
-				// own current-chat guard rejects the transition — and then the real chat,
-				// which performs a genuine re-initialization and applies [InitVar].
-				chatAnnouncement = Promise.resolve().then(async function () {
-					if (lease !== currentLease) return;
-					if (force === true) await currentRuntime.emit("CHAT_CHANGED", [""], context);
-					if (lease === currentLease) await currentRuntime.emit("CHAT_CHANGED", [chatId], context);
-				}).finally(function () {
-					if (lease !== currentLease) return;
-					chatAnnouncement = null;
-					chatAnnounced = true;
-				});
-				return chatAnnouncement;
+			function resetChatInitialization() {
+				clearChatInitTimer(chatInitialization);
+				chatInitialization = null;
 			}
-			function scheduleChatAnnouncement() {
-				if (chatAnnounceTimer !== null || !chatAnnounceWaiting) return;
-				if (!active || !runtime || !input) return;
-				if (chatAnnouncements >= chatAnnounceDelays.length) return;
-				const delay = chatAnnounceDelays[chatAnnouncements];
-				chatAnnouncements += 1;
-				chatAnnounceTimer = hostWindow.setTimeout(function () {
-					chatAnnounceTimer = null;
-					Promise.resolve()
-						.then(function () { return announceChat(true); })
-						.catch(function () {})
-						.then(function () {
-							void claimWork();
-							scheduleChatAnnouncement();
-						});
+			function currentChatInitialization(inspection = runtime?.inspect()) {
+				const state = chatInitialization;
+				return active && state && state.lease === lease && state.documentToken === inspection?.documentToken
+					&& state.chatId === String(input?.view?.chatId || "") ? state : null;
+			}
+			function needsChatVariables(loadState) {
+				return loadState?.phase === "evaluating" || loadState?.phase === "error";
+			}
+			function scheduleChatInitialization(state) {
+				if (currentChatInitialization() !== state || state.timer !== null || state.work || delivery) return;
+				if (state.phase !== "failed" && !state.needsVariables) return;
+				const delay = chatInitDelays[state.retries];
+				if (delay === undefined) return;
+				state.timer = hostWindow.setTimeout(function () {
+					state.timer = null;
+					if (currentChatInitialization() !== state || delivery) return;
+					state.retries += 1;
+					void announceChat(state, true).catch(function () {});
 				}, delay);
 			}
+			function announceChat(state, force = false) {
+				if (currentChatInitialization() !== state || delivery) return Promise.resolve();
+				if (state.work) return state.work;
+				const currentRuntime = runtime, context = input.view.tavernHelper;
+				state.phase = "running";
+				state.work = Promise.resolve().then(async function () {
+					if (currentChatInitialization() !== state) return;
+					// MVU ignores a repeat of the same chat ID. Reset it with an empty
+					// ID first so the retry applies the current chat's initial variables.
+					if (force) await currentRuntime.emit("CHAT_CHANGED", [""], context);
+					if (currentChatInitialization() === state) await currentRuntime.emit("CHAT_CHANGED", [state.chatId], context);
+				}).then(function () {
+					if (currentChatInitialization() === state) state.phase = "ready";
+				}, function (error) {
+					if (currentChatInitialization() === state) {
+						state.phase = "failed";
+						state.error = String(error?.message || error);
+					}
+					throw error;
+				}).finally(function () {
+					state.work = null;
+					if (currentChatInitialization() !== state) return;
+					if (state.phase === "failed" && state.retries === chatInitDelays.length && input.view.tavernMvuRuntime?.owner === "official") {
+						options?.onMvuLoadState?.({ phase: "error", canRetry: false, error: state.error });
+					}
+					scheduleChatInitialization(state);
+					void claimWork();
+				});
+				return state.work;
+			}
 			function dispose() {
-				cancelChatAnnouncements();
-				chatAnnouncement = null;
-				chatAnnounced = false;
+				resetChatInitialization();
 				const previousLease = lease;
 				lease = null;
                 delivery = null;
@@ -148,22 +148,24 @@
 					onMvuLoadState: function (state) {
 						if (lease !== currentLease) return;
 						if (options && options.onMvuLoadState) options.onMvuLoadState(state);
-						void claimWork();
-						// "evaluating" means MVU is loaded and subscribed but its initial
-						// variables are still unsaved; "error" here is that same wait having
-						// timed out. Both mean the chat-level initialization needs another run.
-						const phase = String(state && state.phase || "");
-						if (phase === "ready" || phase === "companion-timeout") cancelChatAnnouncements();
-						else if (phase === "evaluating" || phase === "error") {
-							chatAnnounceWaiting = true;
-							scheduleChatAnnouncement();
+						const initialization = currentChatInitialization();
+						if (initialization) {
+							initialization.needsVariables = needsChatVariables(state);
+							if (initialization.phase !== "failed" && !initialization.needsVariables) clearChatInitTimer(initialization);
+							scheduleChatInitialization(initialization);
 						}
+						void claimWork();
 					},
 					onReady: function (readySessionId) {
 						if (lease !== currentLease || !active || !readySessionId || !input || input.sessionId !== readySessionId) return;
-						if (!String(input.view && input.view.chatId || "")) { void claimWork(); return; }
-						chatAnnounced = false;
-						return announceChat().finally(function () { void claimWork(); });
+						const chatId = String(input.view?.chatId || "");
+						if (!chatId) { void claimWork(); return; }
+						const inspection = runtime.inspect(), current = currentChatInitialization(inspection);
+						if (current) return current.work;
+						resetChatInitialization();
+						chatInitialization = { lease, chatId, documentToken: inspection.documentToken, phase: "waiting",
+							needsVariables: needsChatVariables(inspection.mvuLoadState), retries: 0, timer: null, work: null, error: "" };
+						return announceChat(chatInitialization);
 					}
 				});
 				if (signals && typeof signals.subscribe === "function") {
@@ -263,9 +265,15 @@
 					// A ready viewer cannot advertise settlement readiness: promotion
 					// rebuilds the sandbox with the official core before accepting work.
 					let inspection = ownershipKnown && !active ? { scripts: [] } : currentRuntime.inspect();
+					const official = input.view?.tavernMvuRuntime?.owner === "official" && Boolean(input.view.chatId);
+					const initialization = currentChatInitialization(inspection);
+					if (initialization?.phase === "waiting") void announceChat(initialization).catch(function () {});
+					else if (initialization) scheduleChatInitialization(initialization);
 					// InitVar and other CHAT_CHANGED writes must finish before the host reserves an MVU draft.
-					if (input.view?.tavernMvuRuntime?.owner === "official" && input.view.chatId && (!chatAnnounced || chatAnnouncement)) {
+					if (official && initialization?.phase !== "ready") {
 						inspection = { ...inspection, mvuDataReady: false };
+						if (initialization?.phase === "failed" && initialization.retries === chatInitDelays.length
+							&& !initialization.timer && !inspection.initializationError) inspection.initializationError = initialization.error;
 					}
 					const result = await invokeWithDeadline("claimTavernScriptWork", currentLease, inspection, {contextBaseline: inspection.contextBaseline || {workContextVersion:1,full:true}, foreground: foreground, pageActive: pageActive()});
 					if (lease !== currentLease) {
@@ -277,12 +285,15 @@
 					if (!ownershipKnown || Boolean(result && result.active) !== active) {
 						ownershipKnown = true;
 						active = Boolean(result && result.active);
-						chatAnnounced = false;
+						resetChatInitialization();
 						currentRuntime.sync(input.sessionId, runtimeView(input.view));
 					}
 						currentEvent = result && result.event;
 						leaseToken = String(result && result.leaseToken || "");
-                        if (active && currentEvent) {
+                        const currentInspection = official && currentEvent ? currentRuntime.inspect() : null;
+                        const documentReady = !official || (currentInspection && initialization && currentChatInitialization(currentInspection) === initialization
+                            && initialization.phase === "ready" && tavernScriptRuntimeReady(currentInspection));
+                        if (active && currentEvent && documentReady) {
                             delivery = { lease: currentLease, runtime: currentRuntime, event: currentEvent, token: leaseToken, diagnostics: diagnostics, phase: "starting", busy: false };
                             void deliverWork(delivery);
                         }
@@ -301,6 +312,7 @@
 				const nextSessionId = String(sessionId || "");
 				if (!nextSessionId || !hasScriptRuntime(view)) { dispose(); return; }
 				if (input && input.sessionId !== nextSessionId) dispose();
+				if (chatInitialization && chatInitialization.chatId !== String(view?.chatId || "")) resetChatInitialization();
 				const currentRuntime = ensureRuntime(nextSessionId);
 				input = { sessionId: nextSessionId, view: view };
 				currentRuntime.sync(nextSessionId, runtimeView(view));
