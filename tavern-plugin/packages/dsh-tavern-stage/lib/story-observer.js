@@ -60,7 +60,8 @@ export function createStageStoryObserver({settlementQueued, modService, stageDir
         const full = [prefix,text].filter(Boolean).join('\n\n')
         active.body = roundBody([{kind:'markdown',text:full}],{chatId:chat.id,branchId:chat.timeline?.branchId,turn,streaming:true})
         return director?.update(active.body.displayUnits,streamTailClosed(full,active.body.displayUnits))
-      }, cancel() {if (activeRoundBodies.get(sessionId) === active) activeRoundBodies.delete(sessionId);return director?.cancel()}}
+      }, finish() {return director?.finish(active.body.displayUnits)},
+      cancel() {if (activeRoundBodies.get(sessionId) === active) activeRoundBodies.delete(sessionId);return director?.cancel()}}
     },
   }
 }

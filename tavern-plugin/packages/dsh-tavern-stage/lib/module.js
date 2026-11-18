@@ -17,7 +17,7 @@ import {createModConfigHost,createModConfigStageReader} from './mod-config-host.
 import {createModConfigFiles} from './mod-config.js'
 import {createModStagePort} from './mod-stage.js'
 import {managedConfigStore} from './mod-system-execution.js'
-import {createStageDirector} from './domain/stage-director.js'
+import {createStageDirector, createRoundProjections} from './domain/stage-director.js'
 import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
 import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
 import directorCommands from '../../dsh-presentation-protocol/src/director-commands.cjs'
@@ -57,10 +57,14 @@ export async function createStageModule(core) {
       onError:(error, path) => console.warn('dsh-tavern: figure writer sync failed', path || '', error.message)})
     child.effect(() => () => books.dispose())
   })
+  // A round's reply projection (its host body), shared by the director's reads of one page (createRoundProjections).
+  const roundProjection = createRoundProjections({revision:() => assetRuntime.revision,
+    project:async (chat, turn, persisted) => (await replyDisplayForChat(chat,await readChatCard(chat),persisted)).projections.find(row => row.turn === turn)})
   let modService
-  // Enumerating the built-in library must never migrate legacy card files.
+  // Enumerating the built-in library must never migrate legacy card files. Read through the card storage (its shared
+  // copy of the file, read-only): the mods read the card on many stage requests.
   const readModCard = async cardPath => {
-    const value=await fileResources.readCard(normalizeResourcePath(cardPath,'card'))
+    const value=await cardStorage.readWorkspace(normalizeResourcePath(cardPath,'card'))
     return cardPreparation.isWorkspace(value) ? value : undefined
   }
   const modCardStorage={cardPreparation,listPaths:()=>fileResources.list('card'),readWorkspace:readModCard,
@@ -180,11 +184,7 @@ export async function createStageModule(core) {
     }, runAgent: input => backgroundAgentRunner.run(input),
     // One round's streaming windows continue one director conversation.
     openConversation: () => backgroundAgentRunner.conversation(),
-    bodyForTurn: async (chat, target, options = {}) => {
-      const display = await replyDisplayForChat(chat,await readChatCard(chat),options.persisted === true)
-      const projection = display.projections.find(item => item.turn === target.turn)
-      return projection.body
-    }
+    bodyForTurn: async (chat, target, options = {}) => (await roundProjection(chat, target.turn, options.persisted === true)).body
   })
   ctx.effect(() => () => stageDirector.dispose(), 'dsh-tavern: dispose stage director')
   // A stopped turn takes its director with it; deployment waits while a director runs.
@@ -212,7 +212,7 @@ export async function createStageModule(core) {
   }, 'dsh-tavern: director task policy')
   // 配音补译: voice text for unrecalled foreign-voice lines, stored with the round (voice-backfill.js).
   const voiceBackfill = createVoiceBackfill({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles, chatForSession,
-    bodyForTurn:async (chat, turn) => (await replyDisplayForChat(chat, await readChatCard(chat), true)).projections.find(item => item.turn === turn)?.body,
+    bodyForTurn:async (chat, turn) => (await roundProjection(chat, turn, true))?.body,
     voiceBackfillLines:core.voiceBackfillLines, voiceBackfillKept:core.voiceBackfillKept,
     writeMessage:(chatId, index, mutate) => updateChatMessage(chatId, index, mutate, {source:'voice-backfill'}),
     runAgent:input => backgroundAgentRunner.run(input), selection:sessionId => modelSelection(sessionId), blocked:chat => core.backgroundBlocked(chat)})
@@ -232,7 +232,7 @@ export async function createStageModule(core) {
   // plugin's channel, so it is built with the requests (below); a round counts once its automatic figures are written.
   const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
   let autoCast = null
-  const roundBody = async (chat,turn) => (await replyDisplayForChat(chat,await readChatCard(chat),true)).projections.find(row => row.turn === turn)?.body
+  const roundBody = async (chat,turn) => (await roundProjection(chat, turn, true))?.body
   ctx.effect(() => registerAutoFigureObserver({storyEvents, chatHeaderForSession:core.chatHeaderForSession,
     dialogueBubbles:core.dialogueBubbles, readStageChat, getLibrary:() => ctx.get('assetLibrary'),
     bodyForTurn:roundBody,

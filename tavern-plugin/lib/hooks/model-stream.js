@@ -328,7 +328,7 @@ export function registerModelStreamHooks({
         if (!exhausted && iterator?.return) void Promise.resolve().then(() => iterator.return()).catch(() => {})
         progress('end')
         const completed = !failure && !options.signal?.aborted && finish && finish.kind !== 'error' && finish.kind !== 'aborted'
-        replyObserver?.finish(completed)
+        replyObserver?.finish(completed, completed && finish.kind === 'stop')
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat
         if (owner && requestRecord) {

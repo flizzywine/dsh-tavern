@@ -3,7 +3,8 @@
 export function createReplyStreamObserver({begin, signal, warn = () => {}}) {
   const lifetime = new AbortController()
   let observer, text = '', revision = 0, delivered = 0, busy = false
-  let closed = false, cancelled = false, released = false
+  // final: the reply stopped on its own; the observer's finish() follows its last snapshot.
+  let closed = false, cancelled = false, released = false, final = false
   const report = error => { try { warn(error) } catch {} }
   function release() {
     if (!observer || released) return
@@ -19,7 +20,14 @@ export function createReplyStreamObserver({begin, signal, warn = () => {}}) {
   }
   function fail(error) { report(error); cancel() }
   function flush() {
-    if (!observer || busy || cancelled || delivered === revision) return
+    if (!observer || busy || cancelled) return
+    if (delivered === revision) {
+      if (final) {
+        final = false
+        try { Promise.resolve(observer.finish?.()).catch(report) } catch (error) { report(error) }
+      }
+      return
+    }
     busy = true
     delivered = revision
     try {
@@ -44,11 +52,12 @@ export function createReplyStreamObserver({begin, signal, warn = () => {}}) {
       revision++
       flush()
     },
-    finish(completed) {
+    finish(completed, stopped = false) {
       closed = true
       lifetime.abort()
       signal?.removeEventListener('abort', cancel)
       if (!completed) cancel()
+      else if (stopped) { final = true; flush() }
       // A successful request leaves admitted presentation work running. Pending
       // snapshots still drain; the owner controls that work's longer lifetime.
     },
