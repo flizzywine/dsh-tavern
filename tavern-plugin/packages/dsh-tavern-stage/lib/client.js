@@ -10953,6 +10953,8 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         // the session index survives transcript virtualization. Only the
         // selected chat's sealed latest lines and viewed/next turns are synthesized.
         let voiceStore = null, stopVoiceSource = null;
+        // The anchor of a page read back (history mode) whose projection or media are still loading, else null.
+        const settlingAt = state => state.cursor?.mode === 'history' && (state.pending?.projection || state.pending?.resources) ? state.cursor.anchor : null;
         own(() => stopVoiceSource?.());
         const syncVoice = () => {
             if (!active()) return;
@@ -10962,7 +10964,7 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
                 stopVoiceSource?.(); voiceStore = store; stopVoiceSource = null;
                 if (store) {
                     stopVoiceSource = observe(store,state => ({textIndex:state.textIndex,source:state.source,latestSource:state.latestSource,
-                        settings:state.settings,opened:state.opened,interrupted:state.interrupted}),syncVoice,equal);
+                        settings:state.settings,opened:state.opened,interrupted:state.interrupted,settlingAt:settlingAt(state)}),syncVoice,equal);
                 }
             }
             const state = store?.getSnapshot(), handles = [];
@@ -10971,21 +10973,36 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
             // Sealed latest dialogue is latency-sensitive, not speculative history. The voice player's two
             // workers bound synthesis; entry readiness and the reader's page must never gate this queue.
             const turns = new Set(latest === undefined ? [] : [latest]);
+            const available = voice.available();
+            const add = (pages, limit = Infinity) => {
+                for (const page of pages) {
+                    if (page.pending) continue;
+                    const handle = voice.handle(id,page.voice,config,page.anchor.paragraphId,available);
+                    if (!handle) continue;
+                    handles.push(handle);
+                    if (--limit === 0) return;
+                }
+            };
             // Historical lookahead waits for reveal; sealed lines in the latest body can warm immediately.
             if (state?.opened && state.source && entry.shown.get() === store) {
-                turns.add(state.source.turn);
-                const next = [...state.textIndex.keys()].filter(turn => turn > state.source.turn).sort((a,b) => a-b)[0];
-                if (next !== undefined) turns.add(next);
+                const anchor = settlingAt(state), row = anchor && state.textIndex.get(state.source.turn);
+                if (anchor) {
+                    // A page read back (a jump, history paging) that is still being drawn: only its own lines and the next
+                    // few warm now, so the voice reads do not queue ahead of the page's requests; the rest follow once drawn.
+                    if (row && !(state.interrupted && state.source.turn === latest)) {
+                        const at = Math.max(0, row.text.pages.findLastIndex(page => page.anchor.offset <= anchor.offset));
+                        add(row.text.pages.slice(Math.max(0, at - 1)), 4);
+                    }
+                } else {
+                    turns.add(state.source.turn);
+                    const next = [...state.textIndex.keys()].filter(turn => turn > state.source.turn).sort((a,b) => a-b)[0];
+                    if (next !== undefined) turns.add(next);
+                }
             }
-            const available = voice.available();
             for (const turn of turns) {
                 const row = state.textIndex.get(turn);
                 if (!row || state.interrupted && turn === latest) continue;
-                for (const page of row.text.pages) {
-                    if (page.pending) continue;
-                    const handle = voice.handle(id,page.voice,config,page.anchor.paragraphId,available);
-                    if (handle) handles.push(handle);
-                }
+                add(row.text.pages);
             }
             voice.retain(handles);
             for (const handle of handles) void handle.prefetch();
@@ -12700,6 +12717,21 @@ function stageWidgetFacePx(width,dpr) {
 // ephemeral reading UI, never a director state or a persisted preference.
 const isPhoneRef=ref=>!!phoneDevice && ref?.modId===phoneDevice.modId;
 const stageWidgetRefKey = ref => isPhoneRef(ref) ? JSON.stringify([ref.modId,'source']) : JSON.stringify([ref.packId,ref.kind,ref.assetId]);
+// A page asks for each source window once: its re-renders while it settles (the record arriving, the history loading,
+// the asset revision catching up) ask the same window again, and the answer to the same arguments at the same asset
+// revisions is shared. Only ready answers are kept.
+const sourceWindowReads=new Map();
+function readSourceWindow(ref,args,revisions){
+    const method=isPhoneRef(ref)?phoneDevice.presentation:'getAssetPackPresentation',key=JSON.stringify([method,args,revisions]);
+    let read=sourceWindowReads.get(key);
+    if(!read){
+        read=rpc(method,args,args.sessionId).then(result=>{if(result?.status!=='ready' && sourceWindowReads.get(key)===read)sourceWindowReads.delete(key);return result;},
+            error=>{if(sourceWindowReads.get(key)===read)sourceWindowReads.delete(key);throw error;});
+        sourceWindowReads.set(key,read);
+        while(sourceWindowReads.size>32)sourceWindowReads.delete(sourceWindowReads.keys().next().value);
+    }
+    return read;
+}
 function stageWidgetPresentationState() { return {entries:new Map(), cursor:null, serial:0, liveVisit:false}; }
 function reduceWidgetPresentation(previous, action) {
     const state = {...previous, entries:new Map([...previous.entries].map(([key,item]) => [key,{...item,seen:[...item.seen],pending:[...item.pending]}]))};
@@ -13530,7 +13562,8 @@ function useWidgetStage(props) {
         (async()=>{
             const items=[];
             for (const ref of missing) {
-                const result=await (props.readWindow || ((args)=>rpc(isPhoneRef(ref)?phoneDevice.presentation:'getAssetPackPresentation',args,props.sessionId)))({sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})}).catch(()=>null);
+                const args={sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})};
+                const result=await (props.readWindow ? props.readWindow(args) : readSourceWindow(ref,args,[props.record.assetRevision,props.assetRevision])).catch(()=>null);
                 if (!live) return;
                 if (result?.status==='ready') items.push(...result.widgets);
             }

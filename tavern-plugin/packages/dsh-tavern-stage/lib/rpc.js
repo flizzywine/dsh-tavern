@@ -153,6 +153,8 @@ return cgGallery.ack(args,authority?.origin)
           if(!latest || latest.id!==chat.id || latest.cardPath!==chat.cardPath || latest.timeline.branchId!==chat.timeline.branchId)return false
           const checked=await stageDirector.get(latest,Number(args.turn),null,{readOnly:true})
           if(JSON.stringify(checked.token)!==JSON.stringify(direction.token))return false
+          // The same view (nothing written since) carries the same earlier records: only a newer view reads their tokens again.
+          if(latest===chat)return true
           for(const source of found)if(JSON.stringify((await stageDirector.get(latest,source.turn,null,{readOnly:true})).token)!==JSON.stringify(source.token))return false
           return true
         }
@@ -243,9 +245,10 @@ return cgGallery.ack(args,authority?.origin)
 
     },
     async openAssetPackVoice(args, method, serverTemplate, authority) {
-      const { assetRuntime, chatForSession } = deps
+      const { assetRuntime, readStageChat } = deps
 
-        const chat = await chatForSession(args?.sessionId)
+        // A line's voice needs the game's card, not its story: the config view, not a whole-chat read per line.
+        const chat = await readStageChat.view(args?.sessionId,{configOnly:true})
         const consumer = chat?.cardPath && await assetRuntime.consumer(chat,authority?.origin)
         return consumer ? consumer.speech.open(args?.narrator === true ? NARRATOR_VOICE : args?.general === true ? GENERAL_VOICE : args?.alias) : {available:false,diagnostics:['voice-unbound']}
 

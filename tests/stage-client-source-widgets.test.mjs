@@ -168,3 +168,21 @@ test('the stage exports its widget placement and the handheld phone decision',()
  assert.equal(f.plugin.place({width:100,height:100,size:{width:200,height:100}}),null,'no safe space places nothing')
  }finally{f.close()}
 })
+test('a page asks for its phone window once: settling re-renders and showing the page again share the answer',async()=>{
+ const phoneProtocol=require('../tavern-plugin/mods/phone/stage-phone.cjs'),reads=[]
+ const f=fixture({phoneProtocol,sessions:()=>({owner:{getWidgetContext:()=>null}}),
+  rpc:(method,args)=>{if(method==='getStagePhonePresentation'){reads.push(args.turn+':'+args.at);return Promise.resolve({status:'ready',widgets:[]})}return Promise.resolve(null)}})
+ const phone={ref:{modId:'dsh.phone'},modSource:true,sourceOnly:true,state:{},definition:{contentIdentity:'phone',document:{presentation:{open:{width:280,anchor:'corner-right'}}}}}
+ const record={phase:'done',through:1,assetRevision:3,token:{bindingKey:'b',sourceKey:'k2',generation:1},entries:[]}
+ const earlier={turn:1,pages:[],record:{phase:'done',through:0,token:{bindingKey:'b',sourceKey:'k1',generation:1},entries:[]}}
+ function View({rows}){f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters:[]},widgets:[phone],turn:2,page:0,record,assetRevision:3,
+  pages:[{kind:'line',para:1,name:'Alice',text:'hi'}],enabled:true,mode:'live',readHistory:()=>Promise.resolve({rows}),phoneThreadsRpc:()=>Promise.resolve(null)});return null}
+ const settle=()=>act(async()=>{for(let i=0;i<4;i++)await new Promise(resolve=>setTimeout(resolve,0))})
+ try {
+ act(()=>f.root.render(React.createElement(View,{rows:[earlier]})));await settle()
+ act(()=>f.root.render(React.createElement(View,{rows:[{...earlier}]})));await settle()
+ act(()=>f.root.render(React.createElement('div')));await settle()
+ act(()=>f.root.render(React.createElement(View,{rows:[earlier]})));await settle()
+ assert.deepEqual(reads,['2:1'])
+ }finally{f.close()}
+})
