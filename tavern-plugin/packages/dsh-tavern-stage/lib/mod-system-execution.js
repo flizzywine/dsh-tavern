@@ -83,14 +83,23 @@ export async function managedExecutionView({management,builtins}) {
 // `files` (createModConfigFiles) holds a layer's uploaded pictures (the phone's Photos library and
 // wallpaper); without it uploads stay with the asset library.
 export function managedConfigStore({management,readCard,listCards,files}) {
-  async function cardOwner(cardId) {await management.cards.list();return management.cards.read({cardId})}
+  // The card's known path answers; the card list is read again only for a card it does not know (new, moved or copied).
+  async function cardOwner(cardId) {
+    try {return await management.cards.read({cardId})}
+    catch(error) {if(error?.code!=='MOD_MISSING')throw error}
+    await management.cards.list()
+    return management.cards.read({cardId})
+  }
   return Object.freeze({
     async read({modId,cardId,sessionId}) {
-      const global=management.settings.read(),card=cardId?await cardOwner(cardId):null
+      const global=management.settings.value(),card=cardId?await cardOwner(cardId):null
       const installed=await management.installations.read(),manifest=installed.value.releases.find(row=>row.active && row.installed && row.manifest.id===modId)?.manifest
-      const preferences=Object.fromEntries(Object.entries(global.value.preferences[modId] || {}).filter(([key])=>Object.hasOwn(manifest?.preferences.schema.properties || {},key)).map(([key,fixed])=>[key,{fixed}]))
+      const preferences=Object.fromEntries(Object.entries(global.preferences[modId] || {}).filter(([key])=>Object.hasOwn(manifest?.preferences.schema.properties || {},key)).map(([key,fixed])=>[key,{fixed}]))
       const skin=await management.skinFor?.({cardId,sessionId})
-      return {revision:createHash('sha256').update(JSON.stringify([global.revision,card?.revision || '0',skin?.resource?.identity || skin?.document?.id || null,skin?.document?.mods || null])).digest('hex'),global:{...global.value.config[modId]?.values,...preferences},card:card?.value.config[modId]?.values || {}}
+      // The revision (it describes the whole settings profile) is computed once, when asked for: a write's check and the
+      // config view ask at once; resolving values, as every stage request does, never needs it.
+      let revision
+      return {get revision(){return revision ??= createHash('sha256').update(JSON.stringify([management.settings.read().revision,card?.revision || '0',skin?.resource?.identity || skin?.document?.id || null,skin?.document?.mods || null])).digest('hex')},global:{...global.config[modId]?.values,...preferences},card:card?.value.config[modId]?.values || {}}
     },
     async write({modId,cardId,sessionId,layer,values,expectedRevision}) {
       const before=await this.read({modId,cardId,sessionId})
