@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d3392a7629cdfda06dd5b31110dffcdec8875026",
-  "releaseSequence": 1766,
+  "revision": "2e8d1789d46fc27080e5773db7bcbbe06c781d78",
+  "releaseSequence": 1767,
   "version": "3.3.0",
   "files": [
     {
@@ -6376,8 +6376,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/audio-loudness.js",
-      "sha256": "8c0dd424a60f07c169ed814f88661673877c3040ae673ef392871f9a05cef91e",
-      "size": 5599
+      "sha256": "1ad99503cb91f481d152659be2bdf9eae17756b18d53d94d43f10d17f9327561",
+      "size": 5120
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/automatic-writes.js",
@@ -6576,8 +6576,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
-      "sha256": "562152b6fffee3a3b243d6887f2de6e52277a1b9bd506f52bfb0242f88c155c0",
-      "size": 1389
+      "sha256": "efb37859e1c52589ecee2d7e17ba5b7870be924b4c30fc3d0476d61141c8e296",
+      "size": 1263
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/simple-sprite.js",
@@ -8566,8 +8566,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-items.js",
-      "sha256": "3f664fe636eb357430d1d13b882a5540f295e4242c5a57684ae4165de4264bcb",
-      "size": 6671
+      "sha256": "d341c82ee930b67d12d72377178dc321caba4507561f54fc721bc148b036fecf",
+      "size": 6455
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js",
@@ -9561,9 +9561,9 @@
     }
   ],
   "archive": {
-    "commit": "027c6861aab610775d712d6b52af9145c7743fb5",
+    "commit": "4e5e406419a1507d30d1bda06be4c4124f780088",
     "path": "runtime.zip",
-    "sha256": "8466ac54b09a30a87bffc1303599845c3d93a2bb6b3f6ae207a97010ff76aa4c",
-    "size": 16952480
+    "sha256": "3cf99fd3a739cf3dc82e505d1b00a3c0eb0269abf1f026e3e329f4b2525c5bef",
+    "size": 16952264
   }
 }
