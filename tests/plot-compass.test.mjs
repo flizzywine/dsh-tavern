@@ -335,7 +335,8 @@ test('剧情罗盘节拍进度链、sceneTrigger、久拖自动加压、未点�
 
   const initialBody = plotCompassBodyText(compass)
   assert.match(initialBody, /\[✓ 1\.试探神龛底座\] → 【▶ 2\.点燃火折入道（本轮推进目标）】 → \[○ 3\.查看石壁刻字（后续留白）\]/)
-  assert.match(initialBody, /场面切入抓手.*冷风吹偏烛火/)
+  assert.match(initialBody, /备选破冰参考.*冷风吹偏烛火/)
+  assert.match(initialBody, /目标锁定与手段开放/)
   assert.doesNotMatch(initialBody, /久拖破局加压/)
 
   // 第 3、4 轮连续无新节拍完成 -> stalledTurns 升至 2，触发久拖破局加压
@@ -354,4 +355,42 @@ test('剧情罗盘节拍进度链、sceneTrigger、久拖自动加压、未点�
   assert.equal(compass.stalledTurns, 0)
   assert.doesNotMatch(plotCompassBodyText(compass), /久拖破局加压/)
 })
+
+test('候选联动仅透传戏剧意图而不硬塞备选具体步骤，强制保留自由即兴席位并支持戏剧等价核销', async () => {
+  const {
+    PLOT_COMPASS_PROGRESS_SYSTEM,
+    PLOT_COMPASS_SUBMIT_TOOL,
+    plotCompassCandidateText,
+    readPlotCompass
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
+
+  const unpinned = readPlotCompass({
+    version: 1,
+    shortTerm: [
+      { id: 's1', tag: '顺势破防', direction: '情感逼近', title: '试探隐瞒伤势', summary: '逼问伤势真相', beats: [{ text: '趁包扎抓腕查探脉门', done: false }] },
+      { id: 's2', tag: '切场夜访', direction: '支线切入', title: '转赴后院马厩', summary: '查看马匹异常', beats: [{ text: '提灯摸去后院喂草料', done: false }] }
+    ],
+    pinned: { shortTerm: null, midTerm: null, longTerm: null }
+  })
+  const unpinnedCand = plotCompassCandidateText(unpinned)
+  assert.match(unpinnedCand, /NEVER paraphrase/)
+  assert.match(unpinnedCand, /tag="顺势破防" \[情感逼近\]: 试探隐瞒伤势/)
+  // 未点亮时不把具体 beat 微操原文塞给候选，防止候选沦为路线复读机
+  assert.doesNotMatch(unpinnedCand, /趁包扎抓腕查探脉门/)
+  assert.doesNotMatch(unpinnedCand, /提灯摸去后院喂草料/)
+  assert.match(unpinnedCand, /Free-improvisation quota/)
+
+  // 点亮 s1 时：主路线给目标意图并要求拉开手段反差，备选路线 s2 同样不泄漏具体微操步骤
+  const pinned = readPlotCompass({ ...unpinned, pinned: { shortTerm: 's1', midTerm: null, longTerm: null } })
+  const pinnedCand = plotCompassCandidateText(pinned)
+  assert.match(pinnedCand, /\[PRIMARY PINNED INTENT\] tag="顺势破防"/)
+  assert.match(pinnedCand, /varied tactics/)
+  assert.doesNotMatch(pinnedCand, /提灯摸去后院喂草料/)
+  assert.match(pinnedCand, /Free-improvisation quota/)
+
+  // 规划工具与进度核验器均声明“开放手段 + 戏剧等价核销”
+  assert.match(PLOT_COMPASS_SUBMIT_TOOL.parameters.properties.shortTerm.items.properties.beats.items.properties.text.description, /严禁写死琐碎肢体动作/)
+  assert.match(PLOT_COMPASS_PROGRESS_SYSTEM, /DRAMATIC EQUIVALENCE/)
+})
+
 

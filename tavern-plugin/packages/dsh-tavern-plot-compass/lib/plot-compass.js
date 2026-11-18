@@ -328,7 +328,11 @@ const STEP_ITEM_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
   properties: {
-    text: { type: 'string', minLength: 1 },
+    text: {
+      type: 'string',
+      minLength: 1,
+      description: '10-22字的态势/关系变化或待揭悬念短语（只锁定戏剧意图与结果，严禁写死琐碎肢体动作、固定台词或单一手段，把具体演法留给每轮候选项临场发挥）'
+    },
     done: { type: 'boolean' }
   },
   required: ['text']
@@ -336,7 +340,7 @@ const STEP_ITEM_SCHEMA = Object.freeze({
 
 export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
   name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
-  description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线。',
+  description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线；各路线锚定戏剧张力与局势跃迁（What/Why），不预先锁死单一动作微操（How）。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -357,7 +361,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
         type: 'array',
         minItems: 2,
         maxItems: 4,
-        description: '今期规划（未来 2-5 轮）：3-4 条节奏与破局角度截然不同的近期路线',
+        description: '今期规划（未来 2-5 轮）：3-4 条戏剧切口与走向截然不同的近期路线（锁定态势跃迁，开放具体执行手段）',
         items: {
           type: 'object',
           additionalProperties: false,
@@ -366,9 +370,9 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
             tag: { type: 'string', minLength: 1, description: '2-6字路线短签（将直接作为下一轮候选项角标，如：顺势破防、暗查异响、掀桌试探、切场夜访）' },
             title: { type: 'string', minLength: 1 },
             direction: { type: 'string', description: '路线戏剧维度（如：顺水推舟、反客为主、支线切入）' },
-            summary: { type: 'string', minLength: 1 },
+            summary: { type: 'string', minLength: 1, description: '路线核心冲突焦点与态势变化（避免写成死板的逐动作剧本）' },
             causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
-            sceneTrigger: { type: 'string', description: '场面切入抓手（15-45字）：当玩家未主动提起时，在场角色或环境可用什么具体动作/异响/来人自然引出下一节拍' },
+            sceneTrigger: { type: 'string', description: '备选破冰参考（12-35字）：仅当玩家连续被动空转时可供参考的一种现场引子示例，不限制正常临场发挥' },
             beats: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
             sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
           },
@@ -390,7 +394,7 @@ export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
             direction: { type: 'string' },
             summary: { type: 'string', minLength: 1 },
             causalBasis: { type: 'string', description: '因果出发点：触发此篇章的已知伏笔、人物动机或局势推力' },
-            entryHook: { type: 'string', description: '入线契机：玩家近期做什么就能拐入此篇章' },
+            entryHook: { type: 'string', description: '开放式入线切口（15-38字）：追索哪条悬念或推动何种关系转向即可拐入此篇章，不限定单一动作剧本' },
             milestones: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
             stakes: { type: 'string', description: '潜在收获与代价风险' },
             diegeticOmen: { type: 'string', description: '无剧透的世界内可闻风声/环境异象（如茶馆议论、街角告示、远处钟声），供正文自然渗透线索' },
@@ -836,10 +840,10 @@ export function plotCompassBodyText(compassRaw) {
     const causalHint = shortTerm.causalBasis ? ` ｜ 因果锚点：${shortTerm.causalBasis}` : ''
     lines.push(`- 今期锚定路线「${shortTerm.title}」(routeTag="${shortTerm.tag}")：${chain || nextBeat}${causalHint}`)
     if (shortTerm.sceneTrigger && nextIdx >= 0) {
-      lines.push(`  · 场面切入抓手（玩家未主动提及时可借此切入）：${shortTerm.sceneTrigger}`)
+      lines.push(`  · 备选破冰参考（仅在玩家被动空转时参考，若当下现场有更贴切的自然切口直接顺势发挥）：${shortTerm.sceneTrigger}`)
     }
     if (strength !== 'soft' && nextIdx >= 0 && (compass.stalledTurns || 0) >= 2) {
-      lines.push(`  · ⚠ 久拖破局加压：节拍「${nextBeat}」已连续 ${compass.stalledTurns} 轮未达成！本轮严禁继续原地试探或重复气氛铺陈，必须由在场角色主动出招、外部声响/来人介入或局势变化直接推动该节拍落地！`)
+      lines.push(`  · ⚠ 久拖破局加压：节拍「${nextBeat}」已连续 ${compass.stalledTurns} 轮未达成！本轮严禁继续原地试探或重复气氛铺陈，必须由在场角色主动出招、外部声响/来人介入或局势变化直接促成该节拍的核心转折！`)
     }
   }
 
@@ -866,6 +870,7 @@ export function plotCompassBodyText(compassRaw) {
   }
 
   if (midTerm || shortTerm) {
+    lines.push('- 目标锁定与手段开放：罗盘锁定的是「戏剧意图与关系/局势转折（What）」，而非死板的动作剧本（How）。具体采用何种肢体互动、对白锋芒或现场道具达成该推进，完全服从本轮玩家选定的演出方式与在场人物的即时反应，切勿无视当前站位生搬硬套字面表述。')
     lines.push('- 场外涟漪演绎许可：当玩家既往抉择或既定事件已在场外牵动上述路线因果时，可通过简短视角切镜、信使书信、不速之客或耳闻风声直接呈现场外局势推进，但不得越权替玩家做出尚未发生的主观抉择。')
   }
 
@@ -874,7 +879,7 @@ export function plotCompassBodyText(compassRaw) {
   }
 
   if (strength !== 'soft' && (shortTerm || midTerm || compass.customDirective)) {
-    lines.push('- 落笔前构思检核：在构思阶段（含思维链或 submit_story 的 think 参数）必须先敲定「玩家本轮输入 × 上述推进目标」的具体衔接点（由谁、借什么动作或动静切入推进，段尾停在何处悬念钩子），再动笔输出正文。')
+    lines.push('- 落笔前构思检核：在构思阶段（含思维链或 submit_story 的 think 参数）必须先敲定「玩家本轮输入 × 上述推进目标」的具体衔接点（由谁、借什么现场自然契机切入推进，段尾停在何处悬念钩子），再动笔输出正文。')
   }
 
   return promptSection('plot_compass', lines.join('\n'))
@@ -887,7 +892,7 @@ export function plotCompassBodySection(chat) {
 }
 
 /**
- * 为候选项生成任务提供路线角标与引导段落。
+ * 为候选项生成任务提供路线角标与开放式意图引导段落（锁住方向角标，放开临场演出手段并保留即兴席位）。
  */
 export function plotCompassCandidateText(compassRaw) {
   const { compass, shortTerm: pinnedShort, midTerm: pinnedMid, longTerm: pinnedLong } = activePlotCompassRoutes(compassRaw)
@@ -895,32 +900,34 @@ export function plotCompassCandidateText(compassRaw) {
 
   const strength = normalizePlotCompassStrength(compass.strength)
   const lines = [
-    'Plot Compass routes are available for this session. Align distinct candidate choices with these routes where natural (respecting current physical constraints and causal plausibility), and attach the matching short `routeTag` (2–6 chars) on `actors[].routeTags` or `featured[].routeTag` so the player sees which arc each choice advances:'
+    'Plot Compass intent directions are available. Treat compass routes strictly as abstract DRAMATIC INTENT / OUTCOME GOALS—NEVER paraphrase or mechanically copy their wording! Invent fresh, vivid staging (`HOW`) rooted in the latest paragraph\'s exact posture, gaze, props, and emotional subtext, and attach matching short `routeTag` on `actors[].routeTags` / `featured[].routeTag` (`eventRouteTag` / `sceneRouteTag` when fitting):'
   ]
   if (pinnedShort) {
     const nextBeat = (pinnedShort.beats || []).find(step => !step.done)?.text || pinnedShort.summary
     const mandate = strength === 'strict'
-      ? 'Ensure the top 2 featured/actor choices directly trigger or confront this beat!'
-      : 'Ensure at least 1–2 strong choices advance this beat!'
-    lines.push(`- [PRIMARY PINNED NEAR-TERM ROUTE] tag="${pinnedShort.tag}" (${pinnedShort.title}): next beat → ${nextBeat}. ${mandate}`)
+      ? 'Ensure the top 2 featured/actor choices directly trigger or confront this beat via contrasting live tactics (e.g. direct pressure vs. subtle baiting / NPC initiative)!'
+      : 'Offer 1–2 distinct, creatively varied tactics that advance toward this intent (spanning different emotional or physical angles rather than repeating one literal action)!'
+    lines.push(`- [PRIMARY PINNED INTENT] tag="${pinnedShort.tag}" (${pinnedShort.title}): target shift → ${nextBeat}. ${mandate}`)
     const alternatives = compass.shortTerm.filter(item => item.id !== pinnedShort.id).slice(0, 2)
     for (const alt of alternatives) {
-      const beat = (alt.beats || []).find(step => !step.done)?.text || alt.summary
-      lines.push(`- [Alternative pivot] tag="${alt.tag}" (${alt.title}): ${beat}`)
+      const angle = alt.direction ? ` [${alt.direction}]` : ''
+      lines.push(`- [Optional pivot tag] tag="${alt.tag}"${angle}: ${alt.title} (tag only if a natural choice pivots this way; do not force)`)
     }
-  } else {
+  } else if (compass.shortTerm.length > 0) {
+    lines.push('- Unpinned compass tags (invent organic choices from the latest scene first; attach a `routeTag` ONLY when an organic choice naturally aligns with one of these angles—do NOT force every route into the menu):')
     for (const route of compass.shortTerm.slice(0, 4)) {
-      const beat = (route.beats || []).find(step => !step.done)?.text || route.summary
-      lines.push(`- Route tag="${route.tag}" (${route.title}): ${beat}`)
+      const angle = route.direction ? ` [${route.direction}]` : ''
+      lines.push(`  · tag="${route.tag}"${angle}: ${route.title}`)
     }
   }
   if (pinnedMid) {
     const hook = pinnedMid.entryHook || (pinnedMid.milestones || []).find(step => !step.done)?.text || pinnedMid.summary
-    const omen = pinnedMid.diegeticOmen ? ` | Ambient in-world ripple (good for event choices): ${pinnedMid.diegeticOmen}` : ''
-    lines.push(`- [Pinned Mid-Term Arc: ${pinnedMid.title}] tag="${pinnedMid.tag}": keep subtle hooks aligned with "${hook}".${omen}`)
+    const omen = pinnedMid.diegeticOmen ? ` | Ambient in-world ripple (optional inspiration for event/scene): ${pinnedMid.diegeticOmen}` : ''
+    lines.push(`- [Pinned Mid-Term Arc: ${pinnedMid.title}] tag="${pinnedMid.tag}": open entry thread "${hook}".${omen}`)
   } else if (pinnedLong?.diegeticOmen) {
     lines.push(`- [Long-Term In-World Omen] tag="${pinnedLong.tag}": ambient whisper "${pinnedLong.diegeticOmen}"`)
   }
+  lines.push('- Free-improvisation quota: Always keep at least 1–2 `actors` / `featured` choices completely UNTAGGED and unbound by any compass route—purely improvising on immediate character chemistry, micro-expressions, or unexpected scene details.')
   return promptSection('plot_compass_candidates', lines.join('\n'))
 }
 
@@ -1207,7 +1214,7 @@ export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
   'Interaction Rules (Mode A - Safe Discussion First):',
   '1) DEFAULT TO DISCUSSION: By default, do NOT overwrite existing routes on the compass board. Reply directly in concise, vivid Simplified Chinese (or the story\'s language) with 2–3 concrete, causally plausible dramatic angles, key risks/hooks, and a short prompt inviting the player to refine or apply the idea.',
   '2) ONLY CALL `plot_compass_submit` WHEN EXPLICITLY REQUESTED: Call `plot_compass_submit` ONLY if the player clearly asks you in this turn to generate, rewrite, replace, or update compass routes (e.g. "按第2条生成今期路线" / "帮我重新生成中期方向" / "把这套思路落盘成新路线").',
-  '3) SCOPED UPDATES: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and provide 2–4 distinct routes for each updated horizon. Never fabricate deus ex machina teleportation or break passive constraints.',
+  '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and provide 2–4 distinct routes for each updated horizon. Write `beats` / `milestones` as concise 10–22 char dramatic state shifts rather than rigid micro-actions so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
   '4) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
 ].join('\n')
 
@@ -1240,6 +1247,7 @@ export const PLOT_COMPASS_PROGRESS_SYSTEM = [
   '1) Identify ONLY the beats/milestones that have ALREADY concretely happened or been achieved in the assistant story prose (`completed`), AND quote a verbatim 6–30 character excerpt from the assistant prose (`evidence`) proving each completed step.',
   '2) Identify ONLY routes whose core premise or causal foundation has been IRREVERSIBLY INVALIDATED / bypassed by the player\'s actual actions or settled events (`lapsed`), e.g. the player left the city or openly attacked the ally that an infiltration route depended on.',
   'Rules:',
+  '- DRAMATIC EQUIVALENCE: Beats and milestones describe dramatic outcomes or state shifts rather than rigid choreography. If the characters achieved the SAME core narrative shift, revelation, or relationship turn through a different creative tactic or phrasing in the assistant prose, mark it `completed` and quote the verbatim prose `evidence` proving that outcome occurred.',
   '- Player intentions, thoughts, OOC planning, or unfulfilled promises that have NOT actually played out in the assistant story prose do NOT count as `completed`.',
   '- Every item in `completed` MUST have concrete verbatim `evidence` copied directly from `<recent_story_turns>` assistant prose (NOT from `<thinking>`, variable updates, or user wishes). If you cannot find verbatim prose evidence, do NOT mark it completed.',
   '- Do NOT mark a route as `lapsed` merely because it has not happened yet or progresses slowly; mark `lapsed` ONLY when its core premise is now contradictory or impossible.',

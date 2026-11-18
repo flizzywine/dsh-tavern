@@ -1769,8 +1769,8 @@ function PlotCompassPanel({ ui, gameId }) {
             route.causalBasis && horizon !== 'longTerm' ? h('p', { className: 'dsh-tavern-compass-meta-line is-causal' },
               h('strong', null, '因果依据：'), route.causalBasis
             ) : null,
-            horizon === 'shortTerm' && route.sceneTrigger ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle' },
-              h('strong', null, '切入抓手：'), route.sceneTrigger
+            horizon === 'shortTerm' && route.sceneTrigger ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle', title: '仅在对话空转时供正文参考的破冰引子，不限制候选与正文的临场演法' },
+              h('strong', null, '破冰参考：'), route.sceneTrigger
             ) : null,
             horizon === 'midTerm' && route.entryHook ? h('div', { className: 'dsh-tavern-compass-callout' },
               h('strong', null, '入线契机：'),
