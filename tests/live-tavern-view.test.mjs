@@ -255,3 +255,38 @@ test('读不到视图时把原因留在 state 上，界面才说得清「这一�
   assert.equal(module.getSnapshot('ghost').error, 'no-session')
   stop()
 })
+
+test('只读 getSnapshot 不创建幽灵记录，空闲会话超过 maxIdleRecords 时按 LRU 淘汰', async function () {
+  const timers = fakeTimers()
+  const loaded = []
+  const module = createLiveTavernViewModule({
+    load: async function (sessionId) { loaded.push(sessionId); return { view: { marker: sessionId } } },
+    shouldPoll() { return false },
+    maxIdleRecords: 2,
+    now: timers.now, schedule: timers.schedule, cancel: timers.cancel
+  })
+
+  assert.equal(module.getSnapshot('never-visited').phase, 'idle')
+  assert.equal(module.getSnapshot('never-visited').view, null)
+  module.invalidate()
+  assert.deepEqual(loaded, [], '未订阅/未加载过的会话不应因 getSnapshot 被记入 records')
+
+  const stopActive = module.subscribe('active', function () {})
+  await timers.runNext()
+  const stop1 = module.subscribe('s1', function () {})
+  await timers.runNext()
+  const stop2 = module.subscribe('s2', function () {})
+  await timers.runNext()
+  const stop3 = module.subscribe('s3', function () {})
+  await timers.runNext()
+
+  stop1()
+  stop2()
+  stop3()
+
+  assert.equal(module.getSnapshot('active').view.marker, 'active', '有订阅者的活跃会话不会被淘汰')
+  assert.equal(module.getSnapshot('s1').view, null, '最早变为空闲的 s1 应已被淘汰')
+  assert.equal(module.getSnapshot('s2').view.marker, 's2', '最近空闲的 s2 保留')
+  assert.equal(module.getSnapshot('s3').view.marker, 's3', '最近空闲的 s3 保留')
+  stopActive()
+})

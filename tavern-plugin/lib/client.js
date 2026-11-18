@@ -3532,6 +3532,10 @@ window.__ModuleLoader__.load({
 		        React.createElement("path", { d: path }));
 		}
 		function registerTab(service, descriptor) {
+		    // 非编辑型侧栏标签页跨对话切换时不驻留隐藏 DOM，释放旧对话的 SidebarSessionView 与 Session retain。
+		    if (descriptor && descriptor.keepMounted === undefined) {
+		        descriptor = Object.assign({ keepMounted: false }, descriptor);
+		    }
 		    // the 人物卡库 tab's 「导入人物卡」 also takes card ZIPs, plus 「从网址导入卡」 (card-zip-entry.js).
 		    if (descriptor && descriptor.id === "dsh-tavern:cards" && typeof descriptor.component === "function" && typeof CardLibraryWithZip === "function") {
 		        const host = descriptor.component;
@@ -16235,11 +16239,14 @@ window.__ModuleLoader__.load({
 			const idlePollIntervalMs = Number(options.idlePollIntervalMs) > 0 ? Number(options.idlePollIntervalMs) : 0;
 			const pollWhileBusy = options.pollWhileBusy !== false;
 			const cacheRetentionMs = Number(options.cacheRetentionMs) || 0;
-			function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
+			const maxIdleRecords = Number.isSafeInteger(options.maxIdleRecords) && options.maxIdleRecords >= 0 ? options.maxIdleRecords : 8;
+			const IDLE_STATE = Object.freeze({ phase: "idle", view: null, error: "", updatedAt: 0 });
+			let idleSequence = 0;
+			function initialState() { return IDLE_STATE; }
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
 				if (!records.has(id)) {
-					const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined, emptyReads: 0 };
+					const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined, emptyReads: 0, idleOrder: ++idleSequence };
 					record.refresh = createRefresh(record);
 					records.set(id, record);
 				}
@@ -16429,6 +16436,22 @@ window.__ModuleLoader__.load({
 					record.refresh.request();
 				});
 			}
+			function touchIdle(record) {
+				record.idleOrder = ++idleSequence;
+			}
+			function pruneIdleRecords(keepId) {
+				const idle = [];
+				for (const item of records.values()) {
+					if (item.listeners.size === 0 && item.id !== keepId) idle.push(item);
+				}
+				const keepIsIdle = keepId !== undefined && records.get(keepId)?.listeners.size === 0;
+				const excess = idle.length + (keepIsIdle ? 1 : 0) - maxIdleRecords;
+				if (excess <= 0) return;
+				idle.sort(function (left, right) { return left.idleOrder - right.idleOrder; });
+				for (let i = 0; i < Math.min(excess, idle.length); i += 1) {
+					evict(idle[i].id);
+				}
+			}
 			function evict(sessionId) {
 				const record = records.get(String(sessionId || ""));
 				if (!record || record.listeners.size) return false;
@@ -16481,12 +16504,16 @@ window.__ModuleLoader__.load({
 					return { getSnapshot: snapshot, subscribe: function (notify) { return module.subscribe(sessionId, notify, paths); } };
 				},
 				evict: evict,
-				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+				getSnapshot: function (sessionId) {
+					const record = records.get(String(sessionId || ""));
+					return record ? record.state : IDLE_STATE;
+				},
 				seed: function (sessionId, view) {
 					// 没有视图就没有可种的东西：种一个空视图会让这一局在别人眼里「没有正文」，
 					// 而 phase 还是 ready，再没人去重读。
 					if (view === null || view === undefined) return;
 					const record = recordFor(sessionId);
+					touchIdle(record);
 					const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
 					const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
 					if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) return;
@@ -16498,9 +16525,11 @@ window.__ModuleLoader__.load({
 					record.seededView = result;
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);
 					if (record.listeners.size) record.refresh.request();
+					else pruneIdleRecords(record.id);
 				},
 				setView: function (sessionId, view) {
 					const record = recordFor(sessionId);
+					touchIdle(record);
 					// 调用方拿回来的结果偶尔没有 view（失败、被取消、只回了一行状态）。那不是
 					// 「这一局没有正文」：当真视图 publish 进去，phase 还是 ready，之后没人再读，
 					// 按钮就会一直说「还没有可重新生成的正文」。宁可丢掉这次写入，再读一次。
@@ -16515,6 +16544,7 @@ window.__ModuleLoader__.load({
 					record.optimisticBusy = shouldPoll(view);
 					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
 					if (pollWhileBusy && shouldPoll(view)) record.refresh.request();
+					else if (record.listeners.size === 0) pruneIdleRecords(record.id);
 					let released = false;
 					return function () {
 						if (released) return;
@@ -16548,12 +16578,14 @@ window.__ModuleLoader__.load({
 						if (record.listeners.size === 0) {
 							record.optimisticBusy = false;
 							record.optimisticOwner = null;
+							touchIdle(record);
 							if (cacheRetentionMs > 0 && record.eviction === null) record.eviction = scheduleTimer(function () {
 								record.eviction = null;
 								if (records.get(record.id) === record) evict(record.id);
 							}, cacheRetentionMs);
 							record.refresh.stop();
 							if (record.watchdog !== null) { stopWatchdog(record.watchdog); record.watchdog = null; }
+							pruneIdleRecords(record.id);
 						}
 					};
 				},
@@ -37622,6 +37654,7 @@ function tavernFloorHeightRecall(key, width) {
 			// Latest reply per session, fed by the observer in the composer dock (reply-observer.js):
 			// the card workbench has no transcript in Tavern's session view, so DSH's own Chat
 			// snapshot (running step blocks + finalized nodes) is the source for every mode.
+			const MAX_IDLE_REPLY_STATES = 16;
 			const replyStates = new Map();
 			const replySubscribers = new Map();
 			const replyPresenterFailures = new Map();
@@ -37721,7 +37754,20 @@ function tavernFloorHeightRecall(key, width) {
 				const text = JSON.stringify(state);
 				const previous = replyStates.get(sessionId);
 				if (previous && previous.text === text) return;
+				replyStates.delete(sessionId);
 				replyStates.set(sessionId, { state: state, text: text });
+				if (replyStates.size > MAX_IDLE_REPLY_STATES) {
+					let idleCount = 0;
+					for (const id of replyStates.keys()) {
+						if (!replySubscribers.has(id) && !workStatusRecords.has(id)) idleCount += 1;
+					}
+					for (const id of Array.from(replyStates.keys())) {
+						if (idleCount <= MAX_IDLE_REPLY_STATES) break;
+						if (id === sessionId || replySubscribers.has(id) || workStatusRecords.has(id)) continue;
+						replyStates.delete(id);
+						idleCount -= 1;
+					}
+				}
 				const record = workStatusRecords.get(sessionId);
 				if (record) refreshWorkStatus(record, { settle: true, notify: true });
 				const entries = replySubscribers.get(sessionId);
@@ -38144,7 +38190,7 @@ function tavernFloorHeightRecall(key, width) {
 						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
 						// a plugin panel's tab carries the host plugin glyph like every other tab.
 						const PluginIcon = DshUi && DshUi.IconCordisPluginOutline14;
-						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true,
+						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true, keepMounted: input.keepMounted === true,
 							...(PluginIcon ? { icon: function (size) { return React.createElement(PluginIcon, { size: size || 16, width: size || 16, height: size || 16 }); } } : {}),
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
@@ -54374,6 +54420,7 @@ function createTransferFeatureModule() {
 			title: "导出与导入",
 			order: 7,
 			single: true,
+			keepMounted: false,
 			component: function (props) {
 				return React.createElement(TavernTransferPanel, props)
 			}
@@ -65103,7 +65150,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: uiConversation, sessionId: props.scope.sessionId, executeSlash: executeSlash, openStyleTab: function (type, meta) { openTavernSidebarTab(ctx, { type: type, meta: meta }, { sessionId: props.scope.sessionId }); } });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
-			ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:background-tasks", title: "后台任务", order: 7, single: true,
+			ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:background-tasks", title: "后台任务", order: 7, single: true, keepMounted: false,
 				component: props => React.createElement(TavernBackgroundTasksTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: background tasks tab");
 			ctx.effect(() => slots.inject("conversation.chat.assistant-actions", () => slots.register(
 				{ name: "conversation.chat.assistant-actions", id: "dsh-tavern-rollback-to", order: 19, inject: function (sessionId) { return { sessionId: sessionId }; } },

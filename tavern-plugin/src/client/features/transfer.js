@@ -847,6 +847,7 @@ function createTransferFeatureModule() {
 			title: "导出与导入",
 			order: 7,
 			single: true,
+			keepMounted: false,
 			component: function (props) {
 				return React.createElement(TavernTransferPanel, props)
 			}

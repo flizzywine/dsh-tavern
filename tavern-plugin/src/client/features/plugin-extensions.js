@@ -26,6 +26,7 @@
 			// Latest reply per session, fed by the observer in the composer dock (reply-observer.js):
 			// the card workbench has no transcript in Tavern's session view, so DSH's own Chat
 			// snapshot (running step blocks + finalized nodes) is the source for every mode.
+			const MAX_IDLE_REPLY_STATES = 16;
 			const replyStates = new Map();
 			const replySubscribers = new Map();
 			const replyPresenterFailures = new Map();
@@ -125,7 +126,20 @@
 				const text = JSON.stringify(state);
 				const previous = replyStates.get(sessionId);
 				if (previous && previous.text === text) return;
+				replyStates.delete(sessionId);
 				replyStates.set(sessionId, { state: state, text: text });
+				if (replyStates.size > MAX_IDLE_REPLY_STATES) {
+					let idleCount = 0;
+					for (const id of replyStates.keys()) {
+						if (!replySubscribers.has(id) && !workStatusRecords.has(id)) idleCount += 1;
+					}
+					for (const id of Array.from(replyStates.keys())) {
+						if (idleCount <= MAX_IDLE_REPLY_STATES) break;
+						if (id === sessionId || replySubscribers.has(id) || workStatusRecords.has(id)) continue;
+						replyStates.delete(id);
+						idleCount -= 1;
+					}
+				}
 				const record = workStatusRecords.get(sessionId);
 				if (record) refreshWorkStatus(record, { settle: true, notify: true });
 				const entries = replySubscribers.get(sessionId);
@@ -548,7 +562,7 @@
 						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
 						// a plugin panel's tab carries the host plugin glyph like every other tab.
 						const PluginIcon = DshUi && DshUi.IconCordisPluginOutline14;
-						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true,
+						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true, keepMounted: input.keepMounted === true,
 							...(PluginIcon ? { icon: function (size) { return React.createElement(PluginIcon, { size: size || 16, width: size || 16, height: size || 16 }); } } : {}),
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
