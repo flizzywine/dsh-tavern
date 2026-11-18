@@ -15,12 +15,17 @@ export function createManagedModSettingsOwner(ctx,owner=ctx) {
     z.object({version:z.number().default(defaults.version),mods:z.any().default(defaults.mods),packs:z.any().default(defaults.packs),config:z.any().default(defaults.config),preferences:z.any().default(defaults.preferences)}),defaults,
     {setSource:fn=>{source=fn},onChange:changed,validate:value=>{validateModSystem('global',value);return value}},owner))
   ctx.effect(()=>()=>{active=false;changed();listeners.clear()})
-  const read=()=>{
+  const value=()=>{
     if(!active)throw modError('MOD_DISABLED','Managed settings owner is disposed')
-    const provider=settingsSectionProvider(ctx,MANAGED_MOD_SETTINGS_SECTION,owner)
-    return {revision:provider?.describe().find(section=>section.ns===MANAGED_MOD_SETTINGS_SECTION)?.revision ?? '0',value:structuredClone(source())}
+    return structuredClone(source())
   }
-  return Object.freeze({read,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)},
+  const read=()=>{
+    const current=value(),provider=settingsSectionProvider(ctx,MANAGED_MOD_SETTINGS_SECTION,owner)
+    return {revision:provider?.describe().find(section=>section.ns===MANAGED_MOD_SETTINGS_SECTION)?.revision ?? '0',value:current}
+  }
+  // value(): the choices without their revision. The revision comes from describing the whole settings profile (it
+  // re-reads the profile documents), so readers that only resolve choices (every stage request) take value().
+  return Object.freeze({read,value,subscribe(fn){listeners.add(fn);return ()=>listeners.delete(fn)},
     async compareAndSwap({expectedRevision,expectedValue,value}) {
       validateModSystem('global',value)
       const provider=settingsSectionProvider(ctx,MANAGED_MOD_SETTINGS_SECTION,owner),current=read(),next=structuredClone(value)

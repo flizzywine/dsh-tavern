@@ -79,7 +79,7 @@ export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,ca
     },
   })
   async function selection(cardPath,{sessionId}={}) {
-    const global=settings.read().value,workspace=cardPath?await readWorkspace(cardPath):null
+    const global=settings.value(),workspace=cardPath?await readWorkspace(cardPath):null
     const card=workspace?rawData(workspace.raw).extensions?.dsh_tavern?.modSystem || emptyCardMods():emptyCardMods()
     const releases=(await installations.readReleases()).filter(row=>row.active && row.installed)
     const manifests=releases.map(row=>row.manifest),authorized=releases.filter(row=>row.authorized).map(row=>row.manifest.id)
