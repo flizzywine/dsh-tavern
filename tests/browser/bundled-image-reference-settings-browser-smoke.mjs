@@ -1099,7 +1099,7 @@ try {
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '回收站', exact: true }).click()
   await page.getByLabel('恢复 剧情配图', { exact: true }).click()
-  await page.getByRole('button', { name: '全部图片', exact: true }).click()
+  await page.getByRole('button', { name: '游玩画廊', exact: true }).click()
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
 
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
@@ -1116,9 +1116,9 @@ try {
     { ...playGalleryJob, id: 'export-gif', label: '动画/原图' },
     { ...playGalleryJob, id: 'export-unselected', label: '未选中的图' },
   ]
-  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
   await page.getByRole('img', { name: '未选中的图', exact: true }).waitFor()
-  await page.getByRole('button', { name: '☑ 批量选择', exact: true }).click()
+  await page.getByRole('button', { name: '批量选择', exact: true }).click()
   assert.equal(await page.getByRole('button', { name: '导出选中图片（0）', exact: true }).isDisabled(), true)
   for (const id of ['play-only', 'export-twin', 'export-gif']) await page.locator(`[data-play-job-id="${id}"] img`).click()
   const exportSelected = page.getByRole('button', { name: '导出选中图片（3）', exact: true })
@@ -1169,8 +1169,8 @@ try {
   assert.deepEqual(await Promise.all(downloads.map(async download => readFile(await download.path()))), [png, png, gif])
   assert.deepEqual(exportRequests.slice(4), ['play-only', 'export-twin', 'export-gif'])
   extraGalleryJobs = []
-  await page.getByRole('button', { name: '✖ 退出批量', exact: true }).click()
-  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByRole('button', { name: '退出批量', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
   await page.getByRole('img', { name: '未选中的图', exact: true }).waitFor({ state: 'hidden' })
 
   // Permanent deletion works even when the host disables native confirmation dialogs.
@@ -1188,7 +1188,7 @@ try {
   await page.getByText('已彻底删除 0 张图，1 张删除失败：测试文件被占用', { exact: true }).waitFor()
   await page.getByLabel('恢复 剧情配图', { exact: true }).waitFor()
   failGalleryDelete = false
-  await page.getByRole('button', { name: '☑ 批量选择', exact: true }).click()
+  await page.getByRole('button', { name: '批量选择', exact: true }).click()
   await page.getByRole('button', { name: '全选', exact: true }).click()
   await page.getByRole('button', { name: '彻底删除（1）', exact: true }).click()
   await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
@@ -1197,16 +1197,16 @@ try {
   // Refill only the stubbed gallery to exercise single delete and clearing all.
   for (const clearAll of [false, true]) {
     playDeleted = false
-    await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
-    if (await page.getByRole('button', { name: '✖ 退出批量', exact: true }).count()) await page.getByRole('button', { name: '✖ 退出批量', exact: true }).click()
+    if (await page.getByRole('button', { name: '退出批量', exact: true }).count()) await page.getByRole('button', { name: '退出批量', exact: true }).click()
     if (clearAll) await page.getByRole('button', { name: '清空回收站', exact: true }).click()
     else await page.getByLabel('彻底删除 剧情配图', { exact: true }).click()
     await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
     await page.getByText('回收站是空的', { exact: true }).waitFor()
     assert.equal(calls.filter(call => call.path === '/gallery-delete').at(-1).body.all, clearAll)
   }
-  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
   await page.getByText('回收站是空的', { exact: true }).waitFor()
   await page.getByRole('button', { name: '卡片画廊', exact: true }).click()
   await page.getByRole('img', { name: '卡片专用图片', exact: true }).waitFor()
