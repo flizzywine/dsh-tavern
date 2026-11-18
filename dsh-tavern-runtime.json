@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2b05d9438a98494cdca3ba5e0a9d5089072b57f7",
-  "releaseSequence": 1772,
+  "revision": "a4ee0ebe1532f433dfd791ca1e3261a686fa6faf",
+  "releaseSequence": 1773,
   "version": "3.3.0",
   "files": [
     {
@@ -4196,8 +4196,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-system-settings.js",
-      "sha256": "9443a93cd9c005d5321d85e743f03c43c05ecc979cc9a87c67c41fb188c512a0",
-      "size": 2377
+      "sha256": "c2423c52ed6711c8f2cd665dd12c95d98ca21bf6916c63ebbdb90b031352f5de",
+      "size": 2669
     },
     {
       "path": "tavern-plugin/lib/mod-tools.js",
@@ -8691,13 +8691,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-execution.js",
-      "sha256": "77d713b699606dc322b727a55df239f57443c9752bd54bd55ea848c040b4c043",
-      "size": 12926
+      "sha256": "71c63530ea8738769bed7027a7bb4e95e0e08822d66667ff3112d8daffd53ee9",
+      "size": 13450
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js",
-      "sha256": "e2085b0e01a0a0f227eb3fed6580a01b209dfac6246fc289fd16d1a51ca30090",
-      "size": 9930
+      "sha256": "2afa7f1103d141382fa72c2826d336fc76642ca3d7a9c437f4d4a8e91f909ba0",
+      "size": 9925
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
@@ -9561,9 +9561,9 @@
     }
   ],
   "archive": {
-    "commit": "8566b7cc5ab902bccaaf0b8a492dfa004b9626a5",
+    "commit": "0b6203e0a81ad26931aa95102bc7e0b3b4c84459",
     "path": "runtime.zip",
-    "sha256": "26f90b20db6ea1135a2eb00f913a74c0b43f3fa22fed90368bedce3b463b9408",
-    "size": 16957329
+    "sha256": "cccf7afc9d2a447ffc5140dd96783358a077d02850ae61a8e3095731d1f769fa",
+    "size": 16957671
   }
 }
