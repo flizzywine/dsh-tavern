@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1b2aa21f05b0af9648d5ec3b51dd9f22d6524c3a",
-  "releaseSequence": 1765,
+  "revision": "d3392a7629cdfda06dd5b31110dffcdec8875026",
+  "releaseSequence": 1766,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "3737a250f57464df17365fd9e2bbd56db3d0ad18caacc6648980cd997d7aa8e4",
-      "size": 6291062
+      "sha256": "1792529adabfb2428178a6ec917c6195a7eca249c6e861506c70e23c4af714de",
+      "size": 6292016
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6731,8 +6731,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/figure-resolution.cjs",
-      "sha256": "368ef896612d731df6d936f0f93a2bed8ae723cff9a8234ec489eea1552b4353",
-      "size": 7818
+      "sha256": "a66869cbd3c9db94448c412908aa6f92c38a72fa91a25f4800a3bcbc1ef54158",
+      "size": 8738
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/figure-scale.cjs",
@@ -7101,8 +7101,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/figure-resolution.cjs",
-      "sha256": "736353b54f7d4619e27a698e66471b4053f5fa8b007d46db0f00934b2539c0ed",
-      "size": 7747
+      "sha256": "15f596f5f1f4197fdede3ff5f528d3dadfe213b95210a9330fbe84303aa8f254",
+      "size": 8667
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/figure-scale.cjs",
@@ -9561,9 +9561,9 @@
     }
   ],
   "archive": {
-    "commit": "e09aba2c7f0630a619de909f14249082927bab3e",
+    "commit": "027c6861aab610775d712d6b52af9145c7743fb5",
     "path": "runtime.zip",
-    "sha256": "5ec4a35bc83f234aa69b6d661db35bcf0fea40b1acee33f30e3e68ff8958b215",
-    "size": 16951583
+    "sha256": "8466ac54b09a30a87bffc1303599845c3d93a2bb6b3f6ae207a97010ff76aa4c",
+    "size": 16952480
   }
 }
