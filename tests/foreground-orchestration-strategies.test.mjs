@@ -182,6 +182,9 @@ for (const text of ['', '请根据图片继续']) test(`前台投影保留图片
   const result = await strategy.prepareStep({ sessionId: 'native', chat: {}, payload: { turn: 1, step: 1, messages }, decision: { messages } })
   assert.deepEqual(result.messages[0].content.filter(block => block.type === 'image'), [image])
   assert.equal(result.messages[0].content.some(block => block.text === '（玩家已更新酒馆运行状态）'), false)
+  const blankSystem = { role: 'system', content: [{ type: 'text', text: ' ' }] }
+  const projected = strategy.projectRequest({ sessionId: 'native', messages: [blankSystem, ...result.messages] })
+  assert.deepEqual(projected.messages, result.messages)
   assert.deepEqual(messages, original)
 })
 

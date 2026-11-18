@@ -23,6 +23,7 @@ import { inputKind } from './session-turn-input.js'
 import { isProducerSource, isSystemPromptSource } from './message-source.js'
 import { virtualWorldbookPromptText } from './worldbook-virtual-surface.js'
 import { frameUserInput } from './agent-input-frame.js'
+import { hasProviderContent } from './provider-message-content.js'
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
 // The card Agent resends its system prompt on every tool step and reads live
@@ -138,11 +139,6 @@ function snapshotMessage(text) {
       sections: [{ name: 'tavern:turn', text: str(text) }]
     }
   }
-}
-
-function hasProviderContent(message) {
-  if (!message || !['user', 'assistant'].includes(message.role) || !Array.isArray(message.content)) return true
-  return message.content.some(block => block && (block.type !== 'text' || /\S/.test(str(block.text))))
 }
 
 function isNativeStablePrefix(message) {

@@ -34,6 +34,27 @@ test('one hook projects, applies the story prompt and sends a single summary req
   assert.deepEqual(sent[0].messages.map(m => m.content[0]?.text), ['剧情压缩提示'])
 })
 
+test('summary replay omits empty messages by content and preserves images and tool exchanges', async () => {
+  const { projectCompactionRequest } = await import('../tavern-plugin/lib/domain/compaction-request.js')
+  const image = { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'AA==' }] }
+  const call = { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'dice', arguments: '{}' }] }
+  const result = { role: 'tool', content: [{ type: 'tool-result', id: 'call-1', content: [] }] }
+  const instruction = { role: 'user', content: [{ type: 'text', text: 'Summarize' }] }
+  const request = { purpose: 'compaction', messages: [
+    { role: 'system', content: [], source: { kind: 'system-prompt' } },
+    empty('dsh-tavern-context-window'),
+    { role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-surface-restore' } },
+    { role: 'assistant', content: [], source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' } },
+    { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: ' \n' }] },
+    image, call, result, instruction
+  ] }
+  const before = structuredClone(request)
+  const projected = projectCompactionRequest(request)
+  assert.deepEqual(projected.messages, [image, call, result, instruction])
+  assert.equal(projectCompactionRequest(projected), projected)
+  assert.deepEqual(request, before)
+})
+
 test('story compaction summarizes only history before the latest rounds and appends them verbatim', async () => {
   const { installCompactionRequestProjection } = await import('../tavern-plugin/lib/domain/compaction-request.js')
   const { retainRecentStoryRounds } = await import('../tavern-plugin/lib/domain/story-compaction.js')
