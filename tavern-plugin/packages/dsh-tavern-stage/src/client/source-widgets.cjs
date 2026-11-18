@@ -71,6 +71,21 @@ function stageWidgetFacePx(width,dpr) {
 // ephemeral reading UI, never a director state or a persisted preference.
 const isPhoneRef=ref=>!!phoneDevice && ref?.modId===phoneDevice.modId;
 const stageWidgetRefKey = ref => isPhoneRef(ref) ? JSON.stringify([ref.modId,'source']) : JSON.stringify([ref.packId,ref.kind,ref.assetId]);
+// A page asks for each source window once: its re-renders while it settles (the record arriving, the history loading,
+// the asset revision catching up) ask the same window again, and the answer to the same arguments at the same asset
+// revisions is shared. Only ready answers are kept.
+const sourceWindowReads=new Map();
+function readSourceWindow(ref,args,revisions){
+    const method=isPhoneRef(ref)?phoneDevice.presentation:'getAssetPackPresentation',key=JSON.stringify([method,args,revisions]);
+    let read=sourceWindowReads.get(key);
+    if(!read){
+        read=rpc(method,args,args.sessionId).then(result=>{if(result?.status!=='ready' && sourceWindowReads.get(key)===read)sourceWindowReads.delete(key);return result;},
+            error=>{if(sourceWindowReads.get(key)===read)sourceWindowReads.delete(key);throw error;});
+        sourceWindowReads.set(key,read);
+        while(sourceWindowReads.size>32)sourceWindowReads.delete(sourceWindowReads.keys().next().value);
+    }
+    return read;
+}
 function stageWidgetPresentationState() { return {entries:new Map(), cursor:null, serial:0, liveVisit:false}; }
 function reduceWidgetPresentation(previous, action) {
     const state = {...previous, entries:new Map([...previous.entries].map(([key,item]) => [key,{...item,seen:[...item.seen],pending:[...item.pending]}]))};
@@ -901,7 +916,8 @@ function useWidgetStage(props) {
         (async()=>{
             const items=[];
             for (const ref of missing) {
-                const result=await (props.readWindow || ((args)=>rpc(isPhoneRef(ref)?phoneDevice.presentation:'getAssetPackPresentation',args,props.sessionId)))({sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})}).catch(()=>null);
+                const args={sessionId:props.sessionId,turn:props.turn,at:cursor.para,expectedDirectionToken:props.record.token,...(ref.modId?{}:{widgetWindow:{ref}})};
+                const result=await (props.readWindow ? props.readWindow(args) : readSourceWindow(ref,args,[props.record.assetRevision,props.assetRevision])).catch(()=>null);
                 if (!live) return;
                 if (result?.status==='ready') items.push(...result.widgets);
             }
