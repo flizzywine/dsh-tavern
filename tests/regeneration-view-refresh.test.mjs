@@ -9,9 +9,9 @@ const end = source.indexOf('function createPlayControlsFeatureModule()', start)
 assert.ok(start >= 0 && end > start, '重生成视图刷新器必须位于 play-controls 中')
 const createRefresher = vm.runInNewContext(source.slice(start, end) + '; createTavernRegenerationViewRefresher')
 
-function fixture() {
-  let now = 0, nextTimer = 1
-  const timers = new Map(), invalidations = [], storyReads = []
+function fixture({ initialRunning = false } = {}) {
+  let now = 0, nextTimer = 1, currentRunning = initialRunning
+  const timers = new Map(), invalidations = [], storyReads = [], statusEvents = []
   const snapshot = { view: { regenInProgress: false, streamingMessageUid: null } }
   function schedule(run, delay) {
     const id = nextTimer++
@@ -29,16 +29,25 @@ function fixture() {
     }
     now = target
   }
+  const sessions = {
+    binding: id => id === 'session-a' ? { session: { getSnapshot: () => ({ running: currentRunning }) } } : undefined,
+    list: { getSnapshot: () => ({ byId: { 'session-a': { running: currentRunning } } }) },
+    handleSessionStatus: (id, running) => {
+      if (id === 'session-a') currentRunning = running
+      statusEvents.push({ id, running, at: now })
+    }
+  }
   const notify = createRefresher({
     liveTavernView: {
       invalidate: id => invalidations.push({ id, at: now }),
       getSnapshot: () => snapshot
     },
+    getSessions: () => sessions,
     storyChanged: id => storyReads.push({ id, at: now }),
     schedule,
     cancel: id => timers.delete(id)
   })
-  return { notify, snapshot, timers, invalidations, storyReads, advance }
+  return { notify, snapshot, timers, invalidations, storyReads, statusEvents, advance, isRunning: () => currentRunning }
 }
 
 test('准备超过 2.2 秒仍持续确认生成标记，读到后立即撤旧正文并停止轮询', () => {
@@ -84,4 +93,45 @@ test('不同会话的标记确认互不收尾', () => {
   assert.deepEqual(h.invalidations.at(-1), { id: 'session-b', at: 500 })
   h.notify('session-b', false)
   assert.equal(h.timers.size, 0)
+})
+
+test('按下重新生成即刻把宿主会话置为运行中，嵌套收尾与已运行会话不误灭', () => {
+  const h = fixture()
+  // 长按发送键和 submitBodyRegeneration 会嵌套调用 notifyRegenerating。
+  h.notify('session-a', true)
+  assert.equal(h.isRunning(), true)
+  assert.deepEqual(h.statusEvents, [{ id: 'session-a', running: true, at: 0 }])
+
+  h.notify('session-a', true)
+  assert.deepEqual(h.statusEvents, [{ id: 'session-a', running: true, at: 0 }], '嵌套开始不重复发 running=true')
+
+  h.notify('session-a', false)
+  assert.equal(h.isRunning(), true, '内层先结束时仍保持运行中')
+  h.notify('session-a', false)
+  assert.equal(h.isRunning(), false)
+  assert.deepEqual(h.statusEvents, [
+    { id: 'session-a', running: true, at: 0 },
+    { id: 'session-a', running: false, at: 0 }
+  ])
+
+  // 后台目标（如 MVU/导演/候选项）不切换前台发送键。
+  h.notify('session-a', true, { foreground: false })
+  assert.equal(h.isRunning(), false)
+  h.notify('session-a', false, { foreground: false })
+  assert.equal(h.statusEvents.length, 2)
+
+  // 若仍有服务端运行态（如排队续写接管了同一会话），结束时不误熄灭停止键。
+  h.notify('session-a', true)
+  h.notify('session-a', true)
+  h.notify('session-a', false, { sessionRunning: true })
+  h.notify('session-a', false)
+  assert.equal(h.isRunning(), true)
+  h.notify.clear()
+
+  // 提交前宿主本就处于运行中，无论成功还是拒绝都不改写其状态。
+  const busy = fixture({ initialRunning: true })
+  busy.notify('session-a', true)
+  busy.notify('session-a', false)
+  assert.equal(busy.isRunning(), true)
+  assert.deepEqual(busy.statusEvents, [])
 })

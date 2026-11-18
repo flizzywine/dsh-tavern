@@ -5,9 +5,49 @@
 		function createTavernRegenerationViewRefresher(options) {
 			const liveView = options.liveTavernView;
 			const storyChanged = options.storyChanged || function () {};
+			const getSessions = typeof options.getSessions === "function" ? options.getSessions : function () { return options.sessions || null; };
 			const schedule = options.schedule || function (run, delay) { return window.setTimeout(run, delay); };
 			const cancel = options.cancel || function (timer) { window.clearTimeout(timer); };
 			const pending = new Map();
+			const optimistic = new Map();
+			function currentSessions() {
+				const sessions = getSessions();
+				return sessions && typeof sessions.handleSessionStatus === "function" ? sessions : null;
+			}
+			function readHostRunning(sessions, id) {
+				try {
+					const snap = sessions.binding?.(id)?.session?.getSnapshot?.();
+					if (snap && typeof snap.running === "boolean") return snap.running;
+					return Boolean(sessions.list?.getSnapshot?.()?.byId?.[id]?.running);
+				} catch (_) { return false; }
+			}
+			function setHostRunning(sessions, id, running) {
+				try { sessions.handleSessionStatus(id, running); } catch (_) {}
+			}
+			function syncOptimisticRunning(id, active, meta) {
+				if (meta && meta.foreground === false) return;
+				const sessions = currentSessions();
+				if (active === true) {
+					if (!sessions) return;
+					let entry = optimistic.get(id);
+					if (!entry) {
+						// 先记住提交前宿主是否已在运行：已有前台生成时不能在结束/拒绝时把停止键按灭。
+						entry = { depth: 0, owned: !readHostRunning(sessions, id), keepRunning: false };
+						optimistic.set(id, entry);
+						if (entry.owned) setHostRunning(sessions, id, true);
+					}
+					entry.depth += 1;
+					return;
+				}
+				const entry = optimistic.get(id);
+				if (!entry) return;
+				if (meta && meta.sessionRunning === true) entry.keepRunning = true;
+				entry.depth -= 1;
+				if (entry.depth <= 0) {
+					optimistic.delete(id);
+					if (entry.owned && !entry.keepRunning && sessions) setHostRunning(sessions, id, false);
+				}
+			}
 			function stop(id) {
 				const ticket = pending.get(id);
 				if (!ticket) return;
@@ -18,10 +58,12 @@
 				liveView.invalidate(id);
 				try { storyChanged(id); } catch (_) { /* the live view still refreshes without DOM events */ }
 			}
-			return function notifyRegenerating(sessionId, active) {
+			function notifyRegenerating(sessionId, active, meta) {
 				const id = String(sessionId || "");
 				if (id === "") return;
 				stop(id);
+				// 一按下重新生成就先把宿主会话标成运行中，发送键在当帧内切为停止键，不必等服务端往返。
+				syncOptimisticRunning(id, active, meta);
 				refresh(id);
 				if (active !== true) return;
 				const ticket = { timer: null, tries: 0 };
@@ -43,7 +85,16 @@
 					ticket.timer = schedule(confirmMarker, 500);
 				}
 				ticket.timer = schedule(confirmMarker, 500);
+			}
+			notifyRegenerating.clear = function () {
+				for (const id of Array.from(pending.keys())) stop(id);
+				const sessions = currentSessions();
+				for (const [id, entry] of optimistic.entries()) {
+					if (entry.owned && !entry.keepRunning && sessions) setHostRunning(sessions, id, false);
+				}
+				optimistic.clear();
 			};
+			return notifyRegenerating;
 		}
 
 		function createPlayControlsFeatureModule() {
@@ -471,8 +522,10 @@
 			return h(TavernStatusPanel, { sessionId: props.sessionId, active: active, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab });
 		}
 
+        let regenHostSessions = null;
         const notifyRegenerating = createTavernRegenerationViewRefresher({
             liveTavernView,
+            getSessions: () => regenHostSessions,
             storyChanged: id => {
                 if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: id } }));
             }
@@ -1430,6 +1483,16 @@
 		function register(input) {
 			const ctx = input.ctx;
 			const slots = input.slots;
+			regenHostSessions = ctx.sessions || null;
+			ctx.effect(function () {
+				regenHostSessions = ctx.sessions || null;
+				return function () {
+					if (regenHostSessions === (ctx.sessions || null)) {
+						notifyRegenerating.clear();
+						regenHostSessions = null;
+					}
+				};
+			}, "dsh-tavern: regeneration host session status");
 			installTavernAssetLaunchers(ctx, slots);
 			ctx.effect(function () {
 				return tavernUiExtensions.attachCandidateRunner(async function (sessionId, guidance) {

@@ -60908,15 +60908,17 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             // the request itself runs for as long as the model takes. Tell the page the
             // replacement started, so it can take the old reply down right away.
             notifyRegenerating(panel.sessionId, true);
+            let sessionRunning = false;
             try {
                 const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);
                 if (regeneration.getSnapshot() === loading) regeneration.set(null);
             } catch (error) {
                 reportError("正文重新生成", error);
                 if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: bodyErrorText(error) });
-            } finally { notifyRegenerating(panel.sessionId, false); }
+            } finally { notifyRegenerating(panel.sessionId, false, { sessionRunning }); }
         });
     }
     // A body regeneration asked for without the guidance panel (the send key's long press,
@@ -60936,17 +60938,19 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             notifyRegenerating(sessionId, true);
+            let sessionRunning = false;
             try {
                 const payload = { guidance: text };
                 if (fresh) payload.fresh = true;
                 const result = await rpc("regenBody", payload, sessionId);
+                sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(sessionId, result.view, tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);
                 return result;
             } catch (error) {
                 reportError("正文重新生成", error);
                 throw error;
-            } finally { notifyRegenerating(sessionId, false); }
+            } finally { notifyRegenerating(sessionId, false, { sessionRunning }); }
         });
     }
     return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask, loadSavedCandidates,
@@ -61640,9 +61644,49 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		function createTavernRegenerationViewRefresher(options) {
 			const liveView = options.liveTavernView;
 			const storyChanged = options.storyChanged || function () {};
+			const getSessions = typeof options.getSessions === "function" ? options.getSessions : function () { return options.sessions || null; };
 			const schedule = options.schedule || function (run, delay) { return window.setTimeout(run, delay); };
 			const cancel = options.cancel || function (timer) { window.clearTimeout(timer); };
 			const pending = new Map();
+			const optimistic = new Map();
+			function currentSessions() {
+				const sessions = getSessions();
+				return sessions && typeof sessions.handleSessionStatus === "function" ? sessions : null;
+			}
+			function readHostRunning(sessions, id) {
+				try {
+					const snap = sessions.binding?.(id)?.session?.getSnapshot?.();
+					if (snap && typeof snap.running === "boolean") return snap.running;
+					return Boolean(sessions.list?.getSnapshot?.()?.byId?.[id]?.running);
+				} catch (_) { return false; }
+			}
+			function setHostRunning(sessions, id, running) {
+				try { sessions.handleSessionStatus(id, running); } catch (_) {}
+			}
+			function syncOptimisticRunning(id, active, meta) {
+				if (meta && meta.foreground === false) return;
+				const sessions = currentSessions();
+				if (active === true) {
+					if (!sessions) return;
+					let entry = optimistic.get(id);
+					if (!entry) {
+						// 先记住提交前宿主是否已在运行：已有前台生成时不能在结束/拒绝时把停止键按灭。
+						entry = { depth: 0, owned: !readHostRunning(sessions, id), keepRunning: false };
+						optimistic.set(id, entry);
+						if (entry.owned) setHostRunning(sessions, id, true);
+					}
+					entry.depth += 1;
+					return;
+				}
+				const entry = optimistic.get(id);
+				if (!entry) return;
+				if (meta && meta.sessionRunning === true) entry.keepRunning = true;
+				entry.depth -= 1;
+				if (entry.depth <= 0) {
+					optimistic.delete(id);
+					if (entry.owned && !entry.keepRunning && sessions) setHostRunning(sessions, id, false);
+				}
+			}
 			function stop(id) {
 				const ticket = pending.get(id);
 				if (!ticket) return;
@@ -61653,10 +61697,12 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 				liveView.invalidate(id);
 				try { storyChanged(id); } catch (_) { /* the live view still refreshes without DOM events */ }
 			}
-			return function notifyRegenerating(sessionId, active) {
+			function notifyRegenerating(sessionId, active, meta) {
 				const id = String(sessionId || "");
 				if (id === "") return;
 				stop(id);
+				// 一按下重新生成就先把宿主会话标成运行中，发送键在当帧内切为停止键，不必等服务端往返。
+				syncOptimisticRunning(id, active, meta);
 				refresh(id);
 				if (active !== true) return;
 				const ticket = { timer: null, tries: 0 };
@@ -61678,7 +61724,16 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 					ticket.timer = schedule(confirmMarker, 500);
 				}
 				ticket.timer = schedule(confirmMarker, 500);
+			}
+			notifyRegenerating.clear = function () {
+				for (const id of Array.from(pending.keys())) stop(id);
+				const sessions = currentSessions();
+				for (const [id, entry] of optimistic.entries()) {
+					if (entry.owned && !entry.keepRunning && sessions) setHostRunning(sessions, id, false);
+				}
+				optimistic.clear();
 			};
+			return notifyRegenerating;
 		}
 
 		function createPlayControlsFeatureModule() {
@@ -62842,8 +62897,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			return h(TavernStatusPanel, { sessionId: props.sessionId, active: active, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab });
 		}
 
+        let regenHostSessions = null;
         const notifyRegenerating = createTavernRegenerationViewRefresher({
             liveTavernView,
+            getSessions: () => regenHostSessions,
             storyChanged: id => {
                 if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: id } }));
             }
@@ -62879,7 +62936,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             const text = String(guidance || "").trim();
             let started = null;
             // 提交后服务端才写 regenInProgress；视图没读到之前正文被标记遮住，靠它自己重读。
-            notifyRegenerating(sessionId, true);
+            // 只有正文重生成占前台对话轮次，其它后台目标不切换发送键。
+            const foreground = target === "body";
+            notifyRegenerating(sessionId, true, { foreground });
             try {
                 if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
                 else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
@@ -62888,7 +62947,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             } finally {
                 // 正文落盘、被停止、报错都是这一轮的收尾：视图、协调状态和故事列表一起重读。
                 // 少读故事这一份时，新正文只写进存档，页面上仍是原来那几行，要刷新才回来。
-                notifyRegenerating(sessionId, false);
+                notifyRegenerating(sessionId, false, { foreground });
             }
             return started;
         }
@@ -62911,7 +62970,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                     if (activity && activity.operationId) await rpc("stopBackground", { operationId: activity.operationId }, sessionId);
                 }
             } catch (error) { tavernErrorHub.report("停止重新生成", error); }
-            finally { notifyRegenerating(sessionId, false); }
+            finally { notifyRegenerating(sessionId, false, { foreground: false }); }
         }
 
         function GalRegenerate(props) {
@@ -65054,6 +65113,16 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		function register(input) {
 			const ctx = input.ctx;
 			const slots = input.slots;
+			regenHostSessions = ctx.sessions || null;
+			ctx.effect(function () {
+				regenHostSessions = ctx.sessions || null;
+				return function () {
+					if (regenHostSessions === (ctx.sessions || null)) {
+						notifyRegenerating.clear();
+						regenHostSessions = null;
+					}
+				};
+			}, "dsh-tavern: regeneration host session status");
 			installTavernAssetLaunchers(ctx, slots);
 			ctx.effect(function () {
 				return tavernUiExtensions.attachCandidateRunner(async function (sessionId, guidance) {

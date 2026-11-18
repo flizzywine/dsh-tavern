@@ -113,15 +113,17 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             // the request itself runs for as long as the model takes. Tell the page the
             // replacement started, so it can take the old reply down right away.
             notifyRegenerating(panel.sessionId, true);
+            let sessionRunning = false;
             try {
                 const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);
                 if (regeneration.getSnapshot() === loading) regeneration.set(null);
             } catch (error) {
                 reportError("正文重新生成", error);
                 if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: bodyErrorText(error) });
-            } finally { notifyRegenerating(panel.sessionId, false); }
+            } finally { notifyRegenerating(panel.sessionId, false, { sessionRunning }); }
         });
     }
     // A body regeneration asked for without the guidance panel (the send key's long press,
@@ -141,17 +143,19 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             notifyRegenerating(sessionId, true);
+            let sessionRunning = false;
             try {
                 const payload = { guidance: text };
                 if (fresh) payload.fresh = true;
                 const result = await rpc("regenBody", payload, sessionId);
+                sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(sessionId, result.view, tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);
                 return result;
             } catch (error) {
                 reportError("正文重新生成", error);
                 throw error;
-            } finally { notifyRegenerating(sessionId, false); }
+            } finally { notifyRegenerating(sessionId, false, { sessionRunning }); }
         });
     }
     return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask, loadSavedCandidates,

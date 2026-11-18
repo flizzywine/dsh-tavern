@@ -33,6 +33,7 @@ export function createPlayHandlers(deps) {
     if (after === 0) regeneratingRuns.delete(sessionId)
     else regeneratingRuns.set(sessionId, after)
     if (before !== 0 && after !== 0) return
+    if (after === 0 && agentRegistry?.get?.(sessionId)?.phase?.kind === 'running') return
     try { ctx.emit('api-session/status', sessionId, after > 0) }
     catch (error) { console.warn('dsh-tavern: 重新生成的运行状态没有送到页面', str(error?.message || error)) }
   }
@@ -265,9 +266,9 @@ export function createPlayHandlers(deps) {
     },
     async regenBody(args) {
       const sessionId = str(args?.sessionId)
-      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
       announceRegenerating(sessionId, true)
       try {
+        if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
         autoChoices.cancel(sessionId)
         if (args?.restyle === true) await retryStyleReference(sessionId, { target: 'regenerate', guidance: args.styleGuidance })
         await requestPerformance.stage('regen.reconcile', () => reconcileStory(sessionId))
@@ -279,7 +280,7 @@ export function createPlayHandlers(deps) {
           notifyPluginTimeline(sessionId, 'regenerate')
           void polishPrereview.start(sessionId).catch(() => {})
         }
-        return { view }
+        return agentRegistry?.get?.(sessionId)?.phase?.kind === 'running' ? { view, sessionRunning: true } : { view }
       } finally {
         announceRegenerating(sessionId, false)
       }
