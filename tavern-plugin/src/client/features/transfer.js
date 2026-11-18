@@ -71,13 +71,91 @@ function createTransferFeatureModule() {
 		return payload
 	}
 
+	function makeProgressId(prefix) {
+		if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return prefix + "-" + crypto.randomUUID()
+		return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10)
+	}
+
+	function uploadImportBundle(file, onUploadProgress) {
+		const isJsdom = typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent || "")
+		if (typeof XMLHttpRequest === "function" && !isJsdom) {
+			return new Promise(function (resolve, reject) {
+				const xhr = new XMLHttpRequest()
+				xhr.open("POST", "/api/dsh-tavern/card-upload")
+				xhr.setRequestHeader("Content-Type", "application/octet-stream")
+				if (xhr.upload && typeof onUploadProgress === "function") {
+					xhr.upload.onprogress = function (event) {
+						if (event && event.lengthComputable && event.total > 0) {
+							onUploadProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+						}
+					}
+				}
+				xhr.onload = function () {
+					let reply = null
+					try { reply = JSON.parse(xhr.responseText || "null") } catch (_error) { /* the route answers JSON */ }
+					if (!reply || !reply.ok) {
+						reject(new Error((reply && reply.error) || "上传失败（HTTP " + xhr.status + "）"))
+						return
+					}
+					resolve(reply)
+				}
+				xhr.onerror = function () { reject(new Error("上传失败，请检查网络连接")) }
+				xhr.send(file)
+			})
+		}
+		return fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file }).then(async function (response) {
+			let reply = null
+			try { reply = await response.json() } catch (_error) { /* the route answers JSON */ }
+			if (!reply || !reply.ok) throw new Error((reply && reply.error) || "上传失败（HTTP " + response.status + "）")
+			return reply
+		})
+	}
+
+	function renderInlineSpinner() {
+		return typeof Spinner === "function" ? h(Spinner, { delay: 0 }) : null
+	}
+
+	function renderProgressBox(options) {
+		const pct = typeof options.percent === "number" && Number.isFinite(options.percent)
+			? Math.max(0, Math.min(100, Math.round(options.percent)))
+			: null
+		const showMeter = options.showMeter !== false
+		return h("div", {
+			className: "dsh-tavern-transfer-progress" + (options.className ? " " + options.className : ""),
+			role: "status",
+			"aria-live": "polite"
+		},
+			h("div", { className: "dsh-tavern-transfer-progress-head" },
+				h("strong", null, options.spinning !== false ? renderInlineSpinner() : null, options.title),
+				pct !== null ? h("span", { className: "dsh-tavern-transfer-progress-pct" }, pct + "%") : null
+			),
+			showMeter ? h("div", {
+				className: "dsh-tavern-transfer-meter" + (pct === null ? " is-indeterminate" : ""),
+				role: "progressbar",
+				"aria-label": options.meterLabel || options.title,
+				"aria-valuemin": 0,
+				"aria-valuemax": 100,
+				"aria-valuenow": pct !== null ? pct : undefined
+			},
+				h("div", {
+					className: "dsh-tavern-transfer-meter-fill",
+					style: pct !== null ? { width: pct + "%" } : undefined
+				})
+			) : null,
+			options.detail ? h("span", { className: "dsh-tavern-transfer-progress-sub" }, options.detail) : null,
+			options.action || null
+		)
+	}
+
 	function TavernTransferPanel(props) {
 		const sessionId = props.scope && props.scope.sessionId
 		const [mode, setMode] = React.useState("export")
 		const [catalog, setCatalog] = React.useState(null)
+		const [loadingCatalog, setLoadingCatalog] = React.useState(true)
 		const [selected, setSelected] = React.useState({})
 		const [openParts, setOpenParts] = React.useState({})
 		const [busy, setBusy] = React.useState(false)
+		const [exportState, setExportState] = React.useState(null)
 		const [exported, setExported] = React.useState(null)
 		const [includeImages, setIncludeImages] = React.useState(false)
 		const [importing, setImporting] = React.useState(null)
@@ -89,6 +167,7 @@ function createTransferFeatureModule() {
 		// 服务端一次导入要写几万个文件，手机端等不到回包就再点一次是常态：这里同步挡住第二次提交，
 		// 不至于按下两次就导入两遍（服务端也认同一个 token 只跑一次）。
 		const applyingRef = React.useRef(false)
+		const exportingRef = React.useRef(false)
 		// 最后生成的包，供「重新下载」复用。服务端在 token 有效期内允许多次下载，所以
 		// 第一次没弹出保存界面（内嵌 WebView 常见）时，用户可以直接再点一次。
 		const exportRef = React.useRef(null)
@@ -96,6 +175,7 @@ function createTransferFeatureModule() {
 
 		const refresh = React.useCallback(function () {
 			if (catalogPendingRef.current) return catalogPendingRef.current
+			setLoadingCatalog(true)
 			const pending = rpc("getTransferCatalog", {}, sessionId).then(function (value) {
 				setCatalog(value && value.parts ? value : { parts: [], groups: [] })
 				return value
@@ -104,6 +184,7 @@ function createTransferFeatureModule() {
 				return null
 			}).finally(function () {
 				if (catalogPendingRef.current === pending) catalogPendingRef.current = null
+				setLoadingCatalog(false)
 			})
 			catalogPendingRef.current = pending
 			return pending
@@ -124,6 +205,7 @@ function createTransferFeatureModule() {
 		function totalBytes(part) { return (part.items || []).reduce(function (sum, item) { return sum + (Number(item.bytes) || 0) }, 0) }
 
 		function toggleItem(part, item, next) {
+			if (busy) return
 			setSelected(function (current) {
 				const group = Object.assign({}, current[part.kind] || {})
 				if (next) group[item.key] = true
@@ -137,6 +219,7 @@ function createTransferFeatureModule() {
 		}
 
 		function togglePart(part) {
+			if (busy) return
 			const all = part.items.length > 0 && chosenItems(part).length === part.items.length
 			setSelected(function (current) {
 				const copy = Object.assign({}, current)
@@ -148,6 +231,7 @@ function createTransferFeatureModule() {
 		}
 
 		function quickSelect(scope) {
+			if (busy) return
 			const kinds = scope === "all" ? parts.filter(function (part) { return part.supported && part.items.length }).map(function (part) { return part.kind })
 				: ["cards", "worldbooks", "presets", "prompts", "profile", "regex"]
 			const next = {}
@@ -207,10 +291,16 @@ function createTransferFeatureModule() {
 		}
 
 		function submitExport() {
+			if (exportingRef.current || busy) return
 			if (!stats.count) { setError("先选至少一个板块"); return }
+			exportingRef.current = true
+			const exportId = makeProgressId("export")
+			const startedAt = Date.now()
 			setError("")
+			setExported(null)
 			setBusy(true)
-			rpc("createTransferExport", { selection, includeImages }, sessionId).then(function (result) {
+			setExportState({ id: exportId, startedAt, total: stats.count, now: startedAt, progress: null })
+			rpc("createTransferExport", { selection, includeImages, exportId }, sessionId).then(function (result) {
 				const payload = result.downloadUrl
 					? { url: result.downloadUrl, filename: result.filename }
 					: { base64: result.base64, filename: result.filename }
@@ -218,7 +308,82 @@ function createTransferFeatureModule() {
 				saveExport(payload)
 				setExported({ name: result.filename, bytes: result.bytes, totals: result.totals, parts: result.parts })
 				window.setTimeout(function () { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight }, 30)
-			}, function (err) { setError(String(err && err.message || err)) }).finally(function () { setBusy(false) })
+			}).catch(function (err) { setError(String(err && err.message || err)) }).finally(function () {
+				exportingRef.current = false
+				setExportState(null)
+				setBusy(false)
+			})
+		}
+
+		// 导出过程中轮询服务端进度：收集到哪个板块、第几项、正在压缩打包，都实时展示给用户。
+		const activeExportId = exportState ? exportState.id : ""
+		React.useEffect(function () {
+			if (!activeExportId) return undefined
+			let stopped = false
+			function tick() {
+				rpc("getTransferExportProgress", { exportId: activeExportId }, sessionId).then(function (value) {
+					if (stopped) return
+					setExportState(function (current) {
+						if (!current || current.id !== activeExportId) return current
+						return Object.assign({}, current, {
+							now: Date.now(),
+							progress: value && value.running ? value : current.progress
+						})
+					})
+				}, function () {
+					if (stopped) return
+					setExportState(function (current) {
+						if (!current || current.id !== activeExportId) return current
+						return Object.assign({}, current, { now: Date.now() })
+					})
+				})
+			}
+			tick()
+			const timer = window.setInterval(tick, 400)
+			return function () { stopped = true; window.clearInterval(timer) }
+		}, [activeExportId, sessionId])
+
+		function buildExportProgressInfo() {
+			if (!exportState) return null
+			const row = exportState.progress
+			const elapsedMs = (row && Number(row.elapsedMs) > 0)
+				? Number(row.elapsedMs)
+				: Math.max(0, (exportState.now || Date.now()) - exportState.startedAt)
+			const seconds = Math.max(1, Math.round(elapsedMs / 1000))
+			const total = (row && Number(row.total) > 0) ? Number(row.total) : (Number(exportState.total) || 0)
+			const items = row ? Math.min(Number(row.items) || 0, total || Number(row.items) || 0) : 0
+			if (row && row.stage === "pack") {
+				return {
+					title: "正在打包压缩导出包…",
+					detail: (total > 0 ? "已收集全部 " + total + " 项 · " : "") + "已用 " + seconds + " 秒",
+					summary: "正在打包压缩，已 " + seconds + " 秒",
+					percent: 95
+				}
+			}
+			if (row && row.stage === "save") {
+				return {
+					title: "正在生成下载文件…",
+					detail: (total > 0 ? "共 " + total + " 项 · " : "") + "已用 " + seconds + " 秒",
+					summary: "正在生成下载文件，已 " + seconds + " 秒",
+					percent: 98
+				}
+			}
+			if (row && row.label) {
+				const countText = total > 0 ? " (" + items + "/" + total + ")" : ""
+				const percent = total > 0 ? Math.min(92, Math.max(5, Math.round((items / total) * 90))) : null
+				return {
+					title: "正在导出 · " + row.label + countText,
+					detail: (row.itemTitle ? "当前：" + row.itemTitle + " · " : "") + "已用 " + seconds + " 秒",
+					summary: "正在导出 · " + row.label + (total > 0 ? " " + items + "/" + total : "") + "，已 " + seconds + " 秒",
+					percent
+				}
+			}
+			return {
+				title: "正在准备导出…",
+				detail: (total > 0 ? "共选 " + total + " 项 · " : "") + "已用 " + seconds + " 秒",
+				summary: "正在准备导出，已 " + seconds + " 秒",
+				percent: total > 0 ? 4 : null
+			}
 		}
 
 		function pickImportFile(event) {
@@ -230,13 +395,19 @@ function createTransferFeatureModule() {
 		async function readImportFile(file) {
 			setError("")
 			setExported(null)
-			setImporting({ stage: "reading", fileName: file.name })
+			setImporting({ stage: "reading", readPhase: "uploading", uploadPercent: null, fileName: file.name })
 			setBusy(true)
 			try {
-				const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file })
-				let reply = null
-				try { reply = await response.json() } catch (_error) { /* the route answers JSON */ }
-				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）")
+				const reply = await uploadImportBundle(file, function (pct) {
+					setImporting(function (current) {
+						if (!current || current.stage !== "reading") return current
+						return Object.assign({}, current, { readPhase: "uploading", uploadPercent: pct })
+					})
+				})
+				setImporting(function (current) {
+					if (!current || current.stage !== "reading") return current
+					return Object.assign({}, current, { readPhase: "parsing", uploadPercent: 100 })
+				})
 				const result = await rpc("previewTransferBundle", { uploadId: reply.uploadId }, sessionId)
 				setImporting({ stage: "preview", fileName: file.name, token: result.token, bundle: result.bundle, policies: defaultPolicies(result.bundle), selection: defaultSelection(result.bundle) })
 				setOpenImport({})
@@ -308,7 +479,7 @@ function createTransferFeatureModule() {
 
 		function renderItem(part, item) {
 			return h("label", { className: "dsh-tavern-transfer-item", key: part.kind + ":" + item.key },
-				checkBox({ checked: isSelected(part, item), label: item.title, onToggle: function () { toggleItem(part, item, !isSelected(part, item)) } }),
+				checkBox({ checked: isSelected(part, item), disabled: busy, label: item.title, onToggle: function () { toggleItem(part, item, !isSelected(part, item)) } }),
 				h("span", { className: "dsh-tavern-transfer-item-name" }, item.title),
 				item.meta ? h("span", { className: "dsh-tavern-transfer-item-note" }, item.meta) : null,
 				h("span", { className: "dsh-tavern-transfer-item-size" }, Number(item.bytes) > 0 ? fmtBytes(item.bytes) : "导出时生成")
@@ -320,11 +491,11 @@ function createTransferFeatureModule() {
 			const all = part.items.length > 0 && chosen.length === part.items.length
 			const partial = chosen.length > 0 && !all
 			const open = openParts[part.kind] === true
-			const disabled = !part.supported || part.items.length === 0
+			const disabled = busy || !part.supported || part.items.length === 0
 			const total = totalBytes(part)
 			const sizeText = total > 0 ? fmtBytes(total) : "按需生成"
 			const size = chosen.length ? (partBytes(part) > 0 ? fmtBytes(partBytes(part)) + (all ? "" : " / " + sizeText) : sizeText) : (part.items.length ? "共 " + sizeText : "—")
-			return h("article", { className: "dsh-tavern-transfer-part" + (disabled ? " is-empty" : ""), key: part.kind },
+			return h("article", { className: "dsh-tavern-transfer-part" + ((!part.supported || part.items.length === 0) ? " is-empty" : ""), key: part.kind },
 				h("div", { className: "dsh-tavern-transfer-part-head" },
 					checkBox({ checked: partial ? "mixed" : all, disabled, label: "选择" + part.label, onToggle: function () { togglePart(part) } }),
 					h("div", { className: "dsh-tavern-transfer-part-main" },
@@ -350,22 +521,48 @@ function createTransferFeatureModule() {
 		}
 
 		function renderExport() {
+			if (!catalog && loadingCatalog) {
+				return h("div", { className: "dsh-tavern-transfer-body", ref: bodyRef },
+					renderProgressBox({
+						title: "正在加载可迁移的数据…",
+						detail: "正在读取本机人物卡、世界书、预设与对话记录",
+						meterLabel: "正在加载数据"
+					})
+				)
+			}
+			if (!catalog) {
+				return h("div", { className: "dsh-tavern-transfer-body", ref: bodyRef },
+					renderProgressBox({
+						title: "未能获取本机可迁移数据",
+						detail: "请检查上方错误提示，或点击下方按钮重新加载",
+						spinning: false,
+						showMeter: false,
+						action: h("div", null, h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || loadingCatalog, onClick: function () { void refresh() } }, "重新加载"))
+					})
+				)
+			}
 			const byGroup = {}
 			parts.forEach(function (part) { (byGroup[part.group] = byGroup[part.group] || []).push(part) })
+			const renderedGroups = groups.map(function (group) {
+				const list = byGroup[group.id] || []
+				if (!list.length) return null
+				return h("section", { className: "dsh-tavern-transfer-group", key: group.id },
+					h("div", { className: "dsh-tavern-transfer-group-title" }, group.title),
+					list.map(renderPart)
+				)
+			}).filter(Boolean)
 			return h("div", { className: "dsh-tavern-transfer-body", ref: bodyRef },
 				h("div", { className: "dsh-tavern-transfer-quick" },
 					h("span", { className: "dsh-tavern-transfer-quick-label" }, "快速选择"),
-					h("button", { type: "button", className: "dsh-tavern-transfer-chip", onClick: function () { quickSelect("all") } }, "全部"),
-					h("button", { type: "button", className: "dsh-tavern-transfer-chip", onClick: function () { quickSelect("domains") } }, "设定与写法"),
-					h("button", { type: "button", className: "dsh-tavern-transfer-chip", onClick: function () { setSelected({}); setExported(null) } }, "清空")
+					h("button", { type: "button", className: "dsh-tavern-transfer-chip", disabled: busy || loadingCatalog, onClick: function () { quickSelect("all") } }, "全部"),
+					h("button", { type: "button", className: "dsh-tavern-transfer-chip", disabled: busy || loadingCatalog, onClick: function () { quickSelect("domains") } }, "设定与写法"),
+					h("button", { type: "button", className: "dsh-tavern-transfer-chip", disabled: busy || loadingCatalog, onClick: function () { setSelected({}); setExported(null) } }, "清空")
 				),
-				groups.map(function (group) {
-					const list = byGroup[group.id] || []
-					if (!list.length) return null
-					return h("section", { className: "dsh-tavern-transfer-group", key: group.id },
-						h("div", { className: "dsh-tavern-transfer-group-title" }, group.title),
-						list.map(renderPart)
-					)
+				renderedGroups.length ? renderedGroups : renderProgressBox({
+					title: loadingCatalog ? "正在加载可迁移的数据…" : "暂无可导出的板块数据",
+					detail: loadingCatalog ? "正在读取本机人物卡、世界书、预设与对话记录" : "本机尚未发现可迁移的数据板块",
+					spinning: loadingCatalog,
+					showMeter: loadingCatalog
 				}),
 				exported ? h("div", { className: "dsh-tavern-transfer-exported" },
 					h("div", { className: "dsh-tavern-transfer-file" },
@@ -484,9 +681,15 @@ function createTransferFeatureModule() {
 					)
 				)
 			}
-			if (state.stage === "reading") {
+			if (state.stage === "reading" || !state.bundle) {
+				const isUploading = state.readPhase === "uploading" && state.uploadPercent !== 100
 				return h("div", { className: "dsh-tavern-transfer-body", ref: bodyRef },
-					h("div", { className: "dsh-tavern-transfer-progress" }, h("strong", null, "正在读取 " + state.fileName + "…"), h("span", null, "上传并校验包内文件"))
+					renderProgressBox({
+						title: (isUploading ? "正在上传 " : "正在读取 ") + (state.fileName || "迁移包") + "…",
+						detail: isUploading ? "正在上传包文件到本机服务" : "正在解析并校验包内文件与本机冲突",
+						percent: isUploading && typeof state.uploadPercent === "number" ? state.uploadPercent : null,
+						meterLabel: "读取导入包进度"
+					})
 				)
 			}
 			const bundle = state.bundle || { parts: [] }
@@ -500,6 +703,12 @@ function createTransferFeatureModule() {
 					),
 					bundle.issues && bundle.issues.length ? h("p", { className: "dsh-tavern-transfer-warn" }, "有 " + bundle.issues.length + " 项损坏，已跳过：" + bundle.issues[0]) : null
 				),
+				!(bundle.parts && bundle.parts.length) ? renderProgressBox({
+					title: "该导出包内没有可导入的数据",
+					detail: "包内未包含可识别的数据板块，可重新选择其他导出包",
+					spinning: false,
+					showMeter: false
+				}) : null,
 				(bundle.parts || []).map(function (part) {
 					const items = part.items || []
 					const selected = (state.selection && state.selection[part.kind]) || {}
@@ -592,31 +801,41 @@ function createTransferFeatureModule() {
 			}, label)
 		}
 
+		const exportInfo = buildExportProgressInfo()
+
 		return h("div", { className: "dsh-tavern-transfer" },
 			h("div", { className: "dsh-tavern-status-head dsh-tavern-transfer-head" },
 				h("div", null,
 					h("div", { className: "dsh-tavern-status-title" }, "导出与导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把选中的板块打成一个 .dshtransfer，换台机器再整包读回来")
 				),
-				h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void refresh() } }, "刷新")
+				h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || loadingCatalog, onClick: function () { void refresh() } }, loadingCatalog ? "加载中…" : "刷新")
 			),
 			h("div", { className: "dsh-tavern-transfer-modes" }, modeButton("export", "导出"), modeButton("import", "导入")),
 			error ? h("div", { className: "dsh-tavern-transfer-error" }, error) : null,
 			h("input", { ref: fileInput, type: "file", accept: ".dshtransfer,.zip,.bin,application/octet-stream", style: { display: "none" }, onChange: pickImportFile }),
 			mode === "export" ? renderExport() : renderImport(),
+			mode === "export" && exportInfo ? renderProgressBox({
+				className: "is-export-bar",
+				title: exportInfo.title,
+				detail: exportInfo.detail,
+				percent: exportInfo.percent,
+				meterLabel: "导出进度"
+			}) : null,
 			mode === "export" ? h("div", { className: "dsh-tavern-transfer-bar" },
 				h("div", { className: "dsh-tavern-transfer-summary" },
 					h("strong", null, stats.kinds + " 个板块"),
 					h("span", null, stats.count + " 项"),
 					h("span", null, "约 " + fmtBytes(stats.bytes)),
 					chatsSelected ? h("span", { className: "is-warn" }, "对话按实际大小打包") : null,
-					stats.bytes > 45 * 1024 * 1024 ? h("span", { className: "is-warn" }, "超过 45 MB，可能打包失败") : null
+					stats.bytes > 45 * 1024 * 1024 ? h("span", { className: "is-warn" }, "超过 45 MB，可能打包失败") : null,
+					exportInfo ? h("span", { className: "is-warn" }, exportInfo.summary) : null
 				),
 				h("span", { className: "dsh-tavern-transfer-switch" + (chatsSelected ? "" : " is-off") },
-					h(Switch, { label: "含对话配图", checked: includeImages, disabled: !chatsSelected, onChange: setIncludeImages }),
+					h(Switch, { label: "含对话配图", checked: includeImages, disabled: busy || !chatsSelected, onChange: setIncludeImages }),
 					h("span", { "aria-hidden": "true" }, "含对话配图")
 				),
-				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy || !stats.count, onClick: submitExport }, busy ? "打包中…" : "生成导出包")
+				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy || loadingCatalog || !stats.count, onClick: submitExport }, exportInfo ? "打包中…" : "生成导出包")
 			) : null
 		)
 	}

@@ -66,9 +66,10 @@ export function createTransferAssets({ root, library } = {}) {
     return rows.sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'))
   }
 
-  async function collect(ids) {
+  async function collect(ids, options = {}) {
     const wanted = (Array.isArray(ids) ? ids : [ids]).map(str).filter(Boolean)
     const items = []
+    const onItem = options && typeof options.onItem === 'function' ? options.onItem : null
     for (const id of wanted) {
       const pack = await library.getPackSnapshot({ packId: id }).catch(() => null)
       if (!pack || !pack.manifest) fail('素材包不存在：' + id)
@@ -86,6 +87,7 @@ export function createTransferAssets({ root, library } = {}) {
       }
       const dir = packDir(id)
       const title = document.name || id
+      if (onItem) onItem({ phase: 'start', key: id, title })
       const entries = [{ path: PACK_FILE, content: JSON.stringify(document, null, 2) + '\n' }]
       let bytes = 0
       for (const file of manifest.files || []) {
@@ -102,6 +104,7 @@ export function createTransferAssets({ root, library } = {}) {
       if (entries.length === 1) fail('素材包「' + title + '」是空的')
       const content = writeZipEntries(entries, { label: '素材包', maxArchiveBytes: MAX_ZIP_BYTES, maxExpandedBytes: MAX_EXPANDED_BYTES })
       items.push({ key: id, title, fileName: id + '.zip', content })
+      if (onItem) onItem({ phase: 'done', key: id, title })
     }
     return items
   }

@@ -4278,9 +4278,18 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 }
 .dsh-tavern-transfer-file-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .dsh-tavern-transfer-file-sub { font-size: 10.5px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
-.dsh-tavern-transfer-progress { display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-base); }
-.dsh-tavern-transfer-progress strong { font-size: 12.5px; }
-.dsh-tavern-transfer-progress span { font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-transfer-chip:disabled { opacity: .5; cursor: default; }
+.dsh-tavern-transfer-progress { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-base); }
+.dsh-tavern-transfer-progress.is-export-bar { margin: 0 12px 8px; padding: 10px 12px; flex: 0 0 auto; }
+.dsh-tavern-transfer-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.dsh-tavern-transfer-progress strong { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; min-width: 0; }
+.dsh-tavern-transfer-progress > span,
+.dsh-tavern-transfer-progress-sub { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-transfer-progress-pct { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--dsh-tavern-accent-active); flex: 0 0 auto; }
+.dsh-tavern-transfer-meter { position: relative; height: 5px; border-radius: 999px; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); overflow: hidden; }
+.dsh-tavern-transfer-meter-fill { height: 100%; border-radius: inherit; background: var(--dsh-tavern-accent-active); transition: width .24s ease; }
+.dsh-tavern-transfer-meter.is-indeterminate .dsh-tavern-transfer-meter-fill { width: 38%; animation: dsh-tavern-transfer-slide 1.25s ease-in-out infinite; }
+@keyframes dsh-tavern-transfer-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(270%); } }
 @media (max-width: 520px) {
   .dsh-tavern-transfer-item-note { display: none; }
   .dsh-tavern-transfer-switch { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dsw-alias-label-secondary); cursor: pointer; }

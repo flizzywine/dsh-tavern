@@ -129,11 +129,14 @@ export function createTransferHandlers(deps) {
   const runningApplies = new Map()
   const finishedApplies = new Map()
   const applyProgress = new Map()
+  const runningExports = new Set()
+  const exportProgress = new Map()
   function sweepTokens(now = Date.now()) {
     for (const [token, entry] of tokens) if (now - entry.at > TOKEN_TTL_MS) tokens.delete(token)
     for (const [token, entry] of undoTokens) if (now - entry.at > TOKEN_TTL_MS) undoTokens.delete(token)
     for (const [token, entry] of finishedApplies) if (now - entry.at > TOKEN_TTL_MS) finishedApplies.delete(token)
     for (const [token, entry] of applyProgress) if (now - entry.at > TOKEN_TTL_MS) applyProgress.delete(token)
+    for (const [exportId, entry] of exportProgress) if (now - entry.at > TOKEN_TTL_MS) exportProgress.delete(exportId)
   }
 
   const fileHash = async relative => {
@@ -169,36 +172,63 @@ export function createTransferHandlers(deps) {
     },
 
     async createTransferExport(args) {
+      sweepTokens()
+      const exportId = str(args && args.exportId).trim().slice(0, 120)
       const selection = args && typeof args.selection === 'object' && args.selection !== null ? args.selection : {}
-      const collected = await catalog.collect(selection, { images: args && args.includeImages !== false })
-      if (!collected.parts.length) throw new Error('请至少选择一个板块')
-      const name = safeTransferFileName(str(args && args.name) || 'DSH酒馆备份-' + stamp(), 'DSH酒馆备份')
-      const manifest = buildTransferManifest({
-        name,
-        source: { tavern: str(TAVERN_PACKAGE_VERSION), platform: process.platform },
-        parts: collected.parts
-      })
-      const buffer = packTransferBundle({ manifest, files: collected.files })
-      const filename = manifest.name + TRANSFER_EXTENSION
-      const parts = manifest.parts.map(function (part) {
-        return { kind: part.kind, label: part.label, items: part.items.length, bytes: part.bytes }
-      })
-      // Past this size the page downloads by URL instead of carrying base64 through JSON.
-      // 文件名放进路径：Android 的 URLUtil.guessFileName 在 DownloadListener 拿不到
-      // Content-Disposition 时会退回 URL 最后一段，只写 query 会得到 transfer-export.bin。
-      if (transferExports && buffer.length > STREAM_THRESHOLD_BYTES) {
-        const stored = await transferExports.put(buffer, filename)
-        return { filename, name: manifest.name,
-          downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token,
-          bytes: buffer.length, totals: manifest.totals, parts }
+      const startedAt = Date.now()
+      let lastTotal = 0
+      const report = function (step) {
+        if (!exportId) return
+        if (Number(step && step.total) > 0) lastTotal = Number(step.total)
+        exportProgress.set(exportId, Object.assign({ at: Date.now(), startedAt }, step))
       }
-      return {
-        filename,
-        name: manifest.name,
-        base64: buffer.toString('base64'),
-        bytes: buffer.length,
-        totals: manifest.totals,
-        parts
+      if (exportId) {
+        runningExports.add(exportId)
+        report({ stage: 'start', kind: '', label: '准备中', itemTitle: '', items: 0, total: 0 })
+      }
+      try {
+        const collected = await catalog.collect(selection, {
+          images: args && args.includeImages !== false,
+          onProgress: exportId ? step => report(step) : null
+        })
+        if (!collected.parts.length) throw new Error('请至少选择一个板块')
+        const totalDone = lastTotal || collected.parts.reduce(function (sum, part) { return sum + part.items.length }, 0)
+        report({ stage: 'pack', kind: 'pack', label: '正在打包压缩', itemTitle: '', items: totalDone, total: totalDone })
+        if (exportId) await new Promise(resolve => setImmediate(resolve))
+        const name = safeTransferFileName(str(args && args.name) || 'DSH酒馆备份-' + stamp(), 'DSH酒馆备份')
+        const manifest = buildTransferManifest({
+          name,
+          source: { tavern: str(TAVERN_PACKAGE_VERSION), platform: process.platform },
+          parts: collected.parts
+        })
+        const buffer = packTransferBundle({ manifest, files: collected.files })
+        const filename = manifest.name + TRANSFER_EXTENSION
+        const parts = manifest.parts.map(function (part) {
+          return { kind: part.kind, label: part.label, items: part.items.length, bytes: part.bytes }
+        })
+        // Past this size the page downloads by URL instead of carrying base64 through JSON.
+        // 文件名放进路径：Android 的 URLUtil.guessFileName 在 DownloadListener 拿不到
+        // Content-Disposition 时会退回 URL 最后一段，只写 query 会得到 transfer-export.bin。
+        if (transferExports && buffer.length > STREAM_THRESHOLD_BYTES) {
+          report({ stage: 'save', kind: 'save', label: '正在生成下载文件', itemTitle: '', items: totalDone, total: totalDone })
+          const stored = await transferExports.put(buffer, filename)
+          return { filename, name: manifest.name,
+            downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token,
+            bytes: buffer.length, totals: manifest.totals, parts }
+        }
+        return {
+          filename,
+          name: manifest.name,
+          base64: buffer.toString('base64'),
+          bytes: buffer.length,
+          totals: manifest.totals,
+          parts
+        }
+      } finally {
+        if (exportId) {
+          runningExports.delete(exportId)
+          exportProgress.delete(exportId)
+        }
       }
     },
 
@@ -280,6 +310,25 @@ export function createTransferHandlers(deps) {
         runningApplies.delete(token)
         applyProgress.delete(token)
       }
+    },
+
+    async getTransferExportProgress(args) {
+      sweepTokens()
+      const exportId = str(args && args.exportId).trim()
+      const entry = exportProgress.get(exportId)
+      if (entry) {
+        return {
+          running: true,
+          stage: str(entry.stage),
+          kind: str(entry.kind),
+          label: str(entry.label),
+          itemTitle: str(entry.itemTitle),
+          items: Number(entry.items) || 0,
+          total: Number(entry.total) || 0,
+          elapsedMs: Math.max(0, Date.now() - entry.startedAt)
+        }
+      }
+      return { running: runningExports.has(exportId), stage: '', kind: '', label: '', itemTitle: '', items: 0, total: 0, elapsedMs: 0 }
     },
 
     async getTransferImportProgress(args) {

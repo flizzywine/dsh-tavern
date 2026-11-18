@@ -202,6 +202,52 @@ export function createTransferCatalog(deps) {
   /** Build the part files for one selection; keys are re-checked against this install. */
   async function collect(selection, options = {}) {
     const parts = new Map(), files = new Map(), used = new Set()
+    const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null
+    let finishedItems = 0
+    let totalItems = 0
+    for (const def of PART_DEFS) {
+      if (!def.supported) continue
+      const keys = selected(selection, def.kind)
+      if (!keys.length) continue
+      if (!keys.includes('*')) totalItems += new Set(keys).size
+    }
+    function report(kind, label, stage, itemTitle = '') {
+      if (!onProgress) return
+      try {
+        onProgress({
+          stage,
+          kind,
+          label,
+          itemTitle: str(itemTitle),
+          items: finishedItems,
+          total: Math.max(totalItems, finishedItems)
+        })
+      } catch (_error) { /* 进度上报失败不影响导出本身 */ }
+    }
+    function ensureWildcardTotal(keys, count) {
+      if (keys.includes('*') && count > 0) totalItems += count
+    }
+    async function collectSubItems(kind, label, keys, run) {
+      report(kind, label, 'start')
+      let reportedDone = 0
+      const exports = await run(step => {
+        if (step && step.phase === 'done') {
+          reportedDone += 1
+          finishedItems += 1
+        }
+        report(kind, label, 'item', step && step.title)
+      })
+      if (keys.includes('*')) totalItems += Math.max(reportedDone, exports.length)
+      if (reportedDone === 0) {
+        const stepCount = keys.includes('*') ? exports.length : new Set(keys).size
+        finishedItems += stepCount
+        report(kind, label, 'item', exports.length ? exports[exports.length - 1].title : '')
+      } else if (!keys.includes('*')) {
+        const expected = new Set(keys).size
+        if (reportedDone < expected) finishedItems += expected - reportedDone
+      }
+      return exports
+    }
     function add(kind, label, item, fileName, content) {
       const entry = uniqueEntry(used, 'parts/' + kind + '/' + fileName)
       const stored = transferItem({ key: item.key, title: item.title, entry, content })
@@ -211,56 +257,100 @@ export function createTransferCatalog(deps) {
       files.set(entry, Buffer.isBuffer(content) ? content : Buffer.from(String(content), 'utf8'))
     }
 
-    if (selected(selection, 'cards').length) {
-      for (const cardPath of await fileResources.list('card')) {
-        if (!wanted(selection, 'cards', cardPath)) continue
+    const cardKeys = selected(selection, 'cards')
+    if (cardKeys.length) {
+      report('cards', '人物卡', 'start')
+      const matchedCards = (await fileResources.list('card')).filter(cardPath => wanted(selection, 'cards', cardPath))
+      ensureWildcardTotal(cardKeys, matchedCards.length)
+      for (const cardPath of matchedCards) {
+        report('cards', '人物卡', 'item', stemOf(cardPath))
         const workspace = await readCardWorkspace(cardPath)
-        if (workspace === undefined) continue
+        if (workspace === undefined) { finishedItems += 1; continue }
         const characterBook = await worldBooks.characterBookForCard(cardPath).catch(() => null)
         const document = cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook })
         const title = str(document.name) || stemOf(cardPath)
         add('cards', '人物卡', { key: cardPath, title }, safeTransferFileName(stemOf(cardPath), 'card') + '.json',
           JSON.stringify(document, null, 2) + '\n')
+        finishedItems += 1
+        report('cards', '人物卡', 'item', title)
+      }
+      if (!cardKeys.includes('*')) {
+        const expected = new Set(cardKeys).size
+        if (matchedCards.length < expected) finishedItems += expected - matchedCards.length
       }
     }
 
-    if (selected(selection, 'worldbooks').length) {
-      for (const row of (await worldBooks.catalog()).standalone) {
-        if (!wanted(selection, 'worldbooks', row.path)) continue
+    const worldBookKeys = selected(selection, 'worldbooks')
+    if (worldBookKeys.length) {
+      report('worldbooks', '世界书', 'start')
+      const matchedBooks = (await worldBooks.catalog()).standalone.filter(row => wanted(selection, 'worldbooks', row.path))
+      ensureWildcardTotal(worldBookKeys, matchedBooks.length)
+      for (const row of matchedBooks) {
+        report('worldbooks', '世界书', 'item', row.name || stemOf(row.path))
         const book = await worldBooks.export({ kind: 'standalone', path: row.path })
-        add('worldbooks', '世界书', { key: row.path, title: book.name || row.name }, safeTransferFileName(stemOf(row.path)) + '.json',
+        const title = book.name || row.name
+        add('worldbooks', '世界书', { key: row.path, title }, safeTransferFileName(stemOf(row.path)) + '.json',
           JSON.stringify(book.document, null, 2) + '\n')
+        finishedItems += 1
+        report('worldbooks', '世界书', 'item', title)
+      }
+      if (!worldBookKeys.includes('*')) {
+        const expected = new Set(worldBookKeys).size
+        if (matchedBooks.length < expected) finishedItems += expected - matchedBooks.length
       }
     }
 
-    if (selected(selection, 'presets').length) {
-      for (const row of (await presetLibrary.catalog()).presets) {
-        if (!wanted(selection, 'presets', row.path)) continue
+    const presetKeys = selected(selection, 'presets')
+    if (presetKeys.length) {
+      report('presets', '预设', 'start')
+      const matchedPresets = (await presetLibrary.catalog()).presets.filter(row => wanted(selection, 'presets', row.path))
+      ensureWildcardTotal(presetKeys, matchedPresets.length)
+      for (const row of matchedPresets) {
+        const title = row.title || stemOf(row.path)
+        report('presets', '预设', 'item', title)
         const preset = await presetLibrary.export(row.path)
-        add('presets', '预设', { key: row.path, title: row.title || stemOf(row.path) },
+        add('presets', '预设', { key: row.path, title },
           safeTransferFileName(str(preset.name).replace(/\.json$/i, '')) + '.json', preset.text)
+        finishedItems += 1
+        report('presets', '预设', 'item', title)
+      }
+      if (!presetKeys.includes('*')) {
+        const expected = new Set(presetKeys).size
+        if (matchedPresets.length < expected) finishedItems += expected - matchedPresets.length
       }
     }
 
     if (wanted(selection, 'prompts', 'current')) {
+      ensureWildcardTotal(selected(selection, 'prompts'), 1)
+      report('prompts', '系统提示词', 'start')
       const document = await promptDocument()
       add('prompts', '系统提示词', { key: 'current', title: document.name }, 'system-prompts.json', JSON.stringify(document, null, 2) + '\n')
+      finishedItems += 1
+      report('prompts', '系统提示词', 'item', document.name)
     }
 
-    if (selected(selection, 'profile').length) {
+    const profileKeys = selected(selection, 'profile')
+    if (profileKeys.length) {
+      report('profile', '长期偏好', 'start')
       const library = await userPreferenceProfile.read()
+      const matchedProfiles = (library.profiles || []).filter(row => wanted(selection, 'profile', row.id))
+      ensureWildcardTotal(profileKeys, matchedProfiles.length)
       const profiles = []
-      for (const row of library.profiles || []) {
-        if (!wanted(selection, 'profile', row.id)) continue
+      for (const row of matchedProfiles) {
+        report('profile', '长期偏好', 'item', row.name)
         const profile = await userPreferenceProfile.read(row.id)
+        finishedItems += 1
         if (!profile.confirmed || !str(profile.confirmed.injectionText).trim()) continue
         profiles.push({ name: profile.name || row.name, summary: str(profile.confirmed.summary), injectionText: str(profile.confirmed.injectionText) })
+        report('profile', '长期偏好', 'item', profile.name || row.name)
       }
       if (profiles.length) add('profile', '长期偏好', { key: 'profiles', title: '长期偏好 ' + profiles.length + ' 份' }, 'user-profiles.json',
         JSON.stringify({ spec: 'dsh-tavern.transfer.user-profiles', version: 1, profiles }, null, 2) + '\n')
     }
 
-    if (selected(selection, 'regex').length) {
+    const regexKeys = selected(selection, 'regex')
+    if (regexKeys.length) {
+      report('regex', '正则库', 'start')
       const state = await regexManager.read('')
       const scripts = (state.global || []).filter(function (entry) { return wanted(selection, 'regex', entry.id) })
         .map(function (entry) {
@@ -269,61 +359,83 @@ export function createTransferCatalog(deps) {
             markdownOnly: entry.markdownOnly === true, promptOnly: entry.promptOnly === true, runOnEdit: entry.runOnEdit === true,
             minDepth: entry.minDepth === undefined ? null : entry.minDepth, maxDepth: entry.maxDepth === undefined ? null : entry.maxDepth }
         })
+      ensureWildcardTotal(regexKeys, scripts.length)
       if (scripts.length) add('regex', '正则库', { key: 'global', title: scripts.length + ' 条正则' }, 'regex-library.json',
         JSON.stringify(scripts, null, 2) + '\n')
+      finishedItems += regexKeys.includes('*') ? scripts.length : new Set(regexKeys).size
+      report('regex', '正则库', 'item', scripts.length ? scripts.length + ' 条正则' : '')
     }
 
-    if (chats && selected(selection, 'chats').length) {
+    const chatKeys = selected(selection, 'chats')
+    if (chats && chatKeys.length) {
       // 同一个包里已经带上世界书时，局里的开局世界书副本就是重复：每局各存一份整本 JSON，
       // 11 局能占掉几十兆。导入后这局跟随刚装回来的那本书（卡绑定的世界书）。
       const embedWorldbook = selected(selection, 'worldbooks').length === 0
       const embedPreset = selected(selection, 'presets').length === 0
-      const exports = await chats.collect(selected(selection, 'chats'), { images: options.images !== false, embedWorldbook, embedPreset })
+      const exports = await collectSubItems('chats', '对话与存档', chatKeys, onItem =>
+        chats.collect(chatKeys, { images: options.images !== false, embedWorldbook, embedPreset, ...(onProgress ? { onItem } : {}) })
+      )
       for (const item of exports) add('chats', '对话与存档', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'game.dshsave'), item.content)
     }
 
-    if (memory && selected(selection, 'memory').length) {
-      const exports = await memory.collect(selected(selection, 'memory'))
+    const memoryKeys = selected(selection, 'memory')
+    if (memory && memoryKeys.length) {
+      const exports = await collectSubItems('memory', '游玩记忆', memoryKeys, () => memory.collect(memoryKeys))
       for (const item of exports) add('memory', '游玩记忆', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'recalls.json'), item.content)
     }
 
-    if (fonts && selected(selection, 'fonts').length) {
-      const exports = await fonts.collect(selected(selection, 'fonts'))
+    const fontKeys = selected(selection, 'fonts')
+    if (fonts && fontKeys.length) {
+      const exports = await collectSubItems('fonts', '字体', fontKeys, () => fonts.collect(fontKeys))
       for (const item of exports) add('fonts', '字体', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'font.zip'), item.content)
     }
 
-    if (assets && selected(selection, 'assets').length) {
-      const exports = await assets.collect(selected(selection, 'assets'))
+    const assetKeys = selected(selection, 'assets')
+    if (assets && assetKeys.length) {
+      const exports = await collectSubItems('assets', '素材包与皮肤', assetKeys, onItem =>
+        assets.collect(assetKeys, onProgress ? { onItem } : undefined)
+      )
       for (const item of exports) add('assets', '素材包与皮肤', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'asset-pack.zip'), item.content)
     }
 
-    if (logs && selected(selection, 'logs').length) {
-      const exports = await logs.collect(selected(selection, 'logs'))
+    const logKeys = selected(selection, 'logs')
+    if (logs && logKeys.length) {
+      const exports = await collectSubItems('logs', '诊断日志', logKeys, onItem =>
+        logs.collect(logKeys, onProgress ? { onItem } : undefined)
+      )
       for (const item of exports) add('logs', '诊断日志', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'logs.zip'), item.content)
     }
 
-    if (pluginData && selected(selection, 'plugin-data').length) {
-      const exports = await pluginData.collect(selected(selection, 'plugin-data'))
+    const pluginDataKeys = selected(selection, 'plugin-data')
+    if (pluginData && pluginDataKeys.length) {
+      const exports = await collectSubItems('plugin-data', '插件数据', pluginDataKeys, () => pluginData.collect(pluginDataKeys))
       for (const item of exports) add('plugin-data', '插件数据', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'plugin-data.json'), item.content)
     }
 
-    if (skills && selected(selection, 'skills').length) {
-      const exports = await skills.collect(selected(selection, 'skills'))
+    const skillKeys = selected(selection, 'skills')
+    if (skills && skillKeys.length) {
+      const exports = await collectSubItems('skills', '写作 Skill', skillKeys, () => skills.collect(skillKeys))
       for (const item of exports) add('skills', '写作 Skill', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'skill.zip'), item.content)
     }
 
-    if (materials && selected(selection, 'scripts').length) {
-      const exports = await materials.collect(selected(selection, 'scripts'))
+    const scriptKeys = selected(selection, 'scripts')
+    if (materials && scriptKeys.length) {
+      const exports = await collectSubItems('scripts', '剧本', scriptKeys, () => materials.collect(scriptKeys))
       for (const item of exports) add('scripts', '剧本', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'material.txt'), item.content)
     }
 
-    if (plugins && selected(selection, 'plugins').length) {
-      const exports = await plugins.collect(selected(selection, 'plugins'))
+    const pluginKeys = selected(selection, 'plugins')
+    if (plugins && pluginKeys.length) {
+      const exports = await collectSubItems('plugins', '插件', pluginKeys, () => plugins.collect(pluginKeys))
       for (const item of exports) add('plugins', '插件', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'plugin.zip'), item.content)
     }
 
     if (wanted(selection, 'settings', 'current')) {
+      ensureWildcardTotal(selected(selection, 'settings'), 1)
+      report('settings', '酒馆设置', 'start')
       add('settings', '酒馆设置', { key: 'current', title: '酒馆设置' }, 'tavern-settings.json', JSON.stringify(await settingsDocument(), null, 2) + '\n')
+      finishedItems += 1
+      report('settings', '酒馆设置', 'item', '酒馆设置')
     }
 
     return { parts: [...parts.values()], files }
