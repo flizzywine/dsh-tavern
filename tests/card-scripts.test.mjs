@@ -78,8 +78,9 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   await assert.rejects(rpc('setCardScriptMuted', { sessionId: 'session', id: 'unknown', muted: true }), /Unknown card script ID/)
   await assert.rejects(rpc('setCardScriptMuted', { sessionId: 'session', id: 'bgm', muted: 'false' }), /boolean/)
   const versionSource = host.slice(host.indexOf('    resourceVersion: async chat => {'), host.indexOf('    readChanges: chatPersistence.readChangedIndices,'))
-  const resourceVersion = new Function('fileResources', 'profileData', 'cardScripts', 'stageRuntime', `return ({ ${versionSource} }).resourceVersion`)(
-    { worldBookBindingForCard: async () => ({}) }, profileData, cardScripts, { status: () => 'ready' })
+  const resourceVersionsSource = host.slice(host.indexOf('  async function readCardResourceVersions('), host.indexOf('  const sessionProjection = createSessionViewProjection('))
+  const resourceVersion = new Function('fileResources', 'profileData', 'cardScripts', 'stageRuntime', 'tavernExtensionSettings', 'promptTemplateGlobalVariables', `${resourceVersionsSource}; return ({ ${versionSource} }).resourceVersion`)(
+    { worldBookBindingForCard: async () => ({}), scriptForCard: async () => null }, profileData, cardScripts, { status: () => 'ready' }, { version: async () => '' }, { version: async () => '' })
   const originalVersion = await resourceVersion(chat)
   let fullReads = 0
   const views = createSessionViewReader({
