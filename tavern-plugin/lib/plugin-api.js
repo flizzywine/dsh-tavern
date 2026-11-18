@@ -167,6 +167,14 @@ function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
   })
 }
 
+function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [] } = {}) {
+  const words = value => Array.isArray(value) && value.length <= 64 && value.every(word => typeof word === 'string' && word.trim() && word.length <= 64)
+  if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
+  if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 100)) throw new TypeError('name 必须是 1–100 字')
+  if (!words(addAliases) || !words(removeAliases)) throw new TypeError('addAliases、removeAliases 必须是最多 64 个、每个不超过 64 字的词')
+  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()) }
+}
+
 export function createTavernPluginApi(deps) {
   const settledHandlers = new Set()
   const removedHandlers = new Set()
@@ -887,15 +895,23 @@ export function createTavernPluginApi(deps) {
 
     // An image library whose record is linked to an asset-library figure hands an edit of the record's name or
     // aliases (触发词) to the figure, their one home. Only for plugins installed for every card.
-    async editLinkedFigure({ packId, figureId, name, addAliases = [], removeAliases = [] } = {}) {
+    async editLinkedFigure(input) {
       const owner = ownerOf(this)
       if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
-      const words = value => Array.isArray(value) && value.length <= 64 && value.every(word => typeof word === 'string' && word.trim() && word.length <= 64)
-      if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
-      if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 100)) throw new TypeError('name 必须是 1–100 字')
-      if (!words(addAliases) || !words(removeAliases)) throw new TypeError('addAliases、removeAliases 必须是最多 64 个、每个不超过 64 字的词')
+      const change = linkedFigureEdit(input)
       if (!deps.editLinkedFigure) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
-      return await deps.editLinkedFigure({ packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()) })
+      return await deps.editLinkedFigure(change)
+    },
+
+    async editLinkedFigures({ changes, receipt } = {}, save) {
+      const owner = ownerOf(this)
+      if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
+      if (!Array.isArray(changes) || !changes.length || typeof save !== 'function') throw new TypeError('需要人物修改及保存回调')
+      const edits = changes.map(linkedFigureEdit)
+      const keys = new Set(edits.map(({ packId, figureId }) => JSON.stringify([packId, figureId])))
+      if (keys.size !== edits.length) throw new TypeError('同一素材库人物只能修改一次')
+      if (!deps.editLinkedFigures) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
+      return await deps.editLinkedFigures(edits, receipt, save)
     },
 
     async listImageCharacters(input = {}) {
