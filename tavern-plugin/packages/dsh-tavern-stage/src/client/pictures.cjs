@@ -38,18 +38,21 @@ function stagePictureShowable(items, picture) {
 }
 // One picture over the whole stage: the art contained, the same picture blurred behind it; the caption bottom left and the
 // 继续 cue bottom right. onShown once the art has loaded; a picture that does not load is passed (onFailed), never an empty page.
-// 定格欣赏 (holding): AUTO stops turning the page and the caption and cue fade away; a click on the picture or the button
-// again carries on. leaving: the page that has just closed fades out over the stage and takes no input.
+// Only the AUTO button pauses the picture in place. Other clicks go to the stage's ordinary advance handler.
 const STAGE_PICTURE_LEAVE_MS = 380;
-function StagePicturePage({picture, onShown, onFailed, holding = false, leaving = false, onToggleHold}) {
+function StagePicturePage({picture, onShown, onFailed, auto = false, paused = false, leaving = false, onTogglePause, Icon}) {
     const h = React.createElement;
-    return h('figure', {className:'fork-gal-picture-page' + (holding ? ' is-holding' : '') + (leaving ? ' is-leaving' : ''), 'aria-label':picture.caption || 'CG',
-            onClick:holding && onToggleHold ? event => { event.stopPropagation(); onToggleHold(); } : undefined},
+    const action = paused ? '恢复自动播放' : '暂停自动播放';
+    return h('figure', {className:'fork-gal-picture-page' + (leaving ? ' is-leaving' : ''), 'aria-label':picture.caption || 'CG', 'aria-hidden':leaving || undefined},
         h('img', {className:'fork-gal-picture-fill', src:picture.url, alt:'', 'aria-hidden':true, draggable:false}),
         h('img', {className:'fork-gal-picture-art', src:picture.url, alt:picture.caption || 'CG', draggable:false, onLoad:onShown, onError:onFailed}),
         picture.caption ? h('figcaption', null, picture.caption) : null,
-        h('span', {className:'fork-gal-picture-next', 'aria-hidden':true}, '点击继续'),
-        onToggleHold && !leaving ? h('button', {type:'button', className:'fork-gal-picture-hold', 'aria-pressed':holding, onClick:event => { event.stopPropagation(); onToggleHold(); }}, holding ? '继续' : '定格欣赏') : null);
+        leaving ? null : auto ? h('div', {className:'fork-gal-picture-transport'},
+            h('span', {role:'status'}, paused ? '已暂停' : null),
+            h('button', {type:'button', className:'fork-gal-picture-toggle', title:action, 'aria-label':action,
+                onClick:event => { event.stopPropagation(); onTogglePause(event); }},
+                h(Icon, {name:paused ? 'play' : 'pause', size:20})))
+            : h('span', {className:'fork-gal-picture-next'}, '点击继续', h('span', {className:'fork-gal-next', 'aria-hidden':true})));
 }
 return {passed:stagePicturesPassed, working:stagePicturesWorking, late:stagePictureLate, autoDelay:stagePictureAutoDelay, leaveMs:STAGE_PICTURE_LEAVE_MS, showable:stagePictureShowable, Page:StagePicturePage};
 }

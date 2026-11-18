@@ -535,9 +535,8 @@ function GalStage(props) {
     // The insert page whose picture has loaded and shows (its page key); AUTO's wait starts there, not at the page turn.
     const insertPageKey = insertPicture ? insert.key + ':' + insertPicture.id : '';
     const [pictureShown, setPictureShown] = React.useState('');
-    // 定格欣赏: a hold on one insert page (AUTO waits, the caption and cue fade); another page, or none, clears it.
-    const [pictureHold, setPictureHold] = React.useState(false);
-    React.useEffect(() => { setPictureHold(false); }, [insertPageKey]);
+    const [picturePaused, setPicturePaused] = React.useState(false);
+    React.useEffect(() => { setPicturePaused(false); }, [auto, insertPageKey]);
     // the page that has just closed fades out for leaveMs over the stage (not when skipping or with reduced motion)
     const lastPicture = React.useRef(null), [leavingPicture, setLeavingPicture] = React.useState(null);
     React.useEffect(() => {
@@ -1304,11 +1303,11 @@ function GalStage(props) {
     React.useEffect(() => {
         if (!insert) return;
         if (skipping) { setInserted(null); return; }
-        if (!auto || pictureHold || hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen) return;
+        if (!auto || picturePaused || hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen) return;
         const shown = !!insertPageKey && pictureShown === insertPageKey;
         const timer = setTimeout(() => go(1, true), stageViews.pictures.autoDelay(shown, options.configText.autoDelay(reading, false, ''), Date.now() - insert.since));
         return () => clearTimeout(timer);
-    }, [insert, auto, pictureHold, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, pictureShown, insertPageKey]);
+    }, [insert, auto, picturePaused, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, pictureShown, insertPageKey]);
     // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
     function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
     function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
@@ -1430,7 +1429,9 @@ function GalStage(props) {
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
         takeover.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
-        insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, holding: pictureHold, onToggleHold: () => setPictureHold(value => !value), onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) })
+        insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, auto, paused: picturePaused, Icon,
+            onTogglePause: event => { setPicturePaused(value => !value); refocusStage(event); },
+            onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) })
             : leavingPicture ? h(stageViews.pictures.Page, { key: 'leaving:' + leavingPicture.id, picture: leavingPicture, leaving: true }) : null,
         h("div", {className:"fork-gal-scene-hold" + (entryGate.visible ? " is-resolved" : ""), "aria-hidden":true}),
         h(GalWidgets,{owner:sourceWidget,onBacklog:openBacklog,onAdvance:()=>input(1),onWheel:wheel}),

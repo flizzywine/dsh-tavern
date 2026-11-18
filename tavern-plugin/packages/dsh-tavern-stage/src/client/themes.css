@@ -2112,31 +2112,37 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-bgm .fork-scene-image-actions .fork-scene-image-submit { background: var(--bgm-accent); color: var(--bgm-on-accent); }
 .fork-bgm .fork-scene-image-actions .fork-scene-image-submit:hover:not(:disabled) { background: var(--bgm-play-hover); color: var(--bgm-on-accent); }
 .fork-gal-scene-image[aria-busy] { cursor: progress; }
-.fork-gal-picture-page { position: absolute; inset: 0; z-index: 4; margin: 0; overflow: hidden; background: var(--gal-base-bg); cursor: pointer; animation: fork-gal-picture-in .65s ease-out; }
-/* the page is the picture alone: the box (whatever a skin stacks it at) and its choices wait under it, still mounted */
+.fork-gal-picture-page {
+  position: absolute; inset: 0; z-index: 4; margin: 0; overflow: hidden; background: var(--gal-base-bg); cursor: pointer;
+  --picture-side: clamp(12px, 2.5vw, 40px);
+  --picture-bottom: max(clamp(8px, 1.5vh, 20px), env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 44px;
+  align-content: end; align-items: center; column-gap: 12px;
+  padding-inline: max(var(--picture-side), env(safe-area-inset-left)) max(var(--picture-side), env(safe-area-inset-right));
+  padding-bottom: var(--picture-bottom);
+  --picture-glyph: color-mix(in srgb, var(--fk-current-mediaFg) 84%, transparent);
+  color: var(--fk-current-mediaFg); font: 400 var(--fork-fs-body)/1.4 var(--gal-ui-font);
+  animation: fork-gal-picture-in .65s ease-out;
+}
+/* The dialogue and choices remain mounted behind the full-screen illustration. */
 .fork-gal-stage.is-picture > :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; }
 .fork-gal-picture-fill { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover; filter: blur(28px) brightness(.5); }
-/* the caption and hint sit on the picture, not on the skin: fixed white ink over a dark bottom band, whatever the skin or the image */
-.fork-gal-picture-page::before { content: ""; position: absolute; inset: auto 0 0; height: clamp(88px, 20vh, 160px); background: linear-gradient(to top, rgb(0 0 0 / .86), rgb(0 0 0 / .7) 50%, transparent); pointer-events: none; z-index: 1; }
-.fork-gal-picture-page > :is(figcaption, .fork-gal-picture-next) { z-index: 2; }
 .fork-gal-picture-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-.fork-gal-picture-page > :is(figcaption, .fork-gal-picture-next) { position: absolute; bottom: clamp(14px, 3vh, 32px); color: #fff; font-family: var(--gal-ui-font); text-shadow: 0 1px 3px rgb(0 0 0 / .8), 0 0 12px rgb(0 0 0 / .55); }
-.fork-gal-picture-page > figcaption { left: clamp(14px, 3vw, 40px); max-width: 60%; overflow: hidden; font-size: 16px; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.fork-gal-picture-next { right: clamp(14px, 3vw, 40px); font-size: 14px; }
-.fork-gal-picture-next::after { content: " \25B8"; }
+/* One shared shade for the title and icons; there is no separate background on the controls. */
+.fork-gal-picture-page::before { content: ""; position: absolute; inset: auto 0 0; height: calc(var(--picture-bottom) + 80px); background: var(--fk-current-mediaScrim); pointer-events: none; z-index: 1; }
+.fork-gal-picture-page > :is(figcaption, .fork-gal-picture-next, .fork-gal-picture-transport) { grid-row: 1; z-index: 2; }
+.fork-gal-picture-page > figcaption { grid-column: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fork-fs-heading); font-weight: 600; }
+.fork-gal-picture-page > :is(.fork-gal-picture-next, .fork-gal-picture-transport) { grid-column: 2; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.fork-gal-picture-next > .fork-gal-next { flex: none; font-size: inherit; background: var(--picture-glyph); }
+.fork-gal-stage .fork-gal-picture-toggle { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--picture-glyph); cursor: pointer; }
+.fork-gal-stage .fork-gal-picture-toggle:is(:hover, :focus-visible) { color: var(--fk-current-mediaFg); }
+.fork-gal-picture-toggle:focus-visible { outline: var(--gal-ui-focus); outline-offset: -2px; border-radius: var(--gal-ui-radius); }
 @keyframes fork-gal-picture-in { from { opacity: 0; } }
 @keyframes fork-gal-picture-out { to { opacity: 0; } }
 .fork-gal-picture-page.is-leaving { animation: fork-gal-picture-out .38s ease-in forwards; pointer-events: none; }
 .fork-gal-picture-art { animation: fork-gal-picture-breathe 9s ease-out both; }
 @keyframes fork-gal-picture-breathe { from { transform: scale(1.025); } }
-/* 定格欣赏: a quiet pill above the 点击继续 cue, translucent until hovered or focused (like the stage's other controls); holding fades the caption, the cue and the dark band */
-.fork-gal-picture-hold { position: absolute; z-index: 3; right: clamp(14px, 3vw, 40px); bottom: calc(clamp(14px, 3vh, 32px) + 34px); min-height: 30px; padding: 0 14px; border: 1px solid rgb(255 255 255 / .3); border-radius: 999px; background: rgb(0 0 0 / .32); color: #fff; font: inherit; font-family: var(--gal-ui-font); font-size: 13px; opacity: .55; cursor: pointer; transition: opacity .2s, background .2s, border-color .2s; }
-.fork-gal-picture-hold:is(:hover, :focus-visible) { opacity: 1; background: rgb(0 0 0 / .6); border-color: var(--gal-ui-accent); }
-.fork-gal-picture-hold:focus-visible { outline: 2px solid var(--gal-ui-focus); outline-offset: 2px; }
-@media (hover: none) { .fork-gal-picture-hold { opacity: .75; min-height: 36px; } }
-.fork-gal-picture-page::before, .fork-gal-picture-page > :is(figcaption, .fork-gal-picture-next) { transition: opacity .4s; }
-.fork-gal-picture-page.is-holding::before, .fork-gal-picture-page.is-holding > :is(figcaption, .fork-gal-picture-next) { opacity: 0; }
-.fork-gal-stage[data-reduced-motion] :is(.fork-gal-picture-page, .fork-gal-picture-art) { animation: none; }
+.fork-gal-stage[data-reduced-motion] :is(.fork-gal-picture-page, .fork-gal-picture-art, .fork-gal-picture-next > .fork-gal-next) { animation: none; }
 /* Layer rows (shared by the popover and the Config 音量 tab). */
 .fork-gal-mix { display: grid; gap: 2px; }
 .fork-gal-mix-row { display: grid; grid-template-columns: 30px 5.8em minmax(0, 1fr) 2.2em; align-items: center; column-gap: 8px; min-height: 42px; }
