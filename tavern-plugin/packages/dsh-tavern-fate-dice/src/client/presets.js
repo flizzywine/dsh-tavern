@@ -70,6 +70,7 @@ const FD_PRE_SEND_WAIT_OPTIONS = [
 ]
 
 const FD_DEFAULT_SETTINGS = {
+  enabled: false,
   sensitivity: 'normal',
   alwaysRoll: false,
   toneBias: 'balanced',

@@ -300,20 +300,24 @@ function WorkbenchPanel(props) {
     ['settings', '检定设置']
   ]
 
+  const enabled = Boolean(view && view.settings && view.settings.enabled)
   const body = tab === 'settings'
     ? h(SettingsTab, { ui, gameId, hasGame, view, actions, notify })
-    : h(ChecksTab, { ui, gameId, hasGame, view, actions, notify, checking, onRecheck: recheckModel })
+    : h(ChecksTab, { ui, gameId, hasGame, view, actions, notify, checking, onRecheck: recheckModel, onOpenSettings: () => setTab('settings') })
 
   return h('div', { className: 'fd-root fd-workbench' },
     h('div', { className: 'fd-wb-top' },
       h('div', { className: 'fd-wb-head' },
         h('div', null,
           h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
-          h('p', { className: 'fd-wb-sub' }, hasGame
-            ? '本局工作台：检定骰制、AI 能力画像与统计一眼看懂'
-            : '全局检定设置可随时编辑；进入任意对话后自动开启本局检定')),
+          h('p', { className: 'fd-wb-sub' }, !enabled
+            ? '当前已关闭（默认关闭）；可在「检定设置」中随时开启'
+            : (hasGame
+              ? '本局工作台：检定骰制、AI 能力画像与统计一眼看懂'
+              : '全局检定设置可随时编辑；进入任意对话后自动开启本局检定'))),
         h('div', { className: 'fd-btn-row' },
-          h(FdBadge, { tone: hasGame ? 'ok' : 'off' }, hasGame ? '已绑定本局' : '未进入对话'))),
+          h(FdBadge, { tone: enabled ? (hasGame ? 'ok' : 'off') : 'off' },
+            !enabled ? '已关闭' : (hasGame ? '已绑定本局' : '未进入对话')))),
       h('div', { className: 'fd-tabbar', role: 'tablist' },
         tabs.map(([value, label]) => h('button', {
           key: value,

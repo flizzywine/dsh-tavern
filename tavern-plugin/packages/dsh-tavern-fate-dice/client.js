@@ -93,6 +93,7 @@ const FD_PRE_SEND_WAIT_OPTIONS = [
 ]
 
 const FD_DEFAULT_SETTINGS = {
+  enabled: false,
   sensitivity: 'normal',
   alwaysRoll: false,
   toneBias: 'balanced',
@@ -2198,6 +2199,7 @@ function fdNumber(value, fallback) {
 function fdNormalizeSettings(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const settings = { ...FD_DEFAULT_SETTINGS }
+  if (typeof src.enabled === 'boolean') settings.enabled = src.enabled
   if (FD_SENSITIVITY_OPTIONS.some(o => o.value === src.sensitivity)) settings.sensitivity = src.sensitivity
   if (FD_TONE_OPTIONS.some(o => o.value === src.toneBias)) settings.toneBias = src.toneBias
   if (FD_ANIMATION_OPTIONS.some(o => o.value === src.animation)) settings.animation = src.animation
@@ -10189,6 +10191,7 @@ function StatusDiceSection(props) {
   }, [gameId])
 
   const current = view || fdEmptyWorkbench()
+  const enabled = current.settings ? Boolean(current.settings.enabled) : false
   const judgeReady = Boolean(current.judgeStatus && current.judgeStatus.available)
   const fate = fdNormalizeFate(current.fate)
   const stats = current.stats || { total: 0, good: 0, bad: 0 }
@@ -10196,6 +10199,7 @@ function StatusDiceSection(props) {
 
   return h('div', { className: 'fd-root fd-status' },
     h('div', { className: 'fd-badge-row' },
+      h(FdBadge, { tone: enabled ? 'ok' : 'off' }, enabled ? '🎲 已开启' : '🎲 已关闭'),
       h(FdBadge, { tone: judgeReady ? 'ok' : 'warn' },
         judgeReady
           ? `⚡ 决策模型 ${current.judgeStatus.provider || '就绪'}`
@@ -10203,11 +10207,15 @@ function StatusDiceSection(props) {
       h(FdBadge, { tone: current.damper && current.damper.linkage ? 'ok' : 'off' },
         current.damper && current.damper.linkage ? '⛓ 阻尼联动' : '⛓ 阻尼未联动'),
       h(FdBadge, { tone: fate.points > 0 ? 'ok' : 'warn' }, `✦ 命运点 ${fate.points}/${fate.max}`)),
-    judgeReady
-      ? null
-      : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
+    !enabled
+      ? h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
         h('div', { className: 'fd-guide-banner-step' },
-          '需前往「设置 › 叙事阻尼器」配置决策模型与 API Key 后方可启用 AI 自动检定')),
+          '命运之骰当前已关闭（默认关闭），可在右侧「插件 › 命运之骰 › 检定设置」中开启'))
+      : (judgeReady
+        ? null
+        : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
+          h('div', { className: 'fd-guide-banner-step' },
+            '需前往「设置 › 叙事阻尼器」配置决策模型与 API Key 后方可启用 AI 自动检定'))),
     h('div', { className: 'fd-stat-grid' },
       h('div', { className: 'fd-stat-cell' },
         h('span', { className: 'fd-stat-num' }, String(stats.total || 0)),
@@ -11135,20 +11143,24 @@ function WorkbenchPanel(props) {
     ['settings', '检定设置']
   ]
 
+  const enabled = Boolean(view && view.settings && view.settings.enabled)
   const body = tab === 'settings'
     ? h(SettingsTab, { ui, gameId, hasGame, view, actions, notify })
-    : h(ChecksTab, { ui, gameId, hasGame, view, actions, notify, checking, onRecheck: recheckModel })
+    : h(ChecksTab, { ui, gameId, hasGame, view, actions, notify, checking, onRecheck: recheckModel, onOpenSettings: () => setTab('settings') })
 
   return h('div', { className: 'fd-root fd-workbench' },
     h('div', { className: 'fd-wb-top' },
       h('div', { className: 'fd-wb-head' },
         h('div', null,
           h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
-          h('p', { className: 'fd-wb-sub' }, hasGame
-            ? '本局工作台：检定骰制、AI 能力画像与统计一眼看懂'
-            : '全局检定设置可随时编辑；进入任意对话后自动开启本局检定')),
+          h('p', { className: 'fd-wb-sub' }, !enabled
+            ? '当前已关闭（默认关闭）；可在「检定设置」中随时开启'
+            : (hasGame
+              ? '本局工作台：检定骰制、AI 能力画像与统计一眼看懂'
+              : '全局检定设置可随时编辑；进入任意对话后自动开启本局检定'))),
         h('div', { className: 'fd-btn-row' },
-          h(FdBadge, { tone: hasGame ? 'ok' : 'off' }, hasGame ? '已绑定本局' : '未进入对话'))),
+          h(FdBadge, { tone: enabled ? (hasGame ? 'ok' : 'off') : 'off' },
+            !enabled ? '已关闭' : (hasGame ? '已绑定本局' : '未进入对话')))),
       h('div', { className: 'fd-tabbar', role: 'tablist' },
         tabs.map(([value, label]) => h('button', {
           key: value,
@@ -11219,7 +11231,7 @@ function ContextSourceCell(props) {
 }
 
 function ChecksTab(props) {
-  const { ui, gameId, hasGame, view, actions, notify, checking, onRecheck } = props || {}
+  const { ui, gameId, hasGame, view, actions, notify, checking, onRecheck, onOpenSettings } = props || {}
   const judge = view.judgeStatus || { available: false }
   const damper = view.damper || { available: false, linkage: false }
   const fate = fdNormalizeFate(view.fate)
@@ -11285,6 +11297,26 @@ function ChecksTab(props) {
   const nameText = profile.characterName || context.cardName || context.playerName || '主角'
 
   return h(Fragment, null,
+    !settings.enabled
+      ? h('div', { className: 'fd-guide-banner', role: 'note' },
+        h('div', { className: 'fd-guide-banner-head' },
+          h('span', { className: 'fd-guide-banner-title' }, '命运之骰当前已关闭'),
+          h('div', { className: 'fd-btn-row', style: { marginLeft: 'auto' } },
+            h(FdBtn, {
+              small: true,
+              primary: true,
+              onClick: () => {
+                if (actions && typeof actions.persistSettings === 'function') {
+                  actions.persistSettings({ enabled: true })
+                  if (notify) notify('已开启命运之骰')
+                }
+              }
+            }, '立即开启'),
+            typeof onOpenSettings === 'function'
+              ? h(FdChip, { onClick: onOpenSettings }, '检定设置')
+              : null)),
+        h('div', { className: 'fd-guide-banner-meta' }, '默认关闭，不会在对话中自动触发检定或注入提示词；已有记录与能力画像会保留。'))
+      : null,
     /* ---------------- 0. 状态徽章行 + 未配模型引导 ---------------- */
     h('div', { className: 'fd-badge-row' },
       h(FdBadge, { tone: judge.available ? 'ok' : (settings.allowHeuristicFallback ? 'off' : 'warn') },
@@ -11540,7 +11572,7 @@ function ChecksTab(props) {
 
 /* ===== src/client/tab-settings.js ===== */
 /* ------------------------------------------------------------------ *
- * tab-settings.js —— 页签 2「检定设置」：干净清爽的 7 项检定参数
+ * tab-settings.js —— 页签 2「检定设置」：全局总开关与检定参数
  * 每一项都即时生效并自动保存（无草稿、无保存按钮），? 就地展开详细说明。
  * ------------------------------------------------------------------ */
 
@@ -11560,10 +11592,22 @@ function SettingsTab(props) {
       help: [
         '这一屏是全局检定设置：每改一项就立即生效并对全部对话生效，不需要再点保存。',
         '改动会同时写进酒馆的插件数据与本地缓存，重开面板、切换对话都保持你改后的值。',
-        '参数分三类：① 触发与难度（触发灵敏度、叙事基调修正）；② 表现层（掷骰动画、感知自动暗骰）；③ 联动与兜底（叙事阻尼器双向联动、无决策模型时本地关键词兜底）。',
+        '参数分三类：① 总开关与触发难度（启用命运之骰、触发灵敏度、叙事基调修正）；② 表现层（掷骰动画、感知自动暗骰）；③ 联动与兜底（叙事阻尼器双向联动、无决策模型时本地关键词兜底）。',
         '每项标题右侧的 ? 可展开详细说明，收起后界面保持清爽单列布局。'
       ].join('\n')
     },
+      h(FdRow, {
+        plain: true,
+        title: '启用命运之骰',
+        sub: settings.enabled ? '已开启：发送行动时自动判难并投掷真骰' : '默认关闭：开启后才会在对话中自动检定',
+        help: [
+          '命运之骰全局总开关（默认关闭）。',
+          '开启后，发送行动时会自动判断难度、投掷密码学真骰并把结果注入本轮提示词；关闭后完全静默，不触发自动检定、不向叙事阻尼器追加提问、也不占用后台画像结算。',
+          '关闭期间已有的本局检定记录、命运点与角色能力画像都会安全保留，重新开启后可立即恢复使用。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: Boolean(settings.enabled), label: '启用命运之骰', onChange: next => apply({ enabled: next }) })),
+
       h(FdField, {
         label: '触发灵敏度',
         help: [

@@ -2644,6 +2644,7 @@ function StatusDiceSection(props) {
   }, [gameId])
 
   const current = view || fdEmptyWorkbench()
+  const enabled = current.settings ? Boolean(current.settings.enabled) : false
   const judgeReady = Boolean(current.judgeStatus && current.judgeStatus.available)
   const fate = fdNormalizeFate(current.fate)
   const stats = current.stats || { total: 0, good: 0, bad: 0 }
@@ -2651,6 +2652,7 @@ function StatusDiceSection(props) {
 
   return h('div', { className: 'fd-root fd-status' },
     h('div', { className: 'fd-badge-row' },
+      h(FdBadge, { tone: enabled ? 'ok' : 'off' }, enabled ? '🎲 已开启' : '🎲 已关闭'),
       h(FdBadge, { tone: judgeReady ? 'ok' : 'warn' },
         judgeReady
           ? `⚡ 决策模型 ${current.judgeStatus.provider || '就绪'}`
@@ -2658,11 +2660,15 @@ function StatusDiceSection(props) {
       h(FdBadge, { tone: current.damper && current.damper.linkage ? 'ok' : 'off' },
         current.damper && current.damper.linkage ? '⛓ 阻尼联动' : '⛓ 阻尼未联动'),
       h(FdBadge, { tone: fate.points > 0 ? 'ok' : 'warn' }, `✦ 命运点 ${fate.points}/${fate.max}`)),
-    judgeReady
-      ? null
-      : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
+    !enabled
+      ? h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
         h('div', { className: 'fd-guide-banner-step' },
-          '需前往「设置 › 叙事阻尼器」配置决策模型与 API Key 后方可启用 AI 自动检定')),
+          '命运之骰当前已关闭（默认关闭），可在右侧「插件 › 命运之骰 › 检定设置」中开启'))
+      : (judgeReady
+        ? null
+        : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
+          h('div', { className: 'fd-guide-banner-step' },
+            '需前往「设置 › 叙事阻尼器」配置决策模型与 API Key 后方可启用 AI 自动检定'))),
     h('div', { className: 'fd-stat-grid' },
       h('div', { className: 'fd-stat-cell' },
         h('span', { className: 'fd-stat-num' }, String(stats.total || 0)),

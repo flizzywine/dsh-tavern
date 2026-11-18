@@ -60,7 +60,7 @@ const MAX_FATE_POINTS = 3
 const FAILS_PER_FATE_RECHARGE = 2
 
 export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
-  enabled: true,
+  enabled: false,
   autoCheck: true,
   alwaysRoll: false,
   damperLinkage: true,
@@ -557,6 +557,7 @@ export function apply(ctx) {
 
   function settingsForClient(settings) {
     return {
+      enabled: Boolean(settings.enabled),
       sensitivity: settings.sensitivity,
       toneBias: settings.toneBias,
       autoHidden: settings.allowHidden,
@@ -1598,7 +1599,15 @@ export function apply(ctx) {
     const settings = sanitizeSettings(incoming, globalStore.settings)
     const saved = await saveGlobal({ ...globalStore, settings })
     turnCacheByGame.clear()
-    return { ok: true, settings: settingsForClient(saved.settings) }
+    const clientSettings = settingsForClient(saved.settings)
+    if (lastActiveGameId) {
+      await tavern.publishState?.({
+        gameId: lastActiveGameId,
+        name: 'workbench-sync',
+        data: { settings: clientSettings }
+      }).catch(() => {})
+    }
+    return { ok: true, settings: clientSettings }
   }
   handle('fate-dice:save-global-settings', handleSaveGlobalSettings)
   handle('fate-dice:save-settings', handleSaveGlobalSettings)

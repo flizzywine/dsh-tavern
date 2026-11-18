@@ -8,7 +8,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
-import { apply as applyFateDicePlugin, PLUGIN_VERSION } from '../tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js'
+import { apply as applyFateDicePlugin, DEFAULT_GLOBAL_SETTINGS, PLUGIN_VERSION } from '../tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js'
 import { buildFateDiceClient } from '../tavern-plugin/packages/dsh-tavern-fate-dice/build.mjs'
 import {
   BUNDLED_TAVERN_PLUGINS,
@@ -118,6 +118,22 @@ test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停�
 
   const workbench = await api.callHandler('fate-dice:workbench', {})
   assert.ok(workbench && typeof workbench === 'object')
+  assert.equal(DEFAULT_GLOBAL_SETTINGS.enabled, false)
+  assert.equal(workbench.settings?.enabled, false)
+
+  const enabledRes = await api.callHandler('fate-dice:save-global-settings', { settings: { enabled: true } })
+  assert.equal(enabledRes.ok, true)
+  assert.equal(enabledRes.settings?.enabled, true)
+
+  const workbenchAfterEnable = await api.callHandler('fate-dice:workbench', {})
+  assert.equal(workbenchAfterEnable.settings?.enabled, true)
+
+  const disabledRes = await api.callHandler('fate-dice:save-global-settings', { settings: { enabled: false } })
+  assert.equal(disabledRes.ok, true)
+  assert.equal(disabledRes.settings?.enabled, false)
+
+  const clientText = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
+  assert.match(clientText, /启用命运之骰/)
 
   fiber.dispose()
   await assert.rejects(api.callHandler('fate-dice:free-roll', { expression: '1d20' }), /没有名为 fate-dice:free-roll 的插件处理函数/)

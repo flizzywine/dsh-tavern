@@ -150,6 +150,7 @@ function fdNumber(value, fallback) {
 function fdNormalizeSettings(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const settings = { ...FD_DEFAULT_SETTINGS }
+  if (typeof src.enabled === 'boolean') settings.enabled = src.enabled
   if (FD_SENSITIVITY_OPTIONS.some(o => o.value === src.sensitivity)) settings.sensitivity = src.sensitivity
   if (FD_TONE_OPTIONS.some(o => o.value === src.toneBias)) settings.toneBias = src.toneBias
   if (FD_ANIMATION_OPTIONS.some(o => o.value === src.animation)) settings.animation = src.animation
