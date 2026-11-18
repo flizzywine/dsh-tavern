@@ -370,7 +370,9 @@
               method: 'POST', headers: { 'content-type': 'application/json' },
               body: JSON.stringify(deletion.all ? { all: true } : { ids: playIds, all: false }),
             })
-            removed += Array.isArray(response?.deleted) ? response.deleted.length : 0
+            const deleted = new Set(response?.deleted || [])
+            removed += deleted.size
+            setJobs(list => list && list.filter(job => !deleted.has(job.id)))
             for (const failure of response?.failed || []) failures.push(String(failure?.error || '删除失败'))
           }
           if (cardIds.length) {
@@ -378,19 +380,18 @@
               method: 'POST', headers: { 'content-type': 'application/json' },
               body: JSON.stringify(deletion.all ? { all: true } : { ids: cardIds, all: false }),
             })
-            removed += Array.isArray(response?.deleted) ? response.deleted.length : 0
+            const deleted = new Set(response?.deleted || [])
+            removed += deleted.size
+            setCards(list => list && list.filter(item => !deleted.has(item.id)))
             for (const failure of response?.failed || []) failures.push(String(failure?.error || '删除失败'))
           }
-          const gone = new Set([...playIds, ...cardIds])
-          setJobs(list => list && list.filter(job => !gone.has(job.id)))
-          setCards(list => list && list.filter(item => !gone.has(item.id)))
           setPicked({})
           setDeletion(null)
           setDeleteNote('已彻底删除 ' + removed + ' 张图' + (failures.length ? '，' + failures.length + ' 张删除失败：' + failures[0] : ''))
-          setTick(n => n + 1)
         } catch (error) {
           setDeleteNote('删除失败：' + (error?.message ?? error))
         } finally {
+          setTick(n => n + 1)
           deleteBusy.current = false
           setDeleting(false)
         }

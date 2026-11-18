@@ -79,12 +79,20 @@ try {
       const job = playJobs.find(item => item.id === body.id)
       return reply(route, {ok: true, job: clone(applyOperation(job, body.operation))})
     }
+    if (path === '/gallery-delete' && method === 'POST') {
+      playJobs.splice(playJobs.findIndex(item => item.id === 'play-c'), 1)
+      return reply(route, {ok: true, deleted: ['play-c'], failed: []})
+    }
     if (url.pathname === '/dsh-tavern-gen/api/gallery') return reply(route, {ok: true, items: cardItems.map(clone)})
     if (url.pathname === '/dsh-tavern-gen/api/gallery-item' && method === 'POST') {
       const body = route.request().postDataJSON()
       cardWrites.push(clone(body))
       const item = cardItems.find(entry => entry.id === body.id)
       return reply(route, {ok: true, item: clone(applyOperation(item, body.operation))})
+    }
+    if (url.pathname === '/dsh-tavern-gen/api/gallery-delete' && method === 'POST') {
+      cardItems.splice(cardItems.findIndex(item => item.id === 'card-a'), 1)
+      return reply(route, {ok: true, deleted: ['card-a'], failed: [{id: 'card-c', error: '图片占用中'}]})
     }
     if (url.pathname === '/dsh-tavern-gen/api/tools-enabled') return reply(route, {ok: true, enabled: false})
     if (path === '/state') return reply(route, clone(state))
@@ -182,6 +190,11 @@ try {
   assert.equal(await page.getByRole('button', {name: '清空回收站', exact: true}).count(), 1)
   assert.equal(await page.locator('[data-gallery-key="play:play-c"] button[aria-label^="恢复"]').count(), 1, '回收站里的图块按钮变成恢复')
   assert.equal(await page.locator('[data-gallery-key="play:play-c"] button[aria-label^="恢复"]').innerText(), '↩', '恢复用单色回退箭头，不写字也不带 emoji 色块')
+
+  await page.getByRole('button', {name: '清空回收站', exact: true}).click()
+  await page.getByRole('button', {name: '确认彻底删除', exact: true}).click()
+  await page.getByText('已彻底删除 2 张图，1 张删除失败：图片占用中', {exact: true}).waitFor()
+  assert.deepEqual(await page.locator('[data-gallery-key]').evaluateAll(tiles => tiles.map(tile => tile.dataset.galleryKey)), ['card:card-c'])
 
   assert.deepEqual(errors, [], '页面不应该有未捕获的报错')
   console.log('gallery views browser smoke: ok')

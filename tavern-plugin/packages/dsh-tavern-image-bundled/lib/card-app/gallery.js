@@ -61,16 +61,21 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
         return { ...next[at], ...flags(next[at]), url: url(next[at].file) }
       })
     },
-    /** 批量彻底删除；锁住的图片保留记录交给下次重试，和单张删除同一套规则。 */
-    removeMany(ids) {
+    /** 批量彻底删除；与恢复共用同一队列，只删除执行时仍在回收站的图片。 */
+    removeTrashed(ids) {
       return serial(async () => {
-        const list = await load(), wanted = new Set(ids), keep = [], deleted = [], failed = []
+        const list = await load(), trashed = new Set(list.filter(item => item.trashedAt).map(item => item.id))
+        const wanted = ids === undefined ? trashed : new Set(ids)
+        for (const id of wanted) {
+          if (!trashed.has(id)) throw Object.assign(new Error('只能彻底删除回收站里的图片，请刷新后重试'), { code: 'INVALID_ARGUMENT' })
+        }
+        const keep = [], deleted = [], failed = []
         for (const item of list) {
           if (!wanted.has(item.id)) { keep.push(item); continue }
           try { await removeFile(join(images, item.file), { force: true }); deleted.push(item.id) }
           catch (error) { failed.push({ id: item.id, error: String(error?.message ?? error) }); keep.push(item) }
         }
-        await publish(keep)
+        if (deleted.length) await publish(keep)
         return { deleted, failed }
       })
     },

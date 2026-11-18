@@ -671,7 +671,15 @@ test('gallery favorites and trash are record flags, and bulk delete only touches
   assert.equal(trashed.trashedAt, 1700000000000)
   assert.equal(await gallery.setState('missing', { favorite: true }), null, '找不到的记录返回 null 而不是新建')
 
-  assert.deepEqual(await gallery.removeMany(['one']), { deleted: ['one'], failed: [] })
+  await gallery.setState('one', { trashedAt: 1700000000000 })
+  const restore = gallery.setState('one', { trashedAt: null })
+  const deleteSelection = assert.rejects(gallery.removeTrashed(['one']), { code: 'INVALID_ARGUMENT' })
+  assert.equal((await restore).trashedAt, null)
+  await deleteSelection
+  assert.deepEqual((await gallery.read('one', 'a')).data, PNG, '排在恢复后面的删除不会移除已恢复的图片')
+
+  await gallery.setState('one', { trashedAt: 1700000000000 })
+  assert.deepEqual(await gallery.removeTrashed(['one']), { deleted: ['one'], failed: [] })
   assert.deepEqual((await gallery.list()).map(item => item.id), ['two'], '批量删除只删点名的，回收站里那张不动')
   await assert.rejects(gallery.read('one', 'a'), { code: 'NOT_FOUND' })
 })

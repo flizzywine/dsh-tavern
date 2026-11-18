@@ -398,11 +398,8 @@ export function apply(ctx, { ready }) {
         const payload = await body(request)
         // 批量 / 清空只认回收站里的图，和游玩画廊的 gallery-delete 同一条规则。
         if (payload.all === true || Array.isArray(payload.ids)) {
-          const trashed = new Set((await gallery.list()).filter(item => item.trashedAt).map(item => item.id))
-          const ids = payload.all === true ? [...trashed] : [...new Set(payload.ids.map(id => String(id)))]
-          if (payload.all !== true && ids.some(id => !trashed.has(id))) throw fail('INVALID_ARGUMENT', '只能彻底删除回收站里的图片，请刷新后重试')
-          if (!ids.length) return send(response, 200, { ok: true, deleted: [], failed: [] })
-          return send(response, 200, { ok: true, ...(await gallery.removeMany(ids)) })
+          const ids = payload.all === true ? undefined : payload.ids.map(String)
+          return send(response, 200, { ok: true, ...(await gallery.removeTrashed(ids)) })
         }
         return send(response, 200, { ok: true, removed: await gallery.remove(String(payload.id || '')) ? 1 : 0 })
       }
