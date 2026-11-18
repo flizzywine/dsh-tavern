@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -188,7 +188,16 @@ test('linked character settings save both packs together and use the committed f
   loseCommitMarker = true
   const saved = await runtime.request('definitions', { definitions: next })
   assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  assert.equal((await readdir(join(root, 'staging'))).length, 1, 'marker failure leaves the recovery journal')
+
+  const unrelated = saved.body.state.definitions
+  unrelated.characters[0].traits = { face: '短发' }
+  const updated = await runtime.request('definitions', { definitions: unrelated })
+  assert.equal(updated.status, 200, JSON.stringify(updated.body))
+  assert.equal((await readdir(join(root, 'staging'))).length, 1, 'regular image edits do not recover asset packs')
+
   assert.equal((await figureOf(first)).name, '新杏子')
+  assert.deepEqual(await readdir(join(root, 'staging')), [], 'recovery keeps committed identities and clears the journal')
   assert.equal((await figureOf(second)).name, '新爱里')
   assert.deepEqual((await figureOf(first)).aliases, ['Code Name', 'actor_key', '新别名'])
   const stored = await files.read('definitions.json')

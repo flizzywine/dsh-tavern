@@ -402,6 +402,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     }
     // The image definitions receipt is the commit point. Recovery can finish cleanup if the marker write fails.
     try {
+      await fault('batch-image-committed')
       await durableWrite(await locate(tx + '/committed'), Buffer.from('1'))
       await erase(tx)
     } catch { /* The durable receipt is sufficient to recover the batch. */ }

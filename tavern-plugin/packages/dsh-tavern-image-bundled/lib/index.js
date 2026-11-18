@@ -6556,8 +6556,10 @@ async function saveDefinitions(definitions, receiptId) {
   // ═══ 防清空闸门（2026-10-07）═══
   // 事故：有脚本带着空 body 调用 definitions 接口，把用户 5 个角色 + 4 套服装
   //       一次性覆盖成空。这里是最底层的写入口，所有路径都经过它，所以闸门放这。
+  let priorCommit
   try {
     const before = await readJson(DEFS_PATH, null)
+    priorCommit = before?._linkedFigureCommit
     const beforeChars = Array.isArray(before?.characters) ? before.characters.length : 0
     const nextChars = Array.isArray(definitions?.characters) ? definitions.characters.length : 0
     if (beforeChars > 0 && nextChars === 0) {
@@ -6617,7 +6619,9 @@ async function saveDefinitions(definitions, receiptId) {
     props: definitions.props ?? [],
     outfits: definitions.outfits ?? [],
   }
-  if (receiptId) await writeJsonAtomic(DEFS_PATH, { ...saved, _linkedFigureCommit: receiptId }, { flush: true })
+  // Keep the receipt available until the asset library has recovered any pending journal.
+  const commit = receiptId ?? priorCommit
+  if (commit) await writeJsonAtomic(DEFS_PATH, { ...saved, _linkedFigureCommit: commit }, { flush: true })
   else await writeJsonSafe(DEFS_PATH, saved, join(ROOT, 'backups'))
   return saved
 }
