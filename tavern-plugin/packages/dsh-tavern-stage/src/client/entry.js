@@ -132,6 +132,7 @@ const stageClientPlugin = (() => {
         __STAGE_SKIN_BACKLOG__
         __STAGE_SKIN_CURSOR__
         __STAGE_THEMES__
+        __STAGE_THEME_SHEET__
         __STAGE_CONFIG_APPEARANCE__
         __STAGE_CONFIG_TEXT__
         __STAGE_CONFIG_SCREEN__
@@ -208,7 +209,7 @@ const stageClientPlugin = (() => {
                     cleanups.push(()=>theme.remove());
                     theme.dataset.plugin='dsh-tavern-stage';
                     theme.dataset.pluginCss='dsh-tavern-stage/themes.css';
-                    theme.textContent=__STAGE_THEME_CSS__;
+                    cleanups.push(createStageThemeSheet({style:theme,theme:__STAGE_THEME_PARTS__,document,MutationObserver:window.MutationObserver}));
                     const anchor=document.querySelector('[data-plugin-css="dsh-tavern-plugin/features-after-stage.css"]');
                     document.head.insertBefore(theme,anchor);
                     const style=document.createElement('style');
