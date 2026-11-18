@@ -23,6 +23,7 @@ for (const side of ['foreground', 'background']) {
     appendSessionEvent(agent.session, 'user/message', { id: 'frame', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern', form: 'foreground-frame' } }, { surfaceOp: 'append' })
     await ensureSessionStablePrefix(agent.session, '不可丢失的固定背景：更新后的世界书', undefined, 1)
     appendSessionEvent(agent.session, 'user/message', { id: 'cleanup', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-failed-turn-cleanup' } }, { surfaceOp: 'append' })
+    appendSessionEvent(agent.session, 'user/message', { id: 'regeneration-abort', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-regeneration-abort' } }, { surfaceOp: 'append' })
     // The prefix writer reserved an opening turn that no greeting fills, and this
     // test drives the Agent directly: close it the way Tavern's own turn starters do.
     releaseOpeningTurn(agent.session, agent)

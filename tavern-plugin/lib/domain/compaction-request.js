@@ -11,7 +11,7 @@ export function projectCompactionRequest(request) {
   const messages = request.messages.flatMap(message => {
     if (message?.role === 'user' && Array.isArray(message.content) && message.content.length === 0 &&
       isPluginSource(message.source) &&
-      ['dsh-tavern', 'dsh-tavern-failed-turn-cleanup'].includes(sourceProducerName(message.source))) return []
+      ['dsh-tavern', 'dsh-tavern-failed-turn-cleanup', 'dsh-tavern-regeneration-abort'].includes(sourceProducerName(message.source))) return []
     // Summary projection changes the signed prefix, and the summary reads story, not
     // reasoning: every message drops it, only in this copy.
     const kept = withoutReplayReasoning(message)
