@@ -4,7 +4,7 @@ import { pluginMember, pluginMemberId, pluginMemberPrefix } from './background-m
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{2,47}$/
 const MAX_TOOL_RESULT = 20000
-const MAX_TASK_PROMPT = 20000
+const MAX_TASK_PROMPT = 100000
 const MAX_TASK_TOOLS = 8
 const MAX_TOOL_CALLS_PER_TASK = 16
 const TASK_TIMEOUT_MS = 600000
@@ -68,7 +68,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
     if (member !== undefined && !pluginMember(memberId)) throw new Error('插件 ' + owner + ' 没有注册成员 ' + member)
     if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
     if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('prompt 必须是非空字符串')
-    if (prompt.length > MAX_TASK_PROMPT) throw new Error('prompt 不能超过 20000 字')
+    if (prompt.length > MAX_TASK_PROMPT) throw new Error('prompt 不能超过 ' + MAX_TASK_PROMPT + ' 字')
     if (system !== undefined && typeof system !== 'string') throw new TypeError('system 必须是字符串')
     // A member with a prefix of its own answers with its own tools: they sit in that prefix, so
     // a task brings none (the prefix stays the same for every task, and cached).
