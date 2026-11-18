@@ -33,7 +33,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
       chat: { ...header, regeneratedDshTurns, _storageRevision: state.revision,
         messages: state.messages.slice(from, end).map(message => messageFields
           ? projectFields(message, messageFields) : { ...message }) },
-      from, to: end - 1, messageCount: state.messages.length, revision: state.revision
+      from, to: end - 1, messageCount: state.messages.length, revision: state.revision, stamp: state.stamp
     }
   }
   const reader = createStoryTranscriptReader({
@@ -46,7 +46,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
     readRecentSummaries: async (_chatId, count, options = {}) => {
       state.summariesCalled++
       if (options.revision !== state.revision) return null
-      return { from: 0, messageCount: state.messages.length, messages: state.messages.map(summary), revision: state.revision }
+      return { from: 0, messageCount: state.messages.length, messages: state.messages.map(summary), revision: state.revision, stamp: state.stamp }
     },
     readChat: async () => {
       state.fullReads++
@@ -58,6 +58,16 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
   })
   return { reader, state }
 }
+
+test('替换成同一 revision 的原生存档后重新投影楼层', async () => {
+  const { reader, state } = fixture([{ role: 'assistant', turn: 2, text: '原正文' }])
+  state.stamp = 'native:before'
+  assert.equal((await reader('session')).storyTranscript.messages[0].message.text, '原正文')
+  state.stamp = 'native:after'
+  state.messages[0].text = '替换后的正文'
+  assert.equal((await reader('session')).storyTranscript.messages[0].message.text, '替换后的正文')
+  assert.equal(state.summariesCalled, 2)
+})
 
 test('工具记录只按需读取，分页和旧存储都使用正文实际对应的原生轮次', async () => {
   const messages = [

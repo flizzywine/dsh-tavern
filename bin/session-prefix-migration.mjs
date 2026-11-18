@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { createDurableFilePromotion } from '../tavern-plugin/lib/durable-file-promotion.js'
@@ -24,6 +24,14 @@ export function decodeZstdFrames(bytes) {
 export async function migrateSessionPrefixEvents({ sessionsRoot, backupRoot }) {
   const changed = []
   const files = createDurableFilePromotion()
+  const scanFile = path.join(backupRoot, 'session-scan-v1.json')
+  const root = path.resolve(sessionsRoot)
+  let previous = new Map()
+  try {
+    const scan = JSON.parse(await readFile(scanFile, 'utf8'))
+    if (scan.root === root) previous = new Map(scan.files)
+  } catch {} // The scan can always be rebuilt from the history.
+  const scanned = new Map()
   async function visit(directory) {
     let entries
     try { entries = await readdir(directory, { withFileTypes: true }) } catch (error) {
@@ -34,6 +42,11 @@ export async function migrateSessionPrefixEvents({ sessionsRoot, backupRoot }) {
       const file = path.join(directory, entry.name)
       if (entry.isDirectory()) { await visit(file); continue }
       if (!entry.isFile() || !['session.jsonl', 'session.jsonl.zstd'].includes(entry.name)) continue
+      const relative = path.relative(root, file)
+      const info = await stat(file, { bigint: true })
+      const signature = [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(':')
+      scanned.set(relative, signature)
+      if (previous.get(relative) === signature) continue
       const original = await readFile(file)
       const compressed = entry.name.endsWith('.zstd')
       const text = (compressed ? decodeZstdFrames(original) : original).toString('utf8')
@@ -76,16 +89,21 @@ export async function migrateSessionPrefixEvents({ sessionsRoot, backupRoot }) {
       const output = compressed ? Buffer.concat([zstdCompressSync(head), zstdCompressSync(body)]) : Buffer.from(head + body)
       if (compressed && decodeZstdFrames(output).toString('utf8') !== head + body) throw new Error('历史压缩校验失败：' + file)
       const hash = createHash('sha256').update(original).digest('hex')
-      const backup = path.join(backupRoot, path.relative(sessionsRoot, file) + '.' + hash + '.bak')
+      const backup = path.join(backupRoot, relative + '.' + hash + '.bak')
       await mkdir(path.dirname(backup), { recursive: true })
       try { await copyFile(file, backup, constants.COPYFILE_EXCL) } catch (error) {
         if (error.code !== 'EEXIST') throw error
       }
       if (!(await readFile(backup)).equals(original) || !(await readFile(file)).equals(original)) throw new Error('历史在修复期间发生变化，拒绝覆盖：' + file)
       await files.write(file, output)
+      // Verify the replacement from disk on the next run before caching it.
+      scanned.delete(relative)
       changed.push({ file, backup, events: count })
     }
   }
-  await visit(sessionsRoot)
+  await visit(root)
+  if (scanned.size !== previous.size || [...scanned].some(([file, signature]) => previous.get(file) !== signature)) {
+    await files.write(scanFile, JSON.stringify({ root, files: [...scanned] }) + '\n').catch(() => {})
+  }
   return changed
 }

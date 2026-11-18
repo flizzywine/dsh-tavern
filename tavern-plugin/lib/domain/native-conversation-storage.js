@@ -207,7 +207,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const paths=messageFields?.map(field=>pointer(field.split('.')))
   chat.messages=await mapRead(page.messages,row=>paths===undefined
    ? t.get(row.message.runtimeRef) : t.getFields(row.message.runtimeRef,paths),true)
-  return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,worldMessage:view.state.worldMessage??null,
+  return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,stamp:'native:'+view.snapshotCursor.snapshotId,worldMessage:view.state.worldMessage??null,
    worldMessageUid:view.state.worldMessageUid??null,worldSwipe:view.state.worldSwipe,
    ...(messageFields===undefined?{}:{messageFields:[...messageFields]})}
  }
@@ -245,13 +245,14 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  async function readRecentSummaries(id,count,options={}){
   const view=await headAtRevision(id,options.revision??Infinity)
   if(!view)return null
+  const stamp='native:'+view.snapshotCursor.snapshotId
   const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0))
   if(start===0){
    // Session projections already build and cache this exact full-summary snapshot.
    // Reuse it instead of walking every page again for each story-window read;
    // project fresh rows so caller mutation cannot poison the shared cache.
    const {messages}=await sessionSummaries(id,view)
-   return {messageCount:view.messageCount,from:0,messages:messages.map(projectSessionMessage),revision:view.state.chatRevision}
+   return {messageCount:view.messageCount,from:0,messages:messages.map(projectSessionMessage),revision:view.state.chatRevision,stamp}
   }
   const messages=new Array(view.messageCount-start),t=tree(id),started=performance.now()
   let cursor=view.snapshotCursor
@@ -266,7 +267,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    cursor=page.previousCursor
   }
   onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
-  return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision}
+  return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision,stamp}
  }
  async function readSlice(id,indices=[],fields,pinned){
   const view=pinned||await head(id)

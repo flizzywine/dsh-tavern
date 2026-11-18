@@ -2383,6 +2383,7 @@ export async function apply(ctx) {
   const sessionViews = createSessionViewReader({
     readState: sessionStateForSession, readChat: chatForSession, readOpeningWindow,
     readStoryWindow: readStoryTranscriptWindow,
+    readStoryVersion: async (sessionId, chatId) => (await readSessionMap())[str(sessionId)] === chatId ? chatPersistence.version(chatId) : '',
     resourceVersion: async chat => {
       if (!chat.cardPath || chat.mode === 'card') return ''
       const binding = await fileResources.worldBookBindingForCard(chat.cardPath)

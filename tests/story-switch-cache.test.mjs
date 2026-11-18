@@ -96,6 +96,52 @@ test('外部资源变化时 revision 未动也不判 unchanged', async () => {
 	assert.equal(f.calls.projection, 2)
 })
 
+test('原生窗口未变化时只查版本和资源，换窗口、换存档或资源变更仍读取楼层', async () => {
+	let stamp = 'native:window-a', resources = 'wb-1', bound = true, reads = 0
+	const reader = createSessionViewReader({
+		readStoryWindow: async () => { reads += 1; return bound ? storyWindow({ stamp }) : null },
+		readStoryVersion: async (id, chatId) => id === 's1' && chatId === 'c1' && bound ? stamp : '',
+		project: { story: async () => ({ chatId: 'c1' }) }, resourceVersion: async () => resources,
+		trace: { stage: (_name, fn) => fn(), state() {} }
+	})
+	const args = { sessionId: 's1', storyTranscript: 1 }
+	const first = await reader.response(args)
+	const known = { ...args, knownStorySignature: first.storySignature }
+	assert.equal((await reader.response(known)).unchanged, true)
+	assert.equal(reads, 1)
+	await reader.response({ ...known, historyFrom: 0 })
+	assert.equal(reads, 2)
+	resources = 'wb-2'
+	const changed = await reader.response(known)
+	assert.equal(changed.unchanged, undefined)
+	assert.equal(reads, 3)
+	stamp = 'native:window-b'
+	const replaced = await reader.response({ ...args, knownStorySignature: changed.storySignature })
+	assert.equal(replaced.unchanged, undefined)
+	assert.equal(reads, 4)
+	bound = false
+	assert.equal((await reader.response({ ...args, knownStorySignature: replaced.storySignature })).view, null)
+})
+
+test('原生工具结果独立更新时，已知签名仍返回新的工具记录', async () => {
+	let result = 'before'
+	const reader = createSessionViewReader({
+		readStoryWindow: async () => {
+			const window = storyWindow({ stamp: 'native:unchanged' })
+			window.storyTranscript.messages = [{ toolCalls: [{ id: 'call', result }] }]
+			return window
+		},
+		project: { story: async () => ({}) },
+		trace: { stage: (_name, fn) => fn(), state() {} }
+	})
+	const args = { sessionId: 's1', storyTranscript: 1, includeToolCalls: true }
+	const first = await reader.response(args)
+	result = 'after'
+	const after = await reader.response({ ...args, knownStorySignature: first.storySignature })
+	assert.notEqual(after.storySignature, first.storySignature)
+	assert.equal(after.storyTranscript.messages[0].toolCalls[0].result, 'after')
+})
+
 test('服务端缓存只留 12 份窗口投影', async () => {
 	const states = []
 	const projections = []

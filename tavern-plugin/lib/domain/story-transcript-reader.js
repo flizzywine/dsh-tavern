@@ -118,12 +118,12 @@ export function createStoryTranscriptReader({
       if (String(window.chat?.sessionId || '') !== String(sessionId)
         || !['story', 'script'].includes(window.chat?.mode || 'story')) return null
       const key = !tools && window.revision > 0
-        ? JSON.stringify([chatId, String(sessionId), window.revision, window.from, window.to, window.messageCount])
+        ? JSON.stringify([chatId, String(sessionId), window.revision, window.from, window.to, window.messageCount, window.stamp])
         : null
       const cached = key ? readCachedTranscript(key) : null
       if (cached) return { ...window, storyTranscript: cached }
       const summaryPage = await readRecentSummaries(chatId, window.messageCount, { revision: window.revision })
-      if (summaryPage?.revision === window.revision && summaryPage.from === 0
+      if (summaryPage?.revision === window.revision && summaryPage.stamp === window.stamp && summaryPage.from === 0
         && summaryPage.messageCount === window.messageCount
         && Array.isArray(summaryPage.messages)) {
         const projected = await projectWindow(window, summaryPage.messages, tools)

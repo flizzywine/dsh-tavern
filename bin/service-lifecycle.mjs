@@ -457,10 +457,12 @@ export async function startService() {
     state.portOpen = false
   }
 
+  const prefixScanStarted = performance.now()
   const prefixRepairs = await migrateSessionPrefixEvents({
     sessionsRoot: path.join(DSH_ROOT, 'profile-data', PROFILE, 'sessions'),
     backupRoot: path.join(BACKUP_ROOT, 'tavern-stable-prefix-v1'),
   })
+  const prefixScanMs = Math.round(performance.now() - prefixScanStarted)
   if (prefixRepairs.length) console.log(`已兼容修复 ${prefixRepairs.length} 份旧会话的固定背景事件，原文件已备份。`)
 
   if (!isLoopbackHost(state.bindHost)) {
@@ -496,7 +498,7 @@ export async function startService() {
   mkdirSync(LOG_DIR, { recursive: true })
   const logOffset = existsSync(LOG_FILE) ? statSync(LOG_FILE).size : 0
   const startupLog = (event, details = {}) => appendFileSync(LOG_FILE, JSON.stringify({ at: new Date().toISOString(), event, ...details }) + '\n')
-  startupLog('service.starting', { node: process.version, executable: invocation.command, entry: invocation.args[0].startsWith('--') ? invocation.args[1] : invocation.args[0], cwd: SOURCE_ROOT, home: DSH_ROOT, bindHost: state.bindHost, port: state.port, timeoutMs })
+  startupLog('service.starting', { node: process.version, executable: invocation.command, entry: invocation.args[0].startsWith('--') ? invocation.args[1] : invocation.args[0], cwd: SOURCE_ROOT, home: DSH_ROOT, bindHost: state.bindHost, port: state.port, timeoutMs, prefixScanMs })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child
   try {

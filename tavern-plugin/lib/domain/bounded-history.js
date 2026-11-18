@@ -127,7 +127,7 @@ export async function readRecentWindow(readWindow, chatId, { limit, from, requir
     let stitched = true
     while (window && extended && window.from > from) {
       const page = await readWindow(chatId, { limit: Math.min(500, window.from - from), before: window.from, revision: window.revision, fields: ['_storageRevision'], ...projection })
-      if (!page || page.revision !== window.revision || page.to !== window.from - 1) { stitched = false; break }
+      if (!page || page.revision !== window.revision || page.stamp !== window.stamp || page.to !== window.from - 1) { stitched = false; break }
       window = { ...window, from: page.from, chat: { ...window.chat, messages: page.chat.messages.concat(window.chat.messages) } }
     }
     if (stitched) return window

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { helperMessagesComplete, completeTavernHelperContext } from './tavern-helper-context.js'
 import { projectSceneImageState, projectChatBackgroundConfig } from './chat-session-state.js'
 function identity(chat) {
@@ -33,7 +34,7 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
 /** Own snapshot selection, projection cache and transport revision pairing.
  * Projections consume detached inputs; callers never receive a partial Chat.
  */
-export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, project, activity,
+export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, readStoryVersion, project, activity,
   trace, foregroundRunning, synchronize, resourceVersion = async () => '', storyResourceVersion = resourceVersion }) {
   // 手机在 5~12 个对话之间来回切：缓存只留 8 条时，刚切一圈就会把最早那份视图踢掉，
   // 再切回去又要整条重投影。上限与客户端故事窗口缓存、楼层摘要快照缓存保持同一档。
@@ -140,6 +141,17 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
     if (args.storyTranscript === 1 && readStoryWindow && project.story) {
       const includeTools = args.includeToolCalls === true
       const deferRes = args.resourceSync === 1
+      const historyFrom = Number.isSafeInteger(args.historyFrom) && args.historyFrom >= 0 ? args.historyFrom : undefined
+      const knownSignature = typeof args.knownStorySignature === 'string' && args.knownStorySignature !== '' ? args.knownStorySignature : null
+      const previous = !includeTools && readStoryVersion && storyCache.get(knownSignature)?.snapshot
+      if (previous && previous.sessionId === sessionId && previous.historyFrom === historyFrom && previous.deferRes === deferRes
+        && await readStoryVersion(sessionId, previous.chat.id) === previous.stamp
+        && await storyResourceVersion(previous.chat) === previous.resources) {
+        const cached = storyCache.get(knownSignature)
+        if (cached?.snapshot === previous) { storyCache.delete(knownSignature); storyCache.set(knownSignature, cached) }
+        trace.state({ viewRebuild: 'story-cache', helperMessageCount: previous.count })
+        return { unchanged: true, revision: previous.revision, storySignature: knownSignature }
+      }
       const window = await trace.stage('readStoryWindow', () => readStoryWindow(sessionId, args.historyFrom,
         { includeToolCalls: includeTools }))
       if (!window) return { view: null, storyTranscript: null, revision: 0 }
@@ -147,16 +159,15 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       // 全部投影输入，客户端把上次拿到的签名带回来时才能断言「屏幕上那份就是这份」。
       // 只凭 revision 相等不行：世界书被外部改过时 revision 不变、正文却变了。
       const resources = await storyResourceVersion(window.chat)
+      // Tool results can arrive in the host log without a Chat write.
+      const toolsStamp = includeTools ? createHash('sha256').update(JSON.stringify(window.storyTranscript.messages.map(entry => entry.toolCalls || null))).digest('hex') : null
       const storySignature = JSON.stringify([window.chat.id, window.revision, window.from, window.to,
-        window.messageCount, resources, includeTools, deferRes])
-      const knownSignature = typeof args.knownStorySignature === 'string' && args.knownStorySignature !== ''
-        ? args.knownStorySignature : null
+        window.messageCount, resources, includeTools, deferRes, window.stamp, toolsStamp])
       if (knownSignature !== null && knownSignature === storySignature) {
         trace.state({viewRebuild:'story-cache',helperMessageCount:window.chat.messages.length})
         return {unchanged:true,revision:window.revision,storySignature}
       }
       let cached = storyCache.get(storySignature)
-      if (cached) { storyCache.delete(storySignature); storyCache.set(storySignature, cached) }
       let rebuild = 'story-cache'
       if (!cached) {
         let work = storyPending.get(storySignature), owner = work === undefined
@@ -165,14 +176,22 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
           storyPending.set(storySignature, work)
         }
         try {
-          cached = await work
-          storyCache.set(storySignature, cached)
-          while (storyCache.size > STORY_CACHE_LIMIT) storyCache.delete(storyCache.keys().next().value)
+          cached = { view: await work }
           rebuild = owner ? 'story' : 'story-cache'
         } finally { if (storyPending.get(storySignature) === work) storyPending.delete(storySignature) }
       }
+      // Keep only the metadata needed to revalidate conditional reads. The cache
+      // already owns the projected view, so there is no second copy of the floors.
+      const snapshot = !includeTools && window.stamp ? {
+        sessionId, historyFrom, deferRes, resources, stamp: window.stamp,
+        revision: window.revision, count: window.chat.messages.length,
+        chat: { id: window.chat.id, cardPath: window.chat.cardPath, mode: window.chat.mode },
+      } : null
+      storyCache.delete(storySignature)
+      storyCache.set(storySignature, { view: cached.view, snapshot })
+      while (storyCache.size > STORY_CACHE_LIMIT) storyCache.delete(storyCache.keys().next().value)
       trace.state({viewRebuild:rebuild,helperMessageCount:window.chat.messages.length})
-      const {storyTranscript:_embedded,...storyView}=cached
+      const {storyTranscript:_embedded,...storyView}=cached.view
       return {view:transportView(storyView),storyTranscript:window.storyTranscript,revision:window.revision,storySignature}
     }
     // Bounded and complete views have separate cache contracts. A window key pins
