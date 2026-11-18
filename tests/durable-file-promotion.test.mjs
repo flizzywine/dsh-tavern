@@ -1,10 +1,47 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, open, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, readFile, readdir, rename, rm, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
 import { createDurableFilePromotion } from '../tavern-plugin/lib/durable-file-promotion.js'
+import { createProfileDataStore, TAVERN_SETTINGS_PATH } from '../tavern-plugin/lib/profile-data-store.js'
+
+test('延迟落盘的设置可被同进程和其它进程的读取端看到，下一次更新保留全部设置', async t => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-deferred-settings-'))
+  t.after(() => rm(dataRoot, { recursive: true, force: true }))
+  let blocked = false
+  let duringPromotion
+  const writer = createProfileDataStore({ dataRoot, sleep: async () => {}, async rename(from, to) {
+    if (blocked) throw Object.assign(new Error('sharing violation'), { code: 'EPERM' })
+    await rename(from, to)
+    duringPromotion = await writer.readJson(TAVERN_SETTINGS_PATH)
+  } })
+  const reader = createProfileDataStore({ dataRoot, sleep: async () => {}, async rename() {
+    throw Object.assign(new Error('sharing violation'), { code: 'EPERM' })
+  } })
+  const initial = { first: true }
+  const pending = { ...initial, second: true }
+  await writer.writeJson(TAVERN_SETTINGS_PATH, initial)
+  const initialVersion = await writer.version(TAVERN_SETTINGS_PATH)
+  blocked = true
+  assert.equal((await writer.writeJson(TAVERN_SETTINGS_PATH, pending)).status, 'deferred')
+  assert.deepEqual(await writer.readJson(TAVERN_SETTINGS_PATH), pending)
+  const pendingVersion = await writer.version(TAVERN_SETTINGS_PATH)
+  assert.notEqual(pendingVersion, initialVersion)
+  assert.equal(await reader.version(TAVERN_SETTINGS_PATH), pendingVersion)
+
+  const newer = { ...pending, otherWriter: true }
+  await reader.updateJson(TAVERN_SETTINGS_PATH, current => ({ ...current, otherWriter: true }))
+  assert.deepEqual(await writer.readJson(TAVERN_SETTINGS_PATH), newer)
+  assert.equal(await writer.version(TAVERN_SETTINGS_PATH), await reader.version(TAVERN_SETTINGS_PATH))
+  blocked = false
+  const saved = { ...newer, third: true }
+  assert.deepEqual(await writer.updateJson(TAVERN_SETTINGS_PATH, current => ({ ...current, third: true })), saved)
+  assert.deepEqual(duringPromotion, saved, '旧待恢复文件不能在新文件变为正式文件后短暂恢复为权威')
+  assert.deepEqual(await reader.readJson(TAVERN_SETTINGS_PATH), saved)
+  assert.equal((await readdir(dataRoot)).some(name => name.includes('.pending-')), false)
+})
 
 test('超过安全期限的写锁即使 PID 存活也会被回收', async function (t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-file-promotion-'))

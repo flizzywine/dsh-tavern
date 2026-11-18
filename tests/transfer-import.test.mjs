@@ -85,8 +85,9 @@ function environment(options = {}) {
     }
   }
 
-  const readTavernSettings = () => state.settings
-  const updateTavernSettings = async patch => {
+  const readTavernSettings = async () => state.settings
+  const updateTavernSettings = async (patch, { beforeWrite } = {}) => {
+    await beforeWrite?.(options.rawSettings ?? state.settings)
     if (patch.promptSet) state.imported.prompts.push(patch.promptSet)
     state.imported.settings.push(patch)
     state.settings = Object.assign({}, state.settings, patch)
@@ -137,7 +138,7 @@ function environment(options = {}) {
     assets: options.assets,
     chats: options.chats,
     memory: options.memory,
-    backup: async (name, text) => { state.backups.push({ name, text }); return 'backups/transfer/20261027-160000/' + name },
+    backup: options.backup ?? (async (name, text) => { state.backups.push({ name, text }); return 'backups/transfer/20261027-160000/' + name }),
     removeCreated: async (kind, path) => {
       const map = { cards: state.cards, worldbooks: state.worldbooks, presets: state.presets }[kind]
       if (map) map.delete(path)
@@ -180,7 +181,8 @@ test('预览指出同名冲突，应用时全部新建、不覆盖，并在写�
   })
   const bundle = await bundleFrom(from, { cards: ['cards/作家.json'], worldbooks: ['worldbooks/世界观总纲.json'], presets: ['presets/默认.json'], prompts: ['current'], profile: ['default'], regex: ['rx-1'], settings: ['current'] })
 
-  const to = environment()
+  const rawSettings = { candidateTabs: true, promptOverrides: { story: '仅在原始设置中保存的提示词' } }
+  const to = environment({ rawSettings })
   const preview = await to.importer.preview(bundle.manifest)
   const cards = preview.parts.find(part => part.kind === 'cards')
   assert.equal(cards.conflicts, 1, '本机已有同名人物卡')
@@ -201,8 +203,21 @@ test('预览指出同名冲突，应用时全部新建、不覆盖，并在写�
   assert.equal(to.state.imported.regex, 1)
   assert.equal(to.state.imported.settings.filter(patch => !patch.promptSet).length, 1)
   assert.equal(to.state.backups.length, 1, '设置写入前留备份')
+  assert.deepEqual(JSON.parse(to.state.backups[0].text), rawSettings)
   assert.match(result.backupPath, /^backups\/transfer\//)
   assert.equal(to.state.profiles.at(-1).confirmed.injectionText, '来自另一台机器')
+})
+
+test('备份写入失败时不覆盖任何设置字段', async () => {
+  const from = environment()
+  const bundle = await bundleFrom(from, { settings: ['current'] })
+  let writes = 0
+  const to = environment({ backup: async () => { writes++; throw new Error('backup disk unavailable') } })
+  const result = await to.importer.apply({ manifest: bundle.manifest, files: bundle.files })
+  assert.equal(writes, 1)
+  assert.deepEqual(to.state.imported.settings, [])
+  assert.equal(result.results[0].overwritten, 0)
+  assert.match(result.results[0].failed[0].error, /backup disk unavailable/)
 })
 
 test('策略 skip 不写入该板块；导入包里的损坏条目单独记失败', async () => {

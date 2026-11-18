@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { TAVERN_SETTINGS_PATH } from '../profile-data-store.js'
 import { beginRelaxedSync, endRelaxedSync } from './conversation-page-store.js'
 import { cardNameFromText, inspectSillyTavernChatItem, isSillyTavernChatItem } from './transfer-chats.js'
 
@@ -171,7 +172,7 @@ export function createTransferImport(deps) {
     ])
     const regex = await regexManager.read('').catch(() => ({ global: [] }))
     const pluginFolders = plugins ? new Set((await plugins.list().catch(() => [])).map(row => str(row.key).toLowerCase())) : new Set()
-    const settings = readTavernSettings()
+    const settings = await readTavernSettings()
     const materialNames = new Set()
     if (materials) for (const row of await materials.list().catch(() => [])) materialNames.add(str(row.title).toLowerCase())
     const fontIds = new Set()
@@ -363,6 +364,17 @@ export function createTransferImport(deps) {
     }
     const orderedParts = [...manifest.parts].sort(function (left, right) { return partPriority(left.kind) - partPriority(right.kind) })
     let backupPath = ''
+    let settingsBackup
+    function applySettings(patch) {
+      return updateTavernSettings(patch, {
+        beforeWrite(current) {
+          settingsBackup ??= Promise.resolve()
+            .then(() => backup(TAVERN_SETTINGS_PATH, JSON.stringify(current ?? {}, null, 2) + '\n'))
+            .then(saved => { backupPath = str(saved) })
+          return settingsBackup
+        }
+      })
+    }
     // 新局 id：召回记录要落进刚导入的那一局，源 chatId 只用来配对。
     const chatIdMap = new Map()
 
@@ -608,16 +620,16 @@ export function createTransferImport(deps) {
             let value
             try { value = JSON.parse(text) } catch { throw new Error('设置文件不是有效的 JSON') }
             if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('设置文件内容无效')
-            if (!backupPath) {
-              const saved = await backup('tavern-settings.json', JSON.stringify(readTavernSettings(), null, 2) + '\n')
-              backupPath = str(backup && saved)
-            }
-            try { await updateTavernSettings(value) }
+            try { await applySettings(value) }
             catch (error) {
+              if (settingsBackup) await settingsBackup
               // One unknown key must not discard the rest: retry field by field.
               const failedFields = []
               for (const key of Object.keys(value)) {
-                try { await updateTavernSettings({ [key]: value[key] }) } catch (fieldError) { failedFields.push(key + '：' + errorText(fieldError)) }
+                try { await applySettings({ [key]: value[key] }) } catch (fieldError) {
+                  if (settingsBackup) await settingsBackup
+                  failedFields.push(key + '：' + errorText(fieldError))
+                }
               }
               if (failedFields.length) result.failed.push({ title: '部分设置', error: failedFields.join('；') })
             }

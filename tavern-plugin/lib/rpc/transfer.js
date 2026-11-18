@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { exportSillyTavernMigrationScript, MIGRATION_HELPER_FILENAME } from '../domain/sillytavern-migration-helper.js'
 import { buildTransferManifest, packTransferBundle, readTransferBundle, safeTransferFileName, TRANSFER_EXTENSION } from '../domain/transfer-bundle.js'
@@ -51,10 +51,11 @@ export function createTransferHandlers(deps) {
   }
 
   async function writeBackup(name, text) {
-    const directory = path.join(dataRoot, '..', 'backups', 'transfer', stamp())
-    await mkdir(directory, { recursive: true })
+    const backupRoot = path.join(dataRoot, '..', 'backups', 'transfer')
+    await mkdir(backupRoot, { recursive: true })
+    const directory = await mkdtemp(path.join(backupRoot, stamp() + '-'))
     const target = path.join(directory, safeTransferFileName(name, 'backup.json'))
-    await writeFile(target, text)
+    await writeFile(target, text, { flag: 'wx', flush: true })
     return path.relative(path.join(dataRoot, '..'), target).split(path.sep).join('/')
   }
 

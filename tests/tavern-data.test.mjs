@@ -1,15 +1,35 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
 import { migrateLegacyTavernData } from '../tavern-plugin/lib/domain/tavern-data.js'
+import { createProfileDataStore, TAVERN_SETTINGS_PATH } from '../tavern-plugin/lib/profile-data-store.js'
 
 async function json(file, value) {
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify(value, null, 2), 'utf8')
 }
+
+test('迁移使用与运行时同一份设置读取规则，空白目标可合并旧设置', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-empty-settings-migration-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const legacy = path.join(root, 'legacy')
+  const targetRoot = path.join(root, 'current')
+  await mkdir(targetRoot)
+  await writeFile(path.join(targetRoot, TAVERN_SETTINGS_PATH), ' \n')
+  const source = createProfileDataStore({ dataRoot: legacy, sleep: async () => {}, async rename() {
+    throw Object.assign(new Error('sharing violation'), { code: 'EPERM' })
+  } })
+  assert.equal((await source.writeJson(TAVERN_SETTINGS_PATH, { candidateTabs: true })).status, 'deferred')
+  const result = await migrateLegacyTavernData({ targetRoot, backupRoot: path.join(root, 'backup'), legacyRoots: [{ path: legacy }] })
+  assert.equal(result.migratedSources, 1)
+  const target = createProfileDataStore({ dataRoot: targetRoot })
+  assert.deepEqual(await target.readJson(TAVERN_SETTINGS_PATH), { candidateTabs: true })
+  assert.equal((await readdir(targetRoot)).some(name => name.includes('.pending-')), false)
+  assert.equal(await readFile(path.join(result.sources[0].backup, 'data', TAVERN_SETTINGS_PATH), 'utf8'), ' \n')
+})
 
 test('旧数据升级时备份并合并索引，冲突文件保留但不覆盖主数据', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-data-'))

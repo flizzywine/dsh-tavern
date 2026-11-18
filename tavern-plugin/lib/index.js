@@ -328,7 +328,7 @@ import {
   createBackgroundTaskCoordinator,
   isOpeningAwaitingSettlement
 } from './domain/background-task-coordinator.js'
-import { createProfileDataStore } from './profile-data-store.js'
+import { createProfileDataStore, TAVERN_SETTINGS_PATH } from './profile-data-store.js'
 import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
@@ -688,8 +688,7 @@ export async function apply(ctx) {
   ctx.effect(() => watchUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending, loaded: loadedUserPlugins, reload: reloadUserPlugin }))
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
-  const settingsPath = 'tavern-settings.json'
-  const profileData = createProfileDataStore({ dataRoot, emptyJsonPaths: [settingsPath] })
+  const profileData = createProfileDataStore({ dataRoot })
   const generationStreamModes = createGenerationStreamModeStore(profileData)
   ctx.effect(() => installGenerationStreamModeHook(ctx, () => generationStreamModes.get()))
   const frameStorage = createFrameStorage(profileData)
@@ -764,7 +763,7 @@ export async function apply(ctx) {
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
-  let tavernSettingsDocument = await profileData.readJson(settingsPath)
+  let tavernSettingsDocument = await profileData.readJson(TAVERN_SETTINGS_PATH)
   const tavernStaticResources = createTavernStaticResourceCache({
     rootDir: dataRoot + '/cache/static-assets',
     verifyHostname(url) {
@@ -779,21 +778,22 @@ export async function apply(ctx) {
     return Object.fromEntries(SYSTEM_PROMPT_NAMES.map(function (name) { return [name, promptFile(name)] }))
   }
   async function readTavernSettings() {
-    tavernSettingsDocument = await profileData.readJson(settingsPath)
-    return presentTavernSettings(tavernSettingsDocument, promptDefaults())
+    return presentTavernSettings(await readRawTavernSettings(), promptDefaults())
   }
   // Import dedupe needs the stored overrides; the presented settings drop them for inactive sets.
   async function readRawTavernSettings() {
-    tavernSettingsDocument = await profileData.readJson(settingsPath)
+    tavernSettingsDocument = await profileData.readJson(TAVERN_SETTINGS_PATH)
     return tavernSettingsDocument
   }
-  async function updateTavernSettings(patch) {
+  async function updateTavernSettings(patch, { beforeWrite } = {}) {
     if (patch && (Object.hasOwn(patch, 'backgroundModel') || Object.hasOwn(patch, 'backgroundTasks') || Object.hasOwn(patch, 'webSearchEnabled'))) throw new Error('后台配置已移至顶栏的本局设置')
     for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel']) {
       if (patch?.[name] != null) await llm.resolveCallConfig(patch[name])
     }
-    tavernSettingsDocument = await profileData.updateJson(settingsPath, function (current) {
-      return applyTavernSettingsPatch(current, patch)
+    tavernSettingsDocument = await profileData.updateJson(TAVERN_SETTINGS_PATH, async function (current) {
+      const next = applyTavernSettingsPatch(current, patch)
+      await beforeWrite?.(current)
+      return next
     })
     return presentTavernSettings(tavernSettingsDocument, promptDefaults())
   }
