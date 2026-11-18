@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ddf2727664de3c94aab44e9b78efa6cafa07822f",
-  "releaseSequence": 1782,
+  "revision": "a01c55483bdc6069147cd258ffb31afcd6894194",
+  "releaseSequence": 1783,
   "version": "3.3.0",
   "files": [
     {
@@ -1681,8 +1681,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/compaction-request.js",
-      "sha256": "b15667724e34f1eb514a864fedf36038ca4806ecd032d19c34c8873451dc41e0",
-      "size": 5323
+      "sha256": "d4e00b3f3d27a755b67d31c46521c9b648ab11ae807782891a139745181b07f1",
+      "size": 4977
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
@@ -1941,8 +1941,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "7c2cdccb6deb94dec267e50b917f41a008e4372387642f4edda8056af07a9921",
-      "size": 37299
+      "sha256": "ad330c0ea7aa8cbfed188302bec6c38800b0125c4f3e3b2b8a887d733f76c35f",
+      "size": 37109
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -2893,6 +2893,11 @@
       "path": "tavern-plugin/lib/domain/prompt-template-global-variables.js",
       "sha256": "dcca416d4227ee1f5e62379e981241efb1fe411968613ae4b395078cfd64abaa",
       "size": 2089
+    },
+    {
+      "path": "tavern-plugin/lib/domain/provider-message-content.js",
+      "sha256": "1749a71580775b002cd6cd6f64eb897904e58d36ed39e0e46044624070fb1ae6",
+      "size": 431
     },
     {
       "path": "tavern-plugin/lib/domain/provider-overflow.js",
@@ -9571,9 +9576,9 @@
     }
   ],
   "archive": {
-    "commit": "6a3255b980e0d4974316da2f881304d8e0e16d46",
+    "commit": "8568057d56375732b77c2d79f5acd34c1b663e8a",
     "path": "runtime.zip",
-    "sha256": "ef85c1aa81f0e56545cffaeb7edf1d451cad8052c3b034e30bb29a58b844c73a",
-    "size": 16947179
+    "sha256": "260e437557bf1b7759f4253cc30a97326c4f5168c406169a936145e4a3dde8e1",
+    "size": 16947443
   }
 }
