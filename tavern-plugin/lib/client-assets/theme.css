@@ -732,7 +732,8 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 }
 [data-dsh-card-stage] .dsh-tavern-assistant { color: var(--stage-text, var(--fork-ink)); font-family: var(--fork-font-reading); }
 [data-dsh-card-stage] .dsh-tavern-mvu-receipt { color: var(--stage-muted, var(--fork-ink-3)); }
-[data-dsh-card-stage] .dsh-tavern-dock-actions .dsh-tavern-choice-trigger { background: rgb(from var(--stage-panel, var(--fk-s-base-bgSolid)) r g b); color: var(--stage-text, var(--fork-ink-2)); border-color: var(--stage-border, var(--fork-hairline)); }
+[data-dsh-card-stage] .dsh-tavern-dock-actions .dsh-tavern-choice-trigger,
+[data-dsh-card-stage] .dsh-tavern-mobile-dock-toggle-tab { background: rgb(from var(--stage-panel, var(--fk-s-base-bgSolid)) r g b); color: var(--stage-text, var(--fork-ink-2)); border-color: var(--stage-border, var(--fork-hairline)); }
 @media (prefers-reduced-motion: reduce) and (update: none) {
   .dsh-card-stage-layer { opacity: .6; }
 }

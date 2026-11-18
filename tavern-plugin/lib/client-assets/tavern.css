@@ -525,7 +525,7 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 /* 「接下来的行动」的下移入口：桌面上由收起卡片承担，手机才在操作行里出现。 */
 .dsh-tavern-candidate-entry { display: none; }
 .dsh-tavern-dock-actions-primary { display: contents; }
-.dsh-tavern-mobile-stats-toggle { display: none; }
+.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle-row { display: none; }
 .dsh-tavern-notice-dismiss { margin-left: 6px; padding: 0 4px; border: 0; background: none; color: inherit; font: inherit; line-height: 1; cursor: pointer; opacity: .7; }
 .dsh-tavern-notice-dismiss:hover { opacity: 1; }
 .dsh-tavern-more-actions { position: relative; }
@@ -2914,7 +2914,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     max-height: var(--dsh-sheet-max, calc(var(--dsh-vv-height, 100dvh) * .6)); overflow-y: auto; overscroll-behavior: contain;
   }
   /* 展开候选时操作集中在候选卡底部；收起即恢复生成与历史入口，减少重复工具条占位。 */
-  html.dsh-tavern-viewport-pinned [data-composer-seat]:has(.dsh-tavern-candidate-question:not(.collapsed)) .dsh-tavern-dock-actions { display: none; }
+  html.dsh-tavern-viewport-pinned [data-composer-seat]:has(.dsh-tavern-candidate-question:not(.collapsed)) :is(.dsh-tavern-dock-actions, .dsh-tavern-mobile-dock-toggle-row) { display: none; }
   /* 候选面板已经占据输入区上方，已展开的运行状态也先让位。 */
   html.dsh-tavern-viewport-pinned [data-composer-seat]:has(.dsh-tavern-candidate-question:not(.collapsed)) [data-composer-dock] { display: none !important; }
   .dsh-tavern-choice-trigger { min-height: 36px; padding: 5px 10px; font-size: 13px; }
@@ -3223,13 +3223,49 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   .dsh-tavern-mobile-stats-toggle:hover { background: transparent; color: var(--dsh-tavern-accent); }
   .dsh-tavern-mobile-stats-toggle[aria-expanded="true"] .dsh-tavern-mobile-stats-glyph { transform: rotate(180deg); }
+  .dsh-tavern-dock-actions[data-mobile-collapsed="true"] { display: none !important; }
+  .dsh-tavern-mobile-dock-toggle-row {
+    order: 3; display: flex; align-items: center; justify-content: center;
+    width: 100%; max-width: var(--dsh-composer-card-max-width, 780px); box-sizing: border-box;
+    height: 16px; margin: -4px auto -3px; pointer-events: none;
+  }
+  .dsh-tavern-mobile-dock-toggle-row:has([aria-expanded="false"]) { margin-top: 0; }
+  .dsh-tavern-mobile-dock-toggle {
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; border: 0; background: transparent; color: var(--dsw-alias-label-secondary);
+    cursor: pointer; pointer-events: auto; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .dsh-tavern-mobile-dock-toggle::before { content: ""; position: absolute; inset: -6px -12px; }
+  .dsh-tavern-mobile-dock-toggle:focus-visible { outline: none; }
+  .dsh-tavern-mobile-dock-toggle-tab {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 15px; box-sizing: border-box;
+    border: 1px solid var(--dsw-alias-border-l2); border-radius: 3px 3px 11px 11px;
+    background: var(--dsw-specific-sidebar-fill);
+  }
+  .dsh-tavern-mobile-dock-toggle[aria-expanded="false"] .dsh-tavern-mobile-dock-toggle-tab {
+    border-radius: 11px 11px 3px 3px;
+  }
+  .dsh-tavern-mobile-dock-toggle:active .dsh-tavern-mobile-dock-toggle-tab,
+  .dsh-tavern-mobile-dock-toggle:focus-visible .dsh-tavern-mobile-dock-toggle-tab {
+    color: var(--dsh-tavern-accent);
+    border-color: color-mix(in srgb, var(--dsh-tavern-accent) 45%, var(--dsw-alias-border-l2));
+  }
+  @media (hover: hover) {
+    .dsh-tavern-mobile-dock-toggle:hover .dsh-tavern-mobile-dock-toggle-tab {
+      color: var(--dsh-tavern-accent);
+      border-color: color-mix(in srgb, var(--dsh-tavern-accent) 45%, var(--dsw-alias-border-l2));
+    }
+  }
+  .dsh-tavern-mobile-dock-toggle-icon { display: block; flex-shrink: 0; transition: transform 160ms ease; }
+  .dsh-tavern-mobile-dock-toggle[aria-expanded="false"] .dsh-tavern-mobile-dock-toggle-icon { transform: rotate(180deg); }
   /* 展开时让宿主 InputBar 的卡片与状态栏参与同一纵向布局，状态卡排在操作行上方。 */
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle) [class*="_composerStack"] { display: flex; flex-direction: column; }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle) [data-slot="conversation.composer.bar"] > :has(> [data-composer-card]) { display: contents; }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle) [data-composer-card] { order: 3; }
+  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle) [class*="_composerStack"] { display: flex; flex-direction: column; }
+  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle) [data-slot="conversation.composer.bar"] > :has(> [data-composer-card]) { display: contents; }
+  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle, .dsh-tavern-mobile-dock-toggle) [data-composer-card] { order: 4; }
   /* 折叠整条宿主状态栏；只藏插槽会留下原生上下文计量，等于没省高度。 */
   [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle) [data-composer-dock] { display: none !important; }
-  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle[aria-expanded="true"]) [data-composer-dock] {
+  [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle[aria-expanded="true"]):not(:has(.dsh-tavern-mobile-dock-toggle[aria-expanded="false"])) [data-composer-dock] {
     order: 1; display: flex !important; flex-wrap: wrap; align-items: center; gap: 8px 14px; box-sizing: border-box;
     width: calc(100% - 16px); max-width: var(--dsh-composer-card-max-width, 780px); max-height: min(30dvh, 180px);
     margin: 0 auto 6px; padding: 11px 12px; overflow-y: auto; overscroll-behavior: contain;
@@ -3587,9 +3623,9 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-seat] {
     --dsh-composer-text-max-height: 48px;
   }
-  html.dsh-tavern-short-viewport [data-composer-seat]:has([data-composer-card] :is(textarea, [contenteditable="true"]):focus) :is(.dsh-tavern-dock-actions, .dsh-tavern-candidate-question.collapsed) { display: none; }
-  /* 键盘弹出时折叠状态的开关也随之隐藏，展开的面板不能继续占用正文高度。 */
-  html.dsh-tavern-short-viewport [data-composer-seat]:has(.dsh-tavern-mobile-stats-toggle):has([data-composer-card] :is(textarea, [contenteditable="true"]):focus) [data-composer-dock] { display: none !important; }
+  html.dsh-tavern-short-viewport [data-composer-seat]:has([data-composer-card] :is(textarea, [contenteditable="true"]):focus) :is(.dsh-tavern-dock-actions, .dsh-tavern-mobile-dock-toggle-row, .dsh-tavern-candidate-question.collapsed) { display: none; }
+  /* 键盘弹出时状态栏也不继续占用正文高度。 */
+  html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-seat]:has([data-composer-card] :is(textarea, [contenteditable="true"]):focus) [data-composer-dock] { display: none !important; }
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-card] :is(textarea, [contenteditable="true"]) { min-height: 24px; }
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-card] [class*="_row"] { position: sticky; bottom: 0; background: var(--dsw-specific-input-major); }
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active :is(.dsh-tavern-candidate-question:not(.collapsed), [data-composer-card] [class*="_menu"][role="menu"]) {

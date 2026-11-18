@@ -1138,26 +1138,98 @@
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const running = props.useSession(function (snapshot) { return snapshot.running === true; });
 			const live = useLiveTavernView(ownerSessionId, String(running) + ":" + String(latestMessageId || ""));
+			const mobileDockOpen = useMobileDockActionsOpen();
 			const imageTurn = Number(live.view && live.view.latestAssistantTurn) || 0;
 			const h = React.createElement;
 			if (!sessionMode) return null;
+			const toggleMobileDock = function () { setMobileDockActionsOpen(!mobileDockOpen); };
 			const compacting = live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running";
 			const compactionStatus = live.view && live.view.contextCompaction && (compacting || live.view.contextCompaction.warning) ? h("span", { role: "status", className: "dsh-tavern-settings-desc fork-compaction-status" }, compacting ? "正在压缩前后台上下文…" : live.view.contextCompaction.warning,
 				// a warning can be dismissed; it otherwise stays until a later compaction succeeds.
 				!compacting && live.view.contextCompaction.warning ? h("button", { type: "button", className: "fork-compaction-dismiss", "aria-label": "关闭这条提示", title: "关闭这条提示", onClick: function () {
 					rpc("dismissCompactionWarning", { sessionId: ownerSessionId }, ownerSessionId).then(function () { liveTavernView.invalidate(ownerSessionId); }, function (error) { tavernErrorHub.report("关闭压缩提示", error); });
 				} }, "×") : null) : null;
-			if (address) return isPlayMode(sessionMode) ? h("div", { className: "dsh-tavern-dock-actions" },
-				h("div", { className: "dsh-tavern-dock-actions-primary" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId })),
-				h(MobileComposerStatsToggle)) : null;
-			return h("div", { className: "dsh-tavern-dock-actions",
-				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
-				h("div", { className: "dsh-tavern-dock-actions-primary" },
-					isPlayMode(sessionMode) ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
-					isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
-				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
-				React.createElement(MobileComposerStatsToggle),
-                compactionStatus
+			if (address) return isPlayMode(sessionMode) ? h(React.Fragment, null,
+				h("div", { className: "dsh-tavern-dock-actions", "data-mobile-collapsed": !mobileDockOpen || undefined },
+					h("div", { className: "dsh-tavern-dock-actions-primary" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId })),
+					h(MobileComposerStatsToggle)),
+				h(MobileDockActionsToggle, { open: mobileDockOpen, onToggle: toggleMobileDock })) : null;
+			return h(React.Fragment, null,
+				h("div", { className: "dsh-tavern-dock-actions",
+					"data-mobile-collapsed": !mobileDockOpen || undefined,
+					"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
+					h("div", { className: "dsh-tavern-dock-actions-primary" },
+						isPlayMode(sessionMode) ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
+						isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
+					isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
+					React.createElement(MobileComposerStatsToggle),
+					compactionStatus
+				),
+				h(MobileDockActionsToggle, { open: mobileDockOpen, onToggle: toggleMobileDock })
+			);
+		}
+
+		const MOBILE_DOCK_ACTIONS_STORAGE_KEY = "dsh-tavern:mobile-dock-actions-open";
+		const mobileDockActionsListeners = new Set();
+		function readMobileDockActionsOpen() {
+			try {
+				return typeof window !== "undefined" && window.localStorage
+					? window.localStorage.getItem(MOBILE_DOCK_ACTIONS_STORAGE_KEY) !== "0"
+					: true;
+			} catch (_) {
+				return true;
+			}
+		}
+		function setMobileDockActionsOpen(open) {
+			try {
+				if (typeof window !== "undefined" && window.localStorage) {
+					window.localStorage.setItem(MOBILE_DOCK_ACTIONS_STORAGE_KEY, open ? "1" : "0");
+				}
+			} catch (_) {}
+			mobileDockActionsListeners.forEach(function (listener) { listener(); });
+		}
+		function useMobileDockActionsOpen() {
+			if (typeof React.useSyncExternalStore !== "function") return readMobileDockActionsOpen();
+			return React.useSyncExternalStore(
+				function (listener) {
+					mobileDockActionsListeners.add(listener);
+					return function () { mobileDockActionsListeners.delete(listener); };
+				},
+				readMobileDockActionsOpen,
+				function () { return true; }
+			);
+		}
+		function MobileDockActionsToggle(props) {
+			const open = props.open !== false;
+			const label = open ? "收起操作栏" : "展开操作栏";
+			const h = React.createElement;
+			return h("div", { className: "dsh-tavern-mobile-dock-toggle-row" },
+				h("button", {
+					type: "button",
+					className: "dsh-tavern-mobile-dock-toggle",
+					"aria-label": label,
+					title: label,
+					"aria-expanded": open,
+					onClick: props.onToggle
+				},
+					h("span", { "aria-hidden": "true", className: "dsh-tavern-mobile-dock-toggle-tab" },
+						h("svg", {
+							className: "dsh-tavern-mobile-dock-toggle-icon",
+							width: 12,
+							height: 7,
+							viewBox: "0 0 12 7",
+							fill: "none"
+						},
+							h("path", {
+								d: "M2 1.5L6 5.5L10 1.5",
+								stroke: "currentColor",
+								strokeWidth: 1.6,
+								strokeLinecap: "round",
+								strokeLinejoin: "round"
+							})
+						)
+					)
+				)
 			);
 		}
 
