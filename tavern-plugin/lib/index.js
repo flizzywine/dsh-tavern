@@ -688,7 +688,8 @@ export async function apply(ctx) {
   ctx.effect(() => watchUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending, loaded: loadedUserPlugins, reload: reloadUserPlugin }))
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
-  const profileData = createProfileDataStore({ dataRoot })
+  const settingsPath = 'tavern-settings.json'
+  const profileData = createProfileDataStore({ dataRoot, emptyJsonPaths: [settingsPath] })
   const generationStreamModes = createGenerationStreamModeStore(profileData)
   ctx.effect(() => installGenerationStreamModeHook(ctx, () => generationStreamModes.get()))
   const frameStorage = createFrameStorage(profileData)
@@ -763,7 +764,6 @@ export async function apply(ctx) {
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
-  const settingsPath = 'tavern-settings.json'
   let tavernSettingsDocument = await profileData.readJson(settingsPath)
   const tavernStaticResources = createTavernStaticResourceCache({
     rootDir: dataRoot + '/cache/static-assets',
