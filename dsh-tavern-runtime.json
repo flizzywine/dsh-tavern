@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f1c6a7b82e0b2d519e899ed4b40e5ef59a66e891",
-  "releaseSequence": 1769,
+  "revision": "416f5b9a689da3cae5e6ad132cb27b40ae8fa06e",
+  "releaseSequence": 1770,
   "version": "3.3.0",
   "files": [
     {
@@ -7476,7 +7476,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "d9e628de8184bb5b0a44ac2b0fb5810a1b97afe3aabb89183a54b92dcb3dc512",
+      "sha256": "23ed1aab4223cccf5d505d232bda9c94443163184c650e3077476aefdfd1e936",
       "size": 260
     },
     {
@@ -7486,8 +7486,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/client.js",
-      "sha256": "f01819b2b8978da3a27937fde80316b35a6ce647d7cc47ad277dbd46aa271983",
-      "size": 630920
+      "sha256": "6330881d8302913e7913a83f1309b3777f5d6f4d06f4c8912a528c5da35038ff",
+      "size": 628865
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/console.html",
@@ -7531,8 +7531,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js",
-      "sha256": "7cf4b1140fdc81feade7d57ba1d34b06bac1beee8ff92e82d250529e2c5c89a7",
-      "size": 4522
+      "sha256": "c2a8a7f501b0c3e038e53110eb9419f98a0f8bd8f346422eec7c6a94e01f524f",
+      "size": 6238
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js",
@@ -7541,8 +7541,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/index.js",
-      "sha256": "185418f419cf4be4bb4d6c8bc01919e71002cd78001fadfc75d6ae6b0297b422",
-      "size": 41148
+      "sha256": "f50bd46f7e74896f2f1de23c9fc851203ccb7b1c6a695f15c75b2f59a61e1c91",
+      "size": 42434
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/storage.js",
@@ -7976,7 +7976,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "cb150e60670097ae0b0642d59a71fe44e850dbc75a326fcdc0965bcf4a7d6362",
+      "sha256": "18710fde24d6e854eb000ffe230f33f6b3bfe174fba0b89a9f1656cd15310067",
       "size": 2422
     },
     {
@@ -9561,9 +9561,9 @@
     }
   ],
   "archive": {
-    "commit": "e1a1593be3e5d1ffa7667d3256d5465b1fb0bce1",
+    "commit": "593ba93cc31e21c0b79854be4b9c89462e5de8e8",
     "path": "runtime.zip",
-    "sha256": "1bcd1e52e6cfd7762f3b4d96d3acad35ec96c6795b5dedf4c4eb18b0ff56436e",
-    "size": 16955300
+    "sha256": "67d02602dcc4678ece65d2997acb9e7cbf9cfd199d0054d4d4c238b766fdf2a3",
+    "size": 16955895
   }
 }
