@@ -631,8 +631,13 @@ export function apply(ctx, options = {}) {
     return { ok: true, plotCompass }
   })
 
-  handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval } = {}) => {
-    const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval })
+  handle('plot-compass:set-goal', async ({ gameId, text, horizon, enabled } = {}) => {
+    const plotCompass = await service.setGoal({ gameId, text, horizon, enabled })
+    return { ok: true, plotCompass }
+  })
+
+  handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, goal } = {}) => {
+    const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, goal })
     return { ok: true, plotCompass }
   })
 

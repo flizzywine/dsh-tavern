@@ -5,13 +5,20 @@ export const PLOT_COMPASS_HORIZONS = Object.freeze(['shortTerm', 'midTerm', 'lon
 export const PLOT_COMPASS_SCOPES = Object.freeze(['all', 'shortTerm', 'midTerm', 'longTerm'])
 export const PLOT_COMPASS_PACES = Object.freeze(['foreshadow', 'natural', 'climax'])
 export const PLOT_COMPASS_STRENGTHS = Object.freeze(['soft', 'guided', 'strict'])
+export const PLOT_COMPASS_GOAL_HORIZON_LABELS = Object.freeze({
+  shortTerm: '短期',
+  midTerm: '中期',
+  longTerm: '长期'
+})
 export const PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL = 100
+export const PLOT_COMPASS_MAX_GOAL_LENGTH = 300
 
 const MAX_ROUTES_PER_HORIZON = 4
 const MAX_STEPS_PER_ROUTE = 4
 const MAX_ARCHETYPES = 5
 const MAX_ARCHIVED = 8
 const MAX_CUSTOM_DIRECTIVE_LENGTH = 240
+const MAX_GOAL_TEXT_LENGTH = PLOT_COMPASS_MAX_GOAL_LENGTH
 const MAX_COMPASS_CHAT_MESSAGES = 16
 
 function str(value) {
@@ -196,6 +203,27 @@ export function normalizeArchetypeList(values, options = {}) {
   return out
 }
 
+export function normalizePlotCompassGoal(raw, options = {}) {
+  const src = typeof raw === 'string'
+    ? { text: raw, enabled: Boolean(raw.trim()) }
+    : object(raw)
+  if (!src) {
+    return { enabled: false, horizon: 'shortTerm', text: '' }
+  }
+  const horizon = PLOT_COMPASS_HORIZONS.includes(src.horizon) ? src.horizon : 'shortTerm'
+  const text = cleanText(src.text, { ...options, maxLength: MAX_GOAL_TEXT_LENGTH })
+  const enabled = text ? (typeof src.enabled === 'boolean' ? src.enabled : true) : false
+  return { enabled, horizon, text }
+}
+
+export function activePlotCompassGoal(compassRaw) {
+  const src = object(compassRaw)
+  const goal = src && src.version === 1 && object(src.goal)
+    ? normalizePlotCompassGoal(src.goal)
+    : readPlotCompass(compassRaw).goal
+  return goal?.enabled && goal?.text ? goal : null
+}
+
 export function emptyPlotCompass() {
   return {
     version: 1,
@@ -208,6 +236,7 @@ export function emptyPlotCompass() {
     pace: 'natural',
     blindBox: false,
     customDirective: '',
+    goal: { enabled: false, horizon: 'shortTerm', text: '' },
     playArchetypes: [],
     customArchetypes: [],
     situationDigest: '',
@@ -283,6 +312,7 @@ export function readPlotCompass(value) {
     pace: normalizePlotCompassPace(src.pace),
     blindBox: src.blindBox === true,
     customDirective: cleanText(src.customDirective, { maxLength: MAX_CUSTOM_DIRECTIVE_LENGTH }),
+    goal: normalizePlotCompassGoal(src.goal),
     playArchetypes: normalizeArchetypeList(src.playArchetypes),
     customArchetypes: normalizeArchetypeList(src.customArchetypes),
     situationDigest: cleanText(src.situationDigest, { maxLength: 240 }),
@@ -340,7 +370,7 @@ const STEP_ITEM_SCHEMA = Object.freeze({
 
 export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
   name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
-  description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线；各路线锚定戏剧张力与局势跃迁（What/Why），不预先锁死单一动作微操（How）。',
+  description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线；各路线锚定戏剧张力与局势跃迁（What/Why），不预先锁死单一动作微操（How）。若上下文包含 <player_goal> 目标导向，整棵剧情树的所有分支路线必须殊途同归导向达成玩家设定的目标结果。',
   parameters: Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -617,10 +647,46 @@ export function applyPlotCompassCustomArchetypes(previousRaw, archetypes, { now 
 }
 
 /**
- * 更新剧情罗盘的控制偏好（约束力度、推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔）。
+ * 设置或更新剧情罗盘的目标导向配置（目标结果文本、短期/中期/长期跨度、启停状态）。
  */
-export function applyPlotCompassPreferences(previousRaw, { strength, pace, blindBox, customDirective, autoUpdateInterval, now = Date.now() } = {}) {
+export function applyPlotCompassGoal(previousRaw, { text, horizon, enabled, now = Date.now() } = {}) {
   const next = readPlotCompass(previousRaw)
+  const prevGoal = next.goal || { enabled: false, horizon: 'shortTerm', text: '' }
+  let nextHorizon = prevGoal.horizon
+  if (horizon !== undefined) {
+    if (!PLOT_COMPASS_HORIZONS.includes(horizon)) {
+      throw new Error('无效的目标跨度选项：' + str(horizon))
+    }
+    nextHorizon = horizon
+  }
+  const nextText = text !== undefined
+    ? cleanText(text, { maxLength: MAX_GOAL_TEXT_LENGTH })
+    : prevGoal.text
+  let nextEnabled
+  if (!nextText) {
+    if (enabled === true) throw new Error('请先输入目标内容后再开启目标导向')
+    nextEnabled = false
+  } else if (enabled !== undefined) {
+    nextEnabled = Boolean(enabled)
+  } else if (text !== undefined) {
+    nextEnabled = true
+  } else {
+    nextEnabled = prevGoal.enabled
+  }
+  next.goal = {
+    enabled: nextEnabled,
+    horizon: nextHorizon,
+    text: nextText
+  }
+  next.updatedAt = now
+  return next
+}
+
+/**
+ * 更新剧情罗盘的控制偏好（约束力度、推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔、可选目标导向）。
+ */
+export function applyPlotCompassPreferences(previousRaw, { strength, pace, blindBox, customDirective, autoUpdateInterval, goal, now = Date.now() } = {}) {
+  let next = readPlotCompass(previousRaw)
   if (strength !== undefined) {
     if (!PLOT_COMPASS_STRENGTHS.includes(strength)) throw new Error('无效的约束力度选项：' + str(strength))
     next.strength = strength
@@ -644,6 +710,10 @@ export function applyPlotCompassPreferences(previousRaw, { strength, pace, blind
       throw new Error(`自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
     }
     next.autoUpdateInterval = parsed
+  }
+  if (goal !== undefined) {
+    const goalPatch = typeof goal === 'string' ? { text: goal } : (object(goal) || { text: '', enabled: false })
+    next = applyPlotCompassGoal(next, { ...goalPatch, now })
   }
   next.updatedAt = now
   return next
@@ -706,8 +776,10 @@ export function plotCompassWorldbookScanText(source) {
   }
   if (source.mode && !['story', 'script'].includes(source.mode)) return ''
   const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
-  if (!shortTerm && !midTerm && !longTerm && !compass.customDirective) return ''
+  const activeGoal = activePlotCompassGoal(compass)
+  if (!shortTerm && !midTerm && !longTerm && !compass.customDirective && !activeGoal) return ''
   const snippets = []
+  if (activeGoal?.text) snippets.push(activeGoal.text)
   if (longTerm) {
     if (longTerm.title) snippets.push(longTerm.title)
     if (longTerm.tone) snippets.push(longTerm.tone)
@@ -818,18 +890,35 @@ function formatCompassStepChain(steps, { activeLabel = '本轮推进目标', pha
 }
 
 /**
- * 为前台正文生成剧情罗盘导演/引导段落文本（未开启且无锚定路线与微调指令时返回空字符串）。严格隐藏远期终局剧透。
+ * 为前台正文生成剧情罗盘导演/引导段落文本（未开启且无锚定路线、目标导向与微调指令时返回空字符串）。严格隐藏远期终局剧透。
  */
 export function plotCompassBodyText(compassRaw) {
   const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
+  const activeGoal = activePlotCompassGoal(compass)
   const hasPinned = Boolean(shortTerm || midTerm || longTerm)
-  if (!hasPinned && !compass.customDirective) return ''
+  if (!hasPinned && !compass.customDirective && !activeGoal) return ''
 
   const strength = normalizePlotCompassStrength(compass.strength)
   const lines = [
     STRENGTH_HEADERS[strength] || STRENGTH_HEADERS.guided,
     `- ${PACE_GUIDANCE[compass.pace] || PACE_GUIDANCE.natural}`
   ]
+
+  if (activeGoal) {
+    if (activeGoal.horizon === 'shortTerm') {
+      const focusTag = !shortTerm
+        ? ` ｜ 【▶ ${strength === 'strict' ? '本轮必达推进焦点' : '本轮推进目标'}：直接推动现场局势与人物互动朝此短期结果实质性收束】`
+        : '（结合下方今期锚定节拍，在 2–5 轮内实质性收束兑现此结果）'
+      lines.push(`- 🎯 玩家锁定目标导向〔短期 · 2–5轮内达成〕：${activeGoal.text}${focusTag}`)
+    } else if (activeGoal.horizon === 'midTerm') {
+      const focusTag = !shortTerm && !midTerm
+        ? ` ｜ 【▶ ${strength === 'strict' ? '本轮入线必达切口' : '本轮推进目标'}：从当前现场切入并撬动通往该中期结果的关键契机】`
+        : ''
+      lines.push(`- 🎯 玩家锁定目标导向〔中期 · 5–20轮篇章结果〕：${activeGoal.text}${focusTag}（沿当前因果稳步铺垫并积累达成该中期目标所需的筹码与关系转向，严禁把局势写进背离该目标的方向；逐步推进，切勿脱离过程在一轮内硬跳终局）`)
+    } else {
+      lines.push(`- 🎯 玩家锁定目标导向〔长期 · 远期终局归宿〕：${activeGoal.text}（维持通向该远期目标结果的因果伏脉与人物演进航向，严禁制造不可逆阻断该目标的死局，同时严禁脱离当前阶段提前抢跑或跳向结局）`)
+    }
+  }
 
   if (shortTerm) {
     const beats = Array.isArray(shortTerm.beats) ? shortTerm.beats : []
@@ -869,7 +958,7 @@ export function plotCompassBodyText(compassRaw) {
     lines.push(`- 长期暗流基调「${longTerm.title}」(routeTag="${longTerm.tag}"，仅维持伏脉氛围，严禁提前揭示或跳向结局)：${toneLine}${omenHint}`)
   }
 
-  if (midTerm || shortTerm) {
+  if (midTerm || shortTerm || activeGoal) {
     lines.push('- 目标锁定与手段开放：罗盘锁定的是「戏剧意图与关系/局势转折（What）」，而非死板的动作剧本（How）。具体采用何种肢体互动、对白锋芒或现场道具达成该推进，完全服从本轮玩家选定的演出方式与在场人物的即时反应，切勿无视当前站位生搬硬套字面表述。')
     lines.push('- 场外涟漪演绎许可：当玩家既往抉择或既定事件已在场外牵动上述路线因果时，可通过简短视角切镜、信使书信、不速之客或耳闻风声直接呈现场外局势推进，但不得越权替玩家做出尚未发生的主观抉择。')
   }
@@ -878,7 +967,7 @@ export function plotCompassBodyText(compassRaw) {
     lines.push(`- 玩家微调导演要求（在不违背现场事实前提下优先贯彻）：${compass.customDirective}`)
   }
 
-  if (strength !== 'soft' && (shortTerm || midTerm || compass.customDirective)) {
+  if (strength !== 'soft' && (shortTerm || midTerm || compass.customDirective || activeGoal)) {
     lines.push('- 落笔前构思检核：在构思阶段（含思维链或 submit_story 的 think 参数）必须先敲定「玩家本轮输入 × 上述推进目标」的具体衔接点（由谁、借什么现场自然契机切入推进，段尾停在何处悬念钩子），再动笔输出正文。')
   }
 
@@ -896,12 +985,21 @@ export function plotCompassBodySection(chat) {
  */
 export function plotCompassCandidateText(compassRaw) {
   const { compass, shortTerm: pinnedShort, midTerm: pinnedMid, longTerm: pinnedLong } = activePlotCompassRoutes(compassRaw)
-  if (compass.shortTerm.length === 0 && !pinnedMid) return ''
+  const activeGoal = activePlotCompassGoal(compass)
+  if (compass.shortTerm.length === 0 && !pinnedMid && !activeGoal) return ''
 
   const strength = normalizePlotCompassStrength(compass.strength)
   const lines = [
     'Plot Compass intent directions are available. Treat compass routes strictly as abstract DRAMATIC INTENT / OUTCOME GOALS—NEVER paraphrase or mechanically copy their wording! Invent fresh, vivid staging (`HOW`) rooted in the latest paragraph\'s exact posture, gaze, props, and emotional subtext, and attach matching short `routeTag` on `actors[].routeTags` / `featured[].routeTag` (`eventRouteTag` / `sceneRouteTag` when fitting):'
   ]
+  if (activeGoal) {
+    const scaleNote = activeGoal.horizon === 'shortTerm'
+      ? 'Steer immediate choices so they actively push toward achieving this short-term outcome within 2–5 turns.'
+      : activeGoal.horizon === 'midTerm'
+        ? 'Ensure forward-moving choices build concrete leverage, clues, or relationship momentum toward this mid-term chapter outcome.'
+        : 'Keep compass-aligned choices constructively aligned with the trajectory toward this long-term destiny without prematurely skipping arcs.'
+    lines.push(`- [PLAYER GOAL ORIENTATION · ${activeGoal.horizon}]: Target outcome → "${activeGoal.text}". ${scaleNote}`)
+  }
   if (pinnedShort) {
     const nextBeat = (pinnedShort.beats || []).find(step => !step.done)?.text || pinnedShort.summary
     const mandate = strength === 'strict'
@@ -948,8 +1046,12 @@ export function plotCompassSettlementNote(source) {
   }
   if (source.mode && !['story', 'script'].includes(source.mode)) return ''
   const { compass, shortTerm, midTerm } = activePlotCompassRoutes(compassRaw)
-  if (!shortTerm && !midTerm && !compass.customDirective) return ''
+  const activeGoal = activePlotCompassGoal(compass)
+  if (!shortTerm && !midTerm && !compass.customDirective && !activeGoal) return ''
   const focus = []
+  if (activeGoal) {
+    focus.push(`目标导向〔${PLOT_COMPASS_GOAL_HORIZON_LABELS[activeGoal.horizon] || '短期'}〕：「${activeGoal.text}」`)
+  }
   if (shortTerm) {
     const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text || shortTerm.summary
     focus.push(`近期路线「${shortTerm.title}」（当前节拍：${nextBeat}）`)
@@ -965,7 +1067,7 @@ export function plotCompassSettlementNote(source) {
 }
 
 /**
- * 归卷压缩摘要保留说明：防止压缩丢失与锚定路线相关的伏笔。
+ * 归卷压缩摘要保留说明：防止压缩丢失与锚定路线或目标导向相关的伏笔。
  */
 export function plotCompassCompactionNote(source) {
   if (!source) return ''
@@ -974,15 +1076,55 @@ export function plotCompassCompactionNote(source) {
     if (!isPlotCompassEnabled(source)) return ''
   }
   if (source.mode && !['story', 'script'].includes(source.mode)) return ''
-  const { shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
-  if (!shortTerm && !midTerm && !longTerm) return ''
+  const { compass, shortTerm, midTerm, longTerm } = activePlotCompassRoutes(compassRaw)
+  const activeGoal = activePlotCompassGoal(compass)
+  if (!shortTerm && !midTerm && !longTerm && !activeGoal) return ''
   const items = []
+  if (activeGoal) {
+    items.push(`目标导向〔${PLOT_COMPASS_GOAL_HORIZON_LABELS[activeGoal.horizon] || '短期'}〕：${activeGoal.text}`)
+  }
   if (shortTerm) items.push(`近期锚定方向「${shortTerm.title}」：${shortTerm.summary}`)
   if (midTerm) items.push(`中期锚定篇章「${midTerm.title}」：${midTerm.summary}`)
   if (longTerm) items.push(`长期基调方向「${longTerm.title}」（${longTerm.tone || '远期伏脉'}）`)
   return '玩家当前在剧情罗盘中点亮了以下发展方向，压缩摘要时务必在 Foreshadowing and promises / Relationships 中完整保留与之相关的伏笔、约定与暗线线索（但只记录已发生的剧情事实，不要把未发生的规划当成既成事实写进摘要）：\n- ' + items.join('\n- ')
 }
 
+function buildGoalOrientationText(goal) {
+  if (!goal?.enabled || !goal?.text) return ''
+  const horizonLabel = PLOT_COMPASS_GOAL_HORIZON_LABELS[goal.horizon] || '短期'
+  const horizonSpan = goal.horizon === 'shortTerm'
+    ? 'shortTerm (短期目标 · 2–5 轮内达成)'
+    : goal.horizon === 'midTerm'
+      ? 'midTerm (中期目标 · 5–20 轮篇章结果)'
+      : 'longTerm (长期目标 · 20+ 轮至终局结果)'
+
+  const alignmentLines = goal.horizon === 'shortTerm'
+    ? [
+        '- `shortTerm` (Target Horizon — Direct Fulfillment): ALL 2–4 routes MUST resolve and fulfill this exact target outcome by their final beat (`beats[last]`) and `summary` within 2–5 turns, diverging ONLY in tactical approach, interpersonal angle, or risk/trade-off while respecting `<latest_scene_snapshot>`. (If `<recent_story>` shows the goal has already been achieved, focus `shortTerm` on consolidating and realizing its immediate payoff.)',
+        '- `midTerm` (Downstream Continuation): ALL routes MUST treat the fulfillment of this short-term target outcome as their established causal starting point and build subsequent chapter arcs forward from it.',
+        '- `longTerm` (Macro Continuation): ALL routes MUST project ultimate destinies forward on the premise that this short-term outcome succeeded.'
+      ]
+    : goal.horizon === 'midTerm'
+      ? [
+          '- `shortTerm` (Immediate Stepping Stones): ALL 2–4 routes MUST serve as 2–5 turn opening moves from `<latest_scene_snapshot>` (gathering leverage, breaking immediate blockers, or initiating the relationship/plot shift) that steer directly into achieving the mid-term target.',
+          '- `midTerm` (Target Horizon — Chapter Culmination): ALL 2–4 routes MUST culminate in fulfilling this exact target outcome by their final milestone (`milestones[last]`) and `summary`, offering distinct chapter-scale paths/strategies to reach the SAME target result.',
+          '- `longTerm` (Post-Goal Destiny): ALL routes MUST treat the fulfilled mid-term target outcome as an achieved `prerequisite` and extend macro-endings forward without undoing or contradicting it.'
+        ]
+      : [
+          '- `shortTerm` (Opening Momentum): ALL 2–4 routes MUST initiate concrete causal momentum from `<latest_scene_snapshot>` toward the mid-term bridges needed for this long-term goal.',
+          '- `midTerm` (Chapter Bridges): ALL 2–4 routes MUST act as chapter-scale stepping stones building the alliances, revelations, resources, or turning points required to reach this long-term target outcome.',
+          '- `longTerm` (Target Horizon — Endgame Fulfillment): ALL 2–4 routes\' `vision` MUST achieve and realize this exact long-term target outcome (diverging ONLY in tone, cost, or specific realization form—NEVER offering endings that fail, invert, or abandon the goal).'
+        ]
+
+  return [
+    `Active Goal-Oriented Mode: ENABLED`,
+    `Target Horizon (${horizonLabel}): ${horizonSpan}`,
+    `Locked Target Outcome (MUST STEER TOWARD & ACHIEVE): ${goal.text}`,
+    'Mandatory Plot-Tree Convergence Rules:',
+    ...alignmentLines,
+    '- Strictly FORBID routes that abandon, oppose, fail, or drift away from the Locked Target Outcome. Differentiate routes via contrasting tactics/paths (`HOW`), NOT opposing destinations (`WHAT`).'
+  ].join('\n')
+}
 function normalizeLedger(raw) {
   const src = object(raw) || {}
   const npcs = (Array.isArray(src.npcs) ? src.npcs : [])
@@ -1130,10 +1272,15 @@ export function buildPlotCompassMaterial({
       'Untriggered lore entries hidden in this card\'s worldbook (turn 1–2 of the most fitting ones into mysterious Teaser Hooks without spoiling secret twists outright):\n' + hookLines))
   }
 
+  const activeGoal = activePlotCompassGoal(compass)
+
   if (scriptWindow && Array.isArray(scriptWindow.chunks) && scriptWindow.chunks.length > 0) {
     const scriptText = scriptWindow.chunks.map(chunk => `[${chunk.id}]\n${str(chunk.text).slice(0, 1200)}`).join('\n\n')
+    const scriptRule = activeGoal
+      ? 'Player Goal-Oriented Mode is active: align ALL routes toward `<player_goal>` (adapt or override canonical script beats whenever they conflict with the player\'s locked target outcome)'
+      : 'Offer BOTH canonical script-aligned routes (sourceHook="原著主线") AND 1–2 creative What-If divergence routes (sourceHook="IF偏离")'
     blocks.push(promptSection('script_context',
-      `Bound Script Mode (cursor ${Math.min((scriptWindow.cursor || 0) + 1, scriptWindow.total || 1)} / ${scriptWindow.total || 1}). Offer BOTH canonical script-aligned routes (sourceHook="原著主线") AND 1–2 creative What-If divergence routes (sourceHook="IF偏离"):\n` + scriptText))
+      `Bound Script Mode (cursor ${Math.min((scriptWindow.cursor || 0) + 1, scriptWindow.total || 1)} / ${scriptWindow.total || 1}). ${scriptRule}:\n` + scriptText))
   }
 
   const freezeSnapshot = extractSceneFreezeSnapshot({ messages, posture, ledger: ledgerRaw })
@@ -1178,9 +1325,14 @@ export function buildPlotCompassMaterial({
     blocks.push(promptSection('recent_story', recentLines.join('\n\n')))
   }
 
+  if (activeGoal) {
+    blocks.push(promptSection('player_goal', buildGoalOrientationText(activeGoal)))
+  }
+
   if (!fresh && (compass.shortTerm.length || compass.midTerm.length || compass.longTerm.length || compass.customArchetypes.length)) {
     blocks.push(promptSection('existing_plot_compass', JSON.stringify({
       refreshScope: scope,
+      ...(activeGoal ? { activeGoal } : {}),
       playerCustomArchetypes: compass.customArchetypes,
       previousPlayArchetypes: compass.playArchetypes,
       pinned: compass.pinned,
@@ -1191,11 +1343,21 @@ export function buildPlotCompassMaterial({
   }
 
   if (includeRequest) {
+    const goalHorizonLabel = activeGoal ? (PLOT_COMPASS_GOAL_HORIZON_LABELS[activeGoal.horizon] || '短期') : ''
     const requestLines = [
       fresh
-        ? 'This is a FRESH REBUILD explicitly requested by the player: no previous compass board is provided on purpose. Do NOT reconstruct, rename or echo any earlier route, ticked beat or pinned direction mentioned in the story text; derive brand-new diverging directions only from current story facts, play archetypes, worldbook hooks and variables.'
+        ? (activeGoal
+          ? 'This is a FRESH REBUILD explicitly requested by the player while `<player_goal>` is active: discard earlier routes and derive brand-new tactical paths from current story facts, worldbook hooks, and variables—ensuring EVERY new route across the plot tree steers toward and fulfills `<player_goal>`!'
+          : 'This is a FRESH REBUILD explicitly requested by the player: no previous compass board is provided on purpose. Do NOT reconstruct, rename or echo any earlier route, ticked beat or pinned direction mentioned in the story text; derive brand-new diverging directions only from current story facts, play archetypes, worldbook hooks and variables.')
         : '',
-      `Target refresh scope: "${scope}" (${scope === 'all' ? 'generate or evolve all 3 horizons: shortTerm, midTerm, longTerm' : `focus fresh divergent routes on "${scope}" while keeping the other two horizons consistent`}).`,
+      `Target refresh scope: "${scope}" (${scope === 'all'
+        ? 'generate or evolve all 3 horizons: shortTerm, midTerm, longTerm'
+        : activeGoal
+          ? `focus fresh tactical routes on "${scope}" that steer toward <player_goal> while keeping the other two horizons consistent`
+          : `focus fresh divergent routes on "${scope}" while keeping the other two horizons consistent`}).`,
+      activeGoal
+        ? `MANDATORY GOAL ORIENTATION [${goalHorizonLabel} · ${activeGoal.horizon}]: The entire generated plot tree MUST steer toward and achieve the player's target outcome — "${activeGoal.text}". Branch across different tactics/approaches/costs, NEVER across opposing outcomes that fail or abandon this goal!`
+        : '',
       compass.customArchetypes.length > 0
         ? `Player-specified Play Archetypes (MUST honor and build routes around these): ${compass.customArchetypes.join('、')}`
         : 'Infer 1–3 accurate Play Archetypes from the card, worldbook, variables, and story tone.',
@@ -1210,12 +1372,13 @@ export function buildPlotCompassMaterial({
 
 export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
   'You are the Plot Compass Story Co-pilot (剧情罗盘策划搭档) for an interactive story game.',
-  'Your role is to brainstorm plot directions, character motives, twists, and pacing ideas WITH the player—strictly respecting `<latest_scene_snapshot>`, `<card_profile>`, `<settled_state>`, and `<dormant_worldbook_hooks>`.',
+  'Your role is to brainstorm plot directions, character motives, twists, and pacing ideas WITH the player—strictly respecting `<latest_scene_snapshot>`, `<card_profile>`, `<settled_state>`, `<dormant_worldbook_hooks>`, and `<player_goal>` (when present).',
   'Interaction Rules (Mode A - Safe Discussion First):',
   '1) DEFAULT TO DISCUSSION: By default, do NOT overwrite existing routes on the compass board. Reply directly in concise, vivid Simplified Chinese (or the story\'s language) with 2–3 concrete, causally plausible dramatic angles, key risks/hooks, and a short prompt inviting the player to refine or apply the idea.',
   '2) ONLY CALL `plot_compass_submit` WHEN EXPLICITLY REQUESTED: Call `plot_compass_submit` ONLY if the player clearly asks you in this turn to generate, rewrite, replace, or update compass routes (e.g. "按第2条生成今期路线" / "帮我重新生成中期方向" / "把这套思路落盘成新路线").',
   '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and provide 2–4 distinct routes for each updated horizon. Write `beats` / `milestones` as concise 10–22 char dramatic state shifts rather than rigid micro-actions so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
-  '4) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
+  '4) GOAL-ORIENTED CONVERGENCE: Whenever `<player_goal>` is active, both your brainstorming angles and any routes submitted via `plot_compass_submit` MUST steer toward and achieve the player\'s locked target outcome (differentiating by tactics and paths rather than opposing endings), unless the player explicitly asks to change the goal.',
+  '5) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
 ].join('\n')
 
 export function buildPlotCompassBrainstormPrompt(params) {

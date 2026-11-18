@@ -66,10 +66,12 @@ exports.__test = {
   PC_PLUGIN_ID,
   PC_PRESET_ARCHETYPES,
   PC_HORIZON_META,
+  PC_GOAL_HORIZON_OPTIONS,
   PC_PACE_OPTIONS,
   PC_MODEL_OPTIONS,
   PC_AUTO_UPDATE_PRESETS,
   pcEmptyCompass,
+  pcActiveGoal,
   pcMidPhaseLabel,
   pcActiveCompassSummary
 }

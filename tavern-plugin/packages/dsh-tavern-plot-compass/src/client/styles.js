@@ -894,6 +894,77 @@ const PC_CSS_TEXT = `
 .dsh-tavern-compass-status-box p {
   margin: 0;
 }
+.dsh-tavern-compass-goal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.dsh-tavern-compass-goal-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(38, 130, 101, 0.38);
+  background: color-mix(in srgb, #268265 8%, transparent);
+}
+.dsh-tavern-compass-goal-banner.is-paused {
+  border-style: dashed;
+  border-color: var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  background: var(--dsw-alias-bg-base, transparent);
+  opacity: 0.86;
+}
+.dsh-tavern-compass-goal-banner-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+}
+.dsh-tavern-compass-goal-banner-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.dsh-tavern-compass-goal-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dsh-tavern-compass-goal-banner-actions .dsh-tavern-compass-link-btn {
+  margin-left: 0;
+}
+.dsh-tavern-compass-goal-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  word-break: break-word;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+.dsh-tavern-compass-goal-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: 1px dashed var(--dsh-tavern-accent-border, var(--dsh-tavern-accent, #b9824a));
+  background: var(--dsw-alias-bg-base, transparent);
+}
+.dsh-tavern-compass-goal-horizon-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dsh-tavern-compass-funnel-chip.is-goal {
+  border-color: var(--dsh-tavern-accent-border, var(--dsh-tavern-accent, #b9824a));
+  background: var(--dsh-tavern-accent-soft, rgba(185, 130, 74, 0.14));
+  font-weight: 600;
+}
 `
 
 function pcEnsureStyleInjected() {

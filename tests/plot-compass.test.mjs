@@ -544,3 +544,215 @@ test('推演模型设置全局一致：跨对话共享、不写入单局存档�
 
   mounted.dispose()
 })
+
+test('剧情罗盘目标导向：短期/中期/长期三跨度剧情树收敛规则、启停清除、脑暴与全段落注入', async () => {
+  const {
+    activePlotCompassGoal,
+    applyPlotCompassGoal,
+    buildPlotCompassBrainstormPrompt,
+    buildPlotCompassMaterial,
+    emptyPlotCompass,
+    plotCompassBodyText,
+    plotCompassCandidateText,
+    plotCompassCompactionNote,
+    plotCompassSettlementNote,
+    plotCompassWorldbookScanText,
+    readPlotCompass
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
+
+  const initial = emptyPlotCompass()
+  assert.deepEqual(initial.goal, { enabled: false, horizon: 'shortTerm', text: '' })
+  assert.equal(activePlotCompassGoal(initial), null)
+  assert.throws(() => applyPlotCompassGoal(initial, { enabled: true }), /请先输入目标内容/)
+  assert.throws(() => applyPlotCompassGoal(initial, { text: '达成目标', horizon: 'invalid' }), /无效的目标跨度选项/)
+
+  // 1. 短期目标（shortTerm）：近期所有分支终点直达该结果，中长期以此为因果起点顺延
+  const shortGoalCompass = applyPlotCompassGoal(initial, {
+    horizon: 'shortTerm',
+    text: '在破庙雨夜内说服苏晚交出北岭残图并暂时结盟'
+  })
+  assert.deepEqual(shortGoalCompass.goal, {
+    enabled: true,
+    horizon: 'shortTerm',
+    text: '在破庙雨夜内说服苏晚交出北岭残图并暂时结盟'
+  })
+  const shortMaterial = buildPlotCompassMaterial({
+    card: { name: '苏晚' },
+    messages: [{ role: 'assistant', turn: 2, text: '雨夜破庙的火光摇曳。' }],
+    compass: shortGoalCompass,
+    scope: 'all'
+  })
+  assert.match(shortMaterial, /<player_goal>[\s\S]*Target Horizon \(短期\): shortTerm[\s\S]*说服苏晚交出北岭残图并暂时结盟[\s\S]*Target Horizon — Direct Fulfillment[\s\S]*<\/player_goal>/)
+  assert.match(shortMaterial, /MANDATORY GOAL ORIENTATION \[短期 · shortTerm\]/)
+
+  // 未手动点亮单张卡片时，目标导向本身即可激活正文导演指令、候选引导、世界书扫描、结算与归卷保鲜
+  const shortBody = plotCompassBodyText(shortGoalCompass)
+  assert.match(shortBody, /🎯 玩家锁定目标导向〔短期 · 2–5轮内达成〕：在破庙雨夜内说服苏晚交出北岭残图并暂时结盟/)
+  assert.match(shortBody, /本轮推进目标/)
+  assert.match(plotCompassCandidateText(shortGoalCompass), /\[PLAYER GOAL ORIENTATION · shortTerm\].*说服苏晚交出北岭残图并暂时结盟/)
+  assert.equal(plotCompassWorldbookScanText(shortGoalCompass), '在破庙雨夜内说服苏晚交出北岭残图并暂时结盟')
+  assert.match(plotCompassSettlementNote(shortGoalCompass), /目标导向〔短期〕：「在破庙雨夜内说服苏晚交出北岭残图并暂时结盟」/)
+  assert.match(plotCompassCompactionNote(shortGoalCompass), /目标导向〔短期〕：在破庙雨夜内说服苏晚交出北岭残图并暂时结盟/)
+
+  // 2. 中期目标（midTerm）：短期路线铺垫阶梯，中期路线收束兑现，长期作为已达成前置顺延
+  const midGoalCompass = applyPlotCompassGoal(shortGoalCompass, {
+    horizon: 'midTerm',
+    text: '在江南武林大会揭穿盟主伪善面目并全身而退'
+  })
+  const midMaterial = buildPlotCompassMaterial({
+    card: { name: '苏晚' },
+    messages: [{ role: 'assistant', turn: 2, text: '雨夜破庙的火光摇曳。' }],
+    compass: midGoalCompass,
+    scriptWindow: { cursor: 0, total: 3, chunks: [{ id: 'c1', text: '原著中主角隐忍退让。' }] },
+    scope: 'all'
+  })
+  assert.match(midMaterial, /Target Horizon \(中期\): midTerm/)
+  assert.match(midMaterial, /Immediate Stepping Stones/)
+  assert.match(midMaterial, /Target Horizon — Chapter Culmination/)
+  assert.match(midMaterial, /Player Goal-Oriented Mode is active: align ALL routes toward `<player_goal>`/)
+
+  // 3. 长期目标（longTerm）：全新生成（fresh: true）与脑暴对话均持续保留并导向该终局结果
+  const longGoalCompass = applyPlotCompassGoal(midGoalCompass, {
+    horizon: 'longTerm',
+    text: '查明当年灭门真相，携手重开北岭山门'
+  })
+  const withOldRoutes = readPlotCompass({
+    ...longGoalCompass,
+    shortTerm: [{ id: 's1', tag: '旧径', title: '旧短期路线', summary: '旧摘要', beats: ['旧节拍'] }],
+    midTerm: [{ id: 'm1', tag: '旧章', title: '旧中期路线', summary: '旧摘要', milestones: ['旧节点'] }],
+    longTerm: [{ id: 'l1', tag: '隐退', title: '焚图隐退', vision: '放弃山门隐居' }]
+  })
+  const freshMaterial = buildPlotCompassMaterial({
+    card: { name: '苏晚' },
+    compass: withOldRoutes,
+    scope: 'all',
+    fresh: true
+  })
+  assert.doesNotMatch(freshMaterial, /<existing_plot_compass>/)
+  assert.match(freshMaterial, /<player_goal>[\s\S]*Target Horizon \(长期\): longTerm[\s\S]*Target Horizon — Endgame Fulfillment[\s\S]*携手重开北岭山门/)
+  assert.match(freshMaterial, /FRESH REBUILD explicitly requested by the player while `<player_goal>` is active/)
+
+  const brainstormPrompt = buildPlotCompassBrainstormPrompt({
+    card: { name: '苏晚' },
+    compass: withOldRoutes,
+    message: '帮我想几个切入点'
+  })
+  assert.match(brainstormPrompt, /<player_goal>[\s\S]*携手重开北岭山门/)
+
+  // 4. 暂停与清除目标导向
+  const paused = applyPlotCompassGoal(longGoalCompass, { enabled: false })
+  assert.equal(paused.goal.enabled, false)
+  assert.equal(paused.goal.text, '查明当年灭门真相，携手重开北岭山门')
+  assert.equal(activePlotCompassGoal(paused), null)
+  assert.equal(plotCompassBodyText(paused), '')
+  assert.doesNotMatch(buildPlotCompassMaterial({ card: { name: '苏晚' }, compass: paused }), /<player_goal>/)
+
+  const resumed = applyPlotCompassGoal(paused, { enabled: true })
+  assert.equal(activePlotCompassGoal(resumed)?.horizon, 'longTerm')
+
+  const cleared = applyPlotCompassGoal(resumed, { text: '' })
+  assert.deepEqual(cleared.goal, { enabled: false, horizon: 'longTerm', text: '' })
+})
+
+test('剧情罗盘目标导向 RPC 全链路：设置目标、重推剧情树、全新生成保留目标、归卷演进与客户端面板契约', async () => {
+  const clientCode = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  assert.match(clientCode, /plot-compass:set-goal/)
+  assert.match(clientCode, /PC_GOAL_HORIZON_OPTIONS/)
+  assert.match(clientCode, /保存并推演剧情树/)
+
+  const storyEvents = createStoryEvents()
+  const gameDataMap = new Map()
+  const runTaskCalls = []
+  let currentTurn = 4
+
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    workflow: { register() { return () => {} } },
+    resolveGame: async gameId => gameId === 'gGoal' ? { chatId: 'cGoal', sessionId: 'gGoal' } : null,
+    readLatestSettledTurn: async () => ({ chatId: 'cGoal', sessionId: 'gGoal', turn: currentTurn, key: `${currentTurn}:0`, text: '议事堂内暗流涌动。' }),
+    readPendingTurn: async () => ({ chatId: 'cGoal', sessionId: 'gGoal', turn: currentTurn, key: `${currentTurn}:0`, text: '议事堂内暗流涌动。' }),
+    currentKey: async () => `${currentTurn}:0`,
+    readTurn: async () => ({ chatId: 'cGoal', sessionId: 'gGoal', key: `${currentTurn}:0`, turn: currentTurn, rawText: '议事堂内暗流涌动。', text: '议事堂内暗流涌动。' }),
+    readHistory: async () => [{ turn: currentTurn, input: '我环视众长老', rawText: '议事堂内暗流涌动。', text: '议事堂内暗流涌动。' }],
+    readCard: async () => ({ name: '沈清秋', description: '宗门执剑长老' }),
+    readPlayerName: async () => '陆行舟',
+    backgroundModel: async () => ({ provider: 'bg-prov', model: 'bg-model' }),
+    readPlayMaterial: async () => ({ posture: '立于议事堂阶前', guides: [], ledger: { location: '议事堂' }, worldbookEntries: [] }),
+    data: {
+      readGame: async ({ chatId, owner }) => gameDataMap.get(`${chatId}:${owner}`) || null,
+      saveGame: async ({ chatId, owner, data }) => { gameDataMap.set(`${chatId}:${owner}`, structuredClone(data)) },
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      writeSettings: async () => {}
+    },
+    pluginData: { read: async () => null, save: async () => {} },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {},
+    runTask: async input => {
+      runTaskCalls.push(input)
+      await input.call('plot_compass_submit', {
+        targetScope: 'all',
+        playArchetypes: ['权谋博弈'],
+        situationDigest: '众长老各怀心思，掌门印信悬而未决。',
+        shortTerm: [
+          { id: 'st-g1', tag: '亮出旧诏', title: '当堂呈验先师遗诏', summary: '借遗诏压服摇摆长老，打开夺印切口。', beats: ['出示遗诏残卷', '迫使大长老验印'] },
+          { id: 'st-g2', tag: '分化旁支', title: '私下许诺刑堂席位拉拢二长老', summary: '先拆解反对同盟，为夺取印信铺路。', beats: ['休会密谈许利', '联名重开议事'] }
+        ],
+        midTerm: [
+          { id: 'mt-g1', tag: '正名夺印', title: '宗门大比立威执掌掌门印信', summary: '在宗门大比与长老公议中正面夺回掌门印信。', milestones: ['查清叛徒账册', '大比挫败对手', '正式执掌掌门印信'] },
+          { id: 'mt-g2', tag: '暗棋逼宫', title: '控制护山大阵迫使大长老交出印信', summary: '以阵枢与铁证双线合围，兵不血刃接掌掌门印信。', milestones: ['秘密接管阵枢', '公布勾结铁证', '大长老交出掌门印信'] }
+        ],
+        longTerm: [
+          { id: 'lt-g1', tag: '执印革新', title: '执掌印信后重整宗门戒律', vision: '稳坐掌门之位，涤荡旧弊威震北境。' },
+          { id: 'lt-g2', tag: '执印北伐', title: '凭掌门印信号令诸峰反攻北境', vision: '以新任掌门之姿统合宗门剑指宿敌。' }
+        ]
+      })
+      return { text: '', traceSessionId: 'trace-goal' }
+    }
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx)
+
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'gGoal', enabled: true })
+
+  // 设置中期目标导向
+  const setGoalRes = await pluginApi.callHandler('plot-compass:set-goal', {
+    gameId: 'gGoal',
+    horizon: 'midTerm',
+    text: '夺回宗门掌门印信并坐稳少掌门之位'
+  })
+  assert.deepEqual(setGoalRes.plotCompass.goal, {
+    enabled: true,
+    horizon: 'midTerm',
+    text: '夺回宗门掌门印信并坐稳少掌门之位'
+  })
+
+  // 推演剧情树：系统提示词与请求素材都必须包含目标导向收敛规则
+  const genRes = await pluginApi.callHandler('plot-compass:generate', { gameId: 'gGoal', scope: 'all', wait: true })
+  assert.equal(genRes.status, 'done')
+  assert.equal(runTaskCalls.length, 1)
+  assert.match(runTaskCalls[0].system, /Goal-Oriented Convergence Mode/)
+  assert.match(runTaskCalls[0].prompt, /<player_goal>[\s\S]*夺回宗门掌门印信并坐稳少掌门之位/)
+
+  // 即使未点亮具体路线卡片，由于开启了目标导向，推进轮次后触发归卷（context-compacted）也会自动演进延续该目标
+  currentTurn = 7
+  storyEvents.emit('context-compacted', { sessionId: 'gGoal' })
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(runTaskCalls.length, 2)
+  assert.match(runTaskCalls[1].prompt, /导向达成玩家设定的中期目标结果「夺回宗门掌门印信并坐稳少掌门之位」/)
+
+  // 全新生成（fresh: true）作废旧路线后，玩家设置的目标导向依然保留并约束新剧情树
+  const freshRes = await pluginApi.callHandler('plot-compass:generate', { gameId: 'gGoal', scope: 'all', fresh: true, wait: true })
+  assert.equal(freshRes.plotCompass.goal.enabled, true)
+  assert.equal(freshRes.plotCompass.goal.text, '夺回宗门掌门印信并坐稳少掌门之位')
+  assert.equal(runTaskCalls.length, 3)
+  assert.doesNotMatch(runTaskCalls[2].prompt, /<existing_plot_compass>/)
+  assert.match(runTaskCalls[2].prompt, /<player_goal>[\s\S]*夺回宗门掌门印信并坐稳少掌门之位/)
+
+  mounted.dispose()
+})
+
+
+
