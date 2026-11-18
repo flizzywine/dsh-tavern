@@ -6,14 +6,14 @@ import { createStoryReconciliation } from '../tavern-plugin/lib/domain/story-rec
 
 const reply = (id, turn) => ({ turn, step: 1, message: { id, role: 'assistant', content: [{ type: 'text', text: id }], source: { kind: 'model', provider: 'test', model: 'test' } } })
 
-function harness({ chat, session = Session.create('story'), agent = null } = {}) {
+function harness({ chat, session = Session.create('story'), agent = null, readSlice = async () => null } = {}) {
   const reads = [], writes = []
   let saved = structuredClone(chat)
   const service = createStoryReconciliation({
     agentRegistry: new Map(agent ? [['story', agent]] : []),
     sessionStore: new Map([['story', session]]),
     chatForSession: async id => { reads.push(id); return id === 'story' ? structuredClone(saved) : undefined },
-    chatSliceForSession: async () => null,
+    chatSliceForSession: readSlice,
     async updateChat(id, mutate, options) { const next = mutate(structuredClone(saved)); writes.push(options.source); if (next) saved = next; return saved },
     turns: { finalize: async () => assert.fail('nothing to adopt') }
   })
@@ -30,5 +30,22 @@ test('concurrent reconciles share one run, and once-only reconciles stop after a
   assert.equal(h.reads.length, 1)
   assert.equal(await h.service.reconcileWhenIdle('story', { once: true }), null)
   assert.equal(h.reads.length, 1, 'a session already reconciled is not read again')
+  assert.deepEqual(h.writes, [])
+})
+
+test('an alignment warning without a repair reads the save once', async t => {
+  t.mock.method(console, 'warn', () => {})
+  const h = harness({ chat: { id: 'game', mode: 'story', nativeSync: { status: 'stale' }, messages: [] } })
+  assert.equal((await h.service.reconcileStory('story')).aligned, false)
+  assert.equal(h.reads.length, 1)
+  assert.deepEqual(h.writes, [])
+})
+
+test('a save revision change between header and history reads leaves reconciliation for the next request', async () => {
+  const h = harness({ readSlice: async (_id, indices) => ({
+    messageCount: 1, chat: { id: 'game', mode: 'story', _storageRevision: indices.length ? 2 : 1, messages: [] }
+  }) })
+  assert.equal(await h.service.reconcileStory('story'), null)
+  assert.deepEqual(h.reads, [])
   assert.deepEqual(h.writes, [])
 })

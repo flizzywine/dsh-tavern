@@ -94,6 +94,23 @@ test('回退可用性要求聊天与原生轮次配对，允许重生成映射�
   assert.equal(rollbackAvailability(chat, { events, nodes: [0, 1] }).canRollback, true)
 })
 
+test('只接受被回退空节点覆盖并有对应快照的已保存轮次', () => {
+  const input = { seq: 0, type: 'user/message', data: { source: { kind: 'user' } }, surfaceOp: 'append' }
+  const reply = { seq: 1, type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '正文' }], source: modelSource() } } }
+  const replacement = { seq: 2, surfaceOp: { op: 'replace', startSeq: 0, endSeq: 1 }, sourceEventSeqs: [0, 1] }
+  const shadow = { ...replacement, type: 'assistant/message', data: { turn: 3, message: { content: [], source: modelSource() } } }
+  const summary = { ...replacement, type: 'user/message', data: { source: { kind: 'compact-checkpoint' } } }
+  const newer = { ...input, seq: 3, surfaceOp: { op: 'replace', startSeq: 3, endSeq: 3 } }
+  const chat = { messages: [{ role: 'user' }, { role: 'assistant', turn: 2, nativeAnchor: { turn: 2, input: 0, reply: 1 } }],
+    timeline: { checkpoints: [{ turn: 2 }] } }
+  const select = (event, tail = []) => rollbackAvailability(chat, { events: [input, reply, event, ...tail], nodes: [2, ...tail.map(row => row.seq)] })
+  assert.deepEqual(select(shadow).target, { turn: 2, alreadyShadowed: true })
+  assert.equal(select(summary).canRollback, false)
+  assert.equal(select(shadow, [newer]).canRollback, false)
+  chat.timeline.checkpoints[0].turn = 3
+  assert.equal(select(shadow).canRollback, false)
+})
+
 test('失败尾部重放认领用户输入与历史重放输入，且只认领真正拥有尾部的回合', () => {
   const replayInput = { kind: 'plugin', plugin: 'dsh-tavern-replay' }
   const events = [

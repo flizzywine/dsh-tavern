@@ -1106,7 +1106,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         latest = next
       }
       if (removed > 1 && first) result = await mergeRollbackUndo(state.id, first, recent) || result
-      if (stopped) result.rollbackWarning = [result.rollbackWarning, '已回退 ' + removed + ' 轮，停在第 ' + latest + ' 轮：更早的轮次已不在模型上下文中，不能原地回退（' + stopped + '）。想回到第 ' + target + ' 轮，请在那一轮的消息上点「从这一轮分叉」。'].filter(Boolean).join('；')
+      if (stopped) result.rollbackWarning = [result.rollbackWarning, '已回退 ' + removed + ' 轮，停在第 ' + latest + ' 轮。' + stopped + '。想回到第 ' + target + ' 轮，可以在那一轮的消息上点「从这一轮分叉」。'].filter(Boolean).join('；')
       result.rolledBackTo = { target, latest, removed }
       return result
     } finally {
@@ -1224,7 +1224,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       return result
     }
     if (!hasRollbackRound(chat)) throw new Error(availability.reason || '当前没有可回退的已提交轮次')
-    // The native surface must still show the round: nothing is rewritten to make it.
+    // A proven shadowed round only needs its story checkpoint restored.
     const rollbackSurface = surfaceShowsLatest(chat, availability, events) ? availability.target : null
     if (rollbackSurface === null) throw new Error(availability.target ? '该轮已不在当前模型上下文中，不能直接回退；历史正文仍可通过 history_recall 检索' : availability.reason)
     const hiddenTurn = rollbackSurface.turn
@@ -1281,6 +1281,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     try {
       rollbackIntent = await prepareRollbackIntent(chat, { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore })
     } catch (error) {
+      if (rollbackSurface.alreadyShadowed) throw error
       rollbackWarning = '正文已回退，后台历史快照不可用，保留当前状态：' + str(error?.message || error)
       rollbackIntent = { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore: { ...chat, messages: msgs.slice(0, assistantIndex - 1), candidates: null, settleStatus: 'idle', settleError: null }, allowMissingHistory: true }
     }
@@ -1298,6 +1299,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // Remove that request's pending row along with the completed round.
     if (chat.messages.length === assistantIndex && isRollbackInputPlaceholder(chat.messages.at(-1), msgs[assistantIndex - 1])) {
       chat.messages.pop()
+    }
+    if (rollbackSurface.alreadyShadowed && (chat.messages.length !== assistantIndex - 1
+      || latestStoryTurn(chat) !== latestStoryTurn({ messages: msgs.slice(0, assistantIndex - 1) }))) {
+      throw new Error('回退快照与当前剧情不一致，请使用分叉保留原存档')
     }
     applyRollbackHeader(chat, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey })
     chat.regeneratedDshTurns = chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
@@ -1347,6 +1352,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const availability = rollbackAvailability(chat, { events, nodes })
     if (availability.failedTurns.length || availability.target === null) return undefined
+    if (availability.target.alreadyShadowed) return undefined
     const { messages: msgs, ...header } = chat
     const target = storyTimeline.rollbackTarget({ chat: { ...header, messages: [] } })
     if (target === null) return undefined
@@ -1458,19 +1464,22 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const { turn: hiddenTurn, shadowedSeqs } = rollbackSurface
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     try {
-      // A rollback runs between turns, and the replacement is read at the log
-      // tail: give it a turn of its own when none is open, so the archive keeps
-      // loading instead of failing "does not match an open turn and step."
-      withSurfaceEditTurn(session, agent, (turn, step) => replaceSessionSurface(session, 'assistant/message', {
-        turn,
-        step,
-        message: {
-          id: randomUUID(),
-          role: 'assistant',
-          content: [],
-          source: rollbackSurface.source
-        }
-      }, { start: rollbackSurface.userSeq, end: rollbackSurface.endSeq, sourceEventSeqs: shadowedSeqs }))
+      if (rollbackSurface.alreadyShadowed) {
+        if (!isDeepStrictEqual(session.surface.nodes, undo.foreground.nodes)) throw new Error('回退期间模型上下文已变化，请刷新后重试')
+      } else {
+        // A rollback runs between turns. The replacement needs a native edit
+        // turn so the session can still be loaded from the append-only log.
+        withSurfaceEditTurn(session, agent, (turn, step) => replaceSessionSurface(session, 'assistant/message', {
+          turn,
+          step,
+          message: {
+            id: randomUUID(),
+            role: 'assistant',
+            content: [],
+            source: rollbackSurface.source
+          }
+        }, { start: rollbackSurface.userSeq, end: rollbackSurface.endSeq, sourceEventSeqs: shadowedSeqs }))
+      }
     } catch (error) {
       // Keep append-only history intact. A rejected surface replacement must not
       // consume the story checkpoint, and nothing is rewritten behind the save.

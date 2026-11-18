@@ -1188,6 +1188,25 @@ function incompleteReplyTarget(chat, failedTurns) {
   return failedTurn === undefined ? null : { kind: 'failed-tail', turn: failedTurn }
 }
 
+function alreadyShadowedRollbackTarget(chat, latest, events, nodes) {
+  const turn = Number(latest?.turn)
+  const checkpoint = chat.timeline?.checkpoints?.at(-1)
+  if (!Number.isSafeInteger(turn) || turn <= 1 || Number(checkpoint?.turn) !== turn || latest.placeholder || latest.incomplete) return null
+  const resolved = resolveRoundAnchor({ events, nodes }, latest.nativeAnchor)
+  if (!resolved || resolved.input === null || resolved.input !== resolved.reply) return null
+  const index = nodes.indexOf(resolved.reply)
+  if (index < 0 || !isRollbackAssistantTombstone(eventAt(events, resolved.reply), events)) return null
+  // A shared native input can cause an earlier saved round to be shadowed along
+  // with a later regenerated round. Its checkpoint can still restore the save.
+  // A compaction or a newer visible input/reply is a different boundary.
+  const hasNewerStory = nodes.slice(index + 1).some(seq => {
+    const event = eventAt(events, seq)
+    return isCompactionCheckpoint(event) || (event?.type === 'user/message' && isTurnInput(event.data) && !isRollbackUserTombstone(event)) ||
+      (event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events))
+  })
+  return hasNewerStory ? null : { turn, alreadyShadowed: true }
+}
+
 // UI and mutation share the same native target and failed-tail precedence.
 function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   const unclearedTurns = unclearedFailedTail(chat, events, nodes)
@@ -1196,16 +1215,16 @@ function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   if (failedTurns.length) return { canRollback: true, canClearIncompleteReply: true, clearIncompleteReplyTarget, failedTurns, unclearedTurns, target: null, reason: '' }
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const latest = messages.findLast(message => message?.role === 'assistant' && message.greeting !== true)
-  const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
   if (isRescuedHistoryMessage(chat, latest)) return { canRollback: false, canClearIncompleteReply: false, failedTurns, target: null, reason: '存档救援导入的历史不可回退，请发送新消息继续' }
+  const hasMessages = hasRollbackMessages(messages)
+  const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
   const turn = Number(latest?.turn)
   const matchesTurn = Boolean(target && (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)])))
   // 投影/修复写回的正文会带着别的剧情轮号：存档行记着它指的就是这一条，就还是这一轮。
   const matchesAnchor = Boolean(target && !matchesTurn && anchoredToSaveRow(target, latest))
-  const matches = matchesTurn || matchesAnchor
-  const hasMessages = hasRollbackMessages(messages)
-  const canRollback = hasMessages && Boolean(matches)
-  return { canRollback, canClearIncompleteReply: clearIncompleteReplyTarget !== null, clearIncompleteReplyTarget, failedTurns, target: canRollback ? target : null,
+  const rollbackTarget = !hasMessages ? null : matchesTurn || matchesAnchor ? target : alreadyShadowedRollbackTarget(chat, latest, events, nodes)
+  const canRollback = rollbackTarget !== null
+  return { canRollback, canClearIncompleteReply: clearIncompleteReplyTarget !== null, clearIncompleteReplyTarget, failedTurns, target: rollbackTarget,
     reason: canRollback ? '' : hasMessages ? '当前轮次已不在可回退的消息流中，请继续发送新消息；历史正文仍保留。' : '当前没有可回退的已提交轮次' }
 }
 

@@ -91,14 +91,18 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
 
   // The save's latest player rounds, oldest first: enough rows to cover the native window.
   async function storyAlignmentInput(sessionId, nativeCount) {
-    const fields = ['id', 'mode', 'nativeCommits', 'suppressedDshTurns', 'regeneratedDshTurns', 'regenInProgress', 'nativeSync']
+    const fields = ['id', '_storageRevision', 'mode', 'nativeCommits', 'suppressedDshTurns', 'regeneratedDshTurns', 'regenInProgress', 'nativeSync']
     const head = await chatSliceForSession(sessionId, [], fields)
     let header, rows
     if (head?.chat) {
       const total = Number(head.messageCount) || 0, want = Math.min(total, nativeCount * 3 + 20)
-      const selected = want ? await chatSliceForSession(sessionId, Array.from({ length: want }, (_, index) => total - want + index), []) : null
       header = head.chat
-      rows = selected?.chat?.messages || []
+      rows = []
+      if (want) {
+        const selected = await chatSliceForSession(sessionId, Array.from({ length: want }, (_, index) => total - want + index), ['_storageRevision'])
+        if (!selected?.chat || selected.chat.id !== header.id || selected.chat._storageRevision !== header._storageRevision) return null
+        rows = selected.chat.messages
+      }
     } else {
       header = await chatForSession(sessionId)
       rows = header?.messages || []
@@ -132,6 +136,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
         const adopted = await turns.finalize({ sessionId, turn: round.turn, requestId: round.requestId, userText: round.userText, userContent: round.userContent, assistantText: round.assistantText, nativeAnchor: round.nativeAnchor, adopt: true })
         if (adopted?.saved && !adopted.duplicate) console.warn('dsh-tavern: 第 ' + round.turn + ' 轮已完成但未写入存档，已补记')
       }
+      if (!stillIdle()) return report
       const shadowed = reshadowRolledBackRounds(session, new Set(report.rolledBackVisible))
       if (shadowed.length) {
         await sessionStore.flush(session)
@@ -139,7 +144,12 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
       }
       // No automatic rewrite of the native tail: a drift is reported, never fixed
       // behind the player's back. Only an explicit action (撤回 / 回退 / 重发) changes it.
-      const after = alignStory(session, await storyAlignmentInput(sessionId, nativeStoryTurns(session).length))
+      let after = report
+      if (report.adopt.length || shadowed.length) {
+        const updated = await storyAlignmentInput(sessionId, nativeStoryTurns(session).length)
+        if (!updated) return null
+        after = alignStory(session, updated)
+      }
       if (after.state === 'mismatch') console.warn('dsh-tavern: 存档与模型上下文的轮次不一致（不自动修复）：' + JSON.stringify(after.mismatch))
       else if (!after.aligned) console.warn('dsh-tavern: 存档与模型上下文未对齐（不自动修复）：' + (after.nativeSync === 'stale' ? '上次同步失败' : after.textDrift ? '正文不一致' : '找不到原生位置'))
       return after

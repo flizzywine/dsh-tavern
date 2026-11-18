@@ -280,6 +280,37 @@ test('rollback to a turn stops where the model context ends and keeps the rounds
   assert.equal((await h.p.read('chat')).messages.at(-1).turn, 80)
 })
 
+test('连续回退可以越过已被后续操作隐藏的存档轮次，且仍可撤销', async t => {
+  const h = await fixture(t, true)
+  for (const turn of [82, 83, 84]) {
+    h.agent.followup({ content: [{ type: 'text', text: '动作' + turn }] })
+    await h.agent.whenIdle()
+    const reply = h.session.events.findLast(event => event.type === 'assistant/message' && event.data.turn === turn)
+    const input = h.session.events.findLast(event => event.type === 'user/message' && event.data.turn === turn)
+    await h.p.update('chat', current => {
+      current.messages.at(-1).nativeAnchor = { formatVersion: 4, turn, input: input.seq, reply: reply.seq }
+      return current
+    })
+    if (turn === 84) continue
+    h.session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', content: [], source: model } }, {
+      surfaceOp: { op: 'replace', start: input.seq, end: reply.seq }, sourceEventSeqs: [input.seq, reply.seq]
+    })
+  }
+  await h.rounds.rollback('session', 'chat', 84)
+  const nodes = [...h.session.surface.nodes], eventCount = h.session.events.length
+  for (const turn of [83, 82]) {
+    const result = await h.rounds.rollback('session', 'chat', turn)
+    assert.equal(result.rolledBack.hiddenTurn, turn)
+    assert.equal((await h.p.read('chat')).messages.at(-1).turn, turn - 1)
+    assert.deepEqual(h.session.surface.nodes, nodes)
+    assert.equal(h.session.events.length, eventCount, 'already-shadowed turns must not remove another native message')
+  }
+  await h.rounds.undoRollback('session', 'chat')
+  assert.equal((await h.p.read('chat')).messages.at(-1).turn, 82)
+  assert.deepEqual(h.session.surface.nodes, nodes)
+  assert.deepEqual((await h.rounds.rollbackTo('session', 'chat', 80)).rolledBackTo, { target: 80, latest: 80, removed: 2 })
+})
+
 test('bounded regeneration stores the same Chat and surface as the complete regeneration', async t => {
   const results = []
   for (const bounded of [true, false]) {
