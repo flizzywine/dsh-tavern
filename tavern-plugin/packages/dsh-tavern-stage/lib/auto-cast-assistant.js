@@ -28,9 +28,10 @@ const TOOLS = [
   {name:'write_appearance', description:'写新人物的人物介绍和外貌：介绍进素材包，外貌进配图人物库，之后按它画人设图、立绘和场景配图（人物档案里已写过的项不覆盖）。', parameters:{type:'object', properties:{figure:figureArg,
     about:{type:'string', description:'人物介绍：他在这个故事里是谁（身份、和主角的关系、性格），一两句'},
     face:{type:'string', description:'五官、发型、发色、瞳色、年龄感'}, body:{type:'string', description:'体型、身高感、常穿的服装和配饰'}}, required:['figure', 'about', 'face', 'body']}},
-  {name:'list_library_voices', description:'列出素材库里所有通用声音（允许自动素材挑选的声音）：名字、使用情景、语言和所在素材包。', parameters:{type:'object', properties:{}}},
-  {name:'assign_voice', description:'给新人物配一个 list_library_voices 或 search_library 找到的通用声音。', parameters:{type:'object', properties:{figure:figureArg,
-    packId:{type:'string', description:'结果里声音的 packId'}, voiceId:{type:'string', description:'结果里声音的 voiceId'}}, required:['figure', 'packId', 'voiceId']}},
+  {name:'list_library_voices', description:'列出可给新人物用的通用声线。先按语言、性别、年龄感筛选，再按性格和说话风格匹配 figures 里的通用人物原型及 usage 使用情景。没有合适的原型再选通用路人声线。inUse 表示本卡或本轮已占用的实际声线。', parameters:{type:'object', properties:{}}},
+  {name:'assign_voice', description:'给不复制的新人物绑定最贴合人设、尚未占用的声线；只借用通用原型的声音，不复制该原型的名字或外貌。语言和性别相符时，优先比较年龄感、性格和说话风格。', parameters:{type:'object', properties:{figure:figureArg,
+    packId:{type:'string', description:'结果里声音的 packId'}, voiceId:{type:'string', description:'结果里声音的 voiceId'},
+    reason:{type:'string', description:'给主人看的一句配音理由，结合具体音色或说话方式与人设。例如：她说话干脆、不爱绕弯，选咬字清楚、语速利落的年轻女声。'}}, required:['figure', 'packId', 'voiceId', 'reason']}},
   {name:'finish', description:'全部新人物都处理完了。', parameters:{type:'object', properties:{}}},
 ]
 
@@ -38,20 +39,21 @@ const TOOLS = [
 // search(query): the library's whole-library search (null: no library tools); libraryVoices(): the library's 通用声音
 // ({voices, more}; null: none); pieces: cardLorePieces (card-stage.js). A voice is chosen only among the library's 通用声音 (those
 // offered to it, voiceAutoCast in voice-auto-cast.cjs; library-search.js filters): never a figure's own, nor a bare 配音后端 voice.
-// → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, voice:{[name]:{from, revision}}, finished}
-export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, pieces, search, libraryVoices = null}) {
+// → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, voice:{[name]:{from, revision, reason}}, finished}
+export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, search, libraryVoices = null}) {
   const result = {same:{}, copy:{}, appearance:{}, about:{}, voice:{}, finished:false}
   const seen = {figures:new Map(), voices:new Map()}
+  const picked = new Map()
   const speaker = name => speakers.find(row => resolveFigureName([{actorKey:'n', name:row.name, aliases:row.aliases || [], enabled:true}], {name:String(name || '')}).status === 'resolved')
   const fail = message => JSON.stringify({ok:false, error:message})
   const unknown = name => fail('没有叫「' + name + '」的新人物；新人物是：' + speakers.map(row => row.name).join('、'))
-  const taken = (packId, voiceId) => rows.some(row => row.ref.packId === packId && row.figure?.voice?.voice === voiceId)
-    || Object.values(result.voice).some(row => row.from?.packId === packId && row.from?.voiceId === voiceId)
+  const taken = (sound, target) => voiceKeys.has(sound)
+    || [...picked].some(([name, key]) => name !== target && key === sound && !result.copy[name] && !result.same[name])
   // A library voice as the model reads it (search_library and list_library_voices); remembered for assign_voice.
   const voiceRow = row => {
     seen.voices.set(row.packId + '/' + row.voiceId, row)
     return {packId:row.packId, voiceId:row.voiceId, name:row.name, language:row.language, ...(row.guidance ? {usage:row.guidance} : {}), pack:row.packName,
-      ...(row.figures?.length ? {figures:row.figures} : {}), inUse:taken(row.packId, row.voiceId)}
+      ...(row.figures?.length ? {figures:row.figures} : {}), inUse:taken(row.sound)}
   }
   const tools = {
     search_lore:({query}) => JSON.stringify({ok:true, results:searchLore(pieces, String(query || ''))}),
@@ -95,13 +97,17 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
       const found = await libraryVoices()
       return JSON.stringify({ok:true, voices:found.voices.map(voiceRow), ...(found.more ? {more:found.more} : {})})
     },
-    assign_voice({figure, packId, voiceId}) {
+    assign_voice({figure, packId, voiceId, reason}) {
       const target = speaker(figure)
       if (!target) return unknown(figure)
       const row = seen.voices.get(packId + '/' + voiceId)
       if (!row) return fail('先用 list_library_voices 或 search_library 找到这个通用声音，再用结果里的 packId 和 voiceId')
-      if (taken(packId, voiceId)) return fail('本卡已有人物在用这个声音，换一个')
-      result.voice[target.name] = {from:{packId, voiceId}, revision:row.revision}
+      if (result.same[target.name] || result.copy[target.name]) return fail('已有或复制的人物保留原本的配音')
+      if (taken(row.sound, target.name)) return fail('这条声线已有人在用；换一条适合该人物且未被占用的声线')
+      reason = String(reason || '').trim()
+      if (!reason || reason.length > TEXT) return fail('用一句话说明音色或说话方式为什么符合人设，不超过 ' + TEXT + ' 字')
+      picked.set(target.name, row.sound)
+      result.voice[target.name] = {from:{packId, voiceId}, revision:row.revision, reason}
       return JSON.stringify({ok:true})
     },
     finish() { result.finished = true; return JSON.stringify({ok:true}) },

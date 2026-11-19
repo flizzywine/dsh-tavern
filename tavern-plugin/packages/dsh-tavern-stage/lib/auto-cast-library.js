@@ -1,6 +1,7 @@
 import {cardFigureRows} from './card-stage.js'
 import {selectPackFigure} from './domain/asset-pack-presentation.js'
 import {figureDefaultEmotion, STANDARD_FIGURE_EMOTIONS} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
+import {castingVoiceKey} from '../../dsh-asset-library/lib/pack-v2/library-search.js'
 
 // 自动选角's one port to the asset library and the shared figure records: the library's
 // automatic writer `auto-cast` for context, whole-library search (figures and 通用声音) and writes. A library without that writer leaves writable() false: nothing runs.
@@ -33,7 +34,9 @@ export function createAutoCastLibrary({getLibrary}) {
       if (context.detached) return null
       const pack = context.target ? await library.getPackSnapshot({packId:context.target.packId}) : null
       const rows = cardFigureRows({raw:context.card.raw, snapshots:context.packs, globalEnabledPackIds:context.globalEnabledPackIds})
-      return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, figures:figuresOf(pack)}
+      const byPack = new Map(context.packs.map(snapshot => [snapshot.manifest.id, snapshot.manifest.voiceLibrary?.voices]))
+      const voiceKeys = new Set(rows.map(({ref, figure}) => castingVoiceKey(byPack.get(ref.packId)?.[figure.voice?.voice], figure.voice)).filter(Boolean))
+      return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, voiceKeys, figures:figuresOf(pack)}
     },
     search:query => port().writer.searchLibrary({query, limit:8}),
     // every library 通用声音 (the assistant reads them all rather than guess the words of their names).
