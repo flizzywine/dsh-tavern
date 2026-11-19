@@ -810,6 +810,8 @@ function phoneModStageSize(geometry,box,memory) {
 // The stage as the widgets see it (stage units), from the DOM: the viewport, the letterbox band, the top chrome and the dialogue
 // box's floor (see phoneModStageSize), the figures, and the box text's reading size. previous: the last geometry, whose floor is
 // kept while the box's height eases.
+// Unchanged measures (at 100 ms) before the stage's pieces are re-measured once a second only.
+const STAGE_WIDGET_MEASURE_QUIET=10;
 function stageWidgetStageGeometry(root,previous) {
     const frame=root.getBoundingClientRect(),rect=node=>{const r=node.getBoundingClientRect();return {x:r.left-frame.left,y:r.top-frame.top,width:r.width,height:r.height};};
     const blocked=[],caption=[],band={top:0,bottom:frame.height};
@@ -854,7 +856,7 @@ function useWidgetStage(props) {
     context.transcripts ||= new Set();
     const [,redraw]=React.useState(0), [geometry,setGeometry]=React.useState(null), [ready,setReady]=React.useState({}), [failed,setFailed]=React.useState({});
     // The phone's band in this layout (phoneModStageSize memory) and the last measured geometry (held while the box eases).
-    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null);
+    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null),rushMeasure=React.useRef(null);
     // the reader's phone size and place on this device, and whether it may be dragged.
     const phonePrefs=React.useSyncExternalStore(typeof phoneModPrefs!=='undefined' ? phoneModPrefs.subscribe : ()=>()=>{},typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null,typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null);
     const [visible,setVisible]=React.useState({key:'',text:''}), [grants,setGrants]=React.useState({key:'',items:[]}), [history,setHistory]=React.useState(null), [sheet,setSheet]=React.useState(null);
@@ -1018,7 +1020,8 @@ function useWidgetStage(props) {
     // of the session avatar cache at that size, so her 512 px library face reaches the 200 pt card and the 132 pt call
     // screen sharp instead of as a 64 px thumbnail scaled up four to six times.
     const phoneOpenWidth=items.find(item=>isPhoneRef(item.ref))?.definition.document.presentation.open.width;
-    const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=window.devicePixelRatio || 1;
+    // Faces at most at 2x: on a 3x phone a 3x face is not visibly sharper and costs 2.25 times the pixels to prepare.
+    const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=Math.min(2,window.devicePixelRatio || 1);
     const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : 64;
     const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx/dpr});
     const hasCardFace=alias=>Boolean(bubbleCardFace(props.config,alias,props.sessionId));
@@ -1040,7 +1043,12 @@ function useWidgetStage(props) {
                 const c=stageWidgetAvatarSquare(image.naturalWidth,image.naturalHeight,crop || undefined),context2d=canvas.getContext('2d');
                 // Cover the square thumbnail before transfer; CSS cannot undo a stretched canvas.
                 context2d.imageSmoothingQuality='high';context2d.drawImage(image,c.x,c.y,c.width,c.height,0,0,px,px);
-                resolve(canvas.toDataURL('image/webp',.9));
+                // Encoded off the main thread (toBlob), not toDataURL: a phone's 60 faces at its pixel ratio held the page
+                // for seconds on every stage entry.
+                canvas.toBlob(blob=>{
+                    if(!blob||closed){resolve(null);return;}
+                    const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>resolve(null);reader.readAsDataURL(blob);
+                },'image/webp',.9);
             } catch {resolve(null);}};
             image.src=url;
         });
@@ -1304,14 +1312,26 @@ function useWidgetStage(props) {
     const phoneHeld=!paused && projected.some(item=>isPhoneRef(item.ref) && item.requestedState==='open' && !item.failed);
     // On a real phone the open phone is the device itself: its opaque full-bleed sheet covers the whole stage until it is put away.
     const covered=!paused && projected.some(item=>isPhoneRef(item.ref) && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
-    // The stage's pieces (box, top bar, figures) are re-measured every 100 ms while the stage is in view; under that cover only
-    // the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
+    // The stage's pieces (box, top bar, figures) are re-measured while the stage is in view: every 100 ms while they move,
+    // backing off to once a second after a second without change (each measure forces the page's style and layout: ten a
+    // second kept a resting phone's main thread busy), and at once on a page turn or when a widget opens or closes (not on
+    // every render: the widgets render many times while a page types out). Under
+    // that cover only the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
     React.useEffect(()=>{
         if (covered || !remeasure.current) return;
-        remeasure.current();
-        const timer=forkForeground.setInterval(()=>remeasure.current?.(),100);
-        return()=>forkForeground.clearInterval(timer);
+        let quiet=0,timer=null,last=null;
+        const step=()=>{
+            remeasure.current?.();
+            const now=measured.current?.layoutKey+JSON.stringify([measured.current?.floor,measured.current?.figures,measured.current?.chrome]);
+            quiet=now===last ? quiet+1 : 0;last=now;
+            timer=forkForeground.setTimeout(step,quiet>=STAGE_WIDGET_MEASURE_QUIET ? 1000 : 100);
+        };
+        step();
+        rushMeasure.current=()=>{quiet=0;forkForeground.clearTimeout(timer);step();};
+        return()=>{forkForeground.clearTimeout(timer);rushMeasure.current=null;};
     },[covered,props.rootRef,props.film]);
+    const measureKey=JSON.stringify([readingKey,items.map(item=>[item.key,context.state.entries.get(item.key)?.requestedState])]);
+    React.useEffect(()=>{rushMeasure.current?.();},[measureKey]);
     const claimed=projected.find(item=>item.source?.current && !isPhoneRef(item.ref) && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
     // an open overlay that owns scroll input — a sheet (modal reader)
     // or a held mod device (the phone, which dims the stage behind it). While one is open the stage's wheel gestures (up =

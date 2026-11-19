@@ -60,7 +60,8 @@ const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
 const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
 // A full-stage cover (desc.covered) stops the frame loop once its opening has settled; the scene still ticks this often.
-const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10;
+const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10, GAL_SETTLE_MS = 4000;
+const GAL_SIGNATURE_SKIP = new Set(["audio", "effectTables", "safety", "tapMedia", "tapGate", "preload"]);
 // Every figure kind beyond static pictures (Spine, Live2D) draws through a registered renderer. Register before creating
 // scenes; a scene snapshots the factories and owns their instances. Per scene factory(scene) returns
 //   load(entry)                         start loading entry.figure; once ready set entry.model (or entry.sprite) and call scene.commit(entry)
@@ -115,13 +116,17 @@ function galCreateScene(host, options, own) {
     const PIXI = window.PIXI;
     const onError = options.onError || function () {};
     const onDebug = options.onDebug || function () {};
-    let quality = options.quality === "low" ? "low" : "high";
+    // The 画质 tier in force (device.cjs galDeviceQuality) and the effects level it draws: saver takes the light
+    // effects ("low": fewer particles, no grain, bloom or depth of field); medium keeps high's effects at a lower pixel
+    // ratio, single-sampled, without depth of field, and drops to its settled rate when only idle motion is left.
+    const galTier = value => value === "low" ? "saver" : ["high", "medium", "saver"].includes(value) ? value : "high";
+    let tier = galTier(options.quality), quality = tier === "saver" ? "low" : "high";
     const refreshRate = options.refreshRate || window.screen && window.screen.refreshRate;
     // A handheld phone (options.handheld, device.cjs galDeviceHandheld) draws lighter: 30 fps unless the reader chose a cap, DPR 2 at most.
     const isHandheld = options.handheld || (() => false);
     let handheld = isHandheld();
     const app = new PIXI.Application({ resizeTo: host, backgroundColor: 0x0b0812, backgroundAlpha: 1, antialias: true, autoDensity: true,
-        resolution: galResolution(quality, undefined, handheld), powerPreference: "high-performance" });
+        resolution: galResolution(tier, undefined, handheld), powerPreference: "high-performance" });
     own(app,value=>value.destroy(true,{children:true}));
     host.appendChild(app.view);
     // Pixi's InteractionManager re-tests a resting pointer against the whole scene on the shared system ticker every frame
@@ -134,8 +139,8 @@ function galCreateScene(host, options, own) {
     // ticker may skip that vsync, which then shows an empty scene for a frame (leaving full screen flashed). Redraw now.
     app.renderer.on("resize", () => { if (!state.destroyed && state.desc) app.render(); });
     // A rotated phone can change profile (desktop <-> handheld at the breakpoints): retune at once.
-    app.renderer.on("resize", () => { if (!state.destroyed && isHandheld() !== handheld) applyQuality(quality); });
-    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
+    app.renderer.on("resize", () => { if (!state.destroyed && isHandheld() !== handheld) applyQuality(tier); });
+    app.ticker.maxFPS = galFrameRate(tier, true, refreshRate, stageReading.get().frameCap, handheld);
     const tickerUpdate = app.ticker.update;
     const pace = { last: 0, next: 0, fps: 0, vsync: 0 };
     const generated = stageViews.sceneGraphics.textures(PIXI, host);
@@ -184,7 +189,7 @@ function galCreateScene(host, options, own) {
         // A figure's filters (shade, rim, warp, depth of field) draw single-sampled: its pictures and Live2D meshes take
         // their edges from texture alpha, so MSAA there changed no pixel, but once a figure
         // is taller than 2048 device px (4K at 200% / 225%) its pooled 4096 px MSAA targets cost ~35 ms a frame.
-        filter.multisample = quality === "low" || filter.forkSingleSample ? PIXI.MSAA_QUALITY.NONE : PIXI.MSAA_QUALITY.MEDIUM;
+        filter.multisample = tier !== "high" || filter.forkSingleSample ? PIXI.MSAA_QUALITY.NONE : PIXI.MSAA_QUALITY.MEDIUM;
         return filter;
     }
     // pixi-filters (post effects) load in the background; until then grading and particles still work.
@@ -535,7 +540,7 @@ function galCreateScene(host, options, own) {
     function tickFigureLook(entry,desc,now,dt,dofTarget) {
         const figure=entry.figure;
         return entry.appearance.tick({mode:(desc.figureLight&&figure.alias&&desc.figureLight[figure.alias])||figure.light||'',
-            defocused:Boolean(dofTarget&&dofTarget!==entry),quality,
+            defocused:Boolean(dofTarget&&dofTarget!==entry),quality:tier === "high" ? "high" : "low",
             armedOn:stageViews.figureTap.galTapArmed(tapArm,entry.key,performance.now())?1:0,
             reduced:galBlinkCalm(),color:figure.color,now,dt});
     }
@@ -661,6 +666,7 @@ function galCreateScene(host, options, own) {
         const eligible = deliberate && figureLifeOn(desc) && typeof desc.tapGate === "function" && desc.tapGate() && figuresBox.visible && world.visible &&
             !desc.hideFigures && !desc.figuresAway && stageViews.figureTap.galTapBareTarget(event.target, app.view, host);
         if (!eligible) { tapArm.first = null; return; }
+        wake();
         // Hit-test now only when this tap could be claimed; a plain page turn never waits for it.
         const found = stageViews.figureTap.galTapNeedsHit(tapArm, x, y, at) ? figureAt(x, y) : undefined;
         const plan = stageViews.figureTap.galTapArm(tapArm, found === undefined ? undefined : found && found.entry.key, x, y, at);
@@ -966,10 +972,10 @@ function galCreateScene(host, options, own) {
     }
 
     function applyQuality(next) {
-        quality = next === "low" ? "low" : "high";
+        tier = galTier(next); quality = tier === "saver" ? "low" : "high";
         handheld = isHandheld();
-        const resolution = galResolution(quality, undefined, handheld);
-        app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
+        const resolution = galResolution(tier, undefined, handheld);
+        app.ticker.maxFPS = galFrameRate(tier, true, refreshRate, stageReading.get().frameCap, handheld);
         if (app.renderer.resolution !== resolution) { app.renderer.resolution = resolution; app.resize(); }
         const all = [].concat(...Object.values(filters).map(chain => chain.all()));
         state.figures.forEach(entry => all.push(...entry.filters.all()));
@@ -989,7 +995,7 @@ function galCreateScene(host, options, own) {
         const newVisit = desc.snap && desc.visit !== state.visit;
         if (newVisit) { state.visit = desc.visit; state.camera = cameraMotion.reset(); }
         const W = app.screen.width, H = app.screen.height;
-        if ((desc.quality === "low" ? "low" : "high") !== quality) applyQuality(desc.quality);
+        if (galTier(desc.quality) !== tier) applyQuality(desc.quality);
         for(const renderer of renderers.values())renderer.set(desc);
         // CG gates the whole figure layer, including pending Live2D arrivals and exit fades.
         // Keep directed state/resources current so clearing CG reveals the latest outfit and cast.
@@ -1037,7 +1043,7 @@ function galCreateScene(host, options, own) {
         tickBust(desc, now, W, H);
         thinking.tick(desc, dt, W, H);
         tickCallView(desc, dt, W, H);
-        galSpring(state.dof, dofTarget && quality === "high" ? 1 : 0, 6, dt);
+        galSpring(state.dof, dofTarget && tier === "high" ? 1 : 0, 6, dt);
         effects.tick(desc, now, dt, state.dof.v);
         // accepted groups reveal independently, including historical entry.
         // The resource runner already gates each element; a slow model must not hide the backdrop.
@@ -1071,16 +1077,45 @@ function galCreateScene(host, options, own) {
         if (state.coverOn) return GAL_COVERED_FPS;
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
-        const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap, handheld);
+        const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !galWeathering(desc) && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
+        state.unsettled = tier === "high" ? "tier" : idle ? "" : unsettled(desc, plan);
+        state.settled = !state.unsettled;
+        return galFrameRate(tier, !idle, refreshRate, stageReading.get().frameCap, handheld, state.settled);
+    }
+    // Below high, a scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
+    // (scene-math.cjs GAL_SETTLED_FPS): 4 s after the last change, the camera at rest, no effect, weather, moving look
+    // part (grain, wobble, pulse, motes), transition or override, and no figure arriving, leaving, changing, reacting to a
+    // tap, blinking or speaking a voice (the mouth follows it).
+    // The controller names no weather "none".
+    function galWeathering(desc) { return Boolean(desc.weather) && desc.weather !== "none"; }
+    function unsettled(desc, plan) {
+        if (performance.now() - state.changedAt < GAL_SETTLE_MS) return "changed";
+        if (state.clock < state.camera.start + state.camera.ms) return "camera";
+        if (galWeathering(desc)) return "weather";
+        if ((desc.effects || []).length || state.debugEffects.length) return "effects";
+        if (state.override || state.preview || desc.skipping) return "override";
+        if (backgrounds.layers.length > 1 || backgrounds.pending) return "background";
+        if (desc.thinking ? thinking.alpha < 1 : thinking.alpha > 0) return "thinking";
+        if (plan && (plan.film || plan.motes.length || plan.screen)) return "look";
+        for (const entry of state.figures.values()) {
+            const figure = entry.figure;
+            if (entry.leaving || entry.loading || entry.pendingSrc || entry.replacement || entry.fading.length || !(entry.model || entry.sprite)) return "figure:" + entry.key;
+            if (entry.tapReaction && state.clock - entry.tapReaction.start < 2000) return "tap";
+            if (entry.blink.active && entry.blink.phase() !== "open") return "blink";
+            if (figure.speaking && figure.audio && !figure.audio.paused) return "voice";
+        }
+        return "";
     }
     // The wrapper restores the requested cap after Pixi dispatches its listeners.
     app.ticker.update = function (now) {
         if(state.destroyed || state.tickError)return;
         try{
             now = now == null ? performance.now() : now;
-            const fps = frameRate();
-            if (!galFrameDue(pace, now, fps)) return;
+            const fps = frameRate(), timed = Boolean(state.settledTimer);
+            if (!state.coverOn) setSettled(state.settled, fps);
+            // A settled timer tick is the pace itself.
+            if (!timed && !galFrameDue(pace, now, fps)) return;
+            if (timed) pace.last = pace.next = now;
             this.maxFPS = 0;
             try { tickerUpdate.call(this, now); } finally { this.maxFPS = fps; }
         }catch(error){failFrame(error);}
@@ -1094,10 +1129,24 @@ function galCreateScene(host, options, own) {
     const renderUncovered = app.renderer.render;
     app.renderer.render = function (...args) { if (!state.coverOn) return renderUncovered.apply(this, args); };
     function restart() { app.ticker.lastTime = performance.now(); app.start(); }
+    // Settled below high (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
+    // no wake-up every vsync for frames it would skip. A change (set, a tap) puts it straight back on the frame loop.
+    function setSettled(on, fps) {
+        if (on && state.settledTimer && state.settledFps === fps) return;
+        if (!on && !state.settledTimer) return;
+        forkForeground.clearInterval(state.settledTimer); state.settledTimer = null;
+        if (on) { app.stop(); state.settledFps = fps; state.settledTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / fps); return; }
+        if (!state.coverOn && forkForeground.isForeground()) restart(); else if (!state.coverOn) state.coverRestart = true;
+    }
+    // What the description shows, without the media elements, tables and functions that are new objects every render.
+    function galSceneSignature(desc) {
+        return JSON.stringify(desc, (key, value) => GAL_SIGNATURE_SKIP.has(key) || typeof value === "function" ? undefined : value);
+    }
+    function wake() { state.changedAt = performance.now(); if (state.settledTimer) setSettled(false); }
     function setCovered(on) {
         if (on === Boolean(state.coverOn)) return;
         state.coverOn = on;
-        if (on) { app.stop(); state.coverTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / GAL_COVERED_FPS); return; }
+        if (on) { forkForeground.clearInterval(state.settledTimer); state.settledTimer = null; app.stop(); state.coverTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / GAL_COVERED_FPS); return; }
         forkForeground.clearInterval(state.coverTimer); state.coverTimer = null;
         // Hidden now: the foreground starts it again on return (it only restarts a ticker that was running when it left).
         if (forkForeground.isForeground()) restart(); else state.coverRestart = true;
@@ -1105,7 +1154,7 @@ function galCreateScene(host, options, own) {
     const releaseCoverForeground = forkForeground.subscribe(active => { if (active && state.coverRestart) { state.coverRestart = false; if (!state.coverOn) restart(); } });
     own(releaseCoverForeground,release=>release());
     // A new pixel ratio (another monitor, the zoom) re-renders at it, with the filters retuned, without a reload.
-    const releaseResolution = galResolutionSubscribe(() => applyQuality(quality));
+    const releaseResolution = galResolutionSubscribe(() => applyQuality(tier));
     own(releaseResolution,release=>release());
 
     // Verification hook, present only while the stage is open.
@@ -1140,7 +1189,7 @@ function galCreateScene(host, options, own) {
         transition(kind, url) { const base = state.desc && state.desc.background || {}; state.override = galSceneMerge(state.override || {}, { background: Object.assign({}, base, { url: url || base.url || "", transition: kind }) }); },
         error() { return state.tickError || ""; },
         probe() { let render = "ok"; try { app.render(); } catch (error) { render = String(error && error.stack || error); } let step = "ok"; try { tick(); } catch (error) { step = String(error && error.stack || error); } return { started: app.ticker.started, count: app.ticker.count, desc: Boolean(state.desc), render, step }; },
-        fps() { return { measured: state.frames.length, ticker: Math.round(app.ticker.FPS * 10) / 10, maxFPS: app.ticker.maxFPS, resolution: app.renderer.resolution, quality }; },
+        fps() { return { measured: state.frames.length, ticker: Math.round(app.ticker.FPS * 10) / 10, maxFPS: app.ticker.maxFPS, resolution: app.renderer.resolution, quality, tier, settled: Boolean(state.settled), unsettled: state.unsettled || "" }; },
         // each figure's idle rhythm and its current idle signals, for phase traces.
         idlePhase() {
             return Array.from(state.figures.values()).map(entry => {
@@ -1245,7 +1294,10 @@ function galCreateScene(host, options, own) {
         debug,
         set(desc) {
             const was = state.desc?.covered === true;
-            state.desc = desc; state.changedAt = performance.now();
+            state.desc = desc;
+            // The component hands its description over on every render; only a different picture is a change.
+            const signature = galSceneSignature(desc);
+            if (signature !== state.signature) { state.signature = signature; wake(); }
             if (desc.covered && !was) state.coverSettle = forkForeground.setTimeout(() => { state.coverSettle = null; setCovered(true); }, GAL_COVER_SETTLE_MS);
             else if (!desc.covered && was) { forkForeground.clearTimeout(state.coverSettle); state.coverSettle = null; setCovered(false); }
         },
@@ -1263,7 +1315,7 @@ function galCreateScene(host, options, own) {
             const clean=fn=>{try{fn();}catch(error){errors.push(error);}};
             clean(()=>app.ticker.stop());
             clean(releaseForeground);clean(releaseResolution);clean(releaseCoverForeground);
-            clean(()=>{forkForeground.clearTimeout(state.coverSettle);forkForeground.clearInterval(state.coverTimer);});
+            clean(()=>{forkForeground.clearTimeout(state.coverSettle);forkForeground.clearInterval(state.coverTimer);forkForeground.clearInterval(state.settledTimer);});
             clean(()=>faceBoxObserver?.disconnect());clean(()=>emptyThemeObserver.disconnect());
             if(stageHost){
                 for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])clean(()=>stageHost.removeEventListener(type,onStagePointer,{capture:true}));
