@@ -165,12 +165,17 @@ function createStageResourceOwner({service, fetch: request = globalThis.fetch, u
             throw Object.assign(failure('RESOURCE_BUDGET'), {budget:lastBudgetFailure});
         }
     }
+    // The route is diagnostic evidence; the lease ticket is a bearer credential.
+    const diagnosticLeaseUrl = url => url.split(/[?#]/,1)[0].replace(/\/lease\/[^/]+\//,'/lease/[redacted]/');
     async function issue(descriptor, service) {
         const lease = await service[descriptor.kind === 'bundle' ? 'leaseBundle' : 'leaseMedia']({packId:descriptor.ref.packId,
             ...(descriptor.kind === 'bundle' ? {bundleKey:descriptor.bundleKey} : {hash:descriptor.hash})});
         // Content identity, not the pack revision: a stage holds descriptors minted before another publication of the same
         // pack (a blink install while it plays); unchanged content stays leasable, changed content is stale.
-        if (lease.revision !== descriptor.revision && lease.contentHash !== descriptor.hash) { void service.releaseLease(lease.ticket); throw failure('ASSET_STALE'); }
+        if (lease.revision !== descriptor.revision && lease.contentHash !== descriptor.hash) {
+            void service.releaseLease(lease.ticket);
+            throw Object.assign(failure('ASSET_STALE'),{resourceUrl:diagnosticLeaseUrl(lease.url),servedRevision:lease.revision});
+        }
         return lease;
     }
     function valid(entry) { if (disposed || entry.dead) throw failure('RESOURCE_REVOKED'); }
@@ -189,7 +194,9 @@ function createStageResourceOwner({service, fetch: request = globalThis.fetch, u
         // The lease covers the transfer only: once the bytes are local it is released below. A cached entry holding its
         // lease kept every Live2D bundle's files (29 on average for a large card) counted against the host's 2,048 leased-resource
         // limit, so a long session ran out and every new background, figure and skin read failed (LIMIT_EXCEEDED).
-        entry.lease = lease; measure('lease');
+        entry.lease = lease;
+        entry.requestUrl = lease.url;
+        measure('lease');
         const absolute = url => new URL(url, 'http://stage.invalid').href;
         const files = new Map();
         const pendingFiles = [...(entry.descriptor.kind === 'bundle' ? lease.resources : [lease.url])];
@@ -372,7 +379,15 @@ function createStageResourceOwner({service, fetch: request = globalThis.fetch, u
             room(0,1);
             entry = {key, descriptor, tier, tierBytes:0, retired:false, pins:0, holders:new Set(), bytes:0, decodedBytes:0, urls:[], decoded:[], dead:false, ready:false};
             entries.set(key,entry);
-            entry.promise = load(entry).catch(error => {destroy(entry); throw error;});
+            entry.promise = load(entry).catch(error => {
+                if (!entry.dead && [...entry.holders].some(holder => holder.usage === 'bubble-avatar')) {
+                    console.warn('[stage] Bubble avatar failed ' + JSON.stringify({packId:descriptor.ref.packId, revision:descriptor.revision,
+                        figureId:descriptor.ref.figureId, outfit:descriptor.outfitKey, state:descriptor.stateId, hash:descriptor.hash,
+                        url:entry.requestUrl ? diagnosticLeaseUrl(entry.requestUrl) : error.resourceUrl ?? null,
+                        code:error.code || error.name, status:error.status ?? null, servedRevision:error.servedRevision ?? null}));
+                }
+                destroy(entry); throw error;
+            }).finally(() => { delete entry.requestUrl; });
         } else {
             entry.descriptor = descriptor;
             // a hit is the most recent use; room evicts in Map order (true LRU).
