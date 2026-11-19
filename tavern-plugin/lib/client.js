@@ -31543,8 +31543,7 @@ function tavernModelRefusalNotice(text) {
 		const TAVERN_START_GROUPS = Object.freeze([
 			["本局", Object.freeze(["dsh-tavern:status", "dsh-tavern:background-tasks", "dsh-tavern:conversation-settings", "dsh-tavern:virtual-skills"])],
 			["资料库", Object.freeze(["dsh-tavern:cards", "dsh-tavern:worldbooks", "dsh-tavern:regex-library", "dsh-tavern:resources", "dsh-tavern:skills"])],
-			["偏好", Object.freeze(["dsh-tavern:presets", "dsh-tavern:guide-library", "dsh-tavern:card-memory"])],
-			["迁移", Object.freeze(["dsh-tavern:transfer"])]
+			["偏好", Object.freeze(["dsh-tavern:presets", "dsh-tavern:guide-library", "dsh-tavern:card-memory"])]
 		]);
 
 		const TAVERN_START_ICON_PATHS = Object.freeze({
