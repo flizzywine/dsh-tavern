@@ -36,6 +36,7 @@ const fields = Object.freeze({
   putBlob:['packId','expectedRevision','bytes','descriptor'], removeBlob:['packId','expectedRevision','hash'],
   putBundle:['packId','expectedRevision','bundleKey','descriptor','files'], removeBundle:['packId','expectedRevision','bundleKey'],
   copyFigure:['source','target'], copyItems:['sourcePackId','itemRefs','target'],
+  publishSkins:['packId','expectedRevision','sources','dryRun'],
   consolidatePacks:['packId','expectedRevision','sources','name','card','assetNames','dryRun','approvedContentHash'],
   createSimpleSprite:['packId','expectedRevision','spriteKey','images','name'],
   setFigureAvatarCrop:['packId','expectedRevision','figureId','outfitKey','scope','stateId','crop'],

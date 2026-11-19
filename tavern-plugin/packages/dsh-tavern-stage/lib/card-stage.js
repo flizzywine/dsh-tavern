@@ -115,12 +115,22 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   config.stage.skinChoices = Object.values(skinContract.BUILTIN_STAGE_SKINS).map(document=>({value:document.id,label:document.label,preview:stageSkinPreview(document)}));
   // 本卡皮肤 offers the skins of the packs this card may use: bound (本卡开启) or globally enabled (a skin pack
   // such as 通用皮肤 is switched on globally with its lamp). A switched-off pack's skins are not offered.
-  const skinPackIds = extension ? [...extension.assetBindings.boundPackIds, ...globalEnabledPackIds] : []
-  for(const pack of packSnapshots) if(skinPackIds.includes(pack.manifest.id))
-    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
-      const document=pack.skins?.[asset.id], value={packId:pack.manifest.id,kind:'skins',assetId:asset.id}
-      if(document)config.stage.skinChoices.push({value,label:document.label,preview:stageSkinPreview(document),...skinResource(pack,asset,value)});
+  const skinPackIds = extension ? new Set([...extension.assetBindings.boundPackIds, ...globalEnabledPackIds]) : new Set()
+  const skinRows = new Map()
+  for (const packId of skinPackIds) {
+    const pack = packSnapshots.find(row => row.manifest.id === packId)
+    for (const asset of pack?.manifest.assets || []) {
+      if (asset.kind !== 'skins') continue
+      const document = pack.skins?.[asset.id], value = {packId,kind:'skins',assetId:asset.id}
+      if (!document) continue
+      const hash = pack.manifest.bundles?.[asset.bundleKey]?.contentHash
+      const key = hash ? `${asset.id}:${hash}` : `${packId}:${asset.id}`
+      const selected = stage.defaultSkin?.packId === packId && stage.defaultSkin.assetId === asset.id
+      // Prefer the card's bound copy when choosing, but keep an already stored equivalent ref selected.
+      if (!skinRows.has(key) || selected) skinRows.set(key, {value,label:document.label,preview:stageSkinPreview(document),...skinResource(pack,asset,value)})
     }
+  }
+  config.stage.skinChoices.push(...skinRows.values())
   // Initial open needs a skin before any director record or media projection exists.
   const selection=typeof chosen.skin==='object' ? chosen.skin : null;
   const ref=selection ? {packId:selection.packId,kind:'skins',assetId:selection.assetId} : null, pack=ref && packSnapshots.find(p=>p.manifest.id===ref.packId);
