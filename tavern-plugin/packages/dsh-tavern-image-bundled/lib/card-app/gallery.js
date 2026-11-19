@@ -30,12 +30,18 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
         const list = await load(), existing = list.find(item => item.id === id)
         if (existing) return { ...existing, url: url(existing.file) }
         await mkdir(images, { recursive: true })
-        await copyFile(result.file, join(images, file))
+        const target = join(images, file)
+        // 引擎已经把卡片图直接写进这个目录时只登记，不再复制第二份；此时文件归引擎所有，
+        // 登记失败也不能删它（下面只回滚自己复制出来的那份）。文件不在（生成被取消后已回收）
+        // 就退回复制，让 add 照旧报错，而不是登记一张打不开的图。
+        let ownFile = typeof result.file === 'string' && basename(result.file) === file
+        if (ownFile) { try { await stat(target) } catch { ownFile = false } }
+        if (!ownFile) await copyFile(result.file, target)
         const entry = { id, file, at: Date.now(), session: sessionId || '', prompt: result.prompt, negative: result.negative,
           preset: typeof result.preset === 'string' ? result.preset : (preset || ''), channel: result.channel, size: result.size, mediaType: result.mediaType, seed: result.seed, jobId: result.jobId }
         const next = [...list, entry].slice(-500)
         try { await publish(next) }
-        catch (error) { await rm(join(images, file), { force: true }); throw error }
+        catch (error) { if (!ownFile) await rm(target, { force: true }); throw error }
         for (const old of list.slice(0, Math.max(0, list.length + 1 - 500))) await rm(join(images, old.file), { force: true }).catch(() => {})
         return { ...entry, url: url(file) }
       })

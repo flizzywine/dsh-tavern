@@ -185,6 +185,8 @@ async function drainHarness({ failRequiredWrite = 0, localFailure = '', stop = '
       if (localFailure === 'transcode') throw new Error('mock local transcode failure')
       return { bytes: PNG, mediaType: 'image/png' }
     },
+    // 成品路径由 outputFileFor 决定（卡片作业进画廊目录，其余进 cache），这里只验证“写了一次”。
+    outputFileFor: () => 'virtual-cache/output.png', dirname: () => 'virtual-cache', mkdir: async () => {},
     cacheRoot: () => 'virtual-cache', join: (...parts) => parts.join('/'),
     writeFile: async () => { outputWrites++; if (localFailure === 'write') throw new Error('mock local output write failure') },
     rm: async () => {}, logger: { warn() {} },

@@ -80,6 +80,11 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 // Tavern 的数据根目录（data/），用来读它设置里的「默认后台模型」
 const TAVERN_DATA = dirname(dirname(ROOT))
 const TAVERN_SETTINGS = join(TAVERN_DATA, 'tavern-settings.json')
+// 卡片工作台的图直接落进卡片画廊的图片目录（card-app 的 data/images）：画廊、插件控制台、
+// 正文插图从此读同一份文件，不再从 cache 复制第二份。游玩图照旧留在 cache/<id>.img。
+const CARD_IMAGE_DIR = join(TAVERN_DATA, 'image-cache', 'dsh-tavern-gen', 'images')
+// 扩展名必须跟实际字节格式一致：gallery 只认 png/jpg/webp/gif，且按扩展名回 Content-Type。
+const CARD_IMAGE_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
 const BASE = '/plugins/dsh-tavern-image'
 const LEGACY_BASE = '/plugins/dsh-tavern-comfy'
 const CONFIG_PATH = join(ROOT, 'config.json')
@@ -1393,10 +1398,13 @@ function createRuntime(ctx, overrides, logger, deps) {
               // 老记录有两处会让取图永久 404，这里在内存里补正（不写回盘，每次启动重算）：
               //   ① file 指着改名前的 cache 目录（…\tools\dsh-tavern-image\cache\…），文件其实已搬到 dsh-tavern-image；
               //   ② byteLength 被早期兜底恢复写成了 0，而取图门槛正是 `if (!job.file || !job.byteLength)`。
+              // 另外：卡片图现在直接落在卡片画廊目录，老的还在 cache，所以两个目录都要找一遍。
               if (!job.file || !(await fileExists(job.file))) {
-                for (const ext of ['.img', '.png', '.jpg', '.jpeg', '.webp']) {
-                  const guess = join(cacheRoot(config), String(job.id) + ext)
-                  if (await fileExists(guess)) { job.file = guess; break }
+                search: for (const dir of [cacheRoot(config), CARD_IMAGE_DIR]) {
+                  for (const ext of ['.img', '.png', '.jpg', '.jpeg', '.webp']) {
+                    const guess = join(dir, String(job.id) + ext)
+                    if (await fileExists(guess)) { job.file = guess; break search }
+                  }
                 }
               }
               if (job.file) {
@@ -1433,16 +1441,19 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
           }
         } catch { /* 读不到就当没有 */ }
-        // 兜底：cache 目录里有图但没记录的，按"已完成"补回来
+        // 兜底：目录里有图但没记录的，按"已完成"补回来
         try {
-          const dir = cacheRoot(config)
-          const names = await readdir(dir).catch(() => [])
+          // 卡片图直接落在卡片画廊的图片目录，游玩图留在 cache —— 两处都要扫，
+          // 否则 jobs-store 一旦丢失，卡片作业就再也补不回来（重启后控制台历史整片消失）。
+          const dirs = [cacheRoot(config), CARD_IMAGE_DIR]
           const cardIds = new Set()
           try {
             const gallery = await readJson(join(ROOT, '../../image-cache/dsh-tavern-gen/jobs.json'), [])
             if (Array.isArray(gallery)) for (const item of gallery) if (typeof item?.id === 'string') cardIds.add(item.id)
           } catch { /* A damaged optional card index must not block ordinary cache recovery. */ }
           let added = 0
+          for (const dir of dirs) {
+          const names = await readdir(dir).catch(() => [])
           for (const name of names) {
             const hit = /^((?:card-)?[0-9a-f-]{36})\.(?:img|png|jpe?g|webp)$/i.exec(name)
             if (!hit) continue
@@ -1463,6 +1474,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             } catch { /* 读不到尺寸就算了 */ }
             jobs.set(id, { id, source: id.startsWith('card-') || cardIds.has(id) ? 'card' : 'play', state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMetadata?.mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
             added++
+          }
           }
           if (added) logger.info?.('dsh-tavern-image: 从 cache 补回 ' + added + ' 张历史图片')
         } catch { /* 忽略 */ }
@@ -1794,7 +1806,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (result.usage) job.usage = structuredClone(result.usage)
             const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
             if (stopped()) return
-            const file = join(cacheRoot(config), `${job.id}.img`)
+            const file = outputFileFor(job, config, output.mediaType)
+            await mkdir(dirname(file), { recursive: true })
             await writeFile(file, output.bytes)
             if (stopped()) { await rm(file, { force: true }); return }
             Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
@@ -1889,7 +1902,8 @@ function createRuntime(ctx, overrides, logger, deps) {
               if (signal?.aborted || job.state === 'cancelled') return
               job.mediaType = output.mediaType
               job.imageOutputWarning = output.warning || ''
-              job.file = join(cacheRoot(config), `${job.id}.img`)
+              job.file = outputFileFor(job, config, output.mediaType)
+              await mkdir(dirname(job.file), { recursive: true })
               await writeFile(job.file, output.bytes)
               if (signal?.aborted || job.state === 'cancelled') { await rm(job.file, { force: true }); return }
               job.byteLength = output.bytes.byteLength
@@ -2016,7 +2030,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (!jobs.has(job.id)) return
             const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: maxImageBytes, signal: job.controller.signal })
             job.controller.signal.throwIfAborted()
-            const file = join(cacheRoot(config), `${job.id}.img`)
+            const file = outputFileFor(job, config, output.mediaType)
+            await mkdir(dirname(file), { recursive: true })
             await writeFile(file, output.bytes)
             if (job.controller.signal.aborted || !jobs.has(job.id)) { await rm(file, { force: true }); return }
             Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
@@ -3591,7 +3606,10 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function sweep() {
       if (jobs.size <= 200) return
-      const ordered = [...jobs.values()].filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true)).sort((a, b) => a.createdAt - b.createdAt)
+      const ordered = [...jobs.values()].filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true))
+        // 淘汰名额先由卡片工作台的作业出：它们数量最多，而游玩图库的图很少。
+        // 只按 createdAt 排的话，卡片图会把 200 条名额占满，游玩画廊里更老的历史图第一个被删。
+        .sort((a, b) => (jobSource(a) === 'card' ? 0 : 1) - (jobSource(b) === 'card' ? 0 : 1) || a.createdAt - b.createdAt)
       for (const job of ordered.slice(0, jobs.size - 200)) {
         jobs.delete(job.id)
         if (job.key) byKey.delete(job.key)
@@ -3602,6 +3620,15 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (job.source === 'card' || job.source === 'play') return job.source
       return String(job.id || '').startsWith('card-') || job.label === '卡片工作台' && String(job.key || '').startsWith('card-') ? 'card' : 'play'
     }
+
+    // 卡片工作台的图直接落进卡片画廊的图片目录（card-app 的 data/images）：
+    // 画廊、插件控制台、正文插图从此读同一份文件，不再从 cache 复制第二份。
+    // 游玩图照旧留在 cache/<id>.img，两者靠 id 前缀（card-）区分。
+    // 目录常量定义在模块顶层：restoreJobs 在插件初始化时就要用它找回文件，早于这里。
+    /** 成品写哪：卡片作业 → 卡片画廊目录（随实际格式定扩展名），其余 → cache/<id>.img。 */
+    const outputFileFor = (job, config, mediaType) => jobSource(job) === 'card'
+      ? join(CARD_IMAGE_DIR, `${job.id}.${CARD_IMAGE_EXT[mediaType] || 'png'}`)
+      : join(cacheRoot(config), `${job.id}.img`)
 
     function publicJob(job) {
       return {
