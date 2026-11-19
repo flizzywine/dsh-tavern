@@ -130,7 +130,7 @@ test('the first game of a fresh install holds the stage client and enters the ne
   const listeners = new Set(), events = []
   let available = false
   const context = vm.createContext({
-    busy: false, pendingChatImport: null, console,
+    busy: false, pendingChatImport: null, console, setOpeningCardName() {}, setError() {},
     galStageAvailable: { get: () => available, subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
     galStageHold: () => { events.push('hold'); return () => events.push('release') },
     galEnter: (id, target) => events.push(['enter', id, target]),
@@ -138,6 +138,7 @@ test('the first game of a fresh install holds the stage client and enters the ne
     preparePlayConversation: () => events.push('form'),
     newConversation: async (card, mode, openingId, userName, input, from) => { events.push('create'); from.onCreated({ sessionId: 'new-game' }) }
   })
+  context.setBusy = value => { context.busy = value }
   for (const name of ['openPlayCard', 'stageOpens', 'whenStageAvailable']) vm.runInContext(sourceFunction(source, name), context)
   await context.openPlayCard({ path: 'cards/a.json', hasOpeningForm: true, openingPage: 'opening' }, true)
   assert.deepEqual(events, ['hold', 'create'], 'no 游戏准备, and nothing entered before the stage is up')

@@ -147,7 +147,7 @@ export function stageHostScript() {
     backlogRows:{registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE,pointer:stagePerformancePointer},
     // The clip bar and the map read the core's overlay hooks and empty states; inert here (no overlay stack).
     clipExport:{rpc,Icon,Spinner,EmptyState:Nothing,overlayEscape:()=>false,useOverlay:noop,InlineField:Nothing},
-    cg:{ResizeObserver,clock:foreground,consumer:()=>({dispose:noop,present:noop,redraw:noop,policy:noop}),paint:()=>false,policy:()=>({}),rpc},
+    cg:{ResizeObserver,clock:foreground,consumer:()=>({dispose:noop,present:noop,redraw:noop,policy:noop,holdMs:()=>0}),paint:()=>false,policy:()=>({}),rpc},
     notices:{foreground,displayPreferences:{get:()=>({}),subscribe:off},getSelection,StageWaitStop,Spinner,Icon,providerRefusal:()=>null,errorText:error=>String(error?.message||error||''),diagnosticText:()=>'',live2d:{Entry:Nothing,runtime:null}},
     Icon,
     ...overrides});

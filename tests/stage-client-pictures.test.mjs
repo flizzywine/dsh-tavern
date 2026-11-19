@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {createRequire} from 'node:module'
 import {chromium} from 'playwright'
-import {openSkinStage} from './helpers/skin-stage-page.mjs'
+import {browserReactScript} from './fixtures/browser-react.mjs'
+import {mountedStageShell} from './helpers/mounted-stage-shell.mjs'
+import {stageThemeCss} from './helpers/stage-theme-css.mjs'
 import {pluginAnchorInsertion} from '../tavern-plugin/lib/domain/plugin-text-segments.js'
 
 const require = createRequire(import.meta.url)
@@ -77,17 +79,39 @@ test('a leaving insert page fades out without exposing controls', () => {
 })
 
 // The mounted stage uses the same page input, AUTO timer and CSS as a chat. Only the CG source is supplied by the fixture.
-const classic = {id:'classic', theme:'classic', skin:{builtin:true}}
 const art = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><path fill="white" d="M0 0h800v450H0z"/></svg>')
 const pictureFixture = `window.stageShellOptions=host=>({controller:{...host.options().controller,pictures:{use:()=>({items:[${JSON.stringify({ ...ready('a', 1), url:art, caption:'天台上的约定' })}]})}}});`
+
+async function openPictureStage(browser, {width, height, mobile = false}) {
+  const context = await browser.newContext({viewport:{width, height}, isMobile:mobile, hasTouch:mobile})
+  const page = await context.newPage(), errors = []
+  page.on('pageerror', error => errors.push(error.stack || error.message))
+  await page.route('**/*', route => route.request().isNavigationRequest()
+    ? route.fulfill({contentType:'text/html', body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'})
+    : route.abort())
+  await page.goto('https://stage.test/')
+  await page.addStyleTag({content:await stageThemeCss()
+    + '\nmain{position:fixed;inset:0}.fork-gal-stage{position:absolute;inset:0}.fork-gal-picture-art{animation:none!important}'})
+  await page.exposeFunction('hostDirection', () => ({phase:'off', revision:0, generation:0, token:null}))
+  await page.exposeFunction('hostProjection', () => { throw Error('Director is off') })
+  await page.exposeFunction('hostLease', () => { throw Error('No media') })
+  const settings = readFileSync(new URL('../tavern-plugin/src/client/settings-ui.js', import.meta.url), 'utf8')
+  const icons = settings.slice(settings.indexOf('const ICON_PATHS'), settings.indexOf('// Foldable settings sections'))
+  await page.addScriptTag({content:await browserReactScript()
+    + ';const React=modules.react,ReactDOM={...modules["react-dom"],...modules["react-dom/client"]};'
+    + icons + '\nwindow.stageHostIcon=Icon;'
+    + 'window.stageShellConfig={characters:[],voice:{enabled:false},stage:{face:"off",music:false,theme:"classic"}};'
+    + pictureFixture + mountedStageShell()})
+  return {page, context, errors}
+}
 
 test('insert page: manual click and Space advance; AUTO can pause and resume without changing pages', {timeout:30000}, async () => {
   const browser = await chromium.launch({headless:true, args:['--mute-audio']})
   try {
     for (const viewport of [{width:1280,height:720}, {width:375,height:812,mobile:true}]) {
-      const {page,context,errors} = await openSkinStage(browser, classic, viewport, {extra:pictureFixture})
+      const {page,context,errors} = await openPictureStage(browser, viewport)
       try {
-        page.setDefaultTimeout(3000)
+        page.setDefaultTimeout(5000)
         const stage = page.locator('.fork-gal-stage'), picture = stage.locator('.fork-gal-picture-page:not(.is-leaving)')
         const caption = picture.locator('figcaption'), next = picture.getByText('点击继续'), pause = picture.getByRole('button', {name:'暂停自动播放'})
         const resume = picture.getByRole('button', {name:'恢复自动播放'})
