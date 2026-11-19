@@ -87,12 +87,12 @@ test('开始页区分常用资料与其他资料，同名插件分组按侧栏�
   const groupsOf = vm.runInNewContext(source + '; tavernStartGroups', { Object, Set, Map, String, Array })
   const common = ['dsh-tavern:cards', 'dsh-tavern:worldbooks', 'dsh-tavern:presets']
   const materials = ['dsh-tavern:guide-library', 'dsh-tavern:card-memory', 'dsh-tavern:regex-library', 'dsh-tavern:resources', 'dsh-tavern:skills']
-  const options = [...materials, ...common, 'a:settings', 'b:library', 'c:voice', 'dsh-tavern:transfer'].map(id => ({ id }))
+  const options = [...materials, ...common, 'a:settings', 'b:library', 'c:voice', 'dsh-tavern:transfer', 'dsh-asset-library:library'].map(id => ({ id }))
   const groups = groupsOf(options, [{ title: '舞台装置', tabs: ['b:library'] }, { title: '舞台装置', tabs: ['c:voice', 'a:settings'] }])
   assert.deepEqual(Array.from(groups, ([title, found]) => [title, Array.from(found, option => option.id)]), [
     ['资料库', common],
     ['其他资料', materials],
     ['舞台装置', ['a:settings', 'b:library', 'c:voice']],
-    ['其他', ['dsh-tavern:transfer']]
+    ['其他', ['dsh-tavern:transfer', 'dsh-asset-library:library']]
   ])
 })
