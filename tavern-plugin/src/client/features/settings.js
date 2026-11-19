@@ -103,8 +103,8 @@
                 catch (err) { setError(String(err.message || err)); } finally { setBusy(false); }
             }
             // on 设置 › DSH Tavern the defaults are a card of switch rows, each skill's
-            // description behind its 「?」; the 本局 panel keeps its own layout below.
-            if (props.globalDefaults) return h("section", { className: "dsh-local-section dsh-tavern-default-skills", "aria-label": "默认写作 Skill" },
+            // description behind its 「?」. 本局设置 draws its own section (conversation-settings.js SessionWritingSkills).
+            return h("section", { className: "dsh-local-section dsh-tavern-default-skills", "aria-label": "默认写作 Skill" },
                 h("h3", null, "默认写作 Skill", typeof HelpTip === "function" ? h(HelpTip, { label: "默认写作 Skill 说明" }, "新游戏默认启用哪些写作 Skill；已有游戏不变，可在本局设置里逐项调整。") : null),
                 (skills || []).map(skill => h(TavernSettingRow, { key: skill.name, title: skill.name, help: skill.description, className: "dsh-tavern-writing-skill" },
                     h(Switch, { label: skill.name, checked: skill.enabled, disabled: busy, onChange: enabled => change(skill.name, enabled) }))),
@@ -112,16 +112,6 @@
                 !skills && !error ? h("div", { className: "dsh-tavern-settings-loading" }, h(Spinner)) : null,
                 error ? h("p", { role: "alert", className: "dsh-tavern-settings-alert" }, "⚠ " + error, " ", h("button", { type: "button", className: "dsh-tavern-text-btn", onClick: load }, "重新加载")) : null,
                 !error && (busy || notice) ? h("p", { role: "status", className: "dsh-tavern-gs-notice" }, busy ? "保存中…" : "已保存") : null);
-            return h(props.globalDefaults ? "details" : "section", { className: "dsh-local-section" + (props.globalDefaults ? " dsh-tavern-default-skills" : ""), "aria-label": props.globalDefaults ? "默认写作 Skill" : "写作 Skill" },
-                props.globalDefaults ? h("summary", null, "默认写作 Skill") : h("h3", null, "写作 Skill"),
-                h("p", { className: "dsh-local-help" }, props.globalDefaults ? "设置新游戏默认启用的写作 Skill。已有游戏不变，可在本局设置中逐项调整。" : "开局采用全局默认配置，可在此逐项调整本局后续加载；前台按场景选用。"),
-                (skills || []).map(skill => h("div", { key: skill.name, className: "dsh-tavern-background-task dsh-tavern-writing-skill" },
-                    h("label", { className: "dsh-tavern-writing-skill-heading" }, h("span", null, skill.name), h("input", { type: "checkbox", role: "switch", "aria-label": skill.name, checked: skill.enabled, disabled: busy, onChange: event => change(skill.name, event.target.checked) })),
-                    h("p", { className: "dsh-tavern-settings-desc" }, skill.description))),
-                skills && !skills.length ? h(EmptyState, { compact: true, noun: "写作 Skill" }) : null,
-                !props.globalDefaults ? h("p", { className: "dsh-local-help" }, "开关立即更新，后续模型请求生效；已发出的请求不受影响。通过追加通知保留已有缓存前缀，关闭后停止沿用该 Skill，历史内容保留。") : null,
-                error ? h("p", { role: "alert" }, error) : h("span", { role: "status" }, busy ? "保存中…" : skills ? notice : "正在读取…"),
-                error ? h("button", { className: "dsh-tavern-btn", onClick: load }, "重新加载") : null);
         }
 
         function TavernDefaultModelSetting(props) {

@@ -2087,6 +2087,35 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-stage .ap-section-head { min-height: 34px; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--ap-border); }
 .ap-stage .ap-section-head h3, .ap-stage legend { gap: 8px; font-size: var(--fork-fs-body); letter-spacing: .24em; }
 .ap-stage .ap-section-body > .ap-opening-picker:not(.is-compact) { max-width: 420px; }
+/* 本局设置 (conversation-settings.js) speaks the same language in the same right panel: caption sections, one row per
+   setting with its name on the left and its value, menu or switch on the right edge, one dashed line between rows like
+   基础设置's. A head line says the scope (「?」: the cache cost), the save state and the one 模板 menu. */
+.ap-ui.dsh-session-settings { max-width: 760px; padding: 6px 20px 28px; }
+.dsh-session-bar { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.dsh-session-scope { display: inline-flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.dsh-session-bar > .ap-save-state { position: static; min-height: 0; white-space: nowrap; }
+.ap-ui button.dsh-session-template-trigger { gap: 2px; min-height: 28px; padding: 0 8px 0 12px; }
+.dsh-session-template-trigger .ap-glyph { width: 14px; height: 14px; color: var(--fork-ink-2); }
+.dsh-session-settings > .ap-notice { margin: 2px 0 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+.dsh-session-problem > .ap-hint-line, .dsh-session-settings .ap-section-body > .ap-hint-line { margin: 6px 0 2px; }
+.dsh-session-rows { display: grid; min-width: 0; }
+.dsh-session-rows > :is(.fork-inline-field, .ap-switch-row) + :is(.fork-inline-field, .ap-switch-row) { border-top: 1px dashed var(--ap-border); }
+.dsh-session-rows > .fork-inline-field { grid-template-columns: minmax(4em, max-content) minmax(0, 1fr); min-height: 42px; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-label { color: var(--fork-ink); font-weight: 500; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-value { justify-content: flex-end; margin: 0 -6px 0 0; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-error { grid-column: 1 / -1; justify-self: end; margin-top: -6px; text-align: right; }
+.dsh-session-rows > .fork-inline-field input.fork-inline-input { text-align: right; }
+/* 后台模型: model · effort side by side at the right edge, the effort wrapping under the model when the row is narrow. */
+.dsh-session-model-picks { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0 2px; min-width: 0; }
+.dsh-session-model-picks > .fork-inline-field { min-width: 0; min-height: 0; }
+.dsh-session-rows > .fork-inline-field.dsh-session-model > .fork-inline-value { margin-right: -6px; }
+/* 舞台: the row into 舞台设置, its state at the right edge where 基础设置 puts its switches. */
+.ap-switch-main > .dsh-session-stage-state { display: inline-flex; align-items: center; order: 3; color: var(--fork-ink-2); font-weight: 400; white-space: nowrap; }
+.ap-switch-main > .dsh-session-tool-source { order: 2; }
+.ap-ui button.dsh-session-reveal { min-height: 24px; padding: 0 6px; }
+.dsh-session-profile-text { max-height: 240px; margin: 0 0 10px; padding: 10px 12px; overflow-y: auto; border-radius: var(--fork-radius); background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ap-notice.dsh-session-profile-update { padding: 2px 0 10px; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+@media (max-width: 720px) { .ap-ui.dsh-session-settings { padding: 4px 16px 24px; } .dsh-session-rows > .fork-inline-field { min-height: 44px; } }
 .ap-loading { display: flex; align-items: center; gap: 8px; margin: 14px 0; color: var(--ap-ink-3); }
 /* 导出: 「正在导出「名」… 43%」 — the percent keeps its width while it counts. */
 .ap-export-state { margin: 8px 0; color: var(--fork-ink-2); }

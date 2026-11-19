@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
+
+async function until(check) { for (let i = 0; i < 100 && !check(); i++) await new Promise(resolve => setTimeout(resolve, 50)); assert.ok(check()) }
+// the 前台工具 section's ⋯ menu, its fold, and the 模板 menu of the page head.
+async function toolMenu(page, item) { await page.getByRole('button', { name: '前台工具操作', exact: true }).click(); await page.getByRole('menuitem', { name: item, exact: true }).click() }
+const openTools = page => page.locator('.ap-section-toggle', { hasText: '前台工具' }).click()
+async function templateMenu(page, item) { await page.getByRole('button', { name: '模板', exact: true }).click(); await page.getByRole('menuitem', { name: item, exact: true }).click() }
 
 test('注册的本局设置保存玩家称呼、预设、后台模型与前台工具，失败时保留已保存模型', async t => {
   let playerName = '你', preset = null, model = null, disabledTools = [], strategy = 'legacy', screening = true, fail = false, candidateTabs = true
@@ -39,69 +44,40 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   await page.waitForFunction(() => document.querySelector('[aria-label="玩家称呼"]')?.value === '你')
   await name.fill('旅人')
   await name.press('Tab')
-  await page.waitForFunction(() => document.querySelector('.dsh-local-field input')?.disabled === false)
-  assert.equal(playerName, '旅人')
+  await until(() => playerName === '旅人')
+  await page.getByRole('status').filter({ hasText: '已保存' }).waitFor()
   const presetField = page.getByRole('button', { name: /^本局预设：/ })
   await presetField.click()
   await page.getByRole('menuitemradio', { name: '测试预设', exact: true }).click()
   await page.getByRole('button', { name: /^本局预设：.*测试预设/ }).waitFor()
   assert.equal(preset.id, 'presets/one.json')
-  const play = page.getByRole('region', { name: '游玩' })
-  const modelField = play.getByRole('button', { name: /^本局后台模型：/ })
-  const effortField = play.getByRole('button', { name: /^本局后台推理强度：/ })
-  assert.equal(await effortField.count(), 0, '跟随前台时只显示模型选择')
-  assert.equal(await page.getByRole('heading', { name: '后台模型', exact: true }).count(), 0)
+  const modelField = page.getByRole('button', { name: /^本局后台模型：/ })
+  const effortField = page.getByRole('button', { name: /^本局后台推理强度：/ })
   await modelField.click()
-  await page.getByRole('menuitemradio', { name: 'p · 测试模型', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: '测试模型', exact: true }).click()
   await page.getByRole('button', { name: /^本局后台模型：.*测试模型/ }).waitFor()
   assert.deepEqual(model, { provider: 'p', model: 'm' })
   await effortField.click()
-  await page.getByRole('menuitemradio', { name: 'High', exact: true }).click()
-  await play.getByRole('button', { name: '本局后台推理强度：High' }).waitFor()
+  await page.getByRole('menuitemradio', { name: /^High/ }).click()
+  await page.getByRole('button', { name: /^本局后台推理强度：High/ }).waitFor()
   assert.deepEqual(model, { provider: 'p', model: 'm', reasoningEffort: 'high' })
 
-  const styles = await Promise.all(['tavern.css', 'theme.css'].map(file =>
-    readFile(new URL('../tavern-plugin/lib/client-assets/' + file, import.meta.url), 'utf8')))
-  await page.addStyleTag({ content: styles.join('\n') + '\nbody { --dsw-alias-label-primary: #222; }' })
-  const desktop = page.viewportSize()
-  const profileField = play.getByRole('combobox', { name: '本局长期偏好', exact: true })
-  const choiceField = play.getByRole('button', { name: /^候选项数量：/ })
-  await profileField.waitFor()
-  const fields = [name, presetField, profileField, modelField, choiceField]
-  const boxes = await Promise.all(fields.map(field => field.boundingBox()))
-  assert.deepEqual(boxes.map(box => box.x), boxes.map(() => boxes[0].x), '游玩区五个控件的左边界对齐')
-  assert.deepEqual(boxes.map(box => box.height), boxes.map(() => 36), '输入框和下拉框等高')
-  const insets = await Promise.all(fields.map(field => field.evaluate(el => {
-    const styles = getComputedStyle(el)
-    return parseFloat(styles.paddingLeft) + parseFloat(styles.borderLeftWidth)
-  })))
-  assert.deepEqual(insets, fields.map(() => 11), '文字距控件左边框一致')
-  const gaps = boxes.slice(1).map((box, index) => box.y - boxes[index].y - boxes[index].height)
-  assert.deepEqual(gaps, gaps.map(() => gaps[0]), '相邻控件等距排列')
-  for (const width of [desktop.width, 360]) {
-    await page.setViewportSize({ width, height: desktop.height })
-    const [modelBox, effortBox] = await Promise.all([modelField.boundingBox(), effortField.boundingBox()])
-    assert.ok(Math.abs(modelBox.y - effortBox.y) < 2, width + 'px 时两个控件在同一行')
-    assert.ok(effortBox.x >= modelBox.x + modelBox.width && effortBox.x + effortBox.width <= width)
-  }
-  await page.setViewportSize(desktop)
-
-  await play.getByRole('button', { name: '候选项数量：大量候选', exact: true }).click()
+  await page.getByRole('button', { name: '候选项数量：大量候选', exact: true }).click()
   await page.getByRole('menuitemradio', { name: '少量候选', exact: true }).click()
-  await play.getByRole('button', { name: '候选项数量：少量候选', exact: true }).waitFor()
+  await page.getByRole('button', { name: '候选项数量：少量候选', exact: true }).waitFor()
   assert.equal(candidateTabs, false)
 
-  await page.locator('details.dsh-local-advanced > summary').click()
+  await openTools(page)
   const worldbook = page.getByLabel('召回历史', { exact: true })
   await worldbook.waitFor()
   assert.equal(await worldbook.isChecked(), true)
   await worldbook.click()
   await page.waitForFunction(() => document.querySelector('input[aria-label="召回历史"]')?.checked === false)
   assert.deepEqual(disabledTools, ['tavern_recall_history'])
-  await page.getByRole('button', { name: '全部关闭' }).click()
+  await toolMenu(page, '全部关闭')
   await page.waitForFunction(() => document.querySelector('input[aria-label="读取变量"]')?.checked === false)
   assert.deepEqual([...disabledTools].sort(), ['plugin_lookup', 'tavern_read_variables', 'tavern_recall_history'])
-  await page.getByRole('button', { name: '全部开启' }).click()
+  await toolMenu(page, '全部开启')
   await page.waitForFunction(() => document.querySelector('input[aria-label="读取变量"]')?.checked === true)
   assert.deepEqual(disabledTools, [])
   const plugin = page.getByLabel('插件查询', { exact: true })
@@ -182,31 +158,28 @@ test('本局设置顶栏支持保存目前设置为默认模板与恢复默认�
     }
   })
 
-  const saveBtn = page.getByRole('button', { name: '保存目前设置为默认模板', exact: true })
-  const restoreBtn = page.getByRole('button', { name: '恢复默认模板', exact: true })
-  await saveBtn.waitFor()
-  await restoreBtn.waitFor()
+  await page.getByRole('button', { name: '模板', exact: true }).waitFor()
 
   // Type a new player name without pressing Tab first, then click Save Default Template directly
   const nameInput = page.getByLabel('玩家称呼', { exact: true })
   await page.waitForFunction(() => document.querySelector('[aria-label="玩家称呼"]')?.value === '阿良')
   await nameInput.fill('云游者')
-  await saveBtn.click()
+  await templateMenu(page, '保存目前设置为默认模板')
   await page.getByRole('status').filter({ hasText: '已保存目前设置为默认模板' }).waitFor()
   assert.equal(savedTemplate.playerName, '云游者')
   assert.equal(calls.find(c => c.method === 'saveConversationSettingsAsDefaultTemplate').args.sessionId, 'game')
 
   // Failure path shows alert without wiping current controls
   failRestore = true
-  await restoreBtn.click()
+  await templateMenu(page, '恢复默认模板')
   await page.getByRole('alert').filter({ hasText: '正在生成中，无法恢复' }).waitFor()
   assert.equal(await nameInput.inputValue(), '云游者')
 
   // Success path restores default template and refreshes all child panels
   failRestore = false
-  await page.locator('details.dsh-local-advanced > summary').click()
+  await openTools(page)
   await page.waitForFunction(() => document.querySelector('input[aria-label="读取网页"]')?.checked === false)
-  await restoreBtn.click()
+  await templateMenu(page, '恢复默认模板')
   await page.getByRole('status').filter({ hasText: '已恢复默认模板' }).waitFor()
   await page.waitForFunction(() => document.querySelector('[aria-label="玩家称呼"]')?.value === '默认旅人')
   await page.getByRole('button', { name: /^本局预设：.*不使用酒馆预设/ }).waitFor()
@@ -268,12 +241,11 @@ test('本局设置随舞台和剧情罗盘的启用状态显示与隐藏', async
       values: { maxRoutes: 4 }
     }] : [] } }
   } })
-  const stageSection = page.getByText('舞台', { exact: true })
-  const compassSection = page.getByRole('region', { name: '剧情罗盘', exact: true })
-  await stageSection.waitFor()
+  // the stage's own options and models live in 舞台设置; here a module going away takes its tools and plugin options with it.
+  const compassSection = page.locator('section.dsh-tavern-plugin-settings', { hasText: '剧情罗盘' })
   await compassSection.waitFor()
   assert.equal(await compassSection.getByLabel('剧情规划条目上限').inputValue(), '4')
-  await page.locator('details.dsh-local-advanced > summary').click()
+  await openTools(page)
   const stageTool = page.getByLabel('舞台工具', { exact: true })
   await stageTool.waitFor()
   const backgroundReads = () => calls.filter(call => call.method === 'getConversationBackgroundConfig').length
@@ -288,14 +260,12 @@ test('本局设置随舞台和剧情罗盘的启用状态显示与隐藏', async
   }
   stage = compass = false
   await refreshModules()
-  await stageSection.waitFor({ state: 'detached' })
   await compassSection.waitFor({ state: 'detached' })
   await stageTool.waitFor({ state: 'detached' })
   assert.equal(backgroundReads(), 2)
-  await page.getByRole('region', { name: '游玩' }).getByRole('button', { name: /^本局后台模型：/ }).waitFor()
+  await page.getByRole('button', { name: /^本局后台模型：/ }).waitFor()
   stage = compass = true
   await refreshModules()
-  await stageSection.waitFor()
   await compassSection.waitFor()
   await stageTool.waitFor()
   assert.equal(backgroundReads(), 3)
