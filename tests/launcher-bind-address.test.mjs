@@ -88,7 +88,7 @@ for (const bindHost of ['127.0.0.2', '::1']) {
     try {
       await new Promise((resolve, reject) => { reserve.once('error', reject); reserve.listen(0, bindHost, resolve) })
     } catch (error) {
-      if (bindHost === '::1' && ['EADDRNOTAVAIL', 'EAFNOSUPPORT'].includes(error.code)) { t.skip('IPv6 loopback unavailable'); return }
+      if (['EADDRNOTAVAIL', 'EAFNOSUPPORT'].includes(error.code)) { t.skip(`${bindHost} loopback unavailable`); return }
       throw error
     }
     const port = reserve.address().port
