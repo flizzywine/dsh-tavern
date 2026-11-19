@@ -395,9 +395,9 @@ export function createAssetPackService(options) {
     manifest.figures.push(id); files.set(`figures/${id}.json`, jsonBytes(figure))
     return {figureId:id}
   }
-  async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions, avatarReplacements, imageRemovals) {
+  async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions, avatarReplacements, imageRemovals, sourcePackIds = []) {
     validateUuid(input.packId)
-    return run([input.packId], async () => {
+    return run([input.packId, ...sourcePackIds], async () => {
       if (tryMetadata) {
         const before = await metadata(input.packId); cas(before, input.expectedRevision)
         check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
@@ -1057,6 +1057,55 @@ export function createAssetPackService(options) {
         carried = copiedMouthDebt(source,before,[{kind:'figures',fromId:input.source.figureId,toId:input.figureId}],debt)
       },true,local => ({...local,mouthDebt:{...local.mouthDebt,...carried}}),input.dryRun === true)
       return {...result,carriedGaps:carried[input.figureId]?.gaps.length || 0}
+    },
+    // Publish standalone skins without bringing along the source pack's skin-specific performances.
+    publishSkins(input) {
+      shape(input, ['packId','expectedRevision','sources','dryRun'], ['packId','expectedRevision','sources'], '$')
+      check(input.dryRun === undefined || typeof input.dryRun === 'boolean', '$.dryRun')
+      check(Array.isArray(input.sources) && input.sources.length && input.sources.length <= 64, '$.sources')
+      const ids = new Set(), sourcePackIds = input.sources.map(row => {
+        shape(row, ['packId','expectedRevision','skinIds','replace'], ['packId','expectedRevision','skinIds'], '$.sources[]')
+        return validateUuid(row.packId)
+      })
+      return edit(input, async (manifest, files, before, hashed) => {
+        const replacedFiles = [], published = []
+        for (const row of input.sources) {
+          check(row.packId !== input.packId && Array.isArray(row.skinIds) && row.skinIds.length && row.skinIds.length <= 64, '$.sources[]')
+          check(row.replace === undefined || Array.isArray(row.replace) && row.replace.every(id => row.skinIds.includes(id)), '$.sources[].replace')
+          const source = await metadata(row.packId, 'manifest')
+          cas(source, row.expectedRevision)
+          check(source && !isModConfigPack(source), '$.sources[].packId', 'Source pack unavailable', 'ASSET_UNAVAILABLE')
+          for (const id of row.skinIds) {
+            validateShortId(id)
+            check(!ids.has(id), '$.sources[].skinIds', 'Duplicate skin ID', 'DUPLICATE_ID'); ids.add(id)
+            const entry = source.manifest.assets.find(a => a.kind === 'skins' && a.id === id)
+            check(entry?.bundleKey && entry.entry, '$.sources[].skinIds', 'Skin missing', 'ASSET_UNAVAILABLE')
+            const index = manifest.assets.findIndex(a => a.kind === 'skins' && a.id === id), old = manifest.assets[index]
+            const origin = {packId:row.packId, kind:'skins', assetId:id}
+            const recorded = old?.extensions?.dsh_tavern?.copiedFrom
+            check(!old || recorded?.packId === row.packId && recorded.assetId === id || !recorded && row.replace?.includes(id), '$.sources[].skinIds', 'Skin already has a different source', 'REVISION_CONFLICT')
+            const bundleKey = old?.bundleKey || entry.bundleKey, bundle = source.manifest.bundles[entry.bundleKey]
+            check(old || !Object.hasOwn(manifest.bundles, bundleKey), '$.sources[].skinIds', 'Bundle key already exists', 'DUPLICATE_ID')
+            const {credits, extensions, ...sourceEntry} = entry
+            const next = {...sourceEntry,bundleKey,extensions:{dsh_tavern:{copiedFrom:origin}}}
+            if (index < 0) manifest.assets.push(next); else manifest.assets[index] = next
+            if (manifest.bundles[bundleKey]?.contentHash !== bundle.contentHash) {
+              const prefix = `bundles/${bundleKey}/`, sourcePrefix = `bundles/${entry.bundleKey}/`
+              for (const name of files.keys()) if (name.startsWith(prefix)) {
+                replacedFiles.push(name); files.delete(name)
+              }
+              for (const file of source.manifest.files) if (file.path.startsWith(sourcePrefix)) {
+                const name = prefix + file.path.slice(sourcePrefix.length)
+                files.set(name, await storage.read(`packs/${row.packId}/${file.path}`, file.size))
+                hashed.set(name, file.sha256)
+              }
+              manifest.bundles[bundleKey] = copy(bundle)
+            }
+            published.push({id, contentHash:bundle.contentHash, source:origin})
+          }
+        }
+        return {published,replacedFiles}
+      }, false, undefined, input.dryRun === true, undefined, undefined, undefined, undefined, undefined, sourcePackIds)
     },
     // items of any kind plus their same-pack closure, into an existing pack (CAS) or a new one.
     copyItems(input) {
