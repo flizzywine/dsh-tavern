@@ -1,10 +1,9 @@
 import {
   PLOT_COMPASS_BRAINSTORM_SYSTEM,
-  PLOT_COMPASS_CHAT_SUBMIT_TOOL,
+  PLOT_COMPASS_DEFAULT_MAX_ROUTES,
   PLOT_COMPASS_GOAL_HORIZON_LABELS,
   PLOT_COMPASS_PROGRESS_SYSTEM,
   PLOT_COMPASS_SCOPES,
-  PLOT_COMPASS_SUBMIT_TOOL,
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
   activePlotCompassGoal,
   appendPlotCompassChat,
@@ -15,8 +14,10 @@ import {
   applyPlotCompassPreferences,
   applyPlotCompassStepToggle,
   buildPlotCompassBrainstormPrompt,
+  buildPlotCompassChatSubmitTool,
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
+  buildPlotCompassSubmitTool,
   clearPlotCompassChat,
   collectAssistantProseForGrounding,
   collectPendingCompassSteps,
@@ -25,6 +26,7 @@ import {
   extractStoryProseForGrounding,
   isPlotCompassEnabled,
   mergePlotCompassUpdate,
+  normalizePlotCompassMaxRoutes,
   parsePlotCompassProgressOutcome,
   parsePlotCompassSubmission,
   readPlotCompass,
@@ -51,8 +53,10 @@ export function defaultGameRecord(defaults = {}) {
   const interval = Number.isSafeInteger(Number(defaults.autoUpdateInterval))
     ? Math.max(0, Math.min(100, Number(defaults.autoUpdateInterval)))
     : 0
+  const maxRoutes = normalizePlotCompassMaxRoutes(defaults.maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
   const baseCompass = emptyPlotCompass()
   if (interval > 0) baseCompass.autoUpdateInterval = interval
+  baseCompass.maxRoutes = maxRoutes
   if (typeof defaults.strength === 'string' && ['soft', 'guided', 'strict'].includes(defaults.strength)) {
     baseCompass.strength = defaults.strength
   }
@@ -190,6 +194,8 @@ export function createPlotCompassService({
       const ctxData = await loadGenerationContext(gameId, freshRecord)
       const basedOnTurn = ctxData.basedOnTurn
 
+      const compassConfig = readPlotCompass(freshRecord.compass)
+      const maxRoutes = compassConfig.maxRoutes
       const material = buildPlotCompassMaterial({
         card: ctxData.card,
         messages: ctxData.messages,
@@ -197,7 +203,7 @@ export function createPlotCompassService({
         posture: ctxData.posture,
         ledger: ctxData.ledger,
         guides: ctxData.guides,
-        compass: freshRecord.compass,
+        compass: compassConfig,
         worldbookEntries: ctxData.worldbookEntries,
         constantWorldbookText: ctxData.constantWorldbookText,
         activatedWorldbookTitles: ctxData.activatedWorldbookTitles,
@@ -215,7 +221,7 @@ export function createPlotCompassService({
         signal: controller.signal,
         system: typeof promptText === 'function' ? promptText() : str(promptText),
         prompt: material,
-        tools: [PLOT_COMPASS_SUBMIT_TOOL],
+        tools: [buildPlotCompassSubmitTool(maxRoutes)],
         maxToolCalls: 4,
         stopToolsWhen: () => submitted !== null,
         acceptWithoutText: () => submitted !== null,
@@ -227,7 +233,8 @@ export function createPlotCompassService({
             submitted = parsePlotCompassSubmission(call.arguments, {
               scope,
               card: ctxData.card,
-              playerName: ctxData.playerName
+              playerName: ctxData.playerName,
+              maxRoutes
             })
             submissionError = null
             return JSON.stringify({
@@ -311,6 +318,7 @@ export function createPlotCompassService({
         message
       })
 
+      const maxRoutes = compassNow.maxRoutes
       controller.signal.throwIfAborted()
       runResult = await runAgent({
         gameId: str(gameId),
@@ -319,7 +327,7 @@ export function createPlotCompassService({
         signal: controller.signal,
         system: PLOT_COMPASS_BRAINSTORM_SYSTEM,
         prompt: brainstormPrompt,
-        tools: [PLOT_COMPASS_CHAT_SUBMIT_TOOL],
+        tools: [buildPlotCompassChatSubmitTool(maxRoutes)],
         maxToolCalls: 2,
         acceptWithoutText: () => submitted !== null,
         onToolCall: async call => {
@@ -330,7 +338,8 @@ export function createPlotCompassService({
             submitted = parsePlotCompassSubmission(call.arguments, {
               scope: 'chat',
               card: ctxData.card,
-              playerName: ctxData.playerName
+              playerName: ctxData.playerName,
+              maxRoutes
             })
             submissionError = null
             return JSON.stringify({
@@ -638,7 +647,7 @@ export function createPlotCompassService({
     return readPlotCompass(saved?.compass)
   }
 
-  async function setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, goal } = {}) {
+  async function setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal } = {}) {
     const id = str(gameId)
     if (!id) throw new Error('请先打开游玩会话')
     const record = await store.readGame(id)
@@ -651,6 +660,7 @@ export function createPlotCompassService({
         blindBox,
         customDirective,
         autoUpdateInterval,
+        maxRoutes,
         goal,
         now: now()
       })

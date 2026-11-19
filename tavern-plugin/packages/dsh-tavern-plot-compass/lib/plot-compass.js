@@ -12,8 +12,10 @@ export const PLOT_COMPASS_GOAL_HORIZON_LABELS = Object.freeze({
 })
 export const PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL = 100
 export const PLOT_COMPASS_MAX_GOAL_LENGTH = 300
+export const PLOT_COMPASS_MIN_MAX_ROUTES = 1
+export const PLOT_COMPASS_DEFAULT_MAX_ROUTES = 4
+export const PLOT_COMPASS_MAX_MAX_ROUTES = 10
 
-const MAX_ROUTES_PER_HORIZON = 4
 const MAX_STEPS_PER_ROUTE = 4
 const MAX_ARCHETYPES = 5
 const MAX_ARCHIVED = 8
@@ -64,6 +66,14 @@ export function normalizePlotCompassAutoUpdateInterval(value) {
   const n = Number(value)
   if (!Number.isSafeInteger(n) || n < 0) return null
   return Math.min(PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL, n)
+}
+
+export function normalizePlotCompassMaxRoutes(value) {
+  if (value === undefined || value === null || value === '' || value === false) return PLOT_COMPASS_DEFAULT_MAX_ROUTES
+  if (typeof value === 'boolean') return null
+  const n = Number(value)
+  if (!Number.isSafeInteger(n) || n < PLOT_COMPASS_MIN_MAX_ROUTES) return null
+  return Math.min(PLOT_COMPASS_MAX_MAX_ROUTES, n)
 }
 
 function cleanText(value, { card, chat, playerName, maxLength = 240 } = {}) {
@@ -232,6 +242,7 @@ export function emptyPlotCompass() {
     lastCheckedTurn: 0,
     stalledTurns: 0,
     autoUpdateInterval: 0,
+    maxRoutes: PLOT_COMPASS_DEFAULT_MAX_ROUTES,
     strength: 'guided',
     pace: 'natural',
     blindBox: false,
@@ -271,9 +282,10 @@ function normalizeCompassChatEntry(raw, index = 0) {
 export function readPlotCompass(value) {
   const src = object(value)
   if (!src || src.version !== 1) return emptyPlotCompass()
-  const shortTerm = (Array.isArray(src.shortTerm) ? src.shortTerm : []).map((item, i) => normalizeShortRoute(item, i)).filter(Boolean).slice(0, MAX_ROUTES_PER_HORIZON)
-  const midTerm = (Array.isArray(src.midTerm) ? src.midTerm : []).map((item, i) => normalizeMidRoute(item, i)).filter(Boolean).slice(0, MAX_ROUTES_PER_HORIZON)
-  const longTerm = (Array.isArray(src.longTerm) ? src.longTerm : []).map((item, i) => normalizeLongRoute(item, i)).filter(Boolean).slice(0, MAX_ROUTES_PER_HORIZON)
+  const maxRoutes = normalizePlotCompassMaxRoutes(src.maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
+  const shortTerm = (Array.isArray(src.shortTerm) ? src.shortTerm : []).map((item, i) => normalizeShortRoute(item, i)).filter(Boolean).slice(0, maxRoutes)
+  const midTerm = (Array.isArray(src.midTerm) ? src.midTerm : []).map((item, i) => normalizeMidRoute(item, i)).filter(Boolean).slice(0, maxRoutes)
+  const longTerm = (Array.isArray(src.longTerm) ? src.longTerm : []).map((item, i) => normalizeLongRoute(item, i)).filter(Boolean).slice(0, maxRoutes)
   const rawPinned = object(src.pinned) || {}
   const resolvePin = (list, id) => {
     const target = str(id).trim()
@@ -308,6 +320,7 @@ export function readPlotCompass(value) {
     lastCheckedTurn: Math.max(basedOnTurn, Number(src.lastCheckedTurn) || 0),
     stalledTurns: pinnedShort ? Math.max(0, Math.min(99, Math.trunc(Number(src.stalledTurns) || 0))) : 0,
     autoUpdateInterval: normalizePlotCompassAutoUpdateInterval(src.autoUpdateInterval) ?? 0,
+    maxRoutes,
     strength: normalizePlotCompassStrength(src.strength),
     pace: normalizePlotCompassPace(src.pace),
     blindBox: src.blindBox === true,
@@ -368,123 +381,137 @@ const STEP_ITEM_SCHEMA = Object.freeze({
   required: ['text']
 })
 
-export const PLOT_COMPASS_SUBMIT_TOOL = Object.freeze({
-  name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
-  description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线；各路线锚定戏剧张力与局势跃迁（What/Why），不预先锁死单一动作微操（How）。若上下文包含 <player_goal> 目标导向，整棵剧情树的所有分支路线必须殊途同归导向达成玩家设定的目标结果。',
-  parameters: Object.freeze({
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      playArchetypes: {
-        type: 'array',
-        minItems: 1,
-        maxItems: 4,
-        items: { type: 'string', minLength: 1 },
-        description: '识别出的 1-3 个本局核心游玩类型母题（如：权谋博弈、情感修罗场、副本探索、经营养成、高自由沙盒）'
-      },
-      situationDigest: {
-        type: 'string',
-        minLength: 1,
-        description: '一句话概括当前剧情张力焦点与待破局悬念（不超过120字）'
-      },
-      shortTerm: {
-        type: 'array',
-        minItems: 2,
-        maxItems: 4,
-        description: '今期规划（未来 2-5 轮）：3-4 条戏剧切口与走向截然不同的近期路线（锁定态势跃迁，开放具体执行手段）',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            id: { type: 'string' },
-            tag: { type: 'string', minLength: 1, description: '2-6字路线短签（将直接作为下一轮候选项角标，如：顺势破防、暗查异响、掀桌试探、切场夜访）' },
-            title: { type: 'string', minLength: 1 },
-            direction: { type: 'string', description: '路线戏剧维度（如：顺水推舟、反客为主、支线切入）' },
-            summary: { type: 'string', minLength: 1, description: '路线核心冲突焦点与态势变化（避免写成死板的逐动作剧本）' },
-            causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
-            sceneTrigger: { type: 'string', description: '备选破冰参考（12-35字）：仅当玩家连续被动空转时可供参考的一种现场引子示例，不限制正常临场发挥' },
-            beats: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
-            sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
-          },
-          required: ['tag', 'title', 'summary', 'beats']
+export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES) {
+  const limit = normalizePlotCompassMaxRoutes(maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
+  const minItems = Math.min(2, limit)
+  const countDesc = limit === 1 ? '1 条' : (limit === 2 ? '2 条' : `最多 ${limit} 条（建议 ${Math.max(2, limit - 1)}-${limit} 条）`)
+  return Object.freeze({
+    name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+    description: '提交今期（2-5轮）、中期（5-20轮）、长期（20+轮至结局）的多路线剧情发展规划。必须基于当前人物卡游玩类型、已发生剧情、变量状态及未触发暗线生成差异化分支路线；各路线锚定戏剧张力与局势跃迁（What/Why），不预先锁死单一动作微操（How）。若上下文包含 <player_goal> 目标导向，整棵剧情树的所有分支路线必须殊途同归导向达成玩家设定的目标结果。',
+    parameters: Object.freeze({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        playArchetypes: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 4,
+          items: { type: 'string', minLength: 1 },
+          description: '识别出的 1-3 个本局核心游玩类型母题（如：权谋博弈、情感修罗场、副本探索、经营养成、高自由沙盒）'
+        },
+        situationDigest: {
+          type: 'string',
+          minLength: 1,
+          description: '一句话概括当前剧情张力焦点与待破局悬念（不超过120字）'
+        },
+        shortTerm: {
+          type: 'array',
+          minItems,
+          maxItems: limit,
+          description: `今期规划（未来 2-5 轮）：${countDesc}戏剧切口与走向截然不同的近期路线（锁定态势跃迁，开放具体执行手段）`,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              tag: { type: 'string', minLength: 1, description: '2-6字路线短签（将直接作为下一轮候选项角标，如：顺势破防、暗查异响、掀桌试探、切场夜访）' },
+              title: { type: 'string', minLength: 1 },
+              direction: { type: 'string', description: '路线戏剧维度（如：顺水推舟、反客为主、支线切入）' },
+              summary: { type: 'string', minLength: 1, description: '路线核心冲突焦点与态势变化（避免写成死板的逐动作剧本）' },
+              causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
+              sceneTrigger: { type: 'string', description: '备选破冰参考（12-35字）：仅当玩家连续被动空转时可供参考的一种现场引子示例，不限制正常临场发挥' },
+              beats: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
+              sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
+            },
+            required: ['tag', 'title', 'summary', 'beats']
+          }
+        },
+        midTerm: {
+          type: 'array',
+          minItems,
+          maxItems: limit,
+          description: `中期规划（未来 5-20 轮）：${countDesc}平行篇章弧（主流推进、反差拐点、隐藏暗线）`,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              tag: { type: 'string', minLength: 1 },
+              title: { type: 'string', minLength: 1 },
+              direction: { type: 'string' },
+              summary: { type: 'string', minLength: 1 },
+              causalBasis: { type: 'string', description: '因果出发点：触发此篇章的已知伏笔、人物动机或局势推力' },
+              entryHook: { type: 'string', description: '开放式入线切口（15-38字）：追索哪条悬念或推动何种关系转向即可拐入此篇章，不限定单一动作剧本' },
+              milestones: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
+              stakes: { type: 'string', description: '潜在收获与代价风险' },
+              diegeticOmen: { type: 'string', description: '无剧透的世界内可闻风声/环境异象（如茶馆议论、街角告示、远处钟声），供正文自然渗透线索' },
+              sourceHook: { type: 'string' }
+            },
+            required: ['tag', 'title', 'summary', 'milestones']
+          }
+        },
+        longTerm: {
+          type: 'array',
+          minItems,
+          maxItems: limit,
+          description: `长期规划（20+ 轮至结局）：${countDesc}命运归宿或世界终局蓝图`,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              tag: { type: 'string', minLength: 1 },
+              title: { type: 'string', minLength: 1 },
+              tone: { type: 'string', description: '终局基调标签（如：王道破局、共犯沉沦、颠覆规则、归隐日常）' },
+              vision: { type: 'string', minLength: 1, description: '远期命运与世界状态假想' },
+              prerequisites: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', minLength: 1 } },
+              toneGuidance: { type: 'string', description: '无剧透的前台氛围指引（仅供正文模型把握长线暗流，不暴露终局结果）' },
+              diegeticOmen: { type: 'string', description: '无剧透的远期命运征象或微弱世界涟漪，不提前剧透结局' },
+              sourceHook: { type: 'string' }
+            },
+            required: ['tag', 'title', 'vision']
+          }
+        },
+        divergedNote: {
+          type: 'string',
+          description: '若此前点亮的路线因玩家实际行动已偏离分流，简述分流原因（无则留空）'
         }
       },
-      midTerm: {
-        type: 'array',
-        minItems: 2,
-        maxItems: 4,
-        description: '中期规划（未来 5-20 轮）：3-4 条平行篇章弧（主流推进、反差拐点、隐藏暗线）',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            id: { type: 'string' },
-            tag: { type: 'string', minLength: 1 },
-            title: { type: 'string', minLength: 1 },
-            direction: { type: 'string' },
-            summary: { type: 'string', minLength: 1 },
-            causalBasis: { type: 'string', description: '因果出发点：触发此篇章的已知伏笔、人物动机或局势推力' },
-            entryHook: { type: 'string', description: '开放式入线切口（15-38字）：追索哪条悬念或推动何种关系转向即可拐入此篇章，不限定单一动作剧本' },
-            milestones: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
-            stakes: { type: 'string', description: '潜在收获与代价风险' },
-            diegeticOmen: { type: 'string', description: '无剧透的世界内可闻风声/环境异象（如茶馆议论、街角告示、远处钟声），供正文自然渗透线索' },
-            sourceHook: { type: 'string' }
-          },
-          required: ['tag', 'title', 'summary', 'milestones']
-        }
-      },
-      longTerm: {
-        type: 'array',
-        minItems: 2,
-        maxItems: 4,
-        description: '长期规划（20+ 轮至结局）：3-4 条命运归宿或世界终局蓝图',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            id: { type: 'string' },
-            tag: { type: 'string', minLength: 1 },
-            title: { type: 'string', minLength: 1 },
-            tone: { type: 'string', description: '终局基调标签（如：王道破局、共犯沉沦、颠覆规则、归隐日常）' },
-            vision: { type: 'string', minLength: 1, description: '远期命运与世界状态假想' },
-            prerequisites: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', minLength: 1 } },
-            toneGuidance: { type: 'string', description: '无剧透的前台氛围指引（仅供正文模型把握长线暗流，不暴露终局结果）' },
-            diegeticOmen: { type: 'string', description: '无剧透的远期命运征象或微弱世界涟漪，不提前剧透结局' },
-            sourceHook: { type: 'string' }
-          },
-          required: ['tag', 'title', 'vision']
-        }
-      },
-      divergedNote: {
-        type: 'string',
-        description: '若此前点亮的路线因玩家实际行动已偏离分流，简述分流原因（无则留空）'
-      }
-    },
-    required: ['playArchetypes', 'situationDigest', 'shortTerm', 'midTerm', 'longTerm']
+      required: ['playArchetypes', 'situationDigest', 'shortTerm', 'midTerm', 'longTerm']
+    })
   })
-})
+}
 
-export const PLOT_COMPASS_CHAT_SUBMIT_TOOL = Object.freeze({
-  name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
-  description: '仅当玩家明确要求生成、修改、重推或替换剧情路线时调用此工具；支持通过 targetScope 指定只刷新某一个时间层级（如 shortTerm / midTerm / longTerm）或 all。',
-  parameters: Object.freeze({
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      targetScope: {
-        type: 'string',
-        enum: ['shortTerm', 'midTerm', 'longTerm', 'all'],
-        description: '本次要更新的时间层级。只改动某一层时选对应层级，未选中的层级会完整保留玩家已有路线。'
+export const PLOT_COMPASS_SUBMIT_TOOL = buildPlotCompassSubmitTool(PLOT_COMPASS_DEFAULT_MAX_ROUTES)
+
+export function buildPlotCompassChatSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES) {
+  const baseTool = buildPlotCompassSubmitTool(maxRoutes)
+  return Object.freeze({
+    name: PLOT_COMPASS_SUBMIT_TOOL_NAME,
+    description: '仅当玩家明确要求生成、修改、重推或替换剧情路线时调用此工具；支持通过 targetScope 指定只刷新某一个时间层级（如 shortTerm / midTerm / longTerm）或 all。',
+    parameters: Object.freeze({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        targetScope: {
+          type: 'string',
+          enum: ['shortTerm', 'midTerm', 'longTerm', 'all'],
+          description: '本次要更新的时间层级。只改动某一层时选对应层级，未选中的层级会完整保留玩家已有路线。'
+        },
+        ...baseTool.parameters.properties
       },
-      ...PLOT_COMPASS_SUBMIT_TOOL.parameters.properties
-    },
-    required: ['targetScope']
+      required: ['targetScope']
+    })
   })
-})
+}
 
-export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat, playerName } = {}) {
+export const PLOT_COMPASS_CHAT_SUBMIT_TOOL = buildPlotCompassChatSubmitTool(PLOT_COMPASS_DEFAULT_MAX_ROUTES)
+
+export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat, playerName, maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES } = {}) {
   const payload = parseJsonLenient(rawArgs)
   const opts = { card, chat, playerName }
+  const limit = normalizePlotCompassMaxRoutes(maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
+  const minRequired = Math.min(2, limit)
   const requestedTarget = PLOT_COMPASS_SCOPES.includes(payload.targetScope) ? payload.targetScope : ''
   const effectiveScope = scope === 'chat'
     ? (requestedTarget || 'all')
@@ -493,24 +520,24 @@ export function parsePlotCompassSubmission(rawArgs, { scope = 'all', card, chat,
   const shortTerm = (Array.isArray(payload.shortTerm) ? payload.shortTerm : [])
     .map((item, index) => normalizeShortRoute(item, index, opts))
     .filter(Boolean)
-    .slice(0, MAX_ROUTES_PER_HORIZON)
+    .slice(0, limit)
   const midTerm = (Array.isArray(payload.midTerm) ? payload.midTerm : [])
     .map((item, index) => normalizeMidRoute(item, index, opts))
     .filter(Boolean)
-    .slice(0, MAX_ROUTES_PER_HORIZON)
+    .slice(0, limit)
   const longTerm = (Array.isArray(payload.longTerm) ? payload.longTerm : [])
     .map((item, index) => normalizeLongRoute(item, index, opts))
     .filter(Boolean)
-    .slice(0, MAX_ROUTES_PER_HORIZON)
+    .slice(0, limit)
 
-  if ((effectiveScope === 'all' || effectiveScope === 'shortTerm') && shortTerm.length < 2) {
-    throw new Error('今期规划（shortTerm）至少需要提供 2 条不同方向的路线')
+  if ((effectiveScope === 'all' || effectiveScope === 'shortTerm') && shortTerm.length < minRequired) {
+    throw new Error(`今期规划（shortTerm）至少需要提供 ${minRequired} 条不同方向的路线`)
   }
-  if ((effectiveScope === 'all' || effectiveScope === 'midTerm') && midTerm.length < 2) {
-    throw new Error('中期规划（midTerm）至少需要提供 2 条不同方向的篇章路线')
+  if ((effectiveScope === 'all' || effectiveScope === 'midTerm') && midTerm.length < minRequired) {
+    throw new Error(`中期规划（midTerm）至少需要提供 ${minRequired} 条不同方向的篇章路线`)
   }
-  if ((effectiveScope === 'all' || effectiveScope === 'longTerm') && longTerm.length < 2) {
-    throw new Error('长期规划（longTerm）至少需要提供 2 条不同方向的终局蓝图')
+  if ((effectiveScope === 'all' || effectiveScope === 'longTerm') && longTerm.length < minRequired) {
+    throw new Error(`长期规划（longTerm）至少需要提供 ${minRequired} 条不同方向的终局蓝图`)
   }
 
   return {
@@ -548,8 +575,9 @@ export function mergePlotCompassUpdate(previousRaw, submitted, { scope = 'all', 
   }
 
   const updateHorizon = horizon => {
-    const incoming = submitted[horizon]
-    if (!Array.isArray(incoming) || incoming.length === 0) return
+    const rawIncoming = submitted[horizon]
+    if (!Array.isArray(rawIncoming) || rawIncoming.length === 0) return
+    const incoming = rawIncoming.slice(0, next.maxRoutes || PLOT_COMPASS_DEFAULT_MAX_ROUTES)
     const prevPinnedId = fresh ? null : prev.pinned[horizon]
     const prevPinnedRoute = prevPinnedId ? prev[horizon].find(item => item.id === prevPinnedId) : null
     next[horizon] = incoming
@@ -683,9 +711,9 @@ export function applyPlotCompassGoal(previousRaw, { text, horizon, enabled, now 
 }
 
 /**
- * 更新剧情罗盘的控制偏好（约束力度、推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔、可选目标导向）。
+ * 更新剧情罗盘的控制偏好（约束力度、推进节奏、盲盒防剧透开关、玩家自定义微调引导、定时自动更新间隔、每层规划条目上限、可选目标导向）。
  */
-export function applyPlotCompassPreferences(previousRaw, { strength, pace, blindBox, customDirective, autoUpdateInterval, goal, now = Date.now() } = {}) {
+export function applyPlotCompassPreferences(previousRaw, { strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal, now = Date.now() } = {}) {
   let next = readPlotCompass(previousRaw)
   if (strength !== undefined) {
     if (!PLOT_COMPASS_STRENGTHS.includes(strength)) throw new Error('无效的约束力度选项：' + str(strength))
@@ -710,6 +738,17 @@ export function applyPlotCompassPreferences(previousRaw, { strength, pace, blind
       throw new Error(`自动更新间隔须为 0–${PLOT_COMPASS_MAX_AUTO_UPDATE_INTERVAL} 的整数（0 表示关闭）`)
     }
     next.autoUpdateInterval = parsed
+  }
+  if (maxRoutes !== undefined) {
+    if (typeof maxRoutes === 'boolean' || maxRoutes === null || (typeof maxRoutes === 'string' && !maxRoutes.trim())) {
+      throw new Error(`剧情规划条目上限须为 ${PLOT_COMPASS_MIN_MAX_ROUTES}–${PLOT_COMPASS_MAX_MAX_ROUTES} 的整数`)
+    }
+    const parsed = Number(maxRoutes)
+    if (!Number.isSafeInteger(parsed) || parsed < PLOT_COMPASS_MIN_MAX_ROUTES || parsed > PLOT_COMPASS_MAX_MAX_ROUTES) {
+      throw new Error(`剧情规划条目上限须为 ${PLOT_COMPASS_MIN_MAX_ROUTES}–${PLOT_COMPASS_MAX_MAX_ROUTES} 的整数`)
+    }
+    next.maxRoutes = parsed
+    next = readPlotCompass(next)
   }
   if (goal !== undefined) {
     const goalPatch = typeof goal === 'string' ? { text: goal } : (object(goal) || { text: '', enabled: false })
@@ -1013,7 +1052,7 @@ export function plotCompassCandidateText(compassRaw) {
     }
   } else if (compass.shortTerm.length > 0) {
     lines.push('- Unpinned compass tags (invent organic choices from the latest scene first; attach a `routeTag` ONLY when an organic choice naturally aligns with one of these angles—do NOT force every route into the menu):')
-    for (const route of compass.shortTerm.slice(0, 4)) {
+    for (const route of compass.shortTerm.slice(0, compass.maxRoutes || PLOT_COMPASS_DEFAULT_MAX_ROUTES)) {
       const angle = route.direction ? ` [${route.direction}]` : ''
       lines.push(`  · tag="${route.tag}"${angle}: ${route.title}`)
     }
@@ -1344,6 +1383,11 @@ export function buildPlotCompassMaterial({
 
   if (includeRequest) {
     const goalHorizonLabel = activeGoal ? (PLOT_COMPASS_GOAL_HORIZON_LABELS[activeGoal.horizon] || '短期') : ''
+    const maxRoutes = compass.maxRoutes || PLOT_COMPASS_DEFAULT_MAX_ROUTES
+    const minRoutes = Math.min(2, maxRoutes)
+    const routeLimitLine = maxRoutes === 1
+      ? 'Per-horizon route count limit: generate exactly 1 focused route for each requested horizon (do NOT exceed 1).'
+      : `Per-horizon route count limit: generate ${minRoutes}–${maxRoutes} distinct routes per requested horizon (at most ${maxRoutes} routes per horizon; aim for up to ${maxRoutes} genuinely distinct directions).`
     const requestLines = [
       fresh
         ? (activeGoal
@@ -1355,6 +1399,7 @@ export function buildPlotCompassMaterial({
         : activeGoal
           ? `focus fresh tactical routes on "${scope}" that steer toward <player_goal> while keeping the other two horizons consistent`
           : `focus fresh divergent routes on "${scope}" while keeping the other two horizons consistent`}).`,
+      routeLimitLine,
       activeGoal
         ? `MANDATORY GOAL ORIENTATION [${goalHorizonLabel} · ${activeGoal.horizon}]: The entire generated plot tree MUST steer toward and achieve the player's target outcome — "${activeGoal.text}". Branch across different tactics/approaches/costs, NEVER across opposing outcomes that fail or abandon this goal!`
         : '',
@@ -1376,7 +1421,7 @@ export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
   'Interaction Rules (Mode A - Safe Discussion First):',
   '1) DEFAULT TO DISCUSSION: By default, do NOT overwrite existing routes on the compass board. Reply directly in concise, vivid Simplified Chinese (or the story\'s language) with 2–3 concrete, causally plausible dramatic angles, key risks/hooks, and a short prompt inviting the player to refine or apply the idea.',
   '2) ONLY CALL `plot_compass_submit` WHEN EXPLICITLY REQUESTED: Call `plot_compass_submit` ONLY if the player clearly asks you in this turn to generate, rewrite, replace, or update compass routes (e.g. "按第2条生成今期路线" / "帮我重新生成中期方向" / "把这套思路落盘成新路线").',
-  '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and provide 2–4 distinct routes for each updated horizon. Write `beats` / `milestones` as concise 10–22 char dramatic state shifts rather than rigid micro-actions so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
+  '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and respect the configured per-horizon route count limit (default up to 4). Write `beats` / `milestones` as concise 10–22 char dramatic state shifts rather than rigid micro-actions so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
   '4) GOAL-ORIENTED CONVERGENCE: Whenever `<player_goal>` is active, both your brainstorming angles and any routes submitted via `plot_compass_submit` MUST steer toward and achieve the player\'s locked target outcome (differentiating by tactics and paths rather than opposing endings), unless the player explicitly asks to change the goal.',
   '5) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
 ].join('\n')
@@ -1399,7 +1444,11 @@ export function buildPlotCompassBrainstormPrompt(params) {
   }
   const latestText = decodeLiteralUnicodeEscapes(str(message)).trim().slice(0, 800)
   if (latestText) {
-    blocks.push(promptSection('latest_brainstorm_message', `Player says now:\n${latestText}\n\nRespond as the Story Co-pilot (discuss ideas by default; call \`plot_compass_submit\` only if the player explicitly asks to generate/update routes now).`))
+    const maxRoutes = compass.maxRoutes || PLOT_COMPASS_DEFAULT_MAX_ROUTES
+    const limitHint = maxRoutes === 1
+      ? 'If calling `plot_compass_submit`, provide 1 route per updated horizon.'
+      : `If calling \`plot_compass_submit\`, provide ${Math.min(2, maxRoutes)}–${maxRoutes} distinct routes per updated horizon (at most ${maxRoutes}).`
+    blocks.push(promptSection('latest_brainstorm_message', `Player says now:\n${latestText}\n\nRespond as the Story Co-pilot (discuss ideas by default; call \`plot_compass_submit\` only if the player explicitly asks to generate/update routes now. ${limitHint})`))
   }
   return blocks.filter(Boolean).join('\n\n')
 }

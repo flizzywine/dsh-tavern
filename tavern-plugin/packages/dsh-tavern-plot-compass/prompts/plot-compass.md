@@ -28,20 +28,20 @@ Ground every route in concrete names, places, relationships, variables, and clue
 - ❌ **Too Specific (Forbid)**: `"趁苏晚低头擦剑分神抽走袖中残图并厉声质问"` (locks exact timing, prop choreography, and tone—suffocates candidate variety).
 - ✅ **Right Granularity (Encourage)**: `"试探残图隐瞒的去向"` → `"打破客套迫使苏晚表态"` (clear, verifiable dramatic turns that allow direct confrontation, subtle baiting, or NPC initiative).
 
-Design genuinely different dramatic directions within each horizon:
-- **`shortTerm` (今期规划 · Next 2–5 turns, 3–4 routes)**: Immediate scene arcs & mini-climaxes strictly respecting `<latest_scene_snapshot>` (exact current location, physical constraints).
+Design genuinely different dramatic directions within each horizon (default 3–4 routes per horizon; when `<plot_compass_request>` specifies a per-horizon route limit, strictly honor that limit):
+- **`shortTerm` (今期规划 · Next 2–5 turns, up to configured limit, default 3–4 routes)**: Immediate scene arcs & mini-climaxes strictly respecting `<latest_scene_snapshot>` (exact current location, physical constraints).
   - Span distinct rhythms: e.g., escalate current momentum to a breakthrough, sudden twist / probing a sore spot / external interruption, hidden-clue side investigation, or clean scene transition to a new time/place (only when physically reachable).
   - `tag` (2–6 chars, e.g. `"顺势破防"`, `"暗查异响"`, `"掀桌试探"`, `"切场夜访"`): crisp badge used directly on next-turn action choices.
   - `causalBasis` (~15–55 chars): why this route is physically & motivationally reachable right now.
   - `sceneTrigger` (~12–35 chars): **optional fallback icebreaker** (one example ambient cue or NPC probe the prose writer *may* borrow ONLY if the player stays passive; never treat as mandatory choreography).
   - `beats`: 2–3 concise **state-shift / dramatic-intent** steps (`{text, done}`), **~10–22 chars each**—short, open-ended outcome phrases without scripting rigid physical movements or exact lines. **Important**: for any newly created route, every beat must be a **future** step starting AFTER the latest story turn (`done: false`); never list events that have already occurred in `<recent_story>` as an unchecked beat. Only mark `done: true` when incrementally evolving an `<existing_plot_compass>` route whose earlier beat has now happened in `<recent_story>`.
-- **`midTerm` (中期规划 · Next 5–20 turns, 3–4 routes)**: Chapter-scale arcs & relationship/faction turning points.
+- **`midTerm` (中期规划 · Next 5–20 turns, up to configured limit, default 3–4 routes)**: Chapter-scale arcs & relationship/faction turning points.
   - Include mainstream progression, bold sideways turns, and at least 1 hidden subplot or worldbook-hook route when material allows.
   - `causalBasis` (~15–55 chars): what ongoing tension or clue legitimately seeds this arc.
   - `entryHook` (~15–38 chars): open-ended entry direction or inquiry focus (what thread/relationship shift enters this arc, without scripting rigid micro-actions).
   - `milestones`: 2–4 chapter milestones (`{text, done}`, ~12–26 chars each) shaped with an end-anchored dramatic arc (**setup / opening hook → rising complication → hardest dilemma or reversal [penultimate] → climax & aftermath [final]**), plus `stakes` (expected reward vs. risk/price).
   - `diegeticOmen` (~15–55 chars, spoiler-free): an ambient in-world sign or rumor hinting this arc exists.
-- **`longTerm` (长期规划 · 20+ turns to Endgame, 3–4 routes)**: Macro destiny & contrasting ending blueprints.
+- **`longTerm` (长期规划 · 20+ turns to Endgame, up to configured limit, default 3–4 routes)**: Macro destiny & contrasting ending blueprints.
   - Offer starkly different ultimate fates (e.g., orthodox triumph, shared transgression/complicity, overturning the world's rules, walking away into seclusion).
   - `prerequisites`: 2 mid-term developments needed to reach this vision.
   - `toneGuidance` (~25–60 chars): **spoiler-free** atmospheric & thematic compass safe to whisper to the prose writer right now without revealing or rushing the ending.
@@ -49,7 +49,7 @@ Design genuinely different dramatic directions within each horizon:
 
 ### 4. Goal-Oriented Convergence Mode (MANDATORY when `<player_goal>` is present)
 When `<player_goal>` specifies a player-locked target outcome and `targetHorizon` (`shortTerm` / `midTerm` / `longTerm`), override divergent-ending rules and build a **Goal-Convergent Plot Tree**:
-- **Same Target Outcome, Distinct Tactical Paths**: Every generated route MUST ultimately steer toward, serve, and achieve `<player_goal>`. **Strictly forbid** routes that abandon, invert, fail, or drift away from the target outcome. Differentiate the 2–4 routes per horizon through **contrasting tactics, entry angles, character dynamics, or risk/price trade-offs** (`sourceHook: "目标导向"` when directly anchored to the player's goal), while strictly respecting `<latest_scene_snapshot>` physical & causal grounding (never teleport or skip impossible constraints—break out of immediate constraints first on the way to the goal).
+- **Same Target Outcome, Distinct Tactical Paths**: Every generated route MUST ultimately steer toward, serve, and achieve `<player_goal>`. **Strictly forbid** routes that abandon, invert, fail, or drift away from the target outcome. Differentiate the routes per horizon (within the configured per-horizon limit, default 2–4) through **contrasting tactics, entry angles, character dynamics, or risk/price trade-offs** (`sourceHook: "目标导向"` when directly anchored to the player's goal), while strictly respecting `<latest_scene_snapshot>` physical & causal grounding (never teleport or skip impossible constraints—break out of immediate constraints first on the way to the goal).
 - **Cross-Horizon Alignment by `targetHorizon`**:
   - **`targetHorizon = "shortTerm"` (短期目标 · 2–5 turns)**:
     - `shortTerm`: ALL routes MUST converge on and achieve the target outcome by their final beat (`beats[last]`) and `summary` within 2–5 turns via distinct live approaches (if `<recent_story>` shows the goal was already achieved, focus `shortTerm` on consolidating and realizing its immediate payoff).

@@ -1056,6 +1056,16 @@ const PC_AUTO_UPDATE_PRESETS = Object.freeze([
   { value: 10, label: '每 10 楼' }
 ])
 
+const PC_MAX_ROUTES_DEFAULT = 4
+const PC_MAX_ROUTES_MIN = 1
+const PC_MAX_ROUTES_MAX = 10
+const PC_MAX_ROUTES_PRESETS = Object.freeze([
+  { value: 2, label: '2 条' },
+  { value: 3, label: '3 条' },
+  { value: 4, label: '4 条' },
+  { value: 6, label: '6 条' }
+])
+
 const PC_GOAL_HORIZON_OPTIONS = Object.freeze([
   {
     key: 'shortTerm',
@@ -1092,6 +1102,7 @@ function pcEmptyCompass() {
     customDirective: '',
     goal: { enabled: false, horizon: 'shortTerm', text: '' },
     autoUpdateInterval: 0,
+    maxRoutes: PC_MAX_ROUTES_DEFAULT,
     playArchetypes: [],
     customArchetypes: [],
     situationDigest: '',
@@ -1425,6 +1436,8 @@ function PlotCompassPanel({ ui, gameId }) {
   const [modelReasoning, setModelReasoning] = useState({ key: '', value: null, error: '' })
   const [customIntervalOpen, setCustomIntervalOpen] = useState(false)
   const [intervalDraft, setIntervalDraft] = useState('')
+  const [customMaxRoutesOpen, setCustomMaxRoutesOpen] = useState(false)
+  const [maxRoutesDraft, setMaxRoutesDraft] = useState(String(PC_MAX_ROUTES_DEFAULT))
 
   const compass = state.plotCompass || pcEmptyCompass()
   const compassEnabled = state.enabled === true
@@ -1454,6 +1467,10 @@ function PlotCompassPanel({ ui, gameId }) {
     ? Math.min(100, Number(compass.autoUpdateInterval))
     : 0
   const isPresetAutoUpdateInterval = PC_AUTO_UPDATE_PRESETS.some(opt => opt.value === autoUpdateInterval)
+  const maxRoutes = Number.isInteger(Number(compass.maxRoutes)) && Number(compass.maxRoutes) >= PC_MAX_ROUTES_MIN
+    ? Math.min(PC_MAX_ROUTES_MAX, Number(compass.maxRoutes))
+    : PC_MAX_ROUTES_DEFAULT
+  const isPresetMaxRoutes = PC_MAX_ROUTES_PRESETS.some(opt => opt.value === maxRoutes)
   const latestTurn = Number(state.latestAssistantTurn) || 0
   const basedOnTurn = Number(compass.basedOnTurn) || 0
   const sinceBaseTurns = Math.max(0, latestTurn - basedOnTurn)
@@ -1476,12 +1493,18 @@ function PlotCompassPanel({ ui, gameId }) {
     setChatOpen(false)
     setPickingIndependentModel(false)
     setCustomIntervalOpen(false)
+    setCustomMaxRoutesOpen(false)
   }, [sessionId])
 
   useEffect(() => {
     setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
     setCustomIntervalOpen(autoUpdateInterval > 0 && !PC_AUTO_UPDATE_PRESETS.some(opt => opt.value === autoUpdateInterval))
   }, [autoUpdateInterval, sessionId])
+
+  useEffect(() => {
+    setMaxRoutesDraft(String(maxRoutes))
+    setCustomMaxRoutesOpen(!PC_MAX_ROUTES_PRESETS.some(opt => opt.value === maxRoutes))
+  }, [maxRoutes, sessionId])
 
   useEffect(() => {
     if (!compassEnabled || (!pickingIndependentModel && !compassModelIsObject)) return
@@ -1700,7 +1723,8 @@ function PlotCompassPanel({ ui, gameId }) {
   async function drillDownRoute(fromHorizon, route) {
     const targetScope = fromHorizon === 'longTerm' ? 'midTerm' : 'shortTerm'
     const targetName = targetScope === 'midTerm' ? '中期篇章' : '今期节拍'
-    const promptText = '围绕已选定的方向「' + route.title + '」（' + (route.vision || route.summary || '') + '），拆解出 3–4 条不同切入角度的' + targetName + '路线。'
+    const countPhrase = maxRoutes === 1 ? '1 条聚焦' : ('最多 ' + maxRoutes + ' 条不同切入角度的')
+    const promptText = '围绕已选定的方向「' + route.title + '」（' + (route.vision || route.summary || '') + '），拆解出' + countPhrase + targetName + '路线。'
     setActiveHorizon(targetScope)
     await runGenerate(targetScope, promptText)
   }
@@ -1907,6 +1931,30 @@ function PlotCompassPanel({ ui, gameId }) {
     savePreferences(
       { autoUpdateInterval: parsed },
       parsed > 0 ? '已设置每 ' + parsed + ' 楼自动全局刷新剧情罗盘。' : '已关闭剧情罗盘定期自动更新。'
+    )
+  }
+
+  function commitCustomMaxRoutes() {
+    const trimmed = String(maxRoutesDraft || '').trim()
+    if (!trimmed) {
+      setCustomMaxRoutesOpen(false)
+      setMaxRoutesDraft(String(maxRoutes))
+      return
+    }
+    const parsed = Number(trimmed)
+    if (!Number.isInteger(parsed) || parsed < PC_MAX_ROUTES_MIN || parsed > PC_MAX_ROUTES_MAX) {
+      setLocalError('剧情规划条目上限须为 ' + PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX + ' 的整数')
+      return
+    }
+    if (parsed === maxRoutes) {
+      if (PC_MAX_ROUTES_PRESETS.some(opt => opt.value === parsed)) {
+        setCustomMaxRoutesOpen(false)
+      }
+      return
+    }
+    savePreferences(
+      { maxRoutes: parsed },
+      '已设置每层剧情规划上限为 ' + parsed + ' 条。'
     )
   }
 
@@ -2409,6 +2457,60 @@ function PlotCompassPanel({ ui, gameId }) {
                 h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: commitCustomInterval }, '应用')
               ) : null,
               autoUpdateInterval > 0 ? h('span', { className: 'dsh-tavern-compass-interval-hint' }, autoUpdateHint) : null
+            ),
+
+            h('div', { className: 'dsh-tavern-compass-interval-row' },
+              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '剧情规划条目上限' },
+                h('span', { className: 'dsh-tavern-compass-label' }, '条目上限：'),
+                h('div', { className: 'dsh-tavern-compass-pace-pills' },
+                  PC_MAX_ROUTES_PRESETS.map(opt => {
+                    const selected = !customMaxRoutesOpen && maxRoutes === opt.value
+                    return h('button', {
+                      key: opt.value,
+                      type: 'button',
+                      className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
+                      disabled: Boolean(busyAction),
+                      'aria-pressed': selected ? 'true' : 'false',
+                      title: '今期 / 中期 / 长期每个跨度最多保留与推演 ' + opt.value + ' 条剧情规划（默认 4 条）',
+                      onClick: () => {
+                        setCustomMaxRoutesOpen(false)
+                        if (maxRoutes !== opt.value) {
+                          savePreferences({ maxRoutes: opt.value }, '已设置每层剧情规划上限为 ' + opt.value + ' 条。')
+                        }
+                      }
+                    }, opt.label)
+                  }),
+                  h('button', {
+                    key: 'custom',
+                    type: 'button',
+                    className: 'dsh-tavern-compass-pace-btn' + ((customMaxRoutesOpen || !isPresetMaxRoutes) ? ' is-active' : ''),
+                    disabled: Boolean(busyAction),
+                    'aria-pressed': (customMaxRoutesOpen || !isPresetMaxRoutes) ? 'true' : 'false',
+                    title: '自定义每层剧情规划条目上限（' + PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX + ' 条，默认 4 条）',
+                    onClick: () => {
+                      setMaxRoutesDraft(String(maxRoutes))
+                      setCustomMaxRoutesOpen(true)
+                    }
+                  }, !isPresetMaxRoutes ? '自定义(' + maxRoutes + '条)' : '自定义')
+                )
+              ),
+              (customMaxRoutesOpen || !isPresetMaxRoutes) ? h('div', { className: 'dsh-tavern-compass-interval-custom' },
+                h('input', {
+                  type: 'number',
+                  min: PC_MAX_ROUTES_MIN,
+                  max: PC_MAX_ROUTES_MAX,
+                  step: 1,
+                  className: 'dsh-tavern-compass-input dsh-tavern-compass-interval-input',
+                  'aria-label': '自定义剧情规划条目上限',
+                  placeholder: PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX,
+                  value: maxRoutesDraft,
+                  disabled: Boolean(busyAction),
+                  onChange: e => setMaxRoutesDraft(e.target.value),
+                  onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commitCustomMaxRoutes() } }
+                }),
+                h('span', { className: 'dsh-tavern-compass-label' }, '条'),
+                h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: commitCustomMaxRoutes }, '应用')
+              ) : null
             ),
 
             h('div', { className: 'dsh-tavern-compass-model-row' },

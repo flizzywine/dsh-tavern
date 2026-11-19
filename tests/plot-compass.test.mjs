@@ -624,3 +624,206 @@ test('插件候选联动 runner 通过 liveTavernView.getSnapshot 读取最新�
     'attachCandidateRunner 应调用 liveTavernView.getSnapshot(sessionId)'
   )
 })
+
+test('剧情罗盘剧情规划条目上限：默认 4、校验截断、动态工具 Schema、提示词与候选角标联动', async () => {
+  const {
+    PLOT_COMPASS_DEFAULT_MAX_ROUTES,
+    applyPlotCompassPreferences,
+    buildPlotCompassChatSubmitTool,
+    buildPlotCompassMaterial,
+    buildPlotCompassSubmitTool,
+    emptyPlotCompass,
+    parsePlotCompassSubmission,
+    plotCompassCandidateText,
+    readPlotCompass
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
+
+  const makeShort = count => Array.from({ length: count }, (_, i) => ({
+    id: `s${i + 1}`,
+    tag: `今期${i + 1}`,
+    title: `今期路线${i + 1}`,
+    summary: `今期摘要${i + 1}`,
+    beats: [{ text: `节拍${i + 1}`, done: false }]
+  }))
+  const makeMid = count => Array.from({ length: count }, (_, i) => ({
+    id: `m${i + 1}`,
+    tag: `中期${i + 1}`,
+    title: `中期路线${i + 1}`,
+    summary: `中期摘要${i + 1}`,
+    milestones: [{ text: `里程碑${i + 1}`, done: false }]
+  }))
+  const makeLong = count => Array.from({ length: count }, (_, i) => ({
+    id: `l${i + 1}`,
+    tag: `长期${i + 1}`,
+    title: `长期路线${i + 1}`,
+    vision: `长期愿景${i + 1}`
+  }))
+
+  // 默认上限为 4
+  const empty = emptyPlotCompass()
+  assert.equal(PLOT_COMPASS_DEFAULT_MAX_ROUTES, 4)
+  assert.equal(empty.maxRoutes, 4)
+  assert.equal(readPlotCompass(null).maxRoutes, 4)
+
+  // 参数校验：非法值拒绝
+  assert.throws(() => applyPlotCompassPreferences(empty, { maxRoutes: 0 }), /1–10/)
+  assert.throws(() => applyPlotCompassPreferences(empty, { maxRoutes: 11 }), /1–10/)
+  assert.throws(() => applyPlotCompassPreferences(empty, { maxRoutes: 2.5 }), /1–10/)
+  assert.throws(() => applyPlotCompassPreferences(empty, { maxRoutes: true }), /1–10/)
+
+  // 动态工具 Schema
+  const tool6 = buildPlotCompassSubmitTool(6)
+  assert.equal(tool6.parameters.properties.shortTerm.minItems, 2)
+  assert.equal(tool6.parameters.properties.shortTerm.maxItems, 6)
+  assert.equal(tool6.parameters.properties.midTerm.maxItems, 6)
+  assert.equal(tool6.parameters.properties.longTerm.maxItems, 6)
+
+  const chatTool1 = buildPlotCompassChatSubmitTool(1)
+  assert.equal(chatTool1.parameters.properties.shortTerm.minItems, 1)
+  assert.equal(chatTool1.parameters.properties.shortTerm.maxItems, 1)
+
+  // parsePlotCompassSubmission 按上限保留 / 允许 1 条
+  const parsed6 = parsePlotCompassSubmission({
+    playArchetypes: ['权谋博弈'],
+    situationDigest: '测试局势',
+    shortTerm: makeShort(7),
+    midTerm: makeMid(6),
+    longTerm: makeLong(6)
+  }, { maxRoutes: 6 })
+  assert.equal(parsed6.shortTerm.length, 6)
+  assert.equal(parsed6.midTerm.length, 6)
+  assert.equal(parsed6.longTerm.length, 6)
+
+  const parsed1 = parsePlotCompassSubmission({
+    playArchetypes: ['权谋博弈'],
+    situationDigest: '单线测试',
+    shortTerm: makeShort(1),
+    midTerm: makeMid(1),
+    longTerm: makeLong(1)
+  }, { maxRoutes: 1 })
+  assert.equal(parsed1.shortTerm.length, 1)
+
+  // 调低上限会立即裁剪已有路线并清理失效点亮
+  const expanded = readPlotCompass({
+    version: 1,
+    maxRoutes: 6,
+    shortTerm: makeShort(6),
+    midTerm: makeMid(6),
+    longTerm: makeLong(6),
+    pinned: { shortTerm: 's5', midTerm: 'm2', longTerm: 'l6' }
+  })
+  assert.equal(expanded.shortTerm.length, 6)
+  assert.equal(expanded.pinned.shortTerm, 's5')
+
+  // 候选角标在 maxRoutes=6 且未点亮时不被硬截断到 4 条
+  const candText = plotCompassCandidateText({
+    ...expanded,
+    pinned: { shortTerm: null, midTerm: null, longTerm: null }
+  })
+  assert.match(candText, /今期5/)
+  assert.match(candText, /今期6/)
+
+  const shrunk = applyPlotCompassPreferences(expanded, { maxRoutes: 3 })
+  assert.equal(shrunk.maxRoutes, 3)
+  assert.equal(shrunk.shortTerm.length, 3)
+  assert.equal(shrunk.midTerm.length, 3)
+  assert.equal(shrunk.longTerm.length, 3)
+  assert.equal(shrunk.pinned.shortTerm, null)
+  assert.equal(shrunk.pinned.midTerm, 'm2')
+  assert.equal(shrunk.pinned.longTerm, null)
+
+  // 推演请求素材明确告知当前上限
+  const material = buildPlotCompassMaterial({
+    card: { name: '林疏' },
+    messages: [],
+    compass: shrunk,
+    scope: 'all'
+  })
+  assert.match(material, /at most 3 routes per horizon/)
+})
+
+test('剧情罗盘条目上限 RPC 全链路与客户端面板契约', async () => {
+  const clientCode = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  assert.match(clientCode, /PC_MAX_ROUTES_PRESETS/)
+  assert.match(clientCode, /剧情规划条目上限/)
+  assert.match(clientCode, /maxRoutes/)
+
+  const storyEvents = createStoryEvents()
+  const gameDataMap = new Map()
+  const runTaskCalls = []
+
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    workflow: { register() { return () => {} } },
+    resolveGame: async gameId => gameId === 'gLimit' ? { chatId: 'cLimit', sessionId: 'gLimit' } : null,
+    readLatestSettledTurn: async () => ({ chatId: 'cLimit', sessionId: 'gLimit', turn: 3, key: '3:0', text: '案卷上出现新线索。' }),
+    readPendingTurn: async () => ({ chatId: 'cLimit', sessionId: 'gLimit', turn: 3, key: '3:0', text: '案卷上出现新线索。' }),
+    currentKey: async () => '3:0',
+    readTurn: async () => ({ chatId: 'cLimit', sessionId: 'gLimit', key: '3:0', turn: 3, rawText: '案卷上出现新线索。', text: '案卷上出现新线索。' }),
+    readHistory: async () => [{ turn: 3, input: '查案', rawText: '案卷上出现新线索。', text: '案卷上出现新线索。' }],
+    readCard: async () => ({ name: '沈砚', description: '大理寺少卿' }),
+    readPlayerName: async () => '你',
+    backgroundModel: async () => ({ provider: 'bg-prov', model: 'bg-model' }),
+    readPlayMaterial: async () => ({ posture: '大理寺书房', guides: [], ledger: { location: '大理寺' }, worldbookEntries: [] }),
+    data: {
+      readGame: async ({ chatId, owner }) => gameDataMap.get(`${chatId}:${owner}`) || null,
+      saveGame: async ({ chatId, owner, data }) => { gameDataMap.set(`${chatId}:${owner}`, structuredClone(data)) },
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      writeSettings: async () => {}
+    },
+    pluginData: { read: async () => null, save: async () => {} },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {},
+    runTask: async input => {
+      runTaskCalls.push(input)
+      const makeRoutes = (prefix, count, field) => Array.from({ length: count }, (_, i) => ({
+        id: `${prefix}${i + 1}`,
+        tag: `${prefix}签${i + 1}`,
+        title: `${prefix}路线${i + 1}`,
+        ...(field === 'vision'
+          ? { vision: `${prefix}终局${i + 1}` }
+          : { summary: `${prefix}摘要${i + 1}`, [field]: [{ text: `${prefix}步${i + 1}`, done: false }] })
+      }))
+      await input.call('plot_compass_submit', {
+        targetScope: 'all',
+        playArchetypes: ['悬疑调查'],
+        situationDigest: '多线并进',
+        shortTerm: makeRoutes('s', 5, 'beats'),
+        midTerm: makeRoutes('m', 5, 'milestones'),
+        longTerm: makeRoutes('l', 5, 'vision')
+      })
+      return { text: '', traceSessionId: 'trace-limit' }
+    }
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx)
+
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'gLimit', enabled: true })
+  const initState = await pluginApi.callHandler('plot-compass:state', { gameId: 'gLimit' })
+  assert.equal(initState.plotCompass.maxRoutes, 4)
+
+  // 通过偏好 RPC 将上限调至 6
+  const prefRes = await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'gLimit', maxRoutes: 6 })
+  assert.equal(prefRes.plotCompass.maxRoutes, 6)
+
+  // 推演时工具 schema maxItems 为 6，返回 5 条全部保留
+  const genRes = await pluginApi.callHandler('plot-compass:generate', { gameId: 'gLimit', scope: 'all', wait: true })
+  assert.equal(genRes.status, 'done')
+  assert.equal(runTaskCalls.length, 1)
+  assert.equal(runTaskCalls[0].tools[0].parameters.properties.shortTerm.maxItems, 6)
+  assert.equal(genRes.plotCompass.shortTerm.length, 5)
+  assert.equal(genRes.plotCompass.midTerm.length, 5)
+  assert.equal(genRes.plotCompass.longTerm.length, 5)
+
+  // 调低上限为 2 后立刻截断已有路线
+  const shrinkRes = await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'gLimit', maxRoutes: 2 })
+  assert.equal(shrinkRes.plotCompass.maxRoutes, 2)
+  assert.equal(shrinkRes.plotCompass.shortTerm.length, 2)
+  assert.equal(shrinkRes.plotCompass.midTerm.length, 2)
+  assert.equal(shrinkRes.plotCompass.longTerm.length, 2)
+
+  mounted.dispose()
+})

@@ -1,5 +1,10 @@
 import { readFileSync } from 'node:fs'
 import {
+  PLOT_COMPASS_DEFAULT_MAX_ROUTES,
+  PLOT_COMPASS_MAX_MAX_ROUTES,
+  PLOT_COMPASS_MIN_MAX_ROUTES,
+  applyPlotCompassPreferences,
+  normalizePlotCompassMaxRoutes,
   normalizePlotCompassStrength,
   plotCompassBodyText,
   plotCompassCandidateText,
@@ -40,11 +45,13 @@ function normalizeGlobalDefaults(raw) {
   const interval = Number.isSafeInteger(Number(src.autoUpdateInterval))
     ? Math.max(0, Math.min(100, Number(src.autoUpdateInterval)))
     : 0
+  const maxRoutes = normalizePlotCompassMaxRoutes(src.maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
   return {
     version: 1,
     enabled: typeof src.enabled === 'boolean' ? src.enabled : false,
     strength: normalizePlotCompassStrength(src.strength),
     autoUpdateInterval: interval,
+    maxRoutes,
     modelSelection: normalizePlotCompassModel(src.modelSelection) || 'background'
   }
 }
@@ -168,6 +175,10 @@ export function apply(ctx, options = {}) {
           if (typeof gs.enabled === 'boolean') record.enabled = gs.enabled
           if (Number.isSafeInteger(Number(gs.autoUpdateInterval))) {
             record.compass.autoUpdateInterval = Math.max(0, Math.min(100, Number(gs.autoUpdateInterval)))
+          }
+          const gsMaxRoutes = normalizePlotCompassMaxRoutes(gs.maxRoutes)
+          if (gs.maxRoutes !== undefined && gsMaxRoutes !== null) {
+            record.compass.maxRoutes = gsMaxRoutes
           }
         }
       } catch {}
@@ -544,6 +555,15 @@ export function apply(ctx, options = {}) {
             default: 0,
             min: 0,
             max: 100
+          },
+          {
+            key: 'maxRoutes',
+            type: 'number',
+            label: '剧情规划条目上限',
+            description: '今期 / 中期 / 长期每个跨度最多保留与推演的剧情路线条目数（1–10，默认 4）',
+            default: PLOT_COMPASS_DEFAULT_MAX_ROUTES,
+            min: PLOT_COMPASS_MIN_MAX_ROUTES,
+            max: PLOT_COMPASS_MAX_MAX_ROUTES
           }
         ]
       })
@@ -563,6 +583,16 @@ export function apply(ctx, options = {}) {
           if (Number.isSafeInteger(interval) && interval >= 0 && interval <= 100) {
             await updateGame(gameId, current => {
               current.compass.autoUpdateInterval = interval
+              return current
+            })
+            void publishCompassState(gameId)
+          }
+        }
+        if (values.maxRoutes !== undefined) {
+          const limit = Number(values.maxRoutes)
+          if (Number.isSafeInteger(limit) && limit >= PLOT_COMPASS_MIN_MAX_ROUTES && limit <= PLOT_COMPASS_MAX_MAX_ROUTES) {
+            await updateGame(gameId, current => {
+              current.compass = applyPlotCompassPreferences(current.compass, { maxRoutes: limit })
               return current
             })
             void publishCompassState(gameId)
@@ -636,8 +666,8 @@ export function apply(ctx, options = {}) {
     return { ok: true, plotCompass }
   })
 
-  handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, goal } = {}) => {
-    const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, goal })
+  handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal } = {}) => {
+    const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal })
     return { ok: true, plotCompass }
   })
 
