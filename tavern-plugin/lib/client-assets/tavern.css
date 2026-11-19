@@ -266,6 +266,8 @@ button.dsh-tavern-message-select:disabled { cursor: wait; }
 .dsh-tavern-message-deletion-error { flex: 0 0 100%; color: var(--dsh-tavern-accent-error, #c45f5f); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
+/* 桌面端不参与排布，子元素照常做侧栏弹性子项；移动端切为紧凑顶栏网格。 */
+.dsh-tavern-side-top { display: contents; }
 /* 手机上侧栏铺满整屏，宿主的抽屉把手会被酒馆内容盖住：右上角放自己的收回按钮。 */
 .dsh-tavern-side-collapse { display: none; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
@@ -341,7 +343,7 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-picker-tabs button.active { border-color: var(--dsh-tavern-accent); color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, transparent); font-weight: 700; }
 .dsh-tavern-side-title { margin: 16px 4px 7px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-side-list { min-height: 0; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.dsh-tavern-side-row { position: relative; display: flex; align-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; }
+.dsh-tavern-side-row { position: relative; flex-shrink: 0; display: flex; align-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; }
 .dsh-tavern-side-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-side-row.active { background: var(--dsw-alias-interactive-bg-selected, rgba(120,90,60,.14)); }
 .dsh-tavern-side-row-main { min-width: 0; flex: 1; border: 0; padding: 8px 5px 8px 9px; text-align: left; background: transparent; color: inherit; cursor: pointer; }
@@ -1136,7 +1138,8 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
   left: auto !important;
 }
 
-.dsh-tavern-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dsh-tavern-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.dsh-tavern-history-heading > span:first-child { margin-right: auto; }
 .dsh-tavern-history-action { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
 .dsh-tavern-history-action:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: rgba(128, 128, 128, .12); }
 .dsh-tavern-history-action:disabled { opacity: .45; cursor: default; }
@@ -3203,10 +3206,64 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [role="tab"] { flex: none; min-height: 36px; padding-bottom: 6px; }
   html.dsh-tavern-play-fullscreen body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_label"]:has(> svg) { display: none !important; }
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) svg { display: block; flex-shrink: 0; }
-  .dsh-tavern-sidebar { padding-top: 2px; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
-  .dsh-tavern-side-head { height: 48px; }
-  .dsh-tavern-side-brand { height: 40px; }
-  .dsh-tavern-side-title { margin-top: 10px; }
+  .dsh-tavern-sidebar { padding: 8px 10px max(10px, env(safe-area-inset-bottom, 0px)); }
+  .dsh-tavern-side-top {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+    gap: 6px 8px; flex: none;
+  }
+  .dsh-tavern-side-head { grid-column: 1; grid-row: 1; height: 34px; gap: 0; }
+  .dsh-tavern-side-brand {
+    flex: none; width: 28px; height: 28px; margin-right: 0;
+    background-image: var(--dsh-tavern-logo) !important; background-position: center;
+  }
+  .dsh-tavern-mode-switch {
+    grid-column: 2; grid-row: 1; margin-bottom: 0; padding: 2px; border-radius: 9px;
+  }
+  .dsh-tavern-side-new {
+    grid-column: 1 / -1; grid-row: 2; height: 34px; border-radius: 9px; font-size: 13px;
+  }
+  .dsh-tavern-side-title { margin: 6px 2px 3px; }
+  .dsh-tavern-side-title.dsh-tavern-history-heading { gap: 2px; }
+  .dsh-tavern-history-selection { margin: 0 2px 4px; }
+  .dsh-tavern-side-list { gap: 2px; }
+  .dsh-tavern-history-group-toggle { min-height: 30px; padding: 4px 6px; gap: 5px; font-size: 13px; }
+  .dsh-tavern-history-group-items { padding-left: 4px; gap: 2px; }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-main:not(.ap-check-row) {
+    padding: 6px 4px 6px 8px;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 6px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-main.ap-check-row {
+    padding: 6px 4px 6px 8px; min-height: 38px; gap: 8px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-text {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 6px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-name {
+    grid-column: 1; grid-row: 1; font-size: 13px; font-weight: 500; line-height: 1.35;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-meta {
+    grid-column: 2; grid-row: 1; margin-top: 0; gap: 5px;
+    font-size: 11px; white-space: nowrap; flex-shrink: 0;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-preview {
+    grid-column: 1 / -1; grid-row: 2; margin-top: 2px; font-size: 11px; line-height: 1.38;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-preview:not(.expanded) { -webkit-line-clamp: 2; }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-expand {
+    min-width: 26px; min-height: 32px; width: 26px; height: 32px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-more {
+    min-width: 28px; min-height: 32px; width: 28px; height: 32px; margin-right: 2px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-update { margin-top: 4px; padding-top: 5px; }
+  body.dsh-tavern-shell-active .dsh-tavern-update-row { flex-wrap: nowrap; gap: 4px 6px; }
+  body.dsh-tavern-shell-active .dsh-tavern-update-row .dsh-tavern-update-button {
+    min-height: 28px; height: 28px; padding: 0 8px; font-size: 11px; border-radius: 7px;
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-update-status {
+    margin-top: 3px; font-size: 10px; line-height: 1.35;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   /* 输入区保持宿主的滚动与草稿生命周期，不再用 bottom 额外上推一个键盘高度。 */
   html.dsh-tavern-coarse-play [data-composer-seat] {
@@ -3401,8 +3458,9 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-error-controls button:not(.dsh-tavern-error-quiet) { min-height: 40px; }
   .dsh-tavern-error-controls button.dsh-tavern-error-quiet { min-height: 32px; }
 
-  .dsh-tavern-mode-switch button, .dsh-tavern-history-action, .dsh-tavern-history-group-toggle,
-  .dsh-tavern-update-button, .dsh-tavern-side-row-menu button { min-height: 40px; }
+  .dsh-tavern-mode-switch button { min-height: 30px; height: 30px; font-size: 13px; border-radius: 7px; }
+  .dsh-tavern-history-action { min-height: 28px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .dsh-tavern-side-row-menu button { min-height: 40px; }
   .dsh-tavern-group-picker > summary, .dsh-tavern-group-menu button,
   .dsh-tavern-group-add, .dsh-tavern-library-search { min-height: 40px; }
   .dsh-tavern-group-menu { box-sizing: border-box; }
@@ -3467,7 +3525,9 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
      跟着 inset:0 会变成一整屏空白盖住正文。 */
   body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) {
     position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
-    padding-top: max(12px, env(safe-area-inset-top, 0px));
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+    padding-right: calc(10px + env(safe-area-inset-right, 0px));
     /* 抽屉底部还有宿主自己的一行「设置」（宿主侧栏 footArea 排在 regionArea 之后）。
        整屏侧栏铺开后，版本行和更新状态会压到那行上面；这里让出「侧栏盒子压住宿主「设置」
        那一行的那一截」（sidebar.js 写入 --dsh-tavern-host-foot-inset，宿主版本、账号状态
@@ -3482,12 +3542,11 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active .dsh-tavern-update-identity-wide { display: none; }
   body.dsh-tavern-shell-active .dsh-tavern-update-identity-compact { display: inline; }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse {
-    position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;
-    top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; box-sizing: border-box;
-    height: 40px; padding: 0 14px 0 9px;
+    grid-column: 3; grid-row: 1; position: static; display: inline-flex; align-items: center; gap: 2px;
+    box-sizing: border-box; height: 34px; padding: 0 11px 0 8px;
     border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;
     background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #fff)); color: var(--dsw-alias-label-secondary);
-    font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08);
+    font: inherit; font-size: 12px; cursor: pointer;
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
   body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
@@ -3552,20 +3611,18 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
 body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-sidebar:not(.collapsed),
 :root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-sidebar:not(.collapsed) {
   position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
-  padding-top: max(12px, env(safe-area-inset-top, 0px), var(--dsh-app-inset-top, 0px));
-  padding-left: calc(12px + max(env(safe-area-inset-left, 0px), var(--dsh-app-inset-left, 0px)));
-  padding-right: calc(12px + max(env(safe-area-inset-right, 0px), var(--dsh-app-inset-right, 0px)));
+  padding-top: max(8px, env(safe-area-inset-top, 0px), var(--dsh-app-inset-top, 0px));
+  padding-left: calc(10px + max(env(safe-area-inset-left, 0px), var(--dsh-app-inset-left, 0px)));
+  padding-right: calc(10px + max(env(safe-area-inset-right, 0px), var(--dsh-app-inset-right, 0px)));
   padding-bottom: calc(var(--dsh-tavern-host-foot-inset, 0px) + 10px);
 }
 body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-side-collapse,
 :root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-side-collapse {
-  position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;
-  top: max(calc(env(safe-area-inset-top, 0px) + 8px), calc(var(--dsh-app-inset-top, 0px) - var(--dsh-app-lead-h, 0px)));
-  right: calc(10px + max(env(safe-area-inset-right, 0px), var(--dsh-app-inset-right, 0px)));
-  box-sizing: border-box; height: 40px; padding: 0 14px 0 9px;
+  grid-column: 3; grid-row: 1; position: static; display: inline-flex; align-items: center; gap: 2px;
+  box-sizing: border-box; height: 34px; padding: 0 11px 0 8px;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;
   background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #fff)); color: var(--dsw-alias-label-secondary);
-  font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  font: inherit; font-size: 12px; cursor: pointer;
 }
 body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) .dsh-tavern-side-collapse:active,
 :root[data-dsh-app-layout="drawer"] body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-dsh-app-drawer] .dsh-tavern-side-collapse:active {
