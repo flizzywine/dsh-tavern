@@ -108,25 +108,29 @@ function createConversationSettingsModule({
             finally { setBusy(false); }
         }
         return h("div", { className: "dsh-local-field" }, h(InlineField, { kind: "menu", label: "本局预设", value: data?.current?.id || "", disabled: busy || !data, onCommit: change,
+                    help: busy || notice ? h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : notice) : null,
                     options: [{ value: "", label: "不使用酒馆预设" },
                         ...(data?.current?.id && !data.presets.some(p => p.path === data.current.id) ? [{ value: data.current.id, label: data.current.name + "（源文件已移除）" }] : []),
                         ...(data?.presets || []).filter(p => p.valid && p.recognized).map(p => ({ value: p.path, label: p.title }))] }),
-            h("p", { className: "dsh-tavern-settings-desc" }, "用于后续正文，选择后自动保存。"), error ? h("p", { role: "alert" }, "保存失败：" + error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : notice));
+            error ? h("p", { role: "alert" }, "保存失败：" + error) : null);
     }
 
     function TavernLocalPlayerName(props) {
+        const h = React.createElement;
         const [name, setName] = React.useState(null), [busy, setBusy] = React.useState(false), [status, setStatus] = React.useState("");
-        React.useEffect(() => { let active = true; readTavernSettingsSession(props.sessionId).then(result => { if (active) setName(result.view?.playerName || "你"); }, err => { if (active) setStatus("读取失败：" + err.message); }); return () => { active = false; }; }, []);
+        const [error, setError] = React.useState("");
+        React.useEffect(() => { let active = true; readTavernSettingsSession(props.sessionId).then(result => { if (active) setName(result.view?.playerName || "你"); }, err => { if (active) setError("读取失败：" + err.message); }); return () => { active = false; }; }, []);
         async function save(value) {
             if (busy || value === name) return;
-            setBusy(true); setStatus("保存中…");
+            setBusy(true); setStatus(""); setError("");
             try { const result = await trackTavernSettingsWrite(props.sessionId, rpc("setPlayerName", { userName: value }, props.sessionId)); setName(result.playerName || "你"); setStatus("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["sessions"], "play-controls"); }
-            catch (err) { setStatus("保存失败：" + err.message); }
+            catch (err) { setError("保存失败：" + err.message); }
             finally { setBusy(false); }
         }
-        return React.createElement("div", { className: "dsh-local-field" },
-            React.createElement(InlineField, { label: "玩家称呼", value: name || "", placeholder: "你", maxLength: 80, disabled: name === null || busy, onCommit: save }),
-            React.createElement("p", { className: "dsh-local-help" }, "离开输入框后保存，仅用于后续内容。"), React.createElement("span", { role: "status", className: "dsh-local-feedback" }, status));
+        return h("div", { className: "dsh-local-field" },
+            h(InlineField, { label: "玩家称呼", value: name || "", placeholder: "你", maxLength: 80, disabled: name === null || busy, onCommit: save,
+                help: busy || status ? h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : status) : null }),
+            error ? h("p", { role: "alert" }, error) : null);
     }
 
 
@@ -374,7 +378,7 @@ function createConversationSettingsModule({
             h(Switch, { label: title, checked, disabled: !loaded || busy || disabled, onChange: value => save(patch(value)) }));
         const effort = selection?.reasoningEffort || "";
         return h(React.Fragment, null,
-            h("section", { className: "dsh-local-section", "aria-label": "游玩" }, h("h3", null, "游玩"),
+            h("section", { className: "dsh-local-section dsh-local-play-settings", "aria-label": "游玩" }, h("h3", null, "游玩"),
                 h(TavernLocalPlayerName, { sessionId: props.sessionId }),
                 h(TavernConversationPreset, { sessionId: props.sessionId }),
                 h(UserPreferenceProfileTab, { scope: { sessionId: props.sessionId }, conversationOnly: true }),

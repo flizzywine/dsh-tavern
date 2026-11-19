@@ -6793,20 +6793,31 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 .dsh-local-settings .fork-inline-trigger:focus-visible,
 .dsh-local-settings select:focus-visible,
 .dsh-local-settings input.fork-edit:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
-.dsh-local-settings .dsh-local-profile > .dsh-local-feedback { grid-column: 2; }
+.dsh-local-settings .dsh-local-profile > [role="alert"] { grid-column: 1 / -1; }
 .dsh-local-background-model { display: flex; align-items: center; gap: 8px; }
 .dsh-local-background-model > .fork-inline-field:first-child { flex: 1; }
 .dsh-local-settings .dsh-local-background-model > .fork-inline-field[data-bare] { grid-template-columns: minmax(0, 1fr); max-width: 40%; }
 @container (max-width: 479px) {
   .dsh-local-settings .fork-inline-field,
   .dsh-local-settings .dsh-local-profile { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .dsh-local-settings .dsh-local-profile > .dsh-local-feedback { grid-column: 1; }
   .dsh-local-settings .dsh-local-background-model > .fork-inline-field:first-child { grid-template-columns: max-content minmax(0, 1fr); }
 }
 .dsh-local-settings .fork-inline-field button.fork-inline-trigger:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { min-height: 36px; height: auto; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent); background: var(--dsw-alias-bg-base); justify-content: space-between; }
 .dsh-local-settings .dsh-local-profile .dsh-tavern-profile-game { min-width: 0; padding: 0; margin: 0; }
 .dsh-local-settings .dsh-local-profile select.dsh-tavern-settings-select { max-width: none; margin: 0; }
 .dsh-local-settings .fork-inline-field[data-kind] > .fork-inline-value { margin: 0; }
+.dsh-local-play-settings .fork-inline-field { min-height: 36px; }
+.dsh-local-play-settings .dsh-local-profile > .dsh-local-label { display: flex; align-items: center; gap: 4px; }
+.dsh-local-settings .dsh-local-play-settings .fork-inline-field .fork-inline-value :is(button.fork-inline-trigger, input.fork-inline-input.fork-edit):not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]),
+.dsh-local-settings .dsh-local-play-settings select.dsh-tavern-settings-select {
+  height: 36px; min-height: 36px; padding-block: 0; padding-inline-start: 10px;
+  border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent);
+  border-radius: 6px; background-color: var(--dsw-alias-bg-base); box-shadow: none;
+  color: var(--fork-ink);
+}
+.dsh-local-settings .dsh-local-play-settings .fork-inline-field .fork-inline-value input.fork-inline-input.fork-edit:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]):focus-visible {
+  outline: 2px solid var(--fork-accent); outline-offset: 1px;
+}
 
 /* Polish settings and results share a compact, clearly bounded layout. */
 .dsh-tavern-polish-compare { container-type: inline-size; padding: 24px; }

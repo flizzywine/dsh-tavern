@@ -62,13 +62,22 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
 
   const styles = await Promise.all(['tavern.css', 'theme.css'].map(file =>
     readFile(new URL('../tavern-plugin/lib/client-assets/' + file, import.meta.url), 'utf8')))
-  await page.addStyleTag({ content: styles.join('\n') })
+  await page.addStyleTag({ content: styles.join('\n') + '\nbody { --dsw-alias-label-primary: #222; }' })
   const desktop = page.viewportSize()
   const profileField = play.getByRole('combobox', { name: '本局长期偏好', exact: true })
   const choiceField = play.getByRole('button', { name: /^候选项数量：/ })
   await profileField.waitFor()
-  const [first, ...rest] = await Promise.all([name, presetField, profileField, modelField, choiceField].map(field => field.boundingBox()))
-  assert.deepEqual(rest.map(box => box.x), rest.map(() => first.x), '游玩区五个控件的左边界对齐')
+  const fields = [name, presetField, profileField, modelField, choiceField]
+  const boxes = await Promise.all(fields.map(field => field.boundingBox()))
+  assert.deepEqual(boxes.map(box => box.x), boxes.map(() => boxes[0].x), '游玩区五个控件的左边界对齐')
+  assert.deepEqual(boxes.map(box => box.height), boxes.map(() => 36), '输入框和下拉框等高')
+  const insets = await Promise.all(fields.map(field => field.evaluate(el => {
+    const styles = getComputedStyle(el)
+    return parseFloat(styles.paddingLeft) + parseFloat(styles.borderLeftWidth)
+  })))
+  assert.deepEqual(insets, fields.map(() => 11), '文字距控件左边框一致')
+  const gaps = boxes.slice(1).map((box, index) => box.y - boxes[index].y - boxes[index].height)
+  assert.deepEqual(gaps, gaps.map(() => gaps[0]), '相邻控件等距排列')
   for (const width of [desktop.width, 360]) {
     await page.setViewportSize({ width, height: desktop.height })
     const [modelBox, effortBox] = await Promise.all([modelField.boundingBox(), effortField.boundingBox()])
