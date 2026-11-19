@@ -64,7 +64,7 @@ function fixture({stage = true, packs = [], bound = [], automatic = null, galler
 }
 const item = {id:'item-1', turn:3, caption:'雨夜的天台', attachment:{attachmentId:'att-1', mediaType:'image/png'}}
 
-test('a finished picture goes to the card’s 自动素材 pack (made and bound once), not the owner’s card-named pack; a 绿灯 CG with its origin, unlocked', async () => {
+test('a finished picture goes to the card’s 自动素材 pack (made and bound once), not the owner’s card-named pack; a CG with its director lamp off, unlocked', async () => {
   const own = {revision:'o1', manifest:{id:'own', name:'星之卡', assets:[], blobs:{}}}
   const f = fixture({packs:[own], bound:['own']})
   const [first, second] = await Promise.all([f.sceneCg.sync({gameId:'game', item}), f.sceneCg.sync({gameId:'game', item})])
@@ -78,7 +78,7 @@ test('a finished picture goes to the card’s 自动素材 pack (made and bound 
   assert.equal(pack.manifest.assets.length, 1)
   assert.equal(asset.kind, 'cg')
   assert.equal(asset.name, '雨夜的天台')
-  assert.equal(asset.enabled, true)
+  assert.equal(asset.enabled, false)
   assert.deepEqual(asset.recall, {mode:'keyword', keywords:[]})
   assert.deepEqual(asset.extensions.dsh_tavern.scenePicture, {chatId:'chat-1', turn:3, itemId:'item-1', attachmentId:'att-1'})
   const media = asset.variants.entries[0].content.media

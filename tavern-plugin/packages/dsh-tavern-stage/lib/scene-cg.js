@@ -7,6 +7,8 @@ import {createHash, randomBytes} from 'node:crypto'
 const EXT = {'image/png':'png','image/jpeg':'jpeg','image/webp':'webp'}
 // The entry's origin; only these entries offer 删除这张 CG in 回想.
 export const scenePictureOf = asset => asset?.kind === 'cg' ? asset.extensions?.dsh_tavern?.scenePicture || null : null
+// For a generated CG, the lamp controls future selection, not access to an already recorded picture.
+export const cgPlaybackEnabled = asset => asset?.kind === 'cg' && (asset.enabled === true || !!scenePictureOf(asset))
 const clip = (text, max) => [...String(text || '').trim()].slice(0, max).join('')
 
 export function createSceneCg({library, attachments, chatForSession, cardAssetBindings, resolveCard, cgGallery, removePicture, log = console}) {
@@ -47,7 +49,7 @@ export function createSceneCg({library, attachments, chatForSession, cardAssetBi
       let assetId = unique()
       while (pack.manifest.assets.some(asset => asset.kind === 'cg' && asset.id === assetId)) assetId = unique()
       const name = clip(item.caption, 40) || '第 ' + item.turn + ' 轮 CG', variant = 'v' + assetId.slice(1)
-      const asset = {kind:'cg', id:assetId, name, enabled:true, directorNote:'', recall:{mode:'keyword', keywords:[]},
+      const asset = {kind:'cg', id:assetId, name, enabled:false, directorNote:'', recall:{mode:'keyword', keywords:[]},
         variants:{default:variant, entries:[{id:variant, name:clip(name, 32), content:{description:clip(name, 80), media:hash}}]},
         extensions:{dsh_tavern:{scenePicture:{chatId:latest.chat.id, turn:Number(item.turn) || 0, itemId:item.id, attachmentId}}}}
       await service.patchPack({packId:pack.manifest.id, expectedRevision:pack.revision,

@@ -8,6 +8,7 @@ import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protoc
 import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 import { migrateServiceSourceModels } from './service-model-migration.js'
 import { migrateReadingVoices } from './reading-voice-migration.js'
+import { cgPlaybackEnabled } from './scene-cg.js'
 export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
@@ -75,7 +76,8 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
       }
       for (const pack of snapshots) for (const asset of pack.manifest.assets) {
         const row = resolveAssetSnapshot(pack,{packId:pack.manifest.id,kind:asset.kind,assetId:asset.id})
-        assetStatus[assetRefKey(row.ref)] = {available:!!row.value && (row.ref.kind === 'props' || row.value.pendingMedia !== true) && !row.diagnostics.length}
+        const enabled = row.ref.kind === 'cg' ? cgPlaybackEnabled(row.value) : !row.diagnostics.length
+        assetStatus[assetRefKey(row.ref)] = {available:!!row.value && (row.ref.kind === 'props' || row.value.pendingMedia !== true) && enabled}
       }
 
     }
