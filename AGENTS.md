@@ -1,6 +1,6 @@
 # DSH Tavern
 
-直接回答用户问的问题。必要的未知、条件和风险各说明一次，省去套话和题外推论。
+直接回答用户问的问题。不要说“不能确定”，“不能证明”，“不等于”之类的套话。
 
 ## Issue 与 PR
 
@@ -16,7 +16,7 @@
 
 ## 分支与推送
 
-- 日常开发和修复进 `main`，DSH 版本以 [兼容性配置](config/dsh-compatibility.json) 为准。`stable` 已停更。两条分支的安装和更新各走各的，禁止互相合并。
+- 日常开发和修复进 `main`
 - 默认推送到 `origin`（`flizzywine/dsh-tavern`）。仅在用户点名时操作 `bigmalove/dsh-tavern` 的分叉。同步分叉用 merge，rebase 或强推须经用户明确同意。
 - 推送 `main` 前运行 `git fetch origin` 和 `git log --oneline HEAD..origin/main`。若远端仅多出运行清单提交，rebase 到 `origin/main` 再推送。出现其他远端提交时先告知用户。
 
