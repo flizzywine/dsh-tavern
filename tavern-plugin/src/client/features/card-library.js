@@ -442,17 +442,6 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 					); }
 				});
 			}
-			function scriptCode(label, value) {
-				const content = String(value || "（空）");
-				const lineCount = content.split(/\r\n|\r|\n/).length;
-				return h(TavernLazyDetails, { className: "dsh-tavern-script-code",
-					summary: h("summary", null, label, h("span", { className: "dsh-tavern-script-code-count" }, lineCount + " 行 · 只读")),
-					render: function () { return h("div", { className: "dsh-tavern-script-code-scroll", tabIndex: 0, role: "region", "aria-label": label },
-						h("div", { className: "dsh-tavern-script-code-lines", "aria-hidden": true }, Array.from({ length: lineCount }, function (_, index) { return index + 1; }).join("\n")),
-						h("pre", null, h("code", null, content))
-					); }
-				});
-			}
 			function helperScriptRow(item, index) {
 				const snippet = String(item.content || "").slice(0, 400).replace(/\s+/g, " ").trim() || "空脚本";
 				return h(TavernLazyDetails, { key: item.ref || item.id || index, className: "dsh-tavern-prompt-row role-script",
@@ -462,8 +451,8 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 						h("span", { className: "dsh-tavern-prompt-state" + (item.enabled ? "" : " off") }, item.enabled ? "已启用" : "已关闭")
 					),
 					render: function () { return h("div", { className: "dsh-tavern-regex-body" },
-						scriptCode("脚本内容", item.content),
-						item.dataText ? scriptCode("脚本配置", item.dataText) : null,
+						h(TavernScriptCode, { label: "脚本内容", content: item.content, collapsible: true }),
+						item.dataText ? h(TavernScriptCode, { label: "脚本配置", content: item.dataText, collapsible: true }) : null,
 						item.info ? h("div", null, h("div", { className: "dsh-tavern-regex-label" }, "说明"), h("pre", { className: "dsh-tavern-regex-code" }, item.info)) : null,
 						item.exportWith !== null ? h("div", { className: "dsh-tavern-regex-meta" }, "export_with: " + JSON.stringify(item.exportWith)) : null
 					); }

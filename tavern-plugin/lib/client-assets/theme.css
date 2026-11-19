@@ -1392,6 +1392,14 @@ body[data-ds-dark-theme] :is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu
 .fork-scripts-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--fork-hairline); border-radius: var(--fork-radius-lg); background: var(--fork-raised, transparent); transition: opacity .15s var(--fork-ease); }
 .fork-scripts-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--fork-accent-soft); color: var(--fork-accent); }
 .fork-scripts-name { display: grid; gap: 2px; min-width: 0; }
+.fork-scripts-open { display: flex; align-items: center; gap: 4px; justify-self: start; min-width: 0; max-width: 100%; padding: 0; border: 0; border-radius: 3px; background: none; text-align: start; cursor: pointer; }
+.fork-scripts-open svg { flex: 0 0 auto; color: var(--fork-ink-3); }
+.fork-scripts-open[aria-expanded="true"] svg { transform: rotate(180deg); }
+.fork-scripts-open:hover b { text-decoration: underline; }
+.fork-scripts-open:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 2px; }
+.fork-scripts-source { grid-column: 1 / -1; min-width: 0; }
+.fork-scripts-source .dsh-tavern-script-code-scroll { border-top: 0; }
+.fork-scripts-source-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .fork-scripts-name b { overflow: hidden; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .fork-scripts-name small { color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .fork-scripts-row.is-off .fork-scripts-icon { background: var(--fork-hover); color: var(--fork-ink-3); }

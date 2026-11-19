@@ -34,7 +34,7 @@ export function createCardScripts({ profileData, cardIdFor }) {
       return { scripts: (Array.isArray(helperScripts) ? helperScripts : []).filter(script => script?.type === 'script').map(script => {
         const id = String(script.id || '').trim()
         return {
-          id, name: String(script.name || '').trim() || id, type: script.type,
+          id, ref: script.ref, name: String(script.name || '').trim() || id, type: script.type,
           enabled: script.enabled !== false, muted: excluded.has(id), audio: AUDIO_HINT.test(String(script.content || '')),
           buttonCount: Number.isSafeInteger(script.buttonCount) && script.buttonCount >= 0 ? script.buttonCount : (Array.isArray(script.buttons) ? script.buttons.length : 0)
         }

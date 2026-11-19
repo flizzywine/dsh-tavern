@@ -10,6 +10,7 @@ import { inspectCardExtensions, withGlobalRegexScripts } from '../tavern-plugin/
 import { withModHidden } from '../tavern-plugin/lib/mod-tools.js'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
 import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
+import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
 const bgm = { id: 'bgm', name: 'BGM', type: 'script', enabled: true, content: 'new Audio("song.mp3").play()' }
 const utility = { id: 'utility', name: 'Utility', type: 'script', content: 'console.log("ready")' }
@@ -65,7 +66,7 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   assert.deepEqual(projectTavernHelperScripts((await readCardExtensions(cardPath, chat)).helperScripts).scripts.map(script => script.id), ['utility'])
   // The production RPC handler; index.js routes getCardScripts to the same method.
   const handlers = createCardHandlers({ chatForSession: async id => id === 'session' ? chat : undefined, readCardExtensions, cardScripts, resolveCardId: cardIdFor, str: value => typeof value === 'string' ? value : '' })
-  const rpc = (method, args) => handlers.setCardScriptMuted(args, method)
+  const rpc = (method, args) => (handlers[method] || handlers.setCardScriptMuted)(args, method)
   assert.match(host, /rpcHandlers\.getCardScripts = rpcHandlers\.setCardScriptMuted/)
   const response = await rpc('getCardScripts', { sessionId: 'session' })
   assert.deepEqual(response, { cardName: 'Test card', cardId: 'card-a', ...await cardScripts.list(inspectCardExtensions(snapshot).helperScripts, cardPath) })
@@ -73,6 +74,12 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   assert.equal(response.scripts[0].muted, true)
   assert.equal(response.scripts[3].enabled, false)
   assert.equal(response.scripts.some(script => 'content' in script), false)
+  for (const [index, expected] of [[0, bgm.content], [2, disabled.content]]) {
+    const { id, ref } = response.scripts[index]
+    assert.deepEqual(await rpc('getCardScriptSource', { sessionId: 'session', id, ref }), { content: expected })
+  }
+  await assert.rejects(rpc('getCardScriptSource', { sessionId: 'session', id: 'bgm', ref: 'helper:1' }), /找不到该脚本/)
+  await assert.rejects(rpc('getCardScriptSource', { sessionId: 'missing', id: 'bgm', ref: 'helper:0' }), /找不到对话/)
   assert.equal(liveReads, 0, 'snapshot takes precedence over live card')
   await assert.rejects(rpc('getCardScripts', { sessionId: 'missing' }))
   await assert.rejects(rpc('setCardScriptMuted', { sessionId: 'session', id: 'unknown', muted: true }), /Unknown card script ID/)
@@ -106,4 +113,47 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   const projection = await readFile(new URL('../tavern-plugin/lib/domain/session-view-projection.js', import.meta.url), 'utf8')
   assert.match(projection, /readCardExtensions\(chat.cardPath, chat, settings\)/)
   assert.match(projection, /hasTavernScriptRuntime\(chat, cardExtensions.helperScripts\)/)
+})
+
+test('卡片脚本可按需展开源码，关闭或停用的脚本也可查看', async t => {
+  const scripts = [
+    { id: 'bgm', ref: 'helper:0', name: 'BGM', enabled: true, muted: true },
+    { id: 'disabled', ref: 'helper:1', name: '停用工具', enabled: false }
+  ]
+  const html = '<script>document.body.dataset.executed = "yes"</script>\nconst player = null;'
+  let fail = true
+  const { page, calls } = await openTavernSettings(t, {
+    section: 'dsh-tavern: card helper scripts tab', sessionId: 'game',
+    respond(method, args) {
+      if (method === 'getCardScripts') return { cardId: 'card-a', scripts }
+      if (method === 'getCardScriptSource') {
+        if (args.id === 'bgm' && fail) throw new Error('暂时无法读取')
+        return { content: args.id === 'bgm' ? html : '' }
+      }
+    }
+  })
+  const viewSource = page.getByRole('button', { name: 'BGM · 查看代码', exact: true })
+  await viewSource.waitFor()
+  assert.equal(calls.some(call => call.method === 'getCardScriptSource'), false)
+  await viewSource.press('Enter')
+  await page.getByRole('alert').filter({ hasText: '暂时无法读取' }).waitFor()
+  fail = false
+  await page.getByRole('button', { name: '重试', exact: true }).click()
+  const code = page.getByRole('region', { name: 'BGM 代码', exact: true }).locator('code')
+  await code.waitFor()
+  assert.equal(await code.textContent(), html)
+  assert.equal(await page.evaluate(() => document.body.dataset.executed), undefined)
+  assert.equal(await page.getByRole('switch', { name: 'BGM 运行' }).isChecked(), false)
+  await page.getByRole('button', { name: 'BGM · 收起代码', exact: true }).click()
+  await code.waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: '停用工具 · 查看代码', exact: true }).click()
+  const empty = page.getByRole('region', { name: '停用工具 代码', exact: true }).locator('code')
+  await empty.waitFor()
+  assert.equal(await empty.textContent(), '（空）')
+  assert.equal(await page.getByRole('switch', { name: '停用工具 运行' }).isDisabled(), true)
+  assert.equal(calls.some(call => call.method === 'setCardScriptMuted'), false)
+  assert.deepEqual(calls.filter(call => call.method === 'getCardScriptSource')
+    .map(({ args }) => [args.sessionId, args.id, args.ref]), [
+    ['game', 'bgm', 'helper:0'], ['game', 'bgm', 'helper:0'], ['game', 'disabled', 'helper:1']
+  ])
 })
