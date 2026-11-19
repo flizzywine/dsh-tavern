@@ -5100,6 +5100,20 @@ window.__ModuleLoader__.load({
 		  const mods=[...new Set(modKinds.map(row=>row[1]))].sort();
 		  return [...builtin, ...mods.flatMap(mod=>modKinds.filter(row=>row[1]===mod&&!builtin.includes(row[0])).map(row=>row[0]))];
 		}
+		// The manifest's entry order applies to every kind. Unassigned entries retain their original relative order at the end.
+		function orderedPackItems(pack,kind) {
+		  const {manifest}=pack;
+		  const items=kind==='figures'?(manifest.figures||[]).map(id=>pack.figures?.[id]).filter(Boolean):manifest.assets.filter(a=>a.kind===kind);
+		  const order=manifest.extensions?.['dsh.entry-order'];
+		  if(!order)return items;
+		  const groups=new Map(order.groups.map((id,index)=>[id,index]));
+		  const rank=item=>order.entries[kind+'/'+item.id];
+		  return items.sort((a,b)=>{
+		    const x=rank(a),y=rank(b);
+		    if(!x||!y)return Number(!x)-Number(!y);
+		    return groups.get(x[0])-groups.get(y[0])||x[1]-y[1];
+		  });
+		}
 		// the one error → player sentence. Every panel, the
 		// 舞台设置 alert, the catalogue, 生图 cells and the sidebar 最新错误 say errors through this. A known code gets its sentence
 		// (the caller's table first, then the shared one); a host message that is already plain Chinese keeps its reason, minus
@@ -5514,7 +5528,7 @@ window.__ModuleLoader__.load({
 		  const kindCounts=manifest=>KIND_ORDER.map(key=>({key,label:kinds[key],count:kindCount(manifest,key)})).filter(c=>c.count);
 		  // The library's entry search (name, note, tag, text, a figure's aliases, an entry's trigger words); 设置向导 › 挑选素材 reuses it.
 		  const entryMatches=(a,kind,needle)=>!needle||[a.name,a.directorNote,...(a.kind==='sfx'?[audioCategories[a.category]]:assetTags.paths(a.category)),a.text,...(kind==='figures'?[]:a.recall?.keywords||[]),...(a.aliases||[])].some(v=>String(v||'').toLowerCase().includes(needle));
-		  const packItems=(pack,kind)=>kind==='figures'?(pack.manifest.figures||[]).map(id=>pack.figures?.[id]).filter(Boolean):pack.manifest.assets.filter(a=>a.kind===kind);
+		  const packItems=orderedPackItems;
 		  const figureAvatar=(figure,sprites)=>selectFigureAvatar(figure,sprites);
 		  // First outfit with a sprite: its default state's standing image (layered `stage.src` or static `src`), resolved to a pack hash.
 		  const figureStanding=(figure,sprites)=>{for(const outfit of figure?.outfits||[]){const manifest=outfit.sprite&&sprites?.[outfit.sprite.manifestKey],state=emotionState(outfit,manifest,outfit.defaultEmotion || figure.emotions?.[0]?.id || 'calm'),path=state?.stage?.src||state?.src,hash=path&&outfit.sprite.assets?.[path];if(hash)return hash;}return null;};
@@ -6241,7 +6255,7 @@ window.__ModuleLoader__.load({
 		        return rest.join()===c.manifest.figures.join()?{snapshot:c}:binding.service.patchPack({packId,expectedRevision:c.revision,patch:{figures:rest}});
 		      })).finally(()=>{if(!--moving.current)setFigureOrder(null);});
 		    };
-		    const reorder=useListReorder({ids:all.map(f=>f.id),enabled:current==='figures'&&lampFilter==='all'&&!needle&&!category&&!selecting&&all.length>1,onMove:moveFigure});
+		    const reorder=useListReorder({ids:all.map(f=>f.id),enabled:current==='figures'&&!pack?.manifest.extensions?.['dsh.entry-order']&&lampFilter==='all'&&!needle&&!category&&!selecting&&all.length>1,onMove:moveFigure});
 		    // A newly selected item starts at the top of the detail column.
 		    const rightRef=React.useRef(null);React.useEffect(()=>{if(rightRef.current)rightRef.current.scrollTop=0;},[current,selected?.id]);
 		    const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
