@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, readdir, rm, mkdir, copyFile } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer, request as httpRequest } from 'node:http'
 import { imagePluginFixture, IMAGE_PNG as PNG, imageJson as json } from './fixtures/image-plugin-runtime.mjs'
@@ -12,6 +12,7 @@ import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bund
 import { expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
+const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
 const own = { agent: { session: { id: 'card-session-a' } } }
 // 测试里需要「一次拿到图」的地方走异步提交和查询，
@@ -113,13 +114,21 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   assert.equal(Number(head.headers['content-length']), PNG.length)
   const range = await read(image.url, { range: 'bytes=0-7' })
   assert.equal(range.status, 206); assert.deepEqual(range.bytes, PNG.subarray(0, 8))
+  const jobImage = () => origin + '/plugins/dsh-tavern-image/jobs?id=' + image.jobId + '&image=1'
+  assert.deepEqual((await read(jobImage())).bytes, PNG)
+  assert.deepEqual((await read(jobImage(), { range: 'bytes=0-7' })).bytes, PNG.subarray(0, 8))
   assert.equal((await read(image.url, {}, 'DELETE')).status, 405)
   assert.equal((await read(origin + '/dsh-tavern-gen/img/not-a-gallery-file.png')).status, 404)
   assert.equal((await read(origin + '/dsh-tavern-gen/api/gallery', { origin: 'https://evil.invalid', 'sec-fetch-site': 'cross-site' })).status, 403)
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { id: image.jobId })).body.removed, 1)
+  assert.equal((await f.runtime.request('job-detail?id=' + image.jobId)).body.job.hasImage, false)
+  assert.equal((await read(jobImage())).status, 404)
   origin = 'http://127.0.0.1:' + servers[1].address().port
   const next = await draw(f, { prompt: 'second traveler' }, own)
   assert.equal(new URL(next.images[0].url).origin, origin, 'read the current listener address for each tool call')
   assert.equal((await read(next.images[0].url)).status, 200)
+  assert.equal((await f.runtime.request('delete-job', { jobId: next.images[0].jobId })).body.removed, 1)
+  assert.deepEqual((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items, [])
   assert.ok((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.every(item => item.url.startsWith('/')), 'saved gallery paths survive port changes')
   assert.equal(calls, 2)
 })
@@ -525,8 +534,9 @@ test('async status separates a definitive failure from an ambiguous one', { time
 
 test('card and play galleries stay separate while task history, reload and legacy records preserve both pictures', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
-  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
+  globalThis.fetch = async () => json({ data: [{ b64_json: gif.toString('base64') }] })
   const card = await draw(f, { prompt: 'card portrait' }, own)
+  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
   const play = await f.runtime.request('jobs', { tag: 'story scene', key: 'play-scene', sessionId: 'play-session' })
   await f.runtime.terminal(play.body.id)
   const cardId = card.images[0].jobId
@@ -543,23 +553,32 @@ test('card and play galleries stay separate while task history, reload and legac
     await new Promise(resolve => setTimeout(resolve, 5))
   }
   assert.equal(saved[cardId].source, 'card')
+  const galleryDir = join(f.pluginRoot, '../../image-cache/dsh-tavern-gen')
+  const cacheDir = join(f.pluginRoot, 'cache')
+  assert.equal(saved[cardId].file, join(galleryDir, 'images', cardId + '.gif'))
+  assert.deepEqual(await readFile(saved[cardId].file), gif)
+  assert.deepEqual(await readdir(cacheDir), [play.body.id + '.img'], 'new card output does not write a second file to cache')
   f.runtime.close()
   delete saved[cardId].source; delete saved[play.body.id].source
   const legacyId = '11111111-2222-4333-8444-555555555555'
-  const legacyFile = join(dirname(saved[cardId].file), legacyId + '.png')
+  const legacyFile = join(cacheDir, legacyId + '.img')
   await copyFile(saved[cardId].file, legacyFile)
-  await createCardGallery(join(f.pluginRoot, '../../image-cache/dsh-tavern-gen')).add({ jobId: legacyId, file: legacyFile, mediaType: 'image/png', prompt: 'older card portrait' }, { sessionId: 'card-session-a' })
+  await createCardGallery(galleryDir).add({ jobId: legacyId, file: legacyFile, mediaType: 'image/gif', prompt: 'older card portrait' }, { sessionId: 'card-session-a' })
   saved[legacyId] = { ...saved[cardId], id: legacyId, file: legacyFile, key: 'card-older-version' }
+  saved[cardId].file = join(galleryDir, 'old-images', cardId + '.gif')
   await writeFile(join(f.pluginRoot, 'jobs-store.json'), JSON.stringify(saved))
   const restarted = await f.start()
   assert.deepEqual((await restarted.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
   assert.deepEqual(new Set((await restarted.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'pre-fix UUID card jobs are recognized without deleting or regenerating them')
+  assert.equal((await restarted.request('job-detail?id=' + cardId)).body.job.hasImage, true, 'restore finds a relocated GIF')
   assert.equal((await restarted.request('/dsh-tavern-gen/api/gallery')).body.items.length, 2)
   restarted.close()
   await writeFile(join(f.pluginRoot, 'jobs-store.json'), '{}')
   const recovered = await f.start()
   assert.deepEqual((await recovered.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
-  assert.deepEqual(new Set((await recovered.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'cache-only recovery retains card sources for prefixed IDs and old gallery UUIDs')
+  const recoveredCards = (await recovered.request('history?source=card')).body.jobs
+  assert.deepEqual(new Set(recoveredCards.map(job => job.id)), new Set([cardId, legacyId]), 'disk recovery retains card sources for prefixed IDs and old gallery UUIDs')
+  assert.ok(recoveredCards.every(job => job.hasImage && job.mediaType === 'image/gif'))
 })
 
 test('cancelling a status call stops only the wait, never the job or a second paid request', async t => {
@@ -651,6 +670,10 @@ test('gallery writes do not lose concurrent additions and remove compares stable
   assert.equal((await gallery.list('a')).length, 19)
   assert.equal(await gallery.remove('job-4', 'b'), false)
   await assert.rejects(gallery.file('../output.png'))
+  const staleTarget = join(root, 'gallery', 'images', 'output.png')
+  await writeFile(staleTarget, 'stale bytes')
+  await gallery.add({ jobId: 'output', file, mediaType: 'image/png' })
+  assert.deepEqual((await gallery.read('output')).data, PNG, 'equal basenames in different directories still require a copy')
 })
 
 test('gallery favorites and trash are record flags, and bulk delete only touches the ids it is given', async t => {

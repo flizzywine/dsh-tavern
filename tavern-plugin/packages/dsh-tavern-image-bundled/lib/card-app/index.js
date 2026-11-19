@@ -9,7 +9,6 @@ import { imageReferenceLimit, effectiveImageProvider } from '../image-provider-c
 import { resolvePromptMode } from '../prompt-presets.js'
 import { CARD_SIZES, SEED_CONTROLS, TERMINAL_STATES, cardImageResult, cardSelection } from './generation.js'
 import { atomicWrite, readJson, serialQueue } from './storage.js'
-import { createCardGallery } from './gallery.js'
 import { createCardWorldbook } from './worldbook.js'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -32,10 +31,10 @@ const pick = (items, key, aliases = () => []) => {
   return hits[0]
 }
 
-export function apply(ctx, { ready }) {
+export function apply(ctx, { ready, data, gallery }) {
   const logger = ctx.logger || console, controller = new AbortController()
-  const data = join(ROOT, '../../image-cache/dsh-tavern-gen'), enabledFile = join(ROOT, 'card-enabled.json')
-  const gallery = createCardGallery(data), worldbook = createCardWorldbook(ROOT), mutate = serialQueue(), seedGate = serialQueue()
+  const enabledFile = join(ROOT, 'card-enabled.json')
+  const worldbook = createCardWorldbook(ROOT), mutate = serialQueue(), seedGate = serialQueue()
   let closed = false, enabled = true, applyTools
   let getOrigin
   const imageOrigin = () => {
@@ -210,6 +209,7 @@ export function apply(ctx, { ready }) {
         if (!job) { jobs.push({ jobId: id, state: 'unknown', note: '没有这个任务号；确认它是不是别的会话提交的' }); continue }
         const base = omitUndefined({ jobId: job.id, state: job.state, channel: job.channelName || job.channelId || '', seed: job.resultSeed ?? (job.cardSeedSupported === true ? job.seed : undefined) })
         if (job.state === 'done') {
+          if (!job.file) { jobs.push({ ...base, note: '图片文件已不存在' }); continue }
           const result = cardImageResult(job, { preset: job.cardPreset || '' })
           let item = null
           try { item = await gallery.add(result, { sessionId: options.sessionId }); item.url = new URL(item.url, imageOrigin()).href }
