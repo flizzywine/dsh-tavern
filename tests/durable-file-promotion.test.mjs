@@ -72,12 +72,19 @@ test('写锁靠文件存在互斥；崩溃后缺少属主记录的旧锁按年�
   assert.equal((await readdir(root)).includes('head.json.write-lock'), false)
 
   // A live writer's lock with its owner record still excludes others.
-  let release
-  const held = promotion.update(target, () => new Promise(resolve => { release = resolve }))
-  while (!(await readdir(root)).includes('head.json.write-lock')) await new Promise(resolve => setImmediate(resolve))
-  await assert.rejects(createDurableFilePromotion({ writeLockStaleMs: Number.MAX_SAFE_INTEGER }).write(target, 'other'), { code: 'DSH_TAVERN_WRITE_CONFLICT' })
-  release(undefined)
-  await held
+  const entered = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  const held = promotion.update(target, () => {
+    entered.resolve()
+    return release.promise
+  })
+  await Promise.race([entered.promise, held])
+  try {
+    await assert.rejects(createDurableFilePromotion({ writeLockStaleMs: Number.MAX_SAFE_INTEGER }).write(target, 'other'), { code: 'DSH_TAVERN_WRITE_CONFLICT' })
+  } finally {
+    release.resolve()
+    await held
+  }
   assert.equal(await readFile(target, 'utf8'), 'saved')
 })
 
