@@ -595,7 +595,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       return true;
     });
     async function copyPack(pack){const result=await work.task(()=>binding.service.copyItems({sourcePackId:pack.manifest.id,itemRefs:[...pack.manifest.assets.map(a=>({kind:a.kind,id:a.id})),...pack.manifest.figures.map(id=>({kind:'figures',id}))],target:{newPackName:pack.manifest.name+' 副本'}}));if(result)onChanged?.();}
-    async function confirmRemove(){const pack=remove,r=await work.task(()=>binding.service.removePack({packId:pack.manifest.id,expectedRevision:pack.revision}));if(r){setRemove(null);(onRemoved||onChanged)?.(pack);}}
+    // 删除素材包 keeps its own dialog (it lists the cards that use the pack); 「以后不再显示」 hides the kind 'asset-pack' only.
+    const [hideRemove,setHideRemove]=React.useState(false);
+    async function removeNow(pack){const r=await work.task(()=>binding.service.removePack({packId:pack.manifest.id,expectedRevision:pack.revision}));if(r){setRemove(null);(onRemoved||onChanged)?.(pack);}return r;}
+    async function confirmRemove(){if(hideRemove)hiddenConfirms.hide('asset-pack');await removeNow(remove);}
+    const askRemove=pack=>{if(hiddenConfirms.has('asset-pack'))removeNow(pack);else{setHideRemove(false);setRemove(pack);}};
     const dialogs=h(React.Fragment,null,
       pendingExport&&h(Modal,{title:'模组默认外观依赖其它素材包',className:'ap-export-warning',busy:work.busy,onClose:()=>setPendingExport(null)},
         h('p',{className:'ap-hint-line'},h('span',{className:'ap-hint-mark','aria-hidden':true},h(Glyph,{name:'warning'})),h('span',null,'导出不自包含：以下外部图片只保留引用，不会暗中附带其它包'),h(Help,{text:'目标机器缺少或未使用这些素材时，模组显示默认外观。',label:'外部依赖 说明'})),
@@ -605,8 +609,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       preview&&(preview.kind==='file-queue'?h(PackFileQueue,{binding,queue:preview,onDone:()=>{setPreview(null);onChanged?.();}}):preview.kind==='pack-set'?h(PackSetInstall,{binding,set:preview,onClose:changed=>{setPreview(null);if(changed)onChanged?.();},onDone:()=>{setPreview(null);onChanged?.();}}):
         h(ConflictDialog,{binding,preview,onClose:()=>setPreview(null),onDone:()=>{setPreview(null);onChanged?.();}})),
       remove&&h(Modal,{title:'删除「'+remove.manifest.name+'」？',onClose:()=>setRemove(null),busy:work.busy},h(Impact,{binding,packId:remove.manifest.id}),h(ErrorBox,{error:work.error}),
-        h(Actions,null,h(Button,{onClick:()=>setRemove(null),disabled:work.busy},'取消'),h(Button,{primary:true,disabled:work.busy,onClick:confirmRemove},'确认删除'))));
-    return {work,exportPack,exportPacks,copyPack,askRemove:setRemove,setPreview,dialogs};
+        h(Actions,null,h(HideCheck,{checked:hideRemove,disabled:work.busy,onToggle:()=>setHideRemove(v=>!v)}),h(Button,{onClick:()=>setRemove(null),disabled:work.busy},'取消'),h(Button,{primary:true,disabled:work.busy,onClick:confirmRemove},'确认删除'))));
+    return {work,exportPack,exportPacks,copyPack,askRemove,setPreview,dialogs};
   }
   // ---------- packs-v3: one pack row, one state control, one shared pack modal (proposal §9) ----------
   // State of a pack seen from a card, derived from the two stored fields only (no new field):
@@ -1195,10 +1199,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // Right click or long press opens the single entry's actions.
     const rowMenu=item=>close=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),
       remove:current==='figures'?(done=>h(MenuItem,{danger:true,disabled:work.busy,onClick:()=>{done();
-          askDelete(setConfirm,{title:'删除人物「'+item.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},()=>removeEntries('figures',[item.id]));}},'删除人物…')):
+          askDelete(setConfirm,'asset-figure',{title:'删除人物「'+item.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},()=>removeEntries('figures',[item.id]));}},'删除人物…')):
         entryRemoveItem({asset:item,pack,remove:removeEntry,ask:setConfirm,onError:text=>setNotice({text})})});
     const askRemovePicked=()=>{const ids=pickedIds();
-      setConfirm({title:'删除选中的 '+ids.length+' 项'+kinds[current]+'？',body:'从素材包「'+pack.manifest.name+'」中删除所选素材，无法恢复。使用它们的卡会受到影响。',confirmLabel:'删除 '+ids.length+' 项',danger:true,onConfirm:()=>removeEntries(current,ids)});};
+      askDelete(setConfirm,'asset-bulk',{title:'删除选中的 '+ids.length+' 项'+kinds[current]+'？',body:'从素材包「'+pack.manifest.name+'」中删除所选素材，无法恢复。使用它们的卡会受到影响。',confirmLabel:'删除 '+ids.length+' 项',danger:true},()=>removeEntries(current,ids));};
     const changePickedEnabled=enabled=>{
       const ids=new Set(pickedIds()),mode=enabled?'on':'off';
       return work.task(async()=>{
@@ -1310,8 +1314,6 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       pack.automatic&&h(MenuItem,{onClick:()=>{closeMenu();setAutomaticReview(true);}},'自动变更…'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.exportPack(pack);}},'导出'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.copyPack(pack);}},'复制'),
-      h('button',{type:'button',role:'menuitemcheckbox','aria-checked':deleteAsk.get(),className:'ap-menu-item',onClick:()=>{closeMenu();deleteAsk.set(!deleteAsk.get());}},
-        h('span',null,'删除条目前确认'),deleteAsk.get()&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))),
       h(MenuItem,{danger:true,onClick:()=>{closeMenu();actions.askRemove(pack);}},'删除'))});
     // a single-figure pack is usually named after its figure; then the title would repeat the
     // heading beside it (大肥鱼 × 3), so it names the container instead.
@@ -1423,8 +1425,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const rename=value=>{const tag=assetTags.normalize([value])[0]||'';if(!tag||tag===row.tag)return;run(()=>save(list=>list.map(icon=>icon.tag===row.tag?{...icon,tag}:icon))).then(done=>{if(done)setSelected(tag);});};
     const tagProblem=value=>{const tag=assetTags.normalize([value])[0]||'';return !tag?'请填写标签':[...tag].length>120?'标签最多 120 字':tag!==row?.tag&&icons.some(icon=>icon.tag===tag)?'这个标签已有图标':'';};
     const action=pick.on?h(SelectBar,{count:pick.ids.size,action:'删除',danger:true,busy,onCancel:pick.stop,
-        onAction:()=>setConfirm({title:'删除所选标签图标？',body:'物品和它们的标签保留；没有自己图片的物品改用上一级标签的图标或只显示文字。',confirmLabel:'删除',danger:true,
-          onConfirm:async()=>{const gone=pick.ids;await run(()=>save(list=>list.filter(icon=>!gone.has(icon.tag))));pick.stop();setSelected(null);}})}):
+        onAction:()=>askDelete(setConfirm,'asset-tag-icon',{title:'删除所选标签图标？',body:'物品和它们的标签保留；没有自己图片的物品改用上一级标签的图标或只显示文字。',confirmLabel:'删除',danger:true},
+          async()=>{const gone=pick.ids;await run(()=>save(list=>list.filter(icon=>!gone.has(icon.tag))));pick.stop();setSelected(null);})}):
       h(Popover,{label:'标签图标操作',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'标签图标更多操作','aria-expanded':open,onClick:toggle}),
         content:close=>h(MenuItem,{disabled:!icons.length||busy,onClick:()=>{close();setSelected(null);pick.start();}},'删除…')});
     return h(CatSheet,{title:'标签图标',className:'ap-tag-icons-sheet',onClose:()=>{if(pick.on)pick.stop();else onClose();},busy,headTools:action},
@@ -1522,7 +1524,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const notify=()=>{for(const fn of [...listeners])fn();};
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},

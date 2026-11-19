@@ -534,7 +534,7 @@
                 }, installed);
             }
             async function remove(plugin) {
-                const ok = await askTavernConfirm("删除插件 " + plugin.name + "？插件文件夹会移到 plugin-backups 备份目录，可以手动找回。", { confirmText: "删除" });
+                const ok = await askTavernConfirm("插件文件夹会移到 plugin-backups 备份目录，可以手动找回。", { title: "删除插件 " + plugin.name + "？", confirmText: "删除", danger: true, hide: "plugin" });
                 if (!ok) return;
                 void run(function () { return rpc("removeUserPlugin", { folder: plugin.folder }); }, function () { return "已删除 " + plugin.name + "，刷新页面后生效。"; });
             }

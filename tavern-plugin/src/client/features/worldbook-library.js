@@ -108,7 +108,7 @@
 			async function removeEntry(index) {
 				const entry = (draft.entries || [])[index];
 				const title = entry && (entry.comment || entry.title) || "未命名条目";
-				if (!await askConfirm("删除世界书条目“" + title + "”？\n保存世界书后才会正式删除。")) return;
+				if (!await askConfirm("保存世界书后才会正式删除。", { title: "删除世界书条目“" + title + "”？", confirmText: "删除", danger: true, hide: "worldbook-entry" })) return;
 				editDraft(Object.assign({}, draft, { entries: (draft.entries || []).filter(function (_entry, itemIndex) { return itemIndex !== index; }) }));
 			}
 			function entryPatch(entry) {
@@ -405,7 +405,7 @@
 			async function remove(source, name) {
 				if (busy || bindingBusy || !source) return;
 				const detail = source.kind === "card" ? "将移除人物卡内的整本世界书，保留人物卡其他内容，并解除相关绑定。" : "工作版和原版都会删除，并解除相关绑定。";
-				if (!await askConfirm("删除世界书“" + name + "”吗？\n" + detail)) return;
+				if (!await askConfirm(detail, { title: "删除世界书“" + name + "”？", confirmText: "删除", danger: true, hide: "worldbook" })) return;
 				setBusy(true); setError("");
 				try {
 					await rpc("deleteWorldBook", { source: source }, props.scope.sessionId);

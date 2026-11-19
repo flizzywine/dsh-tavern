@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
         // @include surfaces.cjs
 		// @include hscroll.js
 		if (typeof document !== "undefined") { installTavernStylesheet(document, __TAVERN_BUNDLED_CSS__, __TAVERN_FEATURE_CSS__);  }
+		// @include hidden-confirms.js
 		// @include spinner.js
 		// @include panel-loading.cjs
 		// @include wait-lines.js

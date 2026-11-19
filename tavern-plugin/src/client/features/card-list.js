@@ -128,7 +128,7 @@
 			async function removeSelected() {
 				if (busy || running.current || !selected.length) return;
 				const names = selected.slice(0, 20).map(card => "• " + card.name + "（" + card.path + "）").join("\n");
-				if (!await askConfirm("删除所选的 " + selected.length + " 张人物卡吗？\n\n" + names + (selected.length > 20 ? "\n……共 " + selected.length + " 张" : "") + "\n\n此操作不可撤销。")) return;
+				if (!await askConfirm(names + (selected.length > 20 ? "\n……共 " + selected.length + " 张" : "") + "\n\n此操作不可撤销。", { title: "删除所选的 " + selected.length + " 张人物卡？", confirmText: "删除", danger: true, hide: "card-bulk" })) return;
 				let chats;
 				try { chats = archiveSession ? await askTavernCardChatRemoval(selected.map(card => card.path), askConfirm) : []; }
 				catch (error) { setNotice("读取游玩记录失败，未删除人物卡：" + String(error && error.message || error)); return; }

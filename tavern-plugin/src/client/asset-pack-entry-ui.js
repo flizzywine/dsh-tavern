@@ -481,7 +481,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   function entryRemoveItem({asset,pack,remove,ask,onError}) {
     const run=()=>Promise.resolve(remove(asset.kind,asset.id)).catch(e=>onError(errorText(e)));
     return close=>h(MenuItem,{key:'remove',danger:true,onClick:()=>{close();if(entryIsBlank(asset))run();
-      else askDelete(ask,{title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true},run);}},'删除…');
+      else askDelete(ask,'asset-entry',{title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true},run);}},'删除…');
   }
   function EntryMoreMenu({asset,busy,items}) {
     return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),content:close=>items(close)});
@@ -524,7 +524,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const [variantChoice,setVariant]=React.useState(undefined),selected=asset.variants&&(assetVariantRow(asset.variants,variantChoice)||assetVariantRow(asset.variants));
     const content=selected?selected.content:asset;
     const write=update=>{setError('');return commit('directions',asset.id,update).catch(e=>setError(errorText(e)));};
-    const askRemove=()=>askDelete(setConfirm,{title:'删除演出风格「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，用到这个素材包的卡都不再发送它。',confirmLabel:'删除',danger:true},()=>remove(asset.id));
+    const askRemove=()=>askDelete(setConfirm,'asset-entry',{title:'删除演出风格「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，用到这个素材包的卡都不再发送它。',confirmLabel:'删除',danger:true},()=>remove(asset.id));
     const menu=remove&&h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
       content:close=>h(MenuItem,{danger:true,onClick:()=>{close();askRemove();}},'删除')});
     return h('div',{className:'ap-detail-pane ap-style-detail','data-disabled':!on||undefined},h(ErrorBox,{error}),
@@ -690,7 +690,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const save=action=>write(entry=>entryWithVariants(entry,editAssetVariantTable(entry.variants||entryVariantTable(entry),action)));
     const rename=(row,name)=>{setRenaming(null);const v=name.trim();if(!v||v===row.name)return;if(chars(v)>256){onError('名称最多 256 字');return;}save({type:'rename',id:row.id,name:v});};
     const replace=row=>{target.current=own?row.id:undefined;input.current?.click?.();};
-    const askRemove=row=>setConfirm({title:'删除变体「'+row.name+'」？',body:'仅删除这个变体，保留条目与其它变体。',confirmLabel:'删除',danger:true,onConfirm:()=>save({type:'remove',id:row.id})});
+    const askRemove=row=>askDelete(setConfirm,'asset-variant',{title:'删除变体「'+row.name+'」？',body:'仅删除这个变体，保留条目与其它变体。',confirmLabel:'删除',danger:true},()=>save({type:'remove',id:row.id}));
     const addControl=h(VariantAdd,{asset,selected,onSelect,write,busy,
       button:p=>h('button',{type:'button',className:'ap-cg-add-chip ap-variant-add','aria-label':'添加变体',title:'添加变体',...p},h(Glyph,{name:'plus'}))});
     const fileInput=media&&h('input',{ref:input,type:'file',hidden:true,tabIndex:-1,accept:AUDIO_KINDS.includes(asset.kind)?AUDIO_ACCEPT:IMAGE_ACCEPT,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file&&upload)Promise.resolve(upload(target.current,file)).catch(error=>onError(errorText(error)));}});

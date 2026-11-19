@@ -2,6 +2,14 @@
 function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
+    // the one place that brings back every confirmation hidden with 「以后不再显示」 (confirm-dialog.js hiddenConfirms).
+    function HiddenConfirmsSetting() {
+        const h = React.createElement;
+        const hidden = React.useSyncExternalStore(hiddenConfirms.subscribe, hiddenConfirms.snapshot, hiddenConfirms.snapshot) !== "[]";
+        const [notice, setNotice] = React.useState("");
+        return h(TavernSettingRow, { title: "恢复所有已隐藏的确认", help: "在删除等确认框里勾过「以后不再显示」的那几类操作会直接执行；恢复后它们重新先问一次。", note: notice },
+            h("button", { type: "button", className: "dsh-tavern-btn", disabled: !hidden, onClick: () => { hiddenConfirms.restoreAll(); setNotice("已恢复"); } }, "恢复"));
+    }
     function GlobalPlayDefaults({ settings }) {
         const h = React.createElement;
         const [data, setData] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
@@ -137,7 +145,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     h(DisplayPreferencesSettings),
                     renderSlot("settings.tavern.appearance", {}),
                     DebugSetting ? h(DebugSetting) : null,
-                    h(CandidatePreferencesSettings), h(HeaderItemsSettings))),
+                    h(CandidatePreferencesSettings), h(HiddenConfirmsSetting), h(HeaderItemsSettings))),
             // the anti-truncation block: the tool-call plumbing that keeps long outputs from being
             // cut mid-body on channels that support tool calls (Gemini especially), grouped out of 高级.
             group("防截断", "本区域可以帮助支持工具调用的渠道改善 Gemini 模型输出截断问题。",

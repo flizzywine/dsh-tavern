@@ -28012,7 +28012,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
-            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
                 EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
@@ -28748,8 +28748,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       h('span',{className:'ap-gw-slot-art ap-gw-slot-empty'},
         h('span',{className:'ap-gw-slot-tools'},h(IconButton,{icon:'upload',label:'上传'+name,className:'ap-icon-button ap-gw-round',onClick:()=>file.current?.click?.()}),
           h(IconButton,{icon:'spark',label:'生成'+name+'…',className:'ap-icon-button ap-gw-round',onClick:()=>c.open(target,{mode:'gen'})})),genFlag(cell)),input);
-    const remove=()=>c.ask({title:'删除'+name+'？',body:fig?'立绘、头像和服装设定图都不受影响。':'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true,
-      onConfirm:()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key)});
+    const remove=()=>askDelete(c.ask,'asset-settei',{title:'删除'+name+'？',body:fig?'立绘、头像和服装设定图都不受影响。':'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true},
+      ()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key),c.onError);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:name+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:420,
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-slot-hit','aria-label':name,title:name,...cellMenuTrigger({open,toggle})},
@@ -28809,8 +28809,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const art=spriteHash?h(Thumb,{binding,packId,hash:spriteHash,label:row.label}):hasSprite&&c.bust(id)?h(BustArt,{binding,packId,bust:c.bust(id),figure:c.figure,frame:CAST_FACE}):h(Thumb,{binding,packId,hash:avatarHash,label:row.label});
     // 下载: the tile's own picture file — its still 立绘, or the 头像 of a 差分 without one (a model / parts 立绘 has no single file).
     const fileHash=spriteHash||(!hasSprite&&avatarHash),fileName=c.figure.name+'-'+outfit.label+'-'+row.label+(spriteHash?'立绘':'头像');
-    const remove=()=>c.ask({title:'删除「'+row.label+'」？',body:'「'+outfit.label+'」里「'+row.label+'」的立绘和头像会被删除；差分本身和其他服装不受影响。',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');}});
+    const remove=()=>askDelete(c.ask,'asset-figure-image',{title:'删除「'+row.label+'」？',body:'「'+outfit.label+'」里「'+row.label+'」的立绘和头像会被删除；差分本身和其他服装不受影响。',confirmLabel:'删除',danger:true},
+      async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');},c.onError);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:row.label+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:460,
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','aria-label':row.label,title:failed?genFailTitle(failed):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id)})},
@@ -28834,7 +28834,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const endCoach=()=>{if(coach){genCoachDone();setCoach(false);}};
     const open=(target,extra={})=>{endCoach();gen.openDialog(target,{...extra,onOutfit});};
     const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[],look=useFigureLook(binding,packId,figure.id);
-    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,
+    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,onError:setError,
       acceptAll:list=>{setAccepting(true);return gen.acceptAll(list).finally(()=>setAccepting(false));},
       at:(kind,emotionId)=>({packId,figureId:figure.id,outfitKey:outfit.key,kind,emotionId}),
       sprite:id=>genOwnSprite(outfit,manifest,id),avatar:id=>outfit?.avatars?.[outfitImageId(outfit,id)]||null,hasSprite:id=>!!outfit&&emotionMapped('sprite',outfit,manifest,id),
@@ -29942,6 +29942,8 @@ function ReadingPresetsEditor({call}) {
     try{const summary=await call(method,args),value=await call('readingPreset',{id:summary.active});if(live.current){setList(summary);show(value);setQuery('');setNote(null);}return true;}
     catch(e){await fail(e);return false;}finally{if(live.current)setBusy(false);}
   });
+  const askRemove=()=>{const p=current.current;askDelete(setConfirm,'reading-preset',{title:'删除预设',body:'删除「'+p.name+'」及其 '+p.entries.length+' 条读音？',confirmLabel:'删除',danger:true},
+    async()=>{if(!await presetOp('deleteReadingPreset',{id:p.id}))throw new Error('删除失败');},()=>{});};
   async function exportPreset(){
     try{const doc=await call('exportReadingPreset',{id:current.current.id});
       const url=URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');
@@ -29999,7 +30001,7 @@ function ReadingPresetsEditor({call}) {
         h(MenuItem,{key:'export',onClick:()=>{close();exportPreset();}},'导出'),
         h(MenuItem,{key:'import',onClick:()=>{close();picker.current?.click?.();}},'导入'),
         h(MenuItem,{key:'merge',disabled:entries.length<2,onClick:()=>{close();countMerge();}},'合并同读音…'),
-        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();setConfirm(true);}},'删除…')]});
+        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();askRemove();}},'删除…')]});
     const head=naming?h(InlineAdd,{open:true,className:'fork-readings-name',label:naming.mode==='create'?'新预设名称':'预设名称',placeholder:'预设名称',maxLength:40,busy,
         value:naming.value,onChange:value=>setNaming(n=>n&&{...n,value}),onCancel:()=>setNaming(null),
         onConfirm:async name=>{const ok=naming.mode==='create'?await presetOp('createReadingPreset',{name}):name===preset.name||await presetOp('renameReadingPreset',{id:preset.id,name});if(ok&&live.current)setNaming(null);return ok;}})
@@ -30030,8 +30032,7 @@ function ReadingPresetsEditor({call}) {
     merging&&preset&&h(ConfirmDialog,{title:'合并同读音',confirmLabel:'合并',
       body:merging.groups+' 组读音相同的条目各合并为一条，写法用逗号分开（'+merging.before+' → '+(merging.before-merging.removed)+' 条）。',
       onConfirm:async()=>{try{await runMerge();}catch(e){await fail(e);throw e;}},onClose:()=>setMerging(null)}),
-    confirm&&preset&&h(ConfirmDialog,{title:'删除预设',body:'删除「'+preset.name+'」及其 '+preset.entries.length+' 条读音？',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{if(!await presetOp('deleteReadingPreset',{id:preset.id}))throw new Error('删除失败');},onClose:()=>setConfirm(false)}));
+    confirm&&preset&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(false)}));
 }
 // the card export helpers of 「素材包」 — a pack's size,
 // and the image packs a chosen pack's 模组 need but that stay behind. A 全局 pack that goes with the card is bound to
@@ -31607,9 +31608,12 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
   async function uninstall() {
     let ready;
     try { ready = await mods.task(() => rpc('managedModPlan', { action: 'uninstall', modId: row.id })); } catch (_) { return; }
+    // 「以后不再显示」 on 卸载模组 hides the kind 'mod-uninstall' (hidden-confirms.js); the host plan is still applied as planned.
+    if (hiddenConfirms.has('mod-uninstall')) { try { await applyPlan(ready); } catch (_) {} return; }
     setConfirm(ready);
   }
-  const apply = async () => { await mods.task(() => rpc('managedModApply', { token: confirm.token, revision: confirm.revision, answers: {} })); mods.changed(); onBack(); };
+  const applyPlan = async ready => { await mods.task(() => rpc('managedModApply', { token: ready.token, revision: ready.revision, answers: {} })); mods.changed(); onBack(); };
+  const apply = () => applyPlan(confirm);
   const deps = row.dependencies || [], depNotice = id => (detail?.dependencies || row.notices || []).find(item => item.dependencyId === id), byId = id => mods.data?.mods.find(item => item.id === id);
   const config = detail?.config, labels = list => list?.length ? list.map(field => field.label).join('、') : '无';
   const conflicts = detail?.conflicts || [], assets = detail?.assetKinds, dependents = (detail?.dependents || []).map(item => modQuote(byId(item.consumerId)?.name || item.consumerId));
@@ -31639,7 +31643,7 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
         h(ModInfoRow, { label: '玩家偏好', help: MOD_DATA_HELP.preferences }, h('span', { className: 'fork-mod-info-list' }, labels(config?.preferenceFields))),
         assets ? h(ModInfoRow, { label: '素材', help: MOD_DATA_HELP.assets }, h('span', { className: 'fork-mod-info-list' }, labels(assets))) : null)),
     row.installed && row.globalRoot !== false ? h('div', { className: 'fork-mod-danger' }, h(Button, { className: 'ap-danger-text', disabled: mods.busy, onClick: uninstall }, '卸载模组…')) : null,
-    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', onConfirm: apply, onClose: () => setConfirm(null),
+    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', hide: 'mod-uninstall', onConfirm: apply, onClose: () => setConfirm(null),
       body: confirm.retainedByCards?.length ? confirm.retainedByCards.length + ' 张卡仍在用它，这些卡保留它的代码；其他卡会缺少这个模组。' : '用到它的卡会缺少这个模组；卡里的选择和设置保留。',
       extra: dependents.length ? dependents.join('、') + '需要它。' : undefined }));
 }
