@@ -15,6 +15,8 @@
 
 ## 安装方式
 
+DSH Tavern 内置的剧情罗盘默认停用。在「设置 → 酒馆插件」里手动启用并刷新页面后，即可打开剧情罗盘面板。
+
 ### 1. 作为独立插件安装在 DSH Tavern 中
 
 本仓库运行时零第三方 npm 依赖（`dependencies` 为空），支持在 DSH Tavern 的插件管理中直接通过 GitHub 仓库导入，或在 DSH 配置目录中安装本包并应用 `cordis.patch.yml`。

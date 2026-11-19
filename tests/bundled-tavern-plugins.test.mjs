@@ -69,8 +69,7 @@ test('startService 在拉起 DSH 进程前调用 syncBundledTavernPlugins', () =
   assert.ok(spawnIndex > syncIndex, 'syncBundledTavernPlugins() 应在拉起进程前执行')
 })
 
-test('命运之骰默认不注册，旧内置副本迁移一次，手动启用后跨升级保留', async t => {
-  const folder = 'dsh-tavern-fate-dice'
+async function checkOptInPlugin(t, folder) {
   const source = makeSource(t, { folder })
   const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-service-home-'))
   t.after(() => rmSync(dshHome, { recursive: true, force: true }))
@@ -84,13 +83,14 @@ test('命运之骰默认不注册，旧内置副本迁移一次，手动启用�
   const sync = () => syncUserPlugins({ dataRoot, dshHome, logger: quiet })
   const installer = createUserPluginInstaller({ dataRoot, sync })
   const patch = path.join(profileDir, 'cordis.patch.yml')
+  const patchHasPlugin = () => readFileSync(patch, 'utf8').includes(`tavern-user-plugin-${folder}`)
   const installed = syncBundled()
   assert.equal(installed.action, 'installed')
   assert.equal((await installer.list())[0].state, 'disabled')
   assert.deepEqual((await sync()).plugins, [])
 
   await installer.enable(folder)
-  assert.match(readFileSync(patch, 'utf8'), /tavern-user-plugin-dsh-tavern-fate-dice/)
+  assert.equal(patchHasPlugin(), true)
 
   // Earlier bundled copies were active with this same package digest and no opt-in default recorded.
   const sourceFile = path.join(installed.target, SOURCE_FILE)
@@ -100,7 +100,7 @@ test('命运之骰默认不注册，旧内置副本迁移一次，手动启用�
   assert.equal(syncBundled().action, 'upgraded')
   assert.equal((await installer.list())[0].state, 'disabled')
   assert.deepEqual((await sync()).plugins, [])
-  assert.doesNotMatch(readFileSync(patch, 'utf8'), /tavern-user-plugin-dsh-tavern-fate-dice/)
+  assert.equal(patchHasPlugin(), false)
 
   await installer.enable(folder)
   assert.equal(syncBundled().action, 'skipped')
@@ -108,4 +108,8 @@ test('命运之骰默认不注册，旧内置副本迁移一次，手动启用�
   assert.equal(syncBundled().action, 'upgraded')
   assert.equal((await installer.list())[0].enabled, true)
   assert.deepEqual((await sync()).plugins.map(item => item.name), [folder])
-})
+}
+
+for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass']) {
+  test(`${folder} 默认不注册，旧内置副本迁移一次，手动启用后跨升级保留`, t => checkOptInPlugin(t, folder))
+}

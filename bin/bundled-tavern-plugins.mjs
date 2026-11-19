@@ -19,6 +19,7 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     folder: 'dsh-tavern-plot-compass',
     packageName: 'dsh-tavern-plot-compass',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-plot-compass'],
+    defaultDisabled: true,
   },
   {
     folder: 'dsh-tavern-narrative-damper',
