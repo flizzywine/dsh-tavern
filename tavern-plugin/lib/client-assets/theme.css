@@ -5123,37 +5123,32 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-mood-row > .ap-popover-anchor { margin-left: auto; }
 .ap-voice-dialog { width: min(460px, 100%); }
 
-/* ---- 声音 tab: 配音 · the voice (▶ · name ⌄ · one line of where it comes from · 试听) · 参考音频;
-   选择声音 (a floating list), 新建声音 / 编辑声音 (services | what one needs), 舞台设置 › 配音 rows. One voice row (.ap-vx-row) for all. */
+/* ---- 声音 tab, its inline editor, 声音库, and 舞台设置 › 配音. */
 .ap-vx-tab { display: flex; flex-direction: column; min-width: 0; }
 .ap-vx-onoff { margin: 0 0 12px; }
 .ap-vx-onoff .ap-switch-row { padding: 0; border: 0; }
 .ap-vx-onoff .ap-switch-name { font-size: var(--fork-fs-heading); font-weight: 600; color: var(--fork-ink); }
-.ap-vx-hero { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 16px; align-items: center; padding: 4px 0 24px; }
-.ap-vx-hero > .ap-vx-say, .ap-vx-hero > .ap-vx-try-error { grid-column: 2; }
-/* 不配音: the voice stays, greyed out — quiet ink, no accent (no translucency: ui-surfaces). */
-.ap-vx-hero[data-off] { filter: grayscale(1); }
-.ap-vx-hero[data-off], .ap-vx-hero[data-off] * { color: color-mix(in srgb, var(--fork-ink) 40%, var(--fork-surface)) !important; }
-.ap-vx-disc { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--fork-accent-soft); color: var(--fork-accent); }
-.ap-vx-disc .ap-glyph { width: 24px; height: 24px; }
-.ap-vx-disc[data-state="off"] { background: var(--fork-hover); color: var(--fork-ink-3); }
-.ap-vx-hero-main { display: grid; gap: 2px; min-width: 0; }
-.ap-vx-hero-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; }
+.ap-vx-inline { min-width: 0; padding-top: 12px; border-top: 1px solid var(--fork-hairline); }
+.ap-vx-inline h3, .ap-vx-ident h3 { margin: 0; font-size: var(--fork-fs-title); font-weight: 600; }
+.ap-vx-inline .ap-vx-ident { gap: 8px; justify-content: space-between; flex-wrap: wrap; padding: 0; }
+.ap-vx-rename { display: flex; min-width: 0; }
+.ap-vx-inline .ap-vx-rename { margin-left: -8px; }
+.ap-vx-inline .ap-vx-pane { padding: 12px 0 0; overflow: visible; }
+.ap-vx-inline .ap-vx-add-foot { align-items: stretch; flex-direction: column; gap: 12px; padding: 12px 0 0; border: 0; }
+.ap-vx-inline .ap-vx-add-foot > .ap-vx-say { flex: auto; }
+.ap-ui .ap-vx-inline button.ap-vx-new { width: 36px; height: 36px; min-height: 36px; }
+.ap-vx-fallback > .ap-vx-say { margin-top: 0; }
 .ap-ui button.ap-vx-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 32px; padding: 0 6px 0 8px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink); font-size: var(--fork-fs-title); font-weight: 600; cursor: pointer; }
 .ap-ui button.ap-vx-name > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ap-ui button.ap-vx-name .ap-glyph { flex: none; width: 14px; height: 14px; color: var(--fork-ink-2); }
 .ap-ui button.ap-vx-name:hover, .ap-ui button.ap-vx-name[aria-expanded="true"] { background: var(--fork-hover); }
-.ap-vx-hero-line > .ap-vx-pick-anchor, .ap-vx-stage-row > .ap-vx-pick-anchor { display: inline-flex; flex: 0 1 auto; min-width: 0; }
-/* the name's hover ground reaches past its text: the anchor (not the button, whose max-width is the anchor's) sits 8 px left. */
-.ap-vx-hero-line > .ap-vx-pick-anchor { margin-left: -8px; }
+.ap-vx-stage-row > .ap-vx-pick-anchor { display: inline-flex; flex: 0 1 auto; min-width: 0; }
 /* ▶ / ■ read as solid shapes. */
 .ap-ui button.ap-vx-say-play .ap-glyph path, .ap-ui button.ap-vx-row-play .ap-glyph path { fill: currentColor; }
 .ap-ui input.ap-vx-name-input { font-size: var(--fork-fs-title); font-weight: 600; }
-.ap-vx-spark { display: inline-flex; color: var(--fork-accent); }
-.ap-vx-spark .ap-glyph { width: 14px; height: 14px; }
 .ap-vx-tag { flex: none; padding: 0 7px; border-radius: 9px; background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-weight: 400; line-height: 18px; }
-.ap-vx-name-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: -4px; }
-.ap-vx-hero-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; --fork-spinner-size: 16px; }
+.ap-vx-name-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+.ap-vx-name-tools .ap-glyph { vertical-align: middle; }
 .ap-vx-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; min-height: 28px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
 /* 试听 is one field: the frame is the field's edge (as fork-edit draws it), the ▶ 试听 button and the 语气 pick sit inside. */
 .ap-vx-say { display: flex; align-items: center; gap: 4px; min-height: 40px; margin-top: 10px; padding: 0 4px; border-radius: 6px; background: var(--dsw-alias-bg-base); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fork-ink) 28%, transparent); }
@@ -5232,7 +5227,7 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui button.ap-vx-nav-foot { margin-top: auto; align-self: flex-start; padding: 0 10px; color: var(--fork-ink-2); }
 .ap-vx-ident { display: flex; align-items: center; min-width: 0; min-height: 36px; padding: 12px 20px 0 8px; }
 .ap-ui .ap-vx-ident input.ap-vx-name-input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { flex: 1; min-width: 0; height: 36px; padding: 0 8px; font-size: var(--fork-fs-title); font-weight: 600; }
-.ap-ui .ap-vx-ident > button.ap-vx-name[data-empty] > span { color: var(--fork-ink-3); }
+.ap-ui .ap-vx-ident button.ap-vx-name[data-empty] > span { color: var(--fork-ink-3); }
 .ap-vx-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 20px 0 16px; overflow-y: auto; }
 .ap-vx-pane > .ap-vx-try-error { margin: 0 0 8px; }
 .ap-vx-pane-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -5252,7 +5247,8 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-set > .ap-vx-param-text { width: 100%; }
 .ap-vx-add-foot { display: flex; align-items: center; gap: 14px; padding: 12px 20px 14px 24px; border-top: 1px solid var(--fork-hairline); }
 .ap-vx-add-foot > .ap-vx-say { flex: 1; min-width: 0; margin-top: 0; }
-.ap-ui .ap-vx-add-foot button.ap-primary { flex: none; min-width: 96px; height: 34px; border-radius: 17px; font-weight: 600; }
+.ap-vx-save { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ap-ui .ap-vx-save button.ap-primary { flex: none; min-height: 36px; border-radius: 18px; font-weight: 600; }
 
 .ap-vx-auto-row { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 0; border-bottom: 1px solid var(--fork-hairline); }
 .ap-ui .ap-vx-auto-row > button.ap-vx-row-play { width: 36px; height: 36px; background: var(--fork-accent-soft); color: var(--fork-accent); }
@@ -5269,9 +5265,9 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui .ap-vx-stage-row button.ap-vx-go:hover { background: var(--fork-hover); }
 
 @media (max-width: 720px) {
-  /* 声音 tab on a phone: the 试听 line under the whole hero; 选择声音 a bottom sheet; 新建声音 / 编辑声音 full screen, one
-     column that scrolls — the name, the services in a row that wraps, what the service needs — over the fixed footer. */
-  .ap-vx-hero > .ap-vx-say, .ap-vx-hero > .ap-vx-try-error { grid-column: 1 / -1; margin-top: 10px; }
+  /* 选择声音 is a bottom sheet; 声音库 has one scrolling column above its footer. */
+  .ap-ui .ap-vx-inline :is(button.ap-vx-name, .ap-vx-name-tools button, button.ap-voice-pick, button.ap-vx-say-play, .ap-voice-mood) { min-height: 36px; }
+  .ap-vx-save { margin-left: auto; }
   .ap-ui .ap-popover.is-floating:has(> .ap-vx-pick) { top: auto !important; bottom: 0; left: 0 !important; right: 0; width: auto !important; max-width: none !important; max-height: 85dvh !important; border-radius: 16px 16px 0 0; padding: 12px 12px 20px; }
   .ap-vx-pick { flex: 1; width: auto; max-width: none; }
   .ap-vx-row { min-height: 44px; }
@@ -5289,7 +5285,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
   .ap-vx-set-label { min-height: 40px; }
   .ap-vx-add-foot { flex-wrap: wrap; gap: 10px; padding: 10px 12px 14px; }
   .ap-vx-add-foot > .ap-vx-say { flex: 1 1 100%; }
-  .ap-vx-add-foot > .ap-primary { margin-left: auto; }
   .ap-ui button.ap-clip-rec { min-height: 44px; }
   /* Phone: the 声音 tab is the figure's top bar, its tabs and the voice — no preview stage. */
   .ap-figure-editor[data-tab="voice"] > .ap-figure-stage { display: none; }
@@ -5312,11 +5307,12 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
   .ap-ui .ap-voice-row button.ap-voice-play, .ap-ui .ap-voice-row button.ap-icon-button { width: 36px; height: 36px; }
   .ap-ui .ap-voice-search input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]), .ap-ui .ap-voice-search button.ap-voice-find { height: 36px; }
   /* a clip is one line: ▶, its text, its language, ⋯ (the count, length and size are in the line above the list). */
-  .ap-clip { grid-template-columns: 36px minmax(0, 1fr) auto 36px; gap: 6px; min-height: 44px; padding: 4px 0; }
-  .ap-clip-no, .ap-clip-meta { display: none; }
+  .ap-clip { grid-template-columns: 16px 36px minmax(0, 1fr) auto 36px; gap: 0 6px; padding: 4px 0; }
+  .ap-clip-text { grid-column: 3 / -1; min-width: 0; }
+  .ap-clip-lang { grid-column: 3; }
   .ap-ui button.ap-clip-play { width: 36px; height: 36px; }
-  .ap-ui .ap-clip input.ap-clip-text:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { height: 36px; font-size: 14px; }
-  .ap-ui .ap-clip-menu .ap-icon-button { width: 36px; height: 36px; }
+  .ap-ui .ap-clip input.ap-clip-text:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { height: 36px; font-size: var(--fork-fs-body); }
+  .ap-ui .ap-clip-menu .ap-icon-button, .ap-ui .ap-clip-lang button.ap-voice-pick { min-height: 36px; }
   .ap-clip-add { height: 44px; }
   .ap-voice-tune-row > .fork-inline-value > .ap-tune { flex: 1; }
   .ap-voice-moods { grid-template-columns: minmax(0, 1fr); }
