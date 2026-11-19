@@ -94,6 +94,10 @@ export function createStageDirector(deps) {
   const jobs = new Map(), failures = new Map(), tasks = new Set(), versions = new Map(), listeners = new Set(), openingAssets = new Map()
   const streams = new Map(), streamStarts = new Map(), judgeResults = new Map(), retryPreparations = new Map(), openingCommits = new Map()
   const historyCache = createStageHistoryCache({readChanges:deps.readChanges,readRecords:deps.readRecords})
+  // A sealed round's read-only observation by the frozen chat view it was read from (stage-chat-cache shares one view per
+  // revision): one page's requests (presentation, phone, timer, their authority checks) read the round once. The key holds
+  // what else the observation reads: the turn, the asset revision and the card's 物品 switch.
+  const sealedReads = new WeakMap()
   let revision = Date.now()
   let disposed = false
   const key = (chat, turn) => JSON.stringify([chat.id, turn])
@@ -674,6 +678,17 @@ export function createStageDirector(deps) {
     const index = messageIndex(chat, turn)
     // A chain-only view restores its own round and the earlier rounds it names, never another floor's identity row.
     if (index >= 0 && stageReadIdentityOnly(chat,index)) throw Object.assign(new Error('This stage view does not carry round ' + turn),{code:'STAGE_HISTORY_UNLOADED'})
+    const items = await deps.itemsEnabled?.(chat) !== false
+    // While a director task of this session runs, its stream and task state answer instead of the chat alone.
+    const sealedKey = Object.isFrozen(chat) && !options.history && ![...jobs.values(),...streams.values()].some(job=>job.sessionId===chat.sessionId)
+      ? JSON.stringify([turn,deps.assets.revision || 0,items]) : null
+    const known = sealedKey && sealedReads.get(chat)?.get(sealedKey)
+    if (known) {
+      const result = observation(chat,turn,known.body,known.displayDigest,known.unitsDigest,known.pageDigest,options)
+      if (result.unchanged || !options.includePredecessor) return result
+      known.predecessor ||= known.loadPredecessor()
+      return {...result,predecessor:await known.predecessor}
+    }
     const history = await measure('direction.historyIdentity', () => historyCache.read(chat,index))
     // The round's own record, or the predecessor whose end an undirected round shows (one sub-path read when thin).
     if (index >= 0) await measure('direction.historyRecord', () => history.load(chat,index))
@@ -702,12 +717,20 @@ export function createStageDirector(deps) {
       ...(binding ? {binding, bindingKey:token.bindingKey, prefixRevision, baseline:record?.baseline || preview.baseline,
         entries:record?.entries || preview.entries} : value.baseline ? {baseline:value.baseline} : {}),
       ...(record ? {record} : {}), ...(preview ? {preview} : {}), ...(value.opening ? {opening:value.opening} : {}), ...(value.error ? {error:value.error, ...(value.code ? {code:value.code} : {})} : {})}
-    Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview,items:await deps.itemsEnabled?.(chat) !== false}))
-    const result = observation(chat,turn,body,displayDigest,unitsDigest,pageDigest,options)
-    if (result.unchanged || !options.includePredecessor) return result
+    Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview,items}))
     // a page folds the performance chain only; a round that starts at a boundary needs no earlier record.
     const checked = record || preview
-    return {...result,predecessor:checked && !isPerformanceChainBoundary(checked) ? (await history.load(chat,index - 1,{chain:true})).records : []}
+    const loadPredecessor = async () => checked && !isPerformanceChainBoundary(checked) ? (await history.load(chat,index - 1,{chain:true})).records : []
+    // Only a sealed record is the same answer for the same view; an opening follows today's card and a preview its task.
+    if (sealedKey && record && !value.opening) {
+      if (!sealedReads.has(chat)) sealedReads.set(chat,new Map())
+      sealedReads.get(chat).set(sealedKey,{body:freezeJson(body),displayDigest,unitsDigest,pageDigest,loadPredecessor})
+    }
+    const result = observation(chat,turn,body,displayDigest,unitsDigest,pageDigest,options)
+    if (result.unchanged || !options.includePredecessor) return result
+    const entry = sealedKey && sealedReads.get(chat)?.get(sealedKey)
+    if (entry) return {...result,predecessor:await (entry.predecessor ||= loadPredecessor())}
+    return {...result,predecessor:await loadPredecessor()}
   }
   // The round's stored performances (modPerformances, modCorrectionRevision): mod corrections for its source and core
   // items sealed against its record, or the item intents of an in-flight preview. Of the record it reads only the
