@@ -186,7 +186,7 @@ button.dtts-help { display: inline-grid; place-items: center; width: auto; min-w
 button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button.dtts-help { color: inherit; }
 @media (hover: none) { button.dtts-help { min-width: 32px; min-height: 32px; margin: -10px -11px; padding: 12px 14px; } }
 .dtts-help-tip { display: none; position: absolute; z-index: 40; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: max-content; max-width: min(260px, 70vw); padding: 7px 10px; border: .5px solid var(--dtts-line-strong, var(--dsw-alias-border-l3, GrayText)); border-radius: 8px;
-  background: var(--dsw-alias-bg-base, Canvas); box-shadow: 0 8px 24px #00000029; color: var(--dtts-ink); font-size: 12px; font-weight: 400; line-height: 1.55; letter-spacing: 0; text-align: left; white-space: normal; pointer-events: none; }
+  background: var(--fk-current-bgSolid, var(--dsw-alias-bg-base, Canvas)); box-shadow: 0 8px 24px #00000029; color: var(--dtts-ink); font-size: 12px; font-weight: 400; line-height: 1.55; letter-spacing: 0; text-align: left; white-space: normal; pointer-events: none; }
 .dtts-help-anchor:hover .dtts-help-tip, .dtts-help:focus-visible + .dtts-help-tip, .dtts-help-anchor[data-open] .dtts-help-tip { display: block; }
 .dtts-section-head h3 .dtts-help-anchor { margin-left: 0; }
 .dtts-actions > .dtts-help-anchor { align-self: center; margin: 0 auto 0 0; }
@@ -232,7 +232,7 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 .dtts-add { display: flex; align-items: center; justify-content: center; width: 100%; height: 40px; margin-top: 8px; padding: 0; border: 1px dashed var(--dtts-line-strong); border-radius: 10px; background: transparent; color: var(--dtts-ink-2); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
 .dtts-add:hover:not(:disabled) { border-color: var(--dtts-accent); background: color-mix(in srgb, var(--dtts-accent) 6%, var(--fk-current-bgSolid, Canvas)); color: var(--dtts-accent); }
 .dtts-menu-anchor { position: relative; display: inline-flex; }
-.dtts-menu { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; display: grid; min-width: 132px; padding: 4px; border: .5px solid var(--dtts-line-strong); border-radius: 10px; background: var(--dsw-alias-bg-base, Canvas); box-shadow: 0 10px 28px #00000033; }
+.dtts-menu { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; display: grid; min-width: 132px; padding: 4px; border: .5px solid var(--dtts-line-strong); border-radius: 10px; background: var(--fk-current-bgSolid, var(--dsw-alias-bg-base, Canvas)); box-shadow: 0 10px 28px #00000033; }
 .dtts-menu > button { height: 32px; padding: 0 12px; border: 0; border-radius: 7px; background: none; color: var(--dtts-ink); font: inherit; font-size: 13px; text-align: left; white-space: nowrap; cursor: pointer; }
 .dtts-menu > button:hover:not(:disabled), .dtts-menu > button:focus-visible { background: var(--dtts-hover); outline: none; }
 .dtts-menu > button.is-danger { color: var(--dtts-error); }
