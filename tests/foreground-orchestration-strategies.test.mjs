@@ -374,3 +374,24 @@ test('后台请求投影保留前段与后段预设，不因前台优化而丢�
   assert.match(projected.messages.at(-1).content[0].text, /后台任务正文[\s\S]*预设后段内容/)
 })
 
+test('ensureSessionStablePrefix：revision 递增但前缀正文未变化时不追加重复消息，避免破坏 Prompt Cache', async () => {
+  const session = Session.create('stable-prefix-dedup')
+  const first = await ensureSessionStablePrefix(session, '固定世界观背景', null, 0)
+  const countAfterFirst = sessionEvents(session).filter(e => e.type === 'user/message' && String(e.data?.id || '').startsWith('tavern-session-prefix:')).length
+  assert.equal(countAfterFirst, 1)
+
+  // revision 递增但文本完全一致：应直接复用已有记录，不往轨迹追加新事件
+  const same = await ensureSessionStablePrefix(session, '  固定世界观背景  ', null, 1)
+  assert.equal(same.event, first.event)
+  const countAfterSame = sessionEvents(session).filter(e => e.type === 'user/message' && String(e.data?.id || '').startsWith('tavern-session-prefix:')).length
+  assert.equal(countAfterSame, 1)
+
+  // 文本确实变化时才追加新 revision
+  const updated = await ensureSessionStablePrefix(session, '固定世界观背景（新增设定）', null, 2)
+  assert.notEqual(updated.event, first.event)
+  assert.equal(updated.revision, 2)
+  const countAfterUpdate = sessionEvents(session).filter(e => e.type === 'user/message' && String(e.data?.id || '').startsWith('tavern-session-prefix:')).length
+  assert.equal(countAfterUpdate, 2)
+})
+
+
