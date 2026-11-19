@@ -31,6 +31,17 @@ function missingSession(error) {
   return false
 }
 
+function corruptedStoredSession(error) {
+  let current = error
+  for (let depth = 0; current && depth < 5; depth++) {
+    const message = str(current.message || current)
+    if (/stored session\s+["'][^"']+["']\s+failed validation/i.test(message)) return true
+    if (/session event at seq\s+\d+/i.test(message)) return true
+    current = current.cause
+  }
+  return false
+}
+
 export async function executeBackgroundCompaction(agent, signal) {
   const agentCtx = agent && agent.ctx
   const commands = agentCtx !== undefined && typeof agentCtx.get === 'function' ? agentCtx.get('commands') : undefined
@@ -270,7 +281,13 @@ export function createBackgroundAgentSessions(options, task) {
               setup: task.setup(state, descriptor, false)
             })
           } catch (error) {
-            if (!missingSession(error)) throw error
+            const corrupted = corruptedStoredSession(error)
+            if (!missingSession(error) && !corrupted) throw error
+            if (corrupted) {
+              abandonedSessions.add(traceSessionId)
+              if (residentSessionByParent.get(key) === traceSessionId) residentSessionByParent.delete(key)
+              console.warn(`dsh-tavern: 持久后台会话 ${traceSessionId} 校验失败，已放弃并自动重建：${str(error.message || error)}`)
+            }
             handle = undefined
             traceSessionId = makeId()
           }
