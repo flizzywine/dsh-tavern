@@ -129,10 +129,7 @@
                     }
 					const incoming = result.context;
 					// An old RPC reply must not restore a context that the host has left.
-					if (method && incoming && ((incoming.chatId && state.chatId && incoming.chatId !== state.chatId)
-						|| Number(incoming.lifecycleRevision || 0) < Number(state.lifecycleRevision || 0)
-                        || (Number(incoming.lifecycleRevision || 0) === Number(state.lifecycleRevision || 0)
-                            && Number(incoming.stateRevision || 0) < Number(state.stateRevision || 0)))) return;
+					if (method && incoming && !modules.isCurrentContext(state, incoming)) return;
 					if (incoming) { state = Object.assign({}, state, copy(incoming)); state.messages = modules.applyVariableReceipt.indexApi.from(state.messages || []); if (!incoming.transaction) delete state.transaction; }
 					// Version-only and patch replies are merged by the worldbook API itself.
 					if (result.worldbook && Array.isArray(result.worldbook.entries)) state.worldbook = copy(result.worldbook);
@@ -390,31 +387,6 @@
 				}
 				return resolved;
 			}
-			function localSetMessages(patches) {
-				(patches || []).forEach(function (patch) {
-					const message = readMessage(normalizeId(patch.message_id));
-					if (!message) return;
-					if (patch.swipe_id !== undefined) {
-						message.swipe_id = Math.max(0, Math.min((message.swipes || []).length - 1, Number(patch.swipe_id) || 0));
-						message.message = (message.swipes || [])[message.swipe_id] || message.message;
-						message.mes = message.message;
-					}
-					if (patch.message !== undefined) {
-						message.message = String(patch.message);
-						message.mes = message.message;
-						if (Array.isArray(message.swipes)) message.swipes[message.swipe_id || 0] = message.message;
-					}
-					if (patch.data !== undefined) {
-						message.variables = copy(patch.data || {});
-						if (Array.isArray(message.swipes_data)) message.swipes_data[message.swipe_id || 0] = copy(patch.data || {});
-					}
-					if (patch.swipes_data !== undefined) {
-						message.swipes_data = copy(Array.isArray(patch.swipes_data) ? patch.swipes_data : []);
-						message.variables = copy(message.swipes_data[message.swipe_id || 0] || {});
-					}
-				});
-			}
-
 			function regexGroups() {
 				if (!state.regexScripts || typeof state.regexScripts !== "object") state.regexScripts = { global: [], character: [] };
 				if (!Array.isArray(state.regexScripts.global)) state.regexScripts.global = [];
@@ -535,11 +507,7 @@
 				await window.replaceVariables(next, resolved);
 				return { variables: copy(next), delete_occurred: deleted };
 			};
-			window.setChatMessages = async function (patches) {
-				const plain = copy(patches || []);
-				localSetMessages(plain);
-				return await call("updateTavernHelperMessages", { messages: plain });
-			};
+			window.setChatMessages = modules.createMessageWriter({ context: () => state, copy, request: call });
 			window.triggerSlash = function (line) {
 				return call("triggerTavernSlash", { line: window.substitudeMacros(String(line || "")) }).then(function (result) {
 					return result && Object.prototype.hasOwnProperty.call(result, "pipe") ? result.pipe : result;
@@ -791,7 +759,7 @@
 			};
 			window.submitTavernInput = function (text) { return call("submitTavernHelperInput", { text: String(text || "") }); };
             const backgroundModel = modules.installBackgroundModel({ window: window, request: call, context: function () { return state; } });
-			facade = modules.installFacade({ projectMvuSettings: backgroundModel.projectMvuSettings, normalizeMvuSettings: backgroundModel.normalizeMvuSettings, readGlobalRegexes: function () { return regexGroups().global.map(rawRegex); }, installCompatibility: modules.installCompatibility, currentScript: currentScript, post: transport.post, createChatData: modules.createChatData, readMessage:readMessage, readCharacter:readCharacter, createLocalVariables: modules.createLocalVariables, window: window, copy: copy, request: call, context: function () { return state; },
+			facade = modules.installFacade({ projectMvuSettings: backgroundModel.projectMvuSettings, normalizeMvuSettings: backgroundModel.normalizeMvuSettings, readGlobalRegexes: function () { return regexGroups().global.map(rawRegex); }, installCompatibility: modules.installCompatibility, installContext: modules.installContext, currentScript: currentScript, post: transport.post, createChatData: modules.createChatData, readMessage:readMessage, readCharacter:readCharacter, createLocalVariables: modules.createLocalVariables, window: window, copy: copy, request: call, context: function () { return state; },
 				Popup: modules.createPopup({ document: window.document, parent: parent, token: token }) });
             modules.installUtilities(window);
             modules.installEventApi(window);
