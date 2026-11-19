@@ -3,10 +3,12 @@ import test from 'node:test'
 import {
   GEMINI_THOUGHT_SIGNATURE_SENTINEL,
   GEMINI_THOUGHT_SIGNATURE_SENTINEL_BASE64,
+  TOOL_CALL_STREAM_IDLE_TIMEOUT_MS,
   createCapabilityQuirkStore,
   detectWireProtocol,
   enhanceToolProtocolPayload,
   getCapturedThoughtSignature,
+  installToolCallIdleTimeoutPatch,
   installToolProtocolFetchPatch,
   runWithToolProtocolDirective,
 } from '../tavern-plugin/lib/domain/tool-protocol-enforcement.js'
@@ -225,4 +227,84 @@ test('fetch 拦截器：作用域隔离、HTTP 400 当场自动降级重发、SS
   assert.match(fullText, /submit_story/)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(getCapturedThoughtSignature('call_live_99'), 'LIVE_SERVER_SIG_XYZ')
+})
+
+test('installToolCallIdleTimeoutPatch：开启「输出走工具调用」时将 pi-ai 与 DeepSeek 适配器静默超时下限上调到 600s', async (t) => {
+  assert.equal(TOOL_CALL_STREAM_IDLE_TIMEOUT_MS, 600_000)
+
+  const defaultProfile = { streamIdleTimeoutMs: 300_000, reasoning: 'medium' }
+  const longerProfile = { streamIdleTimeoutMs: 900_000, reasoning: 'high' }
+  const snapshot = {
+    profiles: new Map([
+      ['google-vertex', defaultProfile],
+      ['custom-long', longerProfile],
+    ])
+  }
+  const piAdapter = {
+    profileOf(snap, provider) {
+      return snap.profiles.get(provider)
+    }
+  }
+
+  const seenDeepSeekTimeouts = []
+  const deepSeekAdapter = {
+    async *generate(_options, connection) {
+      seenDeepSeekTimeouts.push(connection.streamIdleTimeoutMs)
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+
+  const listeners = new Set()
+  const adapters = new Map([
+    ['google-vertex', { adapter: piAdapter }],
+    ['reapi', { adapter: piAdapter }],
+  ])
+  const fakeCtx = {
+    llm: { adapters },
+    on(event, fn) {
+      if (event === 'llm/adapters-updated') listeners.add(fn)
+      return () => listeners.delete(fn)
+    }
+  }
+
+  const originalProfileOf = piAdapter.profileOf
+  const originalGenerate = deepSeekAdapter.generate
+  const dispose = installToolCallIdleTimeoutPatch(fakeCtx)
+  t.after(dispose)
+
+  // 未开启输出走工具调用或处于作用域外：保持原值 300s
+  assert.equal(piAdapter.profileOf(snapshot, 'google-vertex').streamIdleTimeoutMs, 300_000)
+  assert.equal(
+    runWithToolProtocolDirective({ storyOutputToolCall: false }, () => piAdapter.profileOf(snapshot, 'google-vertex').streamIdleTimeoutMs),
+    300_000
+  )
+
+  // 开启输出走工具调用：300s 上调到 600s，且不篡改原 profile 对象；已有 900s 不被拉低
+  runWithToolProtocolDirective({ storyOutputToolCall: true }, () => {
+    const raised = piAdapter.profileOf(snapshot, 'google-vertex')
+    assert.equal(raised.streamIdleTimeoutMs, 600_000)
+    assert.equal(raised.reasoning, 'medium')
+    assert.equal(defaultProfile.streamIdleTimeoutMs, 300_000)
+
+    const kept = piAdapter.profileOf(snapshot, 'custom-long')
+    assert.equal(kept.streamIdleTimeoutMs, 900_000)
+  })
+
+  // 后续动态注册的 DeepSeek 适配器收到 llm/adapters-updated 后同样生效
+  adapters.set('deepseek', { adapter: deepSeekAdapter })
+  for (const fn of listeners) fn()
+
+  const dsConnection = { streamIdleTimeoutMs: 300_000 }
+  for await (const _ of deepSeekAdapter.generate({}, dsConnection)) {}
+  await runWithToolProtocolDirective({ storyOutputToolCall: true }, async () => {
+    for await (const _ of deepSeekAdapter.generate({}, dsConnection)) {}
+  })
+  assert.deepEqual(seenDeepSeekTimeouts, [300_000, 600_000])
+  assert.equal(dsConnection.streamIdleTimeoutMs, 300_000)
+
+  // 释放后完整还原适配器方法
+  dispose()
+  assert.equal(piAdapter.profileOf, originalProfileOf)
+  assert.equal(deepSeekAdapter.generate, originalGenerate)
+  assert.equal(listeners.size, 0)
 })

@@ -20,6 +20,9 @@ const directiveStorage = new AsyncLocalStorage()
 const capturedSignatures = new Map()
 const MAX_CAPTURED_SIGNATURES = 512
 const fetchPatches = new WeakMap()
+const adapterTimeoutPatches = new WeakMap()
+
+export const TOOL_CALL_STREAM_IDLE_TIMEOUT_MS = 600_000
 
 function str(value) {
   return typeof value === 'string' ? value : value == null ? '' : String(value)
@@ -571,5 +574,120 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
     if (--patch.users) return
     if (target.fetch === patch.replacement) target.fetch = patch.original
     fetchPatches.delete(target)
+  }
+}
+
+function raisedIdleTimeout(current, minTimeoutMs) {
+  return typeof current === 'number' && Number.isFinite(current) && current < minTimeoutMs
+    ? minTimeoutMs
+    : current
+}
+
+function attachAdapterIdleTimeout(adapter, minTimeoutMs) {
+  if (!adapter || typeof adapter !== 'object') return () => {}
+  const hasProfileOf = typeof adapter.profileOf === 'function'
+  const hasGenerate = typeof adapter.generate === 'function'
+  if (!hasProfileOf && !hasGenerate) return () => {}
+
+  let state = adapterTimeoutPatches.get(adapter)
+  if (!state) {
+    state = {
+      floors: new Set(),
+      minTimeoutMs: 0,
+      profileOf: null,
+      generate: null
+    }
+    if (hasProfileOf) {
+      const original = adapter.profileOf
+      const replacement = function patchedToolCallProfileOf(...args) {
+        const profile = original.apply(this, args)
+        const directive = directiveStorage.getStore()
+        if (directive?.storyOutputToolCall === true && profile && typeof profile === 'object') {
+          const nextTimeout = raisedIdleTimeout(profile.streamIdleTimeoutMs, state.minTimeoutMs)
+          if (nextTimeout !== profile.streamIdleTimeoutMs) {
+            return { ...profile, streamIdleTimeoutMs: nextTimeout }
+          }
+        }
+        return profile
+      }
+      adapter.profileOf = replacement
+      state.profileOf = { original, replacement }
+    }
+    if (hasGenerate) {
+      const original = adapter.generate
+      const replacement = function patchedToolCallGenerate(options, connection, ...rest) {
+        const directive = directiveStorage.getStore()
+        if (directive?.storyOutputToolCall === true && connection && typeof connection === 'object') {
+          const nextTimeout = raisedIdleTimeout(connection.streamIdleTimeoutMs, state.minTimeoutMs)
+          if (nextTimeout !== connection.streamIdleTimeoutMs) {
+            return original.call(this, options, { ...connection, streamIdleTimeoutMs: nextTimeout }, ...rest)
+          }
+        }
+        return original.call(this, options, connection, ...rest)
+      }
+      adapter.generate = replacement
+      state.generate = { original, replacement }
+    }
+    adapterTimeoutPatches.set(adapter, state)
+  }
+
+  const token = { minTimeoutMs }
+  state.floors.add(token)
+  state.minTimeoutMs = Math.max(state.minTimeoutMs, minTimeoutMs)
+
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    state.floors.delete(token)
+    if (state.floors.size > 0) {
+      let maxFloor = 0
+      for (const entry of state.floors) {
+        if (entry.minTimeoutMs > maxFloor) maxFloor = entry.minTimeoutMs
+      }
+      state.minTimeoutMs = maxFloor
+      return
+    }
+    if (state.profileOf && adapter.profileOf === state.profileOf.replacement) {
+      adapter.profileOf = state.profileOf.original
+    }
+    if (state.generate && adapter.generate === state.generate.replacement) {
+      adapter.generate = state.generate.original
+    }
+    adapterTimeoutPatches.delete(adapter)
+  }
+}
+
+/**
+ * 开启「输出走工具调用」时，将宿主 LLM 适配器的流式静默超时下限上调到 600s，
+ * 避免部分渠道在批量生成长 tool_call 参数时触发默认 300s idle timeout。
+ * 未开启工具调用输出或用户已配置更高超时时保持原值不变。
+ */
+export function installToolCallIdleTimeoutPatch(ctx, { minTimeoutMs = TOOL_CALL_STREAM_IDLE_TIMEOUT_MS } = {}) {
+  const attached = new Map()
+  let active = true
+
+  function sync() {
+    if (!active) return
+    const adapters = ctx?.llm?.adapters
+    if (!(adapters instanceof Map)) return
+    for (const registration of adapters.values()) {
+      const adapter = registration?.adapter
+      if (!adapter || attached.has(adapter)) continue
+      attached.set(adapter, attachAdapterIdleTimeout(adapter, minTimeoutMs))
+    }
+  }
+
+  sync()
+  const off = typeof ctx?.on === 'function'
+    ? ctx.on('llm/adapters-updated', sync, { global: true })
+    : null
+
+  return () => {
+    if (!active) return
+    active = false
+    if (typeof off === 'function') off()
+    for (const restore of attached.values()) restore()
+    attached.clear()
   }
 }
