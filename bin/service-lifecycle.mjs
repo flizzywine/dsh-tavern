@@ -2,7 +2,7 @@ import { DEFAULT_BIND_HOST, resolveBindHost, serviceOrigin, isLoopbackHost } fro
 import { inspectRecordedProcess as inspectProcess, processStartToken } from './service-process-identity.mjs'
 import { startupTimeoutMs, waitForServiceStartup, stopStartupChild } from './service-startup.mjs'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, resolveVertexProject, vertexApiKeyFrom } from './pi-ai-vertex-stream-patch.mjs'
@@ -25,12 +25,16 @@ export function webUrlFromLogChunk(source) {
   return matches.length > 0 ? matches[matches.length - 1][1] : ''
 }
 
+function serviceLogOffset(record) {
+  // New PID records delimit this process's output; old installations use the latest URL.
+  const offset = record?.logOffset
+  return Number.isSafeInteger(offset) && offset >= 0 ? offset : 0
+}
+
 export async function resolveServiceWebUrl({ port, bindHost = DEFAULT_BIND_HOST, record = {}, log = Buffer.alloc(0), request = fetch }) {
   const origin = serviceOrigin(record.bindHost ?? bindHost, port)
   const bytes = Buffer.isBuffer(log) ? log : Buffer.from(log)
-  // New PID records delimit this process's output; old installations use the latest URL.
-  const offset = Number.isSafeInteger(record.logOffset) && record.logOffset >= 0 ? record.logOffset : 0
-  const candidate = webUrlFromLogChunk(bytes.subarray(offset).toString('utf8'))
+  const candidate = webUrlFromLogChunk(bytes.subarray(serviceLogOffset(record)).toString('utf8'))
   const candidates = []
   try {
     const url = new URL(candidate)
@@ -228,10 +232,14 @@ export async function statusService() {
   throw new Error(`DSH Tavern 未运行（端口 ${state.port}）。`)
 }
 
-async function currentServiceWebUrl(state) {
-  let log = Buffer.alloc(0)
-  try { log = readFileSync(LOG_FILE) } catch {}
-  return resolveServiceWebUrl({ port: state.port, bindHost: state.bindHost, record: state.record || {}, log })
+async function currentServiceWebUrl({ port, bindHost, record }) {
+  const chunks = []
+  try {
+    for await (const chunk of createReadStream(LOG_FILE, { start: serviceLogOffset(record) })) chunks.push(chunk)
+  } catch {
+    chunks.length = 0
+  }
+  return resolveServiceWebUrl({ port, bindHost: record?.bindHost ?? bindHost, log: Buffer.concat(chunks) })
 }
 
 function printServiceWebUrl(url) {
@@ -457,25 +465,28 @@ export async function startService() {
   ensureSidebarDefaults()
   const timeoutMs = startupTimeoutMs(RUNTIME_HOST)
   const state = await serviceState()
-  if (state.record && !state.ready) {
-    console.log(`正在等待已有 DSH Tavern 进程就绪：PID ${state.record.pid}。`)
+  if (state.record) {
+    let waiting = false
     // Join an existing start without taking ownership of its process or PID record.
     // Only the original starter may terminate it when startup fails.
-    await waitForServiceStartup({
+    const webUrl = await waitForServiceStartup({
       timeoutMs,
       alive: () => inspectRecordedProcess(state.record) === 'owned',
-      ready: async () => await isPortOpen(state.port, state.bindHost) && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost),
+      ready: async () => {
+        if (!state.ready) state.ready = await isPortOpen(state.port, state.bindHost) && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost)
+        const url = state.ready ? await currentServiceWebUrl(state) : ''
+        if (!url && !waiting) {
+          console.log(`正在等待已有 DSH Tavern 进程就绪：PID ${state.record.pid}。`)
+          waiting = true
+        }
+        return url
+      },
       stop: async () => {},
     })
     if (inspectRecordedProcess(state.record) !== 'owned') throw new Error('等待中的 DSH Tavern 进程已被替换，请重试。')
-    state.ready = true
-    state.portOpen = true
-  }
-  if (state.record && state.ready) {
     console.log(`DSH Tavern 已经在运行：PID ${state.record.pid}。`)
-    const webUrl = await currentServiceWebUrl(state)
     printServiceWebUrl(webUrl)
-    return { ...state, webUrl, runtimeGeneration: state.record.pid }
+    return { ...state, portOpen: true, webUrl, runtimeGeneration: state.record.pid }
   }
   if (state.portOpen) {
     // The default port is often taken by another app (the DeepSeek Harness desktop app serves
@@ -565,15 +576,16 @@ export async function startService() {
 
   let portOpen = false
   let serviceReady = false
+  let webUrl
   try {
-    await waitForServiceStartup({
+    webUrl = await waitForServiceStartup({
       timeoutMs,
       alive: () => isProcessAlive(child.pid),
       onSlow: () => console.log(`DSH Tavern 仍在初始化（首次启动较慢），最多等待 ${timeoutMs / 1000} 秒……`),
       ready: async () => {
         portOpen = await isPortOpen(state.port, state.bindHost)
         serviceReady = portOpen && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost)
-        return serviceReady
+        return serviceReady && currentServiceWebUrl({ ...state, record: { logOffset } })
       },
       stop: async () => {
         await stopStartupChild(child)
@@ -585,13 +597,6 @@ export async function startService() {
     throw new Error(`${error.message}，日志：${LOG_FILE}`, { cause: error })
   }
   startupLog('service.ready', { pid: child.pid, port: state.port })
-  let webUrl = ''
-  for (let logAttempt = 0; logAttempt < 50 && webUrl === ''; logAttempt += 1) {
-    const logChunk = readFileSync(LOG_FILE).subarray(logOffset).toString('utf8')
-    webUrl = webUrlFromLogChunk(logChunk)
-    if (webUrl === '') await sleep(100)
-  }
-  webUrl = await currentServiceWebUrl({ port: state.port, bindHost: state.bindHost, record: { logOffset } })
   console.log(`DSH Tavern 已启动：PID ${child.pid}`)
   printServiceWebUrl(webUrl)
   console.log(`日志：${LOG_FILE}`)
