@@ -38,7 +38,6 @@ export function createModelEndpoints({ credentials, settings }) {
       await t.history.remember(pair)
       return { recent: await t.history.list(pair) }
     }) },
-    rename(args) { return serial(async () => { const t = target(args); await t.history.rename(args.entry, args.label); return { recent: await t.history.list() } }) },
     forget(args) { return serial(async () => { const t = target(args); await t.history.forget(args.entry); return { recent: await t.history.list() } }) },
     clear(args) { return serial(async () => { const t = target(args); await t.history.clear(); return { recent: [] } }) },
   }

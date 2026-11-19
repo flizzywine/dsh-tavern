@@ -256,27 +256,36 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 :is(.dtts, .dtts-endpoints) button.dtts-key-clear { position: relative; display: grid; flex: none; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--dtts-ink-3); cursor: pointer; }
 :is(.dtts, .dtts-endpoints) button.dtts-key-clear::after { content: ''; position: absolute; inset: -6px; }
 :is(.dtts, .dtts-endpoints) button.dtts-key-clear:hover:not(:disabled) { background: var(--dtts-hover); color: var(--dtts-ink); }
-/* 最近用过的网址: the ⏲ at a Base URL opens a panel of up to 5 pairs, under the field's end and never wider than the page. */
-.dtts-recent .dtts-icon-button { width: 28px; height: 28px; }
-/* the host's 设置 › 模型 card: the ⏲ under its API 地址, at the field's end */
-.dtts-endpoints { position: relative; display: flex; justify-content: flex-end; color: var(--dtts-ink); font-size: 13px; line-height: 1.6; }
-/* the panel hangs from the whole field row (not the ⏲), so a narrow page keeps it inside the row */
-.dtts-endpoints > .dtts-menu-anchor { position: static; }
-.dtts-endpoints .dtts-menu.dtts-recent-pop { width: min(380px, 100%); }
-.dtts-endpoints *, .dtts-endpoints *::before, .dtts-endpoints *::after { box-sizing: border-box; }
-.dtts-endpoints :focus-visible { outline: 2px solid var(--dtts-accent); outline-offset: 2px; }
-:is(.dtts, .dtts-endpoints) .dtts-recent-pop { width: min(380px, calc(100cqw - 8px)); min-width: 0; padding: 6px; }
+/* 最近用过的网址: a ⌄ inside the end of a Base URL field; its list hangs under the whole field, as wide as it. */
+.dtts-recent-field { position: relative; display: block; min-width: 0; }
+/* the inline-edit ✎ (theme.css「fork inline edit」, a very specific rule) moves left of the ⌄ */
+.dtts-recent-field input { padding-right: 58px !important; background-position: right 38px center !important; }
+.dtts-recent { display: contents; }
+:is(.dtts, .dtts-endpoints) button.dtts-recent-toggle { position: absolute; top: 50%; right: 4px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--dtts-ink-3); transform: translateY(-50%); cursor: pointer; }
+:is(.dtts, .dtts-endpoints) button.dtts-recent-toggle svg { transform: rotate(90deg); transition: transform .15s; }
+:is(.dtts, .dtts-endpoints) button.dtts-recent-toggle[aria-expanded="true"] svg { transform: rotate(-90deg); }
+:is(.dtts, .dtts-endpoints) button.dtts-recent-toggle:hover:not(:disabled), :is(.dtts, .dtts-endpoints) button.dtts-recent-toggle[aria-expanded="true"] { background: var(--dtts-hover); color: var(--dtts-ink); }
+/* at least the field's width; a narrow field (a phone's two columns) grows leftwards over its label so addresses stay readable */
+.dtts-recent-pop { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; width: max(100%, min(340px, calc(100vw - 48px))); padding: 4px; border: .5px solid var(--dtts-line-strong); border-radius: 10px; background: var(--fk-current-bgSolid, var(--dsw-alias-bg-base, Canvas)); box-shadow: 0 10px 28px #00000033; }
 .dtts-recent-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.dtts-recent-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 8px; padding: 4px 4px 4px 6px; border-radius: 7px; }
-.dtts-recent-row[data-current] { background: var(--dtts-hover); }
-.dtts-recent-name { min-width: 0; }
-.dtts-recent-meta { grid-column: 1; min-width: 0; overflow: hidden; color: var(--dtts-ink-3); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
-.dtts-recent-actions { display: flex; grid-row: 1 / span 2; grid-column: 2; align-items: center; gap: 2px; }
-.dtts-recent-now { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; color: var(--dtts-ink-2); font-size: 12px; white-space: nowrap; }
-.dtts-recent-foot { display: flex; justify-content: flex-end; margin-top: 4px; padding-top: 4px; border-top: .5px solid var(--dtts-line); }
+.dtts-recent-row { display: flex; align-items: center; gap: 2px; padding-right: 6px; border-radius: 7px; }
+.dtts-recent-row:hover, .dtts-recent-row:focus-within { background: var(--dtts-hover); }
+:is(.dtts, .dtts-endpoints) button.dtts-recent-pick { display: grid; flex: 1; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; min-height: 36px; padding: 0 8px; border: 0; border-radius: 7px; background: none; color: var(--dtts-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+:is(.dtts, .dtts-endpoints) button.dtts-recent-pick:focus-visible { outline: none; }
+.dtts-recent-check { display: flex; color: var(--dtts-accent); }
+.dtts-recent-url { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dtts-recent-key { color: var(--dtts-ink-3); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dtts-recent-row .dtts-key-clear { visibility: hidden; }
+.dtts-recent-row:hover .dtts-key-clear, .dtts-recent-row:focus-within .dtts-key-clear { visibility: visible; }
+@media (hover: none) { .dtts-recent-row .dtts-key-clear { visibility: visible; } }
+.dtts-recent-foot { display: flex; justify-content: flex-end; margin-top: 4px; padding: 4px 4px 0; border-top: .5px solid var(--dtts-line); }
 .dtts-recent-pop .dtts-confirm { margin: 4px 0 0; padding: 6px 4px 2px; border-top: .5px solid var(--dtts-line); }
 .dtts-recent-error { display: flex; align-items: center; gap: 4px; margin: 4px 6px 0; color: var(--dtts-error); font-size: 12px; }
-.dtts-result { display: flex; align-items: center; gap: 6px; margin: 10px 0 0 124px; color: var(--dtts-ink-2); font-size: 12.5px; }
+/* the host's 设置 › 模型 card: an empty line right after its API 地址 input carries the ⌄ up into that input's end */
+.dtts-endpoints { position: relative; display: block; height: 0; color: var(--dtts-ink); font-size: 13px; line-height: 1.6; }
+input:has(+ .dtts-endpoints) { padding-right: 36px; }
+.dtts-endpoints button.dtts-recent-toggle { top: auto; bottom: 4px; transform: none; }
+.dtts-endpoints .dtts-recent-pop { top: 4px; width: 100%; }.dtts-result { display: flex; align-items: center; gap: 6px; margin: 10px 0 0 124px; color: var(--dtts-ink-2); font-size: 12.5px; }
 .dtts-result[data-state=ready] { color: var(--dsw-alias-state-success-primary, #2e9d5b); }
 .dtts-result[data-state=warn] { color: var(--dsw-alias-state-warning-primary, #c77c0e); }
 .dtts-result[data-state=error] { color: var(--dtts-error); }

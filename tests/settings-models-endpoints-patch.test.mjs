@@ -65,10 +65,8 @@ test('model provider pairs: the saved pair is recorded on open; 使用 writes th
   assert.equal(s.refs.get('RELAY_API_KEY'), 'sk-official-key-0001')
   fail = false
   assert.equal(JSON.stringify(recent).includes('sk-'), false)
-  // providers keep their own lists; rename, forget, clear
+  // providers keep their own lists; forget, clear
   assert.deepEqual((await m.list({ ...target, provider: 'other', keyRef: 'OTHER_API_KEY' })).recent, [])
-  ;({ recent } = await m.rename({ ...target, entry: recent[1].id, label: '中转' }))
-  assert.equal(recent[1].label, '中转')
   ;({ recent } = await m.forget({ ...target, entry: recent[1].id }))
   assert.equal(recent.length, 1)
   assert.deepEqual(await m.clear(target), { recent: [] })

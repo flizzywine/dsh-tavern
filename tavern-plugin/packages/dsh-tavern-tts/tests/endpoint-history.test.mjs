@@ -91,9 +91,19 @@ test('a working check records the pair; picking a recorded pair saves its Base U
   await handleControl(request({ method: 'useEndpoint', args: { id: 'fish-local', entry: 'missing', key: 'relay-secret-key-4321' } }), async () => { throw Object.assign(new Error('relay-secret-key-4321'), { code: 'ENDPOINT_NOT_FOUND' }) }, { warn: (...a) => lines.push(a.join(' ')) })
   assert.equal(lines.length, 1); assert.equal(lines[0].includes('relay-secret'), false)
   assert.equal(warnings.join().includes('relay-secret'), false)
+  // 添加一组: another service's saved pair joins this list under a name, the current pair stays in use; naming the own pair
+  settings = { ...settings, providers: [...settings.providers, { id: 'fish', kind: 'fish-audio', label: 'Fish', config: { url: 'https://api.fish.audio' } }] }
+  s.refs.set('DSH_TAVERN_TTS_FISH_KEY', 'cloud-secret-key-8765')
+  let added = await services.addEndpoint({ id: 'fish-local', from: 'fish', label: '云端' })
+  assert.deepEqual(added.recent.map(e => [e.label, e.url, e.keyTail, !!e.current]), [['云端', 'https://api.fish.audio', '8765', false], ['127.0.0.1:' + server.address().port, local, '', true], ['localhost:' + server.address().port, relay, '4321', false]])
+  added = await services.addEndpoint({ id: 'fish-local', label: '本地' })
+  assert.deepEqual(added.recent.map(e => e.label).slice(0, 2), ['本地', '云端'])
+  assert.equal((await services.list())[0].config.url, local)
+  assert.equal(JSON.stringify(await services.list()).includes('cloud-secret'), false)
+  await assert.rejects(services.addEndpoint({ id: 'fish-local', from: 'missing' }), { code: 'SERVICE_OFFLINE' })
   // 清空记录 / one entry
   await services.forgetEndpoint({ id: 'fish-local', entry: row.recent[1].id })
-  assert.equal((await services.list())[0].recent.length, 1)
+  assert.equal((await services.list())[0].recent.length, 2)
   assert.deepEqual(await services.clearEndpoints({ id: 'fish-local' }), { recent: [] })
   // a service without a Base URL keeps no list
   settings = { ...settings, providers: [...settings.providers, { id: 'qwen', kind: 'qwen', label: '通义千问', config: { region: 'cn' } }] }

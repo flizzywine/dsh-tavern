@@ -231,53 +231,57 @@ exports.apply = function(ctx) {
     return h('div',{className:'dtts-confirm',role:'alertdialog','aria-label':text,onKeyDown:e => { if (e.key === 'Escape') onNo() }},h('span',null,text),
       h('span',{className:'dtts-confirm-actions'},h(Button,{onClick:onNo},'取消'),h('button',{ref,type:'button',className:'dtts-button is-danger',onClick:onYes},yes)))
   }
-  // 最近用过的网址 (settings.js useEndpoint): the ⏲ at a saved service's Base URL lists the pairs of 网址 + API Key it worked
-  // with, the latest first. 使用 switches both at once; a name is renamed in place (empty = the address's host); × forgets one;
-  // 清空记录… forgets them all after one confirmation. Keys show as their last 4 characters only.
-  // `act(op, args)` runs one op on the owner's own service ('use' {entry} · 'rename' {entry,label} · 'forget' {entry} · 'clear'):
-  // the owner (ServicesSection recentAct) maps them onto its own control methods.
-  function RecentEndpoints({service,act,textField,disabled,onDone}) {
+  // 最近用过的网址 (settings.js useEndpoint): a ⌄ at the end of a saved service's Base URL lists the pairs of 网址 + API Key it
+  // worked with, the latest first (owner 11-19 review: A's drop-down, the triangle alone, no names). Picking a row switches both
+  // at once; ✕ forgets one; 清空记录… forgets them all after one confirmation. Keys show as their last 4 characters only.
+  // `act(op, args)` runs one op on the owner's own service ('use' {entry} · 'forget' {entry} · 'clear'): the owner
+  // (ServicesSection recentAct, ModelEndpoints) maps them onto its own control methods.
+  function RecentEndpoints({service,act,disabled,onDone}) {
     const [open,setOpen] = React.useState(false), [confirm,setConfirm] = React.useState(false), [busy,setBusy] = React.useState(false), [error,setError] = React.useState('')
     const root = React.useRef(null), toggle = React.useRef(null), entries = service.recent || []
     const close = () => { setOpen(false); setConfirm(false); setError(''); toggle.current?.focus?.() }
     React.useEffect(() => {
       if (!open || !root.current) return
-      const out = e => { if (!root.current.contains(e.target) && !e.target.closest?.('.fork-inline-pop')) { setOpen(false); setConfirm(false) } }
+      const out = e => { if (!root.current.contains(e.target)) { setOpen(false); setConfirm(false) } }
       const doc = root.current.ownerDocument; doc.addEventListener('pointerdown',out,true)
-      root.current.querySelector('.dtts-recent-pop button:not(:disabled)')?.focus?.()
+      root.current.querySelector('.dtts-recent-pick')?.focus?.()
       return () => doc.removeEventListener('pointerdown',out,true)
     },[open])
     const run = (method,args,done) => async () => {
       setBusy(true); setError('')
       try { const result = await act(method,args); onDone(done,method === 'use' ? result : null); return true } catch(e) { setError(failText(e)) } finally { setBusy(false) }
     }
+    // ↑↓ move between the rows' pick buttons
+    const keys = e => {
+      if (e.key === 'Escape' && open) { e.stopPropagation(); if (confirm) setConfirm(false); else close(); return }
+      if (!open || !['ArrowDown','ArrowUp'].includes(e.key)) return
+      const picks = [...root.current.querySelectorAll('.dtts-recent-pick')], at = picks.indexOf(e.target.ownerDocument.activeElement)
+      picks[(at + (e.key === 'ArrowDown' ? 1 : picks.length - 1)) % picks.length]?.focus(); e.preventDefault()
+    }
     if (!entries.length) return null
-    const meta = e => [e.keyed ? 'API Key …' + (e.keyTail || '') : '无 API Key',e.url].join(' · ')
-    return h('span',{className:'dtts-menu-anchor dtts-recent',ref:root,onKeyDown:e => { if (e.key === 'Escape' && open) { e.stopPropagation(); if (confirm) setConfirm(false); else close() } }},
-      h('button',{ref:toggle,type:'button',className:'dtts-icon-button','aria-label':'最近用过的网址',title:'最近用过的网址','aria-haspopup':'dialog','aria-expanded':open,disabled,onClick:e => { e.stopPropagation(); setOpen(!open); setConfirm(false) }},h(Icon,{name:'history'})),
-      open && h('div',{className:'dtts-menu dtts-recent-pop',role:'dialog','aria-label':'最近用过的网址','aria-busy':busy || undefined},
+    const pick = e => e.current ? close : () => run('use',{entry:e.id},'已切换到 ' + e.url)().then(ok => { if (ok) close() })
+    return h('span',{className:'dtts-recent',ref:root,onKeyDown:keys},
+      h('button',{ref:toggle,type:'button',className:'dtts-recent-toggle','aria-label':'最近用过的网址',title:'最近用过的网址','aria-haspopup':'listbox','aria-expanded':open,disabled,onClick:e => { e.stopPropagation(); setOpen(!open); setConfirm(false) }},h(Icon,{name:'chevron',size:12})),
+      open && h('div',{className:'dtts-recent-pop',role:'dialog','aria-label':'最近用过的网址','aria-busy':busy || undefined},
         h('ul',{className:'dtts-recent-list'},entries.map(e => h('li',{key:e.id,className:'dtts-recent-row','data-current':e.current || undefined},
-          h('span',{className:'dtts-recent-name'},textField({label:'名称',value:e.label,onCommit:label => { if (label.trim() !== e.label) run('rename',{entry:e.id,label:label.trim()},'')() }})),
-          h('span',{className:'dtts-recent-meta',title:meta(e)},meta(e)),
-          h('span',{className:'dtts-recent-actions'},
-            e.current ? h('span',{className:'dtts-recent-now'},h(Icon,{name:'check',size:14}),'使用中')
-              : h(Button,{link:true,disabled:busy || disabled,'aria-label':'使用「' + e.label + '」',onClick:() => run('use',{entry:e.id},'已切换到「' + e.label + '」')().then(ok => { if (ok) close() })},'使用'),
-            h('button',{type:'button',className:'dtts-key-clear','aria-label':'删除记录「' + e.label + '」',title:'删除这条记录',disabled:busy,onClick:run('forget',{entry:e.id},'')},h(Icon,{name:'close',size:14})))))),
+          h('button',{type:'button',className:'dtts-recent-pick','aria-current':e.current || undefined,disabled:busy || disabled,title:e.url,onClick:pick(e)},
+            h('span',{className:'dtts-recent-check'},e.current && h(Icon,{name:'check',size:14})),
+            h('span',{className:'dtts-recent-url'},e.url),
+            h('span',{className:'dtts-recent-key'},e.keyed ? '…' + (e.keyTail || '') : '无 Key')),
+          h('button',{type:'button',className:'dtts-key-clear','aria-label':'删除记录 ' + e.url,title:'删除这条记录',disabled:busy,onClick:run('forget',{entry:e.id},'')},h(Icon,{name:'close',size:14}))))),
         error && h('p',{className:'dtts-recent-error',role:'alert'},h(Icon,{name:'warn',size:13}),error),
         confirm ? h(Confirm,{text:'清空「' + service.label + '」的 ' + entries.length + ' 条记录？',yes:'清空',onYes:() => { setConfirm(false); run('clear',{},'记录已清空')().then(ok => { if (ok) close() }) },onNo:() => setConfirm(false)})
           : h('div',{className:'dtts-recent-foot'},h(Button,{link:true,danger:true,disabled:busy,onClick:() => setConfirm(true)},'清空记录…'))))
   }
-  // 设置 › 模型 (the host's provider card, patched by bin/settings-models-endpoints-patch.mjs): the same ⏲ after its API
+  // 设置 › 模型 (the host's provider card, patched by bin/settings-models-endpoints-patch.mjs): the same ⌄ after its API
   // 地址, over the model provider's own pairs (model-endpoints.js). Opening the card records its saved pair; 使用 writes
   // the provider's address and key and reloads the card (onSwitched).
   function ModelEndpoints({provider,label,ns,path,keyRef,url,disabled,onSwitched}) {
     const [recent,setRecent] = React.useState(null), target = {provider,ns,path,keyRef}
     React.useEffect(() => { let on = true; call('modelEndpoints',{op:'list',...target,url}).then(r => { if (on) setRecent(r.recent) },() => {}); return () => { on = false } },[provider,ns,keyRef,url,path.join('/')])
     if (!recent?.length) return null
-    const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
-    const textField = ({label,value,onCommit}) => InlineField ? h(InlineField,{label,hideLabel:true,value,onCommit,trim:true}) : h('input',{'aria-label':label,defaultValue:value,onBlur:e => onCommit(e.target.value)})
     const act = (op,args) => call('modelEndpoints',{op,...target,...args}).then(r => { setRecent(r.recent); return r })
-    return h('span',{className:'dtts-endpoints'},h(RecentEndpoints,{service:{id:provider,label,recent},act,textField,disabled,onDone:(_done,switched) => { if (switched) onSwitched() }}))
+    return h('span',{className:'dtts-endpoints'},h(RecentEndpoints,{service:{id:provider,label,recent},act,disabled,onDone:(_done,switched) => { if (switched) onSwitched() }}))
   }
   ctx.effect(() => {
     const key = Symbol.for('dsh.endpointHistory'), published = Object.freeze({ModelEndpoints})
@@ -454,7 +458,7 @@ exports.apply = function(ctx) {
         for (const fn of managementListeners) fn()
       })()
     }
-    const RECENT_METHODS = {use:'useEndpoint',rename:'renameEndpoint',forget:'forgetEndpoint',clear:'clearEndpoints'}
+    const RECENT_METHODS = {use:'useEndpoint',forget:'forgetEndpoint',clear:'clearEndpoints'}
     const recentAct = p => (op,args) => call(RECENT_METHODS[op],{id:p.id,...(op === 'use' ? {expectedRevision:p.revision} : {}),...args})
     // a pair picked from 最近用过的网址 was saved by the server: the open form takes the saved row as it is now.
     const recentDone = (done, saved) => {
@@ -480,11 +484,11 @@ exports.apply = function(ctx) {
       if (f.type === 'preset') { const presets = descriptor(editor.kind).presets
         return h(Field,{key:f.key,label:f.label},menu({label:f.label,value,options:f.options,onChange:v => commit({config:{...presets[v],url:presets[v].url || editor.config.url || ''}})})) }
       if (f.type === 'select') return h(Field,{key:f.key,label:f.label,help:f.help},menu({label:f.label,value,options:f.options,onChange:set}))
-      // a saved service's Base URL carries its 最近用过的网址 (⏲) at the field's end.
+      // a saved service's Base URL carries its 最近用过的网址 (⌄) inside the field's end.
       const saved = f.key === 'url' && editor.mode === 'edit' && configured.find(c => c.id === editor.id)
-      if (saved?.recent?.length) return h(Field,{key:f.key,label:f.label,help:f.help},h('span',{className:'dtts-key-row'},
-        h('span',{className:'dtts-key-field'},textField({label:f.label,value:String(value),placeholder:f.placeholder || '',onCommit:set})),
-        h(RecentEndpoints,{service:saved,act:recentAct(saved),textField,disabled:busy,onDone:recentDone})))
+      if (saved?.recent?.length) return h(Field,{key:f.key,label:f.label,help:f.help},h('span',{className:'dtts-recent-field'},
+        textField({label:f.label,value:String(value),placeholder:f.placeholder || '',onCommit:set}),
+        h(RecentEndpoints,{service:saved,act:recentAct(saved),disabled:busy,onDone:recentDone})))
       return h(Field,{key:f.key,label:f.label,help:f.help,top:f.type === 'lines'},textField({label:f.label,value:String(value),placeholder:f.placeholder || (f.required ? '' : '选填'),lines:f.type === 'lines',onCommit:set}))
     }
     // The API Key field: a stored key shows as dots; × at the field's end clears it (owner 11-08). A new service tests

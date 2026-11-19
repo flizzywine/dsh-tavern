@@ -173,11 +173,12 @@ export function apply(ctx, config = {}) {
       case 'saveService': return services.save(args)
       case 'deleteService': return services.delete(args)
       case 'useEndpoint': return services.useEndpoint(args)
+      case 'addEndpoint': return services.addEndpoint(args)
       case 'renameEndpoint': return services.renameEndpoint(args)
       case 'forgetEndpoint': return services.forgetEndpoint(args)
       case 'clearEndpoints': return services.clearEndpoints(args)
-      // 设置 › 模型's 最近用过的网址 (model-endpoints.js): list · use · rename · forget · clear
-      case 'modelEndpoints': if (!['list','use','rename','forget','clear'].includes(args.op)) fail('INVALID_INPUT'); return modelEndpoints[args.op](args)
+      // 设置 › 模型's 最近用过的网址 (model-endpoints.js): list · use · forget · clear
+      case 'modelEndpoints': if (!['list','use','forget','clear'].includes(args.op)) fail('INVALID_INPUT'); return modelEndpoints[args.op](args)
       // how many figures speak with a service (the registered usage sources); asked before deleting one in use.
       case 'serviceUsage': return {count:(await tts.inspectUsage(id(args.id))).reduce((n,u) => n + u.count,0)}
       case 'testService': return services.test(args)
