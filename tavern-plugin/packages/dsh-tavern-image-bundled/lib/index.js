@@ -32,7 +32,7 @@ import { buildOutfitPrompt, clampBatchCount, mergeOutfits, parseOutfits } from '
 import { createHash, randomUUID, randomInt } from 'node:crypto'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildTemplateMarkerPrompt } from './prompts.js'
 import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
@@ -47,6 +47,7 @@ import { createDefinitionsStore } from './definitions-store.js'
 import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
 import { runCardImage, submitCardImage } from './card-app/generation.js'
+import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -80,6 +81,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 // Tavern 的数据根目录（data/），用来读它设置里的「默认后台模型」
 const TAVERN_DATA = dirname(dirname(ROOT))
 const TAVERN_SETTINGS = join(TAVERN_DATA, 'tavern-settings.json')
+// 卡片工作台的图直接落进卡片画廊的图片目录（card-app 的 data/images）：画廊、插件控制台、
+// 正文插图从此读同一份文件，不再从 cache 复制第二份。游玩图照旧留在 cache/<id>.img。
+const CARD_GALLERY_DIR = join(TAVERN_DATA, 'image-cache', 'dsh-tavern-gen')
+const CARD_IMAGE_DIR = join(CARD_GALLERY_DIR, 'images')
 const BASE = '/plugins/dsh-tavern-image'
 const LEGACY_BASE = '/plugins/dsh-tavern-comfy'
 const CONFIG_PATH = join(ROOT, 'config.json')
@@ -1144,16 +1149,20 @@ function characterTags(character, options = {}) {
 export function apply(ctx, config = {}) {
   const logger = ctx.logger ?? console
   const deps = { llm: null, attachments: null, subagents: null, sessions: null }
+  let runtime = null
+  const cardGallery = createCardGallery(CARD_GALLERY_DIR, {
+    onImageRemoved: async (id, file) => (await runtime?.catch(() => null))?.forgetCardImage(id, file),
+  })
+  deps.cardGallery = cardGallery
   // 诊断用：DSH 往 index.html 注入的 script 行，就是客户端模块的加载清单
   const indexTap = { rows: null, at: 0, htmlLength: 0 }
   deps.indexTap = indexTap
-  let runtime = null
   const ready = () => (runtime ??= createRuntime(ctx, config, logger, deps))
   // Optional card UI and tools share this runtime; late imports cannot resurrect a disposed plugin.
   const installCard = () => {
     let disposed = false, close
     void import('./card-app/index.js').then(mod => {
-      if (!disposed) close = mod.apply(ctx, { ready })
+      if (!disposed) close = mod.apply(ctx, { ready, data: CARD_GALLERY_DIR, gallery: cardGallery })
     }).catch(error => logger.warn?.('dsh-tavern-image: 工作台模块加载失败 ' + error.message))
     return () => { disposed = true; close?.() }
   }
@@ -1376,7 +1385,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       return channel && supportsImageTaskResume(channel) ? channel : null
     }
 
-    // ---- 作业落盘：图文件本来就在 cache/ 里，缺的是这份元数据 ----
+    // ---- 作业落盘：图文件在 cache 或卡片画廊目录，单独保存这份元数据 ----
     const JOBS_STORE = join(ROOT, 'jobs-store.json')
     function restoreJobs() {
       return (async () => {
@@ -1393,10 +1402,13 @@ function createRuntime(ctx, overrides, logger, deps) {
               // 老记录有两处会让取图永久 404，这里在内存里补正（不写回盘，每次启动重算）：
               //   ① file 指着改名前的 cache 目录（…\tools\dsh-tavern-image\cache\…），文件其实已搬到 dsh-tavern-image；
               //   ② byteLength 被早期兜底恢复写成了 0，而取图门槛正是 `if (!job.file || !job.byteLength)`。
+              // 另外：卡片图现在直接落在卡片画廊目录，老的还在 cache，所以两个目录都要找一遍。
               if (!job.file || !(await fileExists(job.file))) {
-                for (const ext of ['.img', '.png', '.jpg', '.jpeg', '.webp']) {
-                  const guess = join(cacheRoot(config), String(job.id) + ext)
-                  if (await fileExists(guess)) { job.file = guess; break }
+                search: for (const dir of [cacheRoot(config), CARD_IMAGE_DIR]) {
+                  for (const ext of ['.img', '.png', '.jpg', '.jpeg', '.webp', '.gif']) {
+                    const guess = join(dir, String(job.id) + ext)
+                    if (await fileExists(guess)) { job.file = guess; break search }
+                  }
                 }
               }
               if (job.file) {
@@ -1414,7 +1426,9 @@ function createRuntime(ctx, overrides, logger, deps) {
                       job.error = undefined
                     }
                   }
-                } catch { /* 文件真的不在就保持原样 */ }
+                } catch (error) {
+                  if (error.code === 'ENOENT') { job.file = undefined; job.byteLength = 0 }
+                }
               }
               if (!job.mediaType) {
                 try { job.mediaType = (await readImageFileMetadata(job.file)).mediaType || 'image/png' }
@@ -1433,36 +1447,33 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
           }
         } catch { /* 读不到就当没有 */ }
-        // 兜底：cache 目录里有图但没记录的，按"已完成"补回来
+        // 兜底：目录里有图但没记录的，按"已完成"补回来
         try {
-          const dir = cacheRoot(config)
-          const names = await readdir(dir).catch(() => [])
+          // 卡片图直接落在卡片画廊的图片目录，游玩图留在 cache —— 两处都要扫，
+          // 否则 jobs-store 一旦丢失，卡片作业就再也补不回来（重启后控制台历史整片消失）。
+          const dirs = [cacheRoot(config), CARD_IMAGE_DIR]
           const cardIds = new Set()
           try {
-            const gallery = await readJson(join(ROOT, '../../image-cache/dsh-tavern-gen/jobs.json'), [])
+            const gallery = await readJson(join(CARD_GALLERY_DIR, 'jobs.json'), [])
             if (Array.isArray(gallery)) for (const item of gallery) if (typeof item?.id === 'string') cardIds.add(item.id)
           } catch { /* A damaged optional card index must not block ordinary cache recovery. */ }
           let added = 0
-          for (const name of names) {
-            const hit = /^((?:card-)?[0-9a-f-]{36})\.(?:img|png|jpe?g|webp)$/i.exec(name)
-            if (!hit) continue
-            const id = hit[1]
-            if (jobs.has(id)) continue
-            let size = null
-            // byteLength 必须填成文件的真实字节数：取图路由的门槛是 `if (!job.file || !job.byteLength)`，
-            // 填 0 会让这个作业永远被判成「图片还没生成好」而返回 404 —— 列表里明明有图却打不开。
-            let bytes = 0
-            let imageMetadata = null
-            // 用文件修改时间当作生成时间：图库按 createdAt 排序，写 Date.now() 会让所有历史图每次重启都跑到最前面
-            let createdAt = Date.now()
-            try {
-              imageMetadata = await readImageFileMetadata(join(dir, name))
-              bytes = imageMetadata.byteLength
-              if (imageMetadata.width !== null && imageMetadata.height !== null) size = { width: imageMetadata.width, height: imageMetadata.height }
-              createdAt = imageMetadata.mtimeMs || createdAt
-            } catch { /* 读不到尺寸就算了 */ }
-            jobs.set(id, { id, source: id.startsWith('card-') || cardIds.has(id) ? 'card' : 'play', state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMetadata?.mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
-            added++
+          for (const dir of dirs) {
+            const names = await readdir(dir).catch(() => [])
+            for (const name of names) {
+              const hit = /^((?:card-)?[0-9a-f-]{36})\.(?:img|png|jpe?g|webp|gif)$/i.exec(name)
+              if (!hit) continue
+              const id = hit[1]
+              if (jobs.has(id)) continue
+              const file = join(dir, name)
+              const metadata = await readImageFileMetadata(file).catch(() => null)
+              if (!metadata?.byteLength) continue
+              const { byteLength, width, height, mtimeMs, mediaType } = metadata
+              const size = width !== null && height !== null ? { width, height } : null
+              const source = dir === CARD_IMAGE_DIR || id.startsWith('card-') || cardIds.has(id) ? 'card' : 'play'
+              jobs.set(id, { id, source, state: 'done', percent: 100, createdAt: mtimeMs || Date.now(), fromCache: true, file, size, params: {}, label: '历史图片', byteLength, mediaType: mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : /\.gif$/i.test(name) ? 'image/gif' : 'image/png') })
+              added++
+            }
           }
           if (added) logger.info?.('dsh-tavern-image: 从 cache 补回 ' + added + ' 张历史图片')
         } catch { /* 忽略 */ }
@@ -1794,7 +1805,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (result.usage) job.usage = structuredClone(result.usage)
             const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
             if (stopped()) return
-            const file = join(cacheRoot(config), `${job.id}.img`)
+            const file = outputFileFor(job, config, output.mediaType)
+            await mkdir(dirname(file), { recursive: true })
             await writeFile(file, output.bytes)
             if (stopped()) { await rm(file, { force: true }); return }
             Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
@@ -1887,11 +1899,13 @@ function createRuntime(ctx, overrides, logger, deps) {
               const signal = job.controller?.signal
               const output = await transcodeImageOutputAsync(bytes, sourceType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
               if (signal?.aborted || job.state === 'cancelled') return
+              const file = outputFileFor(job, config, output.mediaType)
+              await mkdir(dirname(file), { recursive: true })
+              await writeFile(file, output.bytes)
+              if (signal?.aborted || job.state === 'cancelled' || !jobs.has(job.id)) { await rm(file, { force: true }); return }
+              job.file = file
               job.mediaType = output.mediaType
               job.imageOutputWarning = output.warning || ''
-              job.file = join(cacheRoot(config), `${job.id}.img`)
-              await writeFile(job.file, output.bytes)
-              if (signal?.aborted || job.state === 'cancelled') { await rm(job.file, { force: true }); return }
               job.byteLength = output.bytes.byteLength
               job.percent = 100
               job.state = 'done'
@@ -2016,7 +2030,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (!jobs.has(job.id)) return
             const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: maxImageBytes, signal: job.controller.signal })
             job.controller.signal.throwIfAborted()
-            const file = join(cacheRoot(config), `${job.id}.img`)
+            const file = outputFileFor(job, config, output.mediaType)
+            await mkdir(dirname(file), { recursive: true })
             await writeFile(file, output.bytes)
             if (job.controller.signal.aborted || !jobs.has(job.id)) { await rm(file, { force: true }); return }
             Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
@@ -2416,6 +2431,14 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function getJob(id) { return jobs.get(id) ?? null }
 
+    function forgetCardImage(id, file) {
+      const job = jobs.get(id)
+      if (job?.file && resolve(job.file) === resolve(file)) {
+        job.file = undefined
+        job.byteLength = 0
+      }
+    }
+
     /**
      * 删一张图：作业记录、缓存文件、计划里的引用，以及挂在对话里的那张（同进同退）。
      * 玩家在对话里删图时 Tavern 通知过来（onMediaRemoved），那边已经删了，传 withMedia: false。
@@ -2425,7 +2448,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       const job = jobs.get(id)
       job?.controller?.abort()
       if (withMedia && job?.gameId) await removeMountedPicture(deps.tavern, job).catch(error => logger.warn?.('dsh-tavern-image: 撤下对话里的图失败：' + (error?.message ?? error)))
-      if (job?.file) await rm(job.file, { force: true })
+      if (job?.file && resolve(dirname(job.file)) === CARD_IMAGE_DIR) {
+        await deps.cardGallery.remove(id, undefined, { unregisteredFile: job.file })
+      } else if (job?.file) await rm(job.file, { force: true })
       // 接住返回值：不存在的话就是 0，别报假成功
       const existed = jobs.delete(id) ? 1 : 0
       try { await persistJobs({ required: true }) }
@@ -3591,10 +3616,16 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function sweep() {
       if (jobs.size <= 200) return
-      const ordered = [...jobs.values()].filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true)).sort((a, b) => a.createdAt - b.createdAt)
-      for (const job of ordered.slice(0, jobs.size - 200)) {
-        jobs.delete(job.id)
-        if (job.key) byKey.delete(job.key)
+      // 两种来源各保留 200 条，避免任一来源的历史挤掉另一边仍要查看的结果。
+      for (const source of ['play', 'card']) {
+        const history = [...jobs.values()].filter(job => jobSource(job) === source)
+        if (history.length <= 200) continue
+        const ordered = history.filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true))
+          .sort((a, b) => a.createdAt - b.createdAt)
+        for (const job of ordered.slice(0, history.length - 200)) {
+          jobs.delete(job.id)
+          if (job.key) byKey.delete(job.key)
+        }
       }
     }
 
@@ -3602,6 +3633,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (job.source === 'card' || job.source === 'play') return job.source
       return String(job.id || '').startsWith('card-') || job.label === '卡片工作台' && String(job.key || '').startsWith('card-') ? 'card' : 'play'
     }
+
+    const outputFileFor = (job, config, mediaType) => jobSource(job) === 'card'
+      ? join(CARD_IMAGE_DIR, `${job.id}.${cardImageExtension(mediaType)}`)
+      : join(cacheRoot(config), `${job.id}.img`)
 
     function publicJob(job) {
       return {
@@ -3646,8 +3681,11 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function sendImage(response, job, rangeHeader) {
       const total = job.byteLength
-      if (!job.file || !total) { sendJson(response, 404, { ok: false, error: '图片还没生成好' }); return }
+      const file = job.file
+      if (!file || !total) { sendJson(response, 404, { ok: false, error: '图片文件不存在' }); return }
       const type = job.mediaType || 'image/png'
+      const headers = { 'content-type': type, 'content-length': total, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800' }
+      let status = 200, range
       const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader ?? '').trim())
       if (match) {
         let start = match[1] === '' ? null : Number(match[1])
@@ -3659,15 +3697,18 @@ function createRuntime(ctx, overrides, logger, deps) {
           response.end()
           return
         }
-        response.writeHead(206, {
-          'content-type': type, 'content-length': end - start + 1,
-          'content-range': `bytes ${start}-${end}/${total}`, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800',
-        })
-        createReadStream(job.file, { start, end }).pipe(response)
-        return
+        status = 206
+        range = { start, end }
+        headers['content-length'] = end - start + 1
+        headers['content-range'] = `bytes ${start}-${end}/${total}`
       }
-      response.writeHead(200, { 'content-type': type, 'content-length': total, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800' })
-      createReadStream(job.file).pipe(response)
+      const stream = createReadStream(file, range)
+      stream.once('open', () => { response.writeHead(status, headers); stream.pipe(response) })
+      stream.on('error', error => {
+        if (response.headersSent) response.destroy?.()
+        else sendJson(response, error.code === 'ENOENT' ? 404 : 500, { ok: false, error: '无法读取图片文件' })
+      })
+      response.once?.('close', () => stream.destroy())
     }
 
     async function readBody(request, limit = 4 * 1024 * 1024) {
@@ -6049,6 +6090,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       templateModels: templateModels,
       generateTemplateAsset: generateTemplateAsset,
       cardWorkflows: () => usable(),
+      forgetCardImage,
       generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
       submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
