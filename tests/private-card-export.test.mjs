@@ -19,14 +19,18 @@ async function inventory(root, prefix = '') {
   return rows.sort(([a], [b]) => a.localeCompare(b))
 }
 
-test('private pack and card export is a constructor-only read-only capability; native card export remains public', async t => {
+for (const kind of ['performance', 'music']) test(`private ${kind}: normal card and pack exports block it; explicit local backup is read-only`, async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'private-card-'))
   t.after(() => fs.rm(root, {recursive:true, force:true}))
   const assetRoot = path.join(root, 'library'), pack = await syntheticPack()
   const performance = {schema:'dsh.performance/1', id:'show', label:'Fixture', license:{privateUse:true}, packs:{}, levels:{default:2,1:{},2:{},3:{}}, timeline:{entry:{events:[]},exit:{events:[]}}}
-  pack.manifest.assets.push({kind:'performances',id:'show',name:'Fixture',enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',bundleKey:'show',entry:'performance.json'})
-  pack.manifest.bundles.show = {kind:'performance',entry:'performance.json',contentHash:'0'.repeat(64)}
-  pack.files.set('bundles/show/performance.json', Buffer.from(JSON.stringify(performance)))
+  if (kind === 'music') {
+    pack.manifest.assets.find(asset => asset.kind === 'music').extensions = {'dsh.private-use':true}
+  } else {
+    pack.manifest.assets.push({kind:'performances',id:'show',name:'Fixture',enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',bundleKey:'show',entry:'performance.json'})
+    pack.manifest.bundles.show = {kind:'performance',entry:'performance.json',contentHash:'0'.repeat(64)}
+    pack.files.set('bundles/show/performance.json', Buffer.from(JSON.stringify(performance)))
+  }
   await sealPack(pack.manifest, pack.files)
   for (const [name, bytes] of new Map([['manifest.json',Buffer.from(JSON.stringify(pack.manifest))], ...pack.files])) {
     const file = path.join(assetRoot, 'packs', PACK_ID, name)
