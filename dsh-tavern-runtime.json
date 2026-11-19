@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d19248fb0e7853a696a0c2cf42bd9ffc3193305a",
-  "releaseSequence": 1804,
+  "revision": "c7cd345d58474cdeaee6d418d24b11239d434c39",
+  "releaseSequence": 1805,
   "version": "3.3.0",
   "files": [
     {
@@ -441,8 +441,8 @@
     },
     {
       "path": "bin/test-tavern.mjs",
-      "sha256": "034657deb0ad22f4b815a35835a2b3a79bf17932663d8ab69e0c7dc3347157a1",
-      "size": 2396
+      "sha256": "f5059fcb517a5f5392afc9ff2d1184b804ec64393763f44634b8f2dbd907bb97",
+      "size": 2521
     },
     {
       "path": "bin/theme-font-limit.mjs",
@@ -996,8 +996,8 @@
     },
     {
       "path": "tavern-plugin/lib/card-storage.js",
-      "sha256": "611fafecbac32929748d78260b26afe79b44e8b36337c95587a82f6838f18ad3",
-      "size": 2542
+      "sha256": "1a187eeea38a5bb08f8c5f86d50e7354a2d513c54448d52d1fa19a60253e839a",
+      "size": 2692
     },
     {
       "path": "tavern-plugin/lib/client-assets/layered-sprite.css",
@@ -1416,8 +1416,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-deletion.js",
-      "sha256": "5b27300ce1e9f27b5cc9cbc4a9ae40aabefca3bda340def63702dfee36d76bcf",
-      "size": 609
+      "sha256": "3109133bbf490bcbe01a7a8b37b471139924cb509cb626446d617cd99bda6d84",
+      "size": 889
     },
     {
       "path": "tavern-plugin/lib/domain/card-editor.js",
@@ -4166,8 +4166,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "3c937db2d052271b92910584089650f40d091d3ae7442cacfded642631448d3e",
-      "size": 326388
+      "sha256": "08089cfb13c30366e902f8c853d0d3562ec39725175c7f61fff586395e741acc",
+      "size": 326307
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9601,9 +9601,9 @@
     }
   ],
   "archive": {
-    "commit": "e348d1e509fead2e7b339d345ecc47f79c74fdf9",
+    "commit": "76bb170bec023078ff4471a14ed8b7b429a96abe",
     "path": "runtime.zip",
-    "sha256": "52d8111e81b800f59d52e8356d7c7b726f040810a6709488d75ab31da750b579",
-    "size": 16968481
+    "sha256": "34880f2269e976af1f957e119f68daf0bac8af3c2dd6bc0deda6dd7f5a67f5a9",
+    "size": 16968648
   }
 }
