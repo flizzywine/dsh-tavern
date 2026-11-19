@@ -1768,6 +1768,21 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 .dsh-context-diff-line.is-ctx { color: var(--dsw-alias-label-secondary); }
 .dsh-context-diff-line.is-omit { color: var(--dsw-alias-label-tertiary); font-style: italic; background: var(--dsw-alias-interactive-bg-hover); }
 
+.dsh-context-source-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 14px; }
+.dsh-tavern-full-context button.dsh-context-filter-chip { padding: 3px 9px; border-radius: 999px; font-size: 11px; line-height: 1.5; border-color: var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-full-context button.dsh-context-filter-chip.is-active { border-color: var(--dsw-alias-state-business-primary, #3b82f6); background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #3b82f6) 14%, transparent); color: var(--dsw-alias-state-business-primary, #2563eb); font-weight: 600; }
+.dsh-context-source-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: none; max-width: 45%; justify-content: flex-end; }
+.dsh-context-source-pill { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 1.5; white-space: nowrap; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.dsh-context-source-pill.is-src-worldbook { background: color-mix(in srgb, #0d9488 15%, transparent); color: #0f766e; }
+.dsh-context-source-pill.is-src-preset { background: color-mix(in srgb, #7c3aed 14%, transparent); color: #6d28d9; }
+.dsh-context-source-pill.is-src-card { background: color-mix(in srgb, #d97706 15%, transparent); color: #b45309; }
+.dsh-context-source-pill.is-src-story { background: color-mix(in srgb, #2563eb 14%, transparent); color: #1d4ed8; }
+.dsh-context-source-pill.is-src-state { background: color-mix(in srgb, #0284c7 14%, transparent); color: #0369a1; }
+.dsh-context-source-pill.is-src-plugin { background: color-mix(in srgb, #6366f1 14%, transparent); color: #4338ca; }
+.dsh-context-source-pill.is-src-tool { background: color-mix(in srgb, #475569 14%, transparent); color: #475569; }
+.dsh-context-source-pill.is-src-system { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.dsh-context-source-pill.is-src-more { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-tertiary); }
+
 /* Shared by global defaults and conversation writing-skill controls. */
 .dsh-tavern-writing-skill,
 .dsh-local-settings .dsh-tavern-writing-skill { display: block; padding: 12px 0; border-bottom: 1px solid var(--dsw-alias-border-l2); }

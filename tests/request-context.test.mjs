@@ -169,3 +169,44 @@ test('缓存对比：模型变更、TTL 零命中与基线已清理场景', () =
   assert.equal(pruned.compareStatus, 'baseline-pruned')
   assert.equal(pruned.baseline.pruned, true)
 })
+
+test('每段消息按世界书、预设、人物卡、正文、状态、插件、工具正确标注来源', () => {
+  const request = {
+    model: 'claude-sonnet',
+    system: '根系统提示',
+    tools: [{ name: 't1' }],
+    messages: [
+      {
+        role: 'system',
+        content: '常驻条目\n人物设定\n长期偏好',
+        source: {
+          sections: [
+            { name: 'tavern:constant-worldbook', text: '常驻条目' },
+            { name: 'tavern:character-card', text: '人物设定' },
+            { name: 'tavern:user-preference', text: '长期偏好' }
+          ]
+        }
+      },
+      { role: 'user', content: '变量已变更', source: { kind: 'plugin:dsh-tavern', form: 'variable-changes' } },
+      { role: 'user', content: '写作规则注入', source: { kind: 'plugin:dsh-tavern', form: 'writing-rules' } },
+      { role: 'user', content: '我推开门', source: { kind: 'user' } },
+      { role: 'assistant', content: '开场白', source: { kind: 'model', provider: 'dsh-tavern', model: 'character-card' } },
+      { role: 'assistant', content: '正文回复', source: { kind: 'model', provider: 'openai', model: 'gpt' } },
+      { role: 'tool', content: '{"ok":true}', source: { kind: 'tool', callId: 'c1' } }
+    ]
+  }
+  const byKey = Object.fromEntries(sections(request).map(s => [s.cacheKey, s.sources]))
+  assert.deepEqual(byKey['field:system'], [{ category: 'system', label: '系统提示' }])
+  assert.deepEqual(byKey['field:tools'], [{ category: 'tool', label: '工具定义' }])
+  assert.deepEqual(byKey['msg:0'], [
+    { category: 'worldbook', label: '常驻世界书' },
+    { category: 'card', label: '人物卡' },
+    { category: 'preset', label: '长期偏好' }
+  ])
+  assert.deepEqual(byKey['msg:1'], [{ category: 'state', label: '变量变更' }])
+  assert.deepEqual(byKey['msg:2'], [{ category: 'plugin', label: '写作规则' }])
+  assert.deepEqual(byKey['msg:3'], [{ category: 'story', label: '玩家输入' }])
+  assert.deepEqual(byKey['msg:4'], [{ category: 'card', label: '人物卡开场白' }])
+  assert.deepEqual(byKey['msg:5'], [{ category: 'story', label: '模型回复' }])
+  assert.deepEqual(byKey['msg:6'], [{ category: 'tool', label: '工具结果' }])
+})
