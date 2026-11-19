@@ -1214,9 +1214,12 @@ try {
   await page.setViewportSize({ width: 375, height: 700 })
   const firstThumb = page.getByRole('img', { name: '卡片专用图片', exact: true })
   const nextThumb = page.getByRole('img', { name: '下一张卡片图', exact: true })
-  const firstBox = await firstThumb.boundingBox()
-  const nextBox = await nextThumb.boundingBox()
-  assert.equal(firstBox.y, nextBox.y, 'card thumbnails share a row on a narrow screen')
+  // A resize can reflow the header and adjust scroll anchoring between separate
+  // boundingBox calls. Compare both thumbnails in one layout snapshot.
+  const thumbTops = await firstThumb.or(nextThumb).evaluateAll(images =>
+    images.map(image => image.getBoundingClientRect().top))
+  assert.equal(thumbTops.length, 2)
+  assert.equal(thumbTops[0], thumbTops[1], 'card thumbnails share a row on a narrow screen')
   await firstThumb.click()
   await viewer.getByRole('img', { name: '卡片专用图片' }).waitFor()
   await viewer.getByTitle('放大', { exact: true }).click()
