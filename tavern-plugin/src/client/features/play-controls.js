@@ -707,7 +707,7 @@
 			async function generate(force, guidance) {
 				if (busy || activity.busy) return;
 				setBusy(true);
-				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
+				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "", expandOnReady: true });
 				try {
 					await submitCandidateTask(props.sessionId, props.messageId, guidance);
 				} catch (err) { tavernErrorHub.report("候选项生成", err); setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: playerErrorText(err, { fallback: "候选生成未完成" }) }); }

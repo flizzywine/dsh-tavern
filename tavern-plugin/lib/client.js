@@ -61238,8 +61238,13 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     }
     const candidates = store((value, previous) => {
         if (!value) return value;
-        const sameChoices = previous && previous.sessionId === value.sessionId && previous.messageId === value.messageId && previous.phase === value.phase && JSON.stringify(previous.choices) === JSON.stringify(value.choices);
-        return Object.assign({}, value, { expanded: value.expanded ?? (sameChoices ? previous.expanded : value.phase === "error") });
+        const { expandOnReady, ...panel } = value;
+        const sameRound = previous && previous.sessionId === panel.sessionId && panelMessageKey(previous.messageId) === panelMessageKey(panel.messageId);
+        const sameChoices = sameRound && previous.phase === panel.phase && JSON.stringify(previous.choices) === JSON.stringify(panel.choices);
+        const openResult = expandOnReady || (sameRound && previous.phase === "loading" && previous.expandOnReady);
+        if (panel.phase === "loading" && openResult) panel.expandOnReady = true;
+        panel.expanded ??= sameChoices ? previous.expanded : panel.phase === "error" || (panel.phase === "ready" && openResult === true);
+        return panel;
     });
     const guide = store(), regeneration = store();
     const guidanceBySession = new Map(), pendingCandidates = new Map(), pendingBodies = new Map();
@@ -61313,7 +61318,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     async function regenerateCandidates(panel, guidance) {
         if (!panel || guide.getSnapshot() !== panel || panel.phase === "loading") return;
         const loading = guide.set({ ...panel, phase: "loading", error: "" });
-        const candidate = candidates.set({ sessionId: panel.sessionId, messageId: panel.messageId, phase: "loading", choices: [], error: "" });
+        const candidate = candidates.set({ sessionId: panel.sessionId, messageId: panel.messageId, phase: "loading", choices: [], error: "", expandOnReady: true });
         try {
             await submitCandidateTask(panel.sessionId, panel.messageId, String(guidance || "").trim());
             if (guide.getSnapshot() === loading) guide.set(null);
@@ -63825,7 +63830,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			async function generate(force, guidance) {
 				if (busy || activity.busy) return;
 				setBusy(true);
-				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
+				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "", expandOnReady: true });
 				try {
 					await submitCandidateTask(props.sessionId, props.messageId, guidance);
 				} catch (err) { tavernErrorHub.report("候选项生成", err); setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: playerErrorText(err, { fallback: "候选生成未完成" }) }); }
