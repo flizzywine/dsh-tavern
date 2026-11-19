@@ -71,7 +71,9 @@ function resolveReplayedAssistantSource(message, callId, options) {
   const targetModel = str(options?.targetModel).trim()
   const signaturesByCallId = options?.signaturesByCallId
   const toolReplay = message?.source?.toolReplay
+  // A folded reply rebuilds the call from prose. Its signature belongs to the original call.
   const sameModel = Boolean(
+    message?.source?.model !== 'reply-projection' &&
     toolReplay &&
     targetProvider &&
     targetModel &&

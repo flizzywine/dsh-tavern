@@ -19,7 +19,7 @@ import {
 import { GEMINI_THOUGHT_SIGNATURE_SENTINEL } from '../tavern-plugin/lib/domain/tool-protocol-enforcement.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
-test('foldStorySubmission 保留 think 思考槽与真实 thoughtSignature，同模型回放还原真签名、跨模型降级哨兵', () => {
+test('foldStorySubmission 保留 think 思考槽，重建历史调用时使用哨兵签名', () => {
   const session = Session.create('sig-preserve')
   appendSessionEvent(session, 'turn/start', { turn: 1 }, null)
   const realSig = Buffer.from('authentic-gemini-sig-000', 'utf8').toString('base64')
@@ -66,7 +66,7 @@ test('foldStorySubmission 保留 think 思考槽与真实 thoughtSignature，同
   ])
   assert.equal(foldedMsg.source.toolReplay.thoughtSignature, realSig)
 
-  // 同 provider + model 回放：还原真签名 + think 字段
+  // 同 provider + model 也会重建调用，think 仍随正文回放。
   const sameSigs = {}
   const history = [
     { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '开场' }] },
@@ -87,8 +87,8 @@ test('foldStorySubmission 保留 think 思考槽与真实 thoughtSignature，同
     think: '先铺垫雨夜气氛',
     content: '雨水顺着屋檐滑落。'
   })
-  assert.equal(replayedAssistant.source.replayState.blocks[0].thoughtSignature, realSig)
-  assert.equal(sameSigs[replayedAssistant.content[0].id], realSig)
+  assert.equal(replayedAssistant.source.replayState, undefined)
+  assert.equal(sameSigs[replayedAssistant.content[0].id], GEMINI_THOUGHT_SIGNATURE_SENTINEL)
 
   // 切换不同模型时回放：自动降级为哨兵签名
   const crossSigs = {}
@@ -105,11 +105,22 @@ test('foldStorySubmission 保留 think 思考槽与真实 thoughtSignature，同
 
 test('envelope 全信封模式：下沉 system 入 read_story_context(init_world)、玩家输入归并 submit_story 回执、末尾追加 sync 且严格锁死出口', async () => {
   const sigs = {}
+  const source = {
+    kind: 'model',
+    provider: 'dsh-tavern',
+    model: 'reply-projection',
+    toolReplay: {
+      provider: 'google',
+      model: 'gemini-3-pro',
+      api: 'google-generative-ai',
+      thoughtSignature: Buffer.from('original-call-signature').toString('base64')
+    }
+  }
   const messages = [
     { id: 'greet-0', role: 'assistant', source: { kind: 'model', provider: 'dsh-tavern', model: 'opening' }, content: [{ type: 'text', text: '欢迎来到神域剧场。' }] },
     { id: 'p-1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '推开大门' }] },
     { id: 'frame-1', role: 'user', source: { kind: 'plugin', plugin: 'dsh-tavern' }, content: [{ type: 'text', text: '【世界书增量：大厅灯火通明】' }] },
-    { id: 'ai-1', role: 'assistant', source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' }, content: [{ type: 'reasoning', text: '构思大厅' }, { type: 'text', text: '沉重的石门缓缓开启。' }] },
+    { id: 'ai-1', role: 'assistant', source, content: [{ type: 'reasoning', text: '构思大厅' }, { type: 'text', text: '沉重的石门缓缓开启。' }] },
     { id: 'p-2', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '走向王座' }] }
   ]
 
@@ -140,7 +151,10 @@ test('envelope 全信封模式：下沉 system 入 read_story_context(init_world
   const firstTurnReceipt = JSON.parse(env.messages[4].content[0].text)
   assert.equal(firstTurnReceipt.user_input, '推开大门')
   assert.deepEqual(firstTurnReceipt.context_updates, ['【世界书增量：大厅灯火通明】'])
-  assert.deepEqual(JSON.parse(env.messages[5].content[0].arguments), { think: '构思大厅', content: '沉重的石门缓缓开启。' })
+  const replayed = env.messages[5]
+  assert.deepEqual(JSON.parse(replayed.content[0].arguments), { think: '构思大厅', content: '沉重的石门缓缓开启。' })
+  assert.equal(replayed.source.replayState, undefined)
+  assert.equal(sigs[replayed.content[0].id], GEMINI_THOUGHT_SIGNATURE_SENTINEL)
   const latestReceipt = JSON.parse(env.messages[6].content[0].text)
   assert.equal(latestReceipt.user_input, '走向王座')
   assert.equal(env.messages[7].content[0].name, STORY_CONTEXT_TOOL_NAME)
