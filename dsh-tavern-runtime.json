@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a0c7413d94afc4e3a10bd02c09fd87f889b63bbb",
-  "releaseSequence": 1813,
+  "revision": "d5ec415d751d7618e52d5429e23c80e12e83f91e",
+  "releaseSequence": 1814,
   "version": "3.3.0",
   "files": [
     {
@@ -1026,8 +1026,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "00b27fb7646d0e1ab653408c5a0324dbc3b6845e59d15cabf4bed79cb00e53b2",
-      "size": 446085
+      "sha256": "b9cad1b575134154e7c1be4f185b8d52dabfc2e2efdba30ff4656bcde3c5704b",
+      "size": 448260
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1076,8 +1076,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "5ca433d7552c65019fda31f5b90a05f1cfe6115776fcdfd11dc16b5163e8cb22",
-      "size": 6374142
+      "sha256": "eaa4d2521fe8775350f1e1b9ba45e1e8342f56de5abdc87e2d76834a2d7b0a5b",
+      "size": 6389561
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2976,8 +2976,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/request-cache-diff.js",
-      "sha256": "8fa5fe7eebba693a789bb5c94e51b11c98e97d8e764f915df5009a5f6f430178",
-      "size": 20840
+      "sha256": "8e31cdb7a5b882ff9436fce000f49ebf960080991fdde8f0b23cc6b0c4bceb3b",
+      "size": 22005
     },
     {
       "path": "tavern-plugin/lib/domain/request-lineage.js",
@@ -3666,8 +3666,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-settings.js",
-      "sha256": "fafbd3cb7d4ae87437b3daa004ed51d2578047960483f8112d8e71698193ac0c",
-      "size": 34793
+      "sha256": "7225ba1eb9cc7451e54eba36056e1b9e6bf78f1c429610b07d9391d420ab535d",
+      "size": 34914
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-skill-provider.js",
@@ -4086,8 +4086,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "9b8dab44d5d0ce3ca61078b44579cdbf7234baff39e4ca2677a016841571eadb",
-      "size": 22557
+      "sha256": "17cb04b4ece5aa7568bfaf7d465f5ba4732768fb46627162b387f2ffc31825e1",
+      "size": 23341
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -4171,8 +4171,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "08089cfb13c30366e902f8c853d0d3562ec39725175c7f61fff586395e741acc",
-      "size": 326307
+      "sha256": "3f5d7136caf413189ed4ee556b9a50930a6ff571ab07ac38662c0ca5cc97d14b",
+      "size": 326419
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -8111,8 +8111,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/client.js",
-      "sha256": "4304506d68bdb27857e08edb91d1ed55abf4a8ad8baf5dac9aca63bd33a7b0ad",
-      "size": 115655
+      "sha256": "acac208c541853d8ecbcbb62e5f49be0c72e2a3f023532bf0f0f65ec5b3916e4",
+      "size": 120783
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/cordis.patch.yml",
@@ -8121,18 +8121,18 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/index.js",
-      "sha256": "d53517c69c38f6290286c4a5fbe93112aa2b28e524d028c1aa893351b0c8748a",
-      "size": 26106
+      "sha256": "5ed0ec9583c5ee95cda29c9aa522ba194768c8100c696c545489ef8c068c109c",
+      "size": 27497
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass-service.js",
-      "sha256": "10789b9ccfd51d1c0de1aa16a997be9b8270851825eff42020bd3a015314b67a",
-      "size": 32549
+      "sha256": "198d6efae469c1c3d6bcea4fe45fcfcaf813bbd2a80bd68404b4208c1ba6bb5c",
+      "size": 33018
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js",
-      "sha256": "da75ede378fd98f1cee85f2d404ff43c1841f8d2b37b52344ead9586a4741982",
-      "size": 87433
+      "sha256": "6b43eb91b78dc61c5eda3766dd385d13c47a2b7bdd9b2e63b1ef8798a55d8506",
+      "size": 90861
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/LICENSE",
@@ -8146,8 +8146,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/prompts/plot-compass.md",
-      "sha256": "4ca6d1d8c22e6c1a1b7c07f3f5ca43a73ace1d0eb8d0b821494d85aff74b9614",
-      "size": 13263
+      "sha256": "74ced37b418f0d4e4da5ad4c0d0bb07d2c8dd1c87b78f6491bb22d772f452482",
+      "size": 13539
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/README.md",
@@ -9606,9 +9606,9 @@
     }
   ],
   "archive": {
-    "commit": "8661d27a81f2e4f46e81053de24da9b0e21cfff4",
+    "commit": "1aa42c9298cf04be9eb60fe4daa0f36e11e883b2",
     "path": "runtime.zip",
-    "sha256": "7b0b013a72a6c0faa0741bc22478152e6e8e2bcc0874cbc4c198d872b753a08d",
-    "size": 16985890
+    "sha256": "2a842fb7d22d27f7968f05fd68429eb65c26d58bba8295372455511fdd6b9753",
+    "size": 16991710
   }
 }
