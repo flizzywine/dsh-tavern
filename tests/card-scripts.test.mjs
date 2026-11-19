@@ -58,7 +58,7 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   const chat = { cardPath, cardName: 'Test card', cardDefinitionSnapshot: snapshot }
   const before = structuredClone(chat)
   let liveReads = 0
-  const readCardExtensions = new Function('readCardWorkspace', 'cardPreparation', 'withGlobalRegexScripts', 'withModHidden', 'tavernExtensionSettings', 'cardScripts', `${readerSource}; return readCardExtensions`)(
+  const readCardExtensions = new Function('readSharedCardWorkspace', 'cardPreparation', 'withGlobalRegexScripts', 'withModHidden', 'tavernExtensionSettings', 'cardScripts', `${readerSource}; return readCardExtensions`)(
     async () => { liveReads++; return { spec: 'chara_card_v3', data: { extensions: { tavern_helper: { scripts: [bgm] } } } } },
     { present: ({ card, as }) => { assert.equal(as, 'card-extensions'); return inspectCardExtensions(card) } },
     withGlobalRegexScripts, withModHidden, { read: async () => ({}) }, cardScripts)
