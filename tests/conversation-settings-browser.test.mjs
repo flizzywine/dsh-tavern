@@ -64,6 +64,11 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
     readFile(new URL('../tavern-plugin/lib/client-assets/' + file, import.meta.url), 'utf8')))
   await page.addStyleTag({ content: styles.join('\n') })
   const desktop = page.viewportSize()
+  const profileField = play.getByRole('combobox', { name: '本局长期偏好', exact: true })
+  const choiceField = play.getByRole('button', { name: /^候选项数量：/ })
+  await profileField.waitFor()
+  const [first, ...rest] = await Promise.all([name, presetField, profileField, modelField, choiceField].map(field => field.boundingBox()))
+  assert.deepEqual(rest.map(box => box.x), rest.map(() => first.x), '游玩区五个控件的左边界对齐')
   for (const width of [desktop.width, 360]) {
     await page.setViewportSize({ width, height: desktop.height })
     const [modelBox, effortBox] = await Promise.all([modelField.boundingBox(), effortField.boundingBox()])

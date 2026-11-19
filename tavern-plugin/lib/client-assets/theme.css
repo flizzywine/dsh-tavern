@@ -6806,7 +6806,7 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 .dsh-local-settings .fork-inline-field button.fork-inline-trigger:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { min-height: 36px; height: auto; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent); background: var(--dsw-alias-bg-base); justify-content: space-between; }
 .dsh-local-settings .dsh-local-profile .dsh-tavern-profile-game { min-width: 0; padding: 0; margin: 0; }
 .dsh-local-settings .dsh-local-profile select.dsh-tavern-settings-select { max-width: none; margin: 0; }
-.dsh-local-settings .fork-inline-field > .fork-inline-value { margin: 0; }
+.dsh-local-settings .fork-inline-field[data-kind] > .fork-inline-value { margin: 0; }
 
 /* Polish settings and results share a compact, clearly bounded layout. */
 .dsh-tavern-polish-compare { container-type: inline-size; padding: 24px; }
