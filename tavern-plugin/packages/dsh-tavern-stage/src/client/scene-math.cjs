@@ -61,10 +61,16 @@ function sceneFigureScale() {
 }
 // frameCap is the reader's CONFIG 帧率上限; not chosen (null), a handheld phone (device.cjs galDeviceHandheld) caps at 30 and
 // anything else at 60.
-function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false) {
+// quality is the 画质 tier in force (device.cjs galDeviceQuality: high | medium | saver; the old "low" is saver): below
+// high the default cap is 30, saver never goes over 30, and a settled scene (nothing moving but the figures' idle
+// breathing and sway, scene.cjs frameRate) drops to GAL_SETTLED_FPS of its tier. High keeps its rates.
+const GAL_SETTLED_FPS = Object.freeze({ medium: 15, saver: 10 });
+function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false, settled = false) {
     const display = Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : Infinity;
-    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : handheld ? 30 : 60;
-    if (quality === "low" || !animated) return Math.min(display, 30);
+    const tier = quality === "low" ? "saver" : quality;
+    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : handheld || tier !== "high" ? 30 : 60;
+    if (settled && GAL_SETTLED_FPS[tier]) return Math.min(display, GAL_SETTLED_FPS[tier]);
+    if (tier === "saver" || !animated) return Math.min(display, 30);
     // Zero bypasses software pacing: requestAnimationFrame follows the actual display refresh.
     return cap === 0 ? 0 : Math.min(display, cap);
 }

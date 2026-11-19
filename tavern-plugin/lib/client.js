@@ -56933,11 +56933,12 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 		// the one render resolution of every stage canvas - the
 		// Pixi scene with its Live2D / Spine figures, keyframe performances, the dice throw and the Live2D / Spine editor previews.
 		// It is the device's own pixel ratio, so a 4K screen at Windows 225% (2.25) or a DPR 3 phone draws 1:1 device pixels; the
-		// old cap at 2 stretched every 4K frame by 1.125. The low quality
-		// setting renders at 1; a ratio below 1 (zoomed out) still renders at 1. The stage scene on a handheld phone
-		// (galDeviceHandheld) renders at most at 2: a DPR 3 iPhone draws 56% fewer pixels a frame; its text and UI stay DOM.
+		// old cap at 2 stretched every 4K frame by 1.125. By the stage's 画质 tier: saver (the old "low") renders at 1,
+		// medium at most at 1.5 (a DPR 3 iPhone draws a quarter of its pixels; its text and UI stay DOM at the full ratio);
+		// a ratio below 1 (zoomed out) still renders at 1. High on a handheld phone (galDeviceHandheld) renders at most at 2.
 		function galResolution(quality, dpr = globalThis.devicePixelRatio, handheld = false) {
-		    return quality === "low" ? 1 : Math.min(handheld ? 2 : Infinity, Math.max(1, dpr || 1));
+		    const ratio = Math.max(1, dpr || 1);
+		    return quality === "low" || quality === "saver" ? 1 : quality === "medium" ? Math.min(1.5, ratio) : Math.min(handheld ? 2 : Infinity, ratio);
 		}
 		// Calls changed() whenever the pixel ratio changes (the window moved to another monitor, the browser zoom) and returns the
 		// unsubscribe. A resolution query matches one ratio only, so it is re-armed at the new ratio after each change.
@@ -57261,14 +57262,15 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 		function galClamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
 		if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={galMatrix,galClamp01};
 
-		// Machine preference: stage effects quality, "high" (default) or "low".
+		// Machine preference (kept per device): the stage's 画质, "auto" (default; the stage's device module resolves it,
+		// device.cjs galDeviceQuality) or "high" | "medium" | "saver". The old "low" reads as saver; nothing stored is auto.
 		const stageQuality = (function () {
-		    const KEY = "fork-stage-quality";
+		    const KEY = "fork-stage-quality", VALUES = ["auto", "high", "medium", "saver"];
 		    const listeners = new Set();
-		    function get() { try { return localStorage.getItem(KEY) === "low" ? "low" : "high"; } catch (_) { return "high"; } }
+		    function get() { try { const value = localStorage.getItem(KEY); return value === "low" ? "saver" : VALUES.includes(value) ? value : "auto"; } catch (_) { return "auto"; } }
 		    return {
 		        get,
-		        set(value) { try { localStorage.setItem(KEY, value === "low" ? "low" : "high"); } catch (_) {} listeners.forEach(fn => fn()); },
+		        set(value) { try { if (value === "auto" || !VALUES.includes(value)) localStorage.removeItem(KEY); else localStorage.setItem(KEY, value); } catch (_) {} listeners.forEach(fn => fn()); },
 		        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 		    };
 		})();

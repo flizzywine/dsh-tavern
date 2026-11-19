@@ -1,6 +1,6 @@
 'use strict';
 
-function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained, packFigureStill = () => undefined}) {
+function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained, packFigureStill = () => undefined, lookahead = () => Infinity}) {
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
 const stageResourceErrorText = stageRuntimeErrorText;
 // conflicts that resolve on a re-read (the stage moved on, a lease went stale).
@@ -294,7 +294,9 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         cleanupAll(prepared.map(value => () => value.release()));
     }
     // the lookahead covers every page of
-    // the round, nearest-ahead first, so a forward page turn finds its projection and media ready. A page turn only
+    // the round, nearest-ahead first, so a forward page turn finds its projection and media ready. Below the high 画质
+    // (lookahead(), entry.js) it covers the page behind the reader and the next few only, moving on with each page turn:
+    // a phone does not read and decode a whole round's projections (~0.5 MB JSON each) and media up front. A page turn only
     // re-prioritises; a new prefix while streaming adds its new paragraphs (and refreshes the next pages' reads).
     function warmTimeline(state, token, direction, history, getSnapshot) {
         const snapshot = getSnapshot(), through = snapshot.director.through, pages = snapshot.text?.pages || [];
@@ -319,10 +321,12 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
                     } catch (_) {warm.seen.delete(stageResourceSeenKey(descriptor));}
                 }
             };
+            warm.eligible = item => stageLookaheadEligible(item.index, warm.current, warm.ahead);
             // Nearest page at or after the reader first, then the pages behind it (paging back).
             warm.next = () => {
                 let best = null;
                 for (const item of warm.queue.values()) {
+                    if (!warm.eligible(item)) continue;
                     const rank = item.index >= warm.current ? item.index - warm.current : 1e9 + warm.current - item.index;
                     if (!best || rank < best.rank) best = {item,rank};
                 }
@@ -360,14 +364,14 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
                 }
                 warm.running = Promise.all([worker(),worker()]).finally(() => {
                     warm.running = null;
-                    if (!warm.cancelled && warm.queue.size) warm.start();
+                    if (!warm.cancelled && [...warm.queue.values()].some(warm.eligible)) warm.start();
                 });
                 return warm.running;
             };
         }
         const index = pages.findIndex(page => page.anchor?.para === token.anchor.para && page.anchor?.offset === token.anchor.offset);
         const changed = warm.version !== undefined && warm.version !== version, completed = !warm.complete && snapshot.director.complete;
-        Object.assign(warm,{direction,assetRevision:snapshot.director.assetRevision,version,current:Math.max(0,index),complete:snapshot.director.complete});
+        Object.assign(warm,{direction,assetRevision:snapshot.director.assetRevision,version,current:Math.max(0,index),complete:snapshot.director.complete,ahead:lookahead()});
         pages.forEach((page, at) => {
             const para = page.anchor?.para;
             if (!para || para > through) return;
@@ -783,7 +787,11 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         ]), () => owner.dispose()]);
     }};
 }
-return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageResourceDescriptors, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
+// A lookahead page within reach: every page when the lookahead is unbounded, else the page behind the reader and the next `ahead`.
+function stageLookaheadEligible(index, current, ahead) {
+    return ahead === Infinity || index >= current - 1 && index <= current + ahead;
+}
+return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageResourceDescriptors, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars, stageLookaheadEligible};
 }
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageResourceRunnerModule};

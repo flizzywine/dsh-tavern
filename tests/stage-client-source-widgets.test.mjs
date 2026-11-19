@@ -14,7 +14,7 @@ function fixture({prepare,...options}={}){
  const prefs={get:()=>null,subscribe:fn=>{subscriptions.add(fn);return ()=>subscriptions.delete(fn)}}
  window.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}})
  window.ResizeObserver=class{constructor(){observers++}observe(){}disconnect(){observers--}}
- const foreground={setInterval:fn=>{jobs.set(++serial,fn);return serial},clearInterval:id=>jobs.delete(id)}
+ const foreground={setInterval:fn=>{jobs.set(++serial,fn);return serial},clearInterval:id=>jobs.delete(id),setTimeout:fn=>{jobs.set(++serial,fn);return serial},clearTimeout:id=>jobs.delete(id)}
  const context={state:null,refs:new Map()}
  prepare?.(window)
  const plugin=createStageSourceWidgets({React,window,document,storage:window.localStorage,foreground,
@@ -84,7 +84,9 @@ test('a phone contact keeps one face across rounds, outfit changes and moods',as
   prepare:window=>{
    window.Image=class{set src(value){this.url=value;this.naturalWidth=this.naturalHeight=64;queueMicrotask(()=>this.onload())}get src(){return this.url}}
    window.HTMLCanvasElement.prototype.getContext=function(){return {drawImage:image=>{this.drawn=image.src;drawn.push(image.src)}}}
-   window.HTMLCanvasElement.prototype.toDataURL=function(){return 'thumb:'+this.drawn}
+   // Encoded through toBlob and read back as a data url (source-widgets.cjs): the fake blob carries the url it drew.
+   window.HTMLCanvasElement.prototype.toBlob=function(done){done({thumb:'thumb:'+this.drawn})}
+   window.FileReader=class{readAsDataURL(blob){queueMicrotask(()=>{this.result=blob.thumb;this.onload()})}}
   }})
  const phone={ref:{modId:'dsh.phone'},modSource:true,sourceOnly:true,state:{},definition:{contentIdentity:'phone',document:{presentation:{open:{width:280,anchor:'corner-right'}}}}}
  const round=(turn,mood,outfitKey)=>({turn,page:0,pages:[{kind:'line',para:1,alias:'alice',name:'Alice',mood,text:'hi '+turn}],

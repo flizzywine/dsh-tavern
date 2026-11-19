@@ -6528,7 +6528,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 
         'use strict';
 
-function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained, packFigureStill = () => undefined}) {
+function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained, packFigureStill = () => undefined, lookahead = () => Infinity}) {
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
 const stageResourceErrorText = stageRuntimeErrorText;
 // conflicts that resolve on a re-read (the stage moved on, a lease went stale).
@@ -6822,7 +6822,9 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         cleanupAll(prepared.map(value => () => value.release()));
     }
     // the lookahead covers every page of
-    // the round, nearest-ahead first, so a forward page turn finds its projection and media ready. A page turn only
+    // the round, nearest-ahead first, so a forward page turn finds its projection and media ready. Below the high 画质
+    // (lookahead(), entry.js) it covers the page behind the reader and the next few only, moving on with each page turn:
+    // a phone does not read and decode a whole round's projections (~0.5 MB JSON each) and media up front. A page turn only
     // re-prioritises; a new prefix while streaming adds its new paragraphs (and refreshes the next pages' reads).
     function warmTimeline(state, token, direction, history, getSnapshot) {
         const snapshot = getSnapshot(), through = snapshot.director.through, pages = snapshot.text?.pages || [];
@@ -6847,10 +6849,12 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
                     } catch (_) {warm.seen.delete(stageResourceSeenKey(descriptor));}
                 }
             };
+            warm.eligible = item => stageLookaheadEligible(item.index, warm.current, warm.ahead);
             // Nearest page at or after the reader first, then the pages behind it (paging back).
             warm.next = () => {
                 let best = null;
                 for (const item of warm.queue.values()) {
+                    if (!warm.eligible(item)) continue;
                     const rank = item.index >= warm.current ? item.index - warm.current : 1e9 + warm.current - item.index;
                     if (!best || rank < best.rank) best = {item,rank};
                 }
@@ -6888,14 +6892,14 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
                 }
                 warm.running = Promise.all([worker(),worker()]).finally(() => {
                     warm.running = null;
-                    if (!warm.cancelled && warm.queue.size) warm.start();
+                    if (!warm.cancelled && [...warm.queue.values()].some(warm.eligible)) warm.start();
                 });
                 return warm.running;
             };
         }
         const index = pages.findIndex(page => page.anchor?.para === token.anchor.para && page.anchor?.offset === token.anchor.offset);
         const changed = warm.version !== undefined && warm.version !== version, completed = !warm.complete && snapshot.director.complete;
-        Object.assign(warm,{direction,assetRevision:snapshot.director.assetRevision,version,current:Math.max(0,index),complete:snapshot.director.complete});
+        Object.assign(warm,{direction,assetRevision:snapshot.director.assetRevision,version,current:Math.max(0,index),complete:snapshot.director.complete,ahead:lookahead()});
         pages.forEach((page, at) => {
             const para = page.anchor?.para;
             if (!para || para > through) return;
@@ -7311,7 +7315,11 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         ]), () => owner.dispose()]);
     }};
 }
-return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageResourceDescriptors, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
+// A lookahead page within reach: every page when the lookahead is unbounded, else the page behind the reader and the next `ahead`.
+function stageLookaheadEligible(index, current, ahead) {
+    return ahead === Infinity || index >= current - 1 && index <= current + ahead;
+}
+return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageResourceDescriptors, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars, stageLookaheadEligible};
 }
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageResourceRunnerModule};
@@ -7685,7 +7693,8 @@ const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
 const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
 // A full-stage cover (desc.covered) stops the frame loop once its opening has settled; the scene still ticks this often.
-const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10;
+const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10, GAL_SETTLE_MS = 4000;
+const GAL_SIGNATURE_SKIP = new Set(["audio", "effectTables", "safety", "tapMedia", "tapGate", "preload"]);
 // Every figure kind beyond static pictures (Spine, Live2D) draws through a registered renderer. Register before creating
 // scenes; a scene snapshots the factories and owns their instances. Per scene factory(scene) returns
 //   load(entry)                         start loading entry.figure; once ready set entry.model (or entry.sprite) and call scene.commit(entry)
@@ -7740,13 +7749,17 @@ function galCreateScene(host, options, own) {
     const PIXI = window.PIXI;
     const onError = options.onError || function () {};
     const onDebug = options.onDebug || function () {};
-    let quality = options.quality === "low" ? "low" : "high";
+    // The 画质 tier in force (device.cjs galDeviceQuality) and the effects level it draws: saver takes the light
+    // effects ("low": fewer particles, no grain, bloom or depth of field); medium keeps high's effects at a lower pixel
+    // ratio, single-sampled, without depth of field, and drops to its settled rate when only idle motion is left.
+    const galTier = value => value === "low" ? "saver" : ["high", "medium", "saver"].includes(value) ? value : "high";
+    let tier = galTier(options.quality), quality = tier === "saver" ? "low" : "high";
     const refreshRate = options.refreshRate || window.screen && window.screen.refreshRate;
     // A handheld phone (options.handheld, device.cjs galDeviceHandheld) draws lighter: 30 fps unless the reader chose a cap, DPR 2 at most.
     const isHandheld = options.handheld || (() => false);
     let handheld = isHandheld();
     const app = new PIXI.Application({ resizeTo: host, backgroundColor: 0x0b0812, backgroundAlpha: 1, antialias: true, autoDensity: true,
-        resolution: galResolution(quality, undefined, handheld), powerPreference: "high-performance" });
+        resolution: galResolution(tier, undefined, handheld), powerPreference: "high-performance" });
     own(app,value=>value.destroy(true,{children:true}));
     host.appendChild(app.view);
     // Pixi's InteractionManager re-tests a resting pointer against the whole scene on the shared system ticker every frame
@@ -7759,8 +7772,8 @@ function galCreateScene(host, options, own) {
     // ticker may skip that vsync, which then shows an empty scene for a frame (leaving full screen flashed). Redraw now.
     app.renderer.on("resize", () => { if (!state.destroyed && state.desc) app.render(); });
     // A rotated phone can change profile (desktop <-> handheld at the breakpoints): retune at once.
-    app.renderer.on("resize", () => { if (!state.destroyed && isHandheld() !== handheld) applyQuality(quality); });
-    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
+    app.renderer.on("resize", () => { if (!state.destroyed && isHandheld() !== handheld) applyQuality(tier); });
+    app.ticker.maxFPS = galFrameRate(tier, true, refreshRate, stageReading.get().frameCap, handheld);
     const tickerUpdate = app.ticker.update;
     const pace = { last: 0, next: 0, fps: 0, vsync: 0 };
     const generated = stageViews.sceneGraphics.textures(PIXI, host);
@@ -7809,7 +7822,7 @@ function galCreateScene(host, options, own) {
         // A figure's filters (shade, rim, warp, depth of field) draw single-sampled: its pictures and Live2D meshes take
         // their edges from texture alpha, so MSAA there changed no pixel, but once a figure
         // is taller than 2048 device px (4K at 200% / 225%) its pooled 4096 px MSAA targets cost ~35 ms a frame.
-        filter.multisample = quality === "low" || filter.forkSingleSample ? PIXI.MSAA_QUALITY.NONE : PIXI.MSAA_QUALITY.MEDIUM;
+        filter.multisample = tier !== "high" || filter.forkSingleSample ? PIXI.MSAA_QUALITY.NONE : PIXI.MSAA_QUALITY.MEDIUM;
         return filter;
     }
     // pixi-filters (post effects) load in the background; until then grading and particles still work.
@@ -8160,7 +8173,7 @@ function galCreateScene(host, options, own) {
     function tickFigureLook(entry,desc,now,dt,dofTarget) {
         const figure=entry.figure;
         return entry.appearance.tick({mode:(desc.figureLight&&figure.alias&&desc.figureLight[figure.alias])||figure.light||'',
-            defocused:Boolean(dofTarget&&dofTarget!==entry),quality,
+            defocused:Boolean(dofTarget&&dofTarget!==entry),quality:tier === "high" ? "high" : "low",
             armedOn:stageViews.figureTap.galTapArmed(tapArm,entry.key,performance.now())?1:0,
             reduced:galBlinkCalm(),color:figure.color,now,dt});
     }
@@ -8286,6 +8299,7 @@ function galCreateScene(host, options, own) {
         const eligible = deliberate && figureLifeOn(desc) && typeof desc.tapGate === "function" && desc.tapGate() && figuresBox.visible && world.visible &&
             !desc.hideFigures && !desc.figuresAway && stageViews.figureTap.galTapBareTarget(event.target, app.view, host);
         if (!eligible) { tapArm.first = null; return; }
+        wake();
         // Hit-test now only when this tap could be claimed; a plain page turn never waits for it.
         const found = stageViews.figureTap.galTapNeedsHit(tapArm, x, y, at) ? figureAt(x, y) : undefined;
         const plan = stageViews.figureTap.galTapArm(tapArm, found === undefined ? undefined : found && found.entry.key, x, y, at);
@@ -8591,10 +8605,10 @@ function galCreateScene(host, options, own) {
     }
 
     function applyQuality(next) {
-        quality = next === "low" ? "low" : "high";
+        tier = galTier(next); quality = tier === "saver" ? "low" : "high";
         handheld = isHandheld();
-        const resolution = galResolution(quality, undefined, handheld);
-        app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
+        const resolution = galResolution(tier, undefined, handheld);
+        app.ticker.maxFPS = galFrameRate(tier, true, refreshRate, stageReading.get().frameCap, handheld);
         if (app.renderer.resolution !== resolution) { app.renderer.resolution = resolution; app.resize(); }
         const all = [].concat(...Object.values(filters).map(chain => chain.all()));
         state.figures.forEach(entry => all.push(...entry.filters.all()));
@@ -8614,7 +8628,7 @@ function galCreateScene(host, options, own) {
         const newVisit = desc.snap && desc.visit !== state.visit;
         if (newVisit) { state.visit = desc.visit; state.camera = cameraMotion.reset(); }
         const W = app.screen.width, H = app.screen.height;
-        if ((desc.quality === "low" ? "low" : "high") !== quality) applyQuality(desc.quality);
+        if (galTier(desc.quality) !== tier) applyQuality(desc.quality);
         for(const renderer of renderers.values())renderer.set(desc);
         // CG gates the whole figure layer, including pending Live2D arrivals and exit fades.
         // Keep directed state/resources current so clearing CG reveals the latest outfit and cast.
@@ -8662,7 +8676,7 @@ function galCreateScene(host, options, own) {
         tickBust(desc, now, W, H);
         thinking.tick(desc, dt, W, H);
         tickCallView(desc, dt, W, H);
-        galSpring(state.dof, dofTarget && quality === "high" ? 1 : 0, 6, dt);
+        galSpring(state.dof, dofTarget && tier === "high" ? 1 : 0, 6, dt);
         effects.tick(desc, now, dt, state.dof.v);
         // accepted groups reveal independently, including historical entry.
         // The resource runner already gates each element; a slow model must not hide the backdrop.
@@ -8696,16 +8710,45 @@ function galCreateScene(host, options, own) {
         if (state.coverOn) return GAL_COVERED_FPS;
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
-        const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap, handheld);
+        const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !galWeathering(desc) && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
+        state.unsettled = tier === "high" ? "tier" : idle ? "" : unsettled(desc, plan);
+        state.settled = !state.unsettled;
+        return galFrameRate(tier, !idle, refreshRate, stageReading.get().frameCap, handheld, state.settled);
+    }
+    // Below high, a scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
+    // (scene-math.cjs GAL_SETTLED_FPS): 4 s after the last change, the camera at rest, no effect, weather, moving look
+    // part (grain, wobble, pulse, motes), transition or override, and no figure arriving, leaving, changing, reacting to a
+    // tap, blinking or speaking a voice (the mouth follows it).
+    // The controller names no weather "none".
+    function galWeathering(desc) { return Boolean(desc.weather) && desc.weather !== "none"; }
+    function unsettled(desc, plan) {
+        if (performance.now() - state.changedAt < GAL_SETTLE_MS) return "changed";
+        if (state.clock < state.camera.start + state.camera.ms) return "camera";
+        if (galWeathering(desc)) return "weather";
+        if ((desc.effects || []).length || state.debugEffects.length) return "effects";
+        if (state.override || state.preview || desc.skipping) return "override";
+        if (backgrounds.layers.length > 1 || backgrounds.pending) return "background";
+        if (desc.thinking ? thinking.alpha < 1 : thinking.alpha > 0) return "thinking";
+        if (plan && (plan.film || plan.motes.length || plan.screen)) return "look";
+        for (const entry of state.figures.values()) {
+            const figure = entry.figure;
+            if (entry.leaving || entry.loading || entry.pendingSrc || entry.replacement || entry.fading.length || !(entry.model || entry.sprite)) return "figure:" + entry.key;
+            if (entry.tapReaction && state.clock - entry.tapReaction.start < 2000) return "tap";
+            if (entry.blink.active && entry.blink.phase() !== "open") return "blink";
+            if (figure.speaking && figure.audio && !figure.audio.paused) return "voice";
+        }
+        return "";
     }
     // The wrapper restores the requested cap after Pixi dispatches its listeners.
     app.ticker.update = function (now) {
         if(state.destroyed || state.tickError)return;
         try{
             now = now == null ? performance.now() : now;
-            const fps = frameRate();
-            if (!galFrameDue(pace, now, fps)) return;
+            const fps = frameRate(), timed = Boolean(state.settledTimer);
+            if (!state.coverOn) setSettled(state.settled, fps);
+            // A settled timer tick is the pace itself.
+            if (!timed && !galFrameDue(pace, now, fps)) return;
+            if (timed) pace.last = pace.next = now;
             this.maxFPS = 0;
             try { tickerUpdate.call(this, now); } finally { this.maxFPS = fps; }
         }catch(error){failFrame(error);}
@@ -8719,10 +8762,24 @@ function galCreateScene(host, options, own) {
     const renderUncovered = app.renderer.render;
     app.renderer.render = function (...args) { if (!state.coverOn) return renderUncovered.apply(this, args); };
     function restart() { app.ticker.lastTime = performance.now(); app.start(); }
+    // Settled below high (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
+    // no wake-up every vsync for frames it would skip. A change (set, a tap) puts it straight back on the frame loop.
+    function setSettled(on, fps) {
+        if (on && state.settledTimer && state.settledFps === fps) return;
+        if (!on && !state.settledTimer) return;
+        forkForeground.clearInterval(state.settledTimer); state.settledTimer = null;
+        if (on) { app.stop(); state.settledFps = fps; state.settledTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / fps); return; }
+        if (!state.coverOn && forkForeground.isForeground()) restart(); else if (!state.coverOn) state.coverRestart = true;
+    }
+    // What the description shows, without the media elements, tables and functions that are new objects every render.
+    function galSceneSignature(desc) {
+        return JSON.stringify(desc, (key, value) => GAL_SIGNATURE_SKIP.has(key) || typeof value === "function" ? undefined : value);
+    }
+    function wake() { state.changedAt = performance.now(); if (state.settledTimer) setSettled(false); }
     function setCovered(on) {
         if (on === Boolean(state.coverOn)) return;
         state.coverOn = on;
-        if (on) { app.stop(); state.coverTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / GAL_COVERED_FPS); return; }
+        if (on) { forkForeground.clearInterval(state.settledTimer); state.settledTimer = null; app.stop(); state.coverTimer = forkForeground.setInterval(() => app.ticker.update(performance.now()), 1000 / GAL_COVERED_FPS); return; }
         forkForeground.clearInterval(state.coverTimer); state.coverTimer = null;
         // Hidden now: the foreground starts it again on return (it only restarts a ticker that was running when it left).
         if (forkForeground.isForeground()) restart(); else state.coverRestart = true;
@@ -8730,7 +8787,7 @@ function galCreateScene(host, options, own) {
     const releaseCoverForeground = forkForeground.subscribe(active => { if (active && state.coverRestart) { state.coverRestart = false; if (!state.coverOn) restart(); } });
     own(releaseCoverForeground,release=>release());
     // A new pixel ratio (another monitor, the zoom) re-renders at it, with the filters retuned, without a reload.
-    const releaseResolution = galResolutionSubscribe(() => applyQuality(quality));
+    const releaseResolution = galResolutionSubscribe(() => applyQuality(tier));
     own(releaseResolution,release=>release());
 
     // Verification hook, present only while the stage is open.
@@ -8765,7 +8822,7 @@ function galCreateScene(host, options, own) {
         transition(kind, url) { const base = state.desc && state.desc.background || {}; state.override = galSceneMerge(state.override || {}, { background: Object.assign({}, base, { url: url || base.url || "", transition: kind }) }); },
         error() { return state.tickError || ""; },
         probe() { let render = "ok"; try { app.render(); } catch (error) { render = String(error && error.stack || error); } let step = "ok"; try { tick(); } catch (error) { step = String(error && error.stack || error); } return { started: app.ticker.started, count: app.ticker.count, desc: Boolean(state.desc), render, step }; },
-        fps() { return { measured: state.frames.length, ticker: Math.round(app.ticker.FPS * 10) / 10, maxFPS: app.ticker.maxFPS, resolution: app.renderer.resolution, quality }; },
+        fps() { return { measured: state.frames.length, ticker: Math.round(app.ticker.FPS * 10) / 10, maxFPS: app.ticker.maxFPS, resolution: app.renderer.resolution, quality, tier, settled: Boolean(state.settled), unsettled: state.unsettled || "" }; },
         // each figure's idle rhythm and its current idle signals, for phase traces.
         idlePhase() {
             return Array.from(state.figures.values()).map(entry => {
@@ -8870,7 +8927,10 @@ function galCreateScene(host, options, own) {
         debug,
         set(desc) {
             const was = state.desc?.covered === true;
-            state.desc = desc; state.changedAt = performance.now();
+            state.desc = desc;
+            // The component hands its description over on every render; only a different picture is a change.
+            const signature = galSceneSignature(desc);
+            if (signature !== state.signature) { state.signature = signature; wake(); }
             if (desc.covered && !was) state.coverSettle = forkForeground.setTimeout(() => { state.coverSettle = null; setCovered(true); }, GAL_COVER_SETTLE_MS);
             else if (!desc.covered && was) { forkForeground.clearTimeout(state.coverSettle); state.coverSettle = null; setCovered(false); }
         },
@@ -8888,7 +8948,7 @@ function galCreateScene(host, options, own) {
             const clean=fn=>{try{fn();}catch(error){errors.push(error);}};
             clean(()=>app.ticker.stop());
             clean(releaseForeground);clean(releaseResolution);clean(releaseCoverForeground);
-            clean(()=>{forkForeground.clearTimeout(state.coverSettle);forkForeground.clearInterval(state.coverTimer);});
+            clean(()=>{forkForeground.clearTimeout(state.coverSettle);forkForeground.clearInterval(state.coverTimer);forkForeground.clearInterval(state.settledTimer);});
             clean(()=>faceBoxObserver?.disconnect());clean(()=>emptyThemeObserver.disconnect());
             if(stageHost){
                 for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])clean(()=>stageHost.removeEventListener(type,onStagePointer,{capture:true}));
@@ -9073,10 +9133,16 @@ function sceneFigureScale() {
 }
 // frameCap is the reader's CONFIG 帧率上限; not chosen (null), a handheld phone (device.cjs galDeviceHandheld) caps at 30 and
 // anything else at 60.
-function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false) {
+// quality is the 画质 tier in force (device.cjs galDeviceQuality: high | medium | saver; the old "low" is saver): below
+// high the default cap is 30, saver never goes over 30, and a settled scene (nothing moving but the figures' idle
+// breathing and sway, scene.cjs frameRate) drops to GAL_SETTLED_FPS of its tier. High keeps its rates.
+const GAL_SETTLED_FPS = Object.freeze({ medium: 15, saver: 10 });
+function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false, settled = false) {
     const display = Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : Infinity;
-    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : handheld ? 30 : 60;
-    if (quality === "low" || !animated) return Math.min(display, 30);
+    const tier = quality === "low" ? "saver" : quality;
+    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : handheld || tier !== "high" ? 30 : 60;
+    if (settled && GAL_SETTLED_FPS[tier]) return Math.min(display, GAL_SETTLED_FPS[tier]);
+    if (tier === "saver" || !animated) return Math.min(display, 30);
     // Zero bypasses software pacing: requestAnimationFrame follows the actual display refresh.
     return cap === 0 ? 0 : Math.min(display, cap);
 }
@@ -13456,6 +13522,8 @@ function phoneModStageSize(geometry,box,memory) {
 // The stage as the widgets see it (stage units), from the DOM: the viewport, the letterbox band, the top chrome and the dialogue
 // box's floor (see phoneModStageSize), the figures, and the box text's reading size. previous: the last geometry, whose floor is
 // kept while the box's height eases.
+// Unchanged measures (at 100 ms) before the stage's pieces are re-measured once a second only.
+const STAGE_WIDGET_MEASURE_QUIET=10;
 function stageWidgetStageGeometry(root,previous) {
     const frame=root.getBoundingClientRect(),rect=node=>{const r=node.getBoundingClientRect();return {x:r.left-frame.left,y:r.top-frame.top,width:r.width,height:r.height};};
     const blocked=[],caption=[],band={top:0,bottom:frame.height};
@@ -13500,7 +13568,7 @@ function useWidgetStage(props) {
     context.transcripts ||= new Set();
     const [,redraw]=React.useState(0), [geometry,setGeometry]=React.useState(null), [ready,setReady]=React.useState({}), [failed,setFailed]=React.useState({});
     // The phone's band in this layout (phoneModStageSize memory) and the last measured geometry (held while the box eases).
-    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null);
+    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null),rushMeasure=React.useRef(null);
     // the reader's phone size and place on this device, and whether it may be dragged.
     const phonePrefs=React.useSyncExternalStore(typeof phoneModPrefs!=='undefined' ? phoneModPrefs.subscribe : ()=>()=>{},typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null,typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null);
     const [visible,setVisible]=React.useState({key:'',text:''}), [grants,setGrants]=React.useState({key:'',items:[]}), [history,setHistory]=React.useState(null), [sheet,setSheet]=React.useState(null);
@@ -13664,7 +13732,8 @@ function useWidgetStage(props) {
     // of the session avatar cache at that size, so her 512 px library face reaches the 200 pt card and the 132 pt call
     // screen sharp instead of as a 64 px thumbnail scaled up four to six times.
     const phoneOpenWidth=items.find(item=>isPhoneRef(item.ref))?.definition.document.presentation.open.width;
-    const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=window.devicePixelRatio || 1;
+    // Faces at most at 2x: on a 3x phone a 3x face is not visibly sharper and costs 2.25 times the pixels to prepare.
+    const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=Math.min(2,window.devicePixelRatio || 1);
     const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : 64;
     const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx/dpr});
     const hasCardFace=alias=>Boolean(bubbleCardFace(props.config,alias,props.sessionId));
@@ -13686,7 +13755,12 @@ function useWidgetStage(props) {
                 const c=stageWidgetAvatarSquare(image.naturalWidth,image.naturalHeight,crop || undefined),context2d=canvas.getContext('2d');
                 // Cover the square thumbnail before transfer; CSS cannot undo a stretched canvas.
                 context2d.imageSmoothingQuality='high';context2d.drawImage(image,c.x,c.y,c.width,c.height,0,0,px,px);
-                resolve(canvas.toDataURL('image/webp',.9));
+                // Encoded off the main thread (toBlob), not toDataURL: a phone's 60 faces at its pixel ratio held the page
+                // for seconds on every stage entry.
+                canvas.toBlob(blob=>{
+                    if(!blob||closed){resolve(null);return;}
+                    const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>resolve(null);reader.readAsDataURL(blob);
+                },'image/webp',.9);
             } catch {resolve(null);}};
             image.src=url;
         });
@@ -13950,14 +14024,26 @@ function useWidgetStage(props) {
     const phoneHeld=!paused && projected.some(item=>isPhoneRef(item.ref) && item.requestedState==='open' && !item.failed);
     // On a real phone the open phone is the device itself: its opaque full-bleed sheet covers the whole stage until it is put away.
     const covered=!paused && projected.some(item=>isPhoneRef(item.ref) && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
-    // The stage's pieces (box, top bar, figures) are re-measured every 100 ms while the stage is in view; under that cover only
-    // the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
+    // The stage's pieces (box, top bar, figures) are re-measured while the stage is in view: every 100 ms while they move,
+    // backing off to once a second after a second without change (each measure forces the page's style and layout: ten a
+    // second kept a resting phone's main thread busy), and at once on a page turn or when a widget opens or closes (not on
+    // every render: the widgets render many times while a page types out). Under
+    // that cover only the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
     React.useEffect(()=>{
         if (covered || !remeasure.current) return;
-        remeasure.current();
-        const timer=forkForeground.setInterval(()=>remeasure.current?.(),100);
-        return()=>forkForeground.clearInterval(timer);
+        let quiet=0,timer=null,last=null;
+        const step=()=>{
+            remeasure.current?.();
+            const now=measured.current?.layoutKey+JSON.stringify([measured.current?.floor,measured.current?.figures,measured.current?.chrome]);
+            quiet=now===last ? quiet+1 : 0;last=now;
+            timer=forkForeground.setTimeout(step,quiet>=STAGE_WIDGET_MEASURE_QUIET ? 1000 : 100);
+        };
+        step();
+        rushMeasure.current=()=>{quiet=0;forkForeground.clearTimeout(timer);step();};
+        return()=>{forkForeground.clearTimeout(timer);rushMeasure.current=null;};
     },[covered,props.rootRef,props.film]);
+    const measureKey=JSON.stringify([readingKey,items.map(item=>[item.key,context.state.entries.get(item.key)?.requestedState])]);
+    React.useEffect(()=>{rushMeasure.current?.();},[measureKey]);
     const claimed=projected.find(item=>item.source?.current && !isPhoneRef(item.ref) && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
     // an open overlay that owns scroll input — a sheet (modal reader)
     // or a held mod device (the phone, which dims the stage behind it). While one is open the stage's wheel gestures (up =
@@ -14105,7 +14191,7 @@ const {stageEffectResolve,stageSafety}=options.effects?.policy || {};
 const stageTextScaleOf=options.configText?.scaleOf;
 const useStageFilm=()=>React.useSyncExternalStore(legacy.film.subscribe,legacy.film.get);
 const useStageReading=()=>React.useSyncExternalStore(options.entrance.reading.subscribe,options.entrance.reading.get);
-const useStageQuality=()=>React.useSyncExternalStore(options.configAppearance.quality.subscribe,options.configAppearance.quality.get);
+const useStageQuality=()=>React.useSyncExternalStore(stageViews.quality.subscribe,stageViews.quality.get);
 const stageSessions={get:id=>stageViews.sessions.get(id),get owner(){return stageViews.sessions.owner;},get resourceOwner(){return stageViews.sessions.resourceOwner;}};
 const {Event}=window;
 const matchMedia=(...args)=>window.matchMedia(...args),queueMicrotask=fn=>window.queueMicrotask(()=>{if(!closed)fn();});
@@ -15492,7 +15578,7 @@ function GalStage(props) {
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
         letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
-    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
+    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
@@ -24054,6 +24140,8 @@ const React={...react,createElement(type,props,...children){
 },deps);}};
 function useStageReading(){return React.useSyncExternalStore(stageReading.subscribe,stageReading.get);}
 function useStageQuality(){return React.useSyncExternalStore(stageQuality.subscribe,stageQuality.get);}
+function useStageQualitySetting(){return React.useSyncExternalStore(stageQuality.subscribe,stageQuality.setting);}
+const GAL_QUALITY_NAMES = { high: "高", medium: "中", saver: "省电" };
 function check(){if(disposed)throw Object.assign(new Error('舞台已停用'),{code:'STAGE_DISABLED'});}
 const galConfigSaves = new Map();
 function galConfigSaveSkin(sessionId, choice) {
@@ -24197,7 +24285,7 @@ function GalConfigSkinSelect(props) {
 // player's choice over the skin's hud.reveal, ↺ back to the skin's); 效果 - quality, frame cap, motion, flashes.
 function GalConfigScreenTab(props) {
     const h = React.createElement;
-    const quality = useStageQuality();
+    const quality = useStageQuality(), qualitySetting = useStageQualitySetting();
     const reading = useStageReading();
     const stage = props.data && props.data.config && props.data.config.stage || {};
     const choices = stage.skinChoices || STAGE_THEMES.map(([value, label]) => ({ value, label }));
@@ -24232,10 +24320,11 @@ function GalConfigScreenTab(props) {
             galConfigRow("顶栏按钮", hudRow, h(React.Fragment, null, h("span", null, "背景、BGM、声音、手机、电影模式这一排按钮。"),
                 h("span", null, "自动隐藏：鼠标移到画面上方、打开菜单或用 Tab 时出现，地点或曲子变化时标签也会出现几秒。默认跟随皮肤。")))),
         galConfigGroup("效果", null,
-            galConfigRow("特效质量", galConfigSegmented({ label: "特效质量", value: quality, options: [["high", "高"], ["low", "低"]], onChange: value => stageQuality.set(value) }),
-                "低：分辨率和帧率降低，粒子减少，去掉颗粒、泛光、景深等重滤镜，更省电。"),
-            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate("high", true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
-                "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降至 30 帧。低特效质量仍限制为 30 帧。"),
+            galConfigRow("画质", galConfigSegmented({ label: "画质", value: qualitySetting, options: [["auto", "自动"], ["high", "高"], ["medium", "中"], ["saver", "省电"]], onChange: value => stageQuality.set(value) }),
+                h(React.Fragment, null, h("span", null, "自动：电脑用「高」，手机和平板用「中」，电量低或性能弱时用「省电」。这台设备现在是「" + GAL_QUALITY_NAMES[quality] + "」。"),
+                    h("span", null, "中：人物和背景的分辨率降低，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
+            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate(quality, true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
+                "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降帧。画质为「省电」时仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),
             galConfigRow("光敏保护", h(GalConfigSwitch, { label: "光敏保护", checked: reading.photosensitive === true, onChange: on => stageReading.set({ photosensitive: on }) }), "默认开启：闪光保留颜色但减弱强度，红闪改为暗红。整个舞台每秒最多三次闪光。")));
 }
@@ -25962,9 +26051,10 @@ return {usePages, Overlay, open: openCardPage, dispose() {
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageStatusPanel};
 
-        function createStageDevice({React, matchMedia}) {
+        function createStageDevice({React, matchMedia, window: host = null}) {
 let disposed = false;
 const subscriptions = new Set();
+const qualityStops = new Set();
 // the device presentation profile.
 // Director commands and the persistent stage state are device-independent; how a presentation command LOOKS on this
 // screen is a render-time projection of that state, so a resized window, a rotated phone or another device re-renders
@@ -26038,10 +26128,91 @@ function galDeviceState(state, profile) {
     return state;
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, dispose() {
+// 画质 (CONFIG 效果 › 画质): the reader's per-device setting - auto (the default) or a fixed tier - and the tier it
+// resolves to here. Auto is the device's recommendation (galQualityRecommend): a desktop or a laptop with a touch screen
+// (a fine primary pointer) draws high, as it always did; a phone or a tablet draws medium, or saver when it reports
+// little power or speed. What each tier draws: scene-math.cjs galFrameRate (frame rates), canvas-resolution.cjs
+// galResolution (pixel ratio), scene.cjs (multisampling, depth of field, effects).
+const GAL_QUALITY_TIERS = Object.freeze(["high", "medium", "saver"]);
+// A phone or tablet in the hand: a coarse primary pointer, or iPadOS's desktop-class Safari (a Mac user agent with a
+// touch screen; a real Mac reports no touch points).
+function galDevicePortable() {
+    if (typeof matchMedia !== "function") return false;
+    const nav = host?.navigator;
+    return matchMedia("(pointer: coarse)").matches || (nav?.maxTouchPoints > 1 && /Macintosh/.test(nav.userAgent || ""));
+}
+// The recommendation from what the device tells (each signal only where the browser reports it): two cores or fewer
+// (iOS Safari reports a clamped count, so only a truly small one counts), 3 GB of memory or less (Chromium only), a battery under 20% and not charging, data saver, or animation frames at half a 60 Hz display or slower in
+// the stage's first seconds (iOS Low Power Mode holds them at 30 Hz; an overloaded device misses them).
+function galQualityRecommend({portable, cores = 0, memory = 0, battery = null, saveData = false, frameMs = null}) {
+    if (!portable) return { tier: "high", reason: "desktop" };
+    if (cores > 0 && cores <= 2) return { tier: "saver", reason: "cores" };
+    if (memory > 0 && memory <= 3) return { tier: "saver", reason: "memory" };
+    if (battery && !battery.charging && battery.level <= 0.2) return { tier: "saver", reason: "battery" };
+    if (saveData) return { tier: "saver", reason: "save-data" };
+    if (frameMs !== null && frameMs >= 25) return { tier: "saver", reason: "frames" };
+    return { tier: "medium", reason: "portable" };
+}
+// The stage's quality over the setting store ({get, set, subscribe} of "auto" | a tier): get() is the tier in force.
+// On a phone or tablet the frame probe runs once (3 s of animation frames after the first read) and the battery is
+// watched; either changing the recommendation notifies the subscribers.
+function galDeviceQuality(store) {
+    const listeners = new Set(), nav = host?.navigator;
+    let probe = null, frameMs = null, battery = null;
+    const notify = () => { if (!disposed) for (const fn of [...listeners]) fn(); };
+    const signals = () => ({ portable: galDevicePortable(), cores: Number(nav?.hardwareConcurrency) || 0, memory: Number(nav?.deviceMemory) || 0,
+        battery, saveData: nav?.connection?.saveData === true, frameMs });
+    function startProbes() {
+        if (probe || disposed || !host || !galDevicePortable()) return;
+        probe = "running";
+        const raf = host.requestAnimationFrame?.bind(host), gaps = [];
+        let last = 0, until = 0, stopped = false;
+        const start = host.setTimeout(() => {
+            if (!raf) return;
+            until = host.performance.now() + 3000;
+            const step = now => {
+                if (stopped) return;
+                // A long task (loading) is not the display's pace.
+                if (last && now - last < 100) gaps.push(now - last);
+                last = now;
+                if (now < until) { raf(step); return; }
+                probe = "done";
+                if (gaps.length < 30) return;
+                const sorted = gaps.sort((a, b) => a - b);
+                frameMs = sorted[Math.floor(sorted.length / 2)];
+                notify();
+            };
+            raf(step);
+        }, 1500);
+        qualityStops.add(() => { stopped = true; host.clearTimeout(start); });
+        nav?.getBattery?.().then(found => {
+            if (disposed) return;
+            const read = () => { battery = { charging: found.charging, level: found.level }; notify(); };
+            read();
+            found.addEventListener?.("levelchange", read); found.addEventListener?.("chargingchange", read);
+            qualityStops.add(() => { found.removeEventListener?.("levelchange", read); found.removeEventListener?.("chargingchange", read); });
+        }, () => {});
+    }
+    const setting = () => { const value = store.get(); return GAL_QUALITY_TIERS.includes(value) ? value : "auto"; };
+    const recommendation = () => galQualityRecommend(signals());
+    return {
+        setting, recommendation, set: value => store.set(value),
+        get() { const chosen = setting(); if (chosen !== "auto") return chosen; startProbes(); return recommendation().tier; },
+        subscribe(fn) {
+            listeners.add(fn);
+            const off = store.subscribe(fn);
+            // A rotated or resized window can cross from desktop to portable (a docked tablet).
+            const offProfile = galDeviceSubscribe(fn);
+            return () => { listeners.delete(fn); off(); offProfile(); };
+        }
+    };
+}
+
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, quality:galDeviceQuality, recommend:galQualityRecommend, tiers:GAL_QUALITY_TIERS, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
+    for (const stop of [...qualityStops]) { try { stop(); } catch (error) { errors.push(error); } }
     for (const release of [...subscriptions]) { try { release(); } catch (error) { errors.push(error); } }
     if (errors.length) throw new AggregateError(errors, 'Stage device cleanup failed');
 }};
@@ -33683,7 +33854,10 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
                     const textViews = createStageText({React:options.React, document, ...options.text});
                     const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
-                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, prefetch:skinResources.prefetch, themes:STAGE_THEMES, frameRate:(...args)=>sceneMath.galFrameRate(...args), handheld:()=>views.device.handheld()}));
+                    // The device profile, and the 画质 in force on it (the setting store resolved by the device).
+                    const device = own(createStageDevice({React:options.React, window, ...options.device}));
+                    const quality = device.quality(options.configAppearance?.quality);
+                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, quality, prefetch:skinResources.prefetch, themes:STAGE_THEMES, frameRate:(...args)=>sceneMath.galFrameRate(...args), handheld:()=>views.device.handheld()}));
                     const mixer = own(createStageMixer({React:options.React, fields:configFields, ...options.mixer}));
                     const music = own(createStageMusic(options.music));
                     const skinShape=own(createStageSkinShape({React:options.React,window,document,...options.skinDecoration}));
@@ -33734,7 +33908,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
@@ -33744,7 +33918,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     views.input=own(createStageInput({React:options.React,window,document,clock:options.sceneServices?.foreground,controls,navigation:options.navigation}));
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances,skipShows:stageFeatures.skipShows}));
-                    views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
+                    views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality}));
                     // Live2D figures draw through the scene's figure renderer seam; the module itself loads with the first Cubism Core a scene names.
                     if(live2d){const live2dFigures=own(createStageLive2dFigures({window,math:sceneMath,idle:figureIdle,tap:figureTap,lipSync:options.sceneServices?.lipSync,runtime:live2d.runtime,measure:options.live2d.measure}));own({dispose:views.scene.figureRenderers.register('live2d',live2dFigures.renderer)});}
                     stageFeatures.mount({options,views,own,window,document,getResourceOwner});

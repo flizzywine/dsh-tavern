@@ -1,6 +1,7 @@
-function createStageDevice({React, matchMedia}) {
+function createStageDevice({React, matchMedia, window: host = null}) {
 let disposed = false;
 const subscriptions = new Set();
+const qualityStops = new Set();
 // the device presentation profile.
 // Director commands and the persistent stage state are device-independent; how a presentation command LOOKS on this
 // screen is a render-time projection of that state, so a resized window, a rotated phone or another device re-renders
@@ -74,10 +75,91 @@ function galDeviceState(state, profile) {
     return state;
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, dispose() {
+// 画质 (CONFIG 效果 › 画质): the reader's per-device setting - auto (the default) or a fixed tier - and the tier it
+// resolves to here. Auto is the device's recommendation (galQualityRecommend): a desktop or a laptop with a touch screen
+// (a fine primary pointer) draws high, as it always did; a phone or a tablet draws medium, or saver when it reports
+// little power or speed. What each tier draws: scene-math.cjs galFrameRate (frame rates), canvas-resolution.cjs
+// galResolution (pixel ratio), scene.cjs (multisampling, depth of field, effects).
+const GAL_QUALITY_TIERS = Object.freeze(["high", "medium", "saver"]);
+// A phone or tablet in the hand: a coarse primary pointer, or iPadOS's desktop-class Safari (a Mac user agent with a
+// touch screen; a real Mac reports no touch points).
+function galDevicePortable() {
+    if (typeof matchMedia !== "function") return false;
+    const nav = host?.navigator;
+    return matchMedia("(pointer: coarse)").matches || (nav?.maxTouchPoints > 1 && /Macintosh/.test(nav.userAgent || ""));
+}
+// The recommendation from what the device tells (each signal only where the browser reports it): two cores or fewer
+// (iOS Safari reports a clamped count, so only a truly small one counts), 3 GB of memory or less (Chromium only), a battery under 20% and not charging, data saver, or animation frames at half a 60 Hz display or slower in
+// the stage's first seconds (iOS Low Power Mode holds them at 30 Hz; an overloaded device misses them).
+function galQualityRecommend({portable, cores = 0, memory = 0, battery = null, saveData = false, frameMs = null}) {
+    if (!portable) return { tier: "high", reason: "desktop" };
+    if (cores > 0 && cores <= 2) return { tier: "saver", reason: "cores" };
+    if (memory > 0 && memory <= 3) return { tier: "saver", reason: "memory" };
+    if (battery && !battery.charging && battery.level <= 0.2) return { tier: "saver", reason: "battery" };
+    if (saveData) return { tier: "saver", reason: "save-data" };
+    if (frameMs !== null && frameMs >= 25) return { tier: "saver", reason: "frames" };
+    return { tier: "medium", reason: "portable" };
+}
+// The stage's quality over the setting store ({get, set, subscribe} of "auto" | a tier): get() is the tier in force.
+// On a phone or tablet the frame probe runs once (3 s of animation frames after the first read) and the battery is
+// watched; either changing the recommendation notifies the subscribers.
+function galDeviceQuality(store) {
+    const listeners = new Set(), nav = host?.navigator;
+    let probe = null, frameMs = null, battery = null;
+    const notify = () => { if (!disposed) for (const fn of [...listeners]) fn(); };
+    const signals = () => ({ portable: galDevicePortable(), cores: Number(nav?.hardwareConcurrency) || 0, memory: Number(nav?.deviceMemory) || 0,
+        battery, saveData: nav?.connection?.saveData === true, frameMs });
+    function startProbes() {
+        if (probe || disposed || !host || !galDevicePortable()) return;
+        probe = "running";
+        const raf = host.requestAnimationFrame?.bind(host), gaps = [];
+        let last = 0, until = 0, stopped = false;
+        const start = host.setTimeout(() => {
+            if (!raf) return;
+            until = host.performance.now() + 3000;
+            const step = now => {
+                if (stopped) return;
+                // A long task (loading) is not the display's pace.
+                if (last && now - last < 100) gaps.push(now - last);
+                last = now;
+                if (now < until) { raf(step); return; }
+                probe = "done";
+                if (gaps.length < 30) return;
+                const sorted = gaps.sort((a, b) => a - b);
+                frameMs = sorted[Math.floor(sorted.length / 2)];
+                notify();
+            };
+            raf(step);
+        }, 1500);
+        qualityStops.add(() => { stopped = true; host.clearTimeout(start); });
+        nav?.getBattery?.().then(found => {
+            if (disposed) return;
+            const read = () => { battery = { charging: found.charging, level: found.level }; notify(); };
+            read();
+            found.addEventListener?.("levelchange", read); found.addEventListener?.("chargingchange", read);
+            qualityStops.add(() => { found.removeEventListener?.("levelchange", read); found.removeEventListener?.("chargingchange", read); });
+        }, () => {});
+    }
+    const setting = () => { const value = store.get(); return GAL_QUALITY_TIERS.includes(value) ? value : "auto"; };
+    const recommendation = () => galQualityRecommend(signals());
+    return {
+        setting, recommendation, set: value => store.set(value),
+        get() { const chosen = setting(); if (chosen !== "auto") return chosen; startProbes(); return recommendation().tier; },
+        subscribe(fn) {
+            listeners.add(fn);
+            const off = store.subscribe(fn);
+            // A rotated or resized window can cross from desktop to portable (a docked tablet).
+            const offProfile = galDeviceSubscribe(fn);
+            return () => { listeners.delete(fn); off(); offProfile(); };
+        }
+    };
+}
+
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, quality:galDeviceQuality, recommend:galQualityRecommend, tiers:GAL_QUALITY_TIERS, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
+    for (const stop of [...qualityStops]) { try { stop(); } catch (error) { errors.push(error); } }
     for (const release of [...subscriptions]) { try { release(); } catch (error) { errors.push(error); } }
     if (errors.length) throw new AggregateError(errors, 'Stage device cleanup failed');
 }};
