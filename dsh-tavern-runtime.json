@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2440b6fdfc41dcea5aca02788db900ee6132bee1",
-  "releaseSequence": 1796,
+  "revision": "32db8252bf2bfe8c2e20b9e6fe9b7d1f9f6f7187",
+  "releaseSequence": 1797,
   "version": "3.3.0",
   "files": [
     {
@@ -396,8 +396,8 @@
     },
     {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "970ed5f06060e35329b50f900fbf20fc7225475d645ccdfb803c14985602399b",
-      "size": 29684
+      "sha256": "d325466fac7a680a23214c83e6a9635db66788e59db4287f93cb3916baa335c8",
+      "size": 29698
     },
     {
       "path": "bin/service-process-identity.mjs",
@@ -406,8 +406,8 @@
     },
     {
       "path": "bin/service-startup.mjs",
-      "sha256": "3ddc2327d883c8b08b66e4e4244cc10f2424f7bbe74e2fdb6e321f678edad0a2",
-      "size": 2090
+      "sha256": "06db927e5a6b902c1674a705043a2a3b315a75b4800e4ee6e52a1f1966bdc84b",
+      "size": 2122
     },
     {
       "path": "bin/session-prefix-migration.mjs",
@@ -9591,9 +9591,9 @@
     }
   ],
   "archive": {
-    "commit": "53c9a1d39933026445905a25039b6550073c20a3",
+    "commit": "63abc096db5b3231fab49a63c11d67c607cbf221",
     "path": "runtime.zip",
-    "sha256": "c3752238ca62b4acd3c8ced0381c2cf518d7240a6588aa7324ebf8b9bb618fa5",
-    "size": 16962420
+    "sha256": "6ffd50f29d62495925807b23b95d997cc1fc02134b79a61fd9d702bf8400cf4d",
+    "size": 16962486
   }
 }
