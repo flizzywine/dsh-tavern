@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -90,7 +90,7 @@ test('按宿主安装根找到真正下发的那个 index.html', async () => {
       name: '@deepseek-ai/dsh-web-frontend', exports: { './dist/*': './dist/*', './package.json': './package.json' },
     }))
     await writeFile(page, host)
-    assert.equal(findHostViewportPage(tools), page)
+    assert.equal(findHostViewportPage(tools), await realpath(page))
     assert.equal(patchHostViewportFile(page), true)
     assert.match(await readFile(page, 'utf8'), /interactive-widget=resizes-content/)
   } finally {
@@ -135,7 +135,7 @@ test('发布版运行时的 bin/dsh 是符号链接，也能顺着找到网页�
       if (process.platform === 'win32' && error.code === 'EPERM') return t.skip('Windows file symlinks require permission')
       throw error
     }
-    assert.equal(findHostViewportPage(path.join(bin, 'dsh')), page)
+    assert.equal(findHostViewportPage(path.join(bin, 'dsh')), await realpath(page))
     assert.equal(patchHostViewportFile(page), true)
     assert.match(await readFile(page, 'utf8'), /interactive-widget=resizes-content/)
   } finally {
