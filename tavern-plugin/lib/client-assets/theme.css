@@ -502,6 +502,7 @@ body.dsh-tavern-shell-active [role="status"][class*="_turnStatus"] {
 .fork-status-guides > li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .fork-status-guides > li > button { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--fork-ink-3); font-size: var(--fork-fs-body); line-height: 20px; cursor: pointer; }
 .fork-status-guides > li > button:hover:not(:disabled) { background: var(--fork-hover); color: var(--dsh-tavern-accent-error); }
+.fork-status-guide-links { margin-bottom: 6px; }
 textarea.fork-status-guide-input { box-sizing: border-box; display: block; width: 100%; min-height: 32px; padding: 6px 10px; resize: none; field-sizing: content; max-height: 120px;
   border: 1px solid var(--fork-hairline); border-radius: 8px; background: transparent; color: var(--fork-ink); font: 12px/1.5 var(--fork-font-ui); }
 textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(in srgb, var(--fork-accent) 60%, transparent); box-shadow: 0 0 0 3px var(--fork-accent-soft); }
