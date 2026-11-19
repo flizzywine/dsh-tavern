@@ -5,6 +5,7 @@ export { editableReplyParts, projectDisplayParts, hasHtmlCodeBlock, displayModeO
 import { visibleTemplateDisplay, annotateTemplateStatusParts } from './template-variable-display.js'
 import { createHash } from 'node:crypto'
 import { applyTavernRegexText } from './tavern-regex-display.js'
+import { encodeOpeningIdentity, replaceOpeningIdentities } from './opening-identity.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -12,9 +13,9 @@ function str(value) {
 
 /** Display refreshes resolve identity only; never replay stateful/random macros. */
 export function resolveDisplayIdentityMacros(value, options = {}) {
-  return str(value).replace(/\{\{\s*(user|char)\s*\}\}|<(user|char)>/gi, (token, macro, legacy) => {
-    if ((macro || legacy).toLowerCase() === 'user') return str(options.macroState?.userName) || '你'
-    return str(options.charName) || token
+  return replaceOpeningIdentities(str(value), (name, syntax, token) => {
+    const value = name === 'user' ? str(options.macroState?.userName) || '你' : str(options.charName)
+    return value ? encodeOpeningIdentity(value, syntax) : token
   })
 }
 

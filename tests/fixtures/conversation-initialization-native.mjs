@@ -17,6 +17,7 @@ import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persi
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-store.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, sessionStablePrefixSections } from '../../tavern-plugin/lib/domain/session-stable-prefix.js'
+import { markTavernSectionsLiteral } from '../../tavern-plugin/lib/domain/literal-sections.js'
 import { createStoryTimeline } from '../../tavern-plugin/lib/domain/story-timeline.js'
 
 export async function createInitializationNative(bootPath, { preset, contextWindow = 2000, modelStream, cardOverrides, userPreferenceProfile, assembleStablePrefix = true, nativeTools = true } = {}) {
@@ -42,7 +43,7 @@ export async function createInitializationNative(bootPath, { preset, contextWind
   if (assembleStablePrefix) ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembly = await next()
     assembly.sections = sessionStablePrefixSections(context.agent.session)
-    return assembly
+    return markTavernSectionsLiteral(assembly)
   })
   ctx.baseUrl = bootUrl.href
   const requests = [], state = { failMarker: false, failFlush: false }, handles = new Set()

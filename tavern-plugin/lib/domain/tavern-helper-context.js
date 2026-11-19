@@ -3,7 +3,7 @@ import { freezeJson, createImmutableTurnFields } from './freeze-json.js'
 const helperTurns = createImmutableTurnFields()
 const helperIndex = createIndexedArrayApi({valid: row => Boolean(row && !row.stub)})
 import { assertPluginJson } from './tavern-chat-plugin-data.js'
-import { projectAgentContent } from './runtime-content-projection.js'
+import { projectAgentContent, projectOpeningCommit } from './runtime-content-projection.js'
 import { projectProcessedReply } from './reply-presentation.js'
 import { plainReplyProse, writeReplyProse } from './reply-prose.js'
 
@@ -341,7 +341,8 @@ export function replaceTavernHelperMessages(chat, patches, { regexScripts = [] }
     // rendered message with raw swipe text or replay stateful macros for it.
     if ((writesText || swipeId !== previousSwipeId) && Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) {
       const sourceText = message.swipes[swipeId]
-      const projection = message.bodyRegenerationProcessed === true ? projectProcessedReply(sourceText) : projectAgentContent(sourceText, { charName: chat.cardName, macroState: chat.macroState,
+      const project = message.greeting ? projectOpeningCommit : projectAgentContent
+      const projection = message.bodyRegenerationProcessed === true ? projectProcessedReply(sourceText) : project(sourceText, { charName: chat.cardName, macroState: chat.macroState,
         regexScripts, regexPlacement: 2, isEdit: false, depth: 0 })
       writeReplyProse(message, sourceText, projection)
       delete message.displayRuntime

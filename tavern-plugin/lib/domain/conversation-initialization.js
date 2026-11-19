@@ -2,7 +2,7 @@ import { applyOpeningCommand } from './opening-command.js'
 import { ensureOpeningTurn, releaseOpeningTurn, sessionEvents, appendSessionEvent } from './session-events.js'
 import { nativeOpeningMessageId } from './native-opening.js'
 import { cardOpeningChoices, resolveCardOpening } from './card-openings.js'
-import { projectAgentContent, projectOpeningCommit } from './runtime-content-projection.js'
+import { projectOpeningCommit } from './runtime-content-projection.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
@@ -349,7 +349,7 @@ export function createConversationInitialization(options) {
     if (typeof chat.openingText === 'string') return chat.openingText
     const greeting = Array.isArray(chat.messages) ? chat.messages.find(message => message && message.greeting === true && typeof message.text === 'string') : undefined
     if (greeting !== undefined) return greeting.text
-    const projection = projectAgentContent(card.first_mes, { charName: str(card && card.name), macroState: chat.macroState || {} })
+    const projection = projectOpeningCommit(card.first_mes, { charName: str(card && card.name), macroState: chat.macroState || {} })
     Object.assign(chat.macroState || (chat.macroState = {}), projection.macroState)
     return projection.renderedText
   }
