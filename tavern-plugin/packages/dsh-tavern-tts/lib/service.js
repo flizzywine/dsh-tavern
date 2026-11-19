@@ -24,7 +24,7 @@ const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
 
-export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false}}), now = Date.now } = {}) {
+export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false}}), fishVoiceIdService = () => '', now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
   let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0
   const requests = createRequestObservers()
@@ -154,7 +154,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     resolveVoiceSpec,
     describeVoiceCapabilities,
     // the stage's sync choice among listed services (card voice-direction flag); the same rule resolveVoiceService uses.
-    chooseService(source,services) { return chooseService(source,services) },
+    chooseService(source,services) { return chooseService(source,services,fishVoiceIdService()) },
     async resolveVoiceService({voice,binding}, {readOnly = false} = {}) {
       if (binding.source === null) return {effective:null,issues:[]}
       const source = voice.sources[binding.source ?? voice.defaultSource]
@@ -162,7 +162,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const unset = sourceUnsetIssue(source)
       if (unset) return unset
       // A source whose service is not set up stays silent and says so (SERVICE_REQUIRED); nothing switches to the browser.
-      const selected = chooseService(source,await api.listServices())
+      const selected = api.chooseService(source,await api.listServices())
       if (!selected) return {effective:null,issues:[{code:'SERVICE_REQUIRED'}]}
       const provider = providers.get(selected.id).provider
       if (!readOnly) await provider.discover?.()
@@ -177,6 +177,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     },
     reading: () => structuredClone(reading()),
     readingChanged() { emit({type:'readingChanged'}) },
+    voiceRoutingChanged() { emit({type:'voiceRoutingChanged'}) },
     // a saved service was added, changed, removed or checked: the voice services catalog changed.
     servicesChanged() { emit({type:'servicesChanged'}) },
     setEnabled(value) {
@@ -284,7 +285,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return { ...structuredClone(voice), state: !voice.enabled ? 'disabled' : !source.bindings[voice.id] ? 'service-required' : provider ? 'ready' : 'offline' }
     },
     async listServices() { alive(); return [...providers.values()].map(({provider:p}) => (
-      {id:p.id,kind:p.kind,revision:p.revision,capabilities:structuredClone(p.capabilities || {})}
+      {id:p.id,kind:p.kind,revision:p.revision,capabilities:structuredClone(p.capabilities || {}), ...(p.kind === 'fish-audio' && p.endpoint ? {endpoint:p.endpoint} : {})}
     )) },
     // What each registered provider reports it serves (the voice services catalog's `sources`): the provider is asked first
     // (discover, no wake; it caches its server's answer per service config), and a failed ask keeps its last answer.

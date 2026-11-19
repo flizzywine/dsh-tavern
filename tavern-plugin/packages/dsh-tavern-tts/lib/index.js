@@ -21,9 +21,13 @@ export function apply(ctx, config = {}) {
   const cacheLimits = value => ({maxBytes:value.cacheMaxGB * 1024 ** 3, maxAgeDays:value.cacheMaxAgeDays})
   const cache = createCache({dataDir:config.dataDir,...cacheLimits(entry),onBoot:row => ctx.logger.info('TAVERN_BOOT %s',JSON.stringify(row))})
   const tts = createTts({ profileId:config.profileId, dataDir:config.dataDir,
-    cache, reading:() => readingOf(source()), globalReadings:() => readings.activeEntries() })
+    cache, reading:() => readingOf(source()), globalReadings:() => readings.activeEntries(), fishVoiceIdService:() => source().fishVoiceIdService })
   // 'readingChanged' fires once per real change, whether written through setReading or edited in the settings document.
-  let lastReading = canonical(readingOf(source()))
+  let lastReading = canonical(readingOf(source())), lastFishVoiceIdService = entry.fishVoiceIdService
+  function syncVoiceRouting() {
+    const next = source().fishVoiceIdService
+    if (next !== lastFishVoiceIdService) { lastFishVoiceIdService = next; tts.voiceRoutingChanged() }
+  }
   function syncReading() {
     const next = canonical(readingOf(source()))
     if (next !== lastReading) { lastReading = next; tts.readingChanged() }
@@ -94,7 +98,7 @@ export function apply(ctx, config = {}) {
   }
   async function changed() {
     const mine = ++generation, value = source(); validateSettings(value)
-    await syncEnabled(); services.sync(); syncReading()
+    await syncEnabled(); services.sync(); syncReading(); syncVoiceRouting()
     await cache.configure(cacheLimits(value), {lazy:true})
   }
   // the separate 字母词 list (settings
@@ -141,7 +145,14 @@ export function apply(ctx, config = {}) {
       case 'setReading': return tts.setReading(args)
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
-      case 'services': return { configured:await services.list(), running:await runningStatus(await tts.listServices()) }
+      case 'services': return { configured:await services.list(), running:runningStatus(await tts.listServices()), fishVoiceIdService:source().fishVoiceIdService }
+      case 'setFishVoiceIdService': {
+        if (typeof args.serviceId !== 'string' || (args.serviceId && !source().providers.some(p => p.id === args.serviceId && p.kind === 'fish-audio'))) fail('INVALID_INPUT')
+        const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
+        await settings.replace('tts',validateSettings({...source(),fishVoiceIdService:args.serviceId}),settings.describe().find(row => row.ns === 'tts')?.revision)
+        syncVoiceRouting()
+        return {fishVoiceIdService:source().fishVoiceIdService}
+      }
       case 'voiceServices': return services.voiceServices()
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)

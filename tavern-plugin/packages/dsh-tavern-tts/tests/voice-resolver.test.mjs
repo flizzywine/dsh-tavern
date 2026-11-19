@@ -16,10 +16,10 @@ test('a source with no service set up for it is silent with SERVICE_REQUIRED, li
     assert.deepEqual(await tts.resolveVoiceService({voice,binding},{readOnly}),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
   }
   assert.equal(tts.pendingCount(),0)
-  // A service that cannot speak this source changes nothing; a compatible one is used.
+  // Only a configured official Fish endpoint is selected by default for a portable ID.
   tts.registerProvider('test',{...fish('qwen'),kind:'qwen'})
   assert.deepEqual((await tts.resolveVoiceService({voice,binding})).issues,[{code:'SERVICE_REQUIRED'}])
-  tts.registerProvider('test',fish('cloud'))
+  tts.registerProvider('test',fish('cloud',{endpoint:'https://api.fish.audio'}))
   assert.equal((await tts.resolveVoiceService({voice,binding})).effective.serviceId,'cloud')
   // A source not set up yet still says what it lacks.
   assert.deepEqual(await tts.resolveVoiceService({voice:{defaultSource:'cloud',sources:{cloud:{provider:'fish-audio',kind:'voice-id'}}},binding}),{effective:null,issues:[{code:'VOICE_NOT_FOUND'}]})
@@ -39,6 +39,24 @@ test('a source speaks through its own serviceId, else the sole compatible servic
   assert.equal(tts.chooseService(cloned().sources.clone,await tts.listServices()),undefined)
 })
 
+test('portable Fish IDs default to the official endpoint and can use the machine override', async t => {
+  let selected = ''
+  const tts = createTts({fishVoiceIdService:() => selected}); t.after(() => tts.dispose())
+  tts.registerProvider('test',fish('local',{endpoint:'http://127.0.0.1:9884'}))
+  const resolve = () => tts.resolveVoiceService({voice,binding},{readOnly:true})
+  assert.deepEqual(await resolve(),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
+  tts.registerProvider('test',fish('cloud',{endpoint:'https://api.fish.audio'}))
+  assert.equal((await resolve()).effective.serviceId,'cloud')
+  selected = 'local'
+  assert.equal((await resolve()).effective.serviceId,'local')
+  const services = await tts.listServices(), source = voice.sources.cloud
+  assert.equal(tts.chooseService(source,services).id,'local')
+  assert.equal(tts.chooseService({...source,serviceId:'cloud'},services).id,'cloud')
+  assert.equal(tts.chooseService({kind:'reference-list',provider:'fish-audio'},services),undefined)
+  selected = 'removed'
+  assert.deepEqual(await resolve(),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
+})
+
 test('a portable source may name its service; the id is validated on write', () => {
   const spec = serviceId => ({name:'Akane',language:'ja',defaultSource:'clone',sources:{clone:{kind:'voice-id',provider:'fish-audio',voiceId:'akane',serviceId}}})
   assert.equal(validateVoiceSpec(spec('svc-drama')).sources.clone.serviceId,'svc-drama')
@@ -47,15 +65,16 @@ test('a portable source may name its service; the id is validated on write', () 
 
 test('a chosen service reports its own failure and never falls back to the browser', async t => {
   const tts = createTts(); t.after(() => tts.dispose())
+  const explicit = {...voice,sources:{cloud:{...voice.sources.cloud,serviceId:'fish-local'}}}
   const off = tts.registerProvider('test',fish('fish-local',{health:async () => ({state:'credentials-required'})}))
-  assert.deepEqual(await tts.resolveVoiceService({voice,binding}),{effective:null,issues:[{code:'CREDENTIALS_REQUIRED'}]})
+  assert.deepEqual(await tts.resolveVoiceService({voice:explicit,binding}),{effective:null,issues:[{code:'CREDENTIALS_REQUIRED'}]})
   off()
   tts.registerProvider('test',fish('fish-local',{synthesize:async () => { throw Object.assign(new Error('FISH_REQUEST_FAILED'),{code:'FISH_REQUEST_FAILED'}) }}))
   const pool = {schemaVersion:1,id:'v',label:'Voice',enabled:true,kind:'fish-audio',languages:['ja'],params:{referenceId:'akane'}}
   tts.registerVoiceSource({owner:'consumer',sourceId:'card',revision:'one',voices:[pool],bindings:{v:'fish-local'}})
   const {grant} = tts.grantConsumer({source:'card',principal:'user',scope:'card'})
   await assert.rejects(tts.synthesize({voice:{source:'card',id:'v'},mood:'default',text:'こんにちは',language:'ja'},{grant,scope:'card'}),{code:'FISH_REQUEST_FAILED'})
-  assert.equal((await tts.resolveVoiceService({voice,binding})).effective.serviceId,'fish-local')
+  assert.equal((await tts.resolveVoiceService({voice:explicit,binding})).effective.serviceId,'fish-local')
 })
 test('ttsClient is available with zero configured services', async () => {
   const source = await readFile(new URL('../src/client.js',import.meta.url),'utf8')
