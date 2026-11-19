@@ -159,7 +159,7 @@ import { createChatHistoryImportService } from './domain/chat-history-import-ser
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { withHostSession } from './host/sessions.js'
+import { acquireHostSession, withHostSession } from './host/sessions.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
@@ -4313,7 +4313,7 @@ export async function apply(ctx) {
       } },
     sessions: { get: function (sessionId) { return ctx.get('agents')?.get(sessionId) },
       getSession: sessionId => sessionStore.get(sessionId),
-      resume: sessionId => agentRegistry.resume({ resumeSessionId: sessionId }),
+      acquire: (sessionId, options) => acquireHostSession({ sessions: sessionStore, agents: agentRegistry }, sessionId, options),
       flush: session => sessionStore.flush(session) },
     scripts: { read: readScript, continuity: scriptContinuity,
       dispatchEvent: function (event) { return tavernScriptHostAdapter.dispatchEvent(event) } },

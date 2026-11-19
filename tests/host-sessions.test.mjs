@@ -6,7 +6,7 @@ test('loaded sessions are borrowed without acquiring or disposing an Agent', asy
   const session = { id: 'session' }
   for (const stored of [true, false]) {
     const host = { sessions: { get: () => stored ? session : undefined }, agents: {
-      get: () => ({ session }), resume: () => assert.fail('must not resume a loaded session')
+      get: () => stored ? undefined : { session }, resume: () => assert.fail('must not resume a loaded session')
     } }
     assert.equal(await withHostSession(host, session.id, async value => { assert.equal(value, session); return 'result' }), 'result')
   }
@@ -42,4 +42,75 @@ test('failed acquisition never runs work; synchronous work failures still releas
   host.agents.resume = async () => ({ agent: { session: {} }, dispose: async () => { disposed++ } })
   await assert.rejects(withHostSession(host, 'session', () => { throw failure }), error => error === failure)
   assert.equal(disposed, 1)
+})
+
+test('concurrent cold-session readers share one writer and keep it until every borrower finishes', async () => {
+  let writer = false, resumes = 0, disposed = 0
+  let publish, finish
+  const publishing = new Promise(resolve => { publish = resolve })
+  const finishing = new Promise(resolve => { finish = resolve })
+  let loaded
+  const session = { id: 'session' }
+  const host = { sessions: { get: () => loaded }, agents: { get() {}, async resume() {
+    if (writer) throw new Error('session "session" is already owned by an active write handle')
+    writer = true; resumes++
+    await publishing
+    loaded = session
+    return { agent: { session }, async dispose() { writer = false; loaded = undefined; disposed++ } }
+  } } }
+  const first = withHostSession(host, session.id, async () => { await finishing; assert.equal(writer, true) })
+  const second = withHostSession(host, session.id, async () => { assert.equal(writer, true) })
+  // Attach the rejection handler before allowing the asynchronous resume to publish.
+  const both = Promise.all([first, second])
+  publish()
+  try {
+    await second
+    assert.equal(disposed, 0)
+    await withHostSession(host, session.id, () => assert.equal(writer, true))
+    assert.equal(disposed, 0)
+  } finally { finish() }
+  await both
+  assert.equal(resumes, 1)
+  assert.equal(disposed, 1)
+})
+
+for (const fail of [false, true]) test(`a new borrower waits for writer teardown even if it ${fail ? 'fails' : 'succeeds'}`, async () => {
+  let closing = false, resumes = 0
+  const started = Promise.withResolvers(), close = Promise.withResolvers()
+  const failure = new Error('close failed after releasing writer')
+  const session = { id: 'session' }
+  const host = { sessions: { get() {} }, agents: { get() {}, async resume() {
+    assert.equal(closing, false)
+    const attempt = ++resumes
+    return { agent: { session }, async dispose() {
+      if (attempt !== 1) return
+      closing = true
+      started.resolve()
+      await close.promise
+      closing = false
+      if (fail) throw failure
+    } }
+  } } }
+  const first = withHostSession(host, session.id, () => {})
+  const firstResult = fail ? assert.rejects(first, error => error === failure) : first
+  await started.promise
+  const second = withHostSession(host, session.id, () => {})
+  await Promise.resolve()
+  assert.equal(resumes, 1)
+  close.resolve()
+  await Promise.all([firstResult, second])
+  assert.equal(resumes, 2)
+})
+
+test('a failed shared acquisition can be retried', async () => {
+  let attempts = 0
+  const failure = new Error('resume failed')
+  const host = { sessions: { get() {} }, agents: { get() {}, async resume() {
+    if (++attempts === 1) throw failure
+    return { agent: { session: { id: 'session' } }, async dispose() {} }
+  } } }
+  const results = await Promise.allSettled([withHostSession(host, 'session', () => {}), withHostSession(host, 'session', () => {})])
+  assert.ok(results.every(result => result.status === 'rejected' && result.reason === failure))
+  assert.equal(await withHostSession(host, 'session', session => session.id), 'session')
+  assert.equal(attempts, 2)
 })
