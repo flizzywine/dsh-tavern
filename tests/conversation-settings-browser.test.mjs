@@ -212,12 +212,13 @@ test('本局设置功能区包含“后台任务附加预设”开关，默认�
 
 test('本局设置随舞台和剧情罗盘的启用状态显示与隐藏', async t => {
   let stage = true, compass = true
-  const { page } = await openTavernSettings(t, { sessionId: 'game', respond(method) {
+  const { page, calls } = await openTavernSettings(t, { sessionId: 'game', respond(method) {
     if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
     if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story' } }
     if (method === 'getConversationWritingSkills') return { skills: [] }
     if (method === 'getConversationBackgroundConfig') return {
       backgroundTasks: {}, modelCatalog: [],
+      foregroundTools: stage ? [{ name: 'stage_probe', label: '舞台工具' }] : [],
       modModelSlots: stage ? [{ modId: 'dsh.stage', modName: '舞台', id: 'director', label: '导演模型' }] : []
     }
     if (method === 'listGamePlugins') return { plugins: { settings: compass ? [{
@@ -231,20 +232,30 @@ test('本局设置随舞台和剧情罗盘的启用状态显示与隐藏', async
   await stageSection.waitFor()
   await compassSection.waitFor()
   assert.equal(await compassSection.getByLabel('剧情规划条目上限').inputValue(), '4')
+  await page.locator('details.dsh-local-advanced > summary').click()
+  const stageTool = page.getByLabel('舞台工具', { exact: true })
+  await stageTool.waitFor()
+  const backgroundReads = () => calls.filter(call => call.method === 'getConversationBackgroundConfig').length
+  assert.equal(backgroundReads(), 1)
 
   async function refreshModules() {
     await page.evaluate(() => {
       window.__tavernTestSignal('plugin:dsh-tavern-stage', 'stage-settings')
       window.__tavernTestSignal('game', 'plugin-settings')
+      window.dispatchEvent(new CustomEvent('dsh-tavern-mods-changed'))
     })
   }
   stage = compass = false
   await refreshModules()
   await stageSection.waitFor({ state: 'detached' })
   await compassSection.waitFor({ state: 'detached' })
+  await stageTool.waitFor({ state: 'detached' })
+  assert.equal(backgroundReads(), 2)
   await page.getByRole('heading', { name: '后台模型', exact: true }).waitFor()
   stage = compass = true
   await refreshModules()
   await stageSection.waitFor()
   await compassSection.waitFor()
+  await stageTool.waitFor()
+  assert.equal(backgroundReads(), 3)
 })

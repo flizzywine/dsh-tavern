@@ -60572,6 +60572,63 @@ function createConversationSettingsModule({
         const pending = tavernSettingsPendingWrites.get(sessionId);
         if (pending && pending.size) await Promise.allSettled([...pending]);
     }
+    const settingsEvents = ["dsh-tavern-mods-changed", "dsh-tavern-settings-changed"];
+    const backgroundSignals = ["plugin-lifecycle", "stage-settings"];
+    const pluginSignals = ["plugin-settings"];
+
+    function useConversationSettingsData(sessionId, { readMethod, writeMethod, signalId, signalKinds }) {
+        const [data, setData] = React.useState(null);
+        const [readError, setReadError] = React.useState("");
+        const [busy, setBusy] = React.useState(false);
+        const active = React.useRef(null);
+        React.useEffect(() => {
+            const reader = createSessionRefreshController({
+                load: ({ signal }) => rpc(readMethod, {}, sessionId, { signal }),
+                loadTimeoutMs: 10000,
+                onResult: result => { setData(result); setReadError(""); },
+                onError: error => setReadError(String(error.message || error))
+            });
+            const state = { reader, writing: false };
+            active.current = state;
+            const refresh = () => { if (!state.writing) reader.request(); };
+            reader.start();
+            const stops = signalKinds.map(kind => tavernSessionSignals?.subscribe(signalId, kind, refresh));
+            for (const event of settingsEvents) window.addEventListener(event, refresh);
+            refresh();
+            return () => {
+                active.current = null;
+                reader.stop();
+                for (const stop of stops) stop?.();
+                for (const event of settingsEvents) window.removeEventListener(event, refresh);
+            };
+        }, [sessionId, readMethod, signalId, signalKinds]);
+        async function save(patch) {
+            const state = active.current;
+            if (!state || state.writing) return;
+            state.writing = true;
+            setBusy(true);
+            state.reader.replace();
+            try {
+                const result = await trackTavernSettingsWrite(sessionId, rpc(writeMethod, patch, sessionId));
+                if (active.current === state) {
+                    setData(current => ({ ...current, ...result }));
+                    setReadError("");
+                }
+            } finally {
+                if (active.current === state) {
+                    state.writing = false;
+                    setBusy(false);
+                    // Reconcile any module changes that arrived during the write.
+                    state.reader.request();
+                }
+            }
+        }
+        return { data, readError, busy, save, refresh: () => {
+            const state = active.current;
+            if (state && !state.writing) state.reader.request();
+        } };
+    }
+
     function readTavernSettingsSession(sessionId) {
             const pending = tavernSettingsSessionReads.get(sessionId);
             if (pending) return pending;
@@ -60653,46 +60710,23 @@ function createConversationSettingsModule({
     // Plugins themselves are switched on and off globally, on the 酒馆插件 page.
     function TavernConversationPluginSettings(props) {
         const h = React.createElement;
-        const [data, setData] = React.useState(null);
-        const [busy, setBusy] = React.useState(false);
+        const { data, readError, busy, save } = useConversationSettingsData(props.sessionId, {
+            readMethod: "listGamePlugins", writeMethod: "setGamePlugin",
+            signalId: props.sessionId, signalKinds: pluginSignals
+        });
         const [error, setError] = React.useState("");
-        const revision = React.useRef(0);
-        const load = React.useCallback(async function () {
-            const request = ++revision.current;
-            try {
-                const result = await rpc("listGamePlugins", {}, props.sessionId);
-                if (request === revision.current) { setData(result.plugins); setError(""); }
-            } catch (err) { if (request === revision.current) setError(String(err.message || err)); }
-        }, [props.sessionId]);
-        React.useEffect(function () {
-            const stop = tavernSessionSignals?.subscribe(props.sessionId, "plugin-settings", load);
-            window.addEventListener("dsh-tavern-mods-changed", load);
-            window.addEventListener("dsh-tavern-settings-changed", load);
-            void load();
-            return () => {
-                revision.current++;
-                if (typeof stop === "function") stop();
-                window.removeEventListener("dsh-tavern-mods-changed", load);
-                window.removeEventListener("dsh-tavern-settings-changed", load);
-            };
-        }, [load, props.sessionId]);
         async function change(payload) {
-            setBusy(true); setError("");
-            const request = ++revision.current;
-            try {
-                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setGamePlugin", payload, props.sessionId));
-                if (request === revision.current) setData(result.plugins);
-            }
+            setError("");
+            try { await save(payload); }
             catch (err) { setError(String(err.message || err)); }
-            finally { setBusy(false); }
         }
-        const pluginSettings = data && data.settings || [];
+        const pluginSettings = data?.plugins?.settings || [];
         const settingsBlock = pluginSettings.map(entry => h("section", { key: entry.plugin, className: "dsh-local-section dsh-tavern-plugin-settings", "aria-label": entry.title },
             h("h3", null, entry.title),
             entry.fields.map(field => h(TavernPluginSettingField, { key: field.key, field: field, value: entry.values[field.key], busy: busy,
                 onChange: value => change({ setting: { plugin: entry.plugin, key: field.key, value: value } }) }))));
-        if (!pluginSettings.length) return null;
-        return h(React.Fragment, null, settingsBlock, error ? h("p", { role: "alert" }, "保存失败：" + error) : null);
+        return h(React.Fragment, null, settingsBlock,
+            error || readError ? h("p", { role: "alert" }, (error ? "保存失败：" : "读取插件配置失败：") + (error || readError)) : null);
     }
 
     // One option a plugin added to this game's settings (tavern.gameSettings), drawn like Tavern's own.
@@ -60717,39 +60751,23 @@ function createConversationSettingsModule({
     // its own tools and is not part of this list.
     function TavernConversationTools(props) {
         const h = React.createElement;
-        const [catalog, setCatalog] = React.useState([]);
-        const [disabled, setDisabled] = React.useState([]);
-        const [loaded, setLoaded] = React.useState(false);
-        const [busy, setBusy] = React.useState(false);
+        const { data, busy, readError, refresh, save: saveSettings } = props.background;
+        const [pendingDisabled, setPendingDisabled] = React.useState(null);
         const [error, setError] = React.useState("");
         const [notice, setNotice] = React.useState("");
-        const mounted = React.useRef(true);
-        async function load() {
-            try {
-                const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
-                if (!mounted.current) return;
-                setCatalog(Array.isArray(result.foregroundTools) ? result.foregroundTools : []);
-                setDisabled(Array.isArray(result.disabledForegroundTools) ? result.disabledForegroundTools : []);
-                setLoaded(true); setError("");
-            } catch (err) { if (mounted.current) setError(String(err.message || err)); }
-        }
-        React.useEffect(() => {
-            mounted.current = true;
-            void load();
-            return () => { mounted.current = false; };
-        }, [props.sessionId]);
+        const loaded = data !== null;
+        const catalog = data?.foregroundTools || [];
+        const disabled = pendingDisabled ?? data?.disabledForegroundTools ?? [];
         async function save(next) {
             if (busy || !loaded) return;
-            const previous = disabled;
-            setDisabled(next); setBusy(true); setError(""); setNotice("");
+            setPendingDisabled(next); setError(""); setNotice("");
             try {
-                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", { sessionId: props.sessionId, disabledForegroundTools: next }, props.sessionId));
-                setDisabled(Array.isArray(result.disabledForegroundTools) ? result.disabledForegroundTools : next);
+                await saveSettings({ disabledForegroundTools: next });
                 setNotice("已保存，下一轮生效");
                 invalidateView(props.sessionId);
                 notifyTavernDataChanged(["sessions"], "play-controls");
-            } catch (err) { setDisabled(previous); setError(String(err.message || err)); }
-            finally { setBusy(false); }
+            } catch (err) { setError(String(err.message || err)); }
+            finally { setPendingDisabled(null); }
         }
         function toggle(name, enabled) {
             void save(enabled ? disabled.filter(value => value !== name) : [...new Set([...disabled, name])]);
@@ -60762,12 +60780,13 @@ function createConversationSettingsModule({
             h("div", { style: { display: "flex", gap: "8px", margin: "4px 0 8px" } },
                 h("button", { type: "button", className: "dsh-tavern-btn", disabled: !loaded || busy || disabled.length === 0, onClick: () => void save([]) }, "全部开启"),
                 h("button", { type: "button", className: "dsh-tavern-btn", disabled: !loaded || busy || disabled.length === allNames.length, onClick: () => void save(allNames) }, "全部关闭"),
-                h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: () => void load() }, "刷新")),
+                h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: refresh }, "刷新")),
             catalog.map(tool => h("label", { key: tool.name, className: "dsh-tavern-background-task" },
                 h("span", null, (tool.source === "plugin" ? "插件/扩展 · " : "") + tool.label, h("span", { className: "dsh-tavern-settings-desc" }, tool.description)),
                 // the one switch, bare inside the row's own label.
                 h(Switch, { bare: true, label: tool.label, checked: !disabled.includes(tool.name), disabled: !loaded || busy, onChange: checked => toggle(tool.name, checked) }))),
-            error ? h("p", { role: "alert" }, "保存失败：" + error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : (loaded ? notice : "正在读取…")));
+            error || readError ? h("p", { role: "alert" }, (error ? "保存失败：" : "读取失败：") + (error || readError))
+                : h("span", { role: "status", className: "dsh-local-feedback" }, pendingDisabled ? "保存中…" : (loaded ? notice : "正在读取…")));
     }
 
     function TavernConversationSettingsTab(props) {
@@ -60779,6 +60798,7 @@ function createConversationSettingsModule({
         const [templateNotice, setTemplateNotice] = React.useState("");
         const [templateError, setTemplateError] = React.useState("");
         const [reloadKey, setReloadKey] = React.useState(0);
+        const [advancedOpen, setAdvancedOpen] = React.useState(false);
         React.useEffect(() => {
             setTemplateAction("");
             setTemplateNotice("");
@@ -60834,16 +60854,27 @@ function createConversationSettingsModule({
                     : templateNotice ? h("p", { role: "status", className: "dsh-local-template-status" }, templateNotice) : null,
                 h("p", { className: "dsh-local-intro" }, "仅影响本局，修改后自动保存，已有对话和变量会保留。"),
                 h("p", { className: "dsh-local-warning dsh-local-intro" }, "切换预设、长期偏好、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。"),
-                h("section", { className: "dsh-local-section" }, h("h3", null, "游玩"),
-                    h(TavernLocalPlayerName, { key: scopeKey + ":name", sessionId: owner }),
-                    h(TavernConversationPreset, { key: scopeKey + ":preset", sessionId: owner }),
-                    h(UserPreferenceProfileTab, { key: scopeKey + ":profile", scope: { sessionId: owner }, conversationOnly: true })),
-                h(TavernConversationBackgroundModel, { key: scopeKey, sessionId: owner }),
-                h(TavernBodyGenerationSettings, { key: scopeKey + ":body-generation", sessionId: owner }),
-                h(TavernConversationPluginSettings, { key: scopeKey + ":plugin-settings", sessionId: owner }),
-                h("details", { className: "dsh-local-advanced" }, h("summary", null, "高级"),
-                    h(TavernConversationTools, { key: scopeKey + ":tools", sessionId: owner }),
-                    h(TavernConversationWritingSkills, { key: scopeKey + ":skills", sessionId: owner }))) : h("p", null, "请选择一个游玩对话。")));
+                h(TavernConversationSettingsSections, { key: scopeKey, sessionId: owner, advancedOpen, setAdvancedOpen })) : h("p", null, "请选择一个游玩对话。")));
+    }
+
+    function TavernConversationSettingsSections({ sessionId, advancedOpen, setAdvancedOpen }) {
+        const h = React.createElement;
+        const background = useConversationSettingsData(sessionId, {
+            readMethod: "getConversationBackgroundConfig", writeMethod: "setConversationBackgroundConfig",
+            signalId: "plugin:dsh-tavern-stage", signalKinds: backgroundSignals
+        });
+        return h(React.Fragment, null,
+            h("section", { className: "dsh-local-section" }, h("h3", null, "游玩"),
+                h(TavernLocalPlayerName, { sessionId }),
+                h(TavernConversationPreset, { sessionId }),
+                h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true })),
+            h(TavernConversationBackgroundModel, { sessionId, background }),
+            h(TavernBodyGenerationSettings, { sessionId }),
+            h(TavernConversationPluginSettings, { sessionId }),
+            h("details", { className: "dsh-local-advanced", open: advancedOpen,
+                onToggle: event => setAdvancedOpen(event.currentTarget.open) }, h("summary", null, "高级"),
+                h(TavernConversationTools, { sessionId, background }),
+                h(TavernConversationWritingSkills, { sessionId })));
     }
 
     function TavernConversationSettingsAction(props) {
@@ -60859,43 +60890,15 @@ function createConversationSettingsModule({
 
     function TavernConversationBackgroundModel(props) {
         const h = React.createElement;
-        const [catalog, setCatalog] = React.useState([]);
-        const [selection, setSelection] = React.useState(null);
-        const [tasks, setTasks] = React.useState({ variables: true, posture: true });
-        const [features, setFeatures] = React.useState({ webSearchEnabled: false, mvuCard: false });
-        const [loaded, setLoaded] = React.useState(false);
-        const [busy, setBusy] = React.useState(false);
+        const { data, busy, readError, refresh, save: saveSettings } = props.background;
         const [error, setError] = React.useState("");
         const [notice, setNotice] = React.useState("");
         const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
-        const [slotState, setSlotState] = React.useState({slots:[],values:{},scoringCatalog:[]});
-        const readRevision = React.useRef(0);
+        const loaded = data !== null;
+        const selection = data?.backgroundModel || null;
+        const catalog = data?.modelCatalog || [];
+        const tasks = data?.backgroundTasks || { variables: true, posture: true };
         const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
-        async function load() {
-            const request = ++readRevision.current;
-            setError("");
-            try {
-                const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
-                if (request !== readRevision.current) return;
-                setSlotState({slots:result.modModelSlots || [],values:result.modModels || {},scoringCatalog:result.scoringCatalog || []});
-                setCatalog(result.modelCatalog || []); setSelection(result.backgroundModel);
-                setTasks(result.backgroundTasks); setFeatures({ webSearchEnabled: result.webSearchEnabled === true, mvuCard: result.mvuCard === true }); setLoaded(true);
-            } catch (err) { if (request === readRevision.current) setError(String(err.message || err)); }
-        }
-        React.useEffect(() => {
-            const lifecycle = tavernSessionSignals?.subscribe("plugin:dsh-tavern-stage", "plugin-lifecycle", load);
-            const settings = tavernSessionSignals?.subscribe("plugin:dsh-tavern-stage", "stage-settings", load);
-            window.addEventListener("dsh-tavern-mods-changed", load);
-            window.addEventListener("dsh-tavern-settings-changed", load);
-            void load();
-            return () => {
-                readRevision.current++;
-                lifecycle?.();
-                settings?.();
-                window.removeEventListener("dsh-tavern-mods-changed", load);
-                window.removeEventListener("dsh-tavern-settings-changed", load);
-            };
-        }, [props.sessionId]);
         React.useEffect(() => {
             let active = true;
             if (key) rpc("getBackgroundModelReasoning", JSON.parse(key), props.sessionId).then(result => {
@@ -60905,15 +60908,12 @@ function createConversationSettingsModule({
         }, [key]);
         async function save(patch) {
             if (busy || !loaded) return;
-            setBusy(true); setError(""); setNotice("");
+            setError(""); setNotice("");
             try {
-                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId, backgroundModel: selection }, patch), props.sessionId));
-                setSlotState(current=>({...current,values:result.modModels || {}}));
-                setSelection(result.backgroundModel); setTasks(result.backgroundTasks); setFeatures({ ...features, webSearchEnabled: result.webSearchEnabled });
+                await saveSettings(patch);
                 setNotice("已保存");
                 invalidateView(props.sessionId);
             } catch (err) { setError(String(err.message || err)); }
-            finally { setBusy(false); }
         }
         const efforts = reasoning.key === key ? reasoning.value?.efforts || [] : [];
         const modelOptions = () => catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: (group.providerName || group.provider) + " · " + (model.name || model.id) })));
@@ -60922,7 +60922,7 @@ function createConversationSettingsModule({
             h("span", null, title, h("span", { className: "dsh-tavern-settings-desc" }, description)),
             h(Switch, { label: title, checked, disabled: !loaded || busy || disabled, onChange: value => save(patch(value)) }));
         return h("div", { className: "dsh-local-runtime" },
-            h(TavernModelSlotGroups,{slots:slotState.slots,values:slotState.values,catalog,scoringCatalog:slotState.scoringCatalog,local:true,disabled:!loaded || busy,onChange:modModelSelection=>save({modModelSelection})}),
+            h(TavernModelSlotGroups,{slots:data?.modModelSlots,values:data?.modModels,catalog,scoringCatalog:data?.scoringCatalog,local:true,disabled:!loaded || busy,onChange:modModelSelection=>save({modModelSelection})}),
             h("section", { className: "dsh-local-section" }, h("h3", null, "后台模型"),
                 h("p", { className: "dsh-tavern-settings-desc" }, "仅影响本局，下一次后台任务生效。正在运行的任务不变，保留原后台 Agent 和历史。"),
                 h("p", { className: "dsh-tavern-settings-desc" }, "建议前台和后台使用 High 推理强度，优先保证正文输出和后台任务的质量。不推荐 Max，以免过度思考、增加等待。若更在意响应速度，可按需降低。"),
@@ -60938,10 +60938,10 @@ function createConversationSettingsModule({
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", tasks.foregroundCandidates === true, checked => ({ backgroundTasks: { foregroundCandidates: checked } })),
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
-                toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", features.webSearchEnabled, checked => ({ webSearchEnabled: checked }))),
-            error || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || reasoning.error) : null,
+                toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", data?.webSearchEnabled === true, checked => ({ webSearchEnabled: checked }))),
+            error || readError || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || readError || reasoning.error) : null,
             notice ? h("p", { role: "status" }, notice) : null,
-            !loaded && error ? h("button", { className: "dsh-tavern-btn", onClick: load }, "重试") : null,
+            !loaded && readError ? h("button", { className: "dsh-tavern-btn", onClick: refresh }, "重试") : null,
             h("div", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : ""));
     }
 
