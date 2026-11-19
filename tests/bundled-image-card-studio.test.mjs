@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, readdir, rm, mkdir, copyFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, readdir, rm, mkdir, copyFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer, request as httpRequest } from 'node:http'
@@ -555,7 +555,7 @@ test('card and play galleries stay separate while task history, reload and legac
   assert.equal(saved[cardId].source, 'card')
   const galleryDir = join(f.pluginRoot, '../../image-cache/dsh-tavern-gen')
   const cacheDir = join(f.pluginRoot, 'cache')
-  assert.equal(saved[cardId].file, join(galleryDir, 'images', cardId + '.gif'))
+  assert.equal(await realpath(saved[cardId].file), await realpath(join(galleryDir, 'images', cardId + '.gif')))
   assert.deepEqual(await readFile(saved[cardId].file), gif)
   assert.deepEqual(await readdir(cacheDir), [play.body.id + '.img'], 'new card output does not write a second file to cache')
   f.runtime.close()
