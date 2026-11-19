@@ -458,6 +458,7 @@ test('plugin sections mount, update and unregister without changing backend serv
 test('a self-hosted Fish row reads 未启动 / 访问被拒绝 / 可用 and never an API Key problem; a cloud row keeps its key words',async () => {
   const rows = [{id:'fish-local',kind:'fish-audio',label:'本地 Drama3',config:{url:'http://127.0.0.1:9884'}},{id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'}}]
   for (const [check,local,cloud] of [[{status:'offline',message:'没有连上服务，它可能还没有启动'},'未启动','连不上'],[{status:'rejected',message:'服务拒绝了这次访问'},'访问被拒绝','可用'],
+    [{status:'not-ready',message:'服务已启动，但语音模型尚未加载，暂时不能合成'},'暂不可用','可用'],
     [{status:'connected',voiceCount:0},'可用','可用'],[{status:'invalid-key',message:'服务要求鉴权'},'API Key 无效','API Key 无效']]) {
     const f = fixture({configured:rows,external:false,testResult:p => p.id === 'fish-local' && check.status !== 'invalid-key' ? check : p.id === 'fish' && ['connected','invalid-key','offline'].includes(check.status) ? check : {status:'connected',voiceCount:0}})
     await withDom(async root => {
@@ -465,6 +466,7 @@ test('a self-hosted Fish row reads 未启动 / 访问被拒绝 / 可用 and neve
       const word = title => row(title).closest('.dtts-line').querySelector('.dtts-state, .dtts-warn')?.textContent
       assert.equal(word('本地 Drama3'),check.status === 'invalid-key' ? '可用' : local)
       if (check.status !== 'connected') assert.doesNotMatch(row('本地 Drama3').closest('.dtts-line').textContent,/Key|密钥/)
+      if (check.status === 'not-ready') assert.match(row('本地 Drama3').closest('.dtts-line').querySelector('.dtts-warn').title,/语音模型尚未加载/)
       if (check.status === 'invalid-key') assert.equal(word('Fish Audio'),cloud)
     })
     f.dispose()

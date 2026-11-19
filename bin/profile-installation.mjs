@@ -18,6 +18,7 @@ import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice }
 import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
+import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
@@ -445,7 +446,13 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         if (toolStreamed === null) console.log('当前 DSH 的对话界面与工具流式预览补丁不符，已跳过。')
         else if (toolStreamed) console.log('已启用 submit_story 工具调用期间的思维链与正文实时流式显示。')
       }
-      if (!isAsarPath(deepseek.directory)) {
+      // An optional page addition: a host without this card (or with another shape) installs as before, and says so.
+      try {
+        const [models] = resolveHostDependencies({ dsh, host, requiredExports: { '@deepseek-ai/dsh-client-ui-settings-models': null } })
+        const patched = isAsarPath(models.directory) ? null : patchSettingsModelsEndpoints(models.directory)
+        if (patched === null) console.log(`当前 DSH 的「设置 › 模型」与最近网址补丁不符（补丁按 ${SETTINGS_MODELS_PATCHED_VERSION} 写），已跳过。`)
+        else if (patched) console.log('已为 DSH「设置 › 模型」的 API 地址加上「最近用过的网址」。')
+      } catch (error) { console.log(`「设置 › 模型」最近网址补丁没有打上：${error?.message ?? error}`) }      if (!isAsarPath(deepseek.directory)) {
         const patched = patchDeepSeekStreamOption(deepseek.directory)
         if (patched === null) console.log('当前 DSH 的 DeepSeek 适配器与流式设置补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
         else if (patched) console.log('已为 DeepSeek 适配器启用流式/非流式请求切换。')
