@@ -209,3 +209,42 @@ test('本局设置功能区包含“后台任务附加预设”开关，默认�
   const lastSave = calls.filter(c => c.method === 'setConversationBackgroundConfig').at(-1)
   assert.deepEqual(lastSave.args.backgroundTasks, { preset: true })
 })
+
+test('本局设置随舞台和剧情罗盘的启用状态显示与隐藏', async t => {
+  let stage = true, compass = true
+  const { page } = await openTavernSettings(t, { sessionId: 'game', respond(method) {
+    if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
+    if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story' } }
+    if (method === 'getConversationWritingSkills') return { skills: [] }
+    if (method === 'getConversationBackgroundConfig') return {
+      backgroundTasks: {}, modelCatalog: [],
+      modModelSlots: stage ? [{ modId: 'dsh.stage', modName: '舞台', id: 'director', label: '导演模型' }] : []
+    }
+    if (method === 'listGamePlugins') return { plugins: { settings: compass ? [{
+      plugin: 'dsh-tavern-plot-compass', title: '剧情罗盘',
+      fields: [{ key: 'maxRoutes', type: 'number', label: '剧情规划条目上限' }],
+      values: { maxRoutes: 4 }
+    }] : [] } }
+  } })
+  const stageSection = page.getByText('舞台', { exact: true })
+  const compassSection = page.getByRole('region', { name: '剧情罗盘', exact: true })
+  await stageSection.waitFor()
+  await compassSection.waitFor()
+  assert.equal(await compassSection.getByLabel('剧情规划条目上限').inputValue(), '4')
+
+  async function refreshModules() {
+    await page.evaluate(() => {
+      window.__tavernTestSignal('plugin:dsh-tavern-stage', 'stage-settings')
+      window.__tavernTestSignal('game', 'plugin-settings')
+    })
+  }
+  stage = compass = false
+  await refreshModules()
+  await stageSection.waitFor({ state: 'detached' })
+  await compassSection.waitFor({ state: 'detached' })
+  await page.getByRole('heading', { name: '后台模型', exact: true }).waitFor()
+  stage = compass = true
+  await refreshModules()
+  await stageSection.waitFor()
+  await compassSection.waitFor()
+})

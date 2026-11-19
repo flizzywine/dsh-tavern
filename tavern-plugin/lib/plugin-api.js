@@ -1045,6 +1045,14 @@ export function createTavernPluginApi(deps) {
       return register.call(this, gameSettingDefs, owner, entry, 'tavern.gameSettings()', '插件 ' + owner + ' 已声明过本局配置项')
     },
 
+    async notifyGameSettings({ gameId } = {}) {
+      const owner = ownerOf(this)
+      if (!gameSettingDefs.has(owner)) return
+      const game = await requireGame(gameId)
+      await guardScope(owner, { gameId: game.sessionId })
+      deps.settingsChanged?.(game.sessionId, owner)
+    },
+
     // The values in effect in one game: what the player chose, the declared default elsewhere.
     async getGameSettings({ gameId } = {}) {
       const owner = ownerOf(this)
@@ -2037,6 +2045,30 @@ export function createTavernPluginApi(deps) {
   }
 
   /** A game's manual plugin tasks and the options plugins add to its settings. */
+  async function presentedGameSettings(entry, gameId, stored) {
+    const values = settingValues(entry, stored)
+    if (!entry.present) return values
+    try {
+      const view = await entry.present({ gameId, values })
+      return Object.fromEntries(entry.fields.filter(field => view && Object.hasOwn(view, field.key))
+        .map(field => [field.key, coerceSetting(field, view[field.key]) ?? values[field.key]]))
+    } catch (error) {
+      recordError(gameId, entry.owner, '本局配置项', error)
+      return {}
+    }
+  }
+
+  async function notifyGameSettingHandlers(entry, gameId, values) {
+    const handlers = Array.from(settingHandlers).filter(item => item.owner === entry.owner)
+    if (entry.present) {
+      await Promise.all(handlers.map(async item => {
+        try { await item.handler({ gameId, values: structuredClone(values) }) }
+        catch (error) { recordError(gameId, entry.owner, '本局配置项', error) }
+      }))
+    } else dispatch(handlers, { gameId, values }, '本局配置项')
+    deps.settingsChanged?.(gameId, entry.owner)
+  }
+
   async function gamePlugins(gameId) {
     const choices = await choicesFor(gameId)
     const { game, disabled } = choices
@@ -2047,9 +2079,13 @@ export function createTavernPluginApi(deps) {
       running: runningTask(game.sessionId)
     }
     const stored = deps.data?.readSettings ? (await deps.data.readSettings(game.chatId).catch(() => null))?.values || {} : {}
-    const settings = Array.from(gameSettingDefs.values()).filter(entry => !disabled.has(entry.owner)).sort((a, b) => a.owner.localeCompare(b.owner))
-      .map(entry => ({ plugin: entry.owner, title: entry.title || entry.owner, card: choices.own.has(entry.owner), fields: structuredClone(entry.fields), values: settingValues(entry, stored[entry.owner]) }))
-    return { tasks, settings }
+    const definitions = Array.from(gameSettingDefs.values()).filter(entry => !disabled.has(entry.owner)).sort((a, b) => a.owner.localeCompare(b.owner))
+    const settings = await Promise.all(definitions.map(async entry => {
+      const values = await presentedGameSettings(entry, game.sessionId, stored[entry.owner])
+      const fields = entry.fields.filter(field => Object.hasOwn(values, field.key))
+      return fields.length ? { plugin: entry.owner, title: entry.title || entry.owner, card: choices.own.has(entry.owner), fields: structuredClone(fields), values } : null
+    }))
+    return { tasks, settings: settings.filter(Boolean) }
   }
 
   /** Change one option a plugin added to this game's settings. */
@@ -2059,12 +2095,13 @@ export function createTavernPluginApi(deps) {
     const entry = setting && typeof setting === 'object' ? gameSettingDefs.get(String(setting.plugin)) : undefined
     const field = entry?.fields.find(item => item.key === setting.key)
     if (!entry || !field || disabled.has(entry.owner)) throw new Error('这一局没有这个插件配置项')
+    const before = entry.present ? await presentedGameSettings(entry, game.sessionId, (await deps.data.readSettings(game.chatId)).values[entry.owner]) : null
+    if (before && !Object.hasOwn(before, field.key)) throw new Error('这一局没有这个插件配置项')
     const value = coerceSetting(field, setting.value)
     if (value === undefined) throw new Error('「' + field.label + '」的值不符合要求')
     await deps.data.updateSettings(game.chatId, settings => { settings.values[entry.owner] = { ...settings.values[entry.owner], [field.key]: value } })
-    const values = settingValues(entry, (await deps.data.readSettings(game.chatId)).values[entry.owner])
-    dispatch(Array.from(settingHandlers).filter(item => item.owner === entry.owner), { gameId: game.sessionId, values }, '本局配置项', disabled)
-    deps.settingsChanged?.(game.sessionId, entry.owner)
+    const values = before ? { [field.key]: value } : settingValues(entry, (await deps.data.readSettings(game.chatId)).values[entry.owner])
+    await notifyGameSettingHandlers(entry, game.sessionId, values)
     return gamePlugins(gameId)
   }
 
@@ -2074,6 +2111,11 @@ export function createTavernPluginApi(deps) {
     if (!game) throw new Error('这一局不存在或不是游玩对话')
     if (!deps.data?.updateSettings) return gamePlugins(gameId)
     const activeDefs = Array.from(gameSettingDefs.values()).filter(entry => !disabled.has(entry.owner))
+    const stored = (await deps.data.readSettings(game.chatId).catch(() => null))?.values || {}
+    const visibleKeys = new Map(await Promise.all(activeDefs.filter(entry => entry.present).map(async entry => [
+      entry.owner, Object.keys(await presentedGameSettings(entry, game.sessionId, stored[entry.owner]))
+    ])))
+    const applied = new Map()
     await deps.data.updateSettings(game.chatId, settings => {
       const nextValues = {}
       for (const [owner, vals] of Object.entries(defaultValues || {})) {
@@ -2081,16 +2123,20 @@ export function createTavernPluginApi(deps) {
       }
       for (const entry of activeDefs) {
         const source = entry.card ? {} : (defaultValues?.[entry.owner] || {})
-        nextValues[entry.owner] = settingValues(entry, source)
+        const values = settingValues(entry, source)
+        const keys = visibleKeys.get(entry.owner)
+        if (keys) {
+          const restored = Object.fromEntries(keys.map(key => [key, values[key]]))
+          nextValues[entry.owner] = { ...settings.values[entry.owner], ...restored }
+          if (keys.length) applied.set(entry, restored)
+        } else {
+          nextValues[entry.owner] = values
+          applied.set(entry, values)
+        }
       }
       settings.values = nextValues
     })
-    const stored = (await deps.data.readSettings(game.chatId).catch(() => null))?.values || {}
-    for (const entry of activeDefs) {
-      const values = settingValues(entry, stored[entry.owner])
-      dispatch(Array.from(settingHandlers).filter(item => item.owner === entry.owner), { gameId: game.sessionId, values }, '本局配置项', disabled)
-      deps.settingsChanged?.(game.sessionId, entry.owner)
-    }
+    for (const [entry, values] of applied) await notifyGameSettingHandlers(entry, game.sessionId, values)
     return gamePlugins(gameId)
   }
 
@@ -2100,7 +2146,8 @@ export function createTavernPluginApi(deps) {
     if (!entry) return null
     const { game, disabled } = await choicesFor(gameId)
     if (!game || disabled.has(entry.owner)) return null
-    return settingValues(entry, (await deps.data.readSettings(game.chatId)).values[entry.owner])
+    const values = await presentedGameSettings(entry, game.sessionId, (await deps.data.readSettings(game.chatId)).values[entry.owner])
+    return Object.keys(values).length ? values : null
   }
 
   /** Turns that hold plugin data or media, so a fork computes versions only for them. */

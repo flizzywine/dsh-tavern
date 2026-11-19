@@ -238,7 +238,7 @@ const settings = (await ctx.tavern.readPluginData()) || {}
 - 浏览器侧用 `tavernUi.readPluginData()`、`tavernUi.savePluginData(data)` 读写同一份，适合插件自己的设置页。
 - 密钥不要放这里，用 DSH 的 `credentials` 服务。
 
-### `gameSettings({ title?, fields })`、`getGameSettings({ gameId })`、`onGameSettingsChanged(handler)`（第 2 版）
+### `gameSettings({ title?, fields, present? })`、`getGameSettings({ gameId })`、`onGameSettingsChanged(handler)`（第 2 版）
 
 给每一局加插件自己的配置项。插件只声明有哪些项，Tavern 把它们画在本局设置里（和本局设置的其他项同样的样式），玩家的取值按局保存，分叉、导出存档时一起带走。
 
@@ -257,7 +257,9 @@ ctx.tavern.onGameSettingsChanged(({ gameId, values }) => { /* 玩家在本局设
 - `type`：`boolean` 开关；`select` 单选（`options` 1–20 项，写成字符串或 `{ value, label }`）；`number` 数字（可选 `min`、`max`、`step`）；`text` 一行文本（`maxLength` 最多 500，默认 200）。不写 `default` 时分别默认为关、第一个选项、`min` 或 0、空字符串。
 - `getGameSettings` 返回这一局实际生效的值：玩家改过的用玩家的，没改过或已不合法（例如插件更新后选项变了）的用默认值。
 - 卡内插件的配置项只在它那张卡的局里显示。
-- 浏览器侧用 `tavernUi.getGameSettings(gameId)` 读同样的值，`tavernUi.watchGameSettings(gameId, listener)` 在现在和每次改动后收到最新的值。
+- 浏览器侧用 `tavernUi.getGameSettings(gameId)` 读页面上可用的值，`tavernUi.watchGameSettings(gameId, listener)` 在订阅时和改动后收到最新的值。
+- 如果插件自己管理功能的开关，可以提供 `present({ gameId, values })`。`values` 是宿主保存的配置与声明的默认值。返回对象以指定本局设置显示的字段和值，返回 `null` 可隐藏整个区块。
+- 使用 `present` 时，`onGameSettingsChanged` 的 `values` 只包含这次编辑或恢复的可见字段。在插件自己的页面更新开关或配置后，调用 `await ctx.tavern.notifyGameSettings({ gameId })` 刷新已打开的本局设置。
 
 分叉、导出存档时，插件挂的媒体项也按同样规则带走，媒体用到的图片、音视频文件一并打进存档包。
 

@@ -999,7 +999,7 @@ export async function apply(ctx) {
   ctx.provide('tavernClientAssets', clientAssets)
   // hostLibrary: the core helpers a mod may use (lib/mod-library.js holds their one list; a mod never imports core files).
   const hostLibrary = modLibrary
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents,
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
   const {dialogueBubbles} = stageRuntime.assets
@@ -1011,8 +1011,8 @@ export async function apply(ctx) {
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
   function scoringCatalog() {return [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model}))}
-  async function slotDeclarations() {
-    return modelSlots.rows()
+  async function slotDeclarations(context) {
+    return modelSlots.rows(context)
   }
   async function resolveSlot(modId, slotId, sessionId, declaration) {
     const slot = declaration || (await modelSlots.rows()).find(row => row.modId === modId && row.id === slotId)
@@ -1021,8 +1021,8 @@ export async function apply(ctx) {
     return resolveModelSlotOffered({slot,modId,chat,settings,foreground:sessionId ? modelSelection(sessionId, false) : null,defaultModel:slot.kind === 'scoring' ? null : modelSelection(),scoringConfig:modelSlots.scoring()},
       async selection => (await readBackgroundModelReasoning(llm, selection))?.efforts)
   }
-  async function checkSlotSelection({modId,slotId,selection}) {
-    const slot = (await modelSlots.rows()).find(row=>row.modId===modId && row.id===slotId)
+  async function checkSlotSelection({modId,slotId,selection}, context) {
+    const slot = (await modelSlots.rows(context)).find(row=>row.modId===modId && row.id===slotId)
     if (!slot) throw new Error('模型槽未启用')
     if (selection === null) return
     if (slot.kind === 'scoring') {
@@ -4503,8 +4503,11 @@ export async function apply(ctx) {
     modelCatalog: tavernModelCatalog, modelReasoning: selection => readBackgroundModelReasoning(llm, selection),
     isPlayMode: mode => groupOfMode(mode) === 'play',
     presentExtras: chat => ({ modModels: chat.modModels || {} }),
-    readExtras: async () => ({ modModelSlots: await slotDeclarations(), scoringCatalog: scoringCatalog() }),
-    validatePatch: async args => { if (args.modModelSelection) await checkSlotSelection(args.modModelSelection) },
+    readExtras: async chat => {
+      const header = await chatHeaderForSession(chat.sessionId, ['cardPath'])
+      return { modModelSlots: await slotDeclarations({ sessionId: chat.sessionId, cardPath: header?.cardPath }), scoringCatalog: scoringCatalog() }
+    },
+    validatePatch: async (args, chat) => { if (args.modModelSelection) await checkSlotSelection(args.modModelSelection, { sessionId: chat.sessionId, cardPath: chat.cardPath }) },
     extraTools: async sessionId => {
       const cached = foregroundExtraTools.get(String(sessionId))
       if (cached) return cached

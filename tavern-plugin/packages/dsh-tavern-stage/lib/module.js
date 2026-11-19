@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto'
 import {createFigureRuntimes} from './figure-runtimes.js'
 import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../../../lib/domain/tavern-runtime-assets.js'
 import {createCardStage, watchFigureBubbleBooks, cardLorePieces} from './card-stage.js'
@@ -120,7 +121,12 @@ export async function createStageModule(core) {
       return cardsActive() && enabled
     }
   }))
-  ctx.effect(() => core.modelSlots.register('dsh-tavern-stage-mods',{rows:() => modService.modelSlots()}), 'dsh-tavern: mod model slots')
+  ctx.effect(() => core.modelSlots.register('dsh-tavern-stage-mods', { async rows(context) {
+    if (!context?.sessionId) return modService.modelSlots()
+    if (!context.cardPath) return []
+    const { manifests, resolution } = await managedModManagement.selection(context.cardPath, { sessionId: context.sessionId })
+    return modelSlotRows(manifests, resolution.enabled)
+  } }), 'dsh-tavern: mod model slots')
   const configCards=async()=>Promise.all((await fileResources.list('card')).map(async path=>({path,workspace:await readModCard(path)})))
   modConfigHost=createModConfigHost({library:core.hostLibrary,workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,
     getAssetLibrary:()=>ctx.get('assetLibrary'),getEngine:()=>({...assetEngineSettings.read(),assetRevision:assetRuntime.revision}),
@@ -335,7 +341,7 @@ export const STAGE_MODEL_MANIFESTS = [{id:'dsh.stage',name:'舞台',modelSlots:[
   {id:'judge',label:'智能判断',purpose:'判断素材与剧情的相关概率',fallback:'background',kind:'scoring'}]}]
 
 export function createStageAssets(core) {
-  const {ctx, resolveSlot, readCardWorkspace, coordinationEvents} = core
+  const {ctx, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals} = core
   const figureRuntimes = createFigureRuntimes()
   ctx.effect(() => () => figureRuntimes.dispose())
   ctx.provide('figureRuntimes', figureRuntimes)
@@ -369,7 +375,10 @@ export function createStageAssets(core) {
     getTts,getEngine:() => assetEngineSettings.read().values,
     getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage',{
-    rows:() => modelSlotRows(STAGE_MODEL_MANIFESTS,['dsh.stage']),scoring:() => assetEngineSettings.read().values.judge
+    async rows(context) {
+      if (context?.sessionId && (!context.cardPath || !await cardStageSwitch(context.cardPath, 'stage'))) return []
+      return modelSlotRows(STAGE_MODEL_MANIFESTS, ['dsh.stage'])
+    }, scoring:() => assetEngineSettings.read().values.judge
   }), 'dsh-tavern: stage model slots')
   const engineJudge = createEngineJudge({resolveConfig:input => resolveSlot('dsh.stage','judge',input?.sessionId),getConfig:() => assetEngineSettings.read().values.judge,credentials:() => ctx.get('credentials'),log:event => console.info('dsh-tavern:',JSON.stringify(event))})
   const judgeRpc = createJudgeRpc(assetEngineSettings,engineJudge)
@@ -385,7 +394,10 @@ export function createStageAssets(core) {
   ctx.inject(['assetLibrary','tts'], child => child.effect(() => child.get('tts').registerUsageSource({owner:'dsh-tavern-stage',
     inspect:serviceId => countServiceUsers({library:child.get('assetLibrary'),tts:child.get('tts'),serviceId})})))
   const assetRuntime = createAssetRuntime({ctx, readWorkspace:readCardWorkspace, engineSettings:assetEngineSettings,
-    onInvalidate:() => { void coordinationEvents?.publishAll() }})
+    onInvalidate:(_path, event) => {
+      if (event.reason === 'configuration') sessionSignals?.publish('plugin:dsh-tavern-stage', { kind:'stage-settings', version:randomUUID() })
+      void coordinationEvents?.publishAll()
+    }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
   return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime, getTts}

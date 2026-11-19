@@ -110,14 +110,33 @@ function createConversationSettingsModule({
         const [data, setData] = React.useState(null);
         const [busy, setBusy] = React.useState(false);
         const [error, setError] = React.useState("");
+        const revision = React.useRef(0);
         const load = React.useCallback(async function () {
-                try { setData((await rpc("listGamePlugins", {}, props.sessionId)).plugins); setError(""); }
-                catch (err) { setError(String(err.message || err)); }
-            }, [props.sessionId]);
-        React.useEffect(function () { void load(); }, [load]);
+            const request = ++revision.current;
+            try {
+                const result = await rpc("listGamePlugins", {}, props.sessionId);
+                if (request === revision.current) { setData(result.plugins); setError(""); }
+            } catch (err) { if (request === revision.current) setError(String(err.message || err)); }
+        }, [props.sessionId]);
+        React.useEffect(function () {
+            const stop = tavernSessionSignals?.subscribe(props.sessionId, "plugin-settings", load);
+            window.addEventListener("dsh-tavern-mods-changed", load);
+            window.addEventListener("dsh-tavern-settings-changed", load);
+            void load();
+            return () => {
+                revision.current++;
+                if (typeof stop === "function") stop();
+                window.removeEventListener("dsh-tavern-mods-changed", load);
+                window.removeEventListener("dsh-tavern-settings-changed", load);
+            };
+        }, [load, props.sessionId]);
         async function change(payload) {
             setBusy(true); setError("");
-            try { setData((await trackTavernSettingsWrite(props.sessionId, rpc("setGamePlugin", payload, props.sessionId))).plugins); }
+            const request = ++revision.current;
+            try {
+                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setGamePlugin", payload, props.sessionId));
+                if (request === revision.current) setData(result.plugins);
+            }
             catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
@@ -304,17 +323,33 @@ function createConversationSettingsModule({
         const [notice, setNotice] = React.useState("");
         const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
         const [slotState, setSlotState] = React.useState({slots:[],values:{},scoringCatalog:[]});
+        const readRevision = React.useRef(0);
         const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
         async function load() {
+            const request = ++readRevision.current;
             setError("");
             try {
                 const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
+                if (request !== readRevision.current) return;
                 setSlotState({slots:result.modModelSlots || [],values:result.modModels || {},scoringCatalog:result.scoringCatalog || []});
                 setCatalog(result.modelCatalog || []); setSelection(result.backgroundModel);
                 setTasks(result.backgroundTasks); setFeatures({ webSearchEnabled: result.webSearchEnabled === true, mvuCard: result.mvuCard === true }); setLoaded(true);
-            } catch (err) { setError(String(err.message || err)); }
+            } catch (err) { if (request === readRevision.current) setError(String(err.message || err)); }
         }
-        React.useEffect(() => { void load(); }, []);
+        React.useEffect(() => {
+            const lifecycle = tavernSessionSignals?.subscribe("plugin:dsh-tavern-stage", "plugin-lifecycle", load);
+            const settings = tavernSessionSignals?.subscribe("plugin:dsh-tavern-stage", "stage-settings", load);
+            window.addEventListener("dsh-tavern-mods-changed", load);
+            window.addEventListener("dsh-tavern-settings-changed", load);
+            void load();
+            return () => {
+                readRevision.current++;
+                lifecycle?.();
+                settings?.();
+                window.removeEventListener("dsh-tavern-mods-changed", load);
+                window.removeEventListener("dsh-tavern-settings-changed", load);
+            };
+        }, [props.sessionId]);
         React.useEffect(() => {
             let active = true;
             if (key) rpc("getBackgroundModelReasoning", JSON.parse(key), props.sessionId).then(result => {

@@ -521,7 +521,10 @@
             }
             function toggle(plugin) {
                 const enable = plugin.enabled === false;
-                void run(function () { return rpc(enable ? "enableUserPlugin" : "disableUserPlugin", { folder: plugin.folder }); }, function () { return (enable ? "已启用 " : "已停用 ") + plugin.name + "，刷新页面后生效。"; });
+                void run(function () { return rpc(enable ? "enableUserPlugin" : "disableUserPlugin", { folder: plugin.folder }); }, function () {
+                    window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+                    return (enable ? "已启用 " : "已停用 ") + plugin.name + "，刷新页面后生效。";
+                });
             }
             // 「已是最新」是插件状态，放在名称和「已加载」旁边，不占按钮区。
             function updateBadge(plugin) {

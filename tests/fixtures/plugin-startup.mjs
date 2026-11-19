@@ -91,6 +91,19 @@ try {
   const direction = await host.rpc('getStageDirection', { sessionId: 'stage-session', turn: 1, readOnly: true })
   assert.equal(typeof direction.status, 'string')
   const modRpc = (method, args) => host.rpc(method, args, { origin: 'http://localhost:3081' })
+  const stageSlots = async () => (await host.rpc('getConversationBackgroundConfig', modeArgs)).modModelSlots
+    .filter(slot => slot.modId === 'dsh.stage').map(slot => slot.id)
+  async function setCardStage(enabled) {
+    const path = imported.card.path
+    const binding = await modRpc('getCardAssetBindings', { path })
+    await modRpc('saveCardAssetBindings', { path, expectedRevision: binding.revision,
+      patch: { assetBindings: binding.extension?.assetBindings || { boundPackIds: [] }, stage: { enabled } } })
+  }
+  assert.deepEqual(await stageSlots(), [])
+  await setCardStage(true)
+  assert.deepEqual(await stageSlots(), ['director', 'judge'])
+  await setCardStage(false)
+  assert.deepEqual(await stageSlots(), [])
   const mods = await modRpc('managedModsList', {})
   // the five first-party mods (dice, phone, redaction, textcard, timer)
   assert.equal(mods.mods.length, 5)

@@ -73,6 +73,8 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
   const gameDataMap = new Map()
   const pluginDataMap = new Map()
   const publishedStates = []
+  const settingsChanges = []
+  const settings = { disabled: [], replacements: {}, values: {} }
   const runTaskCalls = []
 
   let currentTurn = 3
@@ -105,8 +107,8 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
     data: {
       readGame: async ({ chatId, owner }) => gameDataMap.get(`${chatId}:${owner}`) || null,
       saveGame: async ({ chatId, owner, data }) => { gameDataMap.set(`${chatId}:${owner}`, structuredClone(data)) },
-      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
-      writeSettings: async () => {}
+      readSettings: async () => structuredClone(settings),
+      updateSettings: async (_chatId, update) => { update(settings) }
     },
     pluginData: {
       read: async owner => pluginDataMap.get(owner) ?? null,
@@ -117,6 +119,7 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
       list: async () => []
     },
     publishState: (gameId, plugin, name) => publishedStates.push({ gameId, plugin, name }),
+    settingsChanged: (gameId, plugin) => settingsChanges.push({ gameId, plugin }),
     runTask: async input => {
       runTaskCalls.push(input)
       await input.call('plot_compass_submit', {
@@ -143,8 +146,31 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
   const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
   applyPlotCompass(mounted.ctx)
 
+  const plugin = 'dsh-tavern-plot-compass'
+  const readOptions = async () => (await pluginApi.gamePlugins('g1')).settings
+  const changeOption = (key, value) => pluginApi.setGamePlugin('g1', { setting: { plugin, key, value } })
+  assert.deepEqual(await readOptions(), [])
+  await assert.rejects(changeOption('maxRoutes', 5), /没有这个插件配置项/)
+
   // 开启罗盘并切换为跟随前台模型
   await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
+  assert.deepEqual(settingsChanges.at(-1), { gameId: 'g1', plugin })
+  const [compassSettings] = await readOptions()
+  assert.deepEqual(compassSettings.fields.map(field => field.key), ['autoUpdateInterval', 'maxRoutes'])
+  assert.deepEqual(compassSettings.values, { autoUpdateInterval: 0, maxRoutes: 4 })
+  await assert.rejects(changeOption('enabled', false), /没有这个插件配置项/)
+  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', maxRoutes: 5 })
+  const { settings: [edited] } = await changeOption('autoUpdateInterval', 7)
+  assert.deepEqual(edited.values, { autoUpdateInterval: 7, maxRoutes: 5 })
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: false })
+  assert.deepEqual(await readOptions(), [])
+  assert.equal(await pluginApi.pluginGameSettings('g1', plugin), null)
+  await pluginApi.resetGamePluginSettings('g1', { [plugin]: { enabled: true, autoUpdateInterval: 1, maxRoutes: 4 } })
+  assert.deepEqual(await readOptions(), [])
+  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
+  assert.deepEqual((await readOptions())[0].values, edited.values)
+  await pluginApi.resetGamePluginSettings('g1')
+  assert.deepEqual((await readOptions())[0].values, { autoUpdateInterval: 0, maxRoutes: 4 })
   await pluginApi.callHandler('plot-compass:set-model', { gameId: 'g1', model: 'foreground' })
 
   const genRes = await pluginApi.callHandler('plot-compass:generate', { gameId: 'g1', scope: 'all', wait: true })

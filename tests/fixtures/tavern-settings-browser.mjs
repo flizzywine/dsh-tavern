@@ -68,6 +68,8 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
     const services = {}, stageEffects = ['dsh-tavern: stage client hold', 'dsh-tavern: stage client loader']
     const stageCtx = { provide() {}, get: name => services[name], effect(run) { return run() } }
     window.__tavernTestSlots = []
+    const testSignals = new EventTarget()
+    window.__tavernTestSignal = (id, kind) => testSignals.dispatchEvent(new Event(id + ':' + kind))
     window.client.apply({
       inject() { return { dispose() {} } },
       // A provided panel (e.g. ttsLineSpeechSettings, placed by another plugin's page) renders as the page itself.
@@ -76,7 +78,11 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
       get() {},
       sessions: { subagentAddress() {}, list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} } },
       betterSidebar: { registerTab(spec) { Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } }); } },
-      tavernSessionSignals: { subscribe() { return () => {} } },
+      tavernSessionSignals: { subscribe(id, kind, listener) {
+        const key = id + ':' + kind
+        testSignals.addEventListener(key, listener)
+        return () => testSignals.removeEventListener(key, listener)
+      } },
       effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label))) return run() },
       slots: { inject(name, run) { window.__tavernTestSlots.push(name); return run() }, register(_spec, Component) { Settings = Component } }
     })

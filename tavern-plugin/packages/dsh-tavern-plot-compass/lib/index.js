@@ -85,7 +85,6 @@ export function apply(ctx, options = {}) {
   let globalCache = null
   let globalReadInflight = null
   let hasExplicitGlobalModel = false
-  let syncingGameSettings = false
 
   function serializeGame(gameId, work) {
     const id = str(gameId)
@@ -200,9 +199,12 @@ export function apply(ctx, options = {}) {
       const mutated = await mutator(draft)
       if (mutated === undefined) return current
       const next = normalizeGameRecord(mutated, defaults)
-      gameCache.set(id, next)
       if (typeof tavern.saveGameData === 'function') {
         await tavern.saveGameData({ gameId: id, data: next })
+      }
+      gameCache.set(id, next)
+      if (next.enabled !== current.enabled || next.compass.autoUpdateInterval !== current.compass.autoUpdateInterval || next.compass.maxRoutes !== current.compass.maxRoutes) {
+        try { await tavern.notifyGameSettings?.({ gameId: id }) } catch {}
       }
       return structuredClone(next)
     })
@@ -537,8 +539,13 @@ export function apply(ctx, options = {}) {
 
   if (typeof tavern.gameSettings === 'function') {
     try {
-      tavern.gameSettings({
+      keep(tavern.gameSettings({
         title: '剧情罗盘',
+        async present({ gameId }) {
+          const record = await readGame(gameId)
+          if (!record.enabled) return null
+          return { autoUpdateInterval: record.compass.autoUpdateInterval, maxRoutes: record.compass.maxRoutes }
+        },
         fields: [
           {
             key: 'enabled',
@@ -566,42 +573,24 @@ export function apply(ctx, options = {}) {
             max: PLOT_COMPASS_MAX_MAX_ROUTES
           }
         ]
-      })
+      }))
     } catch {}
   }
 
   if (typeof tavern.onGameSettingsChanged === 'function') {
-    tavern.onGameSettingsChanged(async ({ gameId, values } = {}) => {
-      if (!gameId || !values || syncingGameSettings) return
-      syncingGameSettings = true
-      try {
-        if (typeof values.enabled === 'boolean') {
-          await service.setEnabled({ gameId, enabled: values.enabled })
-        }
-        if (values.autoUpdateInterval !== undefined) {
-          const interval = Number(values.autoUpdateInterval)
-          if (Number.isSafeInteger(interval) && interval >= 0 && interval <= 100) {
-            await updateGame(gameId, current => {
-              current.compass.autoUpdateInterval = interval
-              return current
-            })
-            void publishCompassState(gameId)
-          }
-        }
-        if (values.maxRoutes !== undefined) {
-          const limit = Number(values.maxRoutes)
-          if (Number.isSafeInteger(limit) && limit >= PLOT_COMPASS_MIN_MAX_ROUTES && limit <= PLOT_COMPASS_MAX_MAX_ROUTES) {
-            await updateGame(gameId, current => {
-              current.compass = applyPlotCompassPreferences(current.compass, { maxRoutes: limit })
-              return current
-            })
-            void publishCompassState(gameId)
-          }
-        }
-      } finally {
-        syncingGameSettings = false
+    keep(tavern.onGameSettingsChanged(async ({ gameId, values } = {}) => {
+      if (!gameId || !values) return
+      if (typeof tavern.notifyGameSettings !== 'function' && typeof values.enabled === 'boolean') {
+        await service.setEnabled({ gameId, enabled: values.enabled })
       }
-    })
+      const { autoUpdateInterval, maxRoutes } = values
+      await updateGame(gameId, current => {
+        if (!current.enabled) return
+        current.compass = applyPlotCompassPreferences(current.compass, { autoUpdateInterval, maxRoutes })
+        return current
+      })
+      void publishCompassState(gameId)
+    }))
   }
 
   // ── 浏览器侧 RPC 处理 ─────────────────────────────────────────────
