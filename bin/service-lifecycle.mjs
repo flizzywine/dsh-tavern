@@ -9,6 +9,7 @@ import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl,
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
+import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { resolveDesktopAsarCommand, resolveDshCliEntry, resolveHostDependencies } from './plugin-dependencies.mjs'
 import path from 'node:path'
@@ -411,6 +412,14 @@ async function ensureRuntimePatches(dsh, host) {
     ].filter(([, changed]) => changed === true).map(([label]) => label)
     if (applied.length > 0) console.log(`已补齐 DSH 对话界面补丁：${applied.join('、')}。`)
   } catch {}
+  try {
+    const [models] = resolveHostDependencies({ dsh, host, requiredExports: { '@deepseek-ai/dsh-client-ui-settings-models': null } })
+    if (!models || isAsarPath(models.directory)) return
+    const patched = patchSettingsModelsEndpoints(models.directory)
+    // A host whose 设置 › 模型 card changed shape is reported on every start, never dropped silently.
+    if (patched === null) console.log(`当前 DSH 的「设置 › 模型」与最近网址补丁不符（补丁按 ${SETTINGS_MODELS_PATCHED_VERSION} 写），已跳过；模型提供商暂时没有「最近用过的网址」。`)
+    else if (patched) console.log('已为 DSH「设置 › 模型」的 API 地址加上「最近用过的网址」。')
+  } catch (error) { console.log(`「设置 › 模型」最近网址补丁没有打上：${error?.message ?? error}`) }
 }
 
 export function syncBundledTavernPlugins({
