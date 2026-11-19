@@ -39,7 +39,7 @@ import {readStageProjection, stageProjectionPage} from './domain/stage-projectio
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
 import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
-import {readCardAssetExtension} from '../../../lib/domain/card-asset-bindings.js'
+import {readCardAssetExtension, cardAssetExtensionView} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
 import {registerStageWorkbench} from './workbench/index.js'
@@ -79,7 +79,7 @@ export async function createStageModule(core) {
   const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,...modCardStorage,
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),
     async readSkin(cardPath,{sessionId}={}) {
-      const base=(await cardStage.bubbles.read(cardPath)).stage.skin
+      const base=await cardStage.skin(cardPath)
       if(!sessionId)return base
       const chat=await readStageChat.view(sessionId,{configOnly:true}),state=await readModStage(sessionId,chat._storageRevision),ref=state?.skin?.ref
       if(!ref || JSON.stringify(ref)===JSON.stringify(base?.ref))return base
@@ -363,12 +363,12 @@ export function createStageAssets(core) {
   // readers that have a chat or card path, not a stage snapshot.
   async function cardStageSwitch(cardPath, key) {
     const raw = (await readCardWorkspace(cardPath))?.raw
-    return effectiveCardStage(raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null, assetEngineSettings.read().values)[key] === true
+    return effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)[key] === true
   }
   // The two switches the session view publishes (view.stage): the client loads and asks the stage only when one is on.
   async function cardStageMode(cardPath) {
     const raw = (await readCardWorkspace(cardPath))?.raw
-    const stage = effectiveCardStage(raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null, assetEngineSettings.read().values)
+    const stage = effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)
     return {dialogue:stage.dialogue === true, stage:stage.stage === true}
   }
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,

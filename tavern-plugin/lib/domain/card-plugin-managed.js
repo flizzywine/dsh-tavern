@@ -5,6 +5,7 @@ import {isDeepStrictEqual as equal} from 'node:util'
 import {modError} from './mod-system-contract.js'
 import {validateDependencyGraph,validateDistributionManifest} from './mod-system.js'
 import {inspectModPackage,MOD_PACKAGE_LIMIT} from './mod-system-package.js'
+import {freezeJson} from './freeze-json.js'
 
 const clone=structuredClone
 const empty=()=>({revision:0,value:{releases:[],locks:[]}})
@@ -30,20 +31,35 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
     for(const row of rows)validateDistributionManifest(row.manifest)
     return rows
   })
+  // The persisted state of one file version, parsed once and frozen: every stage request resolves mod choices from it, so
+  // a hit costs one stat. This owner's own writes forget it at once; any other change shows as a new file version.
+  let stored=null,base=null
+  async function readState() {
+    const stats=await fs.stat(stateFile).catch(error=>{if(error.code==='ENOENT')return null;throw error})
+    const version=stats?[stats.mtimeMs,stats.size,stats.ino].join(':'):'missing'
+    if(stored?.version!==version)stored={version,state:freezeJson(await readJson(stateFile,empty()))}
+    return stored.state
+  }
+  const writeState=value=>{stored=null;return atomicJson(stateFile,value)}
+  // value: frozen and shared by every read of one state version (callers that edit clone it first, as compareAndSwap
+  // does); only the card locks are computed per read.
   async function frame({includeCardRoots=true}={}) {
-    const state=await readJson(stateFile,empty()),value=clone(state.value),bundles=await local()
-    value.releases=value.releases.filter(row=>!retiredIds.includes(row.manifest.id))
-    value.locks=value.locks.filter(row=>!retiredIds.includes(row.modId))
-    for(const bundle of bundles)if(!value.releases.some(row=>identity(row)===bundle.manifest.packageName+'\0'+bundle.sha256))value.releases.push({manifest:clone(bundle.manifest),digest:bundle.sha256,files:clone(bundle.files),installed:false,active:false,authorized:false,globalRoot:false})
+    const state=await readState(),bundles=await local()
+    if(base?.state!==state || base.bundles!==bundles) {
+      const value={releases:state.value.releases.filter(row=>!retiredIds.includes(row.manifest.id)),locks:state.value.locks.filter(row=>!retiredIds.includes(row.modId))}
+      for(const bundle of bundles)if(!value.releases.some(row=>identity(row)===bundle.manifest.packageName+'\0'+bundle.sha256))value.releases.push({manifest:clone(bundle.manifest),digest:bundle.sha256,files:clone(bundle.files),installed:false,active:false,authorized:false,globalRoot:false})
+      base={state,bundles,value:freezeJson(value)}
+    }
+    let value=base.value
     const roots=includeCardRoots && cardRoots?await cardRoots():null
     if(roots) {
       const previous=value.locks
-      value.locks=roots.flatMap(card=>card.mods.flatMap(modId=>{
+      value=freezeJson({releases:value.releases,locks:roots.flatMap(card=>card.mods.flatMap(modId=>{
         const lock=previous.find(row=>row.cardId===card.cardId && row.modId===modId)
         if(lock)return [lock]
         const release=value.releases.find(row=>row.manifest.id===modId && row.active && row.installed)
         return release?[{cardId:card.cardId,modId,digest:release.digest,range:'^'+release.manifest.version}]:[]
-      }))
+      }))})
     }
     return {revision:JSON.stringify([state.revision,bundles.map(row=>row.sha256),roots]),value,stateRevision:state.revision,persisted:state.value}
   }
@@ -118,7 +134,7 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
       await fs.rename(temporary,target)
     }
     for(const holder of current)if(holder.managed && !desired.some(row=>row.manifest.packageName===holder.name && folder(row)===holder.folder))await fs.rm(path.join(pluginsDir,holder.folder),{recursive:true,force:true})
-    await atomicJson(stateFile,transaction.after)
+    await writeState(transaction.after)
     await fs.rm(journalFile,{force:true})
     invalidate()
     // Wake the existing plugin watcher after the transaction gate is clear.
@@ -147,7 +163,7 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
       if(!value.releases.some(item=>identity(item)===identity(row))) {
         await cache(row,bundle)
         value.releases.push(row)
-        await atomicJson(stateFile,{revision:current.stateRevision+1,value})
+        await writeState({revision:current.stateRevision+1,value})
       }
       return {modId:row.manifest.id,version:row.manifest.version,digest:row.digest}
     }),
