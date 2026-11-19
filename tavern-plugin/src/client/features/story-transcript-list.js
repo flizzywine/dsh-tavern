@@ -4,6 +4,51 @@
 
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
+const TAVERN_STORY_NATIVE_NODE_KINDS = Object.freeze({ 'manual-compaction': true, compaction: true, command: true })
+
+function storyRowAnchorSeq(row, nativeTurns) {
+	if (!nativeTurns || typeof nativeTurns.get !== 'function') return null
+	const turn = Number(row && row.legacyTurn)
+	if (!Number.isSafeInteger(turn) || turn < 0) return null
+	const loc = nativeTurns.get(turn)
+	if (!loc) return null
+	if (row.role === 'user') return loc.start && Number.isSafeInteger(loc.start.seq) ? loc.start.seq : null
+	if (loc.end && Number.isSafeInteger(loc.end.seq)) return loc.end.seq
+	return loc.start && Number.isSafeInteger(loc.start.seq) ? loc.start.seq : null
+}
+
+function placeStoryNativeNodes(rows, nativeFlowNodes, nativeTurns, transcriptFrom) {
+	const before = [], after = new Map(), tail = []
+	if (!Array.isArray(nativeFlowNodes) || !nativeFlowNodes.length) return { before, after, tail }
+	const anchors = []
+	for (let index = 0; index < rows.length; index++) {
+		const seq = storyRowAnchorSeq(rows[index], nativeTurns)
+		if (seq !== null) anchors.push({ index, seq })
+	}
+	if (!anchors.length) {
+		for (const node of nativeFlowNodes) tail.push(node)
+		return { before, after, tail }
+	}
+	const firstSeq = anchors[0].seq
+	const paged = Number.isInteger(transcriptFrom) && transcriptFrom > 0
+	for (const node of nativeFlowNodes) {
+		const seq = node && Number.isSafeInteger(node.anchorSeq) ? node.anchorSeq : null
+		if (seq === null) { tail.push(node); continue }
+		if (seq < firstSeq) {
+			if (!paged) before.push(node)
+			continue
+		}
+		let slot = anchors[0].index
+		for (let i = 0; i < anchors.length; i++) {
+			if (anchors[i].seq <= seq) slot = anchors[i].index
+			else break
+		}
+		let bucket = after.get(slot)
+		if (!bucket) { bucket = []; after.set(slot, bucket) }
+		bucket.push(node)
+	}
+	return { before, after, tail }
+}
 
 function TavernStoryMarkdown(props) {
 	const text = String(props.text === undefined || props.text === null ? '' : props.text)
@@ -225,6 +270,24 @@ function createTavernStoryTranscriptFeature(deps) {
 				node: { kind: 'turn-tail', location: { kind: 'turn', turn }, data: { ...tail, closing } },
 				openFile: host.openFile
 			}, { entryKey: 'turn-tail', hookContext: { turnData: turn.data } }))
+	}
+
+	function StoryTranscriptNativeNode(props) {
+		const host = props.nodeHost
+		const fallback = props.node
+		const live = host && typeof host.useChatNode === 'function' && fallback && fallback.key ? host.useChatNode(fallback.key) : fallback
+		const node = live || fallback
+		if (!node || !host || typeof host.renderSlot !== 'function') return null
+		return h('div', {
+			className: 'dsh-tavern-story-transcript-row dsh-tavern-story-native-node',
+			'data-chat-flow-kind': node.kind,
+			'data-chat-flow-key': node.key,
+			'data-chat-anchor-key': node.key,
+			'data-chat-node-key': node.key
+		}, host.renderSlot('conversation.chat.node', {
+			node: node,
+			openFile: host.openFile
+		}, { entryKey: node.kind }))
 	}
 
 	function StoryTranscriptActions(props) {
@@ -730,7 +793,13 @@ function createTavernStoryTranscriptFeature(deps) {
 		const latest = rows.findLast(row => row.role === 'assistant')
 		const generating = Boolean(props.partial || streamView?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
 		const rowWindow = useTavernStoryRowWindow(sessionId)
-		if (!rows.length) {
+		const placedNative = React.useMemo(function () {
+			return placeStoryNativeNodes(rows, props.nativeFlowNodes, props.nativeTurns, transcript && transcript.from)
+		}, [rows, props.nativeFlowNodes, props.nativeTurns, transcript && transcript.from])
+		const renderNativeNode = function (node) {
+			return h(StoryTranscriptNativeNode, { key: 'native-node:' + node.key, node: node, nodeHost: props.nodeHost })
+		}
+		if (!rows.length && !placedNative.before.length && !placedNative.tail.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
 				'data-story-transcript': transcript && transcript.source ? String(transcript.source) : 'story',
@@ -747,25 +816,36 @@ function createTavernStoryTranscriptFeature(deps) {
 			return rowWindow.window.supported && row.role === 'assistant' && !row.streaming && row !== latest
 				&& Number(row.floorNo) > 0 && floorCount - Number(row.floorNo) >= 2
 		}
-		return h(React.Fragment, null, rows.map(function (row) {
+		const items = []
+		for (const node of placedNative.before) items.push(renderNativeNode(node))
+		for (let index = 0; index < rows.length; index++) {
+			const row = rows[index]
 			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
 			const text = String(row.text || '')
 			if (windowed(row) && (rowWindow.covered || !rowWindow.window.near(row.key))) {
-				return h('article', Object.assign({}, rowAttributes(row, transcript), {
+				items.push(h('article', Object.assign({}, rowAttributes(row, transcript), {
 					key: renderKey, ref: rowWindow.window.refFor(row.key), 'data-story-held': '',
 					className: 'dsh-tavern-story-transcript-row dsh-tavern-assistant dsh-tavern-story-floor dsh-tavern-story-held',
 					style: { height: rowWindow.window.height(row.key, text) + 'px' }
 				}), h('div', { className: 'dsh-tavern-story-floor-head' },
-					h('span', { className: 'dsh-tavern-story-floor-no' }, '第 ' + String(row.floorNo) + ' 楼')))
+					h('span', { className: 'dsh-tavern-story-floor-no' }, '第 ' + String(row.floorNo) + ' 楼'))))
+			} else {
+				if (windowed(row)) rowWindow.window.remember(row.key, text)
+				items.push(h(StoryTranscriptRow, { windowRef: windowed(row) ? rowWindow.window.refFor(row.key) : undefined, key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
+					sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
+					showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus, useChat: props.useChat,
+					latest: row === latest, latestTurn: latest?.legacyTurn,
+					host: row === latest ? props.host : null, turnFooter: props.turnFooter }))
 			}
-			if (windowed(row)) rowWindow.window.remember(row.key, text)
-			return h(StoryTranscriptRow, { windowRef: windowed(row) ? rowWindow.window.refFor(row.key) : undefined, key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
-				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
-				showPlayProcess: props.showPlayProcess, showStreamReasoning: showStreamReasoning, showDamperStatus: props.showDamperStatus, useChat: props.useChat,
-				latest: row === latest, latestTurn: latest?.legacyTurn,
-				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
-		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
-			h('span', null, '\u26a0 ' + failure)) : null)
+			const afterNodes = placedNative.after.get(index)
+			if (afterNodes) for (const node of afterNodes) items.push(renderNativeNode(node))
+		}
+		for (const node of placedNative.tail) items.push(renderNativeNode(node))
+		if (failure) {
+			items.push(h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
+				h('span', null, '\u26a0 ' + failure)))
+		}
+		return h(React.Fragment, null, items)
 	}
 
 	const alwaysShowDamper = function () { return true }
@@ -817,7 +897,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
-				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, showDamperStatus: props.showDamperStatus, useChat: props.useChat, host: props.host, turnFooter: props.turnFooter }))
+				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, showDamperStatus: props.showDamperStatus, useChat: props.useChat, host: props.host, turnFooter: props.turnFooter,
+				nativeFlowNodes: props.nativeFlowNodes, nativeTurns: props.nativeTurns, nodeHost: props.nodeHost }))
 	}
 
 	function defaultStore() {
@@ -860,6 +941,18 @@ function createTavernStoryTranscriptFeature(deps) {
 		const ownsHistory = storyActive && Boolean(transcript)
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
+		const nativeOrder = props.useChat(function (snapshot) { return snapshot && Array.isArray(snapshot.order) ? snapshot.order : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
+		const nativeNodes = props.useChat(function (snapshot) { return snapshot && snapshot.nodes ? snapshot.nodes : null })
+		const nativeTurns = props.useChat(function (snapshot) { return snapshot && snapshot.timeline && snapshot.timeline.turns ? snapshot.timeline.turns : null })
+		const nativeFlowNodes = React.useMemo(function () {
+			if (!nativeOrder.length || !nativeNodes || typeof nativeNodes.get !== 'function') return TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS
+			const out = []
+			for (const key of nativeOrder) {
+				const node = nativeNodes.get(key)
+				if (node && TAVERN_STORY_NATIVE_NODE_KINDS[node.kind]) out.push(node)
+			}
+			return out.length ? out : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS
+		}, [nativeOrder, nativeNodes])
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
 		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		data.useProjectionRefresh(store, sessionId, {
@@ -895,6 +988,9 @@ function createTavernStoryTranscriptFeature(deps) {
 		const turnFooter = React.useMemo(() => typeof props.renderSlot === 'function'
 			? { useChat: props.useChat, renderSlot: props.renderSlot, openFile: props.openFile } : null,
 		[props.useChat, props.renderSlot, props.openFile])
+		const nodeHost = React.useMemo(() => typeof props.renderSlot === 'function'
+			? { renderSlot: props.renderSlot, openFile: props.openFile, useChatNode: props.useChatNode } : null,
+		[props.renderSlot, props.openFile, props.useChatNode])
 
 		if (!storyActive) {
 			return props.renderNative ? props.renderNative() : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
@@ -913,6 +1009,9 @@ function createTavernStoryTranscriptFeature(deps) {
 			runningCalls: runningCalls,
 			pendingInputs: pendingInputs,
 			turnFooter: turnFooter,
+			nativeFlowNodes: nativeFlowNodes,
+			nativeTurns: nativeTurns,
+			nodeHost: nodeHost,
 			host: { useChat: props.useChat, useSession: props.useSession, useInput: props.useInput, inputActions: props.inputActions }
 		}))
 	}

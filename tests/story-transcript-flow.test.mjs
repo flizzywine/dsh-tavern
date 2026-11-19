@@ -376,3 +376,164 @@ test('切换到后台已生成会话时，连续到达的 tavern-state 不会打
 	await act(async () => clock.advance(0))
 	assert.equal(store.getSnapshot().revision, 4, '紧接 0ms 跟进到最新结算版本')
 })
+
+test('非当前会话在后台完成生成时自动预热缓存，切回首帧立即显示最新楼层', async t => {
+	const p = page(t)
+	const { context } = p
+	const oldMessages = [{ role: 'assistant', greeting: true, turn: 1, text: '开场' }]
+	const finishedMessages = [
+		...oldMessages,
+		{ role: 'user', text: '后台行动' },
+		{ role: 'assistant', turn: 2, text: '后台自动预热的最新楼层' }
+	]
+	let bgCommitted = false
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async (_method, _args, id) => {
+		if (id === 's-bg' && bgCommitted) {
+			return { storyTranscript: transcript(finishedMessages, 2), view: { mode: 'story', storageRevision: 2 }, revision: 2, storySignature: 'bg-2' }
+		}
+		return { storyTranscript: transcript(oldMessages, 1), view: { mode: 'story', storageRevision: 1 }, revision: 1, storySignature: id + '-1' }
+	} })
+	const store = data.createStoryTranscriptStore()
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, store })
+	const listListeners = new Set()
+	let listSnapshot = {
+		current: 's-bg',
+		byId: {
+			's-bg': { id: 's-bg', running: true, retainedBy: { mainView: 1 } },
+			's-fg': { id: 's-fg', running: false, retainedBy: {} }
+		}
+	}
+	const cleanups = []
+	feature.register({
+		ctx: {
+			effect: run => { const c = run(); if (typeof c === 'function') cleanups.push(c) },
+			get: () => undefined,
+			sessions: {
+				list: {
+					getSnapshot: () => listSnapshot,
+					subscribe: fn => { listListeners.add(fn); return () => listListeners.delete(fn) }
+				}
+			}
+		},
+		slots: { inject: () => () => {}, register: () => () => {}, entries: () => [], subscribe: () => () => {} }
+	})
+	t.after(() => { for (const cleanup of cleanups) cleanup() })
+
+	const flow = sessionId => React.createElement(feature.StoryTranscriptFlow, {
+		store, sessionId, renderNative: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	})
+	const root = await mount(p, flow('s-bg'))
+	// 切到前台会话 s-fg，s-bg 留在后台继续生成
+	listSnapshot = {
+		current: 's-fg',
+		byId: {
+			's-bg': { id: 's-bg', running: true, retainedBy: {} },
+			's-fg': { id: 's-fg', running: false, retainedBy: { mainView: 1 } }
+		}
+	}
+	await act(async () => {
+		for (const fn of listListeners) fn()
+		root.render(flow('s-fg'))
+	})
+	// s-bg 在后台完成生成：落盘并翻转 running -> false
+	bgCommitted = true
+	listSnapshot = {
+		current: 's-fg',
+		byId: {
+			's-bg': { id: 's-bg', running: false, retainedBy: {} },
+			's-fg': { id: 's-fg', running: false, retainedBy: { mainView: 1 } }
+		}
+	}
+	await act(async () => {
+		for (const fn of listListeners) fn()
+		await Promise.resolve()
+		await Promise.resolve()
+	})
+	assert.equal(store.snapshotFor('s-bg', null).revision, 2, '未切回前缓存已自动预热到新版本')
+
+	// 切回 s-bg 时同步首帧直接画出最新楼层，无需等待二次网络往返
+	await act(async () => root.render(flow('s-bg')))
+	assert.match(p.dom.window.document.querySelector('main').textContent, /后台自动预热的最新楼层/)
+})
+
+test('故事列表透传并按时间线定位 manual-compaction、compaction 与 command 节点，且响应节点状态更新', async t => {
+	const p = page(t)
+	const data = p.context.createTavernStoryTranscriptDataModule({
+		rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 })
+	})
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const listeners = new Set()
+	const nodeListeners = new Map()
+	const nodesMap = new Map([
+		['cmp:auto-1', { key: 'cmp:auto-1', kind: 'compaction', anchorSeq: 15, data: { summary: '更早剧情摘要' } }],
+		['cmd:compact-1', { key: 'cmd:compact-1', kind: 'manual-compaction', anchorSeq: 50, data: { command: { outcome: null }, compaction: null } }],
+		['cmd:ejs-1', { key: 'cmd:ejs-1', kind: 'command', anchorSeq: 55, data: { name: 'ejs', outcome: { kind: 'ok', text: '模板已刷新' } } }],
+		['turn:1:user', { key: 'turn:1:user', kind: 'user', anchorSeq: 10, data: {} }]
+	])
+	let chatSnapshot = {
+		legacy: {},
+		order: ['turn:1:user', 'cmp:auto-1', 'cmd:compact-1', 'cmd:ejs-1'],
+		nodes: { get: key => nodesMap.get(key) },
+		timeline: {
+			turns: new Map([
+				[1, { turn: 1, start: { seq: 10 }, end: { seq: 12 } }],
+				[9, { turn: 9, start: { seq: 20 }, end: { seq: 30 } }]
+			])
+		}
+	}
+	function useChat(selector) {
+		return React.useSyncExternalStore(
+			fn => { listeners.add(fn); return () => listeners.delete(fn) },
+			() => selector(chatSnapshot)
+		)
+	}
+	function useChatNode(key) {
+		return React.useSyncExternalStore(
+			fn => {
+				let set = nodeListeners.get(key)
+				if (!set) { set = new Set(); nodeListeners.set(key, set) }
+				set.add(fn)
+				return () => set.delete(fn)
+			},
+			() => nodesMap.get(key)
+		)
+	}
+	function renderSlot(slotName, owner, opts) {
+		assert.equal(slotName, 'conversation.chat.node')
+		const node = owner.node
+		if (opts.entryKey === 'manual-compaction') {
+			const outcome = node.data.command.outcome
+			const phase = outcome === null ? 'running' : outcome.kind === 'error' ? 'failed' : 'succeeded'
+			return React.createElement('div', { 'data-fork-compaction': phase },
+				phase === 'running' ? '正在整理较早的剧情…' : phase === 'failed' ? '这次未能整理较早的剧情。' : '已整理较早的剧情')
+		}
+		if (opts.entryKey === 'compaction') return React.createElement('div', { 'data-fork-compaction': 'succeeded' }, node.data.summary)
+		return React.createElement('div', { 'data-command': node.data.name }, node.data.outcome.text)
+	}
+	const flow = React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's-compact',
+		renderNative: () => null,
+		useChat,
+		useChatNode,
+		useSession: selector => selector({ running: false }),
+		renderSlot
+	})
+	await mount(p, flow)
+
+	const main = p.dom.window.document.querySelector('main')
+	const keys = Array.from(main.children).map(el => el.getAttribute('data-chat-flow-key'))
+	assert.deepEqual(keys, ['turn:1', 'cmp:auto-1', 'index:1', 'turn:9', 'cmd:compact-1', 'cmd:ejs-1'], '自动压缩插在对应楼层后，手动压缩与命令插在最新楼层后，原生 user 节点不重复渲染')
+	assert.equal(main.querySelector('[data-chat-flow-key="cmd:compact-1"]').textContent, '正在整理较早的剧情…')
+
+	nodesMap.set('cmd:compact-1', {
+		key: 'cmd:compact-1', kind: 'manual-compaction', anchorSeq: 50,
+		data: { command: { outcome: { kind: 'error', text: 'failed' } }, compaction: null }
+	})
+	await act(async () => {
+		for (const fn of nodeListeners.get('cmd:compact-1') || []) fn()
+	})
+	assert.equal(main.querySelector('[data-chat-flow-key="cmd:compact-1"]').textContent, '这次未能整理较早的剧情。', '命令结束时通过 useChatNode 实时更新状态')
+})
+
+

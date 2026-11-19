@@ -6728,6 +6728,8 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 /* Manual compaction uses player copy, with the successful summary on demand. */
 /* A later successful compaction supersedes an earlier failure line (flow items are siblings). */
 [data-chat-flow-kind="manual-compaction"]:has([data-fork-compaction="failed"]):has(~ [data-chat-flow-kind] [data-fork-compaction="succeeded"]) { display: none; }
+.fork-compaction-line { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta, 12px); line-height: 1.5; }
+.fork-compaction-text { display: inline-flex; align-items: center; gap: 6px; }
 .fork-compaction-result > summary { cursor: pointer; color: var(--fork-ink-2); }
 .fork-compaction-summary { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 0; }
 

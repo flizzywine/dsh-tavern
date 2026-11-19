@@ -144,9 +144,15 @@ function ManualCompactionNodeView(props) {
     const outcome = data.command.outcome;
     if (data.compaction && outcome?.kind !== "error") return compactionSucceededRow(data.compaction.summary);
     const phase = outcome === null ? "running" : outcome.kind === "error" ? "failed" : "ended";
-    const text = { running: "正在整理较早的剧情…", failed: "这次未能整理较早的剧情。", ended: "剧情整理已结束。" }[phase];
+    const fallback = { running: "正在整理较早的剧情…", failed: "这次未能整理较早的剧情。", ended: "剧情整理已结束。" }[phase];
+    const detail = phase === "failed" && outcome?.text
+        ? (typeof debugViewOn === "function" && debugViewOn() ? compactionMessage(outcome.text) : compactionPlayerMessage(outcome.text))
+        : "";
+    const text = detail || fallback;
     return React.createElement("div", { className: "fork-compaction-line", role: "status", "data-fork-compaction": phase },
-        React.createElement("span", { className: "fork-compaction-text" }, text));
+        React.createElement("span", { className: "fork-compaction-text" },
+            phase === "running" && typeof Spinner === "function" ? React.createElement(Spinner, { className: "fork-compaction-dots" }) : null,
+            text));
 }
 // The 压缩上下文 button (and automatic compaction) land a native checkpoint without a
 // command: it gets the same history row as a successful /compact.
