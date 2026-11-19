@@ -540,8 +540,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (typeof chat.sessionId !== 'string' || chat.sessionId === '') throw new Error('会话未绑定 DSH 会话')
     const effectiveSessionId = chat.sessionId
     const activeAgent = sessions.get(effectiveSessionId)
-    const restoredHandle = !activeAgent?.session && typeof sessions.resume === 'function'
-      ? await sessions.resume(effectiveSessionId) : undefined
+    const restoredHandle = sessions.acquire ? await sessions.acquire(effectiveSessionId)
+      : !activeAgent?.session && typeof sessions.resume === 'function' ? await sessions.resume(effectiveSessionId) : undefined
     try {
       return await regenerateInSession(chat, card, storedSessionId, sessionId, activeRound, guidance, options,
         restoredHandle?.agent || activeAgent)
@@ -1007,8 +1007,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     pendingRollbacks.add(chat.id)
     let restoredHandle
     try {
-      if (!sessions.get(chat.sessionId)?.session && !sessions.getSession?.(chat.sessionId) && typeof sessions.resume === 'function') {
-        restoredHandle = await sessions.resume(chat.sessionId)
+      if (sessions.acquire || (!sessions.get(chat.sessionId)?.session && !sessions.getSession?.(chat.sessionId) && typeof sessions.resume === 'function')) {
+        restoredHandle = await (sessions.acquire || sessions.resume)(chat.sessionId)
       }
       return await rollbackChat(chat, expectedTurn, restoredHandle?.agent, failedTailOnly)
     } finally {
@@ -1068,8 +1068,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     pendingRollbacks.add(state.id)
     let restoredHandle
     try {
-      if (!sessions.get(state.sessionId)?.session && !sessions.getSession?.(state.sessionId) && typeof sessions.resume === 'function') {
-        restoredHandle = await sessions.resume(state.sessionId)
+      if (sessions.acquire || (!sessions.get(state.sessionId)?.session && !sessions.getSession?.(state.sessionId) && typeof sessions.resume === 'function')) {
+        restoredHandle = await (sessions.acquire || sessions.resume)(state.sessionId)
       }
       if (messageUid !== undefined) {
         const chat = await readChat(state.id)
@@ -1505,8 +1505,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       try {
         let worker = sessions.get(participant.sessionId)
         let background = worker?.session || sessions.getSession?.(participant.sessionId)
-        if (!background && typeof sessions.resume === 'function') {
-          restoredHandle = await sessions.resume(participant.sessionId)
+        if (sessions.acquire || (!background && typeof sessions.resume === 'function')) {
+          restoredHandle = await (sessions.acquire || sessions.resume)(participant.sessionId)
           worker = restoredHandle.agent
           background = worker?.session
         }
@@ -1566,8 +1566,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     try {
       let agent = sessions.get(chat.sessionId)
       let session = agent?.session || sessions.getSession?.(chat.sessionId)
-      if (!session && typeof sessions.resume === 'function') {
-        const handle = await sessions.resume(chat.sessionId)
+      if (sessions.acquire || (!session && typeof sessions.resume === 'function')) {
+        const handle = await (sessions.acquire || sessions.resume)(chat.sessionId)
         handles.push(handle)
         agent = handle.agent
         session = agent?.session
@@ -1580,8 +1580,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       for (const checkpoint of saved.background) {
         let worker = sessions.get(checkpoint.sessionId)
         let background = worker?.session || sessions.getSession?.(checkpoint.sessionId)
-        if (!background && sessions.resume) {
-          const handle = await sessions.resume(checkpoint.sessionId)
+        if (sessions.acquire || (!background && sessions.resume)) {
+          const handle = await (sessions.acquire || sessions.resume)(checkpoint.sessionId)
           handles.push(handle); worker = handle.agent; background = worker?.session
         }
         if (!background || worker?.phase?.kind === 'running' || !unchangedSinceRollback(background, checkpoint.afterCount, checkpoint.formatVersion || 3)) throw new Error('后台上下文已有变化，不能撤销回退')

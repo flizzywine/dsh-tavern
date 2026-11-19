@@ -1,3 +1,4 @@
+import { acquireHostSession, withHostSession } from '../tavern-plugin/lib/host/sessions.js'
 import { readFile, writeFile } from 'node:fs/promises'
 import { clearFailedTurnSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import assert from 'node:assert/strict'
@@ -1139,3 +1140,40 @@ test('原生重新生成向 prepareRegenerationReply 传入 hostRegex: true 与 
   assert.equal(h.chat.candidates?.choices?.length, 4, '重新生成 extracted candidates 正常保留')
 })
 
+
+
+test('rollback and undo retain the shared writer while a cold-session reader is in flight', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  let loaded = false, writer = false, resumes = 0, disposed = 0
+  let publish, finish
+  const publishing = new Promise(resolve => { publish = resolve })
+  const finishing = new Promise(resolve => { finish = resolve })
+  const host = { sessions: { get: () => loaded ? h.session : undefined }, agents: {
+    get: () => loaded ? h.agent : undefined,
+    async resume() {
+      if (writer) throw new Error('session "session" is already owned by an active write handle')
+      writer = true; resumes++
+      await publishing
+      loaded = true
+      return { agent: h.agent, async dispose() { loaded = false; writer = false; disposed++ } }
+    }
+  } }
+  h.options.sessions.get = host.agents.get
+  h.options.sessions.getSession = host.sessions.get
+  h.options.sessions.acquire = id => acquireHostSession(host, id)
+  h.options.sessions.resume = () => assert.fail('rollback must use the shared acquisition')
+  const reader = withHostSession(host, 'session', () => finishing)
+  const history = h.create()
+  const rollback = history.rollback('session', 'chat', 2)
+  publish()
+  try {
+    await rollback
+    assert.equal(h.chat.messages.length, 1)
+    assert.equal(disposed, 0)
+    await history.undoRollback('session', 'chat')
+    assert.equal(h.chat.messages.length, 3)
+    assert.equal(disposed, 0)
+    assert.equal(resumes, 1)
+  } finally { finish(); await reader }
+  assert.equal(disposed, 1)
+})
