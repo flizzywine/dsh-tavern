@@ -150,6 +150,13 @@ async function remapPack(pack, mapping) {
   return sealPack(manifest, files, pack, storedCopyHashes(files,[pack]))
 }
 
+// writeZip's input-byte count as {done,total} over these entries (an export's progress bar).
+const zipProgress = (entries, onProgress) => {
+  if (!onProgress) return {}
+  const total = entries.reduce((sum, entry) => sum + entry.data.length, 0)
+  return {onProgress:done => onProgress({done, total})}
+}
+
 /** Construct explicitly; this service is not composed into Tavern or registered as v1. */
 export function createAssetPackService(options) {
   const limits = {...PACK_LIMITS, ...options.limits}, now = options.now || Date.now
@@ -1430,7 +1437,9 @@ export function createAssetPackService(options) {
         return {...result, ...(input.decision === 'keep-both' ? {mapping:copy(entry.preview.mapping)} : {})}
       })
     },
-    exportPack(input) {
+    // `progress` ({onProgress}) is a local option of the host transport, never RPC input: onProgress({done,total}) in
+    // input bytes while the archive is written (the browser's export progress bar).
+    exportPack(input, progress = {}) {
       validateUuid(input.packId)
       return (options.privateExportFile ? readRun : run)([input.packId], async () => {
         let pack = await loadForExport(input.packId); cas(pack, input.expectedRevision)
@@ -1441,7 +1450,8 @@ export function createAssetPackService(options) {
         pack = await exportPrivacyView(await withFigureImageExtras(pack, options))
         const warnings = await exportWarnings(pack)
         const write = async file => {
-          await writeZip(file, [{path:'manifest.json',data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([path,data]) => ({path,data,file:data.file}))])
+          const entries = [{path:'manifest.json',data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([path,data]) => ({path,data,file:data.file}))]
+          await writeZip(file, entries, zipProgress(entries, progress.onProgress))
           const archive = options.privateExportFile ? {output:file} : await exportArchive(file)
           return {...archive, contentHash:pack.manifest.contentHash, revision:pack.local.revision, filename:pack.manifest.id + '.zip',warnings}
         }
@@ -1451,7 +1461,7 @@ export function createAssetPackService(options) {
     // the 素材库's batch export — two or more whole packs, each through the
     // exportPack checks (CAS, public chain, layered export), in bounded 素材包合集 volumes. A widget default pointing into another
     // pack of the same set is carried, so it is no warning.
-    exportPacks(input) {
+    exportPacks(input, progress = {}) {
       check(input && Object.keys(input).every(key => key === 'packs') && Array.isArray(input.packs) && input.packs.length > 1, '$.packs', 'Two or more packs required')
       for (const item of input.packs) check(item && Object.keys(item).every(key => ['packId','expectedRevision'].includes(key)), '$.packs', 'Unknown export field', 'UNKNOWN_FIELD')
       const ids = input.packs.map(item => validateUuid(item.packId))
@@ -1467,6 +1477,8 @@ export function createAssetPackService(options) {
         }
         // Partition declarations before loading media: memory scales with one volume, not the library.
         const groups = partitionPackSets(declared, {bytes:Math.min(options.collectionBytes || COLLECTION_BYTES, limits.totalSize), entries:limits.entries})
+        const total = declared.reduce((sum, pack) => sum + pack.manifest.files.reduce((n, file) => n + file.size, 0), 0)
+        let before = 0
         try {
           for (const group of groups) {
             const packs = []
@@ -1475,7 +1487,9 @@ export function createAssetPackService(options) {
             check(budget(files, limits) * 2 <= limits.spoolBytes, '$', 'Export spool budget exceeded', 'LIMIT_EXCEEDED')
             exported.push(...packs.map(pack => ({packId:pack.manifest.id, contentHash:pack.manifest.contentHash, revision:pack.local.revision})))
             archives.push(await storage.temporary(async file => {
-              await writeZip(file, [...files].map(([path,data]) => ({path,data,file:data.file})))
+              const entries = [...files].map(([path,data]) => ({path,data,file:data.file}))
+              await writeZip(file, entries, {onProgress:progress.onProgress && (done => progress.onProgress({done:Math.min(total, before + done), total}))})
+              before += entries.reduce((sum, entry) => sum + entry.data.length, 0)
               const archive = await exportArchive(file)
               return {...archive, filename:groups.length === 1 ? 'asset-packs-' + ids.length + '.zip' : '\u7d20\u6750\u5305\u5408\u96c6-' + (archives.length + 1) + 'of' + groups.length + '.zip'}
             }))

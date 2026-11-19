@@ -45,7 +45,7 @@ const fields = Object.freeze({
   removeFigureEmotion:['packId','expectedRevision','figureId','emotionId'],
   migrateFigureVariants:['packId','expectedRevision','dryRun'],
   resolveAssets:['refs'], resolveFigures:['refs'], inspectImport:['bytes','copy'],
-  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision'], exportPacks:['packs'],
+  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision','progressId'], exportPacks:['packs','progressId'], exportProgress:['progressId'],
   exportCardBundle:['path','expectedRevision','packIds'], inspectCardBundle:['path','bytes'], inspectCardBundleUrl:['path','url'], previewCardBundleDecisions:['inspectionId','decisions'],
   applyCardBundle:['inspectionId','expectedRevision','cancel','decisions','acceptScriptRisk','disableWidgets'],
   leaseMedia:['packId','hash'], leaseBundle:['packId','bundleKey'], releaseLease:['ticket'], discardUpload:['ticket']
@@ -96,7 +96,7 @@ async function readBytes(request, maximum, reserve = () => {}, unreserve = () =>
 /** Owns one v2 service and its exact authenticated routes. No v1 adapter or disk reader. */
 export function createAssetPackTransport({settings, ...options}) {
   const now = options.now || Date.now, limits = {...PACK_LIMITS, ...options.limits}
-  const uploads = new Map(), downloads = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
+  const uploads = new Map(), downloads = new Map(), exportJobs = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
   const outboxBytes = () => [...outbox].reduce((sum,item) => sum + item.size,0)
   function removeArchive(item) {
     for (const owned of outbox) if (owned.file === item.file) outbox.delete(owned)
@@ -252,6 +252,15 @@ export function createAssetPackTransport({settings, ...options}) {
         } else if (input.method === 'discardUpload') result = {released:drop(uploads,args.ticket)}
         else if (input.method === 'releaseLease') result = {released:release(args.ticket)}
         else if (input.method === 'leaseMedia' || input.method === 'leaseBundle') result = await issue(input.method,{...args,scope:PRINCIPAL,origin:packRequestOrigin(request)})
+        else if (input.method === 'exportProgress') result = exportJobs.get(args.progressId) || null
+        else if (input.method === 'exportPack' || input.method === 'exportPacks') {
+          // progressId: the browser's own name for this export; it polls exportProgress with it while this call runs.
+          const {progressId, ...rest} = args, tracked = progressId !== undefined
+          check(!tracked || typeof progressId === 'string' && /^[\w-]{8,64}$/.test(progressId) && !exportJobs.has(progressId), '$.args.progressId')
+          if (tracked) exportJobs.set(progressId, {done:0, total:0})
+          try { result = await core[input.method](rest, tracked ? {onProgress:progress => exportJobs.set(progressId, progress)} : {}) }
+          finally { if (tracked) exportJobs.delete(progressId) }
+        }
         else result = await core[input.method](args)
         alive()
         function transfer(result) {

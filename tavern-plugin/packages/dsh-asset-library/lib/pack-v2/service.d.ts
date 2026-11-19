@@ -123,6 +123,8 @@ export interface CardBundleInspection {
   packs: Array<Pick<PackInspection, 'packId' | 'expectedRevision' | 'choices' | 'incoming' | 'diff' | 'mapping' | 'scriptRisk' | 'removed'> & {current: {manifest: PackManifest; figures: Record<string, Figure>} | null; affectedCards: {available: false; count: null}}>;
 }
 export type PackArchive = {file: string; size: number; expiresAt: number; dispose(): Promise<void>} & {filename: string};
+/** Export progress callback; total is the sum of the archive's entry sizes. */
+export interface ExportProgress { onProgress?(progress: {done: number; total: number}): void }
 export interface PackServiceOptions {
   /** Explicit absolute profile-owned root; never inferred from legacyDataRoot. One process owns this directory. */
   assetRoot: string;
@@ -261,8 +263,9 @@ export interface AssetPackService extends CatalogueService {
   inspectCardBundleFile(input: {file: string; path: string}): Promise<CardBundleInspection>;
   inspectImport(input: {bytes: Uint8Array; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
   applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
-  exportPack(input: PackWrite): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
-  exportPacks(input: {packs: PackWrite[]}): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;
+  /** Host-local option (never RPC input): input bytes written so far while the archive is built. */
+  exportPack(input: PackWrite, progress?: ExportProgress): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
+  exportPacks(input: {packs: PackWrite[]}, progress?: ExportProgress): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;
   /** Host-only export callback; absent from the remote method table. */
   /** packIds: the packs to embed (default: every bound pack). The exported card stays bound to every pack it binds;
    * bound packs not embedded are dependencies (contentHash null when this library lacks the pack). */
