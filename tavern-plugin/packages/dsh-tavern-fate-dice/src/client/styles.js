@@ -50,6 +50,7 @@ const CSS_TEXT = `
 }
 .fd-wb-top {
   flex: 0 0 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -91,6 +92,11 @@ const CSS_TEXT = `
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+.fd-wb-head > div:first-child {
+  min-width: 0;
+  flex: 1 1 180px;
 }
 .fd-wb-title {
   margin: 0;
@@ -108,8 +114,8 @@ const CSS_TEXT = `
 }
 
 .fd-tabbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 3px;
   border-radius: 12px;
@@ -117,7 +123,7 @@ const CSS_TEXT = `
   border: 1px solid var(--fd-line-soft);
 }
 .fd-tab {
-  flex: 1 1 auto;
+  min-width: 0;
   min-height: 34px;
   padding: 5px 10px;
   border-radius: 9px;
@@ -130,6 +136,8 @@ const CSS_TEXT = `
   cursor: pointer;
   touch-action: manipulation;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0.78;
   transition: background 0.15s ease, opacity 0.15s ease;
 }
@@ -1957,8 +1965,9 @@ article.dsh-tavern-story-floor {
 
 /* ---------- 手机竖屏 / 窄栏单列 ---------- */
 @media (max-width: 720px) {
+  .fd-wb-top { gap: 6px; padding-bottom: 6px; }
   .fd-tabbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fd-tab { flex: 1 1 auto; }
+  .fd-tab { min-height: 30px; padding: 4px 8px; }
   .fd-live-sub { white-space: normal; }
   .fd-row { align-items: flex-start; }
 }
@@ -1982,7 +1991,6 @@ article.dsh-tavern-story-floor {
   .dsh-tavern-story-row-actions > .fd-floor-head-slot { flex: 0 0 auto; }
 }
 @media (max-width: 420px) {
-  .fd-tabbar { grid-template-columns: 1fr; }
   .fd-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
