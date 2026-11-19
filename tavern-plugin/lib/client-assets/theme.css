@@ -3443,8 +3443,6 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui button.ap-item-main { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 0; padding: 0; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 500; text-align: left; white-space: normal; }
 .ap-ui button.ap-item-main:hover:not(:disabled) { background: none; }
 .ap-item-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ap-item-origin { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); white-space: nowrap; }
-.ap-ui button.ap-item-enable { flex: none; min-height: 36px; padding-inline: 8px; border-color: transparent; background: none; color: var(--fork-accent); white-space: nowrap; }
 .ap-item-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: var(--fork-fs-meta); font-weight: 400; }
 .ap-item-user { color: var(--fork-accent); font-weight: 600; }
 .ap-item-thumb { position: relative; display: block; flex: none; width: 64px; height: 36px; overflow: hidden; border-radius: 6px; background: var(--fork-hover); }
@@ -3491,7 +3489,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-item.is-picking[aria-selected=true] { background: none; }
 .ap-item.is-picking[aria-selected=true]:hover { background: var(--fork-hover); }
 .ap-item.is-picking[aria-selected=true] > .ap-item-lead-box > :not(.ap-check-mark) { box-shadow: 0 0 0 1.5px var(--fork-accent); }
-/* The selection bar takes the search row's place and height: 全选 check · 已选 N …… 取消 · 复制到… on one line at every width. */
+/* The selection bar takes the search row's place: 全选 · 已选 N · 当前结果 …… 取消 · 操作. */
 .ap-select-bar { display: flex; flex: none; align-items: center; gap: 6px; min-width: 0; min-height: 56px; padding: 12px 12px 10px 16px; }
 .ap-ui .ap-select-bar > button.ap-pack-check { display: grid; flex: none; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0 -2px 0 -6px; padding: 0; border: 0; border-radius: 50%; background: none; }
 .ap-ui .ap-select-bar > button.ap-pack-check:hover:not(:disabled) { background: var(--fork-hover); }
@@ -3500,6 +3498,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-select-bar .ap-check-dash { display: block; width: 8px; height: 2px; border-radius: 1px; background: currentColor; }
 .ap-select-count { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fork-fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .ap-select-count b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ap-select-scope { margin-inline-end: auto; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); white-space: nowrap; }
+.ap-select-bar:has(.ap-select-scope) .ap-select-count { flex: 0 1 auto; }
 .ap-ui .ap-select-bar button.ap-manage { flex: none; height: 28px; padding: 0 11px; white-space: nowrap; }
 .ap-copy-anchor { flex: none; }
 .ap-copy-anchor .ap-popover { min-width: 248px; max-height: 360px; }

@@ -6,7 +6,6 @@
 // @include-domain pack-avatar.cjs
 // @include-protocol director-commands.cjs
 // @include-protocol asset-tags.cjs
-// @include-protocol scene-picture.cjs
 // @include-protocol audio-categories.cjs
 // @include widget-contracts.cjs
 // @include audio-loudness.js
@@ -901,14 +900,13 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       packs.length>8&&h(PackSearchBox,{label:'搜索素材包',value:query,onChange:setQuery,className:'is-compact'}),
       list.length>0&&h('div',{className:'ap-target-list'},list.map(p=>h('button',{key:p.manifest.id,type:'button',role:'menuitem',className:'ap-menu-item',onClick:()=>{close();onPick({packId:p.manifest.id,name:p.manifest.name});}},p.manifest.name))));
   }
-  // A library list row's own menu (EntryItem `menu`): the 多选 bar's 复制到… and 删除 for this one entry — the same copyItems and
-  // removal with the same confirmation (askDelete, 「不再显示此提示」 included).
-  function EntryRowMenu({packs,packId,busy,close,onCopy,remove}) {
+  function EntryActionsMenu({packs,packId,busy,close,onCopy,remove,changeEnabled}) {
     const [copying,setCopying]=React.useState(false);
     if(copying)return h(PackTargetMenu,{packs,exclude:packId,close,onPick:onCopy});
     return h(React.Fragment,null,
-      h(MenuItem,{disabled:busy,onClick:()=>setCopying(true)},'复制到…'),
-      h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
+      changeEnabled&&[true,false].map(enabled=>h(MenuItem,{key:String(enabled),disabled:busy,onClick:()=>{close();changeEnabled(enabled);}},enabled?'开启':'关闭')),
+      onCopy&&h(MenuItem,{disabled:busy,onClick:()=>setCopying(true)},'复制到…'),
+      (changeEnabled||onCopy)&&h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
   }
   // Every still-image picker: explicit extensions, so the system file dialog lists them all; prepareImage decodes any of
   // them and re-encodes what the pack does not store (PNG / WebP) — a GIF becomes its first frame.
@@ -1153,14 +1151,15 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // the filter is the lamp model itself — 蓝灯 / 绿灯 / 关闭 (启用 / 关闭 for 演出风格),
     // read with the rows' own entryLamp, so a 关闭 entry never also counts as 蓝灯. (The old 已启用 / 已停用 were 蓝灯+绿灯 / 关闭.)
     // A stage skin has no state, so no filter.
-    const lampless=LAMPLESS_KINDS.includes(current),filterModes=STATELESS_KINDS.includes(current)?[]:lampless?['on','off']:lampChoices(current)||['constant','keyword','off'];
-    const filterLabels={...ENTRY_LAMPS,all:'全部',autoCgOff:AUTO_CG_OFF};
-    const filterOptions=['all',...filterModes,...(current==='cg'?['autoCgOff']:[])];
-    const activeFilter=filterOptions.includes(filter)?filter:'all';
-    const pass=a=>activeFilter==='all'||(activeFilter==='autoCgOff'?autoCgOff(a):entryLamp(a,lampless)===activeFilter);
+    const stateless=STATELESS_KINDS.includes(current),lampless=LAMPLESS_KINDS.includes(current);
+    const filterModes=stateless?[]:lampless?['on','off']:lampChoices(current)||['constant','keyword','off'];
+    const filterLabels={...ENTRY_LAMPS,all:'全部'};
+    const activeFilter=filterModes.includes(filter)?filter:'all';
+    const pass=a=>activeFilter==='all'||entryLamp(a,lampless)===activeFilter;
     // a 标签 (category) chip in the entry filters the list to that category level (and its children).
     const inCategory=a=>assetTags.matches(a.category,category);
     const shown=all.filter(a=>pass(a)&&inCategory(a)&&entryMatches(a,current,needle));
+    const pickedItems=shown.filter(a=>picked.has(a.id)),pickedIds=()=>pickedItems.map(a=>a.id);
     const selected=all.find(a=>a.id===sel)||shown[0]||null;
     // figures reorder in the full list only (a filtered or searched list has gaps), never in 多选.
     // The drop is one CAS patchPack of manifest.figures, rebuilt on the newest snapshot — nothing else in the pack changes.
@@ -1178,7 +1177,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const rightRef=React.useRef(null);React.useEffect(()=>{if(rightRef.current)rightRef.current.scrollTop=0;},[current,selected?.id]);
     const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
     const stopSelect=()=>{setSelecting(false);setPicked(new Set());};
-    const switchKind=k=>{audio.stop();setFresh(null);setNaming(null);setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());};
+    const switchKind=k=>{audio.stop();setFresh(null);setNaming(null);setKind(k);setSel(null);setQuery('');setFilter('all');setCategory('');setDetail(false);setPicked(new Set());pickAnchor.current=null;};
     // 删除 (⋯ › 删除… of one entry, 多选 › 删除 of several): the entries, their bundles (when no other entry uses them) and the
     // bundles' files leave in one CAS write; a 人物 is removed through removeFigure, one write each.
     const removeEntries=(k,ids)=>work.task(async()=>{
@@ -1193,13 +1192,30 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     });
     const removeEntry=(k,id)=>removeEntries(k,[id]),removeStyle=id=>removeEntries('directions',[id]);
     const [confirm,setConfirm]=React.useState(null);
-    // a list row's right click / long press: 复制到… and 删除… of that one entry (EntryRowMenu).
-    const rowMenu=item=>close=>h(EntryRowMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),
+    // Right click or long press opens the single entry's actions.
+    const rowMenu=item=>close=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),
       remove:current==='figures'?(done=>h(MenuItem,{danger:true,disabled:work.busy,onClick:()=>{done();
           askDelete(setConfirm,{title:'删除人物「'+item.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},()=>removeEntries('figures',[item.id]));}},'删除人物…')):
         entryRemoveItem({asset:item,pack,remove:removeEntry,ask:setConfirm,onError:text=>setNotice({text})})});
-    const askRemovePicked=()=>{const ids=all.filter(a=>picked.has(a.id)).map(a=>a.id);
-      askDelete(setConfirm,{title:'删除选中的 '+ids.length+' 项'+kinds[current]+'？',body:'从素材包「'+pack.manifest.name+'」中删除它们和它们的文件，无法恢复。用到它们的卡会少掉这些素材，不会自动换成别的。',confirmLabel:'删除 '+ids.length+' 项',danger:true},()=>removeEntries(current,ids));};    // 新建条目 — the one way an entry comes into the pack (the strip's 「＋ 新建」, a tab's 「＋ 新建<种类>」, the empty pack's
+    const askRemovePicked=()=>{const ids=pickedIds();
+      setConfirm({title:'删除选中的 '+ids.length+' 项'+kinds[current]+'？',body:'从素材包「'+pack.manifest.name+'」中删除所选素材，无法恢复。使用它们的卡会受到影响。',confirmLabel:'删除 '+ids.length+' 项',danger:true,onConfirm:()=>removeEntries(current,ids)});};
+    const changePickedEnabled=enabled=>{
+      const ids=new Set(pickedIds()),mode=enabled?'on':'off';
+      return work.task(async()=>{
+        const {count}=await enqueue(async c=>{
+          const targets=packItems(c,current).filter(a=>ids.has(a.id));
+          if(targets.length!==ids.size)throw new Error('条目已被删除，请重新载入');
+          const updates=new Map(targets.filter(a=>a.enabled!==enabled).map(a=>[a.id,setEntryLamp(a,mode)]));
+          if(!updates.size)return {count:0};
+          const request=current==='figures'?{fileUpdates:new Map([...updates].map(([id,a])=>['figures/'+id+'.json',jsonBytes(a)]))}:
+            {patch:{assets:c.manifest.assets.map(a=>a.kind===current?(updates.get(a.id)||a):a)}};
+          return {...await binding.service.patchPack({packId,expectedRevision:c.revision,...request}),count:updates.size};
+        });
+        stopSelect();setNotice({text:count?(enabled?'已开启 ':'已关闭 ')+count+' 项':enabled?'所选素材已开启':'所选素材已关闭'});
+        if(count)onPacksChanged?.();
+      });
+    };
+    // 新建条目 — the one way an entry comes into the pack (the strip's 「＋ 新建」, a tab's 「＋ 新建<种类>」, the empty pack's
     // buttons and a dropped file). A blank entry is written first, whatever is missing (library contract: media kinds
     // `media: null, pendingMedia: true` and 关闭; a 演出风格 with empty text, 关闭; a figure with one empty 默认 outfit, its
     // usual 启用). A `file` is then attached through the entry page's own upload (uploadBackground / uploadVariant /
@@ -1255,7 +1271,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // 复制到…: copyItems (one publication with the same-pack closure); 新建素材包 creates the target in the same write.
     // `only`: one item (the figure page's ⋯ → 复制到…) instead of the multi-selection.
     const copyTo=(target,only)=>work.task(async()=>{
-      const ids=only?[only]:all.filter(a=>picked.has(a.id)).map(a=>a.id),itemRefs=ids.map(id=>({kind:current,id}));
+      const ids=only?[only]:pickedIds(),itemRefs=ids.map(id=>({kind:current,id}));
       let result;
       if(target.packId){
         const attempt=revision=>binding.service.copyItems({sourcePackId:packId,itemRefs,target:{packId:target.packId,expectedRevision:revision}});
@@ -1317,14 +1333,12 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       setSel(id);setFresh(null);if(narrow)setDetail(true);};
     // The lamp items read like LampMenu's own (dot + the same word: ENTRY_LAMPS).
     const filterMenu=filterModes.length>0&&h(Popover,{label:'筛选条目',className:'ap-filter-anchor',trigger:({toggle:t,open})=>h(Button,{className:'ap-icon-button','data-on':activeFilter!=='all'||undefined,'aria-label':activeFilter==='all'?'筛选条目':'筛选条目：'+filterLabels[activeFilter],'aria-expanded':open,title:'筛选',onClick:t},h(Glyph,{name:'filter'})),
-      content:closeMenu=>filterOptions.map(v=>h('button',{key:v,type:'button',role:'menuitemradio','aria-checked':activeFilter===v,className:'ap-menu-item ap-lamp-opt','data-mode':v==='autoCgOff'?'off':v,onClick:()=>{setFilter(v);closeMenu();}},
+      content:closeMenu=>['all',...filterModes].map(v=>h('button',{key:v,type:'button',role:'menuitemradio','aria-checked':activeFilter===v,className:'ap-menu-item ap-lamp-opt','data-mode':v,onClick:()=>{setFilter(v);closeMenu();}},
         h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},filterLabels[v]),activeFilter===v&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
-    // 多选 turns
-    // the search row into the selection bar — the round check (全选 / 全不选 of what is shown, − when some are) · 「已选 N」 ……
-    // 取消 · 复制到… · 删除, the house 「已选 N · 取消 · <action>」 of the library's other selection modes. Esc (the popup stack, so an
-    // open menu closes first) or 取消 leaves it and focus returns to the 多选 button; Ctrl+A selects everything shown.
-    const pickedShown=shown.filter(a=>picked.has(a.id)).length,allState=pickedShown===0?false:pickedShown===shown.length?true:'mixed';
-    const pickAll=()=>setPicked(allState===true?new Set():new Set(shown.map(a=>a.id)));
+    // Selection works on all matching entries, not just the mounted window.
+    const allState=pickedItems.length===0?false:pickedItems.length===shown.length?true:'mixed';
+    const selectAll=()=>setPicked(new Set(shown.map(a=>a.id)));
+    const pickAll=()=>allState===true?setPicked(new Set()):selectAll();
     const leftRef=React.useRef(null),wasSelecting=React.useRef(false);
     useOverlay(selecting,()=>[leftRef.current?.closest?.('.ap-modal')],stopSelect);
     React.useEffect(()=>{if(wasSelecting.current!==selecting){const at=leftRef.current;
@@ -1332,15 +1346,16 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         at.querySelector(selecting?'.ap-select-bar button':'.ap-select-toggle')?.focus?.({preventScroll:true});}
       wasSelecting.current=selecting;if(!selecting)pickAnchor.current=null;},[selecting]);
     const selectKeys=e=>{if(!selecting||!(e.ctrlKey||e.metaKey)||e.altKey||e.shiftKey||String(e.key).toLowerCase()!=='a'||e.target?.closest?.('input,textarea,[contenteditable=true]'))return;
-      e.preventDefault();setPicked(new Set(shown.map(a=>a.id)));};
+      e.preventDefault();selectAll();};
     const selbar=selecting&&h('div',{className:'ap-select-bar'},
-      h('button',{type:'button',role:'checkbox',className:'ap-pack-check ap-select-all','aria-checked':allState,'aria-label':'全选',title:allState===true?'全不选':'全选',disabled:!shown.length,onClick:pickAll},
+      h('button',{type:'button',role:'checkbox',className:'ap-pack-check ap-select-all','aria-checked':allState,'aria-label':'全选',title:allState===true?'全不选':'全选当前结果',disabled:!shown.length,onClick:pickAll},
         h('span',{className:'ap-check-mark','aria-hidden':true},allState===true?h(Glyph,{name:'check'}):allState==='mixed'?h('i',{className:'ap-check-dash'}):null)),
-      h('span',{className:'ap-select-count',role:'status'},'已选 ',h('b',null,picked.size)),
-      h(Button,{className:'ap-manage',onClick:stopSelect},'取消'),
-      h(Popover,{label:'复制到',className:'ap-copy-anchor',float:true,trigger:({toggle:t,open})=>h(Button,{className:'ap-manage is-done','aria-expanded':open,disabled:!picked.size||work.busy,onClick:t},'复制到…'),
-        content:closeMenu=>h(PackTargetMenu,{packs:packs||[],exclude:packId,close:closeMenu,onPick:copyTo})}),
-      h(Button,{className:'ap-manage',disabled:!picked.size||work.busy,onClick:askRemovePicked},'删除'));
+      h('span',{className:'ap-select-count',role:'status'},'已选 ',h('b',null,pickedItems.length)),
+      (needle||category||activeFilter!=='all')&&h('span',{className:'ap-select-scope'},'当前结果'),
+      h(Button,{className:'ap-manage',disabled:work.busy,onClick:stopSelect},'取消'),
+      h(Popover,{key:current,label:'批量操作',className:'ap-copy-anchor',float:true,trigger:({toggle:t,open})=>h(Button,{className:'ap-manage is-done','aria-label':'批量操作','aria-haspopup':'menu','aria-expanded':open,disabled:!pickedItems.length||work.busy,onClick:t},'操作',h(Glyph,{name:'chevDown'})),
+        content:closeMenu=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close:closeMenu,onCopy:stateless?null:copyTo,changeEnabled:stateless?null:changePickedEnabled,
+          remove:close=>h(MenuItem,{danger:true,onClick:()=>{close();askRemovePicked();}},'删除…')})}));
     const left=pack&&h('aside',{ref:leftRef,className:'ap-pack-left','data-selecting':selecting||undefined},
       h(PackKindNav,{manifest:pack.manifest,present,current,onSwitch:switchKind,newMenu:h(NewEntryMenu,{current,disabled:work.busy,onPick:k=>createBlankEntry(k)})}),
       selbar||h('div',{className:'ap-pack-tools'},h(PackSearchBox,{label:'搜索条目',placeholder:'搜索',value:query,onChange:setQuery}),filterMenu,
@@ -1351,9 +1366,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       // the list and the opened entry each fail alone (PanelBoundary, §三.38).
       h(PanelBoundary,{name:'entry-list',resetKey:current+'@'+pack.revision},
       shown.length?h(WindowedItems,{className:'ap-items',blockClassName:'ap-items-block',multi:selecting,label:kinds[current],items:shown,
-          render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),menu:rowMenu(item),
-            ...(activeFilter==='autoCgOff'&&!selecting?{onEnable:()=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,'on'))),enableBusy:lampWork.busy}:{}),
-            onLamp:mode=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,mode)))}),
+          render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),menu:selecting?null:rowMenu(item),
+            onLamp:selecting?null:mode=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,mode)))}),
           head:NEW_NAMES[current]&&!selecting&&h('li',{key:'@new',role:'none',className:'ap-item-add-row'},h('button',{type:'button',className:'ap-item-add ap-item-new','aria-label':newKindLabel(current),title:newKindLabel(current),disabled:work.busy,onClick:()=>createBlankEntry(current)},
             h('span',{className:'ap-item-add-mark'},h(Glyph,{name:'plus'}))))}):
         h(EmptyState,{noun:kinds[current],query,filter:activeFilter!=='all'?filterLabels[activeFilter]:category,onClear:()=>{setQuery('');setFilter('all');setCategory('');}})));
@@ -1368,7 +1382,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab}):
         current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,remove:removeEntry,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
-          onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
+          onCategory:path=>{stopSelect();setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
           onOpenPack:onOpenPack&&((id,k,item)=>{audio.stop();onPacksChanged?.();onOpenPack(id,k,item);})})));
     const empty=pack&&!present.length&&h(NewEntryChoices,{disabled:work.busy,onPick:k=>createBlankEntry(k)});
     // 新建 opens the entry with its name field focused and selected, ready to be renamed.
