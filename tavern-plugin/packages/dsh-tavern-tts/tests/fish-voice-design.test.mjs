@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {execFile} from 'node:child_process'
+import {promisify} from 'node:util'
 import {mkdtemp, mkdir, writeFile, readFile, readdir, realpath, symlink, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -45,6 +47,25 @@ test('design exact Chinese Fish request and redacted receipt; successful request
   assert.deepEqual(await readdir(root),['voice-pilot-budget.json','voice-pilot-receipts'])
   assert.equal(receipt.includes(key),false)
   assert.equal(JSON.parse(await readFile(join(root,'voice-pilot-budget.json'),'utf8')).reserved,10000000)
+})
+
+test('a pilot leaves a live owner alone and reclaims a lock left by a dead process', async t => {
+  const {root} = await fixture(t), lock = join(root,'voice-pilot-budget.lock')
+  let calls = 0
+  const run = createVoicePilot({budgetRoot:root,fetch:async () => {calls++; return success()}})
+  const live = `owner-${process.pid}-${Date.now()}-a`
+  await mkdir(lock)
+  await writeFile(join(lock,live),'')
+  await assert.rejects(run(args('design'),provider,async () => key), {code:'PILOT_BUSY'})
+  assert.equal(calls,0)
+  assert.deepEqual(await readdir(lock),[live])
+
+  const {stdout} = await promisify(execFile)(process.execPath,['-p','process.pid'])
+  await rm(join(lock,live))
+  await writeFile(join(lock,`owner-${Number(stdout)}-${Date.now()}-b`),'')
+  assert.equal((await run(args('design'),provider,async () => key)).complete,true)
+  assert.equal(calls,1)
+  assert.ok(!(await readdir(root)).includes('voice-pilot-budget.lock'))
 })
 
 test('only Fish cloud, zh and approved fields; saved service shares secrets(p): stored key wins, env key is the fallback', async t => {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, realpath, readFile, writeFile, rename, rm, lstat } from 'node:fs/promises'
+import { mkdir, realpath, readFile, writeFile, rename, unlink, readdir, rmdir, lstat } from 'node:fs/promises'
 import { resolve, relative, dirname, basename, join, isAbsolute } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -96,6 +96,30 @@ export function validatePilot(action, plan, now = Date.now(), enforceBudget = tr
   return {requests, price, model:action === 'design' ? 'voice-design-1' : local ? null : plan.model}
 }
 
+const processStartedAt = Math.round(Date.now() - process.uptime() * 1000)
+function exited(pid) {
+  try { process.kill(pid, 0); return false }
+  catch (error) { return error.code === 'ESRCH' }
+}
+
+async function takePilotLock(lock) {
+  try { await mkdir(lock) }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error
+    const owners = await readdir(lock), owner = /^owner-(\d+)-(\d+)-[0-9a-f-]+$/.exec(owners[0])
+    if (owners.length !== 1 || !owner || !exited(Number(owner[1]))) fail('PILOT_BUSY')
+    // Only the contender that unlinks this specific owner can remove its lock directory.
+    try { await unlink(join(lock, owners[0])) }
+    catch (error) { if (error.code === 'ENOENT') fail('PILOT_BUSY'); throw error }
+    await rmdir(lock)
+    await mkdir(lock)
+  }
+  const marker = join(lock, `owner-${process.pid}-${processStartedAt}-${randomUUID()}`)
+  try { await writeFile(marker, '', {flag:'wx'}) }
+  catch (error) { await rmdir(lock); throw error }
+  return async () => { await unlink(marker); await rmdir(lock) }
+}
+
 // Reservations survive crashes and lost replies. Only a known unbilled response releases one.
 export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Date.now} = {}) {
   return async function run(args, provider, resolveKey) {
@@ -120,7 +144,7 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
     }
     const key = await resolveKey()
     if (!key) fail('CREDENTIALS_REQUIRED')
-    await mkdir(lock)
+    const release = await takePilotLock(lock)
     try {
       const budget = await loadBudget()
       const budgetExceeded = !local && (budget.reserved + total > cap || total > Math.floor(args.plan.maxCostUsd * units))
@@ -187,6 +211,6 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
       if (receipt.complete) receipt.stopReason = null
       await save()
       return {complete:receipt.complete,status:receipt.complete ? 'complete' : receipt.requests.some(row => row.outcome === 'unknown') ? 'unknown' : 'partial',receipt}
-    } finally { await rm(lock, {recursive:true}) }
+    } finally { await release() }
   }
 }
