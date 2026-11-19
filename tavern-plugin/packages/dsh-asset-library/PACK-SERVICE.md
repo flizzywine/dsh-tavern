@@ -100,6 +100,11 @@ so export cannot combine one manifest with another generation's bytes.
 3. `exportPack({...write})` returns `{bytes,filename,contentHash,revision}`. It
    includes disabled and unused author files and no local files. Transport should
    send those bytes as an authenticated attachment, not a control JSON payload.
+   Export progress: the browser may add `progressId` (its own 8–64 character
+   name) to `exportPack` / `exportPacks`; while that call runs,
+   `exportProgress({progressId})` returns `{done,total}` in input bytes written
+   into the archive (null once it ended). The transport strips the id and gives
+   the service a local `{onProgress}` option; the service never sees RPC input for it.
 4. Library export: `exportPacks({packs:[write,...]})` (two or more)
    returns one pack-set ZIP — `dsh-tavern-pack-set.json` (packs + path/size
    closure) and `packs/<packId>/manifest.json` plus each pack's files. Given such a

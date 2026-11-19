@@ -28,10 +28,13 @@ async function bytesAt(handle, size, position) {
   while (n < size) { const result = await handle.read(bytes, n, size - n, position + n); if (!result.bytesRead) throw new Error('Truncated ZIP'); n += result.bytesRead }
   return bytes
 }
-export async function writeZip(filename, entries) {
+// onProgress(bytes): the input bytes read so far (every entry's uncompressed size counts once), for a progress bar
+// over the sum of the entry sizes. A stored entry (media) streams straight into the archive and its header is
+// completed afterwards; only deflated entries go through a spool file, to fall back to stored when deflate does not pay.
+export async function writeZip(filename, entries, { onProgress } = {}) {
   if (entries.length > 65535) throw new Error('ZIP entry limit: 65535 (ZIP64 is not supported)')
   const out = await open(filename, 'wx'), central = [], names = new Set()
-  let position = 0, totalSize = 0
+  let position = 0, totalSize = 0, consumed = 0
   async function put(bytes) {
     if (position + bytes.length >= U32) throw new Error('ZIP exceeds 4 GB; ZIP64 is not supported')
     let n = 0
@@ -42,29 +45,40 @@ export async function writeZip(filename, entries) {
       const name = Buffer.from(zipPath(entry.path), 'utf8'), key = entry.path.toLowerCase()
       if (name.length > 65535 || names.has(key)) throw new Error('Duplicate or overlong ZIP path')
       names.add(key)
-      let size = 0, crc = 0, method = STORED.test(entry.path) ? 0 : 8
-      const spool = filename + '.' + randomUUID() + '.tmp'
+      let size = 0, crc = 0, method = STORED.test(entry.path) ? 0 : 8, compressedSize
+      const spool = method ? filename + '.' + randomUUID() + '.tmp' : null
       const source = entry.stream ?? (() => entry.file ? createReadStream(entry.file) : Readable.from([Buffer.from(entry.data)]))
       const meter = new Transform({ transform(chunk, encoding, callback) {
-        size += chunk.length; crc = crc32(chunk, crc)
+        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length; onProgress?.(consumed)
         callback(size >= U32 || totalSize + size >= U32 ? new Error('ZIP exceeds 4 GB; ZIP64 is not supported') : null, chunk)
       } })
-      try {
-        await pipeline(await source(), meter, ...(method ? [createDeflateRaw()] : []), createWriteStream(spool, { flags: 'wx' }))
-        let compressedSize = (await stat(spool)).size
-        // Do not produce archives that our anti-bomb limits would reject.
-        if (method && (compressedSize >= size || size > Math.max(1, compressedSize) * ZIP_LIMITS.ratio)) { method = 0; compressedSize = size }
-        const offset = position, header = Buffer.alloc(30)
+      const offset = position, header = Buffer.alloc(30)
+      const writeHeader = () => {
         header.writeUInt32LE(0x04034b50); header.writeUInt16LE(20, 4); header.writeUInt16LE(0x800, 6); header.writeUInt16LE(method, 8)
         header.writeUInt32LE(crc, 14); header.writeUInt32LE(compressedSize, 18); header.writeUInt32LE(size, 22); header.writeUInt16LE(name.length, 26)
-        await put(header); await put(name)
-        const content = method === 0 && !STORED.test(entry.path) ? createReadStream(spool).compose(createInflateRaw()) : createReadStream(spool)
-        for await (const chunk of content) await put(chunk)
+      }
+      try {
+        if (!method) {
+          // header first with sizes unknown, the bytes straight after it, then the finished header over the first one
+          await put(header); await put(name)
+          for await (const chunk of (await source()).compose(meter)) await put(chunk)
+          compressedSize = size; writeHeader()
+          let n = 0
+          while (n < header.length) n += (await out.write(header, n, header.length - n, offset + n)).bytesWritten
+        } else {
+          await pipeline(await source(), meter, createDeflateRaw(), createWriteStream(spool, { flags: 'wx' }))
+          compressedSize = (await stat(spool)).size
+          // Do not produce archives that our anti-bomb limits would reject.
+          if (compressedSize >= size || size > Math.max(1, compressedSize) * ZIP_LIMITS.ratio) { method = 0; compressedSize = size }
+          writeHeader(); await put(header); await put(name)
+          const content = method === 0 ? createReadStream(spool).compose(createInflateRaw()) : createReadStream(spool)
+          for await (const chunk of content) await put(chunk)
+        }
         const cd = Buffer.alloc(46)
         cd.writeUInt32LE(0x02014b50); cd.writeUInt16LE(20, 4); cd.writeUInt16LE(20, 6); cd.writeUInt16LE(0x800, 8); cd.writeUInt16LE(method, 10)
         cd.writeUInt32LE(crc, 16); cd.writeUInt32LE(compressedSize, 20); cd.writeUInt32LE(size, 24); cd.writeUInt16LE(name.length, 28); cd.writeUInt32LE(offset, 42)
         central.push(Buffer.concat([cd, name])); totalSize += size
-      } finally { await unlink(spool).catch(() => {}) }
+      } finally { if (spool) await unlink(spool).catch(() => {}) }
     }
     const start = position
     for (const bytes of central) await put(bytes)

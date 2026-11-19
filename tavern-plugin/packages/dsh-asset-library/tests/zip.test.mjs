@@ -37,6 +37,19 @@ test('streaming ZIP round trip: UTF-8 names, STORE, DEFLATE, empty and ratio-saf
   assert.deepEqual(await empty.read(empty.entries[0]), Buffer.alloc(0))
 })
 
+test('stored media streams straight from its file and progress counts every input byte once', async t => {
+  const root = await fixture(t), file = path.join(root, 'media.zip'), media = path.join(root, 'big.webp')
+  const bytes = Buffer.alloc(300000, 7); bytes.write('RIFF', 0)
+  await writeFile(media, bytes)
+  const json = Buffer.from(JSON.stringify({ lines: Array(200).fill('line') })), seen = []
+  await writeZip(file, [{ path: 'manifest.json', data: json }, { path: 'media/big.webp', data: { length: bytes.length }, file: media }], { onProgress: done => seen.push(done) })
+  const archive = await openZip(file)
+  assert.deepEqual(archive.entries.map(e => e.method), [8, 0])
+  assert.deepEqual(await archive.read(archive.entries[1]), bytes)
+  assert.equal(seen.at(-1), json.length + bytes.length)
+  assert.ok(seen.every((n, i) => !i || n >= seen[i - 1]))
+})
+
 test('reader accepts independent ASCII data-descriptor ZIP', async t => {
   const root = await fixture(t), file = path.join(root, 'descriptor.zip'), bytes = Buffer.from('hello descriptor')
   await writeFile(file, descriptorZip('hello.txt', bytes))
