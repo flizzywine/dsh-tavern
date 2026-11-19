@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
+import './host-runtime-preload.mjs'
 
 const require = createRequire(process.env.DSH_BOOT_MODULE || import.meta.url)
 const { HostConnectionService } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-client-connection')).href)
