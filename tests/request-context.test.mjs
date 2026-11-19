@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { computeRequestCacheDiff, extractPrefixSlots } from '../tavern-plugin/lib/domain/request-cache-diff.js'
 
 
 // The panel is a client fragment concatenated into the built bundle, so exercise
@@ -57,4 +58,114 @@ test('token 估算：中文约 1.5、拉丁约每 4 字母 1 个、数字约每 
   assert.equal(tokens('1'.repeat(30)), 10)
   // 只做量级比较：加字不会让估算变少。
   for (let length = 1; length <= 40; length += 3) assert.ok(tokens('汉'.repeat(length + 3)) >= tokens('汉'.repeat(length)))
+})
+
+test('前端 requestContextSections 的 cacheKey 与后端 extractPrefixSlots 完全对齐', () => {
+  const request = {
+    model: 'claude-sonnet',
+    system: '根系统提示',
+    tools: [{ type: 'function', function: { name: 't1' } }],
+    messages: [
+      { role: 'system', content: '【前段】主体', source: { sections: [{ name: 'tavern:runtime-preset-front', text: '【前段】' }, { name: 'tavern:dsh-system', text: '主体' }] } },
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '你好呀' }
+    ]
+  }
+  const clientKeys = sections(request).map(s => s.cacheKey).filter(key => key !== 'field:metadata')
+  const serverKeys = extractPrefixSlots(request).map(s => s.key)
+  assert.deepEqual(clientKeys, serverKeys)
+})
+
+test('缓存对比：纯追加场景标记 hit 与 appended，并按互斥 usage 桶计算真实命中率', () => {
+  const prev = {
+    id: 'r1', turn: 1, step: 1, createdAt: 1000,
+    request: {
+      model: 'claude-sonnet',
+      system: '稳定系统提示',
+      tools: [{ name: 'tool_a' }],
+      messages: [{ role: 'user', content: '第一句' }, { role: 'assistant', content: '第一答' }]
+    }
+  }
+  const cur = {
+    id: 'r2', turn: 2, step: 1, createdAt: 2000,
+    usage: { inputTokens: 100, cacheReadTokens: 800, cacheWriteTokens: 100, outputTokens: 50 },
+    request: {
+      ...prev.request,
+      messages: [...prev.request.messages, { role: 'user', content: '第二句' }]
+    }
+  }
+  const diff = computeRequestCacheDiff(cur, prev, { id: 'r1', turn: 1, step: 1, createdAt: 1000 })
+  assert.equal(diff.compareStatus, 'compared')
+  assert.equal(diff.breakPoint, null)
+  assert.equal(diff.usage.totalInputTokens, 1000)
+  assert.equal(diff.usage.hitRate, 0.8)
+  assert.equal(diff.sectionStatus['field:system'], 'hit')
+  assert.equal(diff.sectionStatus['field:tools'], 'hit')
+  assert.equal(diff.sectionStatus['msg:0'], 'hit')
+  assert.equal(diff.sectionStatus['msg:1'], 'hit')
+  assert.equal(diff.sectionStatus['msg:2'], 'appended')
+})
+
+test('缓存对比：系统段内世界书变动精确定位到破坏源头与行级 diff，并标出受波及历史段落', () => {
+  const makeSys = wb => ({
+    role: 'system',
+    content: '固定设定\n' + wb,
+    source: { sections: [{ name: 'tavern:dsh-system', text: '固定设定\n' }, { name: 'tavern:activeWorldbook:1', text: wb }] }
+  })
+  const prev = {
+    id: 'r1', turn: 1, step: 1, createdAt: 1000,
+    request: {
+      model: 'claude-sonnet',
+      messages: [makeSys('世界书旧条目A'), { role: 'user', content: '历史问' }, { role: 'assistant', content: '历史答' }]
+    }
+  }
+  const cur = {
+    id: 'r2', turn: 2, step: 1, createdAt: 2000,
+    request: {
+      model: 'claude-sonnet',
+      messages: [makeSys('世界书新条目B'), { role: 'user', content: '历史问' }, { role: 'assistant', content: '历史答' }, { role: 'user', content: '本轮新问' }]
+    }
+  }
+  const diff = computeRequestCacheDiff(cur, prev, { id: 'r1', turn: 1, step: 1, createdAt: 1000 })
+  assert.equal(diff.sectionStatus['msg:0'], 'break')
+  assert.equal(diff.sectionStatus['msg:1'], 'cascade')
+  assert.equal(diff.sectionStatus['msg:2'], 'cascade')
+  assert.equal(diff.sectionStatus['msg:3'], 'appended')
+  assert.equal(diff.breakPoint.key, 'msg:0')
+  assert.equal(diff.breakPoint.partLabel, '本轮世界书')
+  assert.equal(diff.breakPoint.affectedSections, 2)
+  assert.equal(diff.breakPoint.diff.removedLines, 1)
+  assert.equal(diff.breakPoint.diff.addedLines, 1)
+  assert.ok(diff.breakPoint.diff.lines.some(l => l.type === 'del' && l.text.includes('世界书旧条目A')))
+  assert.ok(diff.breakPoint.diff.lines.some(l => l.type === 'add' && l.text.includes('世界书新条目B')))
+})
+
+test('缓存对比：模型变更、TTL 零命中与基线已清理场景', () => {
+  const baseReq = { model: 'm-a', system: 's', messages: [{ role: 'user', content: 'hi' }] }
+  const switched = computeRequestCacheDiff(
+    { id: 'r2', usage: { inputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 }, request: { ...baseReq, model: 'm-b' } },
+    { id: 'r1', request: baseReq },
+    { id: 'r1', turn: 1, step: 1, createdAt: 1000 }
+  )
+  assert.equal(switched.modelChanged, true)
+  assert.equal(switched.breakPoint.kind, 'model')
+  assert.equal(switched.sectionStatus['field:metadata'], 'break')
+  assert.equal(switched.sectionStatus['field:system'], 'cascade')
+  assert.equal(switched.zeroReadReason, 'model-changed')
+
+  const ttlZero = computeRequestCacheDiff(
+    { id: 'r2', usage: { inputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 }, request: { ...baseReq, messages: [...baseReq.messages, { role: 'user', content: 'next' }] } },
+    { id: 'r1', request: baseReq },
+    { id: 'r1', turn: 1, step: 1, createdAt: 1000 }
+  )
+  assert.equal(ttlZero.breakPoint, null)
+  assert.equal(ttlZero.zeroReadReason, 'ttl-or-provider')
+
+  const pruned = computeRequestCacheDiff(
+    { id: 'r2', request: baseReq },
+    null,
+    { id: 'r1', turn: 1, step: 1, createdAt: 1000, pruned: true }
+  )
+  assert.equal(pruned.compareStatus, 'baseline-pruned')
+  assert.equal(pruned.baseline.pruned, true)
 })

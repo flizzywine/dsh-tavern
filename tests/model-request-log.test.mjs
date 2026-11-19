@@ -114,3 +114,38 @@ test('同一轮的大量请求原文按每局大小上限清理，并可整理�
   assert.equal(result.pruned, 6)
   assert.equal((await log.list('c')).filter(entry => entry.pruned).length, 6)
 })
+
+test('latestForSession 附带同会话上一条请求的 cacheDiff，并在状态从 running 变为 completed 时返回新结果', async () => {
+  const fixture = storageFixture()
+  let sequence = 0
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => String(++sequence) })
+  const r1 = await log.record({
+    chat: { id: 'c1' },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 's1', model: 'claude-sonnet', system: 'sys', messages: [{ role: 'user', content: 'u1' }] }
+  })
+  await log.complete({ chatId: 'c1', id: r1.id, text: 'a1', finish: { kind: 'stop' } })
+
+  const r2 = await log.record({
+    chat: { id: 'c1' },
+    coordinates: { turn: 2, step: 1 },
+    options: { sessionId: 's1', model: 'claude-sonnet', system: 'sys', messages: [{ role: 'user', content: 'u1' }, { role: 'user', content: 'u2' }] }
+  })
+  const runningView = await log.latestForSession('s1')
+  assert.equal(runningView.id, r2.id)
+  assert.equal(runningView.status, 'running')
+  assert.equal(runningView.cacheDiff.compareStatus, 'compared')
+  assert.equal(runningView.cacheDiff.baseline.id, r1.id)
+  assert.equal(runningView.cacheDiff.sectionStatus['field:system'], 'hit')
+  assert.equal(runningView.cacheDiff.sectionStatus['msg:0'], 'hit')
+  assert.equal(runningView.cacheDiff.sectionStatus['msg:1'], 'appended')
+
+  // 仍在 running 时传相同 id + status 返回 unchanged
+  assert.deepEqual(await log.latestForSession('s1', r2.id, undefined, { knownStatus: 'running' }), { unchanged: true, id: r2.id })
+
+  // 完成后传旧 status 会拿到带 usage 的最新记录
+  await log.complete({ chatId: 'c1', id: r2.id, text: 'a2', finish: { kind: 'stop' }, usage: { inputTokens: 20, cacheReadTokens: 80, cacheWriteTokens: 0, outputTokens: 10 } })
+  const completedView = await log.latestForSession('s1', r2.id, undefined, { knownStatus: 'running' })
+  assert.equal(completedView.status, 'completed')
+  assert.equal(completedView.cacheDiff.usage.hitRate, 0.8)
+})

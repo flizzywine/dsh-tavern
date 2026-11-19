@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { computeRequestCacheDiff } from './request-cache-diff.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -290,20 +291,28 @@ export function createModelRequestLog(options = {}) {
     if (!record) throw new Error('请求记录已缺失')
     return evidenceRecord(record, await readJson(base + id + '.result.json'))
   }
-  async function latest(chatId, knownId, sessionId) {
+  async function latest(chatId, knownId, sessionId, options = {}) {
     const entries = await list(chatId)
-    const entry = entries.findLast(item => sessionId ? item.sessionId === sessionId : item.scope === 'foreground')
+    const matched = entries.filter(item => sessionId ? item.sessionId === sessionId : item.scope === 'foreground')
+    const entry = matched.at(-1)
     if (!entry) return null
-    if (knownId === entry.id) return { unchanged: true, id: entry.id }
     const base = 'model-requests/' + chatId + '/'
+    const result = await readJson(base + entry.id + '.result.json')
+    const currentStatus = result?.status || 'running'
+    const knownStatus = options && typeof options.knownStatus === 'string' ? options.knownStatus : ''
+    if (knownId === entry.id && (!knownStatus || knownStatus === currentStatus)) return { unchanged: true, id: entry.id }
     const record = await readJson(base + entry.id + '.json')
-    return record ? evidenceRecord(record, await readJson(base + entry.id + '.result.json')) : null
+    if (!record) return null
+    const full = evidenceRecord(record, result)
+    const previousEntry = matched.length >= 2 ? matched.at(-2) : null
+    const previousRecord = previousEntry && !previousEntry.pruned ? await readJson(base + previousEntry.id + '.json') : null
+    return { ...full, cacheDiff: computeRequestCacheDiff(full, previousRecord, previousEntry) }
   }
-  async function latestForSession(sessionId, knownId, fallbackChatId) {
+  async function latestForSession(sessionId, knownId, fallbackChatId, options = {}) {
     if (!sessionId) return null;
     const owner = await readJson('model-request-sessions/' + encodeURIComponent(sessionId) + '.json');
     const chatId = owner?.chatId || fallbackChatId;
-    return chatId ? latest(chatId, knownId, sessionId) : null;
+    return chatId ? latest(chatId, knownId, sessionId, options) : null;
   }
   return Object.freeze({ record, complete, evidence, list, detail, latest, latestForSession, prune })
 }
