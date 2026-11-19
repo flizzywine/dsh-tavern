@@ -44,13 +44,13 @@ export async function writeZip(filename, entries) {
       names.add(key)
       let size = 0, crc = 0, method = STORED.test(entry.path) ? 0 : 8
       const spool = filename + '.' + randomUUID() + '.tmp'
-      const source = () => entry.file ? createReadStream(entry.file) : Readable.from([Buffer.from(entry.data)])
+      const source = entry.stream ?? (() => entry.file ? createReadStream(entry.file) : Readable.from([Buffer.from(entry.data)]))
       const meter = new Transform({ transform(chunk, encoding, callback) {
         size += chunk.length; crc = crc32(chunk, crc)
         callback(size >= U32 || totalSize + size >= U32 ? new Error('ZIP exceeds 4 GB; ZIP64 is not supported') : null, chunk)
       } })
       try {
-        await pipeline(source(), meter, ...(method ? [createDeflateRaw()] : []), createWriteStream(spool, { flags: 'wx' }))
+        await pipeline(await source(), meter, ...(method ? [createDeflateRaw()] : []), createWriteStream(spool, { flags: 'wx' }))
         let compressedSize = (await stat(spool)).size
         // Do not produce archives that our anti-bomb limits would reject.
         if (method && (compressedSize >= size || size > Math.max(1, compressedSize) * ZIP_LIMITS.ratio)) { method = 0; compressedSize = size }

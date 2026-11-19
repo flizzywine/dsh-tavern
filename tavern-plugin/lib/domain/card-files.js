@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { StoredFile } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
+import { StoredFile, writePackZip } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
 import { exportDshCardSnapshot } from './dsh-card-export.js'
 import { withoutPlayerChoices } from './card-export-settings.js'
 import { readCardArchive } from './card-archive.js'
@@ -13,7 +13,6 @@ import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { openCardZip } from './card-encryption.js'
-import { writeZipEntries } from './zip-entries.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -41,11 +40,12 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     try {
       const entries = []
       for (const entry of zip.entries.values()) {
-        if (entry.path.startsWith(pack.prefix) && entry.path.length > pack.prefix.length && !entry.path.endsWith('/'))
-          entries.push({ path: entry.path.slice(pack.prefix.length), content: await zip.readBuffer(entry, 512 * 1024 * 1024) })
+        if (!entry.path.startsWith(pack.prefix) || entry.path.length === pack.prefix.length || entry.path.endsWith('/')) continue
+        if (entry.size > 512 * 1024 ** 2) throw new Error('素材包文件超过 512 MiB：' + entry.path)
+        entries.push({ path: entry.path.slice(pack.prefix.length), stream: () => zip.stream(entry) })
       }
       const archive = path.join(dir, 'pack.zip')
-      await writeFile(archive, writeZipEntries(entries))
+      await writePackZip(archive, entries)
       return await use(await library.inspectImportFile({ file: archive }))
     } finally { await rm(dir, { recursive: true, force: true }) }
   }

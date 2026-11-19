@@ -8,8 +8,8 @@ export interface PackExportSnapshot { manifest: PackManifest; files: Map<string,
 export interface PackZipEntry {path: string; size: number; crc: number; method: number; start: number; end: number}
 export declare function packZipPath(value: string): string
 export declare function openPackZip(filename: string): Promise<{entries: PackZipEntry[]; totalSize: number; read(entry: PackZipEntry): Promise<Buffer>; consume(entry: PackZipEntry, destination: import('node:stream').Writable): Promise<void>}>
-/** Stream host-owned buffers or files into an archive. */
-export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string}>): Promise<{size: number; entries: number; uncompressedSize: number}>
+/** Stream host-owned buffers, files or readable streams into an archive. */
+export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string; stream?: () => import('node:stream').Readable | Promise<import('node:stream').Readable>}>): Promise<{size: number; entries: number; uncompressedSize: number}>
 /** Detached export projection; no storage writes. */
 export declare function projectPackFigures<T extends PackExportSnapshot>(packs: T[], excludeFigures: string[]): Promise<{packs: T[]; figures: Array<Figure & {ref: FigureRef}>}>
 type ReadonlyPackValue<T> = T extends object ? {readonly [K in keyof T]: ReadonlyPackValue<T[K]>} : T;
