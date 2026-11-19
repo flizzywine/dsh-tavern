@@ -637,6 +637,9 @@ export async function apply(ctx) {
     return agentRegistry.resume({ resumeSessionId: sessionId, setup: tavernPresetSetup(),
       agentOptions: { provider: selection.provider, model: selection.model } })
   } }
+  const withForegroundTaskAgent = (sessionId, work) => withHostAgent(foregroundSessionHost, sessionId, work, {
+    onDisposeError: error => console.warn('dsh-tavern: 释放临时前台会话失败:', sessionId, str(error?.message || error))
+  })
   const readNativeEvents = id => readHostSessionEvents(sessionHost, id)
   let autoCompaction = null
   const compactionTimers = new Map()
@@ -2972,9 +2975,7 @@ export async function apply(ctx) {
       if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成后再整理台账。')
       return await backgroundTasks.begin(chat, 'ledger', { queue: true, onQueued })
     },
-    ensureSession: async sessionId => {
-      if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
-    },
+    withForegroundAgent: withForegroundTaskAgent,
     replaceLedger: input => pluginApi.replaceLedger(input),
     // Reads of the session are what show a running task's status; announce the
     // transitions so an open panel does not need a two-second full-view poll.
@@ -2989,9 +2990,7 @@ export async function apply(ctx) {
       if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成后再设计人物。')
       return await backgroundTasks.begin(chat, 'character-design', { queue: true, onQueued })
     },
-    ensureSession: async sessionId => {
-      if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
-    },
+    withForegroundAgent: withForegroundTaskAgent,
     onStatus: sessionId => { if (sessionId) sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'manual-task:' + Date.now() }) }
   })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
@@ -3038,12 +3037,11 @@ export async function apply(ctx) {
     data: pluginData, turns: pluginTurns,
     onSaved: (sessionId, requestId) => sessionSignals.publish(sessionId, { kind: 'polish-saved', version: requestId || randomUUID() })
   })
-  const polishReviewer = createPolishReviewer({ latestFloors: (sessionId, count) => chatHeaderWithLatestFloors(sessionId, count, { includePosition: true }), readCard, prompt: runtimePrompt, runAgent: input => backgroundAgentRunner.run(input), selection: async sessionId => {
+  const polishReviewer = createPolishReviewer({ latestFloors: (sessionId, count) => chatHeaderWithLatestFloors(sessionId, count, { includePosition: true }), readCard, prompt: runtimePrompt, runAgent: input => backgroundAgentRunner.run(input), withForegroundAgent: withForegroundTaskAgent, selection: async sessionId => {
     // 精修模型 (setting polishModel): one model for every game's 精修; unset, or a model no longer
     // offered, follows the game's own story model.
     const chosen = (await readTavernSettings()).polishModel
     if (chosen && (await tavernModelCatalog()).some(group => group.provider === chosen.provider && group.models.some(model => model.id === chosen.model))) return chosen
-    if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
     const selected = modelSelection(sessionId)
     if (!selected) throw new Error('没有可用的模型配置，请先选择模型')
     return selected
@@ -3073,20 +3071,23 @@ export async function apply(ctx) {
       if (waited > 300000) throw new Error('后台任务一直未结束，本轮不写回')
       await sleep(1000)
     }
-    const edit = await bodyEditor.read(sessionId)
-    const current = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
-    // The reply changed meanwhile (an edit, a regeneration, a 精修): this review is not for it.
-    if (JSON.stringify(current) !== JSON.stringify(texts)) return
-    signal.throwIfAborted()
-    const polished = applyPolishEdits(texts, edits)
-    // Settled before the write: writing the reply announces 正文写完 again, and the polished
-    // text must not start a review of itself.
-    polishPrereview.settle(sessionId, texts, polished)
-    await bodyEditor.polish(sessionId, { token: edit.token, texts: polished })
-    notifyPluginTimeline(sessionId, 'edit', { settled: true })
-    sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'auto-polish:' + Date.now() })
-    await polishRecords.save(sessionId, edit.turn, { original: texts, edits, seconds: Math.round((Date.now() - started) / 1000), auto: true })
-      .catch(error => console.warn('dsh-tavern: 自动精修记录保存失败', error))
+    return withForegroundTaskAgent(sessionId, async () => {
+      signal.throwIfAborted()
+      const edit = await bodyEditor.read(sessionId)
+      const current = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
+      // The reply changed meanwhile (an edit, a regeneration, a 精修): this review is not for it.
+      if (JSON.stringify(current) !== JSON.stringify(texts)) return
+      signal.throwIfAborted()
+      const polished = applyPolishEdits(texts, edits)
+      // Settled before the write: writing the reply announces 正文写完 again, and the polished
+      // text must not start a review of itself.
+      polishPrereview.settle(sessionId, texts, polished)
+      await bodyEditor.polish(sessionId, { token: edit.token, texts: polished })
+      notifyPluginTimeline(sessionId, 'edit', { settled: true })
+      sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'auto-polish:' + Date.now() })
+      await polishRecords.save(sessionId, edit.turn, { original: texts, edits, seconds: Math.round((Date.now() - started) / 1000), auto: true })
+        .catch(error => console.warn('dsh-tavern: 自动精修记录保存失败', error))
+    })
   }
   // Work riding on the main settlement call: the plugins' tools and notes.
   const settlementItems = createSettlementItems({ plugins: () => pluginApi.settlement })
@@ -3336,8 +3337,9 @@ export async function apply(ctx) {
     foregroundModel: async sessionId => {
       const id = str(sessionId)
       if (!id) return null
-      if (!agentRegistry.get(id)?.session) await agentRegistry.resume({ resumeSessionId: id }).catch(() => {})
-      return modelSelection(id)
+      if (agentRegistry.get(id)?.session) return modelSelection(id)
+      try { return await withForegroundTaskAgent(id, () => modelSelection(id)) }
+      catch { return modelSelection(id) }
     },
     async readPlayMaterial(sessionId) {
       const chat = await chatForSession(str(sessionId))
@@ -4543,7 +4545,7 @@ export async function apply(ctx) {
     skillImportFiles, sleep, speakLine, speech, startChat, switchSessionOpening: conversationInitialization.switchOpening, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, turnOrchestrator, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
-    withCompactionSession, worldBooks, worldbookRecallLog,
+    withCompactionSession, withForegroundTaskAgent, worldBooks, worldbookRecallLog,
     get autoCompaction() { return autoCompaction },
     get conversationRegistry() { return conversationRegistry },
     get invalidateTavernSkills() { return invalidateTavernSkills },

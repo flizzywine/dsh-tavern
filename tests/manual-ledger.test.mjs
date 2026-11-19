@@ -24,6 +24,17 @@ function fixture(runAgent, messages = [...round(1), ...round(2)], options = {}) 
 }
 const addKey = { items: { add: [{ name: '钥匙', qty: 1 }] } }
 
+test('插件接管台账整理时不借用前台 Agent', async () => {
+  const run = fixture(() => assert.fail('插件已接管'), round(1), {
+    replaceLedger: async () => ({ delta: addKey }),
+    withForegroundAgent: () => assert.fail('只运行插件台账整理')
+  })
+  await run.api.start({ sessionId: 'session' })
+  await run.api.wait('chat')
+  assert.equal(run.get().ledgerTask.status, 'done')
+  assert.equal(run.get().ledger.items[0].name, '钥匙')
+})
+
 test('手动整理只处理上次之后的新剧情，并记录整理到的轮次', async () => {
   const seen = []
   const run = fixture(async input => {

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readHostSessionEvents, SKIP_SESSION_LOG_REPAIR, withHostSession } from '../tavern-plugin/lib/host/sessions.js'
+import { readHostSessionEvents, SKIP_SESSION_LOG_REPAIR, withHostAgent, withHostSession } from '../tavern-plugin/lib/host/sessions.js'
 
 test('event reads prefer the live snapshot and close the cold reader even if reading fails', async () => {
   const live = [{ type: 'live' }], stored = [{ type: 'stored' }]
@@ -140,4 +140,16 @@ test('a failed shared acquisition can be retried', async () => {
   assert.ok(results.every(result => result.status === 'rejected' && result.reason === failure))
   assert.equal(await withHostSession(host, 'session', session => session.id), 'session')
   assert.equal(attempts, 2)
+})
+
+test('a foreground task can report teardown failures without replacing its outcome', async () => {
+  const closeError = new Error('writer close failed'), taskError = new Error('model interrupted')
+  const reported = [], options = { onDisposeError: error => reported.push(error) }
+  const host = { sessions: new Map(), agents: {
+    get() {},
+    async resume() { return { agent: { session: { id: 'session' } }, async dispose() { throw closeError } } }
+  } }
+  assert.equal(await withHostAgent(host, 'session', () => 'saved', options), 'saved')
+  await assert.rejects(withHostAgent(host, 'session', () => { throw taskError }, options), error => error === taskError)
+  assert.deepEqual(reported, [closeError, closeError])
 })

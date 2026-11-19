@@ -50,16 +50,22 @@ export async function acquireHostSession(host, sessionId, { requireAgent = false
   } }
 }
 
-async function withLease(host, sessionId, options, work) {
+async function withLease(host, sessionId, options, work, onDisposeError) {
   const handle = await acquireHostSession(host, sessionId, options)
   try { return await work(handle.agent) }
-  finally { await handle.dispose() }
+  finally {
+    try { await handle.dispose() }
+    catch (error) {
+      if (!onDisposeError) throw error
+      onDisposeError(error)
+    }
+  }
 }
 
 export function withHostSession(host, sessionId, work) {
   return withLease(host, sessionId, undefined, agent => work(agent.session))
 }
 
-export function withHostAgent(host, sessionId, work) {
-  return withLease(host, sessionId, { requireAgent: true }, work)
+export function withHostAgent(host, sessionId, work, { onDisposeError } = {}) {
+  return withLease(host, sessionId, { requireAgent: true }, work, onDisposeError)
 }

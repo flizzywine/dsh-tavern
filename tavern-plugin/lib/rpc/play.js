@@ -18,7 +18,7 @@ export function createPlayHandlers(deps) {
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
-    templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
+    templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession, withForegroundTaskAgent } = deps
   // 发送键只认宿主的运行状态。重新生成要先把存档读出来、挑出要替换的正文、拼好这一轮的
   // 提示词，模型请求才开始；那段准备时间里按键还是「发送」，看着像没点上，而面板上的
   // 「正在重新生成正文…」早就出现了。请求一进门就把会话报成运行中（页面照宿主自己的
@@ -216,34 +216,36 @@ export function createPlayHandlers(deps) {
     // Both land as one body edit; the record keeps the original for the comparison and its undo.
     async polishBody(args) {
       const sessionId = str(args?.sessionId), guidance = str(args?.guidance).trim(), started = Date.now()
-      await reconcileStory(sessionId)
-      const edit = await bodyEditor.read(sessionId)
-      const texts = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
-      polishPrereview.settle(sessionId, texts)
-      const review = await polishPrereview.take(sessionId, texts) || await polishReviewer.review(sessionId, texts)
-      const chosen = review.edits.filter(item => item.status === 'ok')
-      if (review.fallback) return { edits: review.edits, guidance: review.fallback, view: null }
-      const reviewed = chosen.length ? applyPolishEdits(texts, chosen) : texts
-      let guided = [], polished = reviewed, edits = review.edits
-      if (guidance) {
-        const followed = await polishReviewer.guide(sessionId, reviewed, guidance)
-        if (followed.fallback && !chosen.length) return { edits: [], guidance: followed.fallback, view: null }
-        guided = followed.edits.filter(item => item.status === 'ok')
-        if (guided.length) polished = applyPolishEdits(reviewed, guided)
-        edits = [...review.edits, ...followed.edits]
-      }
-      if (!chosen.length && !guided.length) return { edits, guidance: '', view: null }
-      const recorded = guided.length ? composePolishEdits(texts.join('\n\n'), chosen, guided) : chosen
-      const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true, async onSaved() {
-        // This also runs after a queued edit finally applies.
-        polishPrereview.settle(sessionId, polished)
-        notifyPluginTimeline(sessionId, 'edit', { settled: true })
-        await polishRecords.save(sessionId, edit.turn, { original: texts, edits: recorded,
-          seconds: Math.round((Date.now() - started) / 1000), requestId: str(args?.requestId).slice(0, 128) })
-          .catch(error => console.warn('dsh-tavern: 精修记录保存失败', error))
-      } })
-      if (view?.queued) return { edits, view: null, queued: true }
-      return { edits, view }
+      return withForegroundTaskAgent(sessionId, async () => {
+        await reconcileStory(sessionId)
+        const edit = await bodyEditor.read(sessionId)
+        const texts = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
+        polishPrereview.settle(sessionId, texts)
+        const review = await polishPrereview.take(sessionId, texts) || await polishReviewer.review(sessionId, texts)
+        const chosen = review.edits.filter(item => item.status === 'ok')
+        if (review.fallback) return { edits: review.edits, guidance: review.fallback, view: null }
+        const reviewed = chosen.length ? applyPolishEdits(texts, chosen) : texts
+        let guided = [], polished = reviewed, edits = review.edits
+        if (guidance) {
+          const followed = await polishReviewer.guide(sessionId, reviewed, guidance)
+          if (followed.fallback && !chosen.length) return { edits: [], guidance: followed.fallback, view: null }
+          guided = followed.edits.filter(item => item.status === 'ok')
+          if (guided.length) polished = applyPolishEdits(reviewed, guided)
+          edits = [...review.edits, ...followed.edits]
+        }
+        if (!chosen.length && !guided.length) return { edits, guidance: '', view: null }
+        const recorded = guided.length ? composePolishEdits(texts.join('\n\n'), chosen, guided) : chosen
+        const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true, async onSaved() {
+          // This also runs after a queued edit finally applies.
+          polishPrereview.settle(sessionId, polished)
+          notifyPluginTimeline(sessionId, 'edit', { settled: true })
+          await polishRecords.save(sessionId, edit.turn, { original: texts, edits: recorded,
+            seconds: Math.round((Date.now() - started) / 1000), requestId: str(args?.requestId).slice(0, 128) })
+            .catch(error => console.warn('dsh-tavern: 精修记录保存失败', error))
+        } })
+        if (view?.queued) return { edits, view: null, queued: true }
+        return { edits, view }
+      })
     },
     async polishProgress(args) {
       return { progress: polishReviewer.progress(str(args?.sessionId)) }
