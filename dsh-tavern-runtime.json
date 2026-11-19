@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4c67a38d911b65fed393fd6b0a490dfb609759c0",
-  "releaseSequence": 1799,
+  "revision": "6c38d19cbfea1595567a2a022374173fe006e343",
+  "releaseSequence": 1800,
   "version": "3.3.0",
   "files": [
     {
@@ -1031,8 +1031,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "c4d7a63aae52c1cb0379091d0d8677f59b496cd20c0e4a82f569127de75cb448",
-      "size": 726004
+      "sha256": "7d859fd1afb388cd318fed9da355b5d5d9b1a2bed9bed198420bc3410936f1a6",
+      "size": 726280
     },
     {
       "path": "tavern-plugin/lib/client-assets/ui-sfx/cancel.ogg",
@@ -1076,8 +1076,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "dad09d0091f73c3aa34555ee0b649cc3ea4e8db7aa875852516bbd2ae9656e08",
-      "size": 6344143
+      "sha256": "7b3426746c8cb9026f0c1a4e9a9debe34b6e6d55daa52112880ab621e72c8354",
+      "size": 6345525
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7180,6 +7180,11 @@
       "size": 835
     },
     {
+      "path": "tavern-plugin/packages/dsh-presentation-protocol/src/scene-picture.cjs",
+      "sha256": "74892f84b5de6f68bf50dfc6b94c37f09b9b94b3a22ce6f674c58c21335c290a",
+      "size": 298
+    },
+    {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/skin-overlay.cjs",
       "sha256": "cb54b14d8ba5cd2e0d959b15d2dca0856bef850c61d4de25628997ab28413d19",
       "size": 3729
@@ -8356,8 +8361,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/cg-gallery.js",
-      "sha256": "73c5f4bcbbf4c1211d669906518a35e32495d83acb1dc7fec501c0bbaa389ae9",
-      "size": 11220
+      "sha256": "2ba99c5d74e0a5f3eff1ed2d7fa376d587a59ce185cde15430bd6f0b0d16a6bf",
+      "size": 11282
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js",
@@ -8741,8 +8746,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/scene-cg.js",
-      "sha256": "9b33c8c463935feaa24e41c37d94e18a4187ab416bb32d6152c1bfc02b221de9",
-      "size": 9603
+      "sha256": "b84507d0f1274229deeebef78892899688cd89ceffdf3cc70053efaff579a678",
+      "size": 9491
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/service-model-migration.js",
@@ -9591,9 +9596,9 @@
     }
   ],
   "archive": {
-    "commit": "e272cc45c9cab33d31bb6498e3ac00dbf63b2cdf",
+    "commit": "be07da63af3a8552c116c6465b1fcf0c675d7f25",
     "path": "runtime.zip",
-    "sha256": "8d075429218e2d7c154d9a5f2e606fdcb2c3e34a077f68b5ef1d4a24399b690b",
-    "size": 16963716
+    "sha256": "2ec4371c6068da5e03fbb7c58dfdf83e1665eda3bcab16e7da8c8ee15f45e137",
+    "size": 16964563
   }
 }
