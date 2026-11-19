@@ -5,6 +5,19 @@
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
 const TAVERN_STORY_NATIVE_NODE_KINDS = Object.freeze({ 'manual-compaction': true, compaction: true, command: true })
+const TAVERN_STORY_DISCLOSURE_RESET = Object.freeze({
+	subscribe: function () { return function () {} },
+	getSnapshot: function () { return 0 }
+})
+
+function storyFallbackGroupAction() {
+	return React.useRef(null)
+}
+
+function storyNodeTurnData(node) {
+	const loc = node && node.location
+	return loc && (loc.kind === 'turn' || loc.kind === 'step') && loc.turn ? loc.turn.data : undefined
+}
 
 function storyRowAnchorSeq(row, nativeTurns) {
 	if (!nativeTurns || typeof nativeTurns.get !== 'function') return null
@@ -262,6 +275,15 @@ function createTavernStoryTranscriptFeature(deps) {
 		const turn = host.useChat(snapshot => snapshot?.timeline?.turns?.get(nativeTurn))
 		const source = turn?.data?.source?.('turn-tail') || emptyTurnTail
 		const tail = React.useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
+		const turnData = turn && turn.data
+		const useGroupAction = typeof host.useGroupAction === 'function' ? host.useGroupAction : storyFallbackGroupAction
+		const hookContext = React.useMemo(function () {
+			return {
+				turnData: turnData,
+				disclosureReset: TAVERN_STORY_DISCLOSURE_RESET,
+				useGroupAction: useGroupAction
+			}
+		}, [turnData, useGroupAction])
 		if (!tail?.closing) return null
 		// Without a messageId the host skips its assistant actions slot.
 		const closing = { ...tail.closing, finalNode: { ...tail.closing.finalNode, messageId: undefined } }
@@ -269,7 +291,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			host.renderSlot('conversation.chat.node', {
 				node: { kind: 'turn-tail', location: { kind: 'turn', turn }, data: { ...tail, closing } },
 				openFile: host.openFile
-			}, { entryKey: 'turn-tail', hookContext: { turnData: turn.data } }))
+			}, { entryKey: 'turn-tail', hookContext: hookContext }))
 	}
 
 	function StoryTranscriptNativeNode(props) {
@@ -277,6 +299,15 @@ function createTavernStoryTranscriptFeature(deps) {
 		const fallback = props.node
 		const live = host && typeof host.useChatNode === 'function' && fallback && fallback.key ? host.useChatNode(fallback.key) : fallback
 		const node = live || fallback
+		const turnData = storyNodeTurnData(node)
+		const useGroupAction = host && typeof host.useGroupAction === 'function' ? host.useGroupAction : storyFallbackGroupAction
+		const hookContext = React.useMemo(function () {
+			return {
+				turnData: turnData,
+				disclosureReset: TAVERN_STORY_DISCLOSURE_RESET,
+				useGroupAction: useGroupAction
+			}
+		}, [turnData, useGroupAction])
 		if (!node || !host || typeof host.renderSlot !== 'function') return null
 		return h('div', {
 			className: 'dsh-tavern-story-transcript-row dsh-tavern-story-native-node',
@@ -286,8 +317,9 @@ function createTavernStoryTranscriptFeature(deps) {
 			'data-chat-node-key': node.key
 		}, host.renderSlot('conversation.chat.node', {
 			node: node,
-			openFile: host.openFile
-		}, { entryKey: node.kind }))
+			openFile: host.openFile,
+			cwd: host.cwd
+		}, { entryKey: node.kind, hookContext: hookContext }))
 	}
 
 	function StoryTranscriptActions(props) {
@@ -986,11 +1018,11 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [sessionId, view && view.mode])
 
 		const turnFooter = React.useMemo(() => typeof props.renderSlot === 'function'
-			? { useChat: props.useChat, renderSlot: props.renderSlot, openFile: props.openFile } : null,
-		[props.useChat, props.renderSlot, props.openFile])
+			? { useChat: props.useChat, renderSlot: props.renderSlot, openFile: props.openFile, useGroupAction: props.useGroupAction } : null,
+		[props.useChat, props.renderSlot, props.openFile, props.useGroupAction])
 		const nodeHost = React.useMemo(() => typeof props.renderSlot === 'function'
-			? { renderSlot: props.renderSlot, openFile: props.openFile, useChatNode: props.useChatNode } : null,
-		[props.renderSlot, props.openFile, props.useChatNode])
+			? { renderSlot: props.renderSlot, openFile: props.openFile, useChatNode: props.useChatNode, useGroupAction: props.useGroupAction, cwd: props.cwd } : null,
+		[props.renderSlot, props.openFile, props.useChatNode, props.useGroupAction, props.cwd])
 
 		if (!storyActive) {
 			return props.renderNative ? props.renderNative() : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
