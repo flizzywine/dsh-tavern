@@ -540,7 +540,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (typeof chat.sessionId !== 'string' || chat.sessionId === '') throw new Error('会话未绑定 DSH 会话')
     const effectiveSessionId = chat.sessionId
     const activeAgent = sessions.get(effectiveSessionId)
-    const restoredHandle = sessions.acquire ? await sessions.acquire(effectiveSessionId)
+    const restoredHandle = sessions.acquire ? await sessions.acquire(effectiveSessionId, { requireAgent: true })
       : !activeAgent?.session && typeof sessions.resume === 'function' ? await sessions.resume(effectiveSessionId) : undefined
     try {
       return await regenerateInSession(chat, card, storedSessionId, sessionId, activeRound, guidance, options,

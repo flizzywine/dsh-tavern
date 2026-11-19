@@ -6,7 +6,7 @@ test('loaded sessions are borrowed without acquiring or disposing an Agent', asy
   const session = { id: 'session' }
   for (const stored of [true, false]) {
     const host = { sessions: { get: () => stored ? session : undefined }, agents: {
-      get: () => ({ session }), resume: () => assert.fail('must not resume a loaded session')
+      get: () => stored ? undefined : { session }, resume: () => assert.fail('must not resume a loaded session')
     } }
     assert.equal(await withHostSession(host, session.id, async value => { assert.equal(value, session); return 'result' }), 'result')
   }
@@ -74,22 +74,31 @@ test('concurrent cold-session readers share one writer and keep it until every b
   assert.equal(disposed, 1)
 })
 
-test('a new borrower waits for a previous writer to finish closing before resuming', async () => {
-  let close, closing = false, resumes = 0
-  const closed = new Promise(resolve => { close = resolve })
+for (const fail of [false, true]) test(`a new borrower waits for writer teardown even if it ${fail ? 'fails' : 'succeeds'}`, async () => {
+  let closing = false, resumes = 0
+  const started = Promise.withResolvers(), close = Promise.withResolvers()
+  const failure = new Error('close failed after releasing writer')
   const session = { id: 'session' }
   const host = { sessions: { get() {} }, agents: { get() {}, async resume() {
     assert.equal(closing, false)
-    resumes++
-    return { agent: { session }, async dispose() { closing = true; await closed; closing = false } }
+    const attempt = ++resumes
+    return { agent: { session }, async dispose() {
+      if (attempt !== 1) return
+      closing = true
+      started.resolve()
+      await close.promise
+      closing = false
+      if (fail) throw failure
+    } }
   } } }
   const first = withHostSession(host, session.id, () => {})
-  while (!closing) await Promise.resolve()
+  const firstResult = fail ? assert.rejects(first, error => error === failure) : first
+  await started.promise
   const second = withHostSession(host, session.id, () => {})
   await Promise.resolve()
   assert.equal(resumes, 1)
-  close()
-  await Promise.all([first, second])
+  close.resolve()
+  await Promise.all([firstResult, second])
   assert.equal(resumes, 2)
 })
 

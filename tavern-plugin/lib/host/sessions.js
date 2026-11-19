@@ -2,18 +2,18 @@
 // Share that pending acquisition, and retain its handle until every borrower ends.
 const leases = new WeakMap()
 
-export async function acquireHostSession({ sessions, agents }, sessionId) {
+export async function acquireHostSession({ sessions, agents }, sessionId, { requireAgent = false } = {}) {
   let entries = leases.get(agents)
   if (!entries) { entries = new Map(); leases.set(agents, entries) }
   let entry = entries.get(sessionId)
   if (entry?.closing) {
     await entry.closing
-    return acquireHostSession({ sessions, agents }, sessionId)
+    return acquireHostSession({ sessions, agents }, sessionId, { requireAgent })
   }
   if (!entry) {
     const agent = agents.get(sessionId)
-    const session = sessions.get(sessionId) || agent?.session
-    if (session) return { agent: agent || { session }, async dispose() {} }
+    const session = requireAgent ? agent?.session : sessions.get(sessionId) || agent?.session
+    if (session) return { agent: agent?.session === session ? agent : { session }, async dispose() {} }
     entry = { references: 0 }
     entries.set(sessionId, entry)
     entry.ready = Promise.resolve().then(() => agents.resume({ resumeSessionId: sessionId }))
@@ -30,9 +30,10 @@ export async function acquireHostSession({ sessions, agents }, sessionId) {
     if (released) return
     released = true
     if (--entry.references > 0) return
-    entry.closing = Promise.resolve().then(() => handle.dispose())
-    try { await entry.closing }
-    finally { if (entries.get(sessionId) === entry) entries.delete(sessionId) }
+    const disposal = Promise.resolve().then(() => handle.dispose()).finally(() => entries.delete(sessionId))
+    // Waiters can try to acquire once teardown settles. Its error belongs to the disposer.
+    entry.closing = disposal.catch(() => {})
+    await disposal
   } }
 }
 
