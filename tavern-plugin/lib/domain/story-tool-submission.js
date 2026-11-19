@@ -32,7 +32,7 @@ export const STORY_SUBMIT_PROMPT_STRICT = [
   '</output_method>'
 ].join('\n')
 
-export const STORY_SUBMIT_THINK_NOTE = '调用 submit_story 时，先在 think 参数中完成充分的剧情构思与细节推演，再在 content 参数中写入完整的正式正文。'
+export const STORY_SUBMIT_THINK_NOTE = '调用 submit_story 时，若参数中包含思考字段（analysis 或 think），先在其中完成充分的剧情构思与细节推演，再在 content 参数中写入完整的正式正文。'
 
 // Input-only: the tool is declared solely so the replayed history's calls name a
 // tool the provider knows about. It is not this turn's output channel.
@@ -43,14 +43,15 @@ export const STORY_INPUT_ONLY_PROMPT = [
   '</output_method>'
 ].join('\n')
 
-export function buildStorySubmitWireSchema({ includeThink = false, extraParts = [] } = {}) {
+export function buildStorySubmitWireSchema({ includeThink = false, thinkField = 'think', extraParts = [] } = {}) {
   const properties = {}
   const order = []
   const required = []
+  const resolvedThinkField = thinkField === 'analysis' ? 'analysis' : 'think'
   if (includeThink) {
-    properties.think = { type: 'string', description: STORY_THINK_DESCRIPTION }
-    order.push('think')
-    required.push('think')
+    properties[resolvedThinkField] = { type: 'string', description: STORY_THINK_DESCRIPTION }
+    order.push(resolvedThinkField)
+    required.push(resolvedThinkField)
   }
   properties.content = { type: 'string', description: STORY_CONTENT_DESCRIPTION }
   order.push('content')
@@ -167,8 +168,11 @@ export function storySubmissionForTurn(session, turn) {
         } else {
           const parsedArgs = JSON.parse(model.block.arguments)
           content = validContent(parsedArgs.content)
-          if (typeof parsedArgs.think === 'string' && parsedArgs.think.trim() !== '') {
-            toolThinkText = parsedArgs.think.trim()
+          const rawThink = typeof parsedArgs.analysis === 'string' && parsedArgs.analysis.trim() !== ''
+            ? parsedArgs.analysis
+            : parsedArgs.think
+          if (typeof rawThink === 'string' && rawThink.trim() !== '') {
+            toolThinkText = rawThink.trim()
           }
         }
       } catch { continue }
@@ -253,6 +257,7 @@ export function createStorySubmissionTool({ chatForSession, enabled, isBackgroun
     parameters: {
       // Host schema compiler (dsh-tools) rejects `required` present with a non-true
       // value; omitting the key is how a parameter stays optional.
+      analysis: { type: 'string', description: STORY_THINK_DESCRIPTION },
       think: { type: 'string', description: STORY_THINK_DESCRIPTION },
       content: { type: 'string', required: true, description: STORY_CONTENT_DESCRIPTION }
     },

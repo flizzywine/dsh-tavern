@@ -113,7 +113,7 @@ export function createIncrementalJsonStringExtractor() {
 
   function feed(chunk) {
     const text = typeof chunk === 'string' ? chunk : ''
-    const prevThink = fields.think || ''
+    const prevThink = fields.analysis || fields.think || ''
     const prevContent = fields.content || ''
 
     for (let i = 0; i < text.length; i++) {
@@ -208,7 +208,7 @@ export function createIncrementalJsonStringExtractor() {
       }
     }
 
-    const nextThink = fields.think || ''
+    const nextThink = fields.analysis || fields.think || ''
     const nextContent = fields.content || ''
     return {
       thinkDelta: nextThink.slice(prevThink.length),
@@ -223,7 +223,7 @@ export function createIncrementalJsonStringExtractor() {
     feed,
     snapshot() {
       return {
-        think: fields.think || '',
+        think: fields.analysis || fields.think || '',
         content: fields.content || '',
         fields: { ...fields }
       }

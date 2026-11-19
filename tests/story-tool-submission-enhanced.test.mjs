@@ -172,7 +172,7 @@ test('envelope 全信封模式：下沉 system 入 read_story_context(init_world
   )
   const contractText = assembled.sections.find(s => s.name === 'tavern:story-tool-submission').text
   assert.match(contractText, /本轮只开放这一个工具/)
-  assert.match(contractText, /先在 think 参数中完成充分的剧情构思/)
+  assert.match(contractText, /思考字段（analysis 或 think）/)
 
   await strategies.prepareStep({
     sessionId: 'env-sess',
@@ -193,6 +193,9 @@ test('envelope 全信封模式：下沉 system 入 read_story_context(init_world
   const directive = toolProtocolDirectiveOf(projectedReq)
   assert.deepEqual(directive.allowedToolNames, [STORY_SUBMIT_TOOL_NAME])
   assert.deepEqual(directive.resolveToolSchema(STORY_SUBMIT_TOOL_NAME, {}).order, ['think', 'content'])
+  assert.deepEqual(directive.resolveToolSchema(STORY_SUBMIT_TOOL_NAME, { protocol: 'gemini-native', hasNativeThinking: false }).order, ['analysis', 'content'])
+  assert.deepEqual(directive.resolveToolSchema(STORY_SUBMIT_TOOL_NAME, { protocol: 'gemini-native', hasNativeThinking: true }).order, ['content'])
+  assert.deepEqual(directive.resolveToolSchema(STORY_SUBMIT_TOOL_NAME, { protocol: 'anthropic-messages', anthropicThinkingStripped: true, hasNativeThinking: false }).order, ['think', 'content'])
   assert.deepEqual(buildStorySubmitWireSchema({ includeThink: false }).order, ['content'])
 })
 

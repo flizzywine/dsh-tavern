@@ -508,8 +508,11 @@ export function createNativePlayOrchestrationStrategy(options) {
         signaturesByCallId,
         resolveToolSchema(toolName, ctx) {
           if (toolName !== STORY_SUBMIT_TOOL_NAME) return null
-          const includeThink = staged.storyToolThinking === true || ctx?.anthropicThinkingStripped === true
-          return buildStorySubmitWireSchema({ includeThink })
+          // 已开启原生思考（且未被强制工具剥离）时不再叠加工具内思考槽，避免双倍思考；
+          // Gemini 原生接口按字段名字母序解码，思考字段使用 'analysis' 确保严格排在 'content' 之前。
+          const includeThink = ctx?.anthropicThinkingStripped === true || (staged.storyToolThinking === true && ctx?.hasNativeThinking !== true)
+          const thinkField = ctx?.protocol === 'gemini-native' ? 'analysis' : 'think'
+          return buildStorySubmitWireSchema({ includeThink, thinkField })
         }
       })
       request = Object.assign({}, request, {

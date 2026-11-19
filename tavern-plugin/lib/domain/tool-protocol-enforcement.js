@@ -202,6 +202,36 @@ export function createCapabilityQuirkStore() {
 export const defaultCapabilityQuirks = createCapabilityQuirkStore()
 
 /**
+ * 检测当前出站请求是否已启用渠道原生思考（未被剥离且未显式关闭），
+ * 避免开启原生思考时再叠加 submit_story 工具内思考槽造成双倍思考。
+ */
+export function detectNativeThinkingEnabled(body, protocol) {
+  if (!body || typeof body !== 'object') return false
+  if (protocol === 'gemini-native') {
+    const tc = body.generationConfig?.thinkingConfig
+    if (!tc || typeof tc !== 'object') return false
+    if (tc.thinkingBudget === 0 || tc.includeThoughts === false) return false
+    const level = str(tc.thinkingLevel).trim().toUpperCase()
+    if (level === 'NONE' || level === 'OFF') return false
+    return tc.includeThoughts === true || (typeof tc.thinkingBudget === 'number' && tc.thinkingBudget !== 0) || level !== ''
+  }
+  if (protocol === 'anthropic-messages') {
+    return Boolean(body.thinking && typeof body.thinking === 'object' && body.thinking.type !== 'disabled')
+  }
+  if (protocol === 'openai-completions' || protocol === 'openai-responses') {
+    const effort = str(body.reasoning_effort).trim().toLowerCase()
+    if (effort && effort !== 'none' && effort !== 'off') return true
+    if (body.reasoning && typeof body.reasoning === 'object') {
+      const nestedEffort = str(body.reasoning.effort).trim().toLowerCase()
+      if (nestedEffort && nestedEffort !== 'none' && nestedEffort !== 'off') return true
+      if (typeof body.reasoning.max_tokens === 'number' && body.reasoning.max_tokens > 0) return true
+    }
+    if (body.enable_thinking === true) return true
+  }
+  return false
+}
+
+/**
  * Transform a parsed outbound LLM request JSON object according to a Tavern tool protocol directive.
  */
 export function enhanceToolProtocolPayload(body, { url = '', headers = undefined, directive = null, quirks = defaultCapabilityQuirks } = {}) {
@@ -244,9 +274,11 @@ export function enhanceToolProtocolPayload(body, { url = '', headers = undefined
     }
   }
 
-  // Resolve per-tool schema overrides (e.g. promoting or omitting `think` on `submit_story`).
+  const hasNativeThinking = detectNativeThinkingEnabled(nextBody, protocol)
+
+  // Resolve per-tool schema overrides (e.g. promoting or omitting think slot on `submit_story`).
   const resolveSchemaSpec = typeof directive.resolveToolSchema === 'function'
-    ? name => directive.resolveToolSchema(name, { protocol, modelId, providerId, anthropicThinkingStripped, forceToolChoice: forceWanted })
+    ? name => directive.resolveToolSchema(name, { protocol, modelId, providerId, anthropicThinkingStripped, hasNativeThinking, forceToolChoice: forceWanted })
     : name => directive.toolSchemas?.[name] || null
 
   if (protocol === 'gemini-native') {

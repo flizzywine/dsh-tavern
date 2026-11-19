@@ -5,6 +5,8 @@ import {
   GEMINI_THOUGHT_SIGNATURE_SENTINEL_BASE64,
   TOOL_CALL_STREAM_IDLE_TIMEOUT_MS,
   createCapabilityQuirkStore,
+  detectNativeThinkingEnabled,
+  detectWireProtocol,
   enhanceToolProtocolPayload,
   getCapturedThoughtSignature,
   installToolCallIdleTimeoutPatch,
@@ -275,4 +277,34 @@ test('installToolCallIdleTimeoutPatch：开启「输出走工具调用」时将 
   assert.equal(piAdapter.profileOf, originalProfileOf)
   assert.equal(deepSeekAdapter.generate, originalGenerate)
   assert.equal(listeners.size, 0)
+})
+
+test('detectNativeThinkingEnabled：准确识别 Gemini/OpenAI/Anthropic 原生思考并传递给 resolveToolSchema', () => {
+  assert.equal(detectNativeThinkingEnabled({ generationConfig: { thinkingConfig: { includeThoughts: true, thinkingLevel: 'MEDIUM' } } }, 'gemini-native'), true)
+  assert.equal(detectNativeThinkingEnabled({ generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }, 'gemini-native'), false)
+  assert.equal(detectNativeThinkingEnabled({ generationConfig: {} }, 'gemini-native'), false)
+  assert.equal(detectNativeThinkingEnabled({ reasoning_effort: 'medium' }, 'openai-completions'), true)
+  assert.equal(detectNativeThinkingEnabled({ reasoning_effort: 'none' }, 'openai-completions'), false)
+  assert.equal(detectNativeThinkingEnabled({ thinking: { type: 'enabled', budget_tokens: 4096 } }, 'anthropic-messages'), true)
+  assert.equal(detectNativeThinkingEnabled({ thinking: { type: 'disabled' } }, 'anthropic-messages'), false)
+
+  const seenCtx = []
+  enhanceToolProtocolPayload({
+    contents: [{ role: 'user', parts: [{ text: '继续' }] }],
+    generationConfig: { thinkingConfig: { includeThoughts: true, thinkingLevel: 'HIGH' } },
+    tools: [{ functionDeclarations: [{ name: 'submit_story', parametersJsonSchema: { type: 'object', properties: { content: { type: 'string' } } } }] }]
+  }, {
+    url: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/models/gemini-4-carbon:streamGenerateContent',
+    directive: {
+      provider: 'google-vertex',
+      model: 'gemini-4-carbon',
+      forceToolChoice: true,
+      allowedToolNames: ['submit_story'],
+      resolveToolSchema(name, ctx) {
+        seenCtx.push({ name, hasNativeThinking: ctx.hasNativeThinking, protocol: ctx.protocol })
+        return { order: ['content'], required: ['content'], properties: { content: { type: 'string' } } }
+      }
+    }
+  })
+  assert.deepEqual(seenCtx, [{ name: 'submit_story', hasNativeThinking: true, protocol: 'gemini-native' }])
 })
