@@ -540,6 +540,15 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       await serial(() => recent(p).remember(pair)); changed()
       return (await api.list()).find(s => s.id === id)
     },
+    // 添加一组: the saved {Base URL, API Key} of service `from` (itself when absent) joins this service's list under `label`,
+    // without switching to it; the key goes from one credential to the other and never through the page.
+    async addEndpoint({ id, from = id, label }) {
+      const p = record(id), source = record(from)
+      if (!urlKind(p.kind) || !urlKind(source.kind) || !source.config.url) fail('INVALID_INPUT')
+      const pair = {url:source.config.url, key:(await secrets(source)).key || '', label}
+      await serial(() => recent(p).remember(pair)); changed()
+      return {recent:await recent(p).list({url:p.config.url, key:(await secrets(p)).key})}
+    },
     async renameEndpoint({ id, entry, label }) { const p = record(id); await serial(() => recent(p).rename(entry, label)); changed(); return {recent:await recent(p).list()} },
     async forgetEndpoint({ id, entry }) { const p = record(id); await serial(() => recent(p).forget(entry)); changed(); return {recent:await recent(p).list()} },
     async clearEndpoints({ id }) { const p = record(id); await serial(() => recent(p).clear()); changed(); return {recent:[]} },

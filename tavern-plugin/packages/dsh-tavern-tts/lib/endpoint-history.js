@@ -30,11 +30,13 @@ export function endpointHistory(credentials, ref, { now = Date.now, newId = () =
       return (await read()).map(e => ({ id: e.id, label: e.label || hostOf(e.url), url: e.url, keyTail: tail(e.key), keyed: !!e.key, usedAt: e.usedAt,
         ...(current && e.url === current.url && e.key === (current.key || '') ? { current: true } : {}) }))
     },
-    // A pair that just worked goes first; the oldest beyond the limit drops off. Already first: nothing is written.
-    async remember({ url, key = '' }) {
+    // A pair that just worked (or is added by name) goes first; the oldest beyond the limit drops off. Already first under
+    // that name: nothing is written. `label` names it (an empty one keeps the name it has).
+    async remember({ url, key = '', label }) {
       const list = await read(), at = list.findIndex(e => e.url === url && e.key === key)
-      if (at === 0) return false
-      const entry = at > 0 ? { ...list[at], usedAt: now() } : { id: newId(), url, key, usedAt: now() }
+      const name = String(label ?? '').trim().slice(0, LABEL_MAX)
+      if (at === 0 && (!name || list[0].label === name)) return false
+      const entry = { ...(at >= 0 ? list[at] : { id: newId(), url, key }), usedAt: now(), ...(name ? { label: name } : {}) }
       await write([entry, ...list.filter((_, i) => i !== at)].slice(0, ENDPOINT_HISTORY_LIMIT))
       return true
     },
