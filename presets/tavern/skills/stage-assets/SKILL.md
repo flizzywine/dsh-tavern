@@ -1,6 +1,6 @@
 ---
 name: stage-assets
-description: "管理舞台素材库：素材包的绑定与启用，人物的形象、服装差分、Live2D 和应用内生图，人物声音与配音后端、声音克隆、读音和没声音排查，背景、CG、音乐音效、皮肤与触发词，安装和导出素材包。"
+description: "管理舞台素材库：装包、绑卡、批量整理条目，制作设定图和立绘、导入模型，配人物声音或配置自动选声，以及管理背景、CG、音乐和舞台皮肤素材。"
 ---
 
 # 素材库
@@ -13,7 +13,7 @@ description: "管理舞台素材库：素材包的绑定与启用，人物的形
 
 | 用户想做的事 | 读 |
 | --- | --- |
-| 绑定或全局启用一个包、复制包给单卡用、新建或删除包 | [包与绑定](references/packs.md) |
+| 绑定或启用素材包、复制素材、批量整理当前筛选结果 | [包与绑定](references/packs.md) |
 | 让素材每轮可用或只在提到时可用、改触发词 | [灯态与触发词](references/lamps-recall.md) |
 | 加或改背景、CG | [背景与 CG](references/backgrounds-cg.md) |
 | 加或改 BGM、音效、环境音 | [音乐、音效、环境音](references/music-sound.md) |
@@ -22,7 +22,7 @@ description: "管理舞台素材库：素材包的绑定与启用，人物的形
 | 新建人物、改名字别名、服装、差分、头像裁切、上传立绘 | [人物](references/figures.md)；字段含义见 [人物字段](references/figure-fields.md) |
 | 导入 Live2D / Spine 模型、装运行库 | [Live2D 与 Spine](references/live2d-spine.md) |
 | 用应用内生图画立绘、头像、设定图、背景 | [应用内生图](references/generation.md)；目标类型见 [生图目标](references/generation-targets.md) |
-| 第一次配音、问「怎么让角色说话」 | [从零开始配音](references/voice-start.md) |
+| 第一次配音，或让自动素材按人设给新人物选声音 | [从零开始配音](references/voice-start.md) |
 | 添加或修改语音服务、填密钥、测试连接 | [配音后端](references/voice-backend.md) |
 | 给某个人物配声音（浏览器朗读、在线 TTS、Fish 声音库、声音模板） | [给人物配声音](references/figure-voice.md) |
 | 声音克隆、参考音频 | [声音克隆](references/voice-clone.md) |
