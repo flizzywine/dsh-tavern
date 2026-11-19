@@ -368,9 +368,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // `reorder`: the row's drag / Alt+↑↓ props from useListReorder, when its list can be reordered.
   // `menu(close)`: the row's own menu (useContextMenu: right click, Shift+F10, a long press — which on a reorderable row
   // is the hold released without dragging); the click still opens the entry.
-  const AUTO_CG_OFF='自动 CG·已关';
-  const autoCgOff=asset=>asset.kind==='cg'&&asset.enabled===false&&Boolean(scenePictureOf(asset));
-  function EntryItem({binding,pack,kind,item,focused,checked,audio,ctx,onSelect,onLamp,onEnable,enableBusy,onPreview,reorder,menu=null}) {
+  function EntryItem({binding,pack,kind,item,focused,checked,audio,ctx,onSelect,onLamp,onPreview,reorder,menu=null}) {
     const packId=pack.manifest.id,figure=kind==='figures';
     const rowMenu=useContextMenu({label:item.name+' 操作',content:checked===null?menu:null,hold:!reorder?.['data-reorder-id']});
     // Library thumbnails describe stored art, including disabled figures/outfits.
@@ -386,10 +384,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
       h('span',{className:'ap-item-lead-box'},
         onPreview?h('button',{type:'button',className:'ap-item-lead','aria-label':'查看大图 '+item.name,title:'查看大图',onClick:e=>{e?.stopPropagation?.();onPreview();}},lead):lead,
         checked!==null&&h('span',{className:'ap-check-mark','aria-hidden':true},checked&&h(Glyph,{name:'check'}))),
-      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name),
-        autoCgOff(item)&&h('span',{className:'ap-item-origin'},AUTO_CG_OFF)),
-      // While reviewing closed automatic CGs, restore the stored lamp with one click.
-      onEnable?h('span',{className:'ap-item-lamp-anchor'},h(Button,{className:'ap-item-enable','aria-label':'开启 '+item.name,disabled:enableBusy,onClick:e=>{e.stopPropagation();onEnable();}},'开启')):
+      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name)),
       !figure&&item.recall&&!STATELESS_KINDS.includes(kind)&&(onLamp?h(LampMenu,{mode:entryLamp(item,LAMPLESS_KINDS.includes(kind)),onOff:LAMPLESS_KINDS.includes(kind),choices:lampChoices(kind),label:item.name+(LAMPLESS_KINDS.includes(kind)?' 的状态':' 的触发策略'),
           anchorClassName:'ap-item-lamp-anchor',className:'ap-item-lamp',onChange:onLamp}):
         (()=>{const lamp=entryLamp(item,LAMPLESS_KINDS.includes(kind)),word=ENTRY_LAMPS[lamp];return h('span',{className:'ap-item-lamp','data-mode':lamp,role:'img','aria-label':word,title:word},h('span',{className:'ap-lamp-dot'}));})()));
