@@ -43,7 +43,7 @@ export function validateVoiceSpec(v, path = '$.voice') {
   record(v.sources,path+'.sources',(s,p) => {
     // `model`: the provider's synthesis model this source speaks with (a figure's choice, never the service's); absent = the
     // service's default model.
-    const fields = {'voice-id':['voiceId','model'],preset:['voiceName','model'],'reference-list':['references','model']}[s?.kind]
+    const fields = {'voice-id':['voiceId','model'],preset:['voiceName','model'],'reference-list':['references','model','private']}[s?.kind]
     check(fields,p+'.kind'); shape(s,['kind','provider','serviceId',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
     // the service instance this source speaks through (one of several of its provider); the same name as a reading voice's.
     if (s.serviceId !== undefined) id(s.serviceId,p+'.serviceId')
@@ -53,7 +53,10 @@ export function validateVoiceSpec(v, path = '$.voice') {
     if (s.kind === 'voice-id') { check(s.provider === 'fish-audio',p+'.provider'); if (s.voiceId !== undefined) check(typeof s.voiceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(s.voiceId),p+'.voiceId') }
     if (s.kind === 'preset' && s.voiceName !== undefined) text(s.voiceName,p+'.voiceName')
     if (s.model !== undefined) text(s.model,p+'.model')
-    if (s.kind === 'reference-list') { check(s.provider === 'fish-audio',p+'.provider'); refs(s.references,p+'.references') }
+    if (s.kind === 'reference-list') {
+      check(s.provider === 'fish-audio',p+'.provider'); refs(s.references,p+'.references')
+      if (s.private !== undefined) check(typeof s.private === 'boolean',p+'.private')
+    }
     if (s.model !== undefined) safeData(s.model,p+'.model')
   })
   check(own(v.sources,v.defaultSource),path+'.defaultSource','Unknown source')
