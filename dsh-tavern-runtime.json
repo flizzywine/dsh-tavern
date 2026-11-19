@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2f8e4d36c83cfc9b919d2461be857ccea7a9157b",
-  "releaseSequence": 1833,
+  "revision": "145d36db05b0f8449c19c4e115386f7b8ba891e8",
+  "releaseSequence": 1834,
   "version": "3.3.0",
   "files": [
     {
@@ -1076,8 +1076,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "865caa5c23dcdd572f09503274458f5be6ece7fe2bf1c4bd2cf00bcd9d4674e8",
-      "size": 6421676
+      "sha256": "4bef6137776844a38e72392bc3b7c07a16121edafb166a88580930045bfd4940",
+      "size": 6422151
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8381,8 +8381,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "a2a43c730b5fdf5ab21e2ad5380d578487349f41ab759ac09fc32e5c8593809d",
-      "size": 3479743
+      "sha256": "4e986d0bcda352e948586f247168af01c60a9b582d6498cc20f50c4fe6b5e487",
+      "size": 3493510
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8406,8 +8406,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/resource-runner.cjs",
-      "sha256": "9def62a9fb002f920b9d94b29ca8c58466da84d1d305bb37eabcf801960a9782",
-      "size": 57980
+      "sha256": "99d21a9799a04551261d4bcb323a5e998546e3db7c7e4faf8019556800d2c07c",
+      "size": 58759
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/resources.cjs",
@@ -9476,8 +9476,8 @@
     },
     {
       "path": "tavern-plugin/shared/canvas-resolution.cjs",
-      "sha256": "29d9dc53c115e346c336d2c24c077d09a7c4540db6cf6703fbbecc1e01394bd1",
-      "size": 2042
+      "sha256": "9531e8d75cec6ead0e470ad1d9e24ec04659a397cd978f7bb9c6f44eefa1c1eb",
+      "size": 2192
     },
     {
       "path": "tavern-plugin/shared/color-math.cjs",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "0c4d11aa8cff286b6194f2d0177dfe2d9a883f81",
+    "commit": "e9fb075f5b9bae358c79fc9a77e55ba53d47aa99",
     "path": "runtime.zip",
-    "sha256": "11a16defa61079447bef48460df5ebcd50487edd0c03d1010f9b22086b53b1bf",
-    "size": 17011267
+    "sha256": "ef50ab212b8247dbf14cb7d8a36892fd9cd282993789b01fd8a9e1f50d0d1c47",
+    "size": 17016237
   }
 }
