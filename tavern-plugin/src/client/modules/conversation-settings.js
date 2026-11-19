@@ -318,11 +318,7 @@ function createConversationSettingsModule({
             signalId: "plugin:dsh-tavern-stage", signalKinds: backgroundSignals
         });
         return h(React.Fragment, null,
-            h("section", { className: "dsh-local-section" }, h("h3", null, "游玩"),
-                h(TavernLocalPlayerName, { sessionId }),
-                h(TavernConversationPreset, { sessionId }),
-                h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true })),
-            h(TavernConversationBackgroundModel, { sessionId, background }),
+            h(TavernConversationPlaySettings, { sessionId, background }),
             h(TavernBodyGenerationSettings, { sessionId }),
             h(TavernConversationPluginSettings, { sessionId }),
             h("details", { className: "dsh-local-advanced", open: advancedOpen,
@@ -342,7 +338,7 @@ function createConversationSettingsModule({
             React.createElement("span", { className: "dsh-tavern-header-action-label" }, "酒馆状态"));
     }
 
-    function TavernConversationBackgroundModel(props) {
+    function TavernConversationPlaySettings(props) {
         const h = React.createElement;
         const mode = useTavernSessionMode(props.sessionId);
         const { data, busy, readError, refresh, save: saveSettings } = props.background;
@@ -376,31 +372,34 @@ function createConversationSettingsModule({
         const toggle = (name, title, description, checked, patch, disabled = false) => h("label", { key: name, className: "dsh-tavern-background-task" },
             h("span", null, title, h("span", { className: "dsh-tavern-settings-desc" }, description)),
             h(Switch, { label: title, checked, disabled: !loaded || busy || disabled, onChange: value => save(patch(value)) }));
-        return h("div", { className: "dsh-local-runtime" },
-            h(TavernModelSlotGroups,{slots:data?.modModelSlots,values:data?.modModels,catalog,scoringCatalog:data?.scoringCatalog,local:true,disabled:!loaded || busy,onChange:modModelSelection=>save({modModelSelection})}),
-            h("section", { className: "dsh-local-section" }, h("h3", null, "后台模型"),
-                h("p", { className: "dsh-tavern-settings-desc" }, "仅影响本局，下一次后台任务生效。正在运行的任务不变，保留原后台 Agent 和历史。"),
-                h("p", { className: "dsh-tavern-settings-desc" }, "建议前台和后台使用 High 推理强度，优先保证正文输出和后台任务的质量。不推荐 Max，以免过度思考、增加等待。若更在意响应速度，可按需降低。"),
-                h("p", { className: "dsh-local-warning" }, "切换模型或推理强度会使缓存失效，首次请求会增加耗时和费用。"),
-                h(InlineField, { kind: "menu", label: "本局后台模型", value: key, disabled: !loaded || busy,
+        const effort = selection?.reasoningEffort || "";
+        return h(React.Fragment, null,
+            h("section", { className: "dsh-local-section", "aria-label": "游玩" }, h("h3", null, "游玩"),
+                h(TavernLocalPlayerName, { sessionId: props.sessionId }),
+                h(TavernConversationPreset, { sessionId: props.sessionId }),
+                h(UserPreferenceProfileTab, { scope: { sessionId: props.sessionId }, conversationOnly: true }),
+                h("div", { className: "dsh-local-background-model" },
+                    h(InlineField, { kind: "menu", label: "本局后台模型", value: key, disabled: !loaded || busy,
+                        title: selection ? backgroundModelLabel(selection, catalog) : undefined,
+                        help: h(HelpTip, { label: "本局后台模型说明" }, "模型和推理强度从下一次后台任务起生效。切换后首次请求会重建缓存。"),
                         onCommit: value => save({ backgroundModel: value ? JSON.parse(value) : null }),
                         options: [{ value: "", label: "跟随前台" }, ...(!known ? [{ value: key, label: backgroundModelLabel(selection, catalog) + "（当前不可用）" }] : []), ...modelOptions()] }),
-                h(InlineField, { kind: "menu", label: "本局后台推理强度", value: selection?.reasoningEffort || "", disabled: !key || !efforts.length || busy,
+                    selection ? h(InlineField, { kind: "menu", label: "本局后台推理强度", hideLabel: true, title: "推理强度", value: effort, disabled: !efforts.length || busy,
                         onCommit: value => { const next = { ...selection }; if (value) next.reasoningEffort = value; else delete next.reasoningEffort; return save({ backgroundModel: next }); },
-                        options: [{ value: "", label: key ? "模型默认" : "跟随前台" }, ...efforts.map(item => ({ value: item.id, label: item.name || item.id }))] })),
+                        options: [{ value: "", label: "模型默认" }, ...(effort && !efforts.some(item => item.id === effort) ? [{ value: effort, label: effort }] : []), ...efforts.map(item => ({ value: item.id, label: item.name || item.id }))] }) : null),
+                mode !== "script" ? h(InlineField, { kind: "menu", label: "候选项数量", value: data?.candidateTabs === true ? "expanded" : "compact", disabled: !loaded || busy,
+                    options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+                    onCommit: value => save({ candidateTabs: value === "expanded" }) }) : null,
+                error || readError || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || readError || reasoning.error) : null,
+                !loaded && readError ? h("button", { className: "dsh-tavern-btn", onClick: refresh }, "重试") : null,
+                busy || notice ? h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : notice) : null),
+            h(TavernModelSlotGroups,{slots:data?.modModelSlots,values:data?.modModels,catalog,scoringCatalog:data?.scoringCatalog,local:true,disabled:!loaded || busy,onChange:modModelSelection=>save({modModelSelection})}),
             h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。", tasks.posture, checked => ({ backgroundTasks: { posture: checked } })),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", tasks.foregroundCandidates === true, checked => ({ backgroundTasks: { foregroundCandidates: checked } })),
-                mode !== "script" ? h(InlineField, { kind: "menu", label: "候选项数量", value: data?.candidateTabs === true ? "expanded" : "compact", disabled: !loaded || busy,
-                    options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
-                    onCommit: value => save({ candidateTabs: value === "expanded" }) }) : null,
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
-                toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", data?.webSearchEnabled === true, checked => ({ webSearchEnabled: checked }))),
-            error || readError || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || readError || reasoning.error) : null,
-            notice ? h("p", { role: "status" }, notice) : null,
-            !loaded && readError ? h("button", { className: "dsh-tavern-btn", onClick: refresh }, "重试") : null,
-            h("div", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : ""));
+                toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", data?.webSearchEnabled === true, checked => ({ webSearchEnabled: checked }))));
     }
 
     return { TavernConversationSettingsTab, TavernConversationSettingsAction };

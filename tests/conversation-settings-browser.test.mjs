@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
 test('注册的本局设置保存玩家称呼、预设、后台模型与前台工具，失败时保留已保存模型', async t => {
@@ -45,15 +46,35 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   await page.getByRole('menuitemradio', { name: '测试预设', exact: true }).click()
   await page.getByRole('button', { name: /^本局预设：.*测试预设/ }).waitFor()
   assert.equal(preset.id, 'presets/one.json')
-  const modelField = page.getByRole('button', { name: /^本局后台模型：/ })
+  const play = page.getByRole('region', { name: '游玩' })
+  const modelField = play.getByRole('button', { name: /^本局后台模型：/ })
+  const effortField = play.getByRole('button', { name: /^本局后台推理强度：/ })
+  assert.equal(await effortField.count(), 0, '跟随前台时只显示模型选择')
+  assert.equal(await page.getByRole('heading', { name: '后台模型', exact: true }).count(), 0)
   await modelField.click()
   await page.getByRole('menuitemradio', { name: 'p · 测试模型', exact: true }).click()
   await page.getByRole('button', { name: /^本局后台模型：.*测试模型/ }).waitFor()
   assert.deepEqual(model, { provider: 'p', model: 'm' })
+  await effortField.click()
+  await page.getByRole('menuitemradio', { name: 'High', exact: true }).click()
+  await play.getByRole('button', { name: '本局后台推理强度：High' }).waitFor()
+  assert.deepEqual(model, { provider: 'p', model: 'm', reasoningEffort: 'high' })
 
-  await page.getByRole('button', { name: '候选项数量：大量候选', exact: true }).click()
+  const styles = await Promise.all(['tavern.css', 'theme.css'].map(file =>
+    readFile(new URL('../tavern-plugin/lib/client-assets/' + file, import.meta.url), 'utf8')))
+  await page.addStyleTag({ content: styles.join('\n') })
+  const desktop = page.viewportSize()
+  for (const width of [desktop.width, 360]) {
+    await page.setViewportSize({ width, height: desktop.height })
+    const [modelBox, effortBox] = await Promise.all([modelField.boundingBox(), effortField.boundingBox()])
+    assert.ok(Math.abs(modelBox.y - effortBox.y) < 2, width + 'px 时两个控件在同一行')
+    assert.ok(effortBox.x >= modelBox.x + modelBox.width && effortBox.x + effortBox.width <= width)
+  }
+  await page.setViewportSize(desktop)
+
+  await play.getByRole('button', { name: '候选项数量：大量候选', exact: true }).click()
   await page.getByRole('menuitemradio', { name: '少量候选', exact: true }).click()
-  await page.getByRole('button', { name: '候选项数量：少量候选', exact: true }).waitFor()
+  await play.getByRole('button', { name: '候选项数量：少量候选', exact: true }).waitFor()
   assert.equal(candidateTabs, false)
 
   await page.locator('details.dsh-local-advanced > summary').click()
@@ -84,7 +105,7 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   await page.getByRole('menuitemradio', { name: '跟随前台', exact: true }).click()
   await page.getByRole('alert').filter({ hasText: '保存失败测试' }).waitFor()
   assert.match(await modelField.innerText(), /测试模型/)
-  assert.deepEqual(model, { provider: 'p', model: 'm' })
+  assert.deepEqual(model, { provider: 'p', model: 'm', reasoningEffort: 'high' })
   for (const call of calls.filter(call => ['setPlayerName', 'applyConversationPreset', 'setConversationBackgroundConfig'].includes(call.method))) {
     assert.equal(call.args.sessionId, 'game')
   }
@@ -257,7 +278,7 @@ test('本局设置随舞台和剧情罗盘的启用状态显示与隐藏', async
   await compassSection.waitFor({ state: 'detached' })
   await stageTool.waitFor({ state: 'detached' })
   assert.equal(backgroundReads(), 2)
-  await page.getByRole('heading', { name: '后台模型', exact: true }).waitFor()
+  await page.getByRole('region', { name: '游玩' }).getByRole('button', { name: /^本局后台模型：/ }).waitFor()
   stage = compass = true
   await refreshModules()
   await stageSection.waitFor()

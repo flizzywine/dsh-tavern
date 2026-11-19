@@ -58,7 +58,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
   script += `window.__ModuleLoader__={load(definition){window.client=definition.factory(name=>name==='react'?modules.react:{});}};`
   await page.addScriptTag({ content: script })
   let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  if (exposeConversationModels) source = source.replace('function TavernConversationBackgroundModel(props) {', 'window.__modelSlotsChat = TavernConversationBackgroundModel; function TavernConversationBackgroundModel(props) {')
+  if (exposeConversationModels) source = source.replace('function TavernConversationPlaySettings(props) {', 'window.__modelSlotsChat = TavernConversationPlaySettings; function TavernConversationPlaySettings(props) {')
   await page.addScriptTag({ content: source })
   const section = provided ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
   await page.evaluate(async ({ section, provided, sessionId, stageClient, renderPropsCode }) => {
