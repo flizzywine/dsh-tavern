@@ -6,6 +6,7 @@
 // @include-domain pack-avatar.cjs
 // @include-protocol director-commands.cjs
 // @include-protocol asset-tags.cjs
+// @include-protocol scene-picture.cjs
 // @include-protocol audio-categories.cjs
 // @include widget-contracts.cjs
 // @include audio-loudness.js
@@ -1153,8 +1154,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // read with the rows' own entryLamp, so a 关闭 entry never also counts as 蓝灯. (The old 已启用 / 已停用 were 蓝灯+绿灯 / 关闭.)
     // A stage skin has no state, so no filter.
     const lampless=LAMPLESS_KINDS.includes(current),filterModes=STATELESS_KINDS.includes(current)?[]:lampless?['on','off']:lampChoices(current)||['constant','keyword','off'];
-    const lampFilter=filterModes.includes(filter)?filter:'all';
-    const pass=a=>lampFilter==='all'||entryLamp(a,lampless)===lampFilter;
+    const filterLabels={...ENTRY_LAMPS,all:'全部',autoCgOff:AUTO_CG_OFF};
+    const filterOptions=['all',...filterModes,...(current==='cg'?['autoCgOff']:[])];
+    const activeFilter=filterOptions.includes(filter)?filter:'all';
+    const pass=a=>activeFilter==='all'||(activeFilter==='autoCgOff'?autoCgOff(a):entryLamp(a,lampless)===activeFilter);
     // a 标签 (category) chip in the entry filters the list to that category level (and its children).
     const inCategory=a=>assetTags.matches(a.category,category);
     const shown=all.filter(a=>pass(a)&&inCategory(a)&&entryMatches(a,current,needle));
@@ -1170,7 +1173,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         return rest.join()===c.manifest.figures.join()?{snapshot:c}:binding.service.patchPack({packId,expectedRevision:c.revision,patch:{figures:rest}});
       })).finally(()=>{if(!--moving.current)setFigureOrder(null);});
     };
-    const reorder=useListReorder({ids:all.map(f=>f.id),enabled:current==='figures'&&!pack?.manifest.extensions?.['dsh.entry-order']&&lampFilter==='all'&&!needle&&!category&&!selecting&&all.length>1,onMove:moveFigure});
+    const reorder=useListReorder({ids:all.map(f=>f.id),enabled:current==='figures'&&!pack?.manifest.extensions?.['dsh.entry-order']&&activeFilter==='all'&&!needle&&!category&&!selecting&&all.length>1,onMove:moveFigure});
     // A newly selected item starts at the top of the detail column.
     const rightRef=React.useRef(null);React.useEffect(()=>{if(rightRef.current)rightRef.current.scrollTop=0;},[current,selected?.id]);
     const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
@@ -1313,9 +1316,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         pickAnchor.current=id;setSel(id);setFresh(null);return;}
       setSel(id);setFresh(null);if(narrow)setDetail(true);};
     // The lamp items read like LampMenu's own (dot + the same word: ENTRY_LAMPS).
-    const filterMenu=filterModes.length>0&&h(Popover,{label:'筛选条目',className:'ap-filter-anchor',trigger:({toggle:t,open})=>h(Button,{className:'ap-icon-button','data-on':lampFilter!=='all'||undefined,'aria-label':'筛选条目','aria-expanded':open,title:'筛选',onClick:t},h(Glyph,{name:'filter'})),
-      content:closeMenu=>['all',...filterModes].map(v=>h('button',{key:v,type:'button',role:'menuitemradio','aria-checked':lampFilter===v,className:'ap-menu-item ap-lamp-opt','data-mode':v,onClick:()=>{setFilter(v);closeMenu();}},
-        h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},v==='all'?'全部':ENTRY_LAMPS[v]),lampFilter===v&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
+    const filterMenu=filterModes.length>0&&h(Popover,{label:'筛选条目',className:'ap-filter-anchor',trigger:({toggle:t,open})=>h(Button,{className:'ap-icon-button','data-on':activeFilter!=='all'||undefined,'aria-label':activeFilter==='all'?'筛选条目':'筛选条目：'+filterLabels[activeFilter],'aria-expanded':open,title:'筛选',onClick:t},h(Glyph,{name:'filter'})),
+      content:closeMenu=>filterOptions.map(v=>h('button',{key:v,type:'button',role:'menuitemradio','aria-checked':activeFilter===v,className:'ap-menu-item ap-lamp-opt','data-mode':v==='autoCgOff'?'off':v,onClick:()=>{setFilter(v);closeMenu();}},
+        h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},filterLabels[v]),activeFilter===v&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
     // 多选 turns
     // the search row into the selection bar — the round check (全选 / 全不选 of what is shown, − when some are) · 「已选 N」 ……
     // 取消 · 复制到… · 删除, the house 「已选 N · 取消 · <action>」 of the library's other selection modes. Esc (the popup stack, so an
@@ -1349,10 +1352,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h(PanelBoundary,{name:'entry-list',resetKey:current+'@'+pack.revision},
       shown.length?h(WindowedItems,{className:'ap-items',blockClassName:'ap-items-block',multi:selecting,label:kinds[current],items:shown,
           render:item=>h(EntryItem,{key:item.id,binding,pack,kind:current,item,focused:selected?.id===item.id,checked:selecting?picked.has(item.id):null,audio,ctx,onSelect:e=>pick(item.id,e),reorder:reorder.row(item.id),menu:rowMenu(item),
+            ...(activeFilter==='autoCgOff'&&!selecting?{onEnable:()=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,'on'))),enableBusy:lampWork.busy}:{}),
             onLamp:mode=>lampWork.task(()=>commit(current,item.id,c=>setEntryLamp(c,mode)))}),
           head:NEW_NAMES[current]&&!selecting&&h('li',{key:'@new',role:'none',className:'ap-item-add-row'},h('button',{type:'button',className:'ap-item-add ap-item-new','aria-label':newKindLabel(current),title:newKindLabel(current),disabled:work.busy,onClick:()=>createBlankEntry(current)},
             h('span',{className:'ap-item-add-mark'},h(Glyph,{name:'plus'}))))}):
-        h(EmptyState,{noun:kinds[current],query,filter:lampFilter!=='all'?ENTRY_LAMPS[lampFilter]:category,onClear:()=>{setQuery('');setFilter('all');setCategory('');}})));
+        h(EmptyState,{noun:kinds[current],query,filter:activeFilter!=='all'?filterLabels[activeFilter]:category,onClear:()=>{setQuery('');setFilter('all');setCategory('');}})));
     const narrowBack=narrow?{parent:kinds[current],onBack:()=>setDetail(false)}:null;
     const right=pack&&h('section',{ref:rightRef,className:'ap-pack-right','aria-label':selected?.name||'条目'},
       // on a phone a figure carries its own top bar (‹ + its name + 启用) instead of this row.

@@ -3443,6 +3443,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui button.ap-item-main { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 0; padding: 0; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 500; text-align: left; white-space: normal; }
 .ap-ui button.ap-item-main:hover:not(:disabled) { background: none; }
 .ap-item-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-item-origin { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); white-space: nowrap; }
+.ap-ui button.ap-item-enable { flex: none; min-height: 36px; padding-inline: 8px; border-color: transparent; background: none; color: var(--fork-accent); white-space: nowrap; }
 .ap-item-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: var(--fork-fs-meta); font-weight: 400; }
 .ap-item-user { color: var(--fork-accent); font-weight: 600; }
 .ap-item-thumb { position: relative; display: block; flex: none; width: 64px; height: 36px; overflow: hidden; border-radius: 6px; background: var(--fork-hover); }

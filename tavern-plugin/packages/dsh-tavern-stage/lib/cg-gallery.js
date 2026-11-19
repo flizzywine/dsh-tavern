@@ -3,6 +3,7 @@ import {randomBytes} from 'node:crypto'
 import {CARD_ID} from '../../../lib/card-storage.js'
 import {assetRefKey,validateAssetRef} from '../../dsh-presentation-protocol/src/asset-packs.js'
 import {assetContent} from '../../dsh-presentation-protocol/src/asset-variant-content.js'
+import scenePictureOf from '../../dsh-presentation-protocol/src/scene-picture.cjs'
 import {assetPackDigest as digest} from './domain/stage-asset-pack-catalogue.js'
 import {verifyCgPlayedReceipt} from './domain/cg-played-receipt.js'
 const conflict = () => {throw Object.assign(new Error('CG gallery changed; reload'),{code:'REVISION_CONFLICT'})}
@@ -81,7 +82,7 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
           if (!consumer?.presentation.available() || !consumer.allowedPackIds.includes(row.ref.packId)) conflict()
           row.label = asset.name; row.defaultVariant = asset.variants?.default ?? null; row.focusHints = assetContent(asset).focusHints || []
           // a 场景生图 picture (scene-cg.js): 回想 offers its edit and delete shortcuts.
-          if (asset.extensions?.dsh_tavern?.scenePicture) row.scene = true
+          if (scenePictureOf(asset)) row.scene = true
           row.variants = []
           for (const variant of asset.variants?.entries || [{id:null,name:asset.name}]) row.variants.push({key:variant.id,label:variant.name,image:await consumer.presentation.cg({ref:row.ref,variant:variant.id,focus:'full'},{descriptors:true})})
         }
