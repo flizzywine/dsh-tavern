@@ -684,8 +684,7 @@ exports.apply = function(ctx) {
   ctx.slots.inject('settings.section',() => ctx.slots.register({name:'settings.section',id:'tts',order:70,label:() => '语音后端'},VoicePanel))
   ctx.inject(['betterSidebar'], child => child.effect(() => {
     sidebar = child.get('betterSidebar')
-    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'语音后端',order:10,single:true,keepMounted:false,icon,component:VoicePanel})
+    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'语音后端',order:10,hidden:true,single:true,keepMounted:false,icon,component:VoicePanel})
     return () => { dispose(); sidebar = null }
   }))
-  ctx.inject(['tavernUi'], child => { child.get('tavernUi').registerStartGroup({title:'舞台装置',tabs:['dsh-tts:voice']}) })
 }

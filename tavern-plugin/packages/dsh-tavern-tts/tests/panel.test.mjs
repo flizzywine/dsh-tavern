@@ -117,6 +117,7 @@ test('one page: service rows with state words, ⚠ only for problems, a register
   await withDom(async root => {
     assert.equal(f.tabs.size,1)
     const tab = f.tabs.get('dsh-tts:voice'); assert.equal(tab.title,'语音后端'); assert.equal(tab.single,true)
+    assert.equal(tab.hidden,true)
     assert.equal(tab.component,f.slots.get('tts'))
     await act(async () => {root.render(React.createElement(tab.component))}); await settle()
     const text = () => document.body.textContent
