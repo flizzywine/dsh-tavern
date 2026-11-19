@@ -521,6 +521,32 @@ test('抽屉遮挡耗尽重试后，关闭抽屉触发 DOM/属性变更时刻度
   rail.dispose()
 })
 
+// 页面其他地方（舞台每帧改 style/class）的变更不该每批都量一次滚动容器：getBoundingClientRect 会强制排版，
+// 手机上把主线程占满。变更落在滚动容器里时一次都不量；在容器外时，有 ResizeObserver（浏览器里都有）也不量，
+// 容器尺寸变化交给它；没有时一批至多量一次。
+for (const observer of [false, true]) test('页面别处频繁改样式时，不为每批变更量一次滚动容器' + (observer ? '（有 ResizeObserver）' : ''), async t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140]])
+  t.after(() => dom.window.close())
+  if (observer) dom.window.ResizeObserver = class { observe() {} disconnect() {} }
+  const rail = create(scope)
+  rail.apply()
+  let measured = 0
+  const box = scope.getBoundingClientRect()
+  scope.getBoundingClientRect = () => { measured++; return box }
+  const row = scope.querySelector('[data-floor="1"]')
+  for (let i = 0; i < 20; i++) { row.className = 'typing-' + i; await new Promise(resolve => dom.window.setTimeout(resolve, 0)) }
+  assert.equal(measured, 0, '滚动容器里的样式变更不量')
+  const stage = document.createElement('div')
+  document.body.appendChild(stage)
+  await new Promise(resolve => dom.window.setTimeout(resolve, 200))
+  measured = 0
+  for (let i = 0; i < 20; i++) stage.style.opacity = String(i / 20)
+  await new Promise(resolve => dom.window.setTimeout(resolve, 0))
+  if (observer) assert.equal(measured, 0, '容器外的变更交给 ResizeObserver')
+  else assert.ok(measured <= 1, '一批变更至多量一次：' + measured)
+  rail.dispose()
+})
+
 // 移动端首次未手动滑动对话时点击楼层跳转：
 // 1) 默认双击确认窗口（1500ms）容纳正常人类阅读提示再点的间隔（如 600ms）；
 // 2) 第二指微抖触发 pointercancel 时由 touchend 兜底，不吞点击；
