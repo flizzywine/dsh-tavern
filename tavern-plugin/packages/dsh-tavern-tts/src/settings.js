@@ -493,8 +493,10 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
           synthesize: async (spec, options) => {
             const identity = modelIdentity(p, spec.params?.model, spec.params?.voice)
             try {
-              const audio = await adapter.synthesize(p, await secrets(p), { ...spec, signal:options.signal, ...(options.onPcm ? {onPcm:options.onPcm} : {}) })
+              const secret = await secrets(p), audio = await adapter.synthesize(p, secret, { ...spec, signal:options.signal, ...(options.onPcm ? {onPcm:options.onPcm} : {}) })
               if (!options.signal?.aborted) validation.record(identity, null)
+              // a line spoken is a working connection too (a local server that starts on demand is rarely up for a check)
+              void noteWorking(p, {status:'connected'}, secret)
               return audio
             } catch (error) {
               if (!options.signal?.aborted) validation.record(identity, error)

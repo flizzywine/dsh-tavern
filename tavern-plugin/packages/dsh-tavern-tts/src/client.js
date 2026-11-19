@@ -251,7 +251,7 @@ exports.apply = function(ctx) {
       try { const result = await act(method,args); onDone(done,method === 'use' ? result : null); return true } catch(e) { setError(failText(e)) } finally { setBusy(false) }
     }
     if (!entries.length) return null
-    const meta = e => [e.url,e.keyed ? 'API Key …' + (e.keyTail || '') : '无 API Key'].join(' · ')
+    const meta = e => [e.keyed ? 'API Key …' + (e.keyTail || '') : '无 API Key',e.url].join(' · ')
     return h('span',{className:'dtts-menu-anchor dtts-recent',ref:root,onKeyDown:e => { if (e.key === 'Escape' && open) { e.stopPropagation(); if (confirm) setConfirm(false); else close() } }},
       h('button',{ref:toggle,type:'button',className:'dtts-icon-button','aria-label':'最近用过的网址',title:'最近用过的网址','aria-haspopup':'dialog','aria-expanded':open,disabled,onClick:e => { e.stopPropagation(); setOpen(!open); setConfirm(false) }},h(Icon,{name:'history'})),
       open && h('div',{className:'dtts-menu dtts-recent-pop',role:'dialog','aria-label':'最近用过的网址','aria-busy':busy || undefined},
