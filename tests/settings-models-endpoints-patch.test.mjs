@@ -6,36 +6,80 @@ import path from 'node:path'
 import { patchSettingsModelsSource } from '../bin/settings-models-endpoints-patch.mjs'
 import { createModelEndpoints } from '../tavern-plugin/packages/dsh-tavern-tts/src/model-endpoints.js'
 
-// The provider card's Base URL input as 0.2.1-rc.2 ships it, inside the editor's scope.
-const CARD = `function ProviderEditor(props) { const { namespace, settingsPath } = props; const keyRef = "X_API_KEY", disabled = false, fallback = {}, stringAt = (s, k) => s[k];
-  const setField = () => {}; const draft = {};
-  return [(0, react_jsx_runtime.jsx)("input", {
+// The provider card's Base URL input and details fold as 0.2.1-rc.2 ships them, inside the editor's scope.
+const CARD = `function ProviderEditor(props) { const { namespace, settingsPath } = props; const keyRef = "X_API_KEY", keyDraft = "", disabled = false, fallback = props.fallback || {}, draft = props.draft || {}, probeApi = props.probeApi, stringAt = (s, k) => s[k];
+  const ModelsSection_module_css_default = { field: "field-cls", fieldLabel: "label-cls", input: "input-cls" };
+  const setField = props.setField || (() => {});
+  return [props.credentialOnly === true ? null : (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("input", {
 										value: stringAt(draft, "baseURL") ?? "",
 										onChange: (event) => {
 											setField("baseURL", event.target.value === "" ? void 0 : event.target.value);
 										}
-									}), "hint"] }`
+									}), "hint"] })] }`
 
-test('the card patch inserts the picker once after the Base URL input, is idempotent and refuses another shape', () => {
+test('the card patch inserts endpoint-history and vertex-region once, is idempotent, upgrades legacy patches, and refuses unknown shapes', () => {
   const applied = patchSettingsModelsSource(CARD)
   assert.equal(applied.status, 'applied')
   assert.equal(patchSettingsModelsSource(applied.text).status, 'patched')
   assert.equal(patchSettingsModelsSource(CARD.replace('setField("baseURL"', 'setField("endpoint"')).status, 'unmatched')
   assert.equal(patchSettingsModelsSource(CARD + CARD).status, 'unmatched', 'two inputs: no guess which one')
+
+  // Upgrading a runtime that only has the earlier endpoint-history patch applies vertex-region cleanly.
+  const legacyOnly = applied.text.replace(/\/\* dsh-tavern:vertex-region \*\/[\s\S]*?: null, /, '')
+  assert.ok(legacyOnly.includes('/* dsh-tavern:endpoint-history */'))
+  assert.ok(!legacyOnly.includes('/* dsh-tavern:vertex-region */'))
+  const upgraded = patchSettingsModelsSource(legacyOnly)
+  assert.equal(upgraded.status, 'applied')
+  assert.equal(patchSettingsModelsSource(upgraded.text).status, 'patched')
+
   // the patched card renders the published picker with the card's own values, and nothing without it
   const rendered = []
   const run = new Function('react_jsx_runtime', 'props', applied.text + '; return ProviderEditor(props)')
-  const jsx = { jsx: (type, p) => (rendered.push([type, p]), type === 'input' ? 'input' : 'picker') }
-  const props = { provider: 'relay', displayName: '中转', namespace: { ns: 'llm-pi-ai' }, settingsPath: ['providers', 'relay'], defaultBaseURL: 'https://api.example.com', onClose: v => rendered.push(['closed', v]) }
-  assert.deepEqual(run(jsx, props), ['input', null, 'hint'])
+  const jsx = {
+    jsx: (type, p) => (rendered.push([type, p]), type === 'input' ? 'input' : type === VertexRegionField ? 'vertex-region' : 'picker'),
+    jsxs: (type, p) => (rendered.push([type, p]), ['details', ...p.children]),
+  }
   const ModelEndpoints = () => {}
+  const VertexRegionField = () => {}
+  const props = { provider: 'relay', displayName: '中转', namespace: { ns: 'llm-pi-ai' }, settingsPath: ['providers', 'relay'], defaultBaseURL: 'https://api.example.com', onClose: v => rendered.push(['closed', v]) }
+  assert.deepEqual(run(jsx, props), [null, ['details', 'input', null, 'hint']])
   globalThis[Symbol.for('dsh.endpointHistory')] = { ModelEndpoints }
+  globalThis[Symbol.for('dsh.vertexRegion')] = { VertexRegionField }
   try {
-    assert.deepEqual(run(jsx, props), ['input', 'picker', 'hint'])
+    // Non-vertex provider does not render VertexRegionField.
+    assert.deepEqual(run(jsx, props), [null, ['details', 'input', 'picker', 'hint']])
     const [, given] = rendered.find(([type]) => type === ModelEndpoints)
     assert.deepEqual({ ...given, onSwitched: undefined }, { provider: 'relay', label: '中转', ns: 'llm-pi-ai', path: ['providers', 'relay'], keyRef: 'X_API_KEY', url: 'https://api.example.com', disabled: false, onSwitched: undefined })
     given.onSwitched(); assert.deepEqual(rendered.at(-1), ['closed', true])
-  } finally { delete globalThis[Symbol.for('dsh.endpointHistory')] }
+
+    // google-vertex provider renders VertexRegionField and wires onChangeBaseURL to setField("baseURL", ...).
+    rendered.length = 0
+    const setCalls = []
+    const vertexProps = {
+      ...props,
+      provider: 'google-vertex',
+      displayName: 'Google Vertex AI',
+      draft: { baseURL: 'https://aiplatform.googleapis.com/v1/projects/p1/locations/global' },
+      setField: (k, v) => setCalls.push([k, v]),
+    }
+    assert.deepEqual(run(jsx, vertexProps), ['vertex-region', ['details', 'input', 'picker', 'hint']])
+    const [, vGiven] = rendered.find(([type]) => type === VertexRegionField)
+    assert.equal(vGiven.provider, 'google-vertex')
+    assert.equal(vGiven.baseURL, 'https://aiplatform.googleapis.com/v1/projects/p1/locations/global')
+    vGiven.onChangeBaseURL('https://asia-southeast1-aiplatform.googleapis.com/v1/projects/p1/locations/asia-southeast1')
+    vGiven.onChangeBaseURL('')
+    assert.deepEqual(setCalls, [
+      ['baseURL', 'https://asia-southeast1-aiplatform.googleapis.com/v1/projects/p1/locations/asia-southeast1'],
+      ['baseURL', undefined],
+    ])
+
+    // Custom provider with probeApi === 'google-vertex' also renders VertexRegionField.
+    rendered.length = 0
+    assert.deepEqual(run(jsx, { ...props, provider: 'my-vertex', probeApi: 'google-vertex' }), ['vertex-region', ['details', 'input', 'picker', 'hint']])
+  } finally {
+    delete globalThis[Symbol.for('dsh.endpointHistory')]
+    delete globalThis[Symbol.for('dsh.vertexRegion')]
+  }
 })
 
 function store(initial = {}) {

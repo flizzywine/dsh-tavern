@@ -1180,6 +1180,7 @@ window.__ModuleLoader__.load({
 // @include features/scene-images.js
 // @include modules/view-tabs.js
 // @include features/settings.js
+// @include features/vertex-region.js
 
 // @include features/prose-layout.js
 // @include features/text-layout.js
@@ -1571,6 +1572,7 @@ function clipReplayCore() {
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			createVertexRegionFeature({ React: React, rpc: rpc }).register(ctx);
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.
 			ctx.provide("ttsBrowserSpeech", browserSpeechService);

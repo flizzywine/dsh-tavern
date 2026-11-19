@@ -5,6 +5,12 @@ import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
 import { conversationUsesExpandedCandidates, normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
 import { createDamperSettings } from '../domain/damper-settings.js'
+import {
+  discoverVertexProject,
+  normalizeVertexProject,
+  vertexLocationFromBaseUrl,
+  vertexProjectFromBaseUrl,
+} from '../domain/pi-ai-vertex-stream.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -355,6 +361,42 @@ export function createSettingsHandlers(deps) {
     },
     async testNarrativeDamperConnection(args = {}) {
       return damperSettingsOf().test(args?.config)
+    },
+    async resolveVertexConfig(args = {}) {
+      const baseUrl = typeof args?.baseUrl === 'string' ? args.baseUrl.trim() : ''
+      const location = vertexLocationFromBaseUrl(baseUrl)
+      let project = vertexProjectFromBaseUrl(baseUrl)
+      if (!project) {
+        const env = deps.vertexEnv || process.env
+        for (const value of [env.GOOGLE_CLOUD_PROJECT, env.GCLOUD_PROJECT]) {
+          const parsed = normalizeVertexProject(value)
+          if (parsed) { project = parsed; break }
+        }
+      }
+      if (!project) {
+        const keyRef = typeof args?.keyRef === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/.test(args.keyRef)
+          ? args.keyRef
+          : 'GOOGLE_VERTEX_API_KEY'
+        let apiKey = typeof args?.apiKey === 'string' ? args.apiKey.trim() : ''
+        if (!apiKey && typeof deps.resolveCredentialValue === 'function') {
+          try {
+            const resolved = await deps.resolveCredentialValue(keyRef)
+            if (typeof resolved === 'string' && resolved.trim()) apiKey = resolved.trim()
+          } catch {}
+        }
+        if (!apiKey) {
+          const env = deps.vertexEnv || process.env
+          for (const name of [keyRef, 'GOOGLE_VERTEX_API_KEY', 'GOOGLE_CLOUD_API_KEY', 'GOOGLE_API_KEY']) {
+            const value = typeof env[name] === 'string' ? env[name].trim() : ''
+            if (value) { apiKey = value; break }
+          }
+        }
+        if (apiKey) {
+          const discover = deps.discoverVertexProject || discoverVertexProject
+          project = await discover({ apiKey })
+        }
+      }
+      return { project: project || null, location: location || null }
     },
   }
   handlers.getConversationBackgroundConfig = handlers.getConversationBackgroundModel

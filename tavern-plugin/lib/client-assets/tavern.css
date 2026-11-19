@@ -4883,3 +4883,137 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
   font-weight: 600;
 }
 
+/* 设置 › 模型 › Google Vertex AI 地区 (Region) 选择器 */
+.dsh-vertex-region-field {
+  position: relative;
+}
+.dsh-vertex-region-anchor {
+  position: relative;
+  width: 100%;
+}
+.dsh-vertex-region-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-vertex-region-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.dsh-vertex-region-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-vertex-region-caret {
+  flex: none;
+  opacity: 0.7;
+  font-size: 12px;
+}
+.dsh-vertex-region-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, var(--dsw-specific-sidebar-fill, #fff));
+  color: var(--dsw-alias-label-primary, inherit);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+.dsh-vertex-region-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.2));
+}
+.dsh-vertex-region-filter-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+.dsh-vertex-region-filter-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+}
+.dsh-vertex-region-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.dsh-vertex-region-option {
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  user-select: none;
+}
+.dsh-vertex-region-option:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.1));
+}
+.dsh-vertex-region-option.is-selected {
+  border-left-color: var(--dsh-tavern-accent, #3b6fd8);
+  background: var(--dsh-tavern-accent-soft, rgba(59, 111, 216, 0.14));
+  color: var(--dsh-tavern-accent, #3b6fd8);
+  font-weight: 500;
+}
+.dsh-vertex-region-empty {
+  padding: 12px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+.dsh-vertex-region-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.2));
+}
+.dsh-vertex-region-btn {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 13px;
+  cursor: pointer;
+}
+.dsh-vertex-region-btn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.12));
+}
+.dsh-vertex-region-btn.is-primary {
+  color: var(--dsh-tavern-accent, #3b6fd8);
+  font-weight: 600;
+}
+.dsh-vertex-region-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.dsh-vertex-project-row {
+  margin-top: 6px;
+}
+.dsh-vertex-region-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+
