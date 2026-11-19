@@ -779,22 +779,13 @@ function StagePackSection({ctx,ready,state}) {
 // card-files.js exportCardFile): the card's bound packs are listed with sizes and the checked total; the card's own packs
 // (they hold its figures or carry its name) start checked, shared ones such as 通用背景 stay home unless checked, and an
 // unchecked pack also leaves the exported card's bindings (packIds). Figures of the checked packs can be left out (e.g. the one the player plays). The cover shows at the top.
-// Packing first (an indeterminate bar), then the download counts its bytes; closing
-// the sheet stops it. The file is saved through binding.download, like every other export.
+// 导出 first asks where to save (binding.pickSave, the native save-as dialog; none on phones), then packing (an indeterminate
+// bar: the route sends nothing until the archive is built) and the bytes as they stream to the file; closing the sheet stops it.
+// The file is saved through binding.download like every other export; the sheet then says where it went.
 const DSHCARD_FAILURE={404:'找不到这张人物卡。',409:'人物卡刚刚改过，请再导出一次。'};
 function dshCardExportUrl(path,excludeFigures,packIds) {
   return '/api/dsh-tavern/card-export?path='+encodeURIComponent(path)+(excludeFigures.length?'&excludeFigures='+encodeURIComponent(JSON.stringify(excludeFigures)):'')
     +'&packIds='+encodeURIComponent(JSON.stringify(packIds));
-}
-async function dshCardDownload({path,excludeFigures,packIds,signal,onProgress}) {
-  const response=await fetch(dshCardExportUrl(path,excludeFigures,packIds),{credentials:'same-origin',signal});
-  // a 400 says why in plain words (a bad pack or figure list); other statuses get their sentence.
-  if(!response.ok){const detail=await response.text();throw Object.assign(new Error(response.status===400&&detail||DSHCARD_FAILURE[response.status]||'没能导出，请重试。'),{status:response.status});}
-  const total=Number(response.headers.get('content-length'))||0,reader=response.body.getReader(),chunks=[];let loaded=0;
-  onProgress({loaded,total});
-  for(let part=await reader.read();!part.done;part=await reader.read()){chunks.push(part.value);loaded+=part.value.byteLength;onProgress({loaded,total});}
-  const named=/filename\*=UTF-8''([^;]+)/i.exec(response.headers.get('content-disposition')||'');
-  return {bytes:new Blob(chunks,{type:response.headers.get('content-type')||'application/zip'}),filename:named?decodeURIComponent(named[1]):'人物卡.dshcard'};
 }
 function DshCardExportSheet({binding,path,cardName,onClose}) {
   const state=useLoad(binding,async()=>{
@@ -817,14 +808,23 @@ function DshCardExportSheet({binding,path,cardName,onClose}) {
   const sizes=packs.map(stagePackBytes),total=sizes.reduce((sum,n,index)=>sum+(picked.has(packs[index].manifest.id)&&n||0),0);
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
   const flip=id=>setLeft(current=>toggle(current,id)),flipPack=id=>setChosen(toggle(picked,id));
+  // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
+  const [saved,setSaved]=React.useState(null),picking=React.useRef(false);
   async function run(){
-    if(work||!value)return;
-    const controller=new AbortController();abort.current=controller;setProblem('');setWork({loaded:0,total:0});
+    if(work||picking.current||!value)return;
+    setProblem('');setSaved(null);
+    // the save-as dialog needs the click's activation, so it opens before anything is fetched; closing it is no error.
+    let target=null;picking.current=true;
+    try{target=binding.pickSave?await binding.pickSave({name:cardName||'人物卡',description:'DSH 人物卡',extension:'.dshcard'}):null;}
+    catch(error){if(error?.name!=='AbortError'&&mounted.current)setProblem('没能打开保存位置，请重试。');return;}
+    finally{picking.current=false;}
+    if(!mounted.current)return;
+    const controller=new AbortController();abort.current=controller;setWork({loaded:0,total:0});
     try{
-      const file=await dshCardDownload({path,excludeFigures:figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
-      await binding.download(file);
-      if(mounted.current)onClose();
-    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status?error.message:'没能导出，请重试。');}
+      const url=dshCardExportUrl(path,figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds);
+      const result=await binding.download({url,filename:'人物卡.dshcard'},{target,name:cardName,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
+      if(mounted.current)setSaved(result);
+    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status===400&&error.message||DSHCARD_FAILURE[error.status]||'没能导出，请重试。');}
     finally{abort.current=null;if(mounted.current)setWork(null);}
   }
   const head=(title,meta,extra,help)=>h('header',{className:'ap-section-head'},h('h3',null,title,meta!==undefined&&h('span',{className:'ap-section-meta'},meta),help&&h(Help,{label:title+' 说明',text:help})),extra);
@@ -842,9 +842,10 @@ function DshCardExportSheet({binding,path,cardName,onClose}) {
     work&&h('div',{className:'ap-dshcard-progress'},
       h('div',{className:'ap-cat-progress','data-indeterminate':packing||undefined,role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':packing?undefined:Math.round(pct)},h('span',{style:packing?undefined:{width:pct+'%'}})),
       h('p',{className:'ap-cat-job-meta',role:'status'},packing?'正在打包…':stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
+    saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,(saved.picked?'已导出到 ':'已开始下载 ')+saved.names.map(n=>'「'+n+'」').join(''))),
     problem&&h(CatBand,{role:'alert'},problem));
   return h(CatSheet,{title:'导出 DSH 人物卡',className:'ap-dshcard-sheet',onClose,initialFocus:'dialog',
-      foot:h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
+      foot:saved?h(Button,{primary:true,onClick:onClose},'完成'):h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
     h('div',{className:'ap-cat-hero'},h(CardCover,{name:cardName||'',path}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},cardName||'人物卡'),h(CatSub,null,'.dshcard 文件'))),
     body);
 }

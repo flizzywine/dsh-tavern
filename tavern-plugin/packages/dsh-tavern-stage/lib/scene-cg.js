@@ -7,7 +7,8 @@ import scenePictureOf from '../../dsh-presentation-protocol/src/scene-picture.cj
 
 const EXT = {'image/png':'png','image/jpeg':'jpeg','image/webp':'webp'}
 // For a generated CG, the lamp controls future selection, not access to an already recorded picture.
-export const cgPlaybackEnabled = asset => asset?.kind === 'cg' && (asset.enabled === true || !!scenePictureOf(asset))
+// A recorded CG can still play with its director lamp off.
+export const cgPlaybackAvailable = asset => asset?.kind === 'cg' && asset.pendingMedia !== true
 const clip = (text, max) => [...String(text || '').trim()].slice(0, max).join('')
 
 export function createSceneCg({library, attachments, chatForSession, cardAssetBindings, resolveCard, cgGallery, removePicture, log = console}) {

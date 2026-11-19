@@ -584,16 +584,45 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // Export / copy / delete shared by the list rows and the detail ⋯ menu; delete keeps its confirmation.
   function usePackActions(binding,{onChanged,onRemoved}={}) {
     const work=useTask(binding),[preview,setPreview]=React.useState(null),[remove,setRemove]=React.useState(null),[pendingExport,setPendingExport]=React.useState(null);
-    const exportPack=pack=>work.task(async()=>{const result=await binding.service.exportPack({packId:pack.manifest.id,expectedRevision:pack.revision});if(result.warnings?.length)setPendingExport(result);else return binding.download(result);});
-    // the 素材库's batch export — one download: a single pack is its own ZIP, two
-    // or more one 素材包合集 ZIP (exportPacks) that 「获取素材包」 installs pack by pack. Same external-dependency warning.
-    // Resolves true once the export is done (or waits on that warning), undefined on failure.
-    const exportPacks=list=>work.task(async()=>{
-      const result=list.length===1?await binding.service.exportPack({packId:list[0].manifest.id,expectedRevision:list[0].revision}):
-        await binding.service.exportPacks({packs:list.map(pack=>({packId:pack.manifest.id,expectedRevision:pack.revision}))});
-      if(result.warnings?.length)setPendingExport(result);else await binding.download(result);
-      return true;
+    // 导出 (owner 11-19 「点了没反应」): the click opens the save-as dialog at once (a folder for a batch, which may
+    // come back as several volumes), then the host packs with its real progress and the file streams to the chosen place.
+    // `exporting` {label,packId,phase:'pack'|'save',loaded,total} drives the status line and the row's spinner;
+    // `exported` is the result line. Without a picker (phones) the file goes to an ordinary download after packing.
+    const [exporting,setExporting]=React.useState(null),[exported,setExported]=React.useState(null);
+    React.useEffect(()=>{if(!exported)return;const t=setTimeout(()=>setExported(null),8000);return()=>clearTimeout(t);},[exported]);
+    async function saveTo(job,result){
+      setExporting({...job.state,phase:'save',loaded:0,total:0});
+      const saved=await binding.download(result,{target:job.target,name:job.many?undefined:job.name,onProgress:p=>setExporting({...job.state,phase:'save',...p})});
+      const names=(saved?.names||[]).map(n=>'「'+n+'」').join('');
+      setExported({text:saved?.picked?'已导出到 '+names:'已开始下载 '+names});
+    }
+    const runExport=(job,start)=>work.task(async()=>{
+      setExported(null);
+      // inside the click: the picker needs its activation, so nothing is awaited before it.
+      let target=null;
+      try{target=binding.pickSave?await binding.pickSave({name:job.name,many:job.many}):null;}catch(e){if(e?.name==='AbortError')return;throw e;}
+      const state={label:job.label,packId:job.packId},ready={...job,target,state};
+      setExporting({...state,phase:'pack',loaded:0,total:0});
+      try{
+        const result=await start(p=>setExporting({...state,phase:'pack',...p}));
+        if(result.warnings?.length){setPendingExport({result,job:ready});return true;}
+        await saveTo(ready,result);
+        return true;
+      } finally {setExporting(null);}
     });
+    const one=pack=>onProgress=>binding.service.exportPack({packId:pack.manifest.id,expectedRevision:pack.revision,onProgress});
+    const exportPack=pack=>runExport({label:pack.manifest.name,name:pack.manifest.name,packId:pack.manifest.id},one(pack));
+    // the 素材库's batch export — a single pack is its own ZIP, two
+    // or more one 素材包合集 ZIP (exportPacks) that 「获取素材包」 installs pack by pack. Same external-dependency warning.
+    // Resolves true once the export is done (or waits on that warning), undefined on failure or a closed dialog.
+    const exportPacks=list=>list.length===1?exportPack(list[0]):runExport({label:list.length+' 个素材包',many:true},
+      onProgress=>binding.service.exportPacks({packs:list.map(pack=>({packId:pack.manifest.id,expectedRevision:pack.revision})),onProgress}));
+    // 取消 on the dependency warning: nothing is written, and the file the save-as dialog made goes again.
+    const dropExport=()=>{pendingExport?.job.target?.file?.remove?.().catch(()=>{});setPendingExport(null);};
+    const pct=exporting?.total?Math.floor(exporting.loaded/exporting.total*100):null;
+    const status=exporting?h('p',{className:'ap-loading ap-export-state',role:'status'},h(Spinner),
+        h('span',null,(exporting.phase==='pack'?'正在导出「':'正在保存「')+exporting.label+'」…'),pct!==null&&h('span',{className:'ap-export-pct','aria-hidden':true},pct+'%')):
+      exported&&h('p',{className:'ap-notice',role:'status'},h('span',null,exported.text));
     async function copyPack(pack){const result=await work.task(()=>binding.service.copyItems({sourcePackId:pack.manifest.id,itemRefs:[...pack.manifest.assets.map(a=>({kind:a.kind,id:a.id})),...pack.manifest.figures.map(id=>({kind:'figures',id}))],target:{newPackName:pack.manifest.name+' 副本'}}));if(result)onChanged?.();}
     // 删除素材包 keeps its own dialog (it lists the cards that use the pack); 「以后不再显示」 hides the kind 'asset-pack' only.
     const [hideRemove,setHideRemove]=React.useState(false);
@@ -601,16 +630,16 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     async function confirmRemove(){if(hideRemove)hiddenConfirms.hide('asset-pack');await removeNow(remove);}
     const askRemove=pack=>{if(hiddenConfirms.has('asset-pack'))removeNow(pack);else{setHideRemove(false);setRemove(pack);}};
     const dialogs=h(React.Fragment,null,
-      pendingExport&&h(Modal,{title:'模组默认外观依赖其它素材包',className:'ap-export-warning',busy:work.busy,onClose:()=>setPendingExport(null)},
+      pendingExport&&h(Modal,{title:'模组默认外观依赖其它素材包',className:'ap-export-warning',busy:work.busy,onClose:dropExport},
         h('p',{className:'ap-hint-line'},h('span',{className:'ap-hint-mark','aria-hidden':true},h(Glyph,{name:'warning'})),h('span',null,'导出不自包含：以下外部图片只保留引用，不会暗中附带其它包'),h(Help,{text:'目标机器缺少或未使用这些素材时，模组显示默认外观。',label:'外部依赖 说明'})),
-        h('ul',{className:'ap-dependency-list'},pendingExport.warnings.map((warning,index)=>h('li',{key:index,role:'status'},h(KindIcon,{kind:'widgets'}),h('span',{className:'ap-dependency-what'},h('strong',null,warning.widgetName),' · '+warning.settingLabel),
+        h('ul',{className:'ap-dependency-list'},pendingExport.result.warnings.map((warning,index)=>h('li',{key:index,role:'status'},h(KindIcon,{kind:'widgets'}),h('span',{className:'ap-dependency-what'},h('strong',null,warning.widgetName),' · '+warning.settingLabel),
           h('span',{className:'ap-dependency-from','data-missing':!warning.packName||!warning.assetName||undefined},(!warning.packName||!warning.assetName)&&h(Glyph,{name:'warning'}),(warning.packName || '缺失的素材包')+' / '+(warning.assetName || '缺失的图片'))))),
-        h(ErrorBox,{error:work.error}),h(Actions,null,h(Button,{disabled:work.busy,onClick:()=>setPendingExport(null)},'取消'),h(Button,{primary:true,disabled:work.busy,onClick:()=>work.task(async()=>{await binding.download(pendingExport);setPendingExport(null);})},'仍然导出'))),
+        h(ErrorBox,{error:work.error}),h(Actions,null,h(Button,{disabled:work.busy,onClick:dropExport},'取消'),h(Button,{primary:true,disabled:work.busy,onClick:()=>work.task(async()=>{const {result,job}=pendingExport;setPendingExport(null);try{await saveTo(job,result);}finally{setExporting(null);}})},'仍然导出'))),
       preview&&(preview.kind==='file-queue'?h(PackFileQueue,{binding,queue:preview,onDone:()=>{setPreview(null);onChanged?.();}}):preview.kind==='pack-set'?h(PackSetInstall,{binding,set:preview,onClose:changed=>{setPreview(null);if(changed)onChanged?.();},onDone:()=>{setPreview(null);onChanged?.();}}):
         h(ConflictDialog,{binding,preview,onClose:()=>setPreview(null),onDone:()=>{setPreview(null);onChanged?.();}})),
       remove&&h(Modal,{title:'删除「'+remove.manifest.name+'」？',onClose:()=>setRemove(null),busy:work.busy},h(Impact,{binding,packId:remove.manifest.id}),h(ErrorBox,{error:work.error}),
         h(Actions,null,h(HideCheck,{checked:hideRemove,disabled:work.busy,onToggle:()=>setHideRemove(v=>!v)}),h(Button,{onClick:()=>setRemove(null),disabled:work.busy},'取消'),h(Button,{primary:true,disabled:work.busy,onClick:confirmRemove},'确认删除'))));
-    return {work,exportPack,exportPacks,copyPack,askRemove,setPreview,dialogs};
+    return {work,exportPack,exportPacks,exportingId:exporting?.packId||null,status,copyPack,askRemove,setPreview,dialogs};
   }
   // ---------- packs-v3: one pack row, one state control, one shared pack modal (proposal §9) ----------
   // State of a pack seen from a card, derived from the two stored fields only (no new field):
@@ -851,7 +880,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('span',{className:'ap-check-mark','aria-hidden':true},picking.has(id)&&h(Glyph,{name:'check'})));
     const aside=(id,pack)=>{const size=stageBytesText(stagePackBytes(pack));
       return h('span',{className:'ap-lib-aside'},size&&h('span',{className:'ap-lib-size'},size),
-        picking?h('span',{className:'ap-lib-export is-gap','aria-hidden':true}):h(Button,{className:'ap-icon-button ap-lib-export',title:'导出','aria-label':'导出 '+pack.manifest.name,disabled:busy,onClick:()=>actions.exportPack(pack)},h(Glyph,{name:'share'})));};
+        picking?h('span',{className:'ap-lib-export is-gap','aria-hidden':true}):h(Button,{className:'ap-icon-button ap-lib-export',title:'导出','aria-label':'导出 '+pack.manifest.name,'aria-busy':actions.exportingId===id||undefined,disabled:busy,onClick:()=>actions.exportPack(pack)},actions.exportingId===id?h(Spinner):h(Glyph,{name:'share'})));};
     const tools=picking?h(React.Fragment,null,
         h('span',{className:'ap-select-count ap-lib-picked',role:'status'},'已选 ',h('b',null,chosen.length)),
         h(Button,{className:'ap-manage ap-lib-cancel',disabled:busy,onClick:()=>setPicking(null)},'取消'),
@@ -865,7 +894,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         h(PackSearchBox,{label:'搜索素材包',placeholder:'搜索',value:query,onChange:setQuery}),
         packs.length>0&&h(KindSortTools,{packs,kind,setKind,sort,onSort:setSort}),
         tools),
-      h(ErrorBox,{error:state.error,reload:state.reload}),h(ErrorBox,{error:actions.work.error}),h(ErrorBox,{error:scope.error}),
+      h(ErrorBox,{error:state.error,reload:state.reload}),actions.status,h(ErrorBox,{error:actions.work.error}),h(ErrorBox,{error:scope.error}),
       catalogue.tray,
       draft&&h(NewPackRow,{busy:state.busy,onCreate:create,onCancel:()=>setDraft(false)}),
       !state.value?(!state.error&&h(Loading,{count:8})):!list.length?h(EmptyState,{noun:'素材包'}):h(React.Fragment,null,
@@ -874,7 +903,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           render:id=>{const pack=byId.get(id);return h(PackRow,{key:id,id,pack,scope,kind,badge:catalogue.badge(id),lead:lead(id,pack),aside:aside(id,pack),onOpen:(packId,k)=>onOpen({packId,kind:k}),
             menu:!picking&&pack&&(close=>{const run=fn=>()=>{close();fn();};return h(React.Fragment,null,
               h(MenuItem,{onClick:run(()=>onOpen({packId:id,kind:kind||undefined}))},'打开'),
-              h(MenuItem,{disabled:busy,onClick:run(()=>actions.exportPack(pack))},'导出'),
+              h(MenuItem,{disabled:busy,onClick:run(()=>actions.exportPack(pack))},actions.exportingId===id?'正在导出…':'导出'),
               h(MenuItem,{disabled:busy,onClick:run(()=>actions.copyPack(pack))},'复制'),
               h('div',{className:'ap-menu-sep',role:'separator'}),
               h(MenuItem,{danger:true,disabled:busy,onClick:run(()=>actions.askRemove(pack))},'删除…'));})});}}),
@@ -1312,7 +1341,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const menu=pack&&h(Popover,{label:name+' 操作',trigger:({toggle:t,open})=>h(IconButton,{icon:'more',label:'更多操作 '+name,'aria-expanded':open,disabled:actions.work.busy,onClick:t}),content:closeMenu=>h(React.Fragment,null,
       h(MenuItem,{onClick:()=>{closeMenu();audio.stop();setTagSheet(true);}},'标签图标'),
       pack.automatic&&h(MenuItem,{onClick:()=>{closeMenu();setAutomaticReview(true);}},'自动变更…'),
-      h(MenuItem,{onClick:()=>{closeMenu();actions.exportPack(pack);}},'导出'),
+      h(MenuItem,{disabled:actions.work.busy,onClick:()=>{closeMenu();actions.exportPack(pack);}},actions.exportingId?'正在导出…':'导出'),
       h(MenuItem,{onClick:()=>{closeMenu();actions.copyPack(pack);}},'复制'),
       h(MenuItem,{danger:true,onClick:()=>{closeMenu();actions.askRemove(pack);}},'删除'))});
     // a single-figure pack is usually named after its figure; then the title would repeat the
@@ -1391,7 +1420,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     React.useEffect(()=>{if(!naming||selected?.id!==naming)return;const input=rightRef.current?.querySelector?.('.ap-title-input');if(!input)return;
       setNaming(null);input.focus?.({preventScroll:true});input.select?.();},[naming,selected?.id,current,detail]);
     const busy=work.busy&&h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在处理…');
-    const foot=(notice||work.error||lampWork.error||busy||actions.work.error||scope?.error||pack?.diagnostics?.length)&&h('div',{className:'ap-pack-foot'},busy,
+    const foot=(notice||work.error||lampWork.error||busy||actions.status||actions.work.error||scope?.error||pack?.diagnostics?.length)&&h('div',{className:'ap-pack-foot'},busy,actions.status,
       pack?.diagnostics?.map(row=>h('p',{key:JSON.stringify(row.ref),className:'ap-hint-line',role:'status'},h(Glyph,{name:'warning'}),'模组「'+(row.name||row.ref.assetId)+'」不可用：'+row.message+'。请安装新格式发行包；其它素材继续可用。')),
       notice&&h('p',{className:'ap-notice',role:'status'},h('span',null,notice.text),notice.packId&&onOpenPack&&h(Button,{className:'ap-hint-chip',onClick:()=>{audio.stop();onOpenPack(notice.packId);}},'打开')),
       h(ErrorBox,{error:work.error}),h(ErrorBox,{error:lampWork.error}),h(ErrorBox,{error:actions.work.error}),h(ErrorBox,{error:scope?.error}));

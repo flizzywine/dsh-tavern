@@ -71,9 +71,9 @@ function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'li
     const transport = packTransport, service = packClient(), tts=forkTtsScope?.get('ttsClient');
     const binding = React.useMemo(() => service ? createAssetPackBinding({service,tts,
         rpc:workbenchRpc(sessionId), engineRpc:engineRpc, settings:transport.settings,
-        download:result => transport.download(result), readExport:result => transport.bytes(result),
+        download:(result,options) => transport.download(result,options), pickSave:options => transport.pickSave(options), readExport:result => transport.bytes(result),
         onUnavailable:fn => transport.onUnavailable(fn)
-    }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:result=>transport.download(result),tts}, [transport,service,sessionId,tts]);
+    }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:(result,options)=>transport.download(result,options),pickSave:options=>transport.pickSave(options),tts}, [transport,service,sessionId,tts]);
     const nav = React.useMemo(() => stageNav(sessionId), [sessionId]);
     // the library's deep links (packNav) plus the sidebar tabs its pages open (the voice page's 「语音后端 ›」).
     const libraryNav = React.useMemo(() => ({ take: packNav.take, subscribe: packNav.subscribe, openTab: nav.openTab }), [nav]);
