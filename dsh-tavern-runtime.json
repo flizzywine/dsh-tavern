@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "32db8252bf2bfe8c2e20b9e6fe9b7d1f9f6f7187",
-  "releaseSequence": 1797,
+  "revision": "ddaf151452ed8e046d93e2bccd105e3f85b35fe2",
+  "releaseSequence": 1798,
   "version": "3.3.0",
   "files": [
     {
@@ -3716,8 +3716,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tool-protocol-enforcement.js",
-      "sha256": "298675aca93ab62b5c3c6d0b25cc315ac0fcde14e149567fd79f30c542f00dcf",
-      "size": 21673
+      "sha256": "c25615982c664eab2a28a56ca7b548ae1cc16e9685863689ec4e4f35febcf319",
+      "size": 25887
     },
     {
       "path": "tavern-plugin/lib/domain/tool-reply-stream-parser.js",
@@ -4161,8 +4161,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "17a3245d2c7a6b6ddf94425aa76aeb23313153fd71a9c36c1beabf2bf189c4a5",
-      "size": 326234
+      "sha256": "3c937db2d052271b92910584089650f40d091d3ae7442cacfded642631448d3e",
+      "size": 326388
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9591,9 +9591,9 @@
     }
   ],
   "archive": {
-    "commit": "63abc096db5b3231fab49a63c11d67c607cbf221",
+    "commit": "18a5f6bcc753a282cec5a7a9ed1e1095356e6597",
     "path": "runtime.zip",
-    "sha256": "6ffd50f29d62495925807b23b95d997cc1fc02134b79a61fd9d702bf8400cf4d",
-    "size": 16962486
+    "sha256": "f3ab419a6fd56730259def409d4ca2d6773a1283944ad2868aca9aa5e55eb10b",
+    "size": 16963711
   }
 }
