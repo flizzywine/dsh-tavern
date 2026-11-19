@@ -114,7 +114,8 @@ export const LATEST_GOOGLE_VERTEX_MODELS = Object.freeze({
   'chat:gemini-3.8-flash': vertexModel('gemini-3.8-flash', 'Gemini 3.8 Flash', { input: 0.75, output: 3.75, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_ALL }),
   'chat:gemini-4-argon': vertexModel('gemini-4-argon', 'Gemini 4 Argon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
   'chat:gemini-4-carbon': vertexModel('gemini-4-carbon', 'Gemini 4 Carbon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
-  'chat:gemini-4-hydrogen': vertexModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen', { input: 1.5, output: 7.5, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
+  'chat:gemini-4-hydrogen': vertexModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
+  'chat:gemini-4-neon': vertexModel('gemini-4-neon', 'Gemini 4 Neon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
 })
 
 /**

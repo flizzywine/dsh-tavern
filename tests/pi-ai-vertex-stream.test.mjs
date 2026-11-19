@@ -48,6 +48,7 @@ test('Vertex 流式工具参数门控：Gemini 3+ 开启，排除 2.5、3.1-flas
     'gemini-4-argon',
     'gemini-4-carbon',
     'gemini-4-hydrogen',
+    'gemini-4-neon',
   ]) {
     assert.equal(supportsVertexStreamFunctionCallArguments(id), true, id)
   }
@@ -411,7 +412,7 @@ function buildParams(model, context, options = {}) {
   assert.ok(vertexAfterPatch.includes('function vertexResolveThinkingLevel'))
 
   const modelsAfter = JSON.parse(await readFile(modelsFile, 'utf8'))['google-vertex']
-  for (const key of ['chat:gemini-4-argon', 'chat:gemini-4-carbon', 'chat:gemini-4-hydrogen', 'chat:gemini-3.5-flash-lite', 'chat:gemini-3.1-flash-lite-image']) {
+  for (const key of ['chat:gemini-4-argon', 'chat:gemini-4-carbon', 'chat:gemini-4-hydrogen', 'chat:gemini-4-neon', 'chat:gemini-3.5-flash-lite', 'chat:gemini-3.1-flash-lite-image']) {
     assert.ok(modelsAfter[key], `模型目录应包含 ${key}`)
   }
 
@@ -476,6 +477,7 @@ test('Vertex global 端点：有 project 的目录写 collection URL，没 proje
   // Gemini 3/4 只在 global 上线；gemini-2.5-* 反过来只在区域里有 —— 只改前者。
   const models = vertexModelsWithGlobalBaseUrl('379270002840')
   assert.equal(models['chat:gemini-4-hydrogen'].baseUrl, global)
+  assert.equal(models['chat:gemini-4-neon'].baseUrl, global)
   assert.equal(models['chat:gemini-4-carbon'].baseUrl, global)
   assert.equal(models['chat:gemini-3.8-flash'].baseUrl, global)
   assert.equal(models['chat:gemini-2.5-flash'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
