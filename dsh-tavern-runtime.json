@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d4d1a2ad787f0579f062da841fbf417f42832137",
-  "releaseSequence": 1789,
+  "revision": "4b47e7ca1ce339e184fcbf896ca9ddf2cc87b89f",
+  "releaseSequence": 1790,
   "version": "3.3.0",
   "files": [
     {
@@ -1071,8 +1071,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "93cb1d38c53436f8d087d06bba0eeba39bcb71809e7882ab84dc752981d0b2d0",
-      "size": 6343541
+      "sha256": "d671cb6ee1f383a5f5b3e50146890f816ae1ef1de53636e895ff4e21a944ded0",
+      "size": 6344181
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6296,8 +6296,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/asset-packs/manifest.js",
-      "sha256": "254c58cdb0c2ed7e8927fff638737342ee7d6f97429bc92979c65f541bb641e7",
-      "size": 21957
+      "sha256": "1b3dc43e2390e6833444cb2aec4ad8fab841942e3854a932050a596ed3491808",
+      "size": 22832
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/asset-packs/protocol.d.ts",
@@ -6646,8 +6646,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/transport.js",
-      "sha256": "96499094d831385aa34c9a7f3faf2525e525737f468ee5bcb38208fa057c3c50",
-      "size": 25247
+      "sha256": "6d19d48582a3687937fe82e5673cb25d3ed754659f2f82b205442439e1a7701c",
+      "size": 25256
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/validation.js",
@@ -9576,9 +9576,9 @@
     }
   ],
   "archive": {
-    "commit": "94472f81faf8ead0502e8c432fec00b0ff2ea901",
+    "commit": "ae4b359e1ad2f54b33513c6cc285b9281105f484",
     "path": "runtime.zip",
-    "sha256": "36f8e066c706fa1cb482bc242243122374391fdcd9ee77ea2f333d1613d804da",
-    "size": 16951304
+    "sha256": "3db031162a97d124a318f30cea64677ad0227997243b91e1b640b5f3b1659882",
+    "size": 16951817
   }
 }
