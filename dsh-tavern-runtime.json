@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "09f047aea296487f20c0b7e66caa033f3c1232e9",
-  "releaseSequence": 1829,
+  "revision": "66681da05b080f028bc627b1cf99135b112b8e31",
+  "releaseSequence": 1830,
   "version": "3.3.0",
   "files": [
     {
@@ -6576,8 +6576,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/public-export.js",
-      "sha256": "d4ae5938b8129f8bcc64c774eba3eacef4c7e2f36d6a25246a354e8e3efcea1e",
-      "size": 2250
+      "sha256": "537a6d4fdf9f7535e0d3887e9d410a18e906cc81929e95f7e22a6c027dca0fa6",
+      "size": 2567
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/remove-figure-emotion.js",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "c4125ded2aa59152cab5133302bc17de6bd8c9ac",
+    "commit": "b1837ea0df972dc487747e324af8d756a991eca6",
     "path": "runtime.zip",
-    "sha256": "f0c5a59bbe41d70ab0f76f2587653fe48618bfcdaba03d6655b332fc4c6018a8",
-    "size": 17006949
+    "sha256": "91a9fc70912204800479ce475b1325f7aadf43db3a1e18e106d81f9ad862a811",
+    "size": 17007004
   }
 }
