@@ -754,5 +754,13 @@ test('剧情罗盘目标导向 RPC 全链路：设置目标、重推剧情树、
   mounted.dispose()
 })
 
-
+test('插件候选联动 runner 通过 liveTavernView.getSnapshot 读取最新消息 ID', async () => {
+  const source = await readFile(new URL('../tavern-plugin/src/client/features/play-controls.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /liveTavernView\.snapshot\(/, 'liveTavernView 没有 snapshot 方法，必须使用 getSnapshot')
+  assert.match(
+    source,
+    /attachCandidateRunner\(async function \(sessionId, guidance\) \{[\s\S]*?liveTavernView\.getSnapshot\(sessionId\)/,
+    'attachCandidateRunner 应调用 liveTavernView.getSnapshot(sessionId)'
+  )
+})
 

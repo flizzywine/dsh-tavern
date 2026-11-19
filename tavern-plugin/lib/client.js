@@ -65139,7 +65139,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			installTavernAssetLaunchers(ctx, slots);
 			ctx.effect(function () {
 				return tavernUiExtensions.attachCandidateRunner(async function (sessionId, guidance) {
-					const snap = liveTavernView.snapshot(sessionId);
+					const snap = liveTavernView.getSnapshot(sessionId);
 					const msgId = String((snap && snap.view && snap.view.latestAssistantMessageId) || "");
 					await submitCandidateTask(sessionId, msgId, String(guidance || ""));
 					liveTavernView.invalidate(sessionId);
