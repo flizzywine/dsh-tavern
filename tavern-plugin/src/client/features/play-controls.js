@@ -103,7 +103,9 @@
                 React, rpc, useLiveTavernView, useTavernSessionMode, isPlayMode,
                 invalidateView: sessionId => liveTavernView.invalidate(sessionId),
                 notifyTavernDataChanged,
-                UserPreferenceProfileTab, TavernConversationWritingSkills, backgroundModelLabel
+                // the stage row opens 舞台设置, a tab of the same panel.
+                openTab: openSidebarTab,
+                packUi, UserPreferenceProfileTab, backgroundModelLabel
             });
 			function TavernConversationExportAction(props) {
                 // The header only needs session membership. Building a complete

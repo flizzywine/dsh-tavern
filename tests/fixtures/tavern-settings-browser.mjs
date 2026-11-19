@@ -5,7 +5,7 @@ import { chromium } from 'playwright'
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
 // stageClient: the page loads the built stage client through the core's hold and loader, as in production.
-export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
+export async function openTavernSettings(t, { settings, respond, exposeModelSlotGroups = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
   const executablePath = browserExecutable || process.env.PLAYWRIGHT_EXECUTABLE_PATH
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'], ...(executablePath ? { executablePath } : {}) })
   t.after(() => browser.close())
@@ -32,6 +32,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
       if (method === 'getTavernSettings') result = { settings: { defaultPlaySettings: { playerName: "你", backgroundTasks: { variables: true, posture: true } } } }
       // optional runtime detection is an offline settings read.
       else if (method === 'getLive2dRuntime') result = { core: '', installed: false, coreInstalled: false, displayInstalled: false, missing: ['core', 'display'] }
+      else if (method === 'getAssetEngineSettings') result = { revision: 'e1', writable: true, values: { stageToggles: { dialogue: false, stage: false } } }
       else if (method === 'getSpineRuntimeStatus') result = { installed: false, runtime: '', importSupported: true }
       else if (method === 'getWebSearchStatus') result = { provider: 'tavern-search', attempts: [] }
       else if (method === 'listPresets') result = { presets: [], activePresetPath: '' }
@@ -58,7 +59,8 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
   script += `window.__ModuleLoader__={load(definition){window.client=definition.factory(name=>name==='react'?modules.react:{});}};`
   await page.addScriptTag({ content: script })
   let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  if (exposeConversationModels) source = source.replace('function TavernConversationPlaySettings(props) {', 'window.__modelSlotsChat = TavernConversationPlaySettings; function TavernConversationPlaySettings(props) {')
+  // the core's slot rows component, for a page that also mounts the stage's settings (they take it as an option)
+  if (exposeModelSlotGroups) source = source.replace('function TavernModelSlotGroups({', 'window.__modelSlotGroups = TavernModelSlotGroups; function TavernModelSlotGroups({')
   await page.addScriptTag({ content: source })
   const section = provided ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
   await page.evaluate(async ({ section, provided, sessionId, stageClient, renderPropsCode }) => {
