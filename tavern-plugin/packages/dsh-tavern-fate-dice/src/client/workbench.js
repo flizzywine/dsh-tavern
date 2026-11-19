@@ -204,6 +204,7 @@ function WorkbenchPanel(props) {
   const hasGame = Boolean(gameId)
   const [tab, setTab] = useState('checks')
   const [view, setView] = useState(fdEmptyWorkbench)
+  const [settingsReady, setSettingsReady] = useState(false)
   const [checking, setChecking] = useState(false)
   const [toast, setToast] = useState('')
   const toastTimer = useRef(null)
@@ -232,6 +233,7 @@ function WorkbenchPanel(props) {
         viewRef.current = { ...data, settings: merged, damper: { ...(data.damper || base.damper), linkage: merged.damperLinkage } }
         return viewRef.current
       })
+      setSettingsReady(true)
     })
     const offSync = fdWatch(ui, gameId, 'workbench-sync', payload => {
       if (!alive || !payload) return
@@ -342,16 +344,15 @@ function WorkbenchPanel(props) {
   return h('div', { className: 'fd-root fd-workbench' },
     h('div', { className: 'fd-wb-top' },
       h('div', { className: 'fd-wb-head' },
-        h('div', null,
-          h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
-          h('p', { className: 'fd-wb-sub' }, !enabled
-            ? '在「检定设置」顶部开启或关闭命运之骰'
-            : (hasGame
-              ? '本局工作台：检定骰制、AI 能力画像与统计一眼看懂'
-              : '全局检定设置可随时编辑；进入任意对话后自动开启本局检定'))),
-        h('div', { className: 'fd-btn-row' },
-          h(FdBadge, { tone: enabled ? (hasGame ? 'ok' : 'off') : 'off' },
-            enabled ? '已开启' : '已关闭'))),
+        h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
+        h('div', { className: 'fd-btn-row fd-wb-toggle' },
+          h(FdSwitch, {
+            on: enabled,
+            disabled: !settingsReady,
+            label: '启用命运之骰',
+            onChange: next => persistSettings({ enabled: next })
+          }),
+          h('span', null, settingsReady ? (enabled ? '已开启' : '已关闭') : '读取中…'))),
       h('div', { className: 'fd-tabbar', role: 'tablist' },
         tabs.map(([value, label]) => h('button', {
           key: value,

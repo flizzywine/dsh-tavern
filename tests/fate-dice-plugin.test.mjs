@@ -54,10 +54,25 @@ test('内置命运之骰插件包 client.js 与源码保持同步', async () => 
   assert.equal(res.changed, false)
 })
 
-test('检定设置顶部的滑块可以开启和关闭命运之骰入口', async () => {
+test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能', async () => {
   const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
   let mod
-  const react = { createElement: (type, props, ...children) => ({ type, props, children }) }
+  let hook = 0
+  let mountPanel
+  const values = []
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    useState(initial) {
+      const index = hook++
+      if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial
+      return [values[index], next => { values[index] = typeof next === 'function' ? next(values[index]) : next }]
+    },
+    useRef(initial) {
+      const index = hook++
+      return values[index] ??= { current: initial }
+    },
+    useEffect(effect) { mountPanel = effect },
+  }
   vm.runInNewContext(clientCode, { console: quiet, window: { __ModuleLoader__: {
     load({ factory }) { mod = factory(() => react) },
   } } })
@@ -75,7 +90,7 @@ test('检定设置顶部的滑块可以开启和关闭命运之骰入口', async
     registerTurnView: () => register('turn-view'),
     registerStatusSection: () => register('status'),
     async callHost(name, payload) {
-      if (name === 'fate-dice:status') return { settings }
+      if (name === 'fate-dice:status' || name === 'fate-dice:workbench') return { settings }
       assert.equal(name, 'fate-dice:save-global-settings')
       settings = payload.settings
       return { ok: true, settings }
@@ -85,28 +100,38 @@ test('检定设置顶部的滑块可以开启和关闭命运之骰入口', async
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual([...registrations], ['panel'])
 
-  const renderSwitch = () => {
-    const tab = mod.__test.SettingsTab({
-      view: { settings },
-      actions: { persistSettings: patch => mod.__test.fdPersistSettings(ui, { ...settings, ...patch }) },
-    })
-    const header = tab.children[0]
-    assert.equal(header.props.title, '启用命运之骰')
-    const slider = header.children[0]
-    const button = slider.type(slider.props)
-    assert.equal(button.props.role, 'switch')
-    return button.props
+  const renderPanel = () => {
+    hook = 0
+    const tree = mod.WorkbenchPanel({ ui, gameId: 'g1' })
+    const [header, tabBar] = tree.children[0].children
+    assert.match(header.children[0].children[0], /命运之骰/)
+    const slider = header.children[1].children[0]
+    const toggle = slider.type(slider.props).props
+    assert.equal(toggle.role, 'switch')
+    assert.equal(toggle['aria-label'], '启用命运之骰')
+    return { toggle, tabs: tabBar.children[0] }
   }
-  assert.equal(renderSwitch()['aria-checked'], 'false')
-  await renderSwitch().onClick()
+  assert.equal(renderPanel().toggle.disabled, true)
+  const unmountPanel = mountPanel()
+  await new Promise(resolve => setImmediate(resolve))
+  const checks = renderPanel()
+  assert.equal(checks.tabs[0].props['aria-selected'], 'true')
+  assert.equal(checks.toggle.disabled, false)
+  assert.equal(checks.toggle['aria-checked'], 'false')
+  await checks.toggle.onClick()
   assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
-  assert.equal(renderSwitch()['aria-checked'], 'true')
-  await renderSwitch().onClick()
+
+  checks.tabs[1].props.onClick()
+  const config = renderPanel()
+  assert.equal(config.tabs[1].props['aria-selected'], 'true')
+  assert.equal(config.toggle['aria-checked'], 'true')
+  await config.toggle.onClick()
   assert.deepEqual([...registrations], ['panel'])
-  assert.equal(renderSwitch()['aria-checked'], 'false')
-  await renderSwitch().onClick()
+  assert.equal(renderPanel().toggle['aria-checked'], 'false')
+  await renderPanel().toggle.onClick()
   assert.equal(registrations.has('status'), true)
 
+  unmountPanel()
   for (const cleanup of cleanups) cleanup()
   assert.equal(registrations.size, 0)
 })

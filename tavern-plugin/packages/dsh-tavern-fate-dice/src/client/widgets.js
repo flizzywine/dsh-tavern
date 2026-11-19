@@ -2944,7 +2944,7 @@ function StatusDiceSection(props) {
     !enabled
       ? h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
         h('div', { className: 'fd-guide-banner-step' },
-          '命运之骰当前已关闭（默认关闭），可在右侧「插件 › 命运之骰 › 检定设置」中开启'))
+          '在「命运之骰」面板标题旁可开启检定'))
       : (judgeReady
         ? null
         : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },

@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ *
- * tab-settings.js —— 页签 2「检定设置」：全局总开关与检定参数
+ * tab-settings.js —— 页签 2「检定设置」：检定参数
  * 每一项都即时生效并自动保存（无草稿、无保存按钮），? 就地展开详细说明。
  * ------------------------------------------------------------------ */
 
@@ -13,11 +13,6 @@ function SettingsTab(props) {
   }
 
   return h(Fragment, null,
-    h(FdRow, {
-      title: '启用命运之骰',
-      sub: settings.enabled ? '已开启 · 对话中自动检定' : '已关闭 · 保留已有检定记录',
-      help: '开启后，符合条件的行动会自动检定，结果会写入本轮提示词。关闭后暂停自动检定，保留检定记录、命运点和能力画像。'
-    }, h(FdSwitch, { on: Boolean(settings.enabled), label: '启用命运之骰', onChange: next => apply({ enabled: next }) })),
     h(FdSection, {
       title: '⚙️ 检定设置',
       note: '改动即时生效 · 自动保存',

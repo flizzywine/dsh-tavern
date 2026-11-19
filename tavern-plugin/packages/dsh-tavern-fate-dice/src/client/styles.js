@@ -88,15 +88,10 @@ const CSS_TEXT = `
 
 .fd-wb-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   min-width: 0;
-}
-.fd-wb-head > div:first-child {
-  min-width: 0;
-  flex: 1 1 180px;
 }
 .fd-wb-title {
   margin: 0;
@@ -107,10 +102,8 @@ const CSS_TEXT = `
   align-items: center;
   gap: 6px;
 }
-.fd-wb-sub {
+.fd-wb-toggle {
   font-size: 12px;
-  opacity: 0.72;
-  margin: 2px 0 0;
 }
 
 .fd-tabbar {
@@ -309,6 +302,7 @@ const CSS_TEXT = `
   opacity: 0.55;
   transition: transform 0.16s ease, opacity 0.16s ease;
 }
+.fd-switch:disabled { opacity: 0.55; cursor: default; }
 .fd-switch.is-on {
   background: var(--fd-accent-soft);
   border-color: color-mix(in oklab, var(--fd-accent) 55%, transparent);

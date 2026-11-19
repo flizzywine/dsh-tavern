@@ -227,15 +227,10 @@ const CSS_TEXT = `
 
 .fd-wb-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   min-width: 0;
-}
-.fd-wb-head > div:first-child {
-  min-width: 0;
-  flex: 1 1 180px;
 }
 .fd-wb-title {
   margin: 0;
@@ -246,10 +241,8 @@ const CSS_TEXT = `
   align-items: center;
   gap: 6px;
 }
-.fd-wb-sub {
+.fd-wb-toggle {
   font-size: 12px;
-  opacity: 0.72;
-  margin: 2px 0 0;
 }
 
 .fd-tabbar {
@@ -448,6 +441,7 @@ const CSS_TEXT = `
   opacity: 0.55;
   transition: transform 0.16s ease, opacity 0.16s ease;
 }
+.fd-switch:disabled { opacity: 0.55; cursor: default; }
 .fd-switch.is-on {
   background: var(--fd-accent-soft);
   border-color: color-mix(in oklab, var(--fd-accent) 55%, transparent);
@@ -3018,9 +3012,10 @@ function FdChip(props) {
 }
 
 function FdSwitch(props) {
-  const { on, onChange, label } = props || {}
+  const { on, onChange, label, disabled } = props || {}
   return h('button', {
     type: 'button',
+    disabled,
     className: 'fd-switch' + (on ? ' is-on' : ''),
     role: 'switch',
     'aria-checked': on ? 'true' : 'false',
@@ -13514,7 +13509,7 @@ function StatusDiceSection(props) {
     !enabled
       ? h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
         h('div', { className: 'fd-guide-banner-step' },
-          '命运之骰当前已关闭（默认关闭），可在右侧「插件 › 命运之骰 › 检定设置」中开启'))
+          '在「命运之骰」面板标题旁可开启检定'))
       : (judgeReady
         ? null
         : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
@@ -14361,6 +14356,7 @@ function WorkbenchPanel(props) {
   const hasGame = Boolean(gameId)
   const [tab, setTab] = useState('checks')
   const [view, setView] = useState(fdEmptyWorkbench)
+  const [settingsReady, setSettingsReady] = useState(false)
   const [checking, setChecking] = useState(false)
   const [toast, setToast] = useState('')
   const toastTimer = useRef(null)
@@ -14389,6 +14385,7 @@ function WorkbenchPanel(props) {
         viewRef.current = { ...data, settings: merged, damper: { ...(data.damper || base.damper), linkage: merged.damperLinkage } }
         return viewRef.current
       })
+      setSettingsReady(true)
     })
     const offSync = fdWatch(ui, gameId, 'workbench-sync', payload => {
       if (!alive || !payload) return
@@ -14499,16 +14496,15 @@ function WorkbenchPanel(props) {
   return h('div', { className: 'fd-root fd-workbench' },
     h('div', { className: 'fd-wb-top' },
       h('div', { className: 'fd-wb-head' },
-        h('div', null,
-          h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
-          h('p', { className: 'fd-wb-sub' }, !enabled
-            ? '在「检定设置」顶部开启或关闭命运之骰'
-            : (hasGame
-              ? '本局工作台：检定骰制、AI 能力画像与统计一眼看懂'
-              : '全局检定设置可随时编辑；进入任意对话后自动开启本局检定'))),
-        h('div', { className: 'fd-btn-row' },
-          h(FdBadge, { tone: enabled ? (hasGame ? 'ok' : 'off') : 'off' },
-            enabled ? '已开启' : '已关闭'))),
+        h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
+        h('div', { className: 'fd-btn-row fd-wb-toggle' },
+          h(FdSwitch, {
+            on: enabled,
+            disabled: !settingsReady,
+            label: '启用命运之骰',
+            onChange: next => persistSettings({ enabled: next })
+          }),
+          h('span', null, settingsReady ? (enabled ? '已开启' : '已关闭') : '读取中…'))),
       h('div', { className: 'fd-tabbar', role: 'tablist' },
         tabs.map(([value, label]) => h('button', {
           key: value,
@@ -14907,7 +14903,7 @@ function ChecksTab(props) {
 
 /* ===== src/client/tab-settings.js ===== */
 /* ------------------------------------------------------------------ *
- * tab-settings.js —— 页签 2「检定设置」：全局总开关与检定参数
+ * tab-settings.js —— 页签 2「检定设置」：检定参数
  * 每一项都即时生效并自动保存（无草稿、无保存按钮），? 就地展开详细说明。
  * ------------------------------------------------------------------ */
 
@@ -14921,11 +14917,6 @@ function SettingsTab(props) {
   }
 
   return h(Fragment, null,
-    h(FdRow, {
-      title: '启用命运之骰',
-      sub: settings.enabled ? '已开启 · 对话中自动检定' : '已关闭 · 保留已有检定记录',
-      help: '开启后，符合条件的行动会自动检定，结果会写入本轮提示词。关闭后暂停自动检定，保留检定记录、命运点和能力画像。'
-    }, h(FdSwitch, { on: Boolean(settings.enabled), label: '启用命运之骰', onChange: next => apply({ enabled: next }) })),
     h(FdSection, {
       title: '⚙️ 检定设置',
       note: '改动即时生效 · 自动保存',
