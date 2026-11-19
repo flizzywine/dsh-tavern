@@ -82,10 +82,17 @@ test('手机上最多保留三个快捷入口，导出优先，其余进 ⋮', (
 })
 
 
-test('插件用同一分组名时，开始页合成一节，按侧栏顺序排列', () => {
+test('开始页区分常用资料与其他资料，同名插件分组按侧栏顺序合并', () => {
   const source = client.match(/const TAVERN_START_GROUPS = [\s\S]*?\n\t*\]\);\n/)[0] + client.match(/function tavernStartGroups\(options, pluginGroups\) \{[\s\S]*?\n\t*return groups;\n\t*\}/)[0]
   const groupsOf = vm.runInNewContext(source + '; tavernStartGroups', { Object, Set, Map, String, Array })
-  const options = ['a:settings', 'b:library', 'c:voice', 'x:other'].map(id => ({ id }))
+  const common = ['dsh-tavern:cards', 'dsh-tavern:worldbooks', 'dsh-tavern:presets']
+  const materials = ['dsh-tavern:guide-library', 'dsh-tavern:card-memory', 'dsh-tavern:regex-library', 'dsh-tavern:resources', 'dsh-tavern:skills']
+  const options = [...materials, ...common, 'a:settings', 'b:library', 'c:voice', 'dsh-tavern:transfer'].map(id => ({ id }))
   const groups = groupsOf(options, [{ title: '舞台装置', tabs: ['b:library'] }, { title: '舞台装置', tabs: ['c:voice', 'a:settings'] }])
-  assert.deepEqual(JSON.parse(JSON.stringify(groups.map(([title, found]) => [title, found.map(option => option.id)]))), [['舞台装置', ['a:settings', 'b:library', 'c:voice']], ['其他', ['x:other']]])
+  assert.deepEqual(Array.from(groups, ([title, found]) => [title, Array.from(found, option => option.id)]), [
+    ['资料库', common],
+    ['其他资料', materials],
+    ['舞台装置', ['a:settings', 'b:library', 'c:voice']],
+    ['其他', ['dsh-tavern:transfer']]
+  ])
 })
