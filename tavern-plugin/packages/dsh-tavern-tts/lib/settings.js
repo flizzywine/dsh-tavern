@@ -13,6 +13,7 @@ import { createMinimaxAdapter, MINIMAX_MODELS } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError, wav, durationMs } from './core.js'
 import { boundedFetch } from './providers/fetch.js'
 import { createModelValidation } from './model-validation.js'
+import { endpointHistory } from './endpoint-history.js'
 
 // 台词朗读: 通用声音 and 旁白 each point at one figure of the asset library ({packId, figureId}: they speak with that figure's
 // voice; null = the browser's default voice) and 旁白配音's global switch (off by default). Schemastery drops null defaults, so
@@ -135,6 +136,11 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     return (await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(f => describeSecret(p,f)))).some(s => !s.configured)
   }
   const record = id => { const p = get().providers.find(p => p.id === id); if (!p) fail('SERVICE_OFFLINE'); return p }
+  // 最近用过的连接 (endpoint-history.js): a service with a Base URL keeps the {网址, API Key} pairs it connected with.
+  const urlKind = kind => providerKind(kind).fields.some(f => f.key === 'url')
+  const recent = p => endpointHistory(credentials, credentialRef(p.id, 'recent'))
+  // a successful check of a saved service records the pair it used (written only when it is not already the latest).
+  const noteWorking = (p, result, secret) => { if (urlKind(p.kind) && ['connected','reachable'].includes(result.status)) return serial(() => recent(p).remember({url:p.config.url, key:secret?.key || ''})).catch(error => warn?.('dsh-tavern-tts: recent connection not recorded (' + (error?.code || 'error') + ')')) }
   // service setup flow.
   // Last connection check per saved service, kept in memory for this activation only.
   const checks = new Map(), onlineLists = new Map(), FAILED_READ_RETRY_MS = 3000
@@ -350,9 +356,9 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         p = { id:input.id || 'draft', kind:input.kind, config:providerConfig(input.kind, input.config) }
       } catch (e) { return { status:'invalid', message:e.message, voices:[], models:[], source:'none' } }
       const typed = Object.values(input.secrets || {}).some(Boolean)
-      const { error, ...result } = await check(p, await draftSecrets(p.kind, input.id, input.secrets || {}, p.config))
+      const secret = await draftSecrets(p.kind, input.id, input.secrets || {}, p.config), { error, ...result } = await check(p, secret)
       const saved = get().providers.find(s => s.id === input.id)
-      if (saved && saved.kind === p.kind && canonical(saved.config) === canonical(p.config) && !typed) remember(saved, {...result, error})
+      if (saved && saved.kind === p.kind && canonical(saved.config) === canonical(p.config) && !typed) { remember(saved, {...result, error}); await noteWorking(saved, result, secret) }
       return result
     },
     async voices({ id }) {
@@ -477,8 +483,10 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
           synthesize: async (spec, options) => {
             const identity = modelIdentity(p, spec.params?.model, spec.params?.voice)
             try {
-              const audio = await adapter.synthesize(p, await secrets(p), { ...spec, signal:options.signal, ...(options.onPcm ? {onPcm:options.onPcm} : {}) })
+              const secret = await secrets(p), audio = await adapter.synthesize(p, secret, { ...spec, signal:options.signal, ...(options.onPcm ? {onPcm:options.onPcm} : {}) })
               if (!options.signal?.aborted) validation.record(identity, null)
+              // a line spoken is a working connection too (a local server that starts on demand is rarely up for a check)
+              void noteWorking(p, {status:'connected'}, secret)
               return audio
             } catch (error) {
               if (!options.signal?.aborted) validation.record(identity, error)
@@ -510,7 +518,20 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         state:'configured', billing:r.billing, sources:r.sources, voiceList:r.voiceList || 'provider', voice:[], models:[]}))
       return {services:[...services, ...plugins, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
     },
-    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), ...await serviceModels(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
+    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), ...await serviceModels(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)]))),
+      ...(urlKind(p.kind) ? {recent:await recent(p).list({url:p.config.url, key:(await secrets(p)).key})} : {})} })) },
+    // 最近用过的连接: picking a recorded pair saves it as the service's Base URL and API Key together (the one save path), then
+    // it is the latest. Every other field stays. Answers the saved row, like save.
+    async useEndpoint({ id, entry, expectedRevision }) {
+      const p = record(id); if (!urlKind(p.kind)) fail('INVALID_INPUT')
+      const pair = await recent(p).take(entry)
+      await api.save({id:p.id, kind:p.kind, label:p.label, config:{...p.config, url:pair.url}, secrets:{key:pair.key}, expectedRevision})
+      await serial(() => recent(p).remember(pair)); changed()
+      return (await api.list()).find(s => s.id === id)
+    },
+    async renameEndpoint({ id, entry, label }) { const p = record(id); await serial(() => recent(p).rename(entry, label)); changed(); return {recent:await recent(p).list()} },
+    async forgetEndpoint({ id, entry }) { const p = record(id); await serial(() => recent(p).forget(entry)); changed(); return {recent:await recent(p).list()} },
+    async clearEndpoints({ id }) { const p = record(id); await serial(() => recent(p).clear()); changed(); return {recent:[]} },
     save(input) { return serial(async () => {
       const before = get(), old = before.providers.find(p => p.id === input.id)
       if (old && (input.expectedRevision !== hash(old) || old.kind !== input.kind)) fail('REVISION_CONFLICT')
@@ -550,7 +571,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     async test({id}) {
       const p = record(id), a = adapters[p.kind]; if (!a) fail('SERVICE_OFFLINE')
       const secret = await draftSecrets(p.kind, p.id), { error, ...result } = await check(p, secret)
-      remember(p, {...result, error})
+      remember(p, {...result, error}); await noteWorking(p, result, secret)
       const ok = ['connected','reachable'].includes(result.status)
       return {ok, status:result.status, ...(result.message ? {message:result.message} : {}), voiceCount:result.voices.length, reachable:ok,
         synthesisTested:result.synthesisTested === true, credentialScope:p.kind === 'qwen' ? 'models' : ['volcengine','openai-compatible'].includes(p.kind) && result.synthesisTested ? 'synthesis' : 'catalog'}

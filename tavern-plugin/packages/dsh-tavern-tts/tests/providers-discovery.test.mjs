@@ -544,7 +544,7 @@ test('a self-hosted server that is loading (503) reads 连不上 with its reason
 })
 test('the Fish cloud refusing a key is still an API Key problem',async t => {
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
-  const tts = createTts(), services = createServiceSettings({tts,fetch:async () => new Response('{}',{status:401}),get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async () => ({value:'bad'}),describe:async () => ({configured:true})})})
+  const tts = createTts(), services = createServiceSettings({tts,fetch:async () => new Response('{}',{status:401}),get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async ref => ref.endsWith('_KEY') ? {value:'bad'} : undefined,describe:async () => ({configured:true})})})
   t.after(async () => {services.dispose();await tts.dispose()})
   await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'},secrets:{}})
   await services.test({id:'fish'})
@@ -569,7 +569,7 @@ test('a failed cloud check expires, so a service that came back stops reading �
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}, offline = true
   const tts = createTts()
   const fetch = async () => { if (offline) throw new TypeError('fetch failed'); return Response.json({total:0,items:[]}) }
-  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})})})
+  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async ref => ref.endsWith('_KEY') ? {value:'k'} : undefined,describe:async () => ({configured:true})})})
   t.after(async () => {services.dispose();await tts.dispose()})
   await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'},secrets:{}})
   await services.test({id:'fish'})
