@@ -37,16 +37,16 @@ function modManagerError(error, nameOf) {
 // The managed mods of the profile (and of a card, with `cardId`). Every surface re-reads after any applied change
 // (dsh-tavern-mods-changed), so 高级设置 and 舞台设置 never disagree.
 function useManagedMods(rpc, cardId) {
-  const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false), life = React.useRef(0), latest = React.useRef(null);
+  const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false), life = React.useRef(0), latest = React.useRef(null), loadFailed = React.useRef(false);
   latest.current = data;
   const nameOf = id => latest.current?.mods.find(row => row.id === id)?.name;
   const reload = async () => {
     const own = life.current;
-    try { const next = await rpc('managedModsList', cardId ? { cardId } : {}); if (own === life.current) { setData(next); setError(''); } return next; }
-    catch (e) { if (own === life.current) setError(modManagerError(e, nameOf)); }
+    try { const next = await rpc('managedModsList', cardId ? { cardId } : {}); if (own === life.current) { const cleared = loadFailed.current; loadFailed.current = false; setData(next); setError(shown => cleared ? '' : shown); } return next; }
+    catch (e) { if (own === life.current) { loadFailed.current = true; setError(modManagerError(e, nameOf)); } }
   };
   React.useEffect(() => {
-    life.current++; setData(null); setError(''); reload();
+    life.current++; setData(null); loadFailed.current = false; setError(''); reload();
     const changed = () => reload(), events = typeof window === 'undefined' ? null : window;
     events?.addEventListener('dsh-tavern-mods-changed', changed);
     return () => { life.current++; events?.removeEventListener('dsh-tavern-mods-changed', changed); };
@@ -54,7 +54,7 @@ function useManagedMods(rpc, cardId) {
   // One host call at a time; a failure shows here in words and is rethrown to stop the caller.
   async function task(run) {
     const own = life.current;
-    setBusy(true); setError('');
+    setBusy(true); loadFailed.current = false; setError('');
     try { return await run(latest.current); }
     catch (e) { if (own === life.current) setError(modManagerError(e, nameOf)); throw e; }
     finally { if (own === life.current) setBusy(false); }
