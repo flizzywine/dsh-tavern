@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "50592cb8c859937c2997c8337eef60df0fdde2a9",
-  "releaseSequence": 1809,
+  "revision": "5b526bcab893b9f6a45a3ffec969579faf4b37a1",
+  "releaseSequence": 1810,
   "version": "3.3.0",
   "files": [
     {
@@ -1141,8 +1141,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-pack-speech.js",
-      "sha256": "cc8a5bdd4c1f10ecc96888e4ffd958b341ce1673848f2361f103d3b86cd14f5e",
-      "size": 13410
+      "sha256": "08a33dc22213a5917fa7d63beff92a5dab72a870b79fff18a3e270fc53bedb91",
+      "size": 13432
     },
     {
       "path": "tavern-plugin/lib/domain/asset-packs.js",
@@ -3361,8 +3361,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/speech.js",
-      "sha256": "2072354e53ae6f2055cd18a11e7a383f7d87627c1cb085dad62598fe428dbf6c",
-      "size": 11220
+      "sha256": "b6b0724900d2a6ec4aa86c405df9c71c1f71002c83a41b54363edaf826f9fc78",
+      "size": 11243
     },
     {
       "path": "tavern-plugin/lib/domain/sprite-blink-patch.js",
@@ -8321,8 +8321,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/asset-runtime.js",
-      "sha256": "9aa76042fb90a70b48bc7a69a84b8f73b7e5e0c91b152b68c51cc166511f8f2a",
-      "size": 9383
+      "sha256": "57677d59df1625005b1f3644177fa018f779c591dfbea6eb2556f9a09cd99b1b",
+      "size": 9405
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js",
@@ -8841,8 +8841,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/client.js",
-      "sha256": "dcb5479c41e050229a7008d3ff77bf6c561991ec54d60c7bc9c5e57657aa7942",
-      "size": 93983
+      "sha256": "bf9b7f56ac4b63cf3c6323bbebac86c97182cce21d3d89db8aae37fdd25a85d7",
+      "size": 94795
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/core.js",
@@ -8856,8 +8856,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/index.js",
-      "sha256": "954b7c90528e0d5735fcc8552fab552d07a7632cc5111a4dcdebeec613024c8f",
-      "size": 14436
+      "sha256": "ab840c7e23605885e45281b2dc9d779d64c1e0cb1efcb2c0106c6b32ad13fcd5",
+      "size": 15368
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/jobs.js",
@@ -8991,8 +8991,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/routes.js",
-      "sha256": "21903eb76ddd6175304cdf487076a468e1076aa04adcfdf26fb71cf8f36ef6a3",
-      "size": 8304
+      "sha256": "d4a8006f0af74215088a431502a355275c2355280de4b5344f1f53f5d8ba80d7",
+      "size": 8328
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/sample-cache.js",
@@ -9001,8 +9001,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/service.js",
-      "sha256": "d3797184ee0d345c50b4d43a79cbb14b329fb32056031390acdfb5ac77ea074a",
-      "size": 37957
+      "sha256": "03a78c7b86e4476f89bae0670bcc6243751e432f51c9a0a8f84c05feff766f41",
+      "size": 38152
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/settings-config.js",
@@ -9011,8 +9011,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/settings.js",
-      "sha256": "cd29434abd05ca72c1a9df7b4e362003496a6834ed9f4daa6fff1e7d9c53aad9",
-      "size": 47740
+      "sha256": "de5c12772340b40dc058bd91db95c73d83033d56354bbed5e0ea36a71a411cad",
+      "size": 47863
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/azure-voices.json",
@@ -9081,8 +9081,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/voice-resolver.js",
-      "sha256": "5962dfbd6bb9caa9f6073548b1e3a7c660429973fa45a20409f3b83b1f81f5f2",
-      "size": 3071
+      "sha256": "41a51f30f548bd35e126c2e7c37151d52dd669c02bcac3c09f4994d44ef73ffe",
+      "size": 3388
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/LICENSE",
@@ -9601,9 +9601,9 @@
     }
   ],
   "archive": {
-    "commit": "96a9e918a4abc190fc8df52c2c40bc276d2eede9",
+    "commit": "c0e61149470fa089230d2fe54756699b2d04727e",
     "path": "runtime.zip",
-    "sha256": "7d70d5eeb88e7bb3b810438d924a7a99d18cc65c4ce2bcce17f8599db986a2b1",
-    "size": 16970819
+    "sha256": "2cc46a392d0bb2fa169a8f46e6a8e0d168c0b5f8523f0ad530ffcb8c5d14c269",
+    "size": 16971449
   }
 }
