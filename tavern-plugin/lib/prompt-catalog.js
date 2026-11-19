@@ -8,7 +8,7 @@ export const SYSTEM_PROMPT_DEFINITIONS = Object.freeze([
   ['style-reference', '文风联想正文补充', '开启「文风联想」后，与前台文风选段要求一起提供，告诉正文 Agent 怎样借鉴。'],
   ['polish', '正文精修原则', '重写面板点「精修」时使用：模型按这份标准审读最后一轮正文，列出修改并直接替换，前后对比在「精修对比」页。可以改审稿标准；精修 Agent 通过工具逐处提交修改，程序会校验原文定位后应用。修改后下一次精修生效。'],
   ['polish-guidance', '精修按意见修改', '重写面板填了意见再点「精修」时使用：先按「正文精修原则」改完，再按这份要求只照玩家的意见改一次。精修 Agent 通过工具逐处提交修改。修改后下一次精修生效。'],
-  ['candidate-story', '普通剧情候选项', '控制普通剧情候选项的数量、类型和输出格式。'],
+  ['candidate-story', '普通剧情候选项', '用于大量候选模式，控制角色行动、事件、场景与精选组合。少量模式采用固定的 4 条行动和 1 条场景切换。'],
   ['candidate-script', '剧本候选项', '控制剧本模式候选项及剧本推进规则。'],
   ['posture-settlement', '姿势状态结算', '控制后台姿势结算的工具提交。'],
   ['story-compaction', '前台上下文压缩', '用于前台手动和自动压缩：把更早的剧情写成摘要，最近 10 轮原文原样附在摘要后。修改后下次压缩生效；后台仍使用 DSH 内置压缩提示词。'],
@@ -18,7 +18,7 @@ export const SYSTEM_PROMPT_DEFINITIONS = Object.freeze([
 export const SYSTEM_PROMPT_NAMES = Object.freeze(SYSTEM_PROMPT_DEFINITIONS.map(function (item) { return item.name }))
 
 const knownNames = new Set([...SYSTEM_PROMPT_NAMES,
-  'dice', 'bubble-format', 'bubble-voice-format', 'phone-call', 'card-reference', 'card-task-edit', 'card-task-extract', 'card-task-script',
+  'candidate-story-compact', 'dice', 'bubble-format', 'bubble-voice-format', 'phone-call', 'card-reference', 'card-task-edit', 'card-task-extract', 'card-task-script',
   'card-task-worldbook', 'card-task-preset', 'card-task-debug-play'
 ])
 

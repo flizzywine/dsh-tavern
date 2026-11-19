@@ -625,7 +625,7 @@ export function createNativePlayOrchestrationStrategy(options) {
       if (text) sections.push({ name: 'tavern:foreground-style-reference', text })
     }
     if (mode === 'story' && options.foregroundCandidatePrompt) {
-      const text = options.foregroundCandidatePrompt(input.chat)
+      const text = await options.foregroundCandidatePrompt(input.chat)
       if (text) sections.push({ name: 'tavern:foreground-candidates', text })
     }
     assembly.sections = sections

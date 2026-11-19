@@ -148,9 +148,12 @@ function validatedChoices(source, scriptMode, logger) {
   return actions.slice(0, 4).concat(scenes.slice(0, 1))
 }
 
-function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGlobal = false, logger } = {}) {
+function parseSubmittedChoices(args, { card, chat, scriptMode = false, expanded, lenientGlobal = false, logger } = {}) {
   const payload = args !== null && typeof args === 'object' ? args : {}
   if (Array.isArray(payload.actors) && payload.actors.length > 0) {
+    if (!scriptMode && expanded === false && !lenientGlobal) {
+      throw new Error('少量候选请提交 actions（4 条行动）和 scene（1 条场景切换）')
+    }
     const seenTexts = new Set()
     const actorMap = new Map()
     for (const entry of payload.actors) {
@@ -212,6 +215,11 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
     for (const [name, actions] of actorMap.entries()) {
       if (actions.length > 0) groups.push({ name, actions })
     }
+    // An in-flight or older foreground reply can still carry the grouped format.
+    if (expanded === false) {
+      const actions = groups.flatMap(group => group.actions.map(item => ({ type: 'action', ...item })))
+      return validatedChoices(actions.concat(scenes.map(item => ({ type: 'scene', ...item }))), false, logger)
+    }
     const featuredChoices = []
     const rawFeatured = Array.isArray(payload.featured) ? payload.featured : []
     for (const entry of rawFeatured) {
@@ -272,6 +280,9 @@ function parseSubmittedChoices(args, { card, chat, scriptMode = false, lenientGl
     return choices
   }
 
+  if (!scriptMode && expanded === true && !lenientGlobal) {
+    throw new Error('大量候选请提交 actors、event、scene 和多角色精选 featured')
+  }
   const rawActions = Array.isArray(payload.actions) ? payload.actions : []
   const actions = rawActions.map(function (item) {
     const text = typeof item === 'string' ? item : str(item && item.text)
@@ -330,9 +341,19 @@ export const FOREGROUND_CANDIDATES_PROMPT = [
   '</foreground_story_candidates>'
 ].join('\n')
 
-export function foregroundCandidatePrompt(chat) {
+const COMPACT_FOREGROUND_CANDIDATES_PROMPT = [
+  '<foreground_story_candidates>',
+  'After finishing the story prose, append exactly four distinct immediate actions and one scene transition for the next turn, in the story\'s language. Use this flat JSON block at the end of the prose (inside submit_story content when using tool submission):',
+  '<story_choices>',
+  '{"actions":["...","...","...","..."],"scene":"..."}',
+  '</story_choices>',
+  'Keep each choice short and concrete. End the reply at the closing tag.',
+  '</foreground_story_candidates>'
+].join('\n')
+
+export function foregroundCandidatePrompt(chat, expanded = false) {
   if ((chat?.mode || 'story') !== 'story' || chat?.backgroundTasks?.foregroundCandidates !== true) return ''
-  return FOREGROUND_CANDIDATES_PROMPT
+  return expanded ? FOREGROUND_CANDIDATES_PROMPT : COMPACT_FOREGROUND_CANDIDATES_PROMPT
 }
 
 // What may follow the real choices block: whitespace, comments, and the card
@@ -350,7 +371,7 @@ const CHOICES_TAIL_RE = /^(?:\s*(?:<!--[\s\S]*?-->|<\/?[a-zA-Z][\w:.-]*(?:\s[^>]
  * first-match search cut the round at that quote: the save then kept only the planning
  * text before it as the body, and the round showed an empty story.
  */
-export function extractForegroundStoryChoices(rawText, { card, chat, logger } = {}) {
+export function extractForegroundStoryChoices(rawText, { card, chat, expanded, logger } = {}) {
   const source = str(rawText)
   const lower = source.toLowerCase()
   const open = lower.lastIndexOf(FOREGROUND_CHOICES_OPEN_TAG)
@@ -365,7 +386,7 @@ export function extractForegroundStoryChoices(rawText, { card, chat, logger } = 
   if (payload === '') return { proseText, choices: null, hadTag: true }
   try {
     const parsed = parseJsonLenient(payload)
-    const choices = parseSubmittedChoices(parsed, { card, chat, scriptMode: false, lenientGlobal: true, logger })
+    const choices = parseSubmittedChoices(parsed, { card, chat, expanded, lenientGlobal: true, logger })
     return { proseText, choices, hadTag: true }
   } catch (_error) {
     return { proseText, choices: null, hadTag: true }
@@ -419,6 +440,20 @@ export const CANDIDATE_SUBMIT_TOOL = Object.freeze({
       }
     }
   })
+})
+
+const COMPACT_CANDIDATE_SUBMIT_TOOL = Object.freeze({
+  name: CANDIDATE_SUBMIT_TOOL_NAME,
+  description: '提交本轮少量候选。actions 填 4 条行动，scene 填 1 条场景切换。',
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['actions', 'scene'],
+    properties: {
+      actions: { ...CANDIDATE_SUBMIT_TOOL.parameters.properties.actions, minItems: 4 },
+      scene: { type: 'string', minLength: 1 }
+    }
+  }
 })
 
 export const SCRIPT_READ_TOOL = Object.freeze({
@@ -573,6 +608,8 @@ export function createCandidateGenerator(options) {
     const selection = model.selection(chat)
     if (selection === null || selection === undefined) throw new Error('没有可用的模型配置')
     const scriptMode = mode === 'script'
+    const expanded = !scriptMode && (await options.expandedCandidates?.()) === true
+    const submitTool = scriptMode || expanded ? CANDIDATE_SUBMIT_TOOL : COMPACT_CANDIDATE_SUBMIT_TOOL
     let script = null
     let scriptWindow = null
     if (scriptMode) {
@@ -582,7 +619,7 @@ export function createCandidateGenerator(options) {
     }
     const backgroundTasks = await options.backgroundTasks?.(chat)
     const designEnabled = backgroundTasks?.characterDesign !== false
-    const task = prompt(scriptMode ? 'candidate-script' : 'candidate-story')
+    const task = prompt(scriptMode ? 'candidate-script' : expanded ? 'candidate-story' : 'candidate-story-compact')
     const preparedWorldbook = typeof options.worldBookContext === 'function' ? await options.worldBookContext(chat, card) : undefined
     const constantWorldBookContext = preparedWorldbook !== undefined ? preparedWorldbook.context : typeof options.stableWorldBookContext === 'function'
       ? await options.stableWorldBookContext(chat, card) : ''
@@ -601,7 +638,13 @@ export function createCandidateGenerator(options) {
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = PROMPT_PROSE.p001
-    if (guidance !== '') request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + (scriptMode ? TASK_PROMPT_PROSE.p003 : TASK_PROMPT_PROSE.p004)
+    if (!scriptMode) request += expanded
+      ? '\nFor this request, use grouped actors, event, scene, and featured combinations as specified above.'
+      : '\nFor this request, submit only actions (exactly 4) and scene (exactly 1).'
+    if (guidance !== '') {
+      const rules = scriptMode ? TASK_PROMPT_PROSE.p003 : expanded ? TASK_PROMPT_PROSE.p004 : '4-action and 1-scene count or type rules.'
+      request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + rules
+    }
     // A synced participant revision records task commits, not delivery of story text.
     // Always anchor choices in the current timeline, even in a persistent background session.
     const recentMessages = buildMessages(chat, card, selection, now)
@@ -629,7 +672,7 @@ export function createCandidateGenerator(options) {
       if (call && call.name === CANDIDATE_SUBMIT_TOOL_NAME) {
         try {
           const args = call.arguments !== null && typeof call.arguments === 'object' ? call.arguments : parseJsonLenient(call.arguments)
-          submittedChoices = parseSubmittedChoices(args, { card, chat, scriptMode, lenientGlobal: false, logger })
+          submittedChoices = parseSubmittedChoices(args, { card, chat, scriptMode, expanded, logger })
           submissionError = null
           return JSON.stringify({ ok: true, accepted: submittedChoices.length })
         } catch (error) {
@@ -672,7 +715,7 @@ export function createCandidateGenerator(options) {
       try {
         await reportStage('generating')
         run = await model.runCandidate(Object.assign({}, callOptions, {
-          tools: [...(scriptMode ? [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL] : []), ...(designEnabled ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), CANDIDATE_SUBMIT_TOOL],
+          tools: [...(scriptMode ? [SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL] : []), ...(designEnabled ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), submitTool],
           onToolCall,
           maxToolCalls: scriptMode ? 15 : 10,
           stopToolsWhen: function () { return submittedChoices !== null },

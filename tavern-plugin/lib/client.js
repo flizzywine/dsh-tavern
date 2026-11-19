@@ -50204,25 +50204,6 @@ function askTavernCardPackWay(file, staged) {
             return mode;
         }
 
-        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）: the candidate card splits into 精选 / 角色 / 全局 tabs only
-        // while this switch is on; off (the shipped default) keeps the flat 精选 list. Reread on every settings save so a
-        // switch flipped in 设置 reaches an open game without a reload.
-        function useCandidateTabPreference() {
-            const [enabled, setEnabled] = React.useState(false);
-            React.useEffect(function () {
-                let active = true;
-                function read() {
-                    rpc("getCandidatePreferences").then(result => {
-                        if (active) setEnabled(result && result.candidateTabs === true);
-                    }, () => {});
-                }
-                read();
-                window.addEventListener("dsh-tavern-settings-changed", read);
-                return () => { active = false; window.removeEventListener("dsh-tavern-settings-changed", read); };
-            }, []);
-            return enabled;
-        }
-
 
         function CandidatePreferencesSettings() {
             const mode = useCandidatePreferences();
@@ -50566,7 +50547,11 @@ function askTavernCardPackWay(file, staged) {
                         card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                             sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
-                            sw("candidateTabs", "候选多角色 / 全局 Tab", "候选项按在场角色和全局事件分成「精选 / 角色 / 全局」几组 Tab 切换，默认停在精选。关闭后候选卡只显示精选一组，不再出现 Tab 条。改动立即生效。", false),
+                            h(TavernSettingRow, { title: "候选项数量", help: "少量候选生成 4 条行动和 1 条场景切换，直接平铺。大量候选按角色和全局事件分组，另生成精选组合。下次生成或重新生成候选项时生效。剧本模式仍生成 1 条。" },
+                                h(InlineField, { kind: "menu", label: "候选项数量", hideLabel: true, disabled: state.loading || state.busy,
+                                    value: state.settings?.candidateTabs === true ? "expanded" : "compact",
+                                    options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+                                    onCommit: value => saveDefault("candidateTabs", value === "expanded") })),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );
@@ -61666,9 +61651,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const [sendOnPick, setSendOnPick] = React.useState(false);
         const [added, setAdded] = React.useState([]);
         const [activeTab, setActiveTab] = React.useState("featured");
-        // 设置 › 高级 › 候选多角色 / 全局 Tab（默认关闭）。必须留在下面「没有候选项就 return null」的早退之前：
-        // 早退那一版渲染不经过这里，hook 数就会在候选项到手时多出两个，React 会以 #310 崩掉整个输入区槽位。
-        const showTabs = typeof useCandidateTabPreference === "function" ? useCandidateTabPreference() === true : false;
         const expanded = Boolean(panel && panel.expanded);
         function setExpanded(value) {
             if (panel) setCandidatePanel(Object.assign({}, panel, { expanded: value }));
@@ -61711,9 +61693,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const items = (panel.choices || []).map(function (choice, index) {
             return candidateTabs.normalizeCandidateChoice(choice, index, decode);
         });
-        const tabState = buildCandidateTabs(items, isScript);
-        // 开关已在函数顶部读好（hook 不能落在早退之后）：关闭时退回精选平铺，不渲染 Tab 条。
-        const tabs = showTabs || !tabState.hasTabs ? tabState : { hasTabs: false, tabs: [], current: { key: "featured", kind: "featured", items: tabState.tabs[0].items } };
+        const tabs = buildCandidateTabs(items, isScript);
         const currentTab = tabs.hasTabs ? (tabs.tabs.find(function (tab) { return tab.key === activeTab; }) || tabs.tabs[0]) : tabs.current;
         const visibleItems = currentTab.items;
         // 默认点击选项追加到输入框，再点一次移除；开启「直发」模式时直接入队发送。

@@ -394,7 +394,7 @@ function commitOfRound(commits, assistant, userText) {
 }
 
 export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch,
-  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationFrameCache, prepareRegenerationReply, notifyRegeneration, trace }) {
+  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationFrameCache, prepareRegenerationReply, extractForegroundChoices = extractForegroundStoryChoices, notifyRegeneration, trace }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard, readState: readChatState,
     readRevision: readChatRevision, update: updateChat } = chats
   const stage = (name, task) => trace?.stage ? trace.stage(name, task) : task()
@@ -775,7 +775,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         delete draft.ledgerInjection
       }
       const extractedForegroundChoices = (draft.mode || 'story') === 'story'
-        ? extractForegroundStoryChoices(body, { card, chat: draft })
+        ? await extractForegroundChoices(body, { card, chat: draft })
         : { proseText: body, choices: null, hadTag: false }
       body = str(extractedForegroundChoices.proseText).trim()
       const projectedReply = typeof prepareRegenerationReply === 'function'

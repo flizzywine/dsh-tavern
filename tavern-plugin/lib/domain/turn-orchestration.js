@@ -1123,7 +1123,7 @@ export function createTurnOrchestrator(options) {
       if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== rawAssistantText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
     }
     const extractedForegroundChoices = mode === 'story'
-      ? extractForegroundStoryChoices(rawAssistantText, { card: { name: chat.cardName }, chat })
+      ? await (options.extractForegroundChoices || extractForegroundStoryChoices)(rawAssistantText, { card: { name: chat.cardName }, chat })
       : { proseText: rawAssistantText, choices: null, hadTag: false }
     const sourceText = str(extractedForegroundChoices.proseText).trim()
     let assistantText = sourceText

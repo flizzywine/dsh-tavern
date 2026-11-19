@@ -165,7 +165,7 @@ import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { resolveRuntimePresetMacros } from './domain/runtime-presets.js'
 import { createApplicationUpdater } from './application-updater.js'
-import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator, foregroundCandidatePrompt } from './domain/candidate-generation.js'
+import { CANDIDATE_SUBMIT_TOOL, FOREGROUND_CHOICES_OPEN_TAG, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator, extractForegroundStoryChoices, foregroundCandidatePrompt } from './domain/candidate-generation.js'
 import { computeSceneTarget, projectedSceneText } from './domain/scene-illustration.js'
 import { createPluginMedia } from './domain/plugin-media.js'
 import { createPluginMediaViews } from './domain/plugin-media-views.js'
@@ -797,6 +797,13 @@ export async function apply(ctx) {
   async function readRawTavernSettings() {
     tavernSettingsDocument = await profileData.readJson(TAVERN_SETTINGS_PATH)
     return tavernSettingsDocument
+  }
+  async function readExpandedCandidates() {
+    return (await readRawTavernSettings())?.candidateTabs === true
+  }
+  async function extractConfiguredForegroundChoices(text, context) {
+    const expanded = text.toLowerCase().includes(FOREGROUND_CHOICES_OPEN_TAG) && await readExpandedCandidates()
+    return extractForegroundStoryChoices(text, { ...context, expanded })
   }
   async function updateTavernSettings(patch, { beforeWrite } = {}) {
     if (patch && (Object.hasOwn(patch, 'backgroundModel') || Object.hasOwn(patch, 'backgroundTasks') || Object.hasOwn(patch, 'webSearchEnabled'))) throw new Error('后台配置已移至顶栏的本局设置')
@@ -3794,6 +3801,7 @@ export async function apply(ctx) {
   ctx.effect(()=>()=>candidateWorldbookPreparation.dispose())
   const candidateGenerator = createCandidateGenerator({
     requestAnchor: contextHost.requestAnchor,
+    expandedCandidates: readExpandedCandidates,
     backgroundTasks: async chat => normalizeBackgroundTasks((await backgroundConfigForSession(chat.sessionId))?.backgroundTasks),
     store: {
       chatForSession: candidateContextReader.forSession,
@@ -4119,6 +4127,7 @@ export async function apply(ctx) {
     // Either direction needs submit_story declared: output to submit this turn,
     // input because the replayed history calls name that tool.
     prepareBodyGeneration: sessionId => pluginBodyGeneration.prepare(sessionId),
+    extractForegroundChoices: extractConfiguredForegroundChoices,
     bodyGeneration: sessionId => pluginBodyGeneration.route(sessionId),
     activeDamperRuling: (chatId, turn) => narrativeDamper.activeRuling(chatId, turn),
     storyToolCall: async () => (await readTavernSettings()).storyOutputToolCall,
@@ -4305,6 +4314,7 @@ export async function apply(ctx) {
   // ---------- 重新生成正文（生成即替换，无确认） ----------
   const { regenerate: nativeRegenBody, regenerateWithProvider, recover: recoverRegeneration, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback: undoRollbackTurn } = createRoundHistory({
     diagnostics: mvuDiagnostics,
+    extractForegroundChoices: extractConfiguredForegroundChoices,
     chats: { read: readChat, readState: taskStateReader.read, stateForSession: taskStateReader.forSession, forSession: chatForSession, readCard: readChatCard,
       readRevision: readChatRevision, write: writeChat, update: updateChat, patch: patchChat,
       readRecent: async chatId => {
@@ -4851,7 +4861,8 @@ export async function apply(ctx) {
     nativePlay: {
       // Input side: replay past bodies as calls of the submission tool.
       styleReferencePrompt: chat => foregroundStyleReferencePrompt(chat, runtimePrompt('style-reference-recall'), runtimePrompt('style-reference')),
-      foregroundCandidatePrompt: chat => foregroundCandidatePrompt(chat),
+      foregroundCandidatePrompt: async chat => chat?.backgroundTasks?.foregroundCandidates === true
+        ? foregroundCandidatePrompt(chat, await readExpandedCandidates()) : '',
       bodyGeneration: sessionId => pluginBodyGeneration.route(sessionId),
       historyToolCall: async () => (await readTavernSettings()).storyInputToolCall,
       // Output side: whether a new body must be submitted through the tool.

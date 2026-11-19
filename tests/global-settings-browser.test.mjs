@@ -224,13 +224,17 @@ test('开局默认功能区包含“后台任务附加预设”开关，默认�
   )
 })
 
-test('候选多角色 / 全局 Tab 在高级里默认关闭，打开后只保存这一项', async t => {
+test('候选项数量默认少量，可在原配置项切换为大量再切回', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
-  const toggle = page.getByRole('switch', {name:'候选多角色 / 全局 Tab', exact:true})
-  await toggle.waitFor()
-  assert.equal(await toggle.isChecked(), false, '出厂默认关闭')
-  await toggle.press('Space')
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="候选多角色 / 全局 Tab"]')?.checked === true)
+  const menu = page.locator('button[aria-label^="候选项数量："]')
+  await page.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
+  await menu.click()
+  await page.getByRole('menuitemradio', { name: '大量候选' }).click()
+  await page.locator('button[aria-label="候选项数量：大量候选"]:enabled').waitFor()
   assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {candidateTabs:true})
+  await menu.click()
+  await page.getByRole('menuitemradio', { name: '少量候选' }).click()
+  await page.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
+  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {candidateTabs:false})
 })

@@ -209,7 +209,6 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    useCandidateTabPreference: () => true,
     latestTavernAssistantMessageId: () => 'm-1', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -280,7 +279,6 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    useCandidateTabPreference: () => true,
     latestTavernAssistantMessageId: () => 'm-featured', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -327,6 +325,12 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
   assert.equal(draft, '【场景变化】走廊脚步声逼近之际，苏晚吹熄灯火退往暗门，众人直至次日清晨才在议事厅重新碰头')
   assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab')[0].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+
+  const compactChoices = choices.slice(0, 4).map(({ type, text }) => ({ type, text })).concat(choices[5]);
+  await act(async () => interactions.candidates.set({ sessionId: 'a', messageId: 'm-featured', phase: 'ready', expanded: true, choices: compactChoices }))
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-sub').textContent, '5 个')
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 0)
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length, 5)
 
   await act(async () => root.unmount())
 })
