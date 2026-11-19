@@ -2079,6 +2079,9 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-stage .ap-section-head h3, .ap-stage legend { gap: 8px; font-size: var(--fork-fs-body); letter-spacing: .24em; }
 .ap-stage .ap-section-body > .ap-opening-picker:not(.is-compact) { max-width: 420px; }
 .ap-loading { display: flex; align-items: center; gap: 8px; margin: 14px 0; color: var(--ap-ink-3); }
+/* 导出: 「正在导出「名」… 43%」 — the percent keeps its width while it counts. */
+.ap-export-state { margin: 8px 0; color: var(--fork-ink-2); }
+.ap-export-pct { font-variant-numeric: tabular-nums; }
 
 /* Controls. */
 .ap-ui button, .ap-file-button {

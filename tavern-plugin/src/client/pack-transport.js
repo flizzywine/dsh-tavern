@@ -1,6 +1,59 @@
+// Saving an export (素材包 「导出」, 素材库 batch export, 导出 DSH 人物卡) — the one implementation.
+// pickExportTarget runs first, inside the click: the native save-as dialog (one file, suggested `name`) or a folder
+// picker (`many`: a batch may come back as several volumes), so the player chooses where before any packing starts.
+// It resolves null where the browser has no picker (phones, remote browsers): the file then goes through an ordinary
+// download. It rejects with an AbortError when the dialog is closed.
+const PACK_ROOT = '/api/dsh-asset-library/v2/';
+function exportFileName(name) { return String(name || '').replace(/[\\/:*?"<>|\r\n]/g, '_').trim() || '导出'; }
+async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip'}) {
+    if (many ? typeof window.showDirectoryPicker !== 'function' : typeof window.showSaveFilePicker !== 'function') return null;
+    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite'})};
+    const file = await window.showSaveFilePicker({id:'dsh-export', suggestedName:exportFileName(name) + extension, types:[{description, accept:{'application/zip':[extension]}}]});
+    return {file};
+}
+// saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
+// {url} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
+// total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
+// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean}. A failed write removes the half-written file.
+async function saveExportFile(result, {target = null, name, onProgress, signal} = {}) {
+    const archives = result.archives || [result], names = [];
+    const fileName = archive => archives.length === 1 && name ? exportFileName(name) + (/\.[^.]+$/.exec(archive.filename || '')?.[0] || '.zip') : archive.filename || 'asset-pack.zip';
+    const source = archive => archive.download ? PACK_ROOT + 'download?ticket=' + encodeURIComponent(archive.download.ticket) : archive.url;
+    async function open(archive) {
+        const response = await fetch(source(archive), {credentials:'same-origin', signal});
+        if (!response.ok) { const text = await response.text().catch(() => ''); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status}); }
+        const total = Number(response.headers.get('content-length')) || 0;
+        // at most ~8 progress reports a second: one per chunk re-renders the page thousands of times for a large file.
+        let loaded = 0, shown = 0;
+        onProgress?.({loaded, total});
+        return response.body.pipeThrough(new TransformStream({
+            transform(chunk, out) { loaded += chunk.byteLength; const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
+            flush() { onProgress?.({loaded, total}); }}));
+    }
+    for (const archive of archives) {
+        const filename = fileName(archive);
+        if (target) {
+            const handle = target.file || await target.folder.getFileHandle(filename, {create:true});
+            try {
+                const body = archive.bytes ? new Blob([archive.bytes]).stream() : await open(archive);
+                // pipeTo commits the file when the body ends and discards the write on failure.
+                await body.pipeTo(await handle.createWritable(), {signal});
+            } catch (error) { await handle.remove?.().catch(() => {}); throw error; }
+            names.push(handle.name);
+            continue;
+        }
+        // no picker: a ticket or url goes to the browser's download manager as is (it streams); bytes go as a Blob.
+        const blob = archive.bytes ? new Blob([archive.bytes]) : archive.download ? null : await new Response(await open(archive)).blob();
+        const url = blob ? URL.createObjectURL(blob) : source(archive);
+        const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
+        if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
+        names.push(filename);
+    }
+    return {names, picked:!!target};
+}
 // browser port for the authenticated v2 package transport.
 function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {
-    const root = '/api/dsh-asset-library/v2/', listeners = new Set(), unavailable = new Set(), jobs = new Set();
+    const root = PACK_ROOT, listeners = new Set(), unavailable = new Set(), jobs = new Set();
     let active = true, ready = false, sequence = 0, timer, events, stopWs;
     const failure = code => Object.assign(new Error(code), {code});
     async function send(path, options = {}, binary = false, timeoutMs = 30000) {
@@ -66,8 +119,24 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
             xhr.send(body);
         });
     }
+    // an export with onProgress names itself (progressId) and polls exportProgress while the archive is written:
+    // onProgress({loaded, total}) in input bytes, the host's own count.
+    async function exportWithProgress(method, args, onProgress) {
+        const progressId = 'export-' + crypto.randomUUID();
+        let running = true;
+        const poll = async () => {
+            while (running) {
+                await new Promise(resolve => setTimeout(resolve, 400));
+                const row = running && await control('exportProgress', {progressId}).catch(() => null);
+                if (running && row) onProgress({loaded:row.done, total:row.total});
+            }
+        };
+        void poll();
+        try { return await control(method, {...args, progressId}); } finally { running = false; }
+    }
     async function call(method, input = {}) {
         const {onProgress, ...args} = input, tickets = [];
+        if ((method === 'exportPack' || method === 'exportPacks') && typeof onProgress === 'function') return exportWithProgress(method, args, onProgress);
         const progress = typeof onProgress === 'function' && typeof XMLHttpRequest === 'function' ? onProgress : null;
         const upload = async bytes => { const result = progress ? await sendWithProgress('upload', bytes, progress, 10 * 60000) : await send('upload', {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:bytes}, false, 10 * 60000); tickets.push(result.ticket); return result.ticket; };
         try {
@@ -159,14 +228,8 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
         settings:{read:() => control('settings'),save:args => control('saveSettings',args)},
         onUnavailable(fn) { unavailable.add(fn); return () => unavailable.delete(fn); },
         async bytes(result) { return result.bytes || send('download?ticket=' + encodeURIComponent(result.download.ticket), {}, true); },
-        async download(result) {
-            for (const archive of result.archives || [result]) {
-                // Let the browser download manager stream the authenticated attachment, not a renderer-sized Blob.
-                const url = archive.download ? root + 'download?ticket=' + encodeURIComponent(archive.download.ticket) : URL.createObjectURL(new Blob([archive.bytes]));
-                const anchor = document.createElement('a'); anchor.href = url; anchor.download = archive.filename || 'asset-pack.zip'; anchor.click();
-                if (!archive.download) setTimeout(() => URL.revokeObjectURL(url), 1000);
-            }
-        },
+        pickSave: pickExportTarget,
+        download: (result, options) => saveExportFile(result, options),
         start() { startStream(); },
         dispose() { if (!active) return; active = false; ready = false; details.clear(); clearTimeout(timer); stopWs?.(); stopWs = undefined; events?.close(); events = undefined; for (const job of jobs) job.abort(failure('ASSET_UNAVAILABLE')); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); listeners.clear(); unavailable.clear(); }
     };
