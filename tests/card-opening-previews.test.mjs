@@ -81,6 +81,17 @@ test('chained rules render the same button beside story text in previews, commit
   assert.deepEqual(reply.displayParts, expected)
 })
 
+test('committing an HTML opening preserves nested JavaScript state and resolves Tavern macros', () => {
+  const script = '<script>const state = {"player":{"name":"{{user}}"}};</script>\n'
+  const source = '{{unsupported}}\n```html\n' + script + '```'
+  const result = projectOpeningCommit(source, { macroState: { userName: '玩家' } })
+  assert.equal(result.sessionText, source.replace('{{unsupported}}', 'unsupported').replace('{{user}}', '玩家'))
+  assert.deepEqual(result.displayParts, [
+    { kind: 'markdown', text: 'unsupported\n' },
+    { kind: 'html', content: script.replace('{{user}}', '玩家') }
+  ])
+})
+
 test('a fenced status panel keeps its own frame beside an HTML opening', async () => {
   const opening = '<div>开场说明</div>\n'
   const status = '<div>状态栏</div>\n'

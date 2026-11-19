@@ -36,7 +36,9 @@ function macroProjection(value, options = {}) {
 
 /** Remove failed/unknown Tavern macro delimiters before text crosses into DSH. */
 export function sanitizeAgentProjectionText(value) {
-  return str(value).replaceAll('{{', '').replaceAll('}}', '')
+  // Only consume closing braces paired with a macro opener. Standalone
+  // closing braces can belong to nested objects in an HTML opening's script.
+  return str(value).replace(/\{\{([^{}]*)\}\}|\{\{/g, (_match, body) => body ?? '')
 }
 
 function contentProjection(value, options, preview, sanitizeForAgent) {
