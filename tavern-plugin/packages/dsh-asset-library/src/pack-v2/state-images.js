@@ -180,7 +180,7 @@ export function retainPublishedStateImages(before, after, avatarRewrites = new M
 export function replaceStateImageResolution(figure, sprites, input) {
   const {outfitKey,imageId,image,assets,renderer={},avatar,avatarCrop,avatarCropAuto,anatomy,removeImageId}=input
   const outfit=figure.outfits.find(o=>o.key===outfitKey),sprite=sprites[outfit?.sprite?.manifestKey],table=imageContract.spriteImageTable(sprite),pools=outfit?.sprite?.imagePools
-  check(sprite?.kind==='layered-static-sprites' && table?.[imageId] && (pools ? figure.schemaVersion===2 : !removeImageId && figure.emotions.some(state=>state.id===imageId)),'$.imageId','Resolution replacement requires an existing layered whole image')
+  check(['layered-static-sprites','static-sprites'].includes(sprite?.kind) && table?.[imageId] && (pools ? figure.schemaVersion===2 : !removeImageId && figure.emotions.some(state=>state.id===imageId)),'$.imageId','Resolution replacement requires an existing layered whole image')
   if(pools) {
     const active=Object.values(pools).some(pool=>pool.imageIds.includes(removeImageId||imageId))
     check(active||removeImageId&&!table[removeImageId]&&Object.values(pools).some(pool=>pool.imageIds.includes(imageId)),'$.imageId','Resolution target must be active')
@@ -251,18 +251,19 @@ function validateImageResolutions(before,after,rows) {
     const oldSprite=before?.sprites[oldOutfit?.sprite?.manifestKey],newSprite=after.sprites[newOutfit?.sprite?.manifestKey]
     const oldTable=imageContract.spriteImageTable(oldSprite),newTable=imageContract.spriteImageTable(newSprite)
     const old=oldTable?.[imageId],next=newTable?.[imageId]
-    check(old&&next&&oldSprite.kind==='layered-static-sprites'&&newSprite.kind===oldSprite.kind&&oldOutfit.sprite.manifestKey===newOutfit.sprite.manifestKey,'$.imageResolutions','Resolution target changed','REVISION_CONFLICT')
+    check(old&&next&&['layered-static-sprites','static-sprites'].includes(oldSprite.kind)&&newSprite.kind===oldSprite.kind&&oldOutfit.sprite.manifestKey===newOutfit.sprite.manifestKey,'$.imageResolutions','Resolution target changed','REVISION_CONFLICT')
     const original=imageClosure(oldOutfit,oldSprite,imageId),updated=imageClosure(newOutfit,newSprite,imageId)
     if(canonicalJson(original)!==canonicalJson(updated)) {
-      check(oldOutfit.sprite.assets[old.stage?.src]===row.expectedMedia,'$.expectedMedia','Resolution source changed','REVISION_CONFLICT')
-      // Mouth and eye patches are source-bound layers of the raster: their pixels and rects follow it.
+      check(oldOutfit.sprite.assets[old.stage?.src??old.src]===row.expectedMedia,'$.expectedMedia','Resolution source changed','REVISION_CONFLICT')
+      // Mouth and eye patches are source-bound layers of the raster: their pixels and rects follow it (per-frame mouth rects included).
+      // A flat static image is its src alone.
       // Which blink phases exist is pose semantics and stays.
       const shape=image=>{
         const result=structuredClone(image)
-        check(!result.binding&&!result.stage?.mouthByFrame&&!result.stage?.mouthOcclusionMask,'$.image','Unsupported resolution rig or mask')
-        for(const key of ['mouthSet','mouthFrames','closedMouthFrame'])delete result[key]
+        check(!result.binding&&!result.stage?.mouthOcclusionMask,'$.image','Unsupported resolution rig or mask')
+        for(const key of ['src','mouthSet','mouthFrames','closedMouthFrame'])delete result[key]
         for(const view of [result.stage,result.portrait])if(view) {
-          for(const key of ['src','width','height','mouth','mouthFrames'])delete view[key]
+          for(const key of ['src','width','height','mouth','mouthByFrame','mouthFrames'])delete view[key]
           if(view.blink)view.blink=['closed','half'].filter(phase=>view.blink[phase])
         }
         return result
