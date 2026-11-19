@@ -48,7 +48,7 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
       }
       // readingChanged: tts.reading changed (旁白配音's global layer, or the figure 通用声音 / 旁白 point at), so each card's
       // config.voice.general / config.narrator is projected again.
-      else if (['providerChanged','providerRemoved','disposed','cacheInvalidated','readingChanged'].includes(event.type)) {
+      else if (['providerChanged','providerRemoved','disposed','cacheInvalidated','readingChanged','voiceRoutingChanged'].includes(event.type)) {
         for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
         clear()
       }

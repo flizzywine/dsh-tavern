@@ -1,10 +1,16 @@
+import { isFishCloud } from './providers/fish-models.js'
+
 export function sourceProvider(voice, binding) {
   return binding.source === null ? null : voice.sources[binding.source ?? voice.defaultSource].provider
 }
-// A source names its own service instance. An installed compatible serviceId wins; otherwise the sole compatible
-// service speaks it; several without a named one is ambiguous (undefined → SERVICE_REQUIRED).
-export function chooseService(source, services) {
+// Only portable Fish IDs use the machine default; pinned sources and reference lists keep their existing routing.
+export function chooseService(source, services, fishVoiceIdService = '') {
   const compatible = services.filter(s => s.kind === source.provider)
+  if (source.provider === 'fish-audio' && source.kind === 'voice-id' && !source.serviceId) {
+    if (fishVoiceIdService) return compatible.find(s => s.id === fishVoiceIdService)
+    const official = compatible.filter(s => s.endpoint && isFishCloud({url:s.endpoint}))
+    return official.length === 1 ? official[0] : undefined
+  }
   return compatible.find(s => s.id === source.serviceId) ?? (compatible.length === 1 ? compatible[0] : undefined)
 }
 // every 配音来源 can be chosen before it is set up. The chosen source then

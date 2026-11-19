@@ -21,6 +21,7 @@ import { endpointHistory } from './endpoint-history.js'
 const Reading = z.object({ general: z.object({ figure: z.any() }), narrator: z.object({ enabled: z.boolean().default(false), figure: z.any() }) })
 export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
   reading: Reading,
+  fishVoiceIdService: z.string().default(''),
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
   cacheMaxAgeDays: z.natural().min(1).max(3650).default(30).description('\u7f13\u5b58\u4fdd\u7559\u5929\u6570'),
 })
@@ -36,7 +37,7 @@ export function serviceDefaultModel(p, models) {
   return id && (!models.length || models.some(m => m.id === id)) ? id : models[0]?.id
 }
 export function validateSettings(value) {
-  if (typeof value.enabled !== 'boolean') fail('INVALID_INPUT')
+  if (typeof value.enabled !== 'boolean' || (value.fishVoiceIdService && !PROVIDER_ID.test(value.fishVoiceIdService))) fail('INVALID_INPUT')
   if (!Number.isFinite(value.cacheMaxGB) || value.cacheMaxGB < 0.1 || value.cacheMaxGB > 100 || !Number.isInteger(value.cacheMaxAgeDays) || value.cacheMaxAgeDays < 1 || value.cacheMaxAgeDays > 3650) fail('INVALID_INPUT')
   const seen = new Set()
   for (const p of value.providers) {
