@@ -54,11 +54,12 @@ test('内置命运之骰插件包 client.js 与源码保持同步', async () => 
   assert.equal(res.changed, false)
 })
 
-test('客户端默认只注册命运之骰面板，功能开关控制其余入口', async () => {
+test('检定设置顶部的滑块可以开启和关闭命运之骰入口', async () => {
   const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
   let mod
+  const react = { createElement: (type, props, ...children) => ({ type, props, children }) }
   vm.runInNewContext(clientCode, { console: quiet, window: { __ModuleLoader__: {
-    load({ factory }) { mod = factory(() => ({})) },
+    load({ factory }) { mod = factory(() => react) },
   } } })
   const registrations = new Set()
   const register = id => {
@@ -67,26 +68,43 @@ test('客户端默认只注册命运之骰面板，功能开关控制其余入�
     return () => registrations.delete(id)
   }
   const cleanups = []
+  let settings = { enabled: false }
   const ui = {
     registerPanel: () => register('panel'),
     registerMediaRenderer: () => register('capsule'),
     registerTurnView: () => register('turn-view'),
     registerStatusSection: () => register('status'),
     async callHost(name, payload) {
-      if (name === 'fate-dice:status') return { settings: { enabled: false } }
+      if (name === 'fate-dice:status') return { settings }
       assert.equal(name, 'fate-dice:save-global-settings')
-      return { ok: true, settings: payload.settings }
+      settings = payload.settings
+      return { ok: true, settings }
     },
   }
   mod.apply({ tavernUi: ui, effect: setup => cleanups.push(setup()) })
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual([...registrations], ['panel'])
 
-  await mod.__test.fdPersistSettings(ui, { enabled: true })
+  const renderSwitch = () => {
+    const tab = mod.__test.SettingsTab({
+      view: { settings },
+      actions: { persistSettings: patch => mod.__test.fdPersistSettings(ui, { ...settings, ...patch }) },
+    })
+    const header = tab.children[0]
+    assert.equal(header.props.title, '启用命运之骰')
+    const slider = header.children[0]
+    const button = slider.type(slider.props)
+    assert.equal(button.props.role, 'switch')
+    return button.props
+  }
+  assert.equal(renderSwitch()['aria-checked'], 'false')
+  await renderSwitch().onClick()
   assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
-  await mod.__test.fdPersistSettings(ui, { enabled: false })
+  assert.equal(renderSwitch()['aria-checked'], 'true')
+  await renderSwitch().onClick()
   assert.deepEqual([...registrations], ['panel'])
-  await mod.__test.fdPersistSettings(ui, { enabled: true })
+  assert.equal(renderSwitch()['aria-checked'], 'false')
+  await renderSwitch().onClick()
   assert.equal(registrations.has('status'), true)
 
   for (const cleanup of cleanups) cleanup()

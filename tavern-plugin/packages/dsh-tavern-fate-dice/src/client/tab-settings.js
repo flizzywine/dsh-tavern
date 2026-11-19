@@ -9,32 +9,24 @@ function SettingsTab(props) {
   /* 单一事实源：控件值直接来自 view.settings；改动立刻写回并落盘 */
   const apply = patch => {
     if (!actions || typeof actions.persistSettings !== 'function') return
-    actions.persistSettings({ ...settings, ...(patch || {}) })
+    return actions.persistSettings(patch)
   }
 
   return h(Fragment, null,
+    h(FdRow, {
+      title: '启用命运之骰',
+      sub: settings.enabled ? '已开启 · 对话中自动检定' : '已关闭 · 保留已有检定记录',
+      help: '开启后，符合条件的行动会自动检定，结果会写入本轮提示词。关闭后暂停自动检定，保留检定记录、命运点和能力画像。'
+    }, h(FdSwitch, { on: Boolean(settings.enabled), label: '启用命运之骰', onChange: next => apply({ enabled: next }) })),
     h(FdSection, {
       title: '⚙️ 检定设置',
       note: '改动即时生效 · 自动保存',
       help: [
         '这一屏是全局检定设置：每改一项就立即生效并对全部对话生效，不需要再点保存。',
         '改动会同时写进酒馆的插件数据与本地缓存，重开面板、切换对话都保持你改后的值。',
-        '参数分三类：① 总开关与触发难度（启用命运之骰、触发灵敏度、叙事基调修正）；② 表现层（掷骰动画、感知自动暗骰）；③ 联动与兜底（叙事阻尼器双向联动、无决策模型时本地关键词兜底）。',
         '每项标题右侧的 ? 可展开详细说明，收起后界面保持清爽单列布局。'
       ].join('\n')
     },
-      h(FdRow, {
-        plain: true,
-        title: '启用命运之骰',
-        sub: settings.enabled ? '已开启：发送行动时自动判难并投掷真骰' : '默认关闭：开启后才会在对话中自动检定',
-        help: [
-          '命运之骰全局总开关（默认关闭）。',
-          '开启后，发送行动时会自动判断难度、投掷密码学真骰并把结果注入本轮提示词；关闭后完全静默，不触发自动检定、不向叙事阻尼器追加提问、也不占用后台画像结算。',
-          '关闭期间已有的本局检定记录、命运点与角色能力画像都会安全保留，重新开启后可立即恢复使用。'
-        ].join('\n')
-      },
-      h(FdSwitch, { on: Boolean(settings.enabled), label: '启用命运之骰', onChange: next => apply({ enabled: next }) })),
-
       h(FdField, {
         label: '触发灵敏度',
         help: [
