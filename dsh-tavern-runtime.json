@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e9063fd169f69782700a3c124e141d12a650ffb5",
-  "releaseSequence": 1815,
+  "revision": "8e662afef1c03f8b47e6652774095f7aea411073",
+  "releaseSequence": 1816,
   "version": "3.3.0",
   "files": [
     {
@@ -7441,8 +7441,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/client.js",
-      "sha256": "a088c41c4c4cfe43d10bfcfa9c3a242c28cdcdccd7edb9aa87938963569caadd",
-      "size": 604769
+      "sha256": "848812cb06f9fef6708d89df0284d3a6b286b4d3aa1c4e7d150d3b002fdf0c3d",
+      "size": 604971
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/cordis.patch.yml",
@@ -9606,9 +9606,9 @@
     }
   ],
   "archive": {
-    "commit": "390b4341222698636b930dc035c5d348198ac619",
+    "commit": "8d9a4336096dfd3d3c3a90d3138610871fdfaa5c",
     "path": "runtime.zip",
-    "sha256": "ced1255bf240b8b9e271cb2b20ace96f26fa5062f49d0d67010cb3ef8d6ac1e1",
-    "size": 16994627
+    "sha256": "2d90087b91b4c001e91361c1bfe9d178c52de102cedd42ea3825531b57006e61",
+    "size": 16994669
   }
 }
