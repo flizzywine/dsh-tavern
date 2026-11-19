@@ -24,6 +24,10 @@ export function patchConversationBackground(chat, patch) {
   if (Object.hasOwn(patch, 'backgroundTasks')) {
     next.backgroundTasks = normalizeConfiguredBackgroundTasks({ ...normalizeConfiguredBackgroundTasks(chat.backgroundTasks), ...patch.backgroundTasks })
   }
+  if (Object.hasOwn(patch, 'candidateTabs')) {
+    if (typeof patch.candidateTabs !== 'boolean') throw new Error('无效的候选项数量设置')
+    next.candidateTabs = patch.candidateTabs
+  }
   if (Object.hasOwn(patch, 'webSearchEnabled')) {
     if (typeof patch.webSearchEnabled !== 'boolean') throw new Error('开关配置必须为布尔值')
     next.webSearchEnabled = patch.webSearchEnabled

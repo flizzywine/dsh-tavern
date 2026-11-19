@@ -332,7 +332,7 @@ import { createProfileDataStore, TAVERN_SETTINGS_PATH } from './profile-data-sto
 import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
-import { normalizeBackgroundTasks, applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
+import { normalizeBackgroundTasks, applyTavernSettingsPatch, conversationUsesExpandedCandidates, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
 import { registerModelSamplingHook } from './hooks/model-sampling.js'
 import { createSettingsTransfer } from './domain/settings-transfer.js'
 import { createSystemPromptDocuments } from './domain/system-prompt-documents.js'
@@ -798,11 +798,12 @@ export async function apply(ctx) {
     tavernSettingsDocument = await profileData.readJson(TAVERN_SETTINGS_PATH)
     return tavernSettingsDocument
   }
-  async function readExpandedCandidates() {
-    return (await readRawTavernSettings())?.candidateTabs === true
+  async function readExpandedCandidates(chat) {
+    const legacy = typeof chat?.candidateTabs === 'boolean' ? undefined : (await readRawTavernSettings())?.candidateTabs
+    return conversationUsesExpandedCandidates(chat, legacy)
   }
   async function extractConfiguredForegroundChoices(text, context) {
-    const expanded = text.toLowerCase().includes(FOREGROUND_CHOICES_OPEN_TAG) && await readExpandedCandidates()
+    const expanded = text.toLowerCase().includes(FOREGROUND_CHOICES_OPEN_TAG) && await readExpandedCandidates(context.chat)
     return extractForegroundStoryChoices(text, { ...context, expanded })
   }
   async function updateTavernSettings(patch, { beforeWrite } = {}) {
@@ -4500,6 +4501,7 @@ export async function apply(ctx) {
   const conversationBackgroundSettings = createConversationBackgroundSettings({
     worldbookStrategies,
     readConfig: backgroundConfigForSession, readChat: chatForSession, updateChat,
+    expandedCandidates: readExpandedCandidates,
     modelCatalog: tavernModelCatalog, modelReasoning: selection => readBackgroundModelReasoning(llm, selection),
     isPlayMode: mode => groupOfMode(mode) === 'play',
     presentExtras: chat => ({ modModels: chat.modModels || {} }),
@@ -4507,7 +4509,12 @@ export async function apply(ctx) {
       const header = await chatHeaderForSession(chat.sessionId, ['cardPath'])
       return { modModelSlots: await slotDeclarations({ sessionId: chat.sessionId, cardPath: header?.cardPath }), scoringCatalog: scoringCatalog() }
     },
-    validatePatch: async (args, chat) => { if (args.modModelSelection) await checkSlotSelection(args.modModelSelection, { sessionId: chat.sessionId, cardPath: chat.cardPath }) },
+    validatePatch: async (args, chat) => {
+      if (args.modModelSelection) await checkSlotSelection(args.modModelSelection, { sessionId: chat.sessionId, cardPath: chat.cardPath })
+      if (Object.hasOwn(args, 'candidateTabs') && ((await sessionActivity(chat.sessionId))?.busy || agentRegistry.get(chat.sessionId)?.phase?.kind === 'running')) {
+        throw new Error('请等待当前生成完成后再修改候选项数量')
+      }
+    },
     extraTools: async sessionId => {
       const cached = foregroundExtraTools.get(String(sessionId))
       if (cached) return cached
@@ -4865,7 +4872,7 @@ export async function apply(ctx) {
       // Input side: replay past bodies as calls of the submission tool.
       styleReferencePrompt: chat => foregroundStyleReferencePrompt(chat, runtimePrompt('style-reference-recall'), runtimePrompt('style-reference')),
       foregroundCandidatePrompt: async chat => chat?.backgroundTasks?.foregroundCandidates === true
-        ? foregroundCandidatePrompt(chat, await readExpandedCandidates()) : '',
+        ? foregroundCandidatePrompt(chat, await readExpandedCandidates(chat)) : '',
       bodyGeneration: sessionId => pluginBodyGeneration.route(sessionId),
       historyToolCall: async () => (await readTavernSettings()).storyInputToolCall,
       // Output side: whether a new body must be submitted through the tool.

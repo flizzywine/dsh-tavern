@@ -68,9 +68,16 @@ test('空设置文件允许启动、读会话、保存错误可见性及重新�
     assert.equal((await readSession()).view.chatId, 'chat')
     const { view } = await host.rpc('setAllFailedErrorVisibility', { sessionId: 'session', hidden: true })
     assert.equal(view.chatId, 'chat')
-    const saved = await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { playerName: '旅客' } } })
+    assert.equal((await host.rpc('getTavernSettings', {})).settings.defaultPlaySettings.candidateTabs, true)
+    const saved = await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { playerName: '旅客', candidateTabs: true } } })
     assert.equal(saved.settings.defaultPlaySettings.playerName, '旅客')
     assert.equal(JSON.parse(await readFile(settings, 'utf8')).defaultPlaySettings.playerName, '旅客')
+    const sessionId = 'session'
+    assert.equal((await host.rpc('getConversationBackgroundConfig', { sessionId })).candidateTabs, false, '旧局保留少量候选')
+    await host.rpc('setConversationBackgroundConfig', { sessionId, candidateTabs: true })
+    assert.equal((await host.rpc('getConversationBackgroundConfig', { sessionId })).candidateTabs, true)
+    await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { candidateTabs: false } } })
+    assert.equal((await host.rpc('getConversationBackgroundConfig', { sessionId })).candidateTabs, true, '开局默认不改本局选择')
   } finally {
     await host?.dispose()
     globalThis.fetch = previousFetch

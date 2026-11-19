@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
 test('注册的本局设置保存玩家称呼、预设、后台模型与前台工具，失败时保留已保存模型', async t => {
-  let playerName = '你', preset = null, model = null, disabledTools = [], strategy = 'legacy', screening = true, fail = false
+  let playerName = '你', preset = null, model = null, disabledTools = [], strategy = 'legacy', screening = true, fail = false, candidateTabs = true
   const { page, calls } = await openTavernSettings(t, { sessionId: 'game', respond(method, args) {
     if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
     if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story', playerName, runtimePreset: preset, statusBarPlacement: 'sidebar' } }
@@ -19,11 +19,12 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
       if (method === 'setConversationBackgroundConfig') {
         if (Object.hasOwn(args, 'backgroundModel')) model = args.backgroundModel
         if (Object.hasOwn(args, 'worldbookStrategy')) strategy = args.worldbookStrategy
+        if (Object.hasOwn(args, 'candidateTabs')) candidateTabs = args.candidateTabs
         if (Array.isArray(args.disabledForegroundTools)) disabledTools = args.disabledForegroundTools
       }
       return {
         backgroundModel: model, worldbookStrategy: strategy, worldbookStrategies: [{ id: 'legacy', label: '外部注入（旧机制）' }, { id: 'native-skills', label: '主动检索（推荐）' }], backgroundTasks: { variables: true, posture: true },
-        disabledForegroundTools: disabledTools,
+        disabledForegroundTools: disabledTools, candidateTabs,
         foregroundTools: [
           { name: 'tavern_recall_history', label: '召回历史', description: '查阅历史正文。' },
           { name: 'tavern_read_variables', label: '读取变量', description: '只读查询当前变量。' },
@@ -49,6 +50,11 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   await page.getByRole('menuitemradio', { name: 'p · 测试模型', exact: true }).click()
   await page.getByRole('button', { name: /^本局后台模型：.*测试模型/ }).waitFor()
   assert.deepEqual(model, { provider: 'p', model: 'm' })
+
+  await page.getByRole('button', { name: '候选项数量：大量候选', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: '少量候选', exact: true }).click()
+  await page.getByRole('button', { name: '候选项数量：少量候选', exact: true }).waitFor()
+  assert.equal(candidateTabs, false)
 
   await page.locator('details.dsh-local-advanced > summary').click()
   const worldbook = page.getByLabel('召回历史', { exact: true })

@@ -441,9 +441,8 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
 
 test('自由故事支持按焦点角色优先的多主体分组 + 全局突发事件与场景切换 + AI 融合精选，并完整持久化', async () => {
   const errors = []
-  let expanded = true
   const run = harness({
-    expandedCandidates: async () => expanded,
+    expandedCandidates: chat => chat.candidateTabs,
     outputs: [async function (options) {
       const bad = JSON.parse(await options.onToolCall({
         name: 'candidate_submit_choices',
@@ -483,6 +482,7 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
       return ''
     }, JSON.stringify({ choices: storyChoices })]
   })
+  run.mutateChat(chat => { chat.candidateTabs = true })
   const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-actors', guidance: '加强角色互动' })
   assert.equal(errors[0].ok, false)
   assert.equal(errors[0].retryable, true)
@@ -512,7 +512,7 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
   assert.match(run.plannerCalls[0].task, /`featured`/)
   assert.ok(run.modelRequests[0].tools.find(tool => tool.name === 'candidate_submit_choices').parameters.properties.actors)
 
-  expanded = false
+  run.mutateChat(chat => { chat.candidateTabs = false })
   const regenerated = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-actors', requestId: 'compact-request' })
   assert.deepEqual(regenerated.choices, storyChoices)
   assert.match(run.plannerCalls[1].task, /exactly five/)

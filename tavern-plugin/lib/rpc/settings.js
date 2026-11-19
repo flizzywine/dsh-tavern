@@ -3,7 +3,7 @@ import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
 import { configuredBodyGeneration } from '../domain/plugin-body-generation.js'
 import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
-import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
+import { conversationUsesExpandedCandidates, normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
 import { createDamperSettings } from '../domain/damper-settings.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
@@ -251,6 +251,7 @@ export function createSettingsHandlers(deps) {
         defaultPlaySettings: {
           playerName,
           backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true },
+          candidateTabs: conversationUsesExpandedCandidates(chat, currentSettings.candidateTabs),
           webSearchEnabled: chat.webSearchEnabled === true
         },
         defaultDisabledForegroundTools: disabledForegroundTools,
@@ -324,6 +325,7 @@ export function createSettingsHandlers(deps) {
         current.conversationFeaturesVersion = 1
         current.backgroundModelSelection = normalizeBackgroundModel(settings.defaultBackgroundModel)
         current.backgroundTasks = normalizeConfiguredBackgroundTasks(defaults.backgroundTasks)
+        current.candidateTabs = defaults.candidateTabs
         current.webSearchEnabled = defaults.webSearchEnabled === true
         current.disabledForegroundTools = normalizeDisabledForegroundTools(settings.defaultDisabledForegroundTools)
         current.disabledWritingSkills = [...(settings.defaultDisabledWritingSkills || [])]

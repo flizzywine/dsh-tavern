@@ -239,14 +239,19 @@ export function normalizeConfiguredBackgroundTasks(value) {
 }
 
 
-export function normalizePlayDefaults(value) {
+export function normalizePlayDefaults(value, legacyCandidateTabs) {
   const input = object(value)
   return { playerName: typeof input.playerName === 'string' ? input.playerName.trim().slice(0, 80) || '你' : '你',
     worldbookStrategy: 'native-skills',
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
+    candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs !== false,
     // New games get 文风联想 unless the defaults turn it off; an existing game without the key stays off.
     backgroundTasks: { ...normalizeConfiguredBackgroundTasks(input.backgroundTasks), styleReference: object(input.backgroundTasks).styleReference !== false },
     webSearchEnabled: input.webSearchEnabled === true }
+}
+
+export function conversationUsesExpandedCandidates(chat, legacyCandidateTabs) {
+  return typeof chat?.candidateTabs === 'boolean' ? chat.candidateTabs : legacyCandidateTabs === true
 }
 
 export function applyTavernSettingsPatch(current, patch) {
@@ -267,7 +272,8 @@ export function applyTavernSettingsPatch(current, patch) {
     if (Object.hasOwn(patch, 'playerName') && (typeof patch.playerName !== 'string' || patch.playerName.length > 80)) throw new Error('玩家称呼最多 80 字')
     if (Object.hasOwn(patch, 'statusBarPlacement') && !['body', 'sidebar'].includes(patch.statusBarPlacement)) throw new Error('状态栏位置无效')
     for (const key of ['posture', 'styleReference', 'foregroundCandidates', 'preset']) if (Object.hasOwn(object(patch.backgroundTasks), key) && typeof patch.backgroundTasks[key] !== 'boolean') throw new Error('默认结算开关必须为布尔值')
-    const current = normalizePlayDefaults(next.defaultPlaySettings)
+    if (Object.hasOwn(patch, 'candidateTabs') && typeof patch.candidateTabs !== 'boolean') throw new Error('无效的候选项数量设置')
+    const current = normalizePlayDefaults(next.defaultPlaySettings, next.candidateTabs)
     next.defaultPlaySettings = normalizePlayDefaults({ ...current, ...patch, backgroundTasks: { ...current.backgroundTasks, ...object(patch.backgroundTasks) } })
   }
   if (Object.hasOwn(input, 'defaultWritingSkill')) {
@@ -321,7 +327,7 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.candidateAutoGenerate !== 'boolean') throw new Error('无效的自动生成候选项设置')
     next.candidateAutoGenerate = input.candidateAutoGenerate
   }
-  // Keep the existing boolean on disk: true selects expanded generation.
+  // Keep the legacy preference for saves that predate per-game candidate counts.
   if (Object.hasOwn(input, 'candidateTabs')) {
     if (typeof input.candidateTabs !== 'boolean') throw new Error('无效的候选项数量设置')
     next.candidateTabs = input.candidateTabs
@@ -506,7 +512,7 @@ export function presentTavernSettings(document, defaults) {
   const story = prompts.find(function (item) { return item.name === 'story' }) || { text: '', customized: false }
   const storyToolCalls = storyToolCallSettings(document)
   return {
-    defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings),
+    defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings, document?.candidateTabs),
     scriptChunkSize: Number.isSafeInteger(object(document).scriptChunkSize) && document.scriptChunkSize >= 100 && document.scriptChunkSize <= 10000 ? document.scriptChunkSize : 500,
     defaultDisabledWritingSkills: Array.isArray(object(document).defaultDisabledWritingSkills) ? object(document).defaultDisabledWritingSkills.filter(name => typeof name === 'string') : [],
     defaultDisabledForegroundTools: normalizeDisabledForegroundTools(object(document).defaultDisabledForegroundTools),
@@ -527,7 +533,7 @@ export function presentTavernSettings(document, defaults) {
     // existing profiles stay manual until explicitly enabled.
     
     candidateAutoGenerate: object(document).candidateAutoGenerate === true,
-    // Missing or false selects the default five choices.
+    // Older games without a saved count keep their original five-choice default.
     candidateTabs: object(document).candidateTabs === true,
     candidateGuidanceShortcuts: readCandidateGuidanceShortcuts(document?.candidateGuidanceShortcuts),
     // 自动精修: off by default, since it reviews and rewords every reply.

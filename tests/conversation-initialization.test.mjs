@@ -11,6 +11,17 @@ const seedMessages = session => session.events.filter(event => {
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'
 })
 
+test('新局默认大量候选，修改开局默认只影响之后创建的对局', async () => {
+  const h = initializationFixture()
+  const first = await h.make().start(h.input)
+  assert.equal(h.saved.get(first.id).candidateTabs, true)
+  h.state.settings.defaultPlaySettings = { candidateTabs: false }
+  const next = await h.make().start({ ...h.input, sessionId: 'next-candidates' })
+  assert.equal(h.saved.get(next.id).candidateTabs, false)
+  const reopened = await h.make().start(h.input)
+  assert.equal(h.saved.get(reopened.id).candidateTabs, true)
+})
+
 async function profileFixture() {
   let value
   const profile = createUserPreferenceProfile({ store: {

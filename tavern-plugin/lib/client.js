@@ -50463,8 +50463,8 @@ function askTavernCardPackWay(file, staged) {
                     return h(TavernSettingRow, { key, title, help: text, className: "dsh-tavern-background-task" },
                         h(Switch, { label: title, disabled, checked: task ? data?.backgroundTasks[key] === true : data?.[key] === true, onChange: checked => save(task ? { backgroundTasks: { [key]: checked } } : { [key]: checked }) }));
                 }
-                function menu(title, value, options, commit) {
-                    return h(TavernSettingRow, { title },
+                function menu(title, value, options, commit, help) {
+                    return h(TavernSettingRow, { title, help },
                         h(InlineField, { kind: "menu", label: title, hideLabel: true, disabled, value, options, onCommit: commit }));
                 }
                 const loading = !data && !message;
@@ -50481,6 +50481,8 @@ function askTavernCardPackWay(file, staged) {
                         toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
                         toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                         toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
+                        menu("候选项数量", data?.candidateTabs === false ? "compact" : "expanded", [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+                            value => save({ candidateTabs: value === "expanded" }), "新开的自由故事继承此设置。少量候选为 4 条行动和 1 条场景切换，大量候选按角色和全局事件分组，另有精选。剧本模式固定生成 1 条。"),
                         toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
                         toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),
                     message ? h("p", { role: "status", className: "dsh-tavern-gs-notice" }, message) : null);
@@ -50588,11 +50590,6 @@ function askTavernCardPackWay(file, staged) {
                         card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
                             sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
-                            h(TavernSettingRow, { title: "候选项数量", help: "少量候选生成 4 条行动和 1 条场景切换，直接平铺。大量候选按角色和全局事件分组，另生成精选组合。下次生成或重新生成候选项时生效。剧本模式仍生成 1 条。" },
-                                h(InlineField, { kind: "menu", label: "候选项数量", hideLabel: true, disabled: state.loading || state.busy,
-                                    value: state.settings?.candidateTabs === true ? "expanded" : "compact",
-                                    options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
-                                    onCommit: value => saveDefault("candidateTabs", value === "expanded") })),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );
@@ -60917,6 +60914,7 @@ function createConversationSettingsModule({
 
     function TavernConversationBackgroundModel(props) {
         const h = React.createElement;
+        const mode = useTavernSessionMode(props.sessionId);
         const { data, busy, readError, refresh, save: saveSettings } = props.background;
         const [error, setError] = React.useState("");
         const [notice, setNotice] = React.useState("");
@@ -60964,6 +60962,9 @@ function createConversationSettingsModule({
                 toggle("posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。", tasks.posture, checked => ({ backgroundTasks: { posture: checked } })),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", tasks.foregroundCandidates === true, checked => ({ backgroundTasks: { foregroundCandidates: checked } })),
+                mode !== "script" ? h(InlineField, { kind: "menu", label: "候选项数量", value: data?.candidateTabs === true ? "expanded" : "compact", disabled: !loaded || busy,
+                    options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+                    onCommit: value => save({ candidateTabs: value === "expanded" }) }) : null,
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
                 toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", data?.webSearchEnabled === true, checked => ({ webSearchEnabled: checked }))),
             error || readError || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || readError || reasoning.error) : null,

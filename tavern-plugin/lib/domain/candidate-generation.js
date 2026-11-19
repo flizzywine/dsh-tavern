@@ -608,7 +608,7 @@ export function createCandidateGenerator(options) {
     const selection = model.selection(chat)
     if (selection === null || selection === undefined) throw new Error('没有可用的模型配置')
     const scriptMode = mode === 'script'
-    const expanded = !scriptMode && (await options.expandedCandidates?.()) === true
+    const expanded = !scriptMode && (await options.expandedCandidates?.(chat)) === true
     const submitTool = scriptMode || expanded ? CANDIDATE_SUBMIT_TOOL : COMPACT_CANDIDATE_SUBMIT_TOOL
     let script = null
     let scriptWindow = null

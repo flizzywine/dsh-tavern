@@ -341,7 +341,7 @@ export function projectDisplayRuntimeState(chat, requestedTurn) {
 export function projectChatBackgroundConfig(chat) {
   const selected = {}
   for (const key of ['id', 'sessionId', 'mode', 'backgroundConfigVersion', 'conversationFeaturesVersion',
-    'modModels', 'backgroundModelSelection', 'backgroundModelRevision', 'backgroundTasks','worldbookStrategy', 'webSearchEnabled', 'disabledForegroundTools', 'cardContextRevision']) {
+    'modModels', 'backgroundModelSelection', 'backgroundModelRevision', 'backgroundTasks', 'candidateTabs', 'worldbookStrategy', 'webSearchEnabled', 'disabledForegroundTools', 'cardContextRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   selected.backgroundSessionStatus = chat.timeline?.participants?.background?.status

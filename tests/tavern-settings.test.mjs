@@ -53,6 +53,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
       cardContextRevision: 1,
       backgroundModelSelection: { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' },
       backgroundTasks: { variables: true, posture: false, styleReference: false, foregroundCandidates: true, preset: true },
+      candidateTabs: false,
       webSearchEnabled: true,
       storyGenerationMode: 'plugin-direct',
       storyGenerationProvider: 'gen:one',
@@ -175,6 +176,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.styleReference, false)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.foregroundCandidates, true)
   assert.equal(savedSettings.defaultPlaySettings.backgroundTasks.preset, true)
+  assert.equal(savedSettings.defaultPlaySettings.candidateTabs, false)
   assert.equal(savedSettings.defaultPlaySettings.webSearchEnabled, true)
   assert.deepEqual(savedSettings.defaultBackgroundModel, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.deepEqual(savedSettings.defaultDisabledForegroundTools, ['web_fetch', 'tavern_recall_history'])
@@ -195,6 +197,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(restored.backgroundTasks.styleReference, false)
   assert.equal(restored.backgroundTasks.foregroundCandidates, true)
   assert.equal(restored.backgroundTasks.preset, true)
+  assert.equal(restored.candidateTabs, false)
   assert.equal(restored.webSearchEnabled, true)
   assert.equal(restored.storyGenerationMode, 'plugin-direct')
   assert.equal(restored.storyGenerationProvider, 'gen:one')
@@ -237,6 +240,7 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(publishedChat.backgroundTasks.styleReference, false)
   assert.equal(publishedChat.backgroundTasks.foregroundCandidates, true)
   assert.equal(publishedChat.backgroundTasks.preset, true)
+  assert.equal(publishedChat.candidateTabs, false)
   assert.equal(publishedChat.webSearchEnabled, true)
   assert.deepEqual(publishedChat.disabledForegroundTools, ['web_fetch', 'tavern_recall_history'])
   assert.deepEqual(publishedChat.disabledWritingSkills, ['slow-burn'])
