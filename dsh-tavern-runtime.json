@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4737bdf92c26f1ed1736220bd608e6e0a3b3c23b",
-  "releaseSequence": 1791,
+  "revision": "d76a058ce5e9560f3da76cd675bbe103faeb5751",
+  "releaseSequence": 1792,
   "version": "3.3.0",
   "files": [
     {
@@ -2681,8 +2681,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/pi-ai-vertex-stream.js",
-      "sha256": "884ecec00c731f6c8a17d12c93aa654f13feca0f7dd43cd128de76cdc31487b6",
-      "size": 28448
+      "sha256": "f326291add88ec8ce4d7561869034e68270121bff4c468954b2c29cd394ef330",
+      "size": 28603
     },
     {
       "path": "tavern-plugin/lib/domain/plain-settlement-engine.js",
@@ -9576,9 +9576,9 @@
     }
   ],
   "archive": {
-    "commit": "b5213d546633c96d3766d175cc501917229ca51e",
+    "commit": "283a4615c100cb28c4bd03aa05792f713dacf0b5",
     "path": "runtime.zip",
-    "sha256": "31807604f316aae46faa84dd7406cd0244a44872c388bf8a3536d45f79027010",
-    "size": 16952417
+    "sha256": "22d780daf2559803b263399885d888fadca9339129a82d14f1b76ec8c9a9e750",
+    "size": 16952428
   }
 }
