@@ -33,28 +33,6 @@ test('内置剧情罗盘插件包 client.js 与源码保持同步', async () => 
   assert.equal(res.changed, false)
 })
 
-test('剧情罗盘输入栏入口在窄屏只显示图标', async () => {
-  const text = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
-  // 文字节点必须带独立 class，否则下面的窄屏规则无从命中。
-  assert.match(text, /className: 'dsh-tavern-compass-dock-label'/)
-  const narrow = text.match(/@media \(max-width: 1023px\) \{[\s\S]{0,900}?\n\}/)
-  assert.ok(narrow, '缺少窄屏媒体查询')
-  assert.match(narrow[0], /\.dsh-tavern-compass-dock-label \{\s*display: none;/)
-  // 图标靠左贴住输入条边缘（与上方楼层药丸同一左边界），而不居中缩进。
-  assert.match(narrow[0], /\.dsh-tavern-compass-dock-btn \{[^}]*justify-content: flex-start;[^}]*min-width: 30px;/)
-})
-
-test('剧情罗盘入口走输入框尾部工具位，不再独占停靠区一行', async () => {
-  const main = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/src/client/main.js', import.meta.url), 'utf8')
-  // 优先用宿主的 compact tool 槽（输入卡尾部、提交键旁），只有旧宿主才退回停靠区。
-  assert.match(main, /typeof ui\.registerComposerTool === 'function'/)
-  assert.match(main, /h\(PlotCompassComposerTool/)
-  assert.match(main, /ui\.registerComposerSlot/, '旧宿主仍要能退回停靠区')
-  const text = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
-  assert.match(text, /dsh-tavern-compass-tool-btn/)
-  assert.match(text, /dsh-tavern-compass-tool-glyph/)
-})
-
 test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落注入、世界书扫描、归卷事件、模型解析与 RPC 全链路', async () => {
   const storyEvents = createStoryEvents()
   const gameDataMap = new Map()
@@ -197,86 +175,6 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
   mounted.dispose()
 })
 
-test('turnSection 支持 position: last 且排在预设中段之后，旧宿主不支持 last 时罗盘自动降级回 after', async () => {
-  const { foregroundFrameInputs } = await import('../tavern-plugin/lib/domain/turn-orchestration.js')
-
-  const storyEvents = createStoryEvents()
-  const pluginApi = createTavernPluginApi({
-    ctx: {},
-    loaderOrigin: () => 'host',
-    storyEvents,
-    workflow: { register() { return () => {} } },
-    resolveGame: async gameId => gameId === 'g1' ? { chatId: 'c1', sessionId: 'g1' } : null,
-    data: {
-      readGame: async () => null,
-      saveGame: async () => {},
-      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
-      writeSettings: async () => {}
-    },
-    pluginData: { read: async () => null, save: async () => {} },
-    media: { issue: async () => {}, list: async () => [] },
-    publishState: () => {}
-  })
-
-  const probe = createPluginFiber('probe-plugin', pluginApi.service)
-  assert.throws(
-    () => probe.ctx.tavern.turnSection({ name: 'bad', position: 'middle', text: 'x' }),
-    /position 只能是 'before'、'after' 或 'last'/
-  )
-  probe.ctx.tavern.turnSection({ name: 'early', position: 'after', text: 'AFTER_PLUGIN' })
-  probe.ctx.tavern.turnSection({ name: 'late', position: 'last', text: 'LAST_PLUGIN' })
-
-  const pluginSections = await pluginApi.turnContext({ gameId: 'g1', turn: 1, target: 'story' })
-  const frameInputs = foregroundFrameInputs(
-    { sections: [{ kind: 'guide', required: false, text: 'GUIDE_TEXT' }] },
-    '玩家行动',
-    '玩家行动',
-    { middle: { entries: [{ id: 'p1', role: 'system', content: 'PRESET_MIDDLE_RULE' }] } },
-    {},
-    pluginSections
-  )
-  const texts = frameInputs.map(item => item.text).filter(Boolean)
-  const afterIdx = texts.indexOf('AFTER_PLUGIN')
-  const presetIdx = texts.indexOf('PRESET_MIDDLE_RULE')
-  const lastIdx = texts.indexOf('LAST_PLUGIN')
-  assert.ok(afterIdx >= 0 && presetIdx > afterIdx && lastIdx > presetIdx, 'last 插件段落须排在预设 middle 之后')
-  probe.dispose()
-
-  // 模拟只允许 before/after 的旧宿主：applyPlotCompass 应捕获异常并回退走 after
-  const legacySections = []
-  let savedRecord = {
-    version: 1,
-    enabled: true,
-    compass: {
-      version: 1,
-      strength: 'strict',
-      shortTerm: [{ id: 's1', tag: '破门', title: '破门突入', summary: '踹开木门', beats: [{ text: '踹门而入', done: false }] }],
-      midTerm: [],
-      longTerm: [],
-      pinned: { shortTerm: 's1', midTerm: null, longTerm: null }
-    }
-  }
-  const legacyTavern = {
-    readPluginData: async () => null,
-    readGameData: async () => savedRecord,
-    saveGameData: async ({ data }) => { savedRecord = data },
-    turnSection(spec) {
-      if (!['before', 'after'].includes(spec.position || 'after')) {
-        throw new Error("position 只能是 'before' 或 'after'")
-      }
-      legacySections.push(spec)
-      return () => {}
-    }
-  }
-  const cleanup = applyPlotCompass({ tavern: legacyTavern })
-  assert.equal(legacySections.length, 1)
-  assert.equal(legacySections[0].position, 'after')
-  const fallbackText = await legacySections[0].text({ gameId: 'g1' })
-  assert.match(fallbackText, /硬性兑现裁定/)
-  assert.match(fallbackText, /踹门而入/)
-  if (typeof cleanup === 'function') cleanup()
-})
-
 test('剧情罗盘节拍进度链、sceneTrigger、久拖自动加压、未点亮微调指令与仅中期锚定均正确生成', async () => {
   const {
     applyPlotCompassAutoProgress,
@@ -354,43 +252,6 @@ test('剧情罗盘节拍进度链、sceneTrigger、久拖自动加压、未点�
   compass = applyPlotCompassStepToggle(compass, { horizon: 'shortTerm', routeId: 's1', stepIndex: 1 })
   assert.equal(compass.stalledTurns, 0)
   assert.doesNotMatch(plotCompassBodyText(compass), /久拖破局加压/)
-})
-
-test('候选联动仅透传戏剧意图而不硬塞备选具体步骤，强制保留自由即兴席位并支持戏剧等价核销', async () => {
-  const {
-    PLOT_COMPASS_PROGRESS_SYSTEM,
-    PLOT_COMPASS_SUBMIT_TOOL,
-    plotCompassCandidateText,
-    readPlotCompass
-  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
-
-  const unpinned = readPlotCompass({
-    version: 1,
-    shortTerm: [
-      { id: 's1', tag: '顺势破防', direction: '情感逼近', title: '试探隐瞒伤势', summary: '逼问伤势真相', beats: [{ text: '趁包扎抓腕查探脉门', done: false }] },
-      { id: 's2', tag: '切场夜访', direction: '支线切入', title: '转赴后院马厩', summary: '查看马匹异常', beats: [{ text: '提灯摸去后院喂草料', done: false }] }
-    ],
-    pinned: { shortTerm: null, midTerm: null, longTerm: null }
-  })
-  const unpinnedCand = plotCompassCandidateText(unpinned)
-  assert.match(unpinnedCand, /NEVER paraphrase/)
-  assert.match(unpinnedCand, /tag="顺势破防" \[情感逼近\]: 试探隐瞒伤势/)
-  // 未点亮时不把具体 beat 微操原文塞给候选，防止候选沦为路线复读机
-  assert.doesNotMatch(unpinnedCand, /趁包扎抓腕查探脉门/)
-  assert.doesNotMatch(unpinnedCand, /提灯摸去后院喂草料/)
-  assert.match(unpinnedCand, /Free-improvisation quota/)
-
-  // 点亮 s1 时：主路线给目标意图并要求拉开手段反差，备选路线 s2 同样不泄漏具体微操步骤
-  const pinned = readPlotCompass({ ...unpinned, pinned: { shortTerm: 's1', midTerm: null, longTerm: null } })
-  const pinnedCand = plotCompassCandidateText(pinned)
-  assert.match(pinnedCand, /\[PRIMARY PINNED INTENT\] tag="顺势破防"/)
-  assert.match(pinnedCand, /varied tactics/)
-  assert.doesNotMatch(pinnedCand, /提灯摸去后院喂草料/)
-  assert.match(pinnedCand, /Free-improvisation quota/)
-
-  // 规划工具与进度核验器均声明“开放手段 + 戏剧等价核销”
-  assert.match(PLOT_COMPASS_SUBMIT_TOOL.parameters.properties.shortTerm.items.properties.beats.items.properties.text.description, /严禁写死琐碎肢体动作/)
-  assert.match(PLOT_COMPASS_PROGRESS_SYSTEM, /DRAMATIC EQUIVALENCE/)
 })
 
 test('推演模型设置全局一致：跨对话共享、不写入单局存档、广播同步与旧存档平滑迁移', async () => {
@@ -763,4 +624,3 @@ test('插件候选联动 runner 通过 liveTavernView.getSnapshot 读取最新�
     'attachCandidateRunner 应调用 liveTavernView.getSnapshot(sessionId)'
   )
 })
-

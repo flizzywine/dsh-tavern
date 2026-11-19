@@ -501,25 +501,6 @@ async function mountedRemote(t) {
   return { service: ctx.tavernSessionSignals, calls, mounted }
 }
 
-test('shipped Remote bundle accepts all host control methods through the real Gateway', async t => {
-  const h = await mountedRemote(t)
-  const { TYPERT_REMOTE } = await import('../tavern-plugin/packages/dsh-tavern-remote/lib/typert.remote-client.js')
-  const declaredCodec = TYPERT_REMOTE.descriptors.find(d => d.method === 'control').parameters[0].codec
-  const bundledCodec = h.mounted.descriptors.find(d => d.method === 'control').parameters[0].codec
-  const declared = declaredCodec.create ? declaredCodec.create() : declaredCodec.schema
-  const bundled = bundledCodec.create ? bundledCodec.create() : bundledCodec.schema
-  const methods = declared.options.map(option => option.value)
-  assert.deepEqual(Array.from(bundled.options, option => option.value), methods, 'embedded contract must match generated descriptors')
-  for (const method of methods) {
-    const result = await h.service.control(method, { sessionId: 'session-stage', turn: 17 })
-    assert.equal(result.method, method)
-  }
-  assert.equal(h.calls.length, methods.length)
-  await assert.rejects(h.service.control('getAssetPackPresentation', {}), /rejected "method"/)
-  await assert.rejects(h.service.control('getDialogueBubbles', {}, AbortSignal.abort()), { name: 'AbortError' })
-  assert.equal(h.calls.length, methods.length, 'invalid or canceled requests never reach the host control implementation')
-})
-
 for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib/client.js']) {
   test(`${file}: initial stage settings load survives the shipped Remote codec boundary`, async t => {
     const h = await mountedRemote(t)

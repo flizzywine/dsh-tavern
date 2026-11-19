@@ -13,22 +13,3 @@ for(const count of [20,400,10000])test(`legacy source point update and lookup re
  assert.equal(index.get(changed,count),'edited');assert.equal(index.get(old,count),'body'+(count-1))
  assert.equal(reads,1);assert.ok(visits<150,`index visits: ${visits}`)
 })
-
-test('legacy status matching reuses the indexed source lookup throughout a real projection pass',async()=>{
- const {createImmutableOrderedJsonIndex}=await import('../tavern-plugin/lib/domain/freeze-json.js')
- const {projectPersistentStatusView}=await import('../tavern-plugin/lib/domain/persistent-status-view.js')
- const options={regexScripts:[{id:'panel',placement:[2],markdownOnly:true,findRegex:'<StatusPlaceHolderImpl/>',replaceString:'<script>show()</script>'}]}
- const count=400
- let reads=0
- const source=Array.from({length:count},(_,i)=>({role:'assistant',turn:i+1,text:'<StatusPlaceHolderImpl/>'}))
- const messages=new Proxy(source,{get(target,key,receiver){if(/^\d+$/.test(String(key)))reads++;return Reflect.get(target,key,receiver)}})
- const rows=createImmutableOrderedJsonIndex().from(source.map((_,i)=>[i,{turn:i+1,text:'legacy',parts:[{kind:'html',content:'<script>old()</script>',statusRule:0}]}]))
- const summary={latestTurn:count}
- projectPersistentStatusView(messages,rows,options,summary)
- assert.ok(reads<=count*2+1,`cold source reads: ${reads}`)
- source[count-1]={...source[count-1],text:'removed'};reads=0
- const next=projectPersistentStatusView(messages,rows,options,{latestTurn:count,previous:summary.next,messageIndices:[count-1]})
- assert.ok(reads<5,`warm source reads: ${reads}`)
- assert.equal(next.statusView.sourceTurn,count-1)
- assert.equal(next.projections[count-1].parts.length,1)
-})

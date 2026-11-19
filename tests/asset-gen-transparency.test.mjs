@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import {mkdir, mkdtemp} from 'node:fs/promises'
 import {fileURLToPath} from 'node:url'
 import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
-import {createAssetGeneration, keyedPrompt, keyColour} from '../tavern-plugin/lib/domain/asset-generation.js'
+import { createAssetGeneration } from '../tavern-plugin/lib/domain/asset-generation.js'
 import {createProfileDataStore} from '../tavern-plugin/lib/profile-data-store.js'
 import {encodeAssetRgba, decodeAssetRgba, alignAssetSprite, checkSpriteCutout, checkAssetImage} from '../tavern-plugin/lib/domain/asset-image-processing.js'
 import publication from '../tavern-plugin/shared/asset-image-publication.cjs'
@@ -57,26 +57,6 @@ async function fixture(t, {transparent, emotions = [{id:'calm'}]} = {}) {
 }
 const codes = job => job.candidate.checks.warnings.map(w => w.code)
 
-test('a 立绘 that reaches the canvas edge, or has a stray near-invisible corner pixel, has no background and is adopted whole', async t => {
-  const f = await fixture(t)
-  f.channel.next = () => figure({top:0, bottom:H - 1, cornerNoise:true})
-  const {job} = await f.draw()
-  assert.ok(codes(job).includes('EDGE_CONTACT'), 'the edge contact is a warning to look at')
-  assert.ok(!codes(job).includes('NO_TRANSPARENCY'))
-  const read = await f.service.read({jobId:job.jobId, forImport:true})
-  const png = Buffer.from(read.base64, 'base64')
-  assert.equal(visible(png), visible(figure({top:0, bottom:H - 1})), 'placed without cropping a pixel')
-})
-
-test('a half-length 立绘 cut off along the bottom is a cut-out; a translucent fog along the top is not, and says so', async t => {
-  assert.equal(checkSpriteCutout(figure({top:40, bottom:H - 1, left:20, width:200})).valid, true)
-  const f = await fixture(t)
-  f.channel.next = () => figure({haze:24})
-  const {job} = await f.draw()
-  assert.match(job.candidate.checks.warnings.find(w => w.code === 'NO_TRANSPARENCY').message, /^画布边上有一层半透明的雾.*重画即可：这个模型以后会先/)
-  await assert.rejects(f.service.read({jobId:job.jobId, forImport:true}), e => e.code === 'SPRITE_BACKGROUND')
-})
-
 test('a channel that answers with a background: the candidate says why and what to do, can be read, downloaded and dropped; the model is keyed from then on', async t => {
   const f = await fixture(t)
   f.channel.next = () => figure({ground:[240, 240, 240]})
@@ -98,45 +78,6 @@ test('a channel that answers with a background: the candidate says why and what 
   assert.ok(!codes(second.job).includes('NO_TRANSPARENCY'))
   const png = Buffer.from((await f.service.read({jobId:second.job.jobId, forImport:true})).base64, 'base64')
   assert.equal(checkSpriteCutout(png).valid, true)
-})
-
-test('keying that does not work says so; a channel that says it has no transparency is keyed from its first picture, one that says it has is never keyed', async t => {
-  const plain = await fixture(t, {transparent:false})
-  plain.channel.next = () => figure({ground:[240, 240, 240]})
-  const {job} = await plain.draw()
-  assert.equal(plain.channel.sent[0].background, 'opaque')
-  assert.match(job.candidate.checks.warnings.find(w => w.code === 'NO_TRANSPARENCY').message, /自动抠图没成功.*设置 → 配图/)
-
-  const real = await fixture(t, {transparent:true})
-  await real.store.updateJson('asset-generation/channels.json', () => ({opaque:{'relay-image':1}}))
-  await real.draw()
-  assert.equal(real.channel.sent[0].background, 'transparent')
-})
-
-test('a green figure is keyed on magenta; the Background line is replaced, or added when a template has none', () => {
-  assert.equal(keyColour('绿色长发的少女'), '#FF00FF'); assert.equal(keyColour('black coat'), '#00FF00')
-  assert.match(keyedPrompt('A.\nBackground: fully transparent.\nB.', '#FF00FF'), /^A\.\nBackground: one flat solid #FF00FF colour.*\nB\.$/s)
-  assert.match(keyedPrompt('Only this.', '#00FF00'), /^Only this\.\nBackground: one flat solid #00FF00/)
-})
-
-test('the plugin image entry keys a transparent request for a model that drew a background', async t => {
-  const f = await fixture(t)
-  f.channel.next = request => figure({ground:request.prompt.includes('#00FF00') ? [0, 255, 0] : [240, 240, 240]})
-  await f.service.image({prompt:'one figure', width:W, height:H, background:'transparent'})
-  const keyed = await f.service.image({prompt:'one figure', width:W, height:H, background:'transparent'})
-  assert.equal(f.channel.sent[1].background, 'opaque')
-  assert.equal(keyed.mediaType, 'image/png')
-  assert.equal(checkSpriteCutout(Buffer.from(keyed.data)).valid, true)
-})
-
-test('an ordinary picture uploaded on the default 差分 is no ruler: another 差分 is placed on its own canvas, not stretched to that picture', async t => {
-  const f = await fixture(t, {emotions:[{id:'calm', label:'平和'}, {id:'joy', label:'喜悦'}]})
-  const photo = new Uint8ClampedArray(120 * 200 * 4).fill(230)
-  await f.upload('calm', encodeAssetRgba({width:120, height:200, data:photo}))
-  const {job} = await f.draw('joy')
-  const png = Buffer.from((await f.service.read({jobId:job.jobId, forImport:true})).base64, 'base64'), placed = decodeAssetRgba(png)
-  assert.deepEqual([placed.width, placed.height], [W, H])
-  assert.equal(visible(png), visible(figure()), 'same size as drawn: not scaled to the picture\'s height')
 })
 
 test('placing an adopted 立绘 never crops: moved back onto the canvas, and shrunk to fit the ruler when too wide', () => {

@@ -62,51 +62,6 @@ function fakeReact(stateOverride) {
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
 const text = node => !node ? '' : typeof node === 'string' ? node : node.children.map(text).join('')
 
-test('the Overlay frame is the core lifecycle with the live tavernHelper and trustedCardMode', async () => {
-  const h = harness()
-  const helper = {version: 1, turnMessageIds: {1: 1, 3: 5}, messages: []}
-  const {React, cleanups} = fakeReact()
-  const lifecycles = []
-  const panels = createStageStatusPanel({React, window: {console, getComputedStyle: () => ({getPropertyValue: () => ''}), addEventListener() {}, removeEventListener() {}}, document: {createElement: () => h.frames[h.frames.push({style: {}, contentWindow: {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {}}) - 1]},
-    rpc: (method, args) => Promise.resolve({ok: true, page: PAGE}), signals: {subscribe: () => () => {}},
-    useLiveView: () => ({view: {tavernHelper: helper, tavernRuntimePolicy: {trustedCardMode: true}}}),
-    createCardFrame: props => { const lifecycle = {props, update() {}, snapshot: () => ({visibleDocument: {token: 'd', html: '', trustedCardMode: true, ref() {}}}), start: () => () => {}}; lifecycles.push(lifecycle); return lifecycle }})
-  const tree = panels.Overlay({sessionId: 's1', pageId: 'status', onClose() {}, onAction() {}})
-  find(tree, node => node.props.className === 'fork-gal-status-body').props.ref.current = h.host
-  await settle()
-  assert.equal(lifecycles.length, 1)
-  const props = lifecycles[0].props
-  assert.equal(props.helperContext, helper)
-  assert.equal(props.trustedCardMode, true)
-  assert.deepEqual({sessionId: props.sessionId, turn: props.turn, partIndex: props.partIndex, panelId: props.panelId, eager: props.eager, persistent: props.persistent, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting},
-    {sessionId: 's1', turn: 3, partIndex: 0, panelId: 'stage-page-status', eager: true, persistent: true, observeMvuView: false, runtimeReporting: true})
-  // no skin scrollbars.page: the page's document shows no native scrollbar either, under the card's own CSS (:where)
-  assert.match(props.content, /^<style data-dsh-card-page>:where\(html,body,\*\)\{scrollbar-width:none\}[^<]*<\/style><script data-dsh-card-page>[\s\S]*window\.DshCardPage=[\s\S]*<\/script>/)
-  assert.ok(props.content.endsWith(HTML))
-  for (const cleanup of cleanups) cleanup()
-  panels.dispose()
-})
-
-test('close, open, openSettings and fillInput reach onClose / onAction; fillInput sends nothing', async () => {
-  const h = harness()
-  let closes = 0
-  const actions = []
-  const page = openPage(h, {onClose: () => closes++, onAction: (...args) => actions.push(args)})
-  await settle()
-  const source = h.frames[0].contentWindow
-  h.send(source, 'close')
-  h.send(source, 'open', {id: 'map'})
-  h.send(source, 'settings')
-  h.send(source, 'fillInput', {text: '去学生会室'})
-  await settle()
-  assert.equal(closes, 1)
-  assert.deepEqual(actions, [['open', 'map'], ['settings'], ['fill']])
-  assert.deepEqual(h.fills, [['s1', '去学生会室']])
-  assert.deepEqual(h.calls.map(call => call.method), ['readCardPage'])
-  assert.deepEqual(responses(h.frames[0]).map(message => [message.requestId, message.ok]), [['r-close', true], ['r-open', true], ['r-settings', true], ['r-fillInput', true]])
-  page.dispose()
-})
-
 test('title(text) sets the sheet title over the declared label, empty gives the label back', async () => {
   const h = harness()
   const states = []

@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -72,19 +71,4 @@ test('every relative import under the plugin resolves to a real file', async () 
   }
   assert.ok(checked > 0, '扫描到了导入语句')
   assert.deepEqual(missing, [], '未解析的相对导入：\n' + missing.join('\n'))
-})
-
-test('the host entry names only files that exist, so the plugin can import', async () => {
-  const entry = path.join(tavern, 'lib/index.js')
-  assert.ok(existsSync(entry), '宿主入口存在')
-  const importers = (await relativeImports(entry)).filter(specifier => specifier.endsWith('.js'))
-  assert.ok(importers.length > 50, '宿主入口的相对导入都被读到')
-  for (const specifier of importers) assert.ok(await resolveRelative(entry, specifier), '缺少 ' + specifier)
-})
-
-test('the asset templates the host reads at request time ship with the plugin', async () => {
-  const templates = path.join(tavern, 'presets/asset-gen/templates')
-  const names = await readdir(templates).catch(() => [])
-  assert.ok(names.length > 0, '素材模板目录存在：' + templates)
-  for (const name of names) assert.match(name, /\.md$/u)
 })

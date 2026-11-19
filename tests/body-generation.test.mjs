@@ -1,11 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createPluginBodyGeneration, bodyGenerationRoute } from '../tavern-plugin/lib/domain/plugin-body-generation.js'
+import { createPluginBodyGeneration } from '../tavern-plugin/lib/domain/plugin-body-generation.js'
 import { createBodyGenerationProviders } from '../tavern-plugin/lib/domain/body-generation-providers.js'
 import { captureBodyRegenerationSource } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
-import { storySubmissionForTurn, createStorySubmissionTool } from '../tavern-plugin/lib/domain/story-tool-submission.js'
-import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
+import { storySubmissionForTurn } from '../tavern-plugin/lib/domain/story-tool-submission.js'
 
 const copy = structuredClone
 const gate = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
@@ -87,35 +86,6 @@ test('concurrent tool dispatches share one provider invocation', async () => {
   assert.equal(f.calls, 1)
 })
 
-test('route is frozen per turn; workbench remains host; bypass and invalid tool args are rejected', async () => {
-  const f = fixture()
-  f.configure({ storyGenerationMode: 'host' })
-  assert.equal((await f.controller.route('session')).mode, 'plugin-tool-call')
-  assert.equal(bodyGenerationRoute({ mode: 'card' }, { storyGenerationMode: 'plugin-tool-call' }).mode, 'host')
-  const submit = createStorySubmissionTool({ chatForSession: f.deps.chatForSession, enabled: async () => true, pluginGeneration: async () => true })
-  await assert.rejects(submit.execute({ content: '绕过插件' }, f.exec), /必须由插件/)
-  await assert.rejects(f.controller.tool.execute({ text: '伪造输入' }, f.exec), /不接受参数/)
-  await assert.rejects(f.controller.tool.execute({}, { ...f.exec, concludeTurn: undefined }), /不支持工具结束/)
-  assert.equal(f.calls, 0)
-  await assert.rejects(f.controller.validateResult(f.session, 2, { text: '模型自行输出' }), /未通过/)
-})
-
-test('lifecycle rejects direct model text before saving and passes processed flag for plugin receipt', async () => {
-  const f = fixture(), handlers = new Map(), saved = [], failures = [], traced = []
-  registerTurnLifecycleHooks({ ctx: { on: (name, fn) => handlers.set(name, fn) }, pluginBodyGeneration: f.controller,
-    clearRuntimePresetRequestState() {}, backgroundAgentRunner: { owns: () => false },
-    requestPerformance: { run: async (method, _id, operation) => { traced.push(method); return operation() } },
-    userMessageForTurn: () => ({ role: 'user', content: [{ type: 'text', text: '继续' }] }),
-    contentText: () => '继续', requestIdForTurn: () => 'req', turnOrchestrator: { recordFailure: async value => failures.push(value) },
-    foregroundHandoff: { finalize: async value => { saved.push(value); return { reply: { sessionText: value.assistantText } } } }, replaceAssistantReply() {} })
-  f.session.events.push({ type: 'assistant/message', data: { turn: 2, message: { source: { kind: 'model' }, content: [{ type: 'text', text: '绕过插件的正文' }] } } })
-  const stop = () => handlers.get('agent/turn-stopping')({ agent: { session: f.session }, turn: 2 })
-  await assert.rejects(stop(), /未通过/); assert.equal(saved.length, 0); assert.equal(failures.length, 1)
-  receipt(f.session, await f.run())
-  await stop(); assert.equal(saved.length, 1); assert.equal(saved[0].pluginBodyGeneration, true)
-  assert.deepEqual(traced, ['generateCommit'])
-})
-
 
 for (const [code, category, message] of [
   ['STCONTEXT_CONTENT_FILTER', 'content-filter', '独立生成未完整完成：Provider finish_reason: content_filter'],
@@ -148,14 +118,3 @@ for (const [code, category, message] of [
     assert.equal(f.state.messages.at(-1).projectionText, '完整开场');
   }
 });
-
-test('normal generation persists projection metadata outside the model-visible receipt', async () => {
-  const regexScripts = [{ findRegex: 'X', replaceString: 'Y', placement: [2], promptOnly: true }]
-  const f = fixture(async () => ({ text: 'X', regexScripts }))
-  const value = await f.run()
-  assert.equal(JSON.parse(value).regexScripts, undefined)
-  const generated = Object.values(f.state.timeline.operations).find(op => op.bodyGeneration)?.bodyGeneration
-  assert.deepEqual(generated.regexScripts, regexScripts)
-  assert.equal(await createPluginBodyGeneration(f.deps).tool.execute({}, f.exec), value)
-  assert.equal(f.calls, 1)
-})

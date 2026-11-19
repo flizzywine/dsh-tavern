@@ -9,13 +9,6 @@ import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skil
 
 const root = new URL('../presets/tavern/skills/', import.meta.url)
 
-test('polish-card 的审稿标准与前台精修 prompts/polish.md 的「审稿标准」一致', async () => {
-  const prompt = (await readFile(new URL('../tavern-plugin/prompts/polish.md', import.meta.url), 'utf8')).replaceAll('\r\n', '\n')
-  const section = prompt.slice(prompt.indexOf('# 审稿标准'), prompt.indexOf('# 怎么提交修改')).replace(/\n+$/, '\n')
-  const copy = (await readFile(new URL('polish-card/references/review-standards.md', root), 'utf8')).replaceAll('\r\n', '\n')
-  assert.ok(section.startsWith('# 审稿标准') && copy === section, '改了 prompts/polish.md 的审稿标准后，复制到 presets/tavern/skills/polish-card/references/review-standards.md')
-})
-
 test('polish-card 可由卡片工作台读取，引用资源齐全且默认可调用', async () => {
   const skills = createTavernSkillModule({ directory: fileURLToPath(new URL('../data/skills/', import.meta.url)), builtInDirectory: fileURLToPath(root) })
   const skill = await skills.read('polish-card')

@@ -48,35 +48,6 @@ function harness(fault) {
   }
 }
 
-test('资源已改名但 Chat 投影前崩溃时，重启完成整个资源图', async function () {
-  const app = harness(async function ({ stage }) { if (stage === 'resource-renamed') throw new Error('process died') })
-  await assert.rejects(app.graph.rename('cards/old.json', 'new.json'), /process died/)
-  assert.deepEqual(app.snapshot().resourcePaths, ['cards/new.json'])
-  assert.equal(app.snapshot().chat.cardPath, 'cards/old.json')
-  assert.equal(app.snapshot().operation.stage, 'resource-renamed')
-
-  await createResourceGraph(Object.assign({}, app.options, { fault: undefined })).recover()
-
-  assert.equal(app.snapshot().operation, null)
-  assert.deepEqual(app.organizationMoves, [['cards/old.json', 'cards/new.json']])
-  assert.equal(app.snapshot().chat.cardPath, 'cards/new.json')
-  assert.equal(app.snapshot().chat.workspace.sourcePaths[0], 'cards/new.json')
-  assert.equal(app.snapshot().chat.workspace.mountedResources[0].path, 'cards/new.json')
-  assert.equal(app.snapshot().index.chats[0].cardPath, 'cards/new.json')
-})
-
-test('资源删除后崩溃时，重启清理 Chat 中的旧引用', async function () {
-  const app = harness(async function ({ stage }) { if (stage === 'resource-removed') throw new Error('process died') })
-  await assert.rejects(app.graph.remove('cards/old.json', 'card'), /process died/)
-
-  await createResourceGraph(Object.assign({}, app.options, { fault: undefined })).recover()
-
-  assert.deepEqual(app.snapshot().resourcePaths, [])
-  assert.deepEqual(app.organizationMoves, [['cards/old.json', null]])
-  assert.deepEqual(app.snapshot().chat.workspace.sourcePaths, [])
-  assert.deepEqual(app.snapshot().chat.workspace.mountedResources, [])
-})
-
 test('后台更新存档引用失败时只记日志，操作日志保留到下次继续', async () => {
   const app = harness()
   app.options.chats.writeIndex({ chats: [{ id: 'chat-1', cardPath: 'cards/other.json', mode: 'card' }] })

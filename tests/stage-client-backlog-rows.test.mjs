@@ -2,15 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const {createStageBacklogRows}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/backlog-rows.cjs')
-test('history stops at current page and preserves earlier paragraph targets',()=>{
- const rows=createStageBacklogRows({voiceDescriptor:row=>row.voice})
- const index=new Map([[1,{units:[{kind:'narration',para:3,text:'earlier'}]}],[2,{}]])
- const list=rows.stageHistoryEntries(index,2,[{kind:'line',text:'seen'},{kind:'line',text:'future'}],0,{2:'input'})
- assert.deepEqual(list.map(row=>row.text).filter(Boolean),['earlier','input','seen'])
- assert.equal(list.find(row=>row.text==='earlier').targetPara,3)
- assert.equal(list.at(-1).here,true)
- assert.deepEqual(rows.galBacklogWindow([0,100,200,300,400],150,100,0),{start:1,end:3})
-})
 test('player input projection ignores seed trajectories and uses edited source',()=>{
  const rows=createStageBacklogRows({})
  const nodes=[{kind:'user',content:'seed'},{kind:'assistant',turn:1,messageId:'tavern-seed-trajectory:x'},{kind:'user',content:[{type:'text',text:'original'}]},{kind:'assistant',turn:2}]

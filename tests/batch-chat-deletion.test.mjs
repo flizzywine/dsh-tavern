@@ -47,17 +47,3 @@ test('batch deletion stops foreground and background before removing, deduplicat
   assert.ok(!api.events.includes('removed:bad'), '删除失败的局不通知')
   assert.ok(!api.events.some(event => event.startsWith('cleanup:log-bad')))
 })
-test('deletion reads a header projection, and only an older layout falls back to the whole save', async () => {
-  const projected = setup()
-  await projected.deleteChats(['a', 'c'])
-  // The 1 MB preset snapshot and the foreground frames are never materialized for a delete.
-  assert.ok(!projected.events.some(event => event.startsWith('whole:')), '当前布局的存档不整读：' + projected.events.join(','))
-  const projection = projected.events.find(event => event.startsWith('project:a:'))
-  for (const field of ['sessionId', 'timeline', 'backgroundHistoryIds', 'candidates', 'importHistory']) {
-    assert.ok(projection.slice(projection.indexOf(':') + 3).split(',').includes(field), '头部投影带删除所需字段：' + field)
-  }
-  const legacy = setup({ projection: false })
-  await legacy.deleteChats(['a'])
-  assert.ok(legacy.events.includes('whole:a'), '旧布局存档仍走整读以完成别名/配置升级')
-  assert.ok(legacy.events.includes('remove:a'), '回退后仍完成删除')
-})

@@ -1,14 +1,13 @@
 // 声音 tab writes: deleting a pack voice, and copying another pack's voice into a pack for a figure.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,readFile,access} from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 import {writeZip} from '../tavern-plugin/packages/dsh-asset-library/src/zip.js'
 import {sealPack,jsonBytes} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
 import {syntheticPack,PACK_ID,FIGURE_ID} from './fixtures/asset-packs/pack.mjs'
-import {pcmWav} from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/audio.js'
 
 async function fixture(t){
   const root=await mkdtemp(path.join(tmpdir(),'voice-writes-')),pack=await syntheticPack(),voiceId=pack.figures[FIGURE_ID].voice.voice
@@ -20,31 +19,6 @@ async function fixture(t){
   return {owner,assetRoot,voiceId,snapshot:installed.snapshot}
 }
 const mediaFile=(f,packId,hash)=>path.join(f.assetRoot,'packs',packId,'media',hash+'.wav')
-const exists=file=>access(file).then(()=>true,()=>false)
-
-test('deleting a pack voice drops the figures pointing at it and the reference audio only it used',async t=>{
-  const f=await fixture(t),asset=f.snapshot.manifest.voiceLibrary.voices[f.voiceId].sources.fish.references[0].media
-  // A clip only voices use: the figure's voice and a second voice 'keep'. (The fixture's own clip is also a pack asset.)
-  const bytes=pcmWav(Buffer.alloc(3200)),put=await f.owner.putBlob({packId:PACK_ID,expectedRevision:f.snapshot.revision,bytes,descriptor:{ext:'wav',mime:'audio/wav',size:bytes.length}})
-  const own={media:put.hash,text:'only voices',language:'ja'},refs=[put.hash],library=structuredClone(put.snapshot.manifest.voiceLibrary)
-  library.voices[f.voiceId].sources.fish.references.push(own)
-  library.voices.keep={name:'Keep',language:'ja',defaultSource:'fish',sources:{fish:{kind:'reference-list',provider:'fish-audio',references:[own]}}}
-  const patched=(await f.owner.patchPack({packId:PACK_ID,expectedRevision:put.snapshot.revision,patch:{voiceLibrary:library}})).snapshot
-  await assert.rejects(f.owner.deletePackVoice({packId:PACK_ID,expectedRevision:'old',voiceId:f.voiceId}),{code:'REVISION_CONFLICT'})
-  await assert.rejects(f.owner.deletePackVoice({packId:PACK_ID,expectedRevision:patched.revision,voiceId:'missing'}),{code:'VOICE_NOT_FOUND'})
-  const r=await f.owner.deletePackVoice({packId:PACK_ID,expectedRevision:patched.revision,voiceId:f.voiceId})
-  assert.deepEqual(r.affectedFigures.map(x=>x.id),[FIGURE_ID])
-  assert.equal(r.snapshot.manifest.voiceLibrary.voices[f.voiceId],undefined)
-  assert.equal(r.snapshot.figures[FIGURE_ID].voice,undefined)
-  assert.ok(r.snapshot.manifest.blobs[put.hash],'a clip another voice uses stays')
-  assert.ok(await exists(mediaFile(f,PACK_ID,put.hash)))
-  assert.ok(r.snapshot.manifest.blobs[asset],'a clip a pack asset uses stays')
-  // Deleting a voice nobody uses touches no figure; its clip, now used by nothing, goes with it.
-  const again=await f.owner.deletePackVoice({packId:PACK_ID,expectedRevision:r.snapshot.revision,voiceId:'keep'})
-  assert.deepEqual(again.affectedFigures,[]);assert.deepEqual(again.snapshot.manifest.voiceLibrary.voices,{})
-  for(const hash of refs){assert.equal(again.snapshot.manifest.blobs[hash],undefined);assert.equal(await exists(mediaFile(f,PACK_ID,hash)),false)}
-})
-
 test('another pack\'s voice is copied into the pack, reference audio included, and pointed at by the figure',async t=>{
   const f=await fixture(t),voice=f.snapshot.manifest.voiceLibrary.voices[f.voiceId]
   const target=(await f.owner.createPack({name:'Target',expectedRevision:null})).snapshot

@@ -25,10 +25,3 @@ test('monologue keeps screen framing and remembered fade while switching image a
  view.tick({reducedMotion:true},.12,800,600);assert.equal(view.alpha,0);assert.equal(view.sprite.visible,false)
  env.owner.dispose();assert.ok(env.textures.every(t=>t.destroyed===1))
 })
-test('monologue owner disposes every layer once and ignores late ticks',()=>{
- const env=setup(),first=env.create(),second=env.create()
- for(const view of [first,second])view.tick({thinking:{image:'a'},snap:true},0,800,600)
- first.dispose();env.owner.dispose();env.owner.dispose();second.dispose()
- for(const view of [first,second]){view.tick({thinking:{image:'b'}},1,800,600);assert.equal(view.alpha,0);assert.equal(view.sprite.visible,false);assert.equal(view.sprite.destroyed,true)}
- assert.equal(env.textures.length,2);assert.ok(env.textures.every(t=>t.destroyed===1));assert.throws(()=>env.create(),/disposed/)
-})

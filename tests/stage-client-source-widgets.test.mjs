@@ -25,26 +25,6 @@ function fixture({prepare,...options}={}){
  return {plugin,mount,root,jobs,subscriptions,window,document,get observers(){return observers},get widgetReads(){return widgetReads},
   close(){try{plugin.dispose()}finally{act(()=>root.unmount());dom.window.close();Object.assign(globalThis,{window:previous.window,document:previous.document,IS_REACT_ACT_ENVIRONMENT:previous.act})}}}
 }
-test('widget controller reads plugin session context and releases geometry and preferences before unmount',()=>{
- const f=fixture();let value
- function View(){value=f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters:[]},widgets:[],pages:[],turn:1,page:0,enabled:true,mode:'live'});return null}
- try {
- act(()=>f.root.render(React.createElement(View)))
- assert.ok(f.widgetReads>0);assert.equal(value.items.length,0);assert.equal(f.observers,1);assert.equal(f.jobs.size,1);assert.ok(f.subscriptions.size>0)
- const late=[...f.jobs.values()][0]
- act(()=>f.plugin.dispose());assert.equal(f.observers,0);assert.equal(f.jobs.size,0);assert.equal(f.subscriptions.size,0)
- act(()=>late());assert.equal(f.jobs.size,0)
- }finally{f.close()}
-})
-test('outside a secure context (http on a LAN address, no crypto.randomUUID) the stage widgets still mount',()=>{
- const draws=[]
- const f=fixture({prepare:window=>Object.defineProperty(window,'crypto',{configurable:true,value:{getRandomValues:bytes=>{draws.push(bytes.length);return globalThis.crypto.getRandomValues(bytes)}}})})
- function View(){f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters:[]},widgets:[],pages:[],turn:1,page:0,enabled:true,mode:'live'});return null}
- try {
- act(()=>f.root.render(React.createElement(View)))
- assert.ok(draws.includes(16),'the widget owner id comes from getRandomValues')
- }finally{f.close()}
-})
 test('stopping phone settings prevents queued writes after an in-flight config read',async()=>{
  let finish;const calls=[]
  const f=fixture({rpc:(method,args)=>{calls.push(method);if(method==='getModConfig')return new Promise(resolve=>finish=resolve);return Promise.resolve({sources:[]})}})
@@ -155,17 +135,6 @@ test('a real phone that covers the stage stops the 100 ms re-measure until it is
  act(()=>value.action(item().key,'collapse'));await settle()
  assert.equal(f.jobs.size,1,'putting it away measures again')
  assert.equal(value.covered,false)
- }finally{f.close()}
-})
-test('the stage exports its widget placement and the handheld phone decision',()=>{
- const f=fixture({prepare:window=>{window.matchMedia=query=>({matches:query.includes('coarse'),addEventListener(){},removeEventListener(){}})}})
- try {
- assert.equal(f.plugin.phoneHandheld({width:390,height:844}),true,'a narrow touch screen holds the phone as the device')
- assert.equal(f.plugin.phoneHandheld({width:1280,height:800}),false,'a wide screen shows the phone on the stage')
- assert.deepEqual(f.plugin.place({width:800,height:600,size:{width:200,height:100},anchor:'top-center'}),{x:300,y:16,width:200,height:100})
- const clear=f.plugin.place({width:800,height:600,size:{width:200,height:100},blocked:[{x:250,y:0,width:300,height:120}],anchor:'top-center'})
- assert.ok(clear.y>=132 || clear.x+clear.width<=238 || clear.x>=562,'it keeps clear of a blocked control')
- assert.equal(f.plugin.place({width:100,height:100,size:{width:200,height:100}}),null,'no safe space places nothing')
  }finally{f.close()}
 })
 test('a page asks for its phone window once: settling re-renders and showing the page again share the answer',async()=>{

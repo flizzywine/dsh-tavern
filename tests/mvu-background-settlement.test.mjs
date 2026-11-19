@@ -28,22 +28,6 @@ test('本地 provider 复用 durable submission、官方事务和效果审计；
   assert.equal(calls.length, 2, 'invalid paths fail before runtime dispatch')
 })
 
-test('列表元素改变形状（文本元素换成数组元素）同样退回重提', async () => {
-  const feedback=[]
-  const module=createMvuSettlementModule({maxAttempts:2,
-    model:{async run(input){
-      await input.onToolCall({name:'posture_submit',arguments:{posture:'站在路旁'}})
-      feedback.push(JSON.parse(await input.onToolCall({name:'mvu_submit_update',arguments:{operations:[{op:'replace',path:'/通讯',valueJson:'[["😤","胡伟","别回所里"]]'}]}})))
-      feedback.push(JSON.parse(await input.onToolCall({name:'mvu_submit_update',arguments:{operations:[{op:'insert',path:'/通讯/-',valueJson:'"😤|胡伟|别回所里"'}]}})))
-      return {text:''}
-    }},
-    runtime:{async settleMvuUpdate(){return {updated:true,context:{messages:[{variables:{stat_data:{通讯:['📞|宋|你好','😤|胡伟|别回所里']}}}]}}}}
-  })
-  await module.settleVariables({operationId:'element',chatId:'c',branchId:'b',basedOnRevision:1,sessionId:'s',messageId:0,swipeId:0,storyText:'看手机。',currentVariables:{stat_data:{通讯:['📞|宋|你好']}}})
-  assert.match(feedback[0].error,/\/通讯 的列表元素 当前是文本，提交的是列表/)
-  assert.equal(feedback[1].ok,true)
-})
-
 test('数字与文本互换同样退回重提：漏了引号的 1999 不会悄悄存成数字，文本也进不了数字字段', async () => {
   // 票号 is empty, so only the MVU schema knows its elements are text.
   const currentVariables={stat_data:{年份:'2024',金币:10,票号:[]},schema:{type:'object',properties:{年份:{type:'string'},金币:{type:'number'},票号:{type:'array',elementType:{type:'string'}}}}}

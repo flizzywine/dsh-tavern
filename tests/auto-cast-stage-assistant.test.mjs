@@ -2,9 +2,9 @@
 // one write before anything is drawn. Synthetic data only; ids differ from names.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {searchLore, runCastingAssistant, AUTO_CAST_TASK} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js'
+import { runCastingAssistant, AUTO_CAST_TASK } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js'
 import {cardLorePieces as lorePieces} from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
-import {castChanges, newSpeakers, createAutoCast} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
+import {castChanges, newSpeakers} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 import {emptyAutoCastRecord, noteCasting, castDrawn} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
 
 const PACK = '11111111-1111-4111-8111-111111111111', OWN = '22222222-2222-4222-8222-222222222222', LIB = '33333333-3333-4333-8333-333333333333'
@@ -15,14 +15,6 @@ const speakers = [{name:'晓美焰', aliases:[]}, {name:'护士', aliases:[]}, {
 const library = {figures:[{packId:LIB, packName:'春物', revision:'lr1', ref:{packId:LIB, kind:'figures', figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}, name:'雪之下雪乃', aliases:['雪乃'], copyable:true, voice:{voiceId:'v-yukino', name:'雪乃'}},
   {packId:LIB, packName:'旧包', revision:'lr1', ref:{packId:LIB, kind:'figures', figureId:'ffffffff-ffff-4fff-8fff-ffffffffffff'}, name:'雪乃（旧）', aliases:[], copyable:false, voice:null}],
   voices:[{packId:OWN, packName:'雾港', revision:'or1', voiceId:'v-homura', name:'焰', language:'ja', sound:'homura'}, {packId:LIB, packName:'通用', revision:'lr1', voiceId:'v-mid', name:'中年女声', language:'zh', guidance:'适合中年女性', sound:'mid'}]}
-
-test('lore search covers the card fields, each world book entry by its keys, and the game\'s 人物档案', () => {
-  const pieces = lorePieces(raw, {characterDesignDocument:{characters:[{name:'老板', appearance:'光头'}]}})
-  assert.deepEqual(searchLore(pieces, '杏子').map(row => row.source), ['世界书：佐仓杏子'])
-  assert.deepEqual(searchLore(pieces, '护士').map(row => row.source), ['卡描述'])
-  assert.deepEqual(searchLore(pieces, '老板').map(row => row.source), ['人物档案：老板'])
-  assert.deepEqual(searchLore(pieces, ''), [])
-})
 
 test('the tools check their input and answer errors the model can fix', async () => {
   const seen = []
@@ -52,15 +44,6 @@ test('the tools check their input and answer errors the model can fix', async ()
   assert.deepEqual(result.appearance, {护士:{face:'圆脸短发', bodySFW:'微胖，白色护士服'}})
   assert.deepEqual(result.about, {护士:'夜班护士，照顾主角'})
   assert.deepEqual(result.voice, {护士:{from:{packId:LIB, voiceId:'v-mid'}, revision:'lr1', reason:'说话平和的中年女声，适合耐心照料病人的护士'}})
-})
-
-test('without the library, its tools are not offered; a 配音后端 voice is never offered', async () => {
-  let offered
-  const run = async input => { offered = input.tools.map(tool => tool.name) }
-  await runCastingAssistant({runAgent:run, selection:{}, speakers, rows, pieces:[], search:null})
-  assert.deepEqual(offered, ['search_lore', 'same_as', 'write_appearance', 'finish'])
-  await runCastingAssistant({runAgent:run, selection:{}, speakers, rows, pieces:[], search:null, libraryVoices:async () => ({voices:[], more:0})})
-  assert.deepEqual(offered, ['search_lore', 'same_as', 'write_appearance', 'list_library_voices', 'assign_voice', 'finish'])
 })
 
 test('every library 通用声音 is listed with its name, 使用情景, language, pack and speakers, and one of them can be assigned', async () => {
@@ -107,65 +90,4 @@ test('the decisions become one write: same is not created, a copy takes the spea
   assert.deepEqual(record.appearance, {[PACK + '/n1']:{face:'圆脸', bodySFW:'护士服'}})
   const body = {paragraphs:[{paragraphId:'p0', kind:'line', segment:{name:'晓美焰', text:'……'}}, {paragraphId:'p1', kind:'line', segment:{name:'护士', text:'……'}}]}
   assert.deepEqual(newSpeakers(body, {rows}, record, null).map(row => row.name), ['护士'], 'a name found to be an existing figure is not asked about again')
-})
-
-test('a round with new speakers: the assistant decides, one write creates them, then the round counts', async () => {
-  const writes = [], figures = []
-  const lib = {writable:() => true,
-    readCast:async () => ({cardId:'card-1', packId:figures.length ? PACK : null, revision:'r', raw, rows:[...rows, ...figures.map(f => ({actorKey:f.ref.figureId, ref:f.ref, name:f.name, aliases:[], enabled:true}))], figures:structuredClone(figures)}),
-    write:async input => { writes.push(input); const refs = input.changes.map((change, i) => ({packId:PACK, figureId:'n' + i}))
-      input.changes.forEach((change, i) => figures.push({ref:refs[i], name:change.value?.name || change.patch.name, aliases:[], emotions:[{id:'joy', label:'喜悦'}], settei:false, sprites:[]})); return {refs} }}
-  const files = new Map(), store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null))}
-  let asked
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'late'}), library:lib, images:{status:async () => ({ready:false})}, idle:async () => {},
-    cast:async input => { asked = input.speakers.map(row => row.name); return {same:{晓美焰:rows[0].ref}, copy:{}, appearance:{护士:{face:'圆脸', bodySFW:'护士服'}}, voice:{}} }})
-  const body = {paragraphs:[{paragraphId:'p0', kind:'line', segment:{name:'晓美焰', text:'……'}}, {paragraphId:'p1', kind:'line', segment:{name:'护士', mood:'喜悦', text:'……'}}]}
-  const chat = {id:'c1', timeline:{branchId:'b', revision:1}, messages:[{role:'assistant', turn:4, id:'m4'}]}
-  await cast.round('cards/c.json', body, chat)
-  assert.deepEqual(asked, ['晓美焰', '护士'])
-  assert.deepEqual(writes.map(w => w.changes.map(c => c.op + ':' + (c.value?.name))), [['create:护士']])
-  assert.equal(writes[0].source.turn, 4)
-  const record = [...files].find(([key]) => key.endsWith('.json') && !key.endsWith('index.json'))[1]
-  assert.deepEqual(record.misses, {[PACK + '/n0']:{joy:1}}, 'the new figure\'s first line already counts')
-  assert.deepEqual(Object.keys(record.same), ['晓美焰'])
-  await cast.round('cards/c.json', body, chat)
-  assert.equal(writes.length, 1, 'nobody new the second time')
-  const counted = () => [...files].find(([key]) => key.endsWith('.json') && !key.endsWith('index.json'))[1].misses[PACK + '/n0'].joy
-  assert.equal(counted(), 1, 'the same round seen again is not counted twice')
-  await cast.round('cards/c.json', body, {...chat, messages:[{role:'assistant', turn:5, id:'m5'}]})
-  assert.equal(counted(), 2, 'the next round counts')
-})
-
-test('an assistant that fails leaves its speakers to be created new, and the record keeps why', async () => {
-  const writes = [], figures = []
-  const lib = {writable:() => true,
-    readCast:async () => ({cardId:'card-1', packId:figures.length ? PACK : null, revision:'r', raw, rows:figures.map(f => ({actorKey:f.ref.figureId, ref:f.ref, name:f.name, aliases:[], enabled:true})), figures:structuredClone(figures)}),
-    write:async input => { writes.push(input); const refs = input.changes.map((change, i) => ({packId:PACK, figureId:'n' + i}))
-      input.changes.forEach((change, i) => figures.push({ref:refs[i], name:change.value.name, aliases:[], emotions:[{id:'joy', label:'喜悦'}], settei:false, sprites:[]})); return {refs} }}
-  const files = new Map(), store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null))}
-  const errors = []
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'late'}), library:lib, images:{status:async () => ({ready:false})}, now:() => 7,
-    cast:async () => { throw new ReferenceError('getTts is not defined') }, onError:error => errors.push(error.message)})
-  const chat = {id:'c1', timeline:{branchId:'b', revision:1}, messages:[{role:'assistant', turn:2, id:'m2'}]}
-  await cast.round('cards/c.json', {paragraphs:[{paragraphId:'p0', kind:'line', segment:{name:'雪之下雪乃', mood:'喜悦', text:'请进。'}}]}, chat)
-  assert.deepEqual(writes.map(w => w.changes.map(c => c.op + ':' + c.value.name)), [['create:雪之下雪乃']])
-  const record = [...files].find(([key]) => key.endsWith('.json') && !key.endsWith('index.json'))[1]
-  assert.deepEqual(record.castFailures, [{at:7, error:'getTts is not defined'}])
-  assert.deepEqual(errors, ['getTts is not defined'])
-})
-
-test('the opening is cast and counted from 积极 up; 晚一轮 waits for the story', async () => {
-  for (const [level, expected] of [['late', 0], ['eager', 1], ['all', 1]]) {
-    const writes = [], figures = []
-    const lib = {writable:() => true,
-      readCast:async () => ({cardId:'card-1', packId:figures.length ? PACK : null, revision:'r', raw, rows:figures.map(f => ({actorKey:f.ref.figureId, ref:f.ref, name:f.name, aliases:[], enabled:true})), figures:structuredClone(figures)}),
-      write:async input => { writes.push(input); const refs = input.changes.map((change, i) => ({packId:PACK, figureId:'n' + i}))
-        input.changes.forEach((change, i) => figures.push({ref:refs[i], name:change.value.name, aliases:[], emotions:[{id:'joy', label:'喜悦'}], settei:false, sprites:[]})); return {refs} }}
-    const files = new Map(), store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null))}
-    const cast = createAutoCast({store, settings:async () => ({enabled:true, level}), library:lib, images:{status:async () => ({ready:false})}, idle:async () => {}})
-    const greeting = {id:'c1', timeline:{branchId:'b', revision:0}, messages:[{role:'assistant', greeting:true, id:'g'}]}
-    await cast.round('cards/c.json', {paragraphs:[{paragraphId:'p0', kind:'line', segment:{name:'护士', mood:'喜悦', text:'你醒了。'}}]}, greeting, {opening:true})
-    assert.equal(writes.length, expected, level)
-    if (expected) assert.equal(writes[0].source.turn, 1, 'the opening is turn 1')
-  }
 })

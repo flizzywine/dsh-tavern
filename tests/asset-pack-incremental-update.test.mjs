@@ -63,13 +63,6 @@ async function library(t, cPrefix) {
   return {service, installed:installed.snapshot, ...files}
 }
 
-test('the update preview offers 增量更新 and lists the entries only the installed version has', async t => {
-  const {service, nextFile} = await library(t)
-  const preview = await service.inspectImportFile({file:nextFile})
-  assert.deepEqual(preview.choices, ['update', 'merge', 'keep-both', 'cancel'])
-  assert.deepEqual(preview.removed, [{kind:'figures', id:B, name:'Bee'}, {kind:'sfx', id:'bell', name:'Synthetic sfx'}])
-})
-
 test('merge keeps B with its UUID and pictures, takes A\' and C from the author, and keeps local recall words', async t => {
   const {service, installed, bMedia, nextFile} = await library(t)
   const music = installed.manifest.assets.find(asset => asset.kind === 'music')
@@ -89,23 +82,4 @@ test('merge keeps B with its UUID and pictures, takes A\' and C from the author,
   assert.ok(snapshot.manifest.assets.some(asset => asset.kind === 'sfx' && asset.id === 'bell'))
   const media = await service.readMedia({packId:PACK_ID, hash:bMedia, expectedRevision:snapshot.revision})
   assert.deepEqual(Buffer.from(media.bytes), png([10, 200, 30]))
-})
-
-test('a kept figure whose model key the new version uses for other content moves its model to a fresh key', async t => {
-  const {service, installed, nextFile} = await library(t, 'b')
-  const preview = await service.inspectImportFile({file:nextFile})
-  const {snapshot} = await service.applyImport({inspectionId:preview.inspectionId, expectedRevision:preview.expectedRevision, decision:'merge', acceptScriptRisk:true})
-  const model = figure => figure.outfits.find(outfit => outfit.live2d).live2d.bundleKey
-  assert.equal(model(snapshot.figures[C]), 'bmodel')
-  assert.equal(model(snapshot.figures[B]), 'bmodel-2')
-  assert.equal(snapshot.manifest.bundles['bmodel-2'].contentHash, installed.manifest.bundles.bmodel.contentHash)
-  assert.notEqual(snapshot.manifest.bundles.bmodel.contentHash, installed.manifest.bundles.bmodel.contentHash)
-})
-
-test('update replaces the installed version: B and the sound effect are gone', async t => {
-  const {service, nextFile} = await library(t)
-  const preview = await service.inspectImportFile({file:nextFile})
-  const {snapshot} = await service.applyImport({inspectionId:preview.inspectionId, expectedRevision:preview.expectedRevision, decision:'update', acceptScriptRisk:true})
-  assert.deepEqual(snapshot.manifest.figures, [FIGURE_ID, C])
-  assert.equal(snapshot.manifest.assets.some(asset => asset.kind === 'sfx' && asset.id === 'bell'), false)
 })

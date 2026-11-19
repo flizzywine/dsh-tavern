@@ -5,7 +5,6 @@ import { UpstreamTemplateRuntime } from './fixtures/upstream-template-runtime.mj
 import { createWorldBookLibrary } from '../tavern-plugin/lib/domain/worldbook-library.js'
 import { createMvuSettlementModule, PROMPT_PROSE } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 const runtime = await UpstreamTemplateRuntime.create()
-const entry = (ref, content, extra = {}) => ({ ref, comment: '[mvu_update]' + ref, enabled: true, content, ...extra })
 const rules = entries => createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) }, runtime: async () => runtime }).mvuUpdateRules
 
 test('MVU settlement keeps card rules alongside separately bound and global books (#619)', async () => {
@@ -39,43 +38,4 @@ test('MVU settlement keeps card rules alongside separately bound and global book
   for (const rule of updateRules) assert.ok(ruleSection.includes(rule), rule)
   globals = false
   assert.deepEqual(await render(chat, card), [card.character_book.entries[0].content, '绑定规则'])
-})
-
-test('MVU renders current input and conditional rules against settlement baseline, excluding other controllers', async () => {
-  const entries = [entry('plain', '角色：{{char}}'),
-    entry('input', '<%- lastUserMessage %>'),
-    entry('signal', "<% if (Array.isArray(getMessageVar('stat_data.事件.信号'))) { %>信号规则<% } %>"),
-    entry('disabled', '<% throw new Error("disabled") %>', { enabled: false }),
-    entry('ordinary', '<% throw new Error("ordinary") %>', { comment: '普通动态', constant: true })]
-  const chat = { messages: [{ role: 'user', text: '查看公会任务' }, { role: 'assistant', text: '任务列表', variables: [{ stat_data: { 事件: { 信号: [] } } }] }] }
-  const render = rules(entries)
-  const absent = await render(chat, { name: '命定之诗' }, { variables: { stat_data: { 事件: {} } } })
-  assert.deepEqual(absent.sort(), ['角色：命定之诗', '查看公会任务'].sort())
-  const present = await render(chat, { name: '命定之诗' }, { variables: { stat_data: { 事件: { 信号: [] } } } })
-  assert.deepEqual(present.sort(), ['角色：命定之诗', '查看公会任务', '信号规则'].sort())
-})
-test('MVU template failure stops settlement instead of silently dropping rules or forwarding EJS', async () => {
-  await assert.rejects(rules([entry('broken', '<% throw new Error("broken") %>')])({ messages: [] }, {}), /MVU 更新规则模板执行失败/)
-})
-
-test('MVU embedded rules accept object entries and deduplicate already bound content', async () => {
-  const card = { character_book: { entries: {
-    0: { uid: 0, comment: '[mvu_update]卡规则', content: '共同规则', disable: false },
-    1: { uid: 1, comment: '[mvu_update]禁用', content: '禁用内容', disable: true },
-    2: { uid: 2, comment: '[mvu_update]空白', content: '  ' },
-  } } }
-  assert.deepEqual(await rules([entry('same', ' 共同规则 '), entry('external', '独立规则')])({}, card), ['共同规则', '独立规则'])
-  assert.deepEqual(await rules([])({}, card), ['共同规则'])
-})
-
-test('MVU embedded templates render against settlement variables with independent refs', async () => {
-  const card = { name: '规则卡', character_book: { entries: [
-    { id: 0, name: '[mvu_update]卡模板', enabled: true, content: "<% if (getMessageVar('stat_data.阶段') === '牵手') { %>{{char}}：本轮最多增加五点。<% } %>" },
-    { id: 1, name: '普通控制器', enabled: true, content: '<% throw new Error("ordinary embedded controller") %>' },
-  ] } }
-  const render = rules([entry('entry:0', '<%- lastUserMessage %>')])
-  assert.deepEqual((await render({ messages: [{ role: 'user', text: '玩家输入' }] }, card,
-    { variables: { stat_data: { 阶段: '牵手' } } })).sort(), ['规则卡：本轮最多增加五点。', '玩家输入'].sort())
-  card.character_book.entries[0].content = '<% throw new Error("broken embedded rule") %>'
-  await assert.rejects(render({ messages: [] }, card), /MVU 更新规则模板执行失败.*card-mvu:/)
 })

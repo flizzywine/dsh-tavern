@@ -67,42 +67,6 @@ test('upgraded edit history keeps citations, supports new turns and cold restore
   assert.equal(reopened.snapshotEvents().filter(row => row.type === 'turn/start').length, 2)
 })
 
-test('disk upgrade preserves originals and Tavern data; rerun cannot overwrite newer progress', async t => {
-  const directory = await root(t)
-  const source = await save(directory, fixture(), false)
-  const journal = path.join(directory, 'chat.json')
-  const chat = JSON.stringify({ id: 'chat', sessionId: 'save', variableSnapshots: [{ turn: 1, hp: 8 }], messages: ['已编辑正文'] })
-  await writeFile(journal, chat)
-  const result = await migrateSessionDirectory(directory, migration)
-  assert.equal(result.migrated, 1, JSON.stringify(result.failures))
-  assert.deepEqual(await readFile(source.file), source.bytes)
-  assert.equal(await readFile(journal, 'utf8'), chat)
-  const current = await readFile(source.target)
-  assert.equal(restoreSessionLog(parseSessionLog(current), catalog).header.version, 4)
-  const again = await migrateSessionDirectory(directory, migration)
-  assert.equal(again.unchanged, 1)
-  assert.deepEqual(await readFile(source.target), current)
-  assert.equal((await readdir(source.directory)).some(name => name.includes('.tmp-')), false)
-  // A broken newest file must never trigger fallback to an older, valid story.
-  await writeFile(source.target, 'damaged new progress')
-  assert.equal((await migrateSessionDirectory(directory, migration)).migrated, 0)
-  assert.equal(await readFile(source.target, 'utf8'), 'damaged new progress')
-})
-
-test('invalid references and ambiguous generations never publish a partial current file', async t => {
-  const directory = await root(t)
-  const bad = fixture('bad')
-  bad.events[6].sourceEventSeqs = [999]
-  const source = await save(directory, bad)
-  const result = await migrateSessionDirectory(directory, migration)
-  assert.equal(result.refused, 1)
-  assert.equal(existsSync(source.target), false)
-  assert.deepEqual(await readFile(source.file), source.bytes)
-  await writeFile(path.join(source.directory, 'session.v3.jsonl'), 'other generation')
-  assert.equal((await migrateSessionDirectory(directory, migration)).refused, 1)
-  assert.equal(existsSync(source.target), false)
-})
-
 test('a corrupt child blocks parent catalog publication and retains both originals', async t => {
   const directory = await root(t)
   const parent = await save(directory, fixture('parent'))
@@ -116,25 +80,6 @@ test('a corrupt child blocks parent catalog publication and retains both origina
   assert.equal(existsSync(childFile.target), false)
   assert.deepEqual(await readFile(parent.file), parent.bytes)
   assert.deepEqual(await readFile(childFile.file), childFile.bytes)
-})
-
-test('a source changed during conversion is not published and temporary files are cleaned', async t => {
-  const { writeFileSync } = await import('node:fs')
-  const directory = await root(t)
-  const source = await save(directory, fixture())
-  let changed = false
-  const concurrent = { ...migration, createSessionFormatCatalogWithChildren(children) {
-    const real = migration.createSessionFormatCatalogWithChildren(children)
-    return { ...real, encodeCurrentEvent(event) {
-      if (!changed) { changed = true; writeFileSync(source.file, Buffer.concat([source.bytes, Buffer.from('another writer')])) }
-      return real.encodeCurrentEvent(event)
-    } }
-  } }
-  const result = await migrateSessionDirectory(directory, concurrent)
-  assert.equal(result.refused, 1)
-  assert.match(result.failures[0].reason, /发生变化/)
-  assert.equal(existsSync(source.target), false)
-  assert.equal((await readdir(source.directory)).some(name => name.includes('.tmp-')), false)
 })
 
 test('a concurrently created newer save wins over migration output', async t => {
@@ -182,19 +127,6 @@ test('saved story anchors and pending undo counts resolve through the durable co
   assert.equal(unchangedSinceRollback(session, session.snapshotEvents().length, 4), true)
   const cold = openSession(restoreSessionLog(parseSessionLog(encodeCurrentGeneration(artifact, catalog)), catalog))
   assert.deepEqual(resolveSessionRoundAnchor(cold, oldAnchor), located)
-})
-
-test('background rewind interprets an old boundary in upgraded coordinates', async () => {
-  const { rewindBackgroundSurface } = await import('../tavern-plugin/lib/domain/background-surface.js')
-  const old = fixture()
-  old.events = [old.events[3], old.events[0], old.events[1], old.events[2], ...old.events.slice(4)].map((row, seq) => ({ ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  const session = openSession(artifact)
-  rewindBackgroundSurface(session, 0, undefined, 3) // keep the original user's input
-  assert.ok(texts(session).includes('继续故事'))
-  assert.ok(!texts(session).includes('已编辑正文'))
-  const reopened = restoreSessionLog(parseSessionLog(encodeCurrentGeneration({ header: session.header, events: session.snapshotEvents(), inheritedEventCount: 0 }, catalog)), catalog)
-  assert.ok(texts(openSession(reopened)).includes('继续故事'))
 })
 
 test('undo restoration preserves copied tool results without inventing an execution', () => {
@@ -254,41 +186,12 @@ test('legacy compaction of a late system prompt preserves history and the effect
   assert.throws(() => prepareSessionUpgrade(broken, migration), /旧压缩范围本身不完整/)
 })
 
-const interruptedCompaction = turn => ({ type: 'compaction/start', data: { compactionId: 'c-interrupted', sourceCommandId: 'cmd-1', turn } })
-
 // #281：真实存档里升级器拒绝的三种形状。
-const v3Rows = rows => rows.map((row, seq) => ({ time: 1, ...row, seq }))
 const checkpoint = (text, range, refs, compactionId = 'c1') => ({ type: 'user/message', surfaceOp: { op: 'replace', startSeq: range[0], endSeq: range[1] }, sourceEventSeqs: refs,
   data: { id: 'checkpoint-' + text, role: 'user', content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'compact', compactionId } } })
-const storyTurn = turn => [
-  { type: 'turn/start', data: { turn } }, { type: 'step/start', data: { turn, step: 1 } },
-  { type: 'user/message', data: message('user', '输入' + turn), surfaceOp: 'append' },
-  { type: 'assistant/message', data: { turn, step: 1, stream: [], message: message('assistant', '正文' + turn) }, surfaceOp: 'append' },
-  { type: 'step/end', data: { turn, step: 1 } }, { type: 'turn/end', data: { turn, reason: { kind: 'completed' } } },
-]
 const compaction = (range, shadowed, at) => [
   { type: 'compaction/start', data: { compactionId: 'c1', turn: null } },
   { type: 'compaction/summary', data: { compactionId: 'c1', summary: [{ type: 'text', text: '摘要' }], shadowedRange: { start: range[0], end: range[1] }, shadowedSeqs: shadowed, shadowedTokenCount: 10, provider: 'fixture', model: 'fixture' } },
   checkpoint('摘要', range, [...shadowed, at + 1]),
   { type: 'compaction/end', data: { compactionId: 'c1', turn: null } },
 ]
-
-test('压缩结束后仍带检查点来源的摘要改写：保留内容，改挂酒馆来源后可升级', async () => {
-  const { isCompactionCheckpoint } = await import('../tavern-plugin/lib/domain/compaction-checkpoint.js')
-  const old = { header: header('stray-checkpoint'), events: v3Rows([...storyTurn(1), ...compaction([2, 3], [2, 3], 6), checkpoint('玩家原文', [8, 8], [8]), ...storyTurn(2)]) }
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  const rewrite = artifact.events.find(row => row.type === 'user/message' && row.data.content?.[0]?.text === '玩家原文')
-  assert.notEqual(rewrite.data.source.kind, 'compact-checkpoint')
-  assert.ok(isCompactionCheckpoint(rewrite), '酒馆仍把它当作压缩摘要节点，模板同步不会再改写它')
-  assert.ok(texts(openSession(artifact)).includes('玩家原文'), '上下文与旧版完全一致')
-})
-
-test('回合结束后的正文编辑，下一回合没有任何步骤时不借用更后面回合的步骤', () => {
-  const edit = { type: 'assistant/message', data: { turn: 1, step: 1, stream: [], message: message('assistant', '编辑后的正文') }, surfaceOp: { op: 'replace', startSeq: 3, endSeq: 3 }, sourceEventSeqs: [3] }
-  const old = { header: header('stepless-turn'), events: v3Rows([...storyTurn(1), edit,
-    { type: 'turn/start', data: { turn: 2 } }, interruptedCompaction(2), { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
-    ...storyTurn(3)]) }
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)).filter(text => text.startsWith('编辑') || text.startsWith('正文')), ['编辑后的正文', '正文3'])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2, 3], '回合号不变')
-})

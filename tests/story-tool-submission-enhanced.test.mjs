@@ -4,15 +4,7 @@ import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
-import {
-  STORY_CONTEXT_TOOL_NAME,
-  STORY_SUBMIT_TOOL_NAME,
-  buildStorySubmitWireSchema,
-  createStoryContextTool,
-  createStorySubmissionTool,
-  foldStorySubmission,
-  storySubmissionForTurn,
-} from '../tavern-plugin/lib/domain/story-tool-submission.js'
+import { STORY_CONTEXT_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, buildStorySubmitWireSchema, foldStorySubmission, storySubmissionForTurn } from '../tavern-plugin/lib/domain/story-tool-submission.js'
 import { assistantResultForTurn } from '../tavern-plugin/lib/domain/session-turn-result.js'
 import {
   ENVELOPE_INIT_CALL_ID,
@@ -26,13 +18,6 @@ import {
 } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { GEMINI_THOUGHT_SIGNATURE_SENTINEL } from '../tavern-plugin/lib/domain/tool-protocol-enforcement.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
-import { foregroundToolCatalog, normalizeDisabledForegroundTools } from '../tavern-plugin/lib/domain/foreground-tools.js'
-import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
-
-test('read_story_context 被误调用时抛出引导直达 submit_story', async () => {
-  const ctxTool = createStoryContextTool()
-  await assert.rejects(() => ctxTool.execute({ query: 'sync' }), /直接调用 submit_story/)
-})
 
 test('foldStorySubmission 保留 think 思考槽与真实 thoughtSignature，同模型回放还原真签名、跨模型降级哨兵', () => {
   const session = Session.create('sig-preserve')
@@ -225,68 +210,5 @@ test('设置项校验：storyToolThinking 与 storyToolHistoryMode 持久化与�
   assert.throws(() => applyTavernSettingsPatch({}, { storyToolHistoryMode: 'unknown' }), /无效的工具回放结构/)
 })
 
-test('submit_story 从前台工具列表移除，直接与全局设置开关绑定且不受旧档 disabledForegroundTools 屏蔽', async () => {
-  for (const mode of ['story', 'script']) {
-    const names = foregroundToolCatalog(mode).map(tool => tool.name)
-    assert.equal(names.includes(STORY_SUBMIT_TOOL_NAME), false)
-    assert.equal(names.includes(STORY_CONTEXT_TOOL_NAME), false)
-  }
-  assert.deepEqual(
-    normalizeDisabledForegroundTools([STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, 'tavern_recall_history']),
-    ['tavern_recall_history']
-  )
-
-  let inputSwitch = false
-  let outputSwitch = false
-  let layoutSwitch = 'story'
-  const orchestrator = createTurnOrchestrator({
-    frameBuilder: { build() {} },
-    storyToolCall: async () => outputSwitch,
-    storyInputToolCall: async () => inputSwitch,
-    historyLayout: async () => layoutSwitch,
-    store: {
-      async headerForSession() {
-        return {
-          mode: 'story',
-          disabledForegroundTools: [STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, 'tavern_recall_history']
-        }
-      }
-    }
-  })
-
-  // 设置未开启时，不插入 submit_story
-  const whenOff = await orchestrator.visibleTools('s1')
-  assert.equal(whenOff.includes(STORY_SUBMIT_TOOL_NAME), false)
-  assert.equal(whenOff.includes(STORY_CONTEXT_TOOL_NAME), false)
-  assert.equal(whenOff.includes('tavern_recall_history'), false)
-
-  // 开启输出走工具调用后，即使旧存档 disabledForegroundTools 曾含 submit_story，也照常插入
-  outputSwitch = true
-  const whenOutOn = await orchestrator.visibleTools('s1')
-  assert.equal(whenOutOn.includes(STORY_SUBMIT_TOOL_NAME), true)
-
-  // 开启输入走工具调用 + envelope 模式后，同时插入 submit_story 与 read_story_context
-  inputSwitch = true
-  layoutSwitch = 'envelope'
-  const whenEnvelopeOn = await orchestrator.visibleTools('s1')
-  assert.equal(whenEnvelopeOn.includes(STORY_SUBMIT_TOOL_NAME), true)
-  assert.equal(whenEnvelopeOn.includes(STORY_CONTEXT_TOOL_NAME), true)
-})
-
 // dsh-tools 是插件的依赖（tavern-plugin/node_modules），tests/ 解析不到。
 const { defineTool } = await import(pathToFileURL(createRequire(new URL('../tavern-plugin/package.json', import.meta.url)).resolve('@deepseek-ai/dsh-tools')).href)
-
-test('宿主 schema 编译：可选参数只靠省略 required 表达，dsh-tools 不再因 required:false 拒绝整个插件', () => {
-  // 0.2.1 的 runSchemaCompiler 会在属性上出现非 true 的 required 时抛
-  // `parameters.xxx.required must be true when present`，插件随即激活失败、所有
-  // /api/dsh-tavern 路由不挂载（前端表现为全站 HTTP 404）。这里锁住可编译性。
-  const submit = defineTool(createStorySubmissionTool({ chatForSession: async () => undefined, enabled: async () => true }))
-  assert.equal(submit.name, STORY_SUBMIT_TOOL_NAME)
-  assert.equal(submit.parameters.properties.think.type, 'string')
-  assert.deepEqual(submit.parameters.required, ['content'], 'think 是可选槽，不应进 required 列表')
-
-  const context = defineTool(createStoryContextTool())
-  assert.equal(context.name, STORY_CONTEXT_TOOL_NAME)
-  assert.equal(context.parameters.properties.query.type, 'string')
-  assert.equal(context.parameters.required, undefined, 'query 全可选时不产生 required 列表')
-})

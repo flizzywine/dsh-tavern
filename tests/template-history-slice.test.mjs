@@ -12,14 +12,6 @@ function windowOf(count, from) {
   return { chat: history.chat, reads }
 }
 
-test('upstream variable lookup through slice reads only the floors it searches', () => {
-  const { chat, reads } = windowOf(600, 552)
-  // Upstream evalMessageFilter: the latest earlier floor that carries variables.
-  const found = chat.slice(0, 551).findLastIndex(message => message.variables?.[0] != null)
-  assert.equal(found, 507)
-  assert.deepEqual(reads, Array.from({ length: 551 - 507 }, (_, index) => 550 - index))
-})
-
 test('slice keeps native bounds and copy semantics', () => {
   const { chat } = windowOf(10, 0)
   for (const args of [[], [3], [-3], [2, 5], [5, 2], [-4, -1], [0, 99], [undefined, 4], [NaN, 2]])

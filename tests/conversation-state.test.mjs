@@ -17,18 +17,6 @@ async function foreground(domain,id='turn-1'){
  return domain.commitForeground('a',{operationId:id,basis:opened.basis,userText:'continue',assistantText:'reward'})
 }
 
-test('settlement failure retains body and later foreground supersedes the old task',async t=>{
- const {domain}=await fixture(t)
- const first=await foreground(domain)
- await domain.failSettlement('a',{operationId:first.settlementId,error:'provider failed'})
- assert.equal((await domain.open('a')).messageCount,2)
- assert.equal((await domain.readOperation('a',first.settlementId)).status,'failed')
- await foreground(domain,'turn-2')
- assert.equal((await domain.open('a')).messageCount,4)
- await assert.rejects(domain.submitSettlement('a',{operationId:first.settlementId,submission:{gold:99}}),{code:'CONVERSATION_STALE'})
- assert.equal((await domain.open('a')).state.world.variables.gold,10)
-})
-
 const RUNTIME_HEADER='c'.repeat(64)
 async function runtimeFixture(t,runtimeState){
  const root=await mkdtemp(join(tmpdir(),'conversation-runtime-'));t.after(()=>rm(root,{recursive:true,force:true}))

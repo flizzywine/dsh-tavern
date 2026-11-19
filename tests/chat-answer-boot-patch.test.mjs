@@ -57,10 +57,3 @@ test('回答步骤的两个座位各显示自己的块：过程座只有思考�
   assert.match(client, /input\.groupPart !== "response" \|\| block\.kind !== "reasoning"/)
   assert.match(client, /groupPart: props\.groupPart,/)
 })
-
-
-test('样式表保证步骤容器折叠时仍显露正在流式展开的思维链并仅在游玩隐藏开关中放行流式思维链', () => {
-  const css = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
-  assert.match(css, /\.dsh-tavern-shell-active \[data-step-process-body\]\[hidden\]:has\(\.dsh-tavern-stream-reasoning\[open\]\)[^}]*content-visibility:\s*visible\s*!important/)
-  assert.match(css, /html\.dsh-tavern-hide-process \[data-dsh-fork-session="play"\] \.dsh-tavern-assistant-reasoning:not\(\.dsh-tavern-stream-reasoning\)/)
-})

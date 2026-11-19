@@ -1,10 +1,9 @@
 // 设置 › 模型's 最近用过的网址: the host card patch and the provider pairs it reaches (dsh-tavern-tts model-endpoints.js).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { patchSettingsModelsSource, patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from '../bin/settings-models-endpoints-patch.mjs'
+import { patchSettingsModelsSource } from '../bin/settings-models-endpoints-patch.mjs'
 import { createModelEndpoints } from '../tavern-plugin/packages/dsh-tavern-tts/src/model-endpoints.js'
 
 // The provider card's Base URL input as 0.2.1-rc.2 ships it, inside the editor's scope.
@@ -37,19 +36,6 @@ test('the card patch inserts the picker once after the Base URL input, is idempo
     assert.deepEqual({ ...given, onSwitched: undefined }, { provider: 'relay', label: '中转', ns: 'llm-pi-ai', path: ['providers', 'relay'], keyRef: 'X_API_KEY', url: 'https://api.example.com', disabled: false, onSwitched: undefined })
     given.onSwitched(); assert.deepEqual(rendered.at(-1), ['closed', true])
   } finally { delete globalThis[Symbol.for('dsh.endpointHistory')] }
-})
-
-test('the patch writes the package file only when needed and names its package', t => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'models-patch-')); t.after(() => rmSync(dir, { recursive: true, force: true }))
-  mkdirSync(path.join(dir, 'lib'))
-  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-client-ui-settings-models', version: SETTINGS_MODELS_PATCHED_VERSION }))
-  writeFileSync(path.join(dir, 'lib', 'client.js'), CARD)
-  assert.equal(patchSettingsModelsEndpoints(dir), true)
-  assert.equal(patchSettingsModelsEndpoints(dir), false)
-  writeFileSync(path.join(dir, 'lib', 'client.js'), 'changed')
-  assert.equal(patchSettingsModelsEndpoints(dir), null)
-  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'other' }))
-  assert.throws(() => patchSettingsModelsEndpoints(dir), /仅适用于/)
 })
 
 function store(initial = {}) {

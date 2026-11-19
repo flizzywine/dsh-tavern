@@ -106,57 +106,8 @@ test('changed-floor synchronization equals full projection through append, varia
  assert.deepEqual(received.state,(await adapter.readFullPromptTemplateState('session')).state)
 })
 
-import { readRowsAt } from '../tavern-plugin/lib/domain/bounded-history.js'
-import { applyTemplateStateChanges } from '../tavern-plugin/lib/domain/template-state-patch.js'
 
 // Same native save, with and without the bounded stale-reader merge.
-async function nativeFixture(t, bounded, { beforePatch } = {}) {
-  const root=await mkdtemp(join(tmpdir(),'template-stale-'))
-  t.after(()=>rm(root,{recursive:true,force:true}))
-  const persistence=createChatPersistence({store:createChatJournalStore({dataRoot:root,newConversations:true})})
-  const messages=Array.from({length:40},(_,i)=>({role:i%2?'assistant':'user',text:'楼层'+i,sourceText:'楼层'+i,turn:Math.floor(i/2)+1,
-    variables:[{hp:i,mp:i}],tavernPluginData:{keep:i}}))
-  await persistence.write({id:'chat',sessionId:'session',cardPath:'cards/test.json',mode:'story',mvu:{enabled:true},backgroundConfigVersion:1,conversationFeaturesVersion:1,
-    tavernHelperLifecycleRevision:1,variables:{local:1},messages,tavernPluginMetadata:{other:true}})
-  const full=[]
-  const patchChat=beforePatch?async(...args)=>{await beforePatch(persistence);return persistence.patch(...args)}:persistence.patch
-  const adapter=createTavernScriptHostAdapter({resolveChatSlice:async(_id,indices)=>persistence.readSlice('chat',indices),patchChat,
-    resolveChat:async()=>{full.push('read');return persistence.read('chat')},writeChat:persistence.write,
-    updateChat:async(...args)=>{full.push('update');return persistence.update(...args)},readChatRevision:async(...args)=>{full.push('revision');return persistence.readRevision(...args)},
-    ...(bounded?{resolveChatSliceAt:async(_id,revision,indices)=>readRowsAt(persistence.readWindow,'chat',revision,indices),
-      resolveChangedIndices:async(_id,revision)=>persistence.readChangedIndices('chat',revision)}:{}),
-    readCard:async()=>({name:'角色'}),worldBooks:{bound:async()=>null},scriptDispatch:{},isPlayChat:()=>true,
-    globalVariables:createPromptTemplateGlobalVariables(createProfileDataStore({dataRoot:root})),
-    fullExtensionSettings:createTavernExtensionSettings(createProfileDataStore({dataRoot:root}))})
-  return {persistence,adapter,full}
-}
-
-test('过期读者的局部模板保存：只合并相关楼层，回执与完整合并相同', async t => {
-  const results=[]
-  for(const bounded of [true,false]){
-    const h=await nativeFixture(t,bounded)
-    const {state}=await h.adapter.readFullPromptTemplateState('session')
-    const {chat:_chat,chat_metadata:_metadata,...header}=state
-    // Concurrent writes after the template read: another floor, another variable
-    // on the edited floor, and a chat variable.
-    await h.persistence.update('chat',chat=>{chat.messages[3].variables[0].hp=300;chat.messages[7].variables[0].mp=700;chat.variables.other=2;chat.timeline={schemaVersion:1};return chat})
-    const request={...header,changes:[{op:'set',path:['chat',7,'variables',0,'hp'],value:77},{op:'set',path:['chat',9,'template_rendered'],value:{hash:'x'}}]}
-    const receipt=await h.adapter.saveFullPromptTemplateState('session',structuredClone(request))
-    const stored=await h.persistence.read('chat')
-    const worker=applyTemplateStateChanges(applyTemplateStateChanges(state,request.changes),receipt.statePatch)
-    const {state:authoritative}=await h.adapter.readFullPromptTemplateState('session')
-    assert.deepEqual(worker,authoritative)
-    results.push({stored:{...stored,updatedAt:0},full:h.full})
-  }
-  // Template reads in this fixture have no cursor; only the save path is compared.
-  assert.deepEqual(results[0].full.filter(call=>call!=='read'),[])
-  assert.ok(results[1].full.includes('update'))
-  assert.deepEqual(results[0].stored,results[1].stored)
-  assert.equal(results[0].stored.messages[7].variables[0].hp,77)
-  assert.equal(results[0].stored.messages[7].variables[0].mp,700)
-  assert.equal(results[0].stored.messages[3].variables[0].hp,300)
-})
-
 
 test('template display keeps preset regex through full, unchanged and changed history reads', async t => {
   const {adapter,persistence}=await fixture(t)

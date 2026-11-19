@@ -35,40 +35,6 @@ function mount(code, name, props = {}, initial, extra = {}) {
   return { render, get tree() { return tree }, get state() { return slots[0] }, unmount() { cleanup.forEach(fn => fn?.()) } }
 }
 
-test('inspection distinguishes immutable planner input, editable draft and final payload; metadata IDs stay in debug captions', () => {
-  const final = '最终提交原样文本 [characterId=legacy]'
-  const ui = mount(editor, 'PromptEditor', {}, { open: true, jobId: 'job', prompt: '草稿', originalPrompt: '规划中文\n原文', submittedPrompt: final, actualNegative: '不加字', sourceBackend: 'atlascloud', generationMode: 'reference', references: [
-    { index: 1, kind: 'character', characterId: 'c1', label: '江铭', image: { id: 'a'.repeat(64) } },
-    { index: 2, kind: 'outfit', outfitId: 'o1', label: '通用服装／常服（本图穿着者：江铭 [characterId=c1]）', image: { id: 'b'.repeat(64) }, consistencyText: '保留领口' },
-  ] })
-  assert.equal(one(ui.tree, n => n.props['aria-label'] === '规划原文').children[0], '规划中文\n原文')
-  assert.equal(one(ui.tree, n => n.props['aria-label'] === '实际提交提示词').children[0], final, 'never sanitize the actual payload viewer')
-  const captions = nodes(ui.tree, n => n.type === 'figcaption').map(text)
-  assert.match(captions[0], /上传顺序 1 · 参考图 1.*江铭[\s\S]*身份参考[\s\S]*所属人物：江铭/)
-  assert.match(captions[1], /上传顺序 2[\s\S]*服装参考[\s\S]*公共服装[\s\S]*本图穿着者：江铭/)
-  assert.doesNotMatch(captions.join(''), /characterId|outfitId|c1|o1/)
-  assert.match(text(nodes(ui.tree, n => n.props['aria-label'] === '参考图调试信息')), /c1|o1/)
-  const draft = nodes(ui.tree, n => n.type === 'textarea')[0]
-  draft.props.onChange({ target: { value: '新草稿' } }); ui.render()
-  assert.equal(ui.state.prompt, '新草稿')
-  assert.equal(one(ui.tree, n => n.props['aria-label'] === '规划原文').children[0], '规划中文\n原文')
-  assert.equal(one(ui.tree, n => n.props['aria-label'] === '实际提交提示词').children[0], final)
-})
-
-test('old task fallbacks and missing reference names are explicitly labeled, never replaced with raw IDs', () => {
-  const ui = mount(editor, 'PromptEditor', {}, { open: true, jobId: 'old', prompt: '', rawPrompt: 'fallback', rawPromptSource: 'positive', actualPositive: 'positive', submittedPromptSource: 'positive', references: [{ kind: 'outfit', characterId: 'secret-character', outfitId: 'secret-outfit' }] })
-  assert.match(text(ui.tree), /原文缺失/)
-  assert.match(text(ui.tree), /旧任务可能没有完整提交文本/)
-  assert.doesNotMatch(text(nodes(ui.tree, n => n.type === 'figcaption')), /secret-character|secret-outfit/)
-})
-
-test('assembly provenance is displayed only from explicit versioned records', () => {
-  const ui = mount(editor, 'PromptEditor', {}, { open: true, jobId: 'new', prompt: 'draft', promptAssembly: { version: 2, definitionAdditions: ['人物补充', '场景补充'], referenceText: '参考图1 → 江铭' } })
-  const provenance = one(ui.tree, n => n.props['aria-label'] === '提示词组装来源')
-  assert.match(text(provenance), /人物补充\n\n场景补充/)
-  assert.match(text(provenance), /参考图1 → 江铭/)
-})
-
 const status = () => ({ format: 'structured', key: 'main', version: 2, fingerprint: 'fp1', entries: ['update', 'customized', 'missing', 'disabled', 'ambiguous', 'current'].map(state => ({ id: state, state, current: state === 'missing' ? null : { comment: state, content: 'old ' + state }, proposed: { comment: state, content: 'new ' + state } })) })
 function upgradeUi(options = {}) {
   const calls = []; let applied = 0

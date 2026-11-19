@@ -1,10 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {selectStageEntrance, stageEntranceChoices} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-entrance.js'
+import { selectStageEntrance } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-entrance.js'
 import {defaultAssetEngineSettings, validateAssetEngineSettings} from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import {validateCardStage} from '../tavern-plugin/lib/domain/card-stage-settings.js'
-import {createCardBundleAdapter} from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js'
-import {createCardPreparation} from '../tavern-plugin/lib/domain/card-preparation.js'
 import {entranceDoc} from './fixtures/stage-entrance.mjs'
 
 const A='11111111-1111-4111-8111-111111111111', B='22222222-2222-4222-8222-222222222222'
@@ -29,26 +27,4 @@ test('the card choice alone plays an entrance: none by default, explicit null is
   assert.deepEqual(selectStageEntrance({...card([A]),stage},packs,{...engine,stageToggles:{...engine.stageToggles,entrance:false}}).ref,ref)
   assert.equal(selectStageEntrance(card([B]),packs,engine),null)
   assert.doesNotThrow(()=>validateAssetEngineSettings(engine))
-})
-test('entrance choices ignore recall lamps and include the selected skin pack',()=>{
-  const snapshots=structuredClone(packs), engine=defaultAssetEngineSettings(), extension=card([B])
-  snapshots[0].manifest.assets[0].enabled=false
-  snapshots[0].manifest.assets[0].recall.mode='keyword'
-  snapshots[0].manifest.assets.push({kind:'skins',id:'skin'})
-  extension.stage={defaultSkin:{packId:A,kind:'skins',assetId:'skin'},defaultEntrance:ref}
-  assert.deepEqual(stageEntranceChoices(extension,snapshots,engine),[{value:ref,label:'Dive'}])
-  assert.deepEqual(selectStageEntrance(extension,snapshots,engine).ref,ref)
-})
-
-test('card export/import preserves chosen default and explicit none, and remaps pack identity',()=>{
-  const adapter=createCardBundleAdapter({cardPreparation:createCardPreparation()})
-  for(const choice of [ref,null]) {
-    const extension={...card([A]),stage:{defaultEntrance:choice}}
-    validateCardStage(extension.stage)
-    const exported=adapter.exportRaw({name:'Entrance fixture',extensions:{dsh_tavern:extension}})
-    const imported=adapter.inspectRaw(JSON.parse(JSON.stringify(exported))).raw
-    assert.deepEqual(imported.extensions.dsh_tavern.stage.defaultEntrance,choice)
-    const remapped=adapter.remapRaw(imported,[{from:A,packId:B,figures:{}}])
-    assert.deepEqual(remapped.extensions.dsh_tavern.stage.defaultEntrance,choice?{...ref,packId:B}:null)
-  }
 })

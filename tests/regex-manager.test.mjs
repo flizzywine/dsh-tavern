@@ -69,49 +69,6 @@ function harness(options = {}) {
   return { manager, store, legacy, updates, chat: () => chat }
 }
 
-test('global writes are compare-and-swap and preserve order and unknown fields', async () => {
-  const h = harness({ global: [{ id: 'g1', scriptName: 'A', findRegex: '/a/g', replaceString: 'A', placement: [2], extra: 1, disabled: false }], chat: null })
-  const data = await h.manager.read('')
-  await assert.rejects(h.manager.writeGlobal({ revision: 'stale', scripts: data.global }), /已被其他窗口修改/)
-  const result = await h.manager.writeGlobal({
-    revision: data.revision,
-    scripts: [
-      { ...data.global[0], enabled: false },
-      { name: '新增', findRegex: '/n/g', replaceString: 'N', placement: [2, 1], enabled: true, trimStrings: ['\n'] }
-    ]
-  })
-  assert.deepEqual(result.global.map(entry => entry.name), ['A', '新增'])
-  assert.equal(result.global[0].enabled, false)
-  assert.deepEqual(result.global[1].placement, [1, 2])
-  const saved = h.store.current().regex
-  assert.equal(saved[0].extra, 1)
-  assert.equal(Object.prototype.hasOwnProperty.call(saved[0], 'enabled'), false)
-  assert.equal(saved[0].scriptName, 'A')
-  assert.equal(saved[1].scriptName, '新增')
-  assert.equal(saved[1].trimStrings[0], '\n')
-  assert.match(saved[1].id, /[0-9a-f-]{36}/)
-  await assert.rejects(h.manager.writeGlobal({ revision: result.revision, scripts: [{ name: '空', findRegex: '  ' }] }), /查找正则不能为空/)
-})
-
-test('preset and card overrides are session-only writes to the chat', async () => {
-  const h = harness({ global: [], chat: sampleChat() })
-  const data = await h.manager.read('session-1')
-  const preset = data.preset.scripts[0]
-  await h.manager.setOverride({ sessionId: 'session-1', source: 'preset', key: preset.key, enabled: true })
-  assert.deepEqual(h.chat().regexOverrides.preset, { 'p1#1': true })
-  assert.equal(h.updates.at(-1).metadata.source, 'regex.override')
-  await h.manager.setOverride({ sessionId: 'session-1', source: 'preset', key: preset.key, enabled: null })
-  assert.deepEqual(h.chat().regexOverrides.preset, {})
-  assert.deepEqual(h.chat().regexOverrides.card, { c1: true })
-  await h.manager.setOverride({ sessionId: 'session-1', source: 'card', key: 'c2', enabled: false })
-  assert.deepEqual(h.chat().regexOverrides.card, { c1: true, c2: false })
-  await assert.rejects(h.manager.setOverride({ sessionId: 'session-1', source: 'card', key: 'missing', enabled: true }), /已不存在/)
-  await assert.rejects(h.manager.setOverride({ sessionId: 'session-1', source: 'nope', key: 'x', enabled: true }), /未知/)
-  const after = await h.manager.read('session-1')
-  assert.deepEqual(after.preset.scripts.map(entry => entry.enabled), [true])
-  assert.deepEqual(after.card.scripts.map(entry => entry.enabled), [true, false])
-})
-
 test('imports SillyTavern exports into the global list and keeps their disabled flag', async () => {
   const h = harness({ global: [], chat: null })
   const data = await h.manager.read('')

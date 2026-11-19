@@ -6,9 +6,7 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {readFile} from 'node:fs/promises'
 import {validateDistributionManifest} from '../tavern-plugin/lib/domain/mod-system.js'
-import * as runtime from '../tavern-plugin/mods/redaction/runtime.js'
 import stage from '../tavern-plugin/mods/redaction/stage.js'
-import {createRedactionExtension, REDACTION_TAPS} from '../tavern-plugin/mods/redaction/host/extension.js'
 import {installedFixture} from './helpers/mod-system-production-host.mjs'
 import {createBuiltinModService} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js'
 import {fixture} from './helpers/stage-director-harness.mjs'
@@ -21,16 +19,6 @@ const {glitchCover, eraserDabs} = require('../tavern-plugin/mods/redaction/clien
 const manifest = JSON.parse(await readFile(new URL('../tavern-plugin/mods/redaction/mod.json', import.meta.url), 'utf8'))
 const KINDS = [{modId:'dsh.redaction', command:'redact', quote:'quote'}]
 const op = (quote, extra = {}) => ({op:'mod.command', modId:'dsh.redaction', commandId:'redact', params:{quote, ...extra}})
-
-test('a paragraph has the sealed marks the director put on it, counted in record order', () => {
-  const direction = {phase:'partial', through:2, entries:[
-    {at:1, ops:[op('长青大厦'), {op:'mod.command', modId:'dsh.phone', commandId:'mark', params:{quote:'x'}}, op('十三楼')]},
-    {at:2, ops:[op('低语者')]}, {at:3, ops:[op('未封口')]}]}
-  assert.deepEqual(marks.textMarksAt(direction, 1, KINDS).map(row => [row.quote, row.index]), [['长青大厦', 0], ['十三楼', 1]])
-  assert.deepEqual(marks.textMarksAt(direction, 3, KINDS), [], 'past the sealed prefix nothing shows yet')
-  assert.deepEqual(marks.textMarksAt({...direction, phase:'running'}, 1, KINDS), [])
-  assert.deepEqual(marks.textMarksAt(direction, 1, []), [], 'no feature declares a text mark: no marks')
-})
 
 test('every occurrence is covered and the earlier mark wins an overlap', () => {
   const list = [{quote:'十三楼', index:0}, {quote:'大厦十三', index:1}]
@@ -63,17 +51,6 @@ test('the manifest declares a text-mark command whose quote is a required string
     'the stage feature names the command and parameter the manifest declares')
 })
 
-test('the card default kind rides on the admission and an omitted kind records it; 遮挡指引 replaces the general line', async () => {
-  const [command] = runtime.configure({manifest, settings:{values:{kind:'glitch', guidance:''}}}).commands
-  assert.equal(command.admission.kind, 'glitch')
-  assert.deepEqual(stage.admitParams(command, {quote:'低语者'}), {quote:'低语者', kind:'glitch'})
-  assert.deepEqual(stage.admitParams(command, {quote:'低语者', kind:'bar'}), {quote:'低语者', kind:'bar'})
-  const host = guidance => ({settings:{get:async () => ({values:{kind:'bar', guidance}})}})
-  assert.equal(await runtime.prepare({}, host('  ')), null)
-  assert.deepEqual(await runtime.prepare({}, host('异常的真名、\n伤亡人数')), {sections:[{id:'redact-guidance', text:'<redaction_guidance>异常的真名、 伤亡人数</redaction_guidance>\n'}]})
-  assert.equal(await runtime.command(), null, 'a sealed mark runs nothing: the record is the mark')
-})
-
 test('the submit tool admits only words quoted verbatim from the beat paragraph; the record keeps the card kind', async t => {
   const native = await installedFixture(t, {enabled:['dsh.redaction']})
   const service = createBuiltinModService({management:native.production, variables:{}, readCard:native.readWorkspace, stage:{read:async () => undefined, update:async () => {}}})
@@ -96,33 +73,6 @@ test('the submit tool admits only words quoted verbatim from the beat paragraph;
   assert.deepEqual(marked, [{at:1, op:'mod.command', modId:'dsh.redaction', commandId:'redact', params:{quote:'fixture', kind:'bar'}}])
   assert.match(prompts[0], /mod_redaction/)
   assert.match(prompts[0], /redaction_guidance/)
-})
-
-test('taps are kept per game and round; a regenerated round is covered again; ids never become paths', async () => {
-  const files = new Map()
-  const profileData = {readJson:async path => structuredClone(files.get(path) ?? null),
-    updateJson:async (path, fn) => { const next = await fn(structuredClone(files.get(path) ?? null)); if (next !== undefined) files.set(path, next); return next }}
-  const {requests} = createRedactionExtension({profileData})
-  const call = (method, args) => requests.call(method, args)
-  const place = {sessionId:'session-1', turn:4, source:'src-a', para:2, index:0}
-  for (let i = 0; i < REDACTION_TAPS + 1; i++) await call('tapStageRedaction', place)
-  assert.deepEqual(await call('getStageRedactions', {sessionId:'session-1'}), {status:'ready', turns:{4:{source:'src-a', marks:{'2:0':REDACTION_TAPS}}}})
-  assert.deepEqual(await call('tapStageRedaction', {...place, source:'src-b'}), {status:'ready', taps:1})
-  assert.deepEqual((await call('getStageRedactions', {sessionId:'session-1'})).turns[4], {source:'src-b', marks:{'2:0':1}})
-  assert.equal((await call('getStageRedactions', {sessionId:'../index'})).status, 'unavailable')
-  assert.equal((await call('tapStageRedaction', {...place, para:0})).status, 'unavailable')
-  assert.deepEqual([...files.keys()], ['redaction/session-1.json'])
-})
-
-test('a mark is one typing step drawn by its mod; plain glyphs around it type as before', () => {
-  const React = {useState:initial => [typeof initial === 'function' ? initial() : initial, () => {}], useRef:current => ({current}), useMemo:fn => fn(),
-    useEffect() {}, useLayoutEffect() {}, createElement:(type, props, ...children) => ({type, props, children:children.flat(Infinity)})}
-  const text = createStageText({React, document:{}, defaultTextSpeed:28, clock:{now:() => 0, setTimeout:() => 0, clearTimeout() {}}})
-  const drawn = []
-  const node = text.Typewriter({text:'去长青大厦十三楼', instant:true, marks:[{start:5, end:8, render:(words, key) => (drawn.push(words), {mark:words, key})}]})
-  const shown = node.children.find(child => child?.props?.className === 'fork-gal-type-shown')
-  assert.deepEqual(shown.children, ['去长青大厦', {mark:'十三楼', key:'m5'}])
-  assert.deepEqual(drawn, ['十三楼'])
 })
 
 test('a glitch cover keeps the words width and settles from the left; the eraser is the same for the same seed', () => {

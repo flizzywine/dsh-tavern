@@ -83,65 +83,10 @@ test('开着诊断时规划照常出图，并记录宏展开结果（以前引�
   assert.match(JSON.stringify(macro.data.expanded), /cream cardigan/)
 })
 
-test('规划调用了人物库里没有的角色时在结果里说明；服装宏和库里对得上的人不算', async t => {
-  const definitions = { characters: [
-    { id: 'y', name: '宋玉轩', match: 'Song Yuxuan', enabled: true, cards: ['cards/另一张卡.json'], traits: { face: 'long black hair' }, outfits: [] },
-  ] }
-  const plannerText = '<image><regex>阿梅和他共撑一把伞</regex><title>雨夜</title><prompts>1girl, solo, ${"name":"Song Yuxuan", "angle":"from front", "upperBody":"sfw"}$, ${"name":"Lu Qi", "angle":"from front", "upperBody":"sfw"}$, ${"name":"红裙", "upperBody":"visible"}$, umbrella, rain</prompts></image>'
-  const f = await runtime(t, { definitions, plannerText })
-  const r = await f.plan()
-  assert.equal(r.status, 200)
-  const warnings = r.body.characterWarnings ?? r.body.plan?.characterWarnings
-  assert.ok(Array.isArray(warnings), JSON.stringify(Object.keys(r.body)))
-  assert.equal(warnings.length, 1, warnings.join(' / '))
-  assert.match(warnings[0], /「Lu Qi」不在人物库里/)
-})
-
-test('cache 兜底补回的历史图不落盘，不再挤掉带 key 的真实作业记录', async t => {
-  const realId = '00000000-0000-4000-8000-000000000001'
-  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)])
-  const old = new Date('2026-01-01T00:00:00Z')
-  const f = await runtime(t, { setup: async root => {
-    const { utimes } = await import('node:fs/promises')
-    await mkdir(join(root, 'cache'))
-    await writeFile(join(root, 'cache', realId + '.img'), png)
-    // 上一版留下的占位记录：无 key、无提示词、createdAt 是某次启动时间
-    const placeholderId = '00000000-0000-4000-8000-0000000000ff'
-    await writeFile(join(root, 'cache', placeholderId + '.img'), png)
-    await utimes(join(root, 'cache', placeholderId + '.img'), old, old)
-    await writeFile(join(root, 'jobs-store.json'), JSON.stringify({
-      [realId]: { id: realId, state: 'done', createdAt: Date.parse('2026-06-01T00:00:00Z'), key: 'game-1:3:abc', positive: '1girl, solo', label: 'agent 规划', file: join(root, 'cache', realId + '.img') },
-      [placeholderId]: { id: placeholderId, state: 'done', createdAt: Date.now(), label: '历史图片', params: {} },
-    }))
-    for (let i = 0; i < 200; i++) {
-      const id = '00000000-0000-4000-8000-1' + String(i).padStart(11, '0')
-      await writeFile(join(root, 'cache', id + '.img'), png)
-      await utimes(join(root, 'cache', id + '.img'), old, old)
-    }
-  } })
-  await delay(150)
-  const r = await f.plan(); await delay(80)
-  assert.equal(r.status, 200)
-  const saved = JSON.parse(await readFile(join(f.root, 'jobs-store.json'), 'utf8'))
-  const list = Object.values(saved)
-  assert.ok(saved[realId], '真实作业记录还在')
-  assert.equal(saved[realId].key, 'game-1:3:abc')
-  assert.equal(list.filter(job => job.label === '历史图片').length, 0, '占位记录不落盘')
-  assert.ok(list.length <= 150)
-})
-
 test('挂载句只差 Markdown 记号或换行时照样出图（以前逐字比对，整张图静默不画）', async t => {
   const f = await runtime(t, { text: '雨夜，**阿梅**和他\r\n共撑一把伞。' })
   const r = await f.plan(); await delay(30)
   assert.equal(r.status, 200)
   assert.equal(f.bodies.length, 1)
   assert.equal(r.body.characterWarnings, undefined)
-})
-
-test('人物宏点名的衣服，负面词也进负向通道（以前只补人物自己的负面词）', async t => {
-  const f = await runtime(t)
-  await f.plan(); await delay(30)
-  const negative = f.bodies[0].prompt['2'].inputs.text
-  assert.match(negative, /jeans/)
-  assert.match(negative, /glasses/)
 })

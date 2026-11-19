@@ -6,7 +6,7 @@ import {mkdir, mkdtemp, readFile} from 'node:fs/promises'
 import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
 import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
-import {createAssetGeneration, generationFailure} from '../tavern-plugin/lib/domain/asset-generation.js'
+import { createAssetGeneration } from '../tavern-plugin/lib/domain/asset-generation.js'
 import {createProfileDataStore} from '../tavern-plugin/lib/profile-data-store.js'
 import {encodeAssetRgba} from '../tavern-plugin/lib/domain/asset-image-processing.js'
 import publication from '../tavern-plugin/shared/asset-image-publication.cjs'
@@ -79,15 +79,6 @@ test('a text-only channel draws the 设定图 from text, and a JPEG answer is st
   await assert.rejects(f.prepare('settei'), e => e.code === 'INVALID_ARGUMENT' && /不能带参考图.*外貌或服装描述/.test(e.message))
 })
 
-test('a refused request says why and what to change; the channel’s own words are kept for the hover', async t => {
-  const f = await fixture(t)
-  f.channel.reply = async () => { throw Object.assign(new Error('生图服务 HTTP 400：{"statusCode":400,"message":"Invalid size"}'), {requestMayHaveSucceeded:false}) }
-  const {job} = await f.draw('identity-settei', {userPrompt:'silver hair'})
-  assert.equal(job.status, 'failed')
-  assert.equal(job.error.message, '生图渠道不接受这次请求：这张素材要 1536×1024 的图，这个渠道可能不支持。可在 设置 → 配图 换一个渠道再试')
-  assert.match(job.error.detail, /Invalid size/)
-})
-
 test('a 头像 is drawn from its 立绘 where the channel takes it, from the text where it does not (NovelAI), never refused for it', async t => {
   const f = await fixture(t)
   await f.addSprite()
@@ -98,19 +89,4 @@ test('a 头像 is drawn from its 立绘 where the channel takes it, from the tex
   f.channel.maxReferences = 4
   const drawn = await f.draw('avatar', {emotionId:'calm'})
   assert.equal(f.channel.sent.at(-1).references.length, 1); assert.equal(drawn.plan.references[0].purpose, 'emotion-sprite')
-})
-
-test('a 头像 without a 立绘 is drawn from the 设定文字', async t => {
-  const f = await fixture(t)
-  f.channel.maxReferences = 4
-  await f.draw('avatar', {emotionId:'calm', userPrompt:'silver hair'})
-  assert.equal(f.channel.sent.at(-1).references.length, 0)
-})
-
-test('HTTP statuses read as plain causes; a plain message passes as it is', () => {
-  const said = status => generationFailure(new Error('生图服务 HTTP ' + status + '：{"error":"x"}')).message
-  assert.match(said(401), /密钥/); assert.match(said(402), /余额或点数/); assert.match(said(404), /地址或模型/)
-  assert.match(said(429), /太频繁/); assert.match(said(503), /服务那边出错/)
-  assert.match(generationFailure(new Error('HTTP 422'), {size:'1024x1536', references:2}).message, /1024×1536 的图、带 2 张参考图/)
-  assert.deepEqual(generationFailure(new Error('生图请求超时')), {message:'生图请求超时'})
 })

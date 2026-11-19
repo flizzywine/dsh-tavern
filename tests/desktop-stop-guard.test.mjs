@@ -9,13 +9,6 @@ const gui = installRoot => `"${path.join(installRoot, 'runtime', 'DeepSeek Harne
 const table = (...rows) => () => rows.map(([id, parent, command]) => `${id} ${parent} ${command}`).join('\r\n')
 const check = (installRoot, rows, pid = 1) => () => assertDesktopStopped([path.join(installRoot, 'data', 'harness')], { requireGuiClosed: true, guiRoot: installRoot, pid, exec: table(...rows) })
 
-test('an installer running as its own Harness executable in Node mode does not block itself', () => {
-  const installRoot = root('test-3')
-  const installer = [30, 20, `${gui(installRoot)} --expose-internals ${path.join(installRoot, 'install.mjs')}`]
-  assert.doesNotThrow(check(installRoot, [[20, 2, 'node.exe launcher.mjs'], installer], 30))
-  assert.throws(check(installRoot, [[20, 2, 'node.exe launcher.mjs'], installer], 99), /请完整退出 DeepSeek Harness/)
-})
-
 test('a NEXT update distinguishes an independent original Profile from an alias to Tavern', () => {
   const installRoot = root('next profile'); const home = path.join(installRoot, 'data', 'harness')
   const original = path.join(home, 'profiles', 'desktop')

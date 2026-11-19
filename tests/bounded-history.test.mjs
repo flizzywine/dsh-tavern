@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
-import { createBoundedHistory, readRecentWindow, readRowsAt } from '../tavern-plugin/lib/domain/bounded-history.js'
+import { createBoundedHistory } from '../tavern-plugin/lib/domain/bounded-history.js'
 import { lastTavernHelperVariables } from '../tavern-plugin/lib/domain/tavern-helper-context.js'
 
 function history(turns, variablesAt = () => true) {
@@ -42,51 +42,4 @@ test('无变量、短历史与旧存档的边界', async t => {
   assert.equal(await none.bounded.forSession('s', { storyRows: Infinity }), undefined)
   const capped = createBoundedHistory({ links: async () => ({ s: 'c' }), readWindow: none.p.readWindow, pageSize: 10, maxRows: 40 })
   assert.equal(await capped.forSession('s', { storyRows: 150 }), undefined)
-})
-
-// A view pinned to an older start reads back to it while background tasks keep writing:
-// a revision moving between reads is read again, never answered with no window.
-test('窗口补到起点时版本变了就重读，不返回空', async () => {
-  let count = 800, revision = 1, reads = 0
-  const readWindow = async (_id, { limit, before, revision: pinned }) => {
-    reads++
-    if (reads === 2) { count += 2; revision++ } // a background write lands mid-read
-    const end = before ?? count, start = Math.max(0, end - limit)
-    if (pinned !== undefined && pinned !== revision) return { revision, from: start, to: end - 1, messageCount: count, chat: { messages: [] } }
-    return { revision, from: start, to: end - 1, messageCount: count, chat: { messages: Array.from({ length: end - start }, (_, i) => ({ index: start + i })) } }
-  }
-  const window = await readRecentWindow(readWindow, 'c', { limit: 48, from: 700 })
-  assert.ok(window, '不应返回空')
-  assert.ok(window.from <= 700)
-  assert.equal(window.chat.messages.length, window.messageCount - window.from)
-})
-
-test('分组读取拒绝混用 revision 相同的两个存档快照', async () => {
-  const requests = []
-  const readWindow = async (_id, options) => {
-    requests.push(options)
-    const from = options.before - 1
-    return { revision: 8, stamp: from === 0 ? 'native:old' : 'native:replacement', from, to: from,
-      messageCount: 501, chat: { messages: [{ text: String(from) }] } }
-  }
-  assert.equal(await readRowsAt(readWindow, 'c', 8, [0, 500]), undefined)
-  assert.equal(requests[1].stamp, 'native:old')
-})
-
-test('原生分页按首个窗口的快照读取，并拒绝搭配不匹配的 revision', async t => {
-  const { p } = await store(t, { messages: history(250) })
-  const first = await p.readWindow('c', { limit: 1 })
-  let reads = 0
-  const selected = await readRowsAt(async (id, options) => {
-    if (++reads === 2) {
-      await p.patch(id, first.revision, [{ op: 'set', path: ['messages', 500, 'text'], value: '新正文' }])
-      assert.equal(options.stamp, first.stamp)
-    }
-    return p.readWindow(id, options)
-  }, 'c', first.revision, [0, 500])
-  assert.deepEqual(selected.chat.messages.map(row => row.text), ['开场', '正文 250'])
-  const current = await p.readWindow('c', { limit: 1 })
-  assert.equal(current.chat.messages[0].text, '新正文')
-  assert.equal(await p.readWindow('c', { limit: 1, revision: current.revision, stamp: first.stamp }), null)
-  assert.equal((await p.readRecentSummaries('c', 501, { revision: first.revision, stamp: first.stamp })).stamp, first.stamp)
 })

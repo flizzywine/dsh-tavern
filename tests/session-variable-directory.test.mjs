@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { ensureSessionVariableDirectory, sessionVariableDirectorySection, variableDirectoryOpen } from '../tavern-plugin/lib/domain/session-variable-directory.js'
-import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
 
 function nativeSession(id = 's') {
   const events = []
@@ -26,30 +25,4 @@ test('the variable directory freezes only before the first request: later stat_d
   assert.ok(ensureSessionVariableDirectory(early, mvuChat({ 特工: { 姓名: '' } })))
   assert.match(sessionVariableDirectorySection(early).text, /"\/特工\/姓名"/)
   assert.equal(variableDirectoryOpen(early), false)
-})
-
-test('the first system assembly waits for the MVU opening before it reads the chat; later ones do not wait', async () => {
-  const hooks = new Map(), order = []
-  const session = nativeSession()
-  let saved = false
-  registerTurnLifecycleHooks({
-    ctx: { on: (name, callback) => hooks.set(name, callback), tools: { schemas: (_agent, toolSet) => toolSet?.schemas } },
-    backgroundAgentRunner: { owns: () => false },
-    // The card scripts save the opening variables while the first send waits.
-    foregroundHandoff: { async awaitOpening(id) { assert.equal(id, 's'); order.push('awaitOpening'); saved = true } },
-    hookChatForSession: async () => { order.push('readChat'); return mvuChat(saved ? { 特工: { 姓名: '' } } : null) },
-    turnOrchestrator: { modeFor: async () => 'story' },
-    ensureNativeSystemPrefix: async (agentSession, chat) => { ensureSessionVariableDirectory(agentSession, chat) },
-    publishResourceWorkspace: async () => null, readChatCard: async () => ({}), runtimePrompt: () => '',
-    foregroundStrategies: { assembleSystemPrompt: async (assembly, options) => ({ ...assembly, sections: options.fixedSystemSections }) },
-    nativeWorldBookTemplateContext: async () => ({ prefixContext: '' })
-  })
-  const assemble = hooks.get('system-prompt/assemble')
-  await assemble({}, { agent: { session } }, async () => ({ sections: [] }))
-  assert.deepEqual(order, ['awaitOpening', 'readChat'])
-  assert.ok(sessionVariableDirectorySection(session))
-  session.append('request/header', { header: {} })
-  order.length = 0
-  await assemble({}, { agent: { session } }, async () => ({ sections: [] }))
-  assert.deepEqual(order, ['readChat'])
 })

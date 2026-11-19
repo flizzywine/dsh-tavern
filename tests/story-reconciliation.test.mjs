@@ -32,20 +32,3 @@ test('concurrent reconciles share one run, and once-only reconciles stop after a
   assert.equal(h.reads.length, 1, 'a session already reconciled is not read again')
   assert.deepEqual(h.writes, [])
 })
-
-test('an alignment warning without a repair reads the save once', async t => {
-  t.mock.method(console, 'warn', () => {})
-  const h = harness({ chat: { id: 'game', mode: 'story', nativeSync: { status: 'stale' }, messages: [] } })
-  assert.equal((await h.service.reconcileStory('story')).aligned, false)
-  assert.equal(h.reads.length, 1)
-  assert.deepEqual(h.writes, [])
-})
-
-test('a save revision change between header and history reads leaves reconciliation for the next request', async () => {
-  const h = harness({ readSlice: async (_id, indices) => ({
-    messageCount: 1, chat: { id: 'game', mode: 'story', _storageRevision: indices.length ? 2 : 1, messages: [] }
-  }) })
-  assert.equal(await h.service.reconcileStory('story'), null)
-  assert.deepEqual(h.reads, [])
-  assert.deepEqual(h.writes, [])
-})

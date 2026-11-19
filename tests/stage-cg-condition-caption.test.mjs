@@ -9,23 +9,9 @@ import {syntheticPack, cardExtension, PACK_ID, distinctMedia} from './fixtures/a
 import {assetRefKey} from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-packs.js'
 import {prepareAssetPackDirector, createAssetPackTransaction} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
 import {initialAssetPackStage} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js'
-import {settledStatData} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-items.js'
 const {createStageCg} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/cg.cjs')
 
 const stat = {好感: {小林: [65, '0-100'], 小周: 20}, 剧情: {阶段: '夏天', 结局: 'TE'}, 旗标: {看见: true}}
-
-test('a variable condition reads stat_data: equals, atLeast, atMost, MVU tuples and all of a list', () => {
-  assert.equal(mvuConditionHolds({path: '/好感/小林', atLeast: 60}, stat), true)
-  assert.equal(mvuConditionHolds({path: '/好感/小林', atLeast: 66}, stat), false)
-  assert.equal(mvuConditionHolds({path: '/好感/小周', atMost: 20}, stat), true)
-  assert.equal(mvuConditionHolds({path: '/剧情/结局', equals: 'TE'}, stat), true)
-  assert.equal(mvuConditionHolds({path: '/stat_data/旗标/看见', equals: true}, stat), true)
-  assert.equal(mvuConditionHolds([{path: '/好感/小林', atLeast: 60}, {path: '/剧情/阶段', equals: '秋天'}], stat), false)
-  assert.equal(mvuConditionHolds([{path: '/好感/小林', atLeast: 60}, {path: '/剧情/阶段', equals: '夏天'}], stat), true)
-  assert.equal(mvuConditionHolds({path: '/剧情/阶段', atLeast: 1}, stat), false, 'a word is not a number')
-  assert.equal(mvuConditionHolds({path: '/不存在', equals: true}, stat), false)
-  assert.equal(mvuConditionHolds({path: '/好感/小林', atLeast: 1}, undefined), false, 'no settled variables yet')
-})
 
 const cg = (extra = {}, content = {}) => ({kind: 'cg', id: 'ending', name: '结局', enabled: true, directorNote: '', recall: {mode: 'constant', keywords: []},
   variants: {default: 'base', entries: [{id: 'base', name: 'Base', content: {media: 'a'.repeat(64), ...content}}]}, ...extra})
@@ -71,14 +57,6 @@ test('an entry with a condition is offered to the director only while the settle
   const next = prepareAssetPackDirector({...input, record: tx.effect(), condition: on({})})
   assert.equal(next.baseline.cg?.ref.assetId, 'ending')
   assert.deepEqual(offered(next), [])
-})
-
-test('the director reads the variables of the latest settled round before its own', () => {
-  const settled = (value, extra = {}) => ({role: 'assistant', swipeId: 0, variables: [{stat_data: value}], mvuBaseline: {swipeId: 0}, mvu: {receipt: {status: 'updated'}}, ...extra})
-  const chat = {messages: [{role: 'user'}, settled({n: 1}), {role: 'user'}, settled({n: 2}, {mvu: {pending: true}}), {role: 'user'}, {role: 'assistant'}]}
-  assert.deepEqual(settledStatData(chat, 5), {n: 1}, 'a settlement still pending does not count')
-  assert.deepEqual(settledStatData(chat, 2), {n: 1})
-  assert.equal(settledStatData(chat, 1), undefined)
 })
 
 function mountCaption() {

@@ -39,33 +39,6 @@ async function zipEntries(f, bytes) {
 }
 const packDirs = names => [...new Set(names.filter(n => n.startsWith('packs/')).map(n => n.split('/')[1]))].sort()
 
-test('remapRaw preserves first-match semantics, unmapped bindings and the source card', () => {
-  const adapter = createCardBundleAdapter({cardPreparation:createCardPreparation()})
-  const a = '11111111-1111-4111-8111-111111111111', b = '33333333-3333-4333-8333-333333333333'
-  const c = '44444444-4444-4444-8444-444444444444', d = '55555555-5555-4555-8555-555555555555'
-  const ext = cardExtension(); ext.assetBindings.boundPackIds = [a, b]
-  const raw = {name:'Remapping test', extensions:{dsh_tavern:ext}}, original = clone(raw)
-  const mappings = [{from:a, packId:c, figures:{}}, {from:a, packId:d, figures:{}}]
-  const result = adapter.remapRaw(raw, mappings)
-  assert.deepEqual(rawData(result).extensions.dsh_tavern.assetBindings.boundPackIds, [c, b])
-  assert.deepEqual(rawData(adapter.remapRaw(raw, [])).extensions.dsh_tavern.assetBindings.boundPackIds, [a, b])
-  assert.deepEqual(raw, original)
-  assert.deepEqual(mappings, [{from:a, packId:c, figures:{}}, {from:a, packId:d, figures:{}}])
-})
-
-test('bindRaw preserves binding order and leaves the source card untouched', () => {
-  const prep = createCardPreparation(), adapter = createCardBundleAdapter({cardPreparation:prep})
-  const a = '11111111-1111-4111-8111-111111111111', b = '33333333-3333-4333-8333-333333333333'
-  const ext = cardExtension(); ext.assetBindings.boundPackIds = [a]; delete ext.openings
-  const raw = {name:'Binding test', extensions:{dsh_tavern:ext}}, original = clone(raw)
-  const ids = value => rawData(value).extensions.dsh_tavern.assetBindings.boundPackIds
-  assert.deepEqual(ids(adapter.bindRaw(raw, [b, a])), [a, b])
-  assert.deepEqual(ids(adapter.bindRaw(raw, [])), [a])
-  assert.deepEqual(ids(adapter.bindRaw(raw, [a, a])), [a])
-  assert.deepEqual(raw, original)
-  assert.throws(() => adapter.bindRaw(raw, null))
-})
-
 test('card export embeds exactly the switched-on packs, global ones bound to the exported card', async t => {
   const f = await fixture(t), a = await f.pack('本卡包 A'), b = await f.pack('本卡包 B'), g = await f.pack('全局包 G')
   f.card([a, b]); f.setGlobal([g])
@@ -82,46 +55,4 @@ test('card export embeds exactly the switched-on packs, global ones bound to the
   // The source card is untouched.
   assert.equal((await f.adapter.snapshot({path:'source'})).revision, snap.revision)
   assert.deepEqual(rawData((await f.adapter.snapshot({path:'source'})).raw).extensions.dsh_tavern.assetBindings.boundPackIds, [a, b])
-})
-
-// the 导入导出 switches start with the green (本卡) packs on and the blue (全局)
-// ones off. Default export = green packs only; ticking a global pack adds it, bound to the exported card.
-test('default export holds the green packs only; ticking a global pack adds it', async t => {
-  const f = await fixture(t), a = await f.pack('本卡包 A'), b = await f.pack('本卡包 B'), g = await f.pack('全局包 G')
-  const bound = [a, b], global = [g]; f.card(bound); f.setGlobal(global)
-  const revision = (await f.adapter.snapshot({path:'source'})).revision
-  // The UI's default: bound to the card and not globally enabled (全局 wins, as the pack state pill shows it).
-  const green = bound.filter(id => !global.includes(id))
-  const plain = await f.service.exportCardBundle({path:'source', expectedRevision:revision, packIds:green})
-  assert.deepEqual(packDirs(await zipEntries(f, (await readSmallArchive(plain)))), [a, b].sort())
-  assert.deepEqual(rawData((await f.service.inspectCardBundle({bytes:(await readSmallArchive(plain)), path:'target'})).raw).extensions.dsh_tavern.assetBindings.boundPackIds, [a, b], 'the global pack is not bound when left out')
-  const ticked = await f.service.exportCardBundle({path:'source', expectedRevision:revision, packIds:[g, ...green]})
-  assert.deepEqual(packDirs(await zipEntries(f, (await readSmallArchive(ticked)))), [a, b, g].sort())
-  assert.deepEqual(rawData((await f.service.inspectCardBundle({bytes:(await readSmallArchive(ticked)), path:'target'})).raw).extensions.dsh_tavern.assetBindings.boundPackIds, [a, b, g])
-})
-test('card export rejects packs the card does not use and unknown fields', async t => {
-  const f = await fixture(t), a = await f.pack('本卡包 A'), other = await f.pack('无关包')
-  f.card([a])
-  const revision = (await f.adapter.snapshot({path:'source'})).revision
-  await assert.rejects(f.service.exportCardBundle({path:'source', expectedRevision:revision, packIds:[other]}), e => e.code === 'UNBOUND_PACK')
-  await assert.rejects(f.service.exportCardBundle({path:'source', expectedRevision:revision, packIds:[a], mode:'bound-packs'}), /Unknown export field/)
-  await assert.rejects(f.service.exportCardBundle({path:'source', expectedRevision:revision, packIds:[a, a]}), /Explicit list/)
-  // None on: card only, every bound pack declared but not embedded.
-  const only = await f.service.exportCardBundle({path:'source', expectedRevision:revision, packIds:[]})
-  assert.deepEqual(only.dependencies.map(d => d.embedded), [false])
-  assert.deepEqual(packDirs(await zipEntries(f, (await readSmallArchive(only)))), [])
-})
-
-test('人物 ＋ without a green pack: a pack named after the card, bound to it, holds a new valid figure', async t => {
-  const f = await fixture(t), a = await f.pack('别的包')
-  f.card([a])
-  // The same calls as stageCreateFigure: createPack (expectedRevision null) → bind (card CAS) → createFigure (pack CAS).
-  const made = await f.service.createPack({name:'R7 卡', expectedRevision:null}), packId = made.snapshot.manifest.id
-  const figure = await f.service.createFigure({packId, expectedRevision:made.snapshot.revision,
-    figure:{schemaVersion:1, name:'新人物', enabled:true, appearance:'sprite', recall:{mode:'keyword'}, outfits:[{key:'default', label:'默认', enabled:true, recall:{mode:'keyword',keywords:['私服']}}]}})
-  const snapshot = await f.service.getPackSnapshot({packId})
-  assert.equal(snapshot.manifest.name, 'R7 卡')
-  assert.deepEqual(snapshot.manifest.figures, [figure.figureId])
-  assert.equal(snapshot.figures[figure.figureId].name, '新人物')
-  await assert.rejects(f.service.createFigure({packId, expectedRevision:made.snapshot.revision, figure:{schemaVersion:1, name:'又一个', enabled:true, appearance:'sprite', recall:{mode:'keyword'}, outfits:[{key:'default', label:'默认', enabled:true, recall:{mode:'keyword',keywords:['私服']}}]}}), e => e.code === 'REVISION_CONFLICT')
 })

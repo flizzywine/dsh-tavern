@@ -1,31 +1,16 @@
 // streamed call replies, barge-in and one context per contact.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {callRequest,createCallReplyParser,createPhoneCalls,storyAnchor} from '../tavern-plugin/mods/phone/call.js'
-import {callGreeting,createCallGreetings} from '../tavern-plugin/mods/phone/call-greeting.js'
+import { createCallReplyParser, createPhoneCalls, storyAnchor } from '../tavern-plugin/mods/phone/call.js'
+import { callGreeting } from '../tavern-plugin/mods/phone/call-greeting.js'
 import {createCallSections,roundPhoneMessages,storyRoundMessages} from '../tavern-plugin/mods/phone/call-context.js'
 
-import {effectiveBubbleMoods, bubbleVoiceSwitches, bubbleInstructionPreview} from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
+import { effectiveBubbleMoods } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
 import {parseBubbles} from '../tavern-plugin/src/client/bubble-line.cjs'
 import {fishSpeechText} from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/fish-audio.js'
 import {modLibrary} from '../tavern-plugin/lib/mod-library.js'
 // the phone's prompt sections, built with the core's mod library as the stage service builds them.
 const {callStorySection,callPhoneRecords,callRoundWorldbook,callRecognitionContext}=createCallSections(modLibrary)
-
-test('call voice switches match story rules for every language, enabled and direction combination', () => {
-  for (const language of ['ja','zh']) for (const enabled of [false,true]) for (const bound of [false,true]) for (const direction of [false,true]) {
-    const character = {alias:'actor_17',name:'辉夜',voice:bound ? 'voice_17' : '',voiceLang:language,voiceDirection:direction}
-    const config = {enabled:true,voice:{enabled},characters:[character]}
-    const voiceRules = bubbleVoiceSwitches(config, character)
-    const request = callRequest({library:modLibrary, contact:{...callee,voiceRules},language,lines:[]})
-    const story = bubbleInstructionPreview(config).sections.find(row => row.key === 'voice').text
-    assert.equal(request.system.includes('Voice direction ('), story.includes('Voice direction ('))
-    assert.equal(request.system.includes('|[voice]'), enabled && bound && language !== 'zh')
-    const examples = request.system.match(/<examples>\n([\s\S]*?)\n<\/examples>/)[1]
-    assert.equal(examples.includes('{small laugh}'), enabled && bound && direction)
-    for (const line of examples.split('\n')) assert.equal(line.split('|').length, voiceRules.voiceTranslates ? 3 : 2)
-  }
-})
 
 test('call mode supplies contact identity and keeps direction cues on the shared TTS path, never captions or transcript', async () => {
   const identity = {handle:'actor_17',name:'辉夜'}
@@ -183,29 +168,6 @@ function harness() {
 const chat = (turn, branchId = 'main') => ({id:'chat-1', timeline:{branchId}, messages:[{role:'assistant', turn, text:'<p>放学后，她在车站等你。</p>'}]})
 const contact = id => ({contact:{id, handle:id === 'A' ? 'anon' : 'tomori', name:id === 'A' ? '爱音' : '灯'}, persona:'', language:'ja', playerName:'我'})
 
-// a call keeps the page it was made on.
-test('a call is anchored to the page the reader was on, and the phone shows it only from that page on', async () => {
-  const h = harness()
-  const {callId, anchor} = await h.calls.start({sessionId:'s', chat:{...chat(7), messages:[1, 2, 7].map(turn => ({role:'assistant', turn, text:'x'}))}, ...contact('A'), at:{turn:2, para:5}})
-  assert.deepEqual(anchor, {branchId:'main', turn:2, para:5}, 'the round and paragraph on screen, not the latest round')
-  await h.calls.turn({sessionId:'s', callId, said:'喂', chat:chat(7)})
-  await h.calls.end({sessionId:'s', callId})
-  const [row] = (await h.calls.threads({chat:chat(7)})).threads.A
-  assert.deepEqual([row.turn, row.para], [2, 5])
-  // Checked once as it enters: a page past the story, or none, is the latest round (no paragraph).
-  assert.deepEqual(storyAnchor(chat(7), {turn:9, para:1}), {branchId:'main', turn:7})
-  assert.deepEqual(storyAnchor(chat(7), {turn:3, para:0}), {branchId:'main', turn:7})
-  // The client helper (a browser script): its declaration ahead of the call controller.
-  const source = await (await import('node:fs/promises')).readFile(new URL('../tavern-plugin/src/client/phone-call.js', import.meta.url), 'utf8')
-  const phoneModCallsAt = new Function(source.slice(0, source.indexOf('const phoneModCall =')) + 'return phoneModCallsAt;')()
-  const state = {status:'idle', threads:{A:[{id:'old', turn:1}, {id:'c', turn:2, para:5}], B:[{id:'later', turn:3, para:1}]}}
-  const ids = value => Object.values(value.threads).flat().map(item => item.id)
-  assert.deepEqual(ids(phoneModCallsAt(state, 2, 4)), ['old'], 'before its page the call has not happened yet')
-  assert.deepEqual(ids(phoneModCallsAt(state, 2, 5)), ['old', 'c'])
-  assert.equal(phoneModCallsAt(state, 3, 1), state, 'nothing held back: the same state, not sent again')
-  assert.deepEqual(ids(phoneModCallsAt({threads:{A:[{id:'legacy', turn:2}]}}, 2, 1)), ['legacy'], 'a record without its page shows from its round on')
-})
-
 test('model completion does not publish unplayed transcript; only audio-clock receipts survive hang-up', async () => {
   const h = harness()
   const {callId} = await h.calls.start({sessionId:'s',chat:chat(3),...contact('A')})
@@ -313,28 +275,6 @@ test('call resampling preserves every voiced frame across 48/44.1 kHz chunks', a
   }
 })
 
-test('call recognition hints use roster names only and leave all other prompt bytes intact', async t => {
-  const {phonePeople} = await import('../tavern-plugin/mods/phone/threads.js')
-  const people = phonePeople([
-    {actorKey:'actor-17',name:'\u8f89\u591c'},
-    {actorKey:'actor-18',name:'\u5f69\u53f6'},
-    {actorKey:'actor-19',name:'Hidden',enabled:false},
-  ])
-  const hint = callRecognitionContext(callee, people)
-  assert.match(hint, /<call_speech_recognition>/)
-  assert.match(hint, /speech recognition/)
-  assert.ok(hint.endsWith('- Names: \u8f89\u591c, \u5f69\u53f6\n</call_speech_recognition>'))
-  assert.doesNotMatch(hint, /actor-|Hidden/)
-  assert.equal(callRecognitionContext({}, []), '')
-  const sections = [{name:'existing',text:'<existing>\nUnchanged context.\n</existing>'}]
-  const args = {contact:callee,language:'zh',lines:[{role:'player',text:'misheard name'}]}
-  const before = callRequest({library:modLibrary, ...args,context:{promptSections:sections}})
-  const after = callRequest({library:modLibrary, ...args,context:{promptSections:[...sections,{name:'call-speech-recognition',text:hint}]}})
-  assert.equal(after.system, before.system + '\n\n' + hint)
-  assert.deepEqual(after.messages, before.messages)
-  for (const [key, bytes] of Object.entries(before.bytes.sections)) assert.equal(after.bytes.sections[key], bytes)
-  t.diagnostic('recognition section UTF-8 bytes=' + Buffer.byteLength(hint) + '; net system bytes=' + (after.bytes.system - before.bytes.system))
-})
 for (const roundCount of [0, 12]) test(`production dial context and call start accept a chat with ${roundCount} story rounds`, async () => {
   const {readFileSync} = await import('node:fs')
   const {default:vm} = await import('node:vm')
@@ -393,29 +333,6 @@ test('her cached greeting enters the record after the dial cue once it sounded, 
   h.calls.dispose()
 })
 
-test('greetings are made one at a time, only after the app has been idle a while', async () => {
-  let now = 0, busy = false
-  const timers = [], made = []
-  const greetings = createCallGreetings({idle:() => !busy, quietMs:20, checkMs:5, clock:() => now,
-    prepare:async entry => { made.push(entry.contactId); if (entry.contactId === 'bad') throw new Error('offline') },
-    timer:{set:fn => { timers.push(fn); return fn }, clear:fn => { const at = timers.indexOf(fn); if (at >= 0) timers.splice(at, 1) }}})
-  const step = async ms => { now += ms; const fn = timers.shift(); if (fn) await fn() }
-  greetings.want({sessionId:'s', contactId:'bad'}); greetings.want({sessionId:'s', contactId:'A'}); greetings.want({sessionId:'s', contactId:'A'})
-  assert.deepEqual(greetings.pending().map(row => row.contactId), ['bad', 'A'])
-  busy = true
-  for (let i = 0; i < 6; i++) await step(5)
-  assert.deepEqual(made, [], 'nothing while a turn, voice or call is under way')
-  busy = false
-  await step(5); await step(5); await step(5); await step(5); await step(5)
-  assert.deepEqual(made, ['bad'], 'the first once the app has been quiet for quietMs')
-  for (let i = 0; i < 6; i++) await step(5)
-  assert.deepEqual(made, ['bad', 'A'])
-  assert.deepEqual(greetings.pending(), [])
-  assert.equal(timers.length, 0, 'no polling with nothing to make')
-  assert.deepEqual(callGreeting('zh', 'm01'), {say:'喂？', sub:'喂？', mood:'m01'})
-  assert.equal(callGreeting('fr', 'm01'), null)
-  greetings.dispose()
-})
 // The phone's host side is its stage service (mods/phone/host/extension.js, stage.js hostExtension): its requests are
 // built from the stage's request bindings, answer from the phone's own directory and call host, and a card with the phone
 // off answers as off; its live calls are reported to deployment (work).

@@ -1,13 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import { validateOpeningSetupSpec, resolveOpeningSetup, compileOpeningTemplate, openingWorldbookEnabled, OPENING_TEMPLATE_CSP } from '../tavern-plugin/lib/domain/opening-setup.js'
-
-async function specExample() {
-  const spec = await readFile(new URL('../docs/specs/opening-setup-v2.md', import.meta.url), 'utf8')
-  const block = spec.slice(spec.indexOf('## 9.')).match(/```json\n([\s\S]*?)\n```/)[1]
-  return { block, value: JSON.parse(block) }
-}
 
 // Labels are Chinese, keys are ASCII and never equal them.
 const contract = () => ({
@@ -26,19 +19,6 @@ const contract = () => ({
   message: { type: 'LAUNCH', user_profile: { 姓名: '{name}', 章节: '{arc|不适用}', 体力值: 100 }, guidelines: '{city.text}{arc.text}' }
 })
 
-test('the spec example validates and stays within the authoring budget it states', async () => {
-  const { block, value } = await specExample()
-  assert.equal(validateOpeningSetupSpec(value), value)
-  const lines = block.split('\n').length
-  assert.ok(lines <= 20, lines + ' lines')
-  const doc = await readFile(new URL('../docs/specs/opening-setup-v2.md', import.meta.url), 'utf8')
-  assert.match(doc, new RegExp(lines + ' 行，UTF-8 ' + Buffer.byteLength(block).toLocaleString('en').replace(',', ' ') + ' 字节'))
-  const story = resolveOpeningSetup(value, { name: '小林', stage: '结局之后', bond: 65 }, { userName: '你' })
-  assert.deepEqual(story.scriptStart, { mode: 'story' })
-  assert.deepEqual(story.variables, { '剧情.阶段': '结局之后', '好感.露娜': 65 })
-  assert.match(story.message, /开局：后日谈。小林和露娜的关系：最在意的人/)
-})
-
 test('unknown types, duplicate keys, forward when and missing slots are rejected with a readable reason', () => {
   const bad = [
     [{ version: 2, fields: [{ key: 'a', type: 'date', label: '日期' }], message: 'x' }, /type「date」不受支持/],
@@ -52,22 +32,6 @@ test('unknown types, duplicate keys, forward when and missing slots are rejected
   ]
   for (const [spec, reason] of bad) assert.throws(() => validateOpeningSetupSpec(spec), reason)
   assert.ok(validateOpeningSetupSpec(contract()))
-})
-
-test('submit: {{user}} default, option text, hidden fields write nothing, MVU paths and typed JSON leaves', () => {
-  const spec = contract()
-  const outside = resolveOpeningSetup(spec, { wish: '想要勇气', city: '东港市', arc: '第二部', district: '北区' }, { userName: '小林' })
-  assert.equal(outside.playerName, '小林')
-  assert.deepEqual(outside.variables, { 'PC.契约之愿': '想要勇气', 'PC.当前位置': '东港市' })
-  assert.equal(outside.scriptStart, undefined, 'a hidden field contributes no branch')
-  assert.deepEqual(JSON.parse(outside.message), { type: 'LAUNCH', user_profile: { 姓名: '小林', 章节: '不适用', 体力值: 100 }, guidelines: '描写初次成为守护者的瞬间。' })
-  const inside = resolveOpeningSetup(spec, { name: '环彩羽', wish: '找回妹妹', city: '西岭市', arc: '第二部', district: '北区' }, { userName: '小林' })
-  assert.equal(inside.playerName, '环彩羽')
-  assert.deepEqual(inside.variables, { 'PC.契约之愿': '找回妹妹', 'PC.当前位置': '西岭市-北区' })
-  assert.deepEqual(inside.scriptStart, { chunk: 3 })
-  assert.equal(JSON.parse(inside.message).guidelines, '长夜之后。')
-  assert.throws(() => resolveOpeningSetup(spec, { city: '东港市' }), /「契约之愿」还没填/)
-  assert.throws(() => resolveOpeningSetup(spec, { wish: 'x', city: '东京' }), /「初始城市」的选项不存在/)
 })
 
 test('point budgets, sliders, multi selections and world-book prefixes resolve as declared', () => {

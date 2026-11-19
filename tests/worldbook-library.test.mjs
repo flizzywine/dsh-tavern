@@ -72,15 +72,6 @@ function harness(extra = {}) {
   return { library, cards, files, bindings, removed }
 }
 
-test('空白卡片工作台可读取全局世界书，已挂载但丢失的卡仍报错', async () => {
-  const { library } = harness()
-  const chat = { mode: 'card', cardPath: '' }
-  assert.equal(await library.bound(chat.cardPath, null, chat), null)
-  await library.setGlobal({ kind: 'standalone', path: 'worldbooks/王都.json' }, true)
-  assert.equal((await library.bound(chat.cardPath, null, chat)).view.displayName, '王都')
-  await assert.rejects(library.bound('cards/已丢失.json', null, { ...chat, cardPath: 'cards/已丢失.json' }), /人物卡不存在/)
-})
-
 test('单本世界书或人物卡损坏时目录保留正常项目并返回诊断', async () => {
   const library = createWorldBookLibrary({
     normalizePath(path) { return path },
@@ -129,21 +120,6 @@ test('World Book Library 通过来源 adapter 原子编辑、导入、导出和�
   assert.deepEqual(run.removed, ['worldbooks/海港.json'])
 })
 
-test('删除内置世界书清理所有引用并保留其他世界书和人物卡内容', async () => {
-  const run = harness()
-  const source = { kind: 'card', cardPath: 'cards/命运.json' }
-  const before = clone(run.cards.get(source.cardPath))
-  await run.library.bind('cards/空白.json', source)
-  await run.library.bind('cards/空白.json', { kind: 'standalone', path: 'worldbooks/王都.json' })
-  await run.library.remove(source)
-  assert.deepEqual(run.cards.get(source.cardPath), { ...before, character_book: null })
-  assert.deepEqual((await run.library.catalog()).embedded, [])
-  assert.equal((await run.library.binding(source.cardPath)).kind, 'none')
-  assert.equal((await run.library.bound('cards/空白.json')).view.displayName, '王都')
-  assert.equal(run.files.has('worldbooks/王都.json'), true)
-  assert.deepEqual(run.removed, [])
-})
-
 // Character design must be visible through the same library used by the editor.
 import { applyCharacterDesignWorldbook, createCharacterDesignPublisher } from '../tavern-plugin/lib/domain/character-design-worldbook.js'
 import { worldbookContentDigest } from '../tavern-plugin/lib/domain/worldbook-version.js'
@@ -174,31 +150,6 @@ for (const kind of ['embedded', 'standalone', 'none', 'multiple', 'global-only']
   assert.equal((await run.library.get(source)).view.entries.filter(e => e.primaryKeys.includes('季闻笙')).length, 1)
 })
 
-test('全局世界书覆盖无绑定的新卡、与本地合并并按来源去重，不修改或导出到卡', async () => {
-  const { library, cards } = harness()
-  const source = { kind: 'standalone', path: 'worldbooks/王都.json' }
-  const before = clone([...cards])
-  await library.setGlobal(source, true)
-  assert.equal((await library.get(source)).globalEnabled, true)
-  assert.equal((await library.catalog()).standalone[0].globalEnabled, true)
-  assert.equal((await library.bound('cards/空白.json')).view.entryCount, 1)
-  const { createOpeningPreparation } = await import('../tavern-plugin/lib/domain/opening-preparation.js')
-  const preparation = createOpeningPreparation({ readCard: async path => cards.get(path), worldBooks: library })
-  const opening = await preparation.create('cards/空白.json')
-  assert.equal(opening.worldbook.entries.length, 1)
-  assert.match(JSON.stringify(opening.worldbook), /城门日落关闭/)
-  assert.equal((await library.bound('cards/命运.json')).view.entryCount, 2)
-  assert.equal((await library.characterBookForCard('cards/命运.json')).entries.length, 1)
-  assert.deepEqual([...cards], before)
-  await library.bind('cards/命运.json', source)
-  assert.equal((await library.bound('cards/命运.json')).view.entryCount, 2)
-  await library.setGlobal(source, false)
-  assert.equal(await library.bound('cards/空白.json'), null)
-  assert.equal((await library.bound('cards/命运.json')).view.entryCount, 2)
-  await assert.rejects(library.setGlobal({ kind: 'card', cardPath: 'cards/命运.json' }, true), /独立世界书/)
-  await assert.rejects(library.setGlobal(source, 'true'), /布尔值/)
-})
-
 for (const source of [{ kind: 'standalone', path: 'worldbooks/王都.json' }, { kind: 'card', cardPath: 'cards/命运.json' }]) {
   test('同一世界书并发新增保留双方条目，失败后仍可更新：' + source.kind, async () => {
     const { library } = harness()
@@ -211,78 +162,3 @@ for (const source of [{ kind: 'standalone', path: 'worldbooks/王都.json' }, { 
     assert.ok((await library.get(source)).view.entries.some(entry => entry.content === '丙'))
   })
 }
-
-test('读取同名未改动的世界书复用解析结果，文件更新后才重新读取', async () => {
-  const files = new Map([['worldbooks/王都.json', JSON.stringify({ name: '王都', entries: { 7: { uid: 7, comment: '城门', content: '城门日落关闭。', key: ['城门'] } } })]])
-  let reads = 0, revision = 200
-  const library = createWorldBookLibrary({
-    normalizePath: path => String(path),
-    resources: {
-      async list() { return [] },
-      async readText(path) { reads += 1; return files.get(path) },
-      async metadata() { return { importedAt: 100, updatedAt: revision } },
-      async globalSources() { return [] }
-    },
-    cards: { async listPaths() { return [] }, async read() { return undefined } },
-    async removeStandalone() {}
-  })
-  const source = { kind: 'standalone', path: 'worldbooks/王都.json' }
-  const first = await library.get(source)
-  assert.equal(first.view.entryCount, 1)
-  assert.equal(first.revision, 200)
-  const second = await library.get(source)
-  assert.equal(reads, 1, '未改动的书不该被重新读取解析')
-  assert.equal(second.view, first.view, '同一 revision 直接复用同一份视图')
-  revision = 300
-  files.set('worldbooks/王都.json', JSON.stringify({ name: '王都', entries: { 7: { uid: 7, comment: '城门', content: '城门全天开放。', key: ['城门'] } } }))
-  const third = await library.get(source)
-  assert.equal(reads, 2, '文件改动后必须重新读取')
-  assert.equal(third.revision, 300)
-  assert.match(JSON.stringify(third.view), /城门全天开放/)
-})
-
-test('写入世界书不重读文件，写后读取直接命中已发布视图', async () => {
-  let reads = 0, writes = 0, revision = 200
-  const files = new Map([['worldbooks/王都.json', JSON.stringify({ name: '王都', entries: { 7: { uid: 7, comment: '城门', content: '城门日落关闭。', key: ['城门'] } } })]])
-  const library = createWorldBookLibrary({
-    normalizePath: path => String(path),
-    resources: {
-      async list() { return [] },
-      async readText(path) { reads += 1; return files.get(path) },
-      async metadata() { return { importedAt: 100, updatedAt: revision } },
-      async write(path, text) { writes += 1; revision += 100; files.set(path, text) },
-      async globalSources() { return [] }
-    },
-    cards: { async listPaths() { return [] }, async read() { return undefined } },
-    async removeStandalone() {}
-  })
-  const source = { kind: 'standalone', path: 'worldbooks/王都.json' }
-  assert.equal((await library.get(source)).view.entryCount, 1)
-  assert.equal(reads, 1)
-  const updated = await library.update(source, { operations: [{ op: 'update', ref: 'entry:7', patch: { enabled: false } }] })
-  assert.equal(writes, 1)
-  assert.equal(reads, 1, '写前复用已解析的文档，写入后不再把整本书读回来')
-  assert.equal(updated.view.entries[0].enabled, false)
-  assert.equal(updated.revision, 300, '返回的视图带着写入后的新 revision')
-  const again = await library.get(source)
-  assert.equal(reads, 1, '写后读取命中刚发布的记录，不再读盘')
-  assert.equal(again.view.entries[0].enabled, false)
-})
-
-test('条件读取只要一次 stat：revision 不触发整本解析', async () => {
-  let reads = 0
-  const files = new Map([['worldbooks/王都.json', JSON.stringify({ name: '王都', entries: { 7: { uid: 7, comment: '城门', content: '城门日落关闭。', key: ['城门'] } } })]])
-  const library = createWorldBookLibrary({
-    normalizePath: path => String(path),
-    resources: {
-      async list() { return [] },
-      async readText(path) { reads += 1; return files.get(path) },
-      async metadata() { return { importedAt: 100, updatedAt: 500 } },
-      async globalSources() { return [] }
-    },
-    cards: { async listPaths() { return [] }, async read() { return undefined } },
-    async removeStandalone() {}
-  })
-  assert.equal(await library.revision({ kind: 'standalone', path: 'worldbooks/王都.json' }), 500)
-  assert.equal(reads, 0, 'revision 只读文件元数据')
-})

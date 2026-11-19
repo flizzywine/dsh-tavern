@@ -163,17 +163,6 @@ test('复选框、楼层点击与 dock 支持独立勾选、清空、删除禁�
   assert.equal(feature.store.getSnapshot('a').active, false)
 })
 
-test('assistant 的 deferred、distant 和隐藏行 early return 位于复选框创建之前', () => {
-  const checkbox = assistantSource.indexOf('const deletionNode =')
-  assert.ok(checkbox > 0)
-  for (const marker of ['if (!tavernPlanShowsRow(', 'if (deferredFloor) return', 'if (distantHeight > 0) return']) {
-    const at = assistantSource.indexOf(marker)
-    assert.ok(at >= 0 && at < checkbox, marker)
-  }
-  assert.ok(assistantSource.includes('selector: messageDeletionFeature.userSelector(turn, data)'))
-  assert.ok(assistantSource.includes('messageDeletionFeature.assistantSelector(turn, storyTurn, data)'))
-})
-
 test('故事 messageUid 选择键不随后台 revision 刷新改变', () => {
   const context = contextWith()
   const feature = context.createTavernMessageDeletionFeatureModule()

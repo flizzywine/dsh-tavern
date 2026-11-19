@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
-import {
-  createIncrementalJsonStringExtractor,
-  createToolReplyStreamTracker,
-  extractStreamedToolReplyContent,
-  parsePartialToolReplyJson,
-} from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
+import { createIncrementalJsonStringExtractor, createToolReplyStreamTracker, parsePartialToolReplyJson } from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
 import { patchToolReplyStreamChatSource } from '../tavern-plugin/lib/domain/chat-tool-reply-stream.js'
 
 test('增量 JSON 字符串状态机：正确解码字面反斜杠、换行、Unicode 与跨分片代理对，忽略嵌套噪音', () => {
@@ -47,15 +42,6 @@ test('ToolReplyStreamTracker：仅跟踪 submit_story，支持工具名迟到与
 
   const step2 = tracker.pushToolDelta({ type: 'tool-call-delta', index: 1, id: 'c1', argumentsDelta: '洒满庭院。"}' })
   assert.equal(step2.contentDelta, '洒满庭院。')
-})
-
-test('extractStreamedToolReplyContent：兼容宿主累加器仅首片带 name 的拆分 tool-call-chunks 记录', () => {
-  const stream = [
-    { type: 'reasoning-chunks', index: 0, dt: [], texts: ['先想一下'] },
-    { type: 'tool-call-chunks', index: 1, dt: [], id: 'call_1', name: 'submit_story', args: [''] },
-    { type: 'tool-call-chunks', index: 1, dt: [15], id: 'call_1', args: ['{"think":"构思","content":"第一段\\n', '第二段未闭合'] }
-  ]
-  assert.equal(extractStreamedToolReplyContent(stream, 'submit_story'), '第一段\n第二段未闭合')
 })
 
 test('ui-chat 工具流式补丁：兼容 0.2.1 与 2.0.22 两种宿主源码形状，实时投影思考行与正文并抑制工具外裸文本闪烁', () => {

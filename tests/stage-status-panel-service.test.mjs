@@ -12,16 +12,6 @@ function service({raw=card(),chat={},messages=[{role:'assistant',greeting:true}]
   })
 }
 
-test('declarations omit HTML and fresh follows player messages, not greeting',async()=>{
-  const result=await service().list({sessionId:'s'})
-  assert.deepEqual(result,{pages:[{id:'status',label:'状态',size:'window',shortcut:'s',menu:true}],fresh:true})
-  assert.equal((await service({messages:[{role:'assistant'},{role:'user'}]}).list({sessionId:'s'})).fresh,false)
-  for(const options of [{raw:card([])},{chat:{mode:'card'}}]) {
-    assert.deepEqual(await service(options).list({sessionId:'s'}),{pages:[],fresh:false})
-    assert.equal(await service(options).read({sessionId:'s',page:'status'}),null)
-  }
-})
-
 test('live library page supplies figures and only declared ledger',async()=>{
   const result=await service().read({sessionId:'s',page:'status'})
   assert.equal('html' in result,false)

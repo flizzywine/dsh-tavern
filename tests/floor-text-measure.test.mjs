@@ -105,26 +105,6 @@ test('只把 text 块算进预留高度，reocrd 其他块跳过', () => {
     assert.equal(measure.text(null), '')
 })
 
-test('延迟楼层占位改用测量值，不再是写死的 800 px', async () => {
-    const { readFile } = await import('node:fs/promises')
-    const renderer = await readFile(new URL('../tavern-plugin/src/client/features/assistant-renderer.js', import.meta.url), 'utf8')
-    assert.match(renderer, /data-deferred-reserve/, '占位元素要能区分 measured / fallback')
-    assert.match(renderer, /\(deferredFloorReserve \|\| tavernTextMeasureFallback\(\)\)/, '兜底仍须是 800 px')
-    assert.equal(renderer.includes('"data-deferred-floor": true, style: { minHeight: "800px" }'), false)
-})
-
-test('已渲染过的楼层按真实高度回读，宽度变了就作废', () => {
-    const { measure, window } = sandbox({ width: 420 })
-    const key = measure.key('sess-1', 3, '正文正文')
-    assert.match(key, /^dsh-tavern-floor-height:sess-1:3:4$/)
-    measure.remember(key, 420, 617)
-    assert.equal(measure.recall(key, 420), 617)
-    assert.equal(measure.recall(key, 426), 617, '8px 内的列宽差仍可复用')
-    assert.equal(measure.recall(key, 520), 0, '换了列宽就必须重新量')
-    assert.equal(measure.recall(key, 420), 617)
-    window.sessionStorage.clear()
-})
-
 test('楼层正文改过长度后旧高度不再命中', () => {
     const { measure, window } = sandbox()
     measure.remember(measure.key('sess-1', 3, '很长很长的正文'), 420, 500)

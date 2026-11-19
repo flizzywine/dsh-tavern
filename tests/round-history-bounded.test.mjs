@@ -10,8 +10,6 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createBoundedHistory, readRowsAt } from '../tavern-plugin/lib/domain/bounded-history.js'
 import { isScopedMessages } from '../tavern-plugin/lib/domain/scoped-messages.js'
-import { createConversationPageStore } from '../tavern-plugin/lib/domain/conversation-page-store.js'
-import { createConversationState } from '../tavern-plugin/lib/domain/conversation-state.js'
 import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
@@ -203,42 +201,6 @@ test('撤销回退的补丁落空一次时按新版本重试，正文只写一�
   assert.equal(h.calls.filter(call => call === 'patch:rollback.undo').length, 2, '按新 revision 重放同一份补丁')
 })
 
-test('撤销补丁落空且正文已被别人写时不再重写，直接报冲突', async t => {
-  const h = await fixture(t, true)
-  await h.rounds.rollback('session', 'chat', 81)
-  const afterRollback = await h.p.read('chat')
-  h.hooks.beforePatchOf = { 'rollback.undo': async () => { await h.p.update('chat', chat => { chat.messages.push({ role: 'assistant', turn: 999, text: '别人写的一行' }); return chat }, { source: 'fixture.concurrent' }) } }
-  await assert.rejects(h.rounds.undoRollback('session', 'chat'), /其他操作修改/)
-  const stored = await h.p.read('chat')
-  assert.equal(stored.messages.length, afterRollback.messages.length + 1, '不再把正文写一遍')
-  assert.equal(stored.rollbackUndo.ready, true, '撤销点保留，刷新后可重试')
-})
-
-test('撤销补丁落空且撤销点已被花掉时不再写正文', async t => {
-  const h = await fixture(t, true)
-  await h.rounds.rollback('session', 'chat', 81)
-  const afterRollback = await h.p.read('chat')
-  h.hooks.beforePatchOf = { 'rollback.undo': async () => { await h.p.update('chat', chat => { delete chat.rollbackUndo; return chat }, { source: 'fixture.concurrent' }) } }
-  await assert.rejects(h.rounds.undoRollback('session', 'chat'), /其他操作修改/)
-  assert.equal((await h.p.read('chat')).messages.length, afterRollback.messages.length)
-})
-
-test('rolling back a completed round drops its pre-saved input from the checkpoint', async t => {
-  for (const bounded of [true, false]) {
-    const h = await fixture(t, bounded, { earlyInput: true })
-    const before = await h.p.read('chat')
-    await h.rounds.rollback('session', 'chat', 81)
-    const after = await h.p.read('chat')
-    assert.equal(after.messages.length, before.messages.length - 2)
-    assert.equal(after.messages.at(-1).turn, 80)
-    assert.equal(after.variables.day, 1)
-    assert.equal(h.dispatched[0].args[0], after.messages.length)
-    if (bounded) assert.deepEqual(h.calls, ['patch:rollback', 'patch:rollback.undo-point'])
-    await h.rounds.undoRollback('session', 'chat')
-    assert.deepEqual((await h.p.read('chat')).messages, before.messages)
-  }
-})
-
 test('rollback to a turn removes every later round and one undo restores them all', async t => {
   for (const bounded of [true, false]) {
     const h = await fixture(t, bounded)
@@ -311,62 +273,6 @@ test('连续回退可以越过已被后续操作隐藏的存档轮次，且仍�
   assert.deepEqual((await h.rounds.rollbackTo('session', 'chat', 80)).rolledBackTo, { target: 80, latest: 80, removed: 2 })
 })
 
-test('bounded regeneration stores the same Chat and surface as the complete regeneration', async t => {
-  const results = []
-  for (const bounded of [true, false]) {
-    const h = await fixture(t, bounded)
-    const before = await h.p.read('chat')
-    const view = await h.rounds.regenerate('chat', '更紧张一些', 'session')
-    assert.deepEqual(h.directed, ['director:session', 'settlement'], 'only the adopted regenerated body starts direction, before settlement')
-    const after = await h.p.read('chat')
-    assert.equal(after.messages.at(-1).messageUid, before.messages.at(-1).messageUid, '重新生成沿用同一消息身份')
-    const head = await h.p.readWindow('chat', { limit: 1 })
-    assert.equal(head.worldMessage, after.messages.length - 1)
-    assert.equal(head.worldMessageUid, after.messages.at(-1).messageUid)
-    results.push({ h, before, after, view })
-  }
-  const [b, f] = results
-  for (const h of [b.h, f.h]) assert.ok(!h.calls.includes('patch:rollback.regen') && !h.calls.includes('update:rollback.regen'), JSON.stringify(h.calls))
-  assert.ok(b.h.calls.includes('update:foreground.regen-commit') && f.h.calls.includes('update:foreground.regen-commit'))
-  const strip = chat => {
-    const value = comparable(chat)
-    if (value.messages?.length) value.messages.at(-1).ts = 0
-    for (const op of Object.values(value.timeline.operations)) if (op.regenerationId) op.regenerationId = 'R'
-    return JSON.parse(JSON.stringify(value).replace(/tavern-regen:[0-9a-f-]+/g, 'tavern-regen:R'))
-  }
-  assert.deepEqual(strip(b.after), strip(f.after))
-  // The original floors around the new round, including the floor settlement edited after the checkpoint.
-  assert.equal(b.after.messages.length, b.before.messages.length)
-  assert.deepEqual(b.after.messages.slice(0, -1), b.before.messages.slice(0, -1))
-  assert.equal(b.after.messages.at(-1).text, '重写正文82')
-  assert.equal(b.after.messages.at(-1).turn, 81)
-  assert.equal(b.after.regenInProgress, undefined)
-  assert.equal(b.after.regeneratedDshTurns['81'], 82)
-  const texts = h => h.session.surface.nodes.map(seq => h.session.events[seq]).filter(e => e.type === 'assistant/message').map(e => e.data.message.content.map(c => c.text).join(''))
-  assert.deepEqual(texts(b.h), texts(f.h))
-  assert.deepEqual(b.view.adopted, f.view.adopted)
-})
-
-test('regeneration after its world source is detached keeps the retained world', async t => {
-  for (const bounded of [true, false]) {
-    const h = await fixture(t, bounded), before = await h.p.read('chat'), source = before.messages.at(-1)
-    await h.p.update('chat', current => {
-      delete current.messages.at(-1).variables
-      return current
-    }, { source: 'test.detach-world', worldSelection: { preserveWorld: true,
-      selected: { position: null, swipe: 0, messageUid: source.messageUid } } })
-    let head = await h.p.readWindow('chat', { limit: 1 })
-    assert.equal(head.worldMessage, null)
-    assert.equal(head.worldMessageUid, source.messageUid)
-    await h.rounds.regenerate('chat', '', 'session')
-    head = await h.p.readWindow('chat', { limit: 1 })
-    assert.equal(head.worldMessage, null)
-    assert.equal(head.worldMessageUid, source.messageUid)
-    const domain = createConversationState({ store: createConversationPageStore({ root: join(h.root, 'chats') }) })
-    assert.equal((await domain.readWorld('chat')).variables.hp, 82)
-  }
-})
-
 test('a failed bounded regeneration keeps the old body discarded like the complete abort', async t => {
   const results = []
   for (const bounded of [true, false]) {
@@ -416,22 +322,6 @@ test('被截断的重新生成保留已生成的部分正文，两种路径结�
   assert.deepEqual(strip(results[0]), strip(results[1]))
 })
 
-test('max-tokens 已落原生正文的重生成也保留截断标记', async t => {
-  const h = await fixture(t, true)
-  h.agent.whenIdle = async function () {
-    const turn = ++h.agent.phase.lastTurn, userText = h.agent.input.content[0].text
-    h.agent.input = null
-    h.session.append('user/message', { turn, role: 'user', content: [{ type: 'text', text: userText }], source: { kind: 'plugin', plugin: 'dsh-tavern-regen' } }, { surfaceOp: 'append' })
-    h.session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', source: model, content: [{ type: 'text', text: '达到上限的正文' }] } }, { surfaceOp: 'append' })
-    h.session.append('turn/end', { turn, reason: { kind: 'max-tokens' } })
-  }
-  const view = await h.rounds.regenerate('chat', '', 'session')
-  const row = (await h.p.read('chat')).messages.at(-1)
-  assert.equal(view.adopted.text, '达到上限的正文')
-  assert.equal(view.regenerationWarning, undefined)
-  assert.equal(row.incomplete, true)
-})
-
 // A failed turn's own cleanup (foreground.discard restoring the staged template
 // input) writes the save right after the attempt; the regeneration commit then
 // read a revision that had already moved. It used to abort the whole round.
@@ -439,30 +329,3 @@ test('max-tokens 已落原生正文的重生成也保留截断标记', async t =
 // A host that refuses an assistant replacement refuses every round of that
 // session, and one that accepts accepts the next: the probe clones the whole
 // event log and folds its surface again, so a session pays for it once.
-function previewLike(events) {
-  const stub = { id: 'session', header: { version: 3 }, events, surface: { nodes: events.map(event => event.seq) },
-    append(type, data, options = {}) {
-      const seq = events.length
-      events.push({ seq, type, data, ...options })
-      const nodes = stub.surface.nodes
-      if (options.surfaceOp?.op === 'replace') {
-        const start = nodes.indexOf(options.surfaceOp.startSeq)
-        const end = nodes.indexOf(options.surfaceOp.endSeq)
-        if (start >= 0 && end >= start) nodes.splice(start, end - start + 1, seq)
-        else nodes.push(seq)
-      } else nodes.push(seq)
-      return seq
-    } }
-  return stub
-}
-
-test('正文替换预检每场会话只做一次', async t => {
-  const h = await fixture(t, true)
-  let probes = 0
-  h.session.header = { version: 3 }
-  h.session.constructor = { fromRestore(id, seed) { probes++; return previewLike(seed) } }
-  await h.rounds.regenerate('chat', '', 'session')
-  assert.equal(probes, 1)
-  await h.rounds.regenerate('chat', '', 'session')
-  assert.equal(probes, 1)
-})

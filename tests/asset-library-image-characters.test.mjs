@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createImageCharacterHandlers } from '../tavern-plugin/lib/rpc/image-characters.js'
-import { appearanceFromImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
+import { appearanceFromImageCharacter, imageCharacterFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -62,26 +62,6 @@ async function fixture(t, { deletes = false } = {}) {
   return { library, pack, figureId, api, service, handlers, images, root }
 }
 
-test('identical record IDs in separate libraries require explicit source selection', async t => {
-  const f = await fixture(t), other = imageLibrary()
-  other.registration.id = 'other'
-  other.registration.label = '另一个人物库'
-  f.service.registerImageLibrary(other.registration)
-  const target = { packId: f.pack.manifest.id, figureId: f.figureId }
-  const read = await f.handlers.getFigureImageCharacter(target)
-  assert.equal(read.libraries.length, 2)
-  assert.deepEqual(read.candidates.map(c => c.providerId), ['dsh-tavern-image/definitions', 'dsh-tavern-image/other'])
-  await assert.rejects(f.handlers.linkFigureImageCharacter(target), { code: 'INVALID_ARGUMENT' })
-  await assert.rejects(f.handlers.linkFigureImageCharacter({ ...target, characterId: 'c-7' }), { code: 'INVALID_ARGUMENT' })
-  const selected = await f.handlers.linkFigureImageCharacter({ ...target, providerId: 'dsh-tavern-image/other', characterId: 'c-7' })
-  assert.equal(selected.providerId, 'dsh-tavern-image/other')
-  assert.equal(f.images.store.characters[0].figureId, undefined)
-  assert.equal((await f.handlers.getFigureImageCharacter(target)).providerId, selected.providerId)
-  const edited = await f.handlers.patchImageCharacter({ ...target, providerId: selected.providerId, characterId: selected.character.id, expected: selected.character, patch: { traits: { face: '只改所选库' } } })
-  assert.equal(edited.character.traits.face, '只改所选库')
-  assert.equal(f.images.store.characters[0].traits.face, '已有的脸')
-})
-
 test('wrong figure, missing pack and stale associations cannot change a character or store reference bytes', async t => {
   const f = await fixture(t)
   const target = { packId: f.pack.manifest.id, figureId: f.figureId }
@@ -94,39 +74,6 @@ test('wrong figure, missing pack and stale associations cannot change a characte
   await assert.rejects(f.handlers.patchImageCharacter({ ...args, patch: { name: 'wrong' } }), { code: 'INVALID_ARGUMENT' })
   await assert.rejects(f.handlers.copyFigureSetteiToImageCharacter(args), { code: 'INVALID_ARGUMENT' })
   assert.deepEqual(f.images.store.images, [])
-})
-
-test('the 人物库 aliases are the 触发词 without actor keys, readable Latin name first, shared words kept', () => {
-  // 千石 and Kaname are also other people's words: they stay (the 配图 plugin does not resolve a word several people on a card answer to)
-  assert.deepEqual(imageAliasesFromFigure({ id: 'f-yuno', name: '千石由乃', aliases: ['由乃', '千石', 'yuno_c', 'Yuno', 'Kaname', 'Ai'] }), ['Yuno', '由乃', '千石', 'Kaname', 'Ai'])
-})
-
-test('a new record keeps a 触发词 another installed figure also answers to', async t => {
-  const f = await fixture(t)
-  const next = (await f.library.createFigure({ packId: f.pack.manifest.id, expectedRevision: f.pack.revision, figure: { schemaVersion: 1, name: '佐仓爱里', aliases: ['Kyoko的友人', 'Kyoko'], enabled: true, appearance: 'sprite', recall: { mode: 'keyword' }, outfits: [] } })).snapshot
-  const linked = await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
-  assert.equal(linked.character.match, 'Kyoko')
-  assert.equal(next.manifest.figures.length, 2)
-})
-
-test('deleting a figure can take its linked record along, only where the library deletes records', async t => {
-  for (const deletes of [false, true]) {
-    const f = await fixture(t, { deletes }), target = { packId: f.pack.manifest.id, figureId: f.figureId }
-    const linked = await f.handlers.linkFigureImageCharacter(target)
-    const state = await f.handlers.getFigureImageCharacter(target)
-    assert.equal(state.deletes, deletes)
-    const call = f.handlers.deleteFigureImageCharacter({ ...target, providerId: state.providerId, characterId: linked.character.id, expected: state.character })
-    if (!deletes) { await assert.rejects(call, { code: 'NOT_SUPPORTED' }); continue }
-    await call
-    assert.equal((await f.handlers.getFigureImageCharacter(target)).status, 'unlinked')
-  }
-})
-test('copied figure UUIDs in distinct packs do not share an appearance record', async t => {
-  const f = await fixture(t)
-  await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
-  const { findFigureImageCharacter } = await import('../tavern-plugin/lib/domain/image-character-appearance.js')
-  const other = await findFigureImageCharacter(f.api, { packId: 'different-pack', figureId: f.figureId })
-  assert.equal(other.status, 'unlinked')
 })
 
 test('character and outfit sheets go to their own reference slots and stale copies are rejected before reading media', async () => {

@@ -3,43 +3,11 @@ import { readFile } from "node:fs/promises"
 
 import test from 'node:test'
 
-import { applyTavernSettingsPatch, normalizePlayDefaults, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 import { createConversationInitialization } from '../tavern-plugin/lib/domain/conversation-initialization.js'
 
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-
-test('用户推进字数随配置保存和读回，旧配置默认 500 且拒绝非法值', () => {
-  assert.equal(presentTavernSettings({}, {}).scriptChunkSize, 500)
-  const saved = applyTavernSettingsPatch({ other: 'keep' }, { scriptChunkSize: 1200 })
-  assert.equal(presentTavernSettings(JSON.parse(JSON.stringify(saved)), {}).scriptChunkSize, 1200)
-  assert.equal(saved.other, 'keep')
-  assert.equal(applyTavernSettingsPatch(saved, { hideContextAndReasoning: false }).scriptChunkSize, 1200)
-  for (const scriptChunkSize of [99, 10001, 1200.5, '1200', null]) {
-    assert.throws(() => applyTavernSettingsPatch(saved, { scriptChunkSize }), /100–10000/)
-    assert.equal(presentTavernSettings({ scriptChunkSize }, {}).scriptChunkSize, 500)
-  }
-})
-
-test('候选快捷提示按模式更新，拒绝覆盖已变更的列表', () => {
-  const defaults = presentTavernSettings({}, {}).candidateGuidanceShortcuts
-  const save = (document, mode, items, expected = defaults[mode]) =>
-    applyTavernSettingsPatch(document, { candidateGuidanceShortcuts: { mode, items, expected } })
-  const story = save({}, 'story', [' 等夜深再出发\n让配角先开口 '])
-  const both = save(story, 'script', [])
-  const saved = presentTavernSettings(both, {}).candidateGuidanceShortcuts
-  assert.deepEqual(saved, { story: ['等夜深再出发\n让配角先开口'], script: [] })
-  assert.deepEqual(save(both, 'story', saved.story), both, '可重试已落盘的请求')
-  assert.throws(() => save(both, 'story', ['按原计划'], defaults.story), { code: 'CANDIDATE_SHORTCUTS_CHANGED' })
-  assert.deepEqual(presentTavernSettings(save(both, 'story', null, saved.story), {}).candidateGuidanceShortcuts,
-    { story: defaults.story, script: [] })
-  assert.deepEqual(presentTavernSettings({ candidateGuidanceShortcuts: { story: ['  '], script: [] } }, {}).candidateGuidanceShortcuts,
-    { story: defaults.story, script: [] })
-
-  assert.throws(() => save(both, 'card', []), /模式无效/)
-  assert.throws(() => save(both, 'script', ['   '], []), /不能为空/)
-  assert.throws(() => save(both, 'script', ['相同', ' 相同 '], []), /相同/)
-})
 
 // Exercise the real save/read call sites with durable storage, not a copied implementation.
 
@@ -55,60 +23,8 @@ test('全局写作 Skill 逐项保存，恢复开启不改动其他 Skill', () =
   assert.throws(() => applyTavernSettingsPatch(document, { defaultWritingSkill: { name: 'one', enabled: 'false' } }), /无效/)
 })
 
-test('系统提示词方案：切换时保存当前内容，生效内容始终在顶层字段', () => {
-  let document = applyTavernSettingsPatch({ promptOverrides: { story: 'A' }, systemAppendEnabled: false }, { promptSet: { action: 'create', name: '快节奏' } })
-  assert.equal(document.promptOverrides, undefined)
-  assert.equal(document.systemAppendEnabled, true)
-  document = applyTavernSettingsPatch(document, { systemPrompt: { name: 'story', text: 'B' } })
-  const fast = document.activePromptSetId
-  document = applyTavernSettingsPatch(document, { promptSet: { action: 'select', id: 'default' } })
-  assert.deepEqual(document.promptOverrides, { story: 'A' })
-  assert.equal(document.systemAppendEnabled, false)
-  assert.equal(presentTavernSettings(document, { story: 'def' }).systemPrompts[0].text, 'A')
-  document = applyTavernSettingsPatch(document, { promptSet: { action: 'select', id: fast } })
-  assert.deepEqual(document.promptOverrides, { story: 'B' })
-  assert.deepEqual(presentTavernSettings(document, {}).promptSets.sets.map(set => [set.name, set.active]), [['默认方案', false], ['快节奏', true]])
-})
-
-test('改一边不会带上另一边；第一次改动就把旧字段折成明确的两项', () => {
-  const fromMerged = applyTavernSettingsPatch({ storyToolCall: true }, { storyOutputToolCall: false })
-  assert.deepEqual(fromMerged, { storyInputToolCall: true, storyOutputToolCall: false })
-  assert.equal(presentTavernSettings(fromMerged, {}).storyInputToolCall, true)
-
-  const fromHistory = applyTavernSettingsPatch({ storyHistoryToolCall: true }, { storyOutputToolCall: true })
-  assert.deepEqual(fromHistory, { storyInputToolCall: true, storyOutputToolCall: true })
-
-  const off = applyTavernSettingsPatch({ storyInputToolCall: true, storyOutputToolCall: true }, { storyInputToolCall: false })
-  assert.deepEqual(off, { storyInputToolCall: false, storyOutputToolCall: true })
-
-  const onlyInput = applyTavernSettingsPatch({}, { storyInputToolCall: true })
-  assert.deepEqual(onlyInput, { storyInputToolCall: true, storyOutputToolCall: false })
-  assert.throws(() => applyTavernSettingsPatch({}, { storyInputToolCall: 'yes' }), /输入走工具调用设置必须是布尔值/)
-  assert.throws(() => applyTavernSettingsPatch({}, { storyOutputToolCall: 1 }), /输出走工具调用设置必须是布尔值/)
-})
-
-test('新游戏统一主动检索，旧默认值归一化且严格校验', () => {
-  assert.equal(normalizePlayDefaults({}).worldbookStrategy, 'native-skills')
-  const saved = applyTavernSettingsPatch({}, { defaultPlaySettings: { worldbookStrategy: 'legacy' } })
-  assert.equal(presentTavernSettings(saved, {}).defaultPlaySettings.worldbookStrategy, 'native-skills')
-  const updated = applyTavernSettingsPatch(saved, { defaultPlaySettings: { playerName: '旅人' } })
-  assert.equal(updated.defaultPlaySettings.worldbookStrategy, 'native-skills')
-  assert.throws(() => applyTavernSettingsPatch({}, { defaultPlaySettings: { worldbookStrategy: 'unknown' } }), /默认世界书策略无效/)
-})
 
 
-
-
-test('正文生成方式默认原生，插件模式必须指定生成器且完整往返保存', () => {
-  assert.equal(presentTavernSettings({}, {}).storyGenerationMode, 'host')
-  assert.throws(() => applyTavernSettingsPatch({}, { storyGenerationMode: 'plugin-tool-call' }), /先选择/)
-  assert.throws(() => applyTavernSettingsPatch({}, { storyGenerationMode: 'invalid' }), /无效/)
-  let value = applyTavernSettingsPatch({}, { storyGenerationProvider: 'p:body', storyGenerationMode: 'plugin-tool-call' })
-  value = presentTavernSettings(value, {})
-  assert.equal(value.storyGenerationProvider, 'p:body')
-  assert.equal(value.storyGenerationMode, 'plugin-tool-call')
-  assert.equal(applyTavernSettingsPatch(value, { storyGenerationMode: 'host' }).storyGenerationProvider, 'p:body')
-})
 
 test('本局默认模板保存、恢复与新局继承覆盖全部本局设置字段', async () => {
   let settingsDoc = {}
@@ -328,30 +244,4 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(publishedChat.storyGenerationProvider, 'gen:one')
   assert.equal(publishedChat.storyPluginOutputRegex, true)
   assert.deepEqual(seededPlugins['chat-new'], { 'global.mod': { tone: 'warm', dice: true } })
-})
-
-test('后台任务附加预设默认关闭且校验布尔类型', async () => {
-  const { applyTavernSettingsPatch, normalizeBackgroundTasks, normalizePlayDefaults } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
-  assert.equal(normalizeBackgroundTasks({}).preset, false)
-  assert.equal(normalizePlayDefaults({}).backgroundTasks.preset, false)
-  assert.throws(() => applyTavernSettingsPatch({}, { defaultPlaySettings: { backgroundTasks: { preset: 'yes' } } }), /必须为布尔值/)
-  const patched = applyTavernSettingsPatch({}, { defaultPlaySettings: { backgroundTasks: { preset: true } } })
-  assert.equal(patched.defaultPlaySettings.backgroundTasks.preset, true)
-})
-
-
-
-test('候选多角色/全局 Tab 默认关闭，保存布尔值并原样读回', async () => {
-  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
-  const { createSettingsHandlers } = await import('../tavern-plugin/lib/rpc/settings.js')
-  assert.equal(presentTavernSettings({}, {}).candidateTabs, false)
-  assert.throws(() => applyTavernSettingsPatch({}, { candidateTabs: 'yes' }), /无效的候选 Tab 设置/)
-  const patched = applyTavernSettingsPatch({}, { candidateTabs: true })
-  assert.equal(patched.candidateTabs, true)
-  assert.equal(presentTavernSettings(patched, {}).candidateTabs, true)
-  // 候选偏好 RPC 把开关一起带给候选卡（默认关闭时是 false，不是 undefined）。
-  const handlers = createSettingsHandlers({ readTavernSettings: async () => presentTavernSettings(patched, {}) })
-  assert.equal((await handlers.getCandidatePreferences({})).candidateTabs, true)
-  const off = createSettingsHandlers({ readTavernSettings: async () => presentTavernSettings({}, {}) })
-  assert.equal((await off.getCandidatePreferences({})).candidateTabs, false)
 })

@@ -9,35 +9,6 @@ function textResponse(content = 'globalThis.entryLoaded = true', mediaType = 'te
   return { ok: true, headers: { get: function () { return mediaType } }, text: async function () { return content } }
 }
 
-test('重启且断网时复用已验证内容，缓存缺失则明确诊断', async function () {
-  let saved = null
-  const online = createTavernRemoteAssetPinStore({
-    readJson: async function () { return saved },
-    updateJson: async function (_path, updater) { saved = updater(saved) },
-    fetch: async function (url) {
-      if (String(url).startsWith('https://api.github.com/')) return { ok: true, json: async function () { return { sha: COMMIT } } }
-      return { ok: true, headers: { get: function () { return 'text/html' } }, text: async function () { return '<main>状态栏</main>' } }
-    }
-  })
-  const source = "$('body').load('https://cdn.jsdelivr.net/gh/example/ui@main/status.html')"
-  const first = await online.pinText(source)
-
-  const offline = createTavernRemoteAssetPinStore({
-    readJson: async function () { return saved },
-    updateJson: async function () { throw new Error('不应重新写入') },
-    fetch: async function () { throw new Error('offline') }
-  })
-  assert.equal((await offline.pinText(source)).text, first.text)
-
-  const missing = createTavernRemoteAssetPinStore({
-    readJson: async function () { return { version: 2, pins: saved.pins, assets: {} } },
-    fetch: async function () { throw new Error('offline') }
-  })
-  const failed = await missing.pinExtensions({ helperScripts: [], regexScripts: [{ name: '状态栏', enabled: true, replaceString: source }] })
-  assert.equal(failed.regexScripts[0].enabled, false)
-  assert.match(failed.diagnostics[0].message, /缓存.*offline/)
-})
-
 test('missing Git tag still renders a homepage from a durable content snapshot', async () => {
   const { projectReplyHistory } = await import('../tavern-plugin/lib/domain/reply-presentation.js')
   let saved

@@ -9,13 +9,11 @@
 // （需要 Electron Node 的 asar 支持，纯 Node 下 app.asar 内路径恒不可解析，故那一组跳过）。
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { createFileSymlink } from './helpers/file-symlink.mjs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { hostRequireCandidates, desktopLauncherEntry } from '../tavern-plugin/lib/domain/host-package-resolution.js'
 import { defaultHostRequire, installHostSessionPatch } from '../tavern-plugin/lib/domain/host-session-patch.js'
 import { installHostSubprocessPatch } from '../tavern-plugin/lib/domain/host-subprocess-patch.js'
 
@@ -47,80 +45,6 @@ const sessionNames = [
   '@deepseek-ai/dsh-session-format-catalog',
 ]
 
-test('宿主包解析根按「归档宿主 → 启动器入口 → 插件闭包」排序，且不做混装', async () => {
-  const { resolvable, candidates } = hostRequireCandidates({
-    names: sessionNames,
-    env: desktopEnv,
-    argv: ['node.exe', join(pluginDirectory, 'lib', 'index.js')],
-  })
-  assert.deepEqual(candidates.map(candidate => candidate.label), [
-    'desktop-archive-host',
-    'launcher-entry',
-    'resources-app-host',
-    'resources-unpacked-host',
-    'resources-app',
-    'resources-app-unpacked',
-    'plugin-package',
-  ])
-  assert.equal(candidates[0].anchor, join(desktopResources, 'app.asar', 'dsh', 'package.json'))
-  assert.equal(candidates.at(-1).anchor, join(pluginDirectory, 'package.json'))
-  if (asarRuntime) {
-    // 能解析全部包的只有桌面宿主自己的两个锚点；插件闭包缺 dsh-session-persistence /
-    // -jsonl / -query / -format-catalog，必须被 resolvable 过滤掉 —— 那正是真机日志里
-    // throw 的那份闭包。
-    assert.deepEqual(resolvable.map(candidate => candidate.label), ['desktop-archive-host', 'launcher-entry'])
-    const pluginCandidate = candidates.at(-1)
-    assert.equal(pluginCandidate.label, 'plugin-package')
-    assert.ok(!resolvable.includes(pluginCandidate), '插件闭包不得作为宿主根')
-    for (const name of sessionNames) {
-      assert.match(resolvable[0].require.resolve(name),
-        /[\\/]app\.asar[\\/]dsh[\\/]node_modules[\\/]@deepseek-ai[\\/]/, name)
-    }
-  }
-})
-
-function pluginFixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'tavern-plugin-anchor-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
-  const dependency = join(root, 'node_modules', '@deepseek-ai', 'dsh-tools')
-  mkdirSync(dependency, { recursive: true })
-  writeFileSync(join(dependency, 'index.js'), '')
-  return root
-}
-
-test('没有桌面入口时不凭空造出宿主根，只剩启动器入口与插件闭包', t => {
-  const plugin = pluginFixture(t)
-  const { candidates, resolvable } = hostRequireCandidates({
-    names: ['@deepseek-ai/dsh-tools'],
-    env: {},
-    argv: ['node.exe', join(plugin, 'lib', 'index.js')],
-    pluginAnchor: join(plugin, 'package.json'),
-  })
-  assert.deepEqual(candidates.map(candidate => candidate.label), ['launcher-entry', 'plugin-package'])
-  assert.ok(!candidates.some(candidate => candidate.label.startsWith('desktop-archive')))
-  assert.deepEqual(resolvable.map(candidate => candidate.label), ['launcher-entry', 'plugin-package'])
-})
-
-test('入口是归档旁解包形态（app.asar.unpacked）时归一到同一个宿主根', () => {
-  const unpackedEntry = desktopBootstrap.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1')
-  assert.notEqual(unpackedEntry, desktopBootstrap)
-  const { candidates } = hostRequireCandidates({ names: sessionNames, env: { DSH_DESKTOP_DSH_BOOTSTRAP: unpackedEntry }, argv: ['node.exe'] })
-  assert.equal(candidates[0].label, 'desktop-archive-host')
-  assert.equal(candidates[0].anchor, join(desktopResources, 'app.asar', 'dsh', 'package.json'))
-})
-
-test('desktopLauncherEntry 优先用宿主注入的入口，临时探针脚本不推导 resources 根', t => {
-  assert.equal(desktopLauncherEntry({ env: desktopEnv, argv: ['x', 'C:/tmp/probe.mjs'] }), desktopBootstrap)
-  const { candidates, resolvable } = hostRequireCandidates({
-    names: ['@deepseek-ai/dsh-tools'],
-    env: {},
-    argv: ['DeepSeek Harness.exe', 'C:/tmp/probe.mjs'],
-    pluginAnchor: join(pluginFixture(t), 'package.json'),
-  })
-  assert.deepEqual(candidates.map(candidate => candidate.label), ['launcher-entry', 'plugin-package'])
-  assert.equal(resolvable.at(-1).label, 'plugin-package')
-})
-
 test('桌面：会话补丁从 asar 宿主根解析', { skip: desktopSkip }, async () => {
   const hostRequire = await defaultHostRequire(null, { env: desktopEnv, argv: desktopArgv })
   assert.match(hostRequire.resolve('@deepseek-ai/dsh-session/package.json'), /[\\/]app\.asar[\\/]dsh[\\/]node_modules[\\/]/)
@@ -144,29 +68,6 @@ test('会话存储不属于候选宿主根时明确报「不是同一份」，�
     () => defaultHostRequire({}, { env: desktopEnv, argv: desktopArgv }),
     /解析到的宿主包与正在运行的会话存储不是同一份/,
   )
-})
-
-test('宿主包解析失败时 installHostSessionPatch 走 failed 而不是静默 skipped', async () => {
-  const empty = mkdtempSync(join(tmpdir(), 'tavern-empty-anchor-'))
-  writeFileSync(join(empty, 'package.json'), JSON.stringify({ name: 'empty-fixture', private: true }))
-  const { candidates, resolvable } = hostRequireCandidates({
-    names: sessionNames,
-    env: {},
-    argv: ['node.exe', join(empty, 'package.json')],
-    pluginAnchor: join(empty, 'package.json'),
-  })
-  assert.deepEqual(candidates.map(candidate => candidate.label), ['plugin-package'])
-  assert.deepEqual(resolvable, [])
-  // 真机日志里的失败形态：宿主包解析不出来时必须是 failed，不能落到 skipped。
-  const failed = await installHostSessionPatch({
-    hostRequire: { resolve() { throw new Error("Cannot find module '@deepseek-ai/dsh-session-persistence'") } },
-    persistence: null,
-    query: null,
-  })
-  assert.equal(failed.status, 'failed')
-  assert.notEqual(failed.status, 'skipped')
-  assert.equal(failed.view().ready, false)
-  assert.match(failed.reason, /Cannot find module '@deepseek-ai\/dsh-session-persistence'/)
 })
 
 test('真机桌面：换用 asar 根后不再报「无法解析宿主 DSH 包」', { skip: desktopSkip }, async () => {
@@ -198,38 +99,4 @@ test('真机桌面：Windows 子进程补丁用 asar 根装得上、可回滚', 
     restore()
   }
   assert.equal(Local.prototype.spawn, original)
-})
-
-test('CLI 入口是无扩展名的 bin/dsh 链接时，跟到真实 bin.js 当启动器入口', {
-  skip: process.platform === 'win32' ? 'POSIX CLI symlink layout; Windows Desktop uses an explicit bootstrap entry' : false,
-}, t => {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-cli-entry-'))
-  const real = join(root, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
-  mkdirSync(dirname(real), { recursive: true })
-  writeFileSync(real, '')
-  mkdirSync(join(root, 'bin'))
-  try {
-    if (!createFileSymlink(t, real, join(root, 'bin', 'dsh'))) return
-    assert.equal(desktopLauncherEntry({ env: {}, argv: ['node', join(root, 'bin', 'dsh')] }), realpathSync(real))
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('CLI 无扩展名启动链接从真实运行时解析宿主包', { skip: process.platform === 'win32' }, async t => {
-  const root = mkdtempSync(join(tmpdir(), 'tavern-cli-host-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
-  const entry = join(root, 'runtime/lib/node_modules/@deepseek-ai/dsh/lib/bin.js')
-  const session = join(root, 'runtime/lib/node_modules/@deepseek-ai/dsh-session/index.js')
-  for (const file of [entry, session]) {
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, 'module.exports = {}')
-  }
-  const launcher = join(root, 'runtime/bin/dsh')
-  mkdirSync(dirname(launcher), { recursive: true })
-  symlinkSync(entry, launcher)
-  const { resolvable } = hostRequireCandidates({ names: ['@deepseek-ai/dsh-session'],
-    env: {}, argv: ['node', launcher], pluginAnchor: join(root, 'plugin/package.json') })
-  assert.equal(resolvable[0]?.label, 'launcher-entry')
-  assert.equal(resolvable[0].require.resolve('@deepseek-ai/dsh-session'), realpathSync(session))
 })

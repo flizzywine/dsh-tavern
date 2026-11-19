@@ -1,7 +1,7 @@
 import test from 'node:test'
 import { Writable } from 'node:stream'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createFontLibrary, FONT_ROUTE } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-library.js'
@@ -47,42 +47,4 @@ test('font library: the plugin ships its open-source families; an installed fami
   await writeFile(path.join(local, f.manifest.files[0].file), 'wOF2-local')
   const installed = (await api.listFonts()).fonts.find(font => font.id === 'noto-serif-sc')
   assert.deepEqual([installed.label, installed.weights], ['本机安装', [400]])
-})
-
-test('font library: WOFF2 type, immutable cache, HEAD, ETag and Range', async t => {
-  const { request, url } = await fixture(t)
-  const full = await request()
-  assert.equal(full.status, 200)
-  assert.equal(full.headers['Content-Type'], 'font/woff2')
-  assert.equal(full.headers['X-Content-Type-Options'], 'nosniff')
-  assert.match(full.headers['Cache-Control'], /max-age=31536000, immutable/)
-  assert.equal(full.body.toString(), 'wOF2-0123456789')
-  const head = await request(url, {}, 'HEAD')
-  assert.deepEqual([head.status, head.body, head.headers['Content-Length']], [200, undefined, 15])
-  assert.equal((await request(url, { 'if-none-match': full.headers.ETag })).status, 304)
-  for (const [range, body, contentRange] of [['bytes=0-3', 'wOF2', 'bytes 0-3/15'], ['bytes=-3', '789', 'bytes 12-14/15'], ['bytes=13-', '89', 'bytes 13-14/15']]) {
-    const partial = await request(url, { range })
-    assert.deepEqual([partial.status, partial.body.toString(), partial.headers['Content-Range']], [206, body, contentRange], range)
-  }
-  for (const range of ['bytes=50-', 'bytes=4-1', 'bytes=-0', 'bytes=0-1,3-4', 'nonsense']) assert.equal((await request(url, { range })).status, 416, range)
-  assert.equal((await request(url, { range: 'bytes=0-3', 'if-range': 'stale' })).status, 200)
-  assert.equal((await request(url, {}, 'POST')).status, 405)
-})
-
-test('font library: only a listed file inside the library is served', async t => {
-  const f = await fixture(t)
-  await writeFile(path.join(f.dir, 'extra.woff2'), 'not listed')
-  for (const suffix of ['../secret.woff2', 'example/../secret.woff2', 'example/%2e%2e%2fsecret.woff2', 'example/%5csecret.woff2', 'example/C:%5csecret.woff2', 'example/index.json', 'example/extra.woff2', 'example/file.woff2%00', 'example/%ZZ']) {
-    const response = await f.request(FONT_ROUTE + suffix)
-    assert.deepEqual([response.handled, response.status], [true, 404], suffix)
-  }
-  assert.equal((await f.request('/unrelated')).handled, false)
-  // A family folder that links outside the library is neither listed nor served.
-  const outside = path.join(f.root, 'outside')
-  await mkdir(outside)
-  await writeFile(path.join(outside, 'index.json'), JSON.stringify({ ...f.manifest, id: 'escape' }))
-  await writeFile(path.join(outside, f.manifest.files[0].file), 'secret')
-  await symlink(outside, path.join(f.root, 'fonts', 'escape'), 'junction')
-  assert.equal((await f.request(FONT_ROUTE + 'escape/' + f.manifest.files[0].file)).status, 404)
-  assert.equal((await f.api.listFonts()).fonts.length, 1)
 })

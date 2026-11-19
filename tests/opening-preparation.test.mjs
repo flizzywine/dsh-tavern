@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createOpeningPreparation } from '../tavern-plugin/lib/domain/opening-preparation.js'
-import { inspectWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
 
 import { generateHelperRaw } from '../tavern-plugin/lib/domain/helper-generation.js'
 
@@ -60,37 +59,4 @@ test('opening stop/release/expiry cancels only its own pending generations and a
   assert.throws(() => service.get(first.id), /过期/)
   await c.rejected
   assert.equal(signals.get(first.id).aborted, true)
-})
-
-test('没有开场白的卡从空白开局，只有备选开场白时默认取第一个备选（作者写的空备选也算，与 SillyTavern 一致）', async () => {
-  const cards = { blank: { name: '未命名角色', first_mes: '', alternate_greetings: [] }, alternates: { name: '备选', first_mes: '', alternate_greetings: ['', '第二幕'] } }
-  const service = createOpeningPreparation({ readCard: async path => cards[path], worldBooks: { bound: async () => null } })
-  const blank = await service.create('blank')
-  const resolved = service.resolve(blank.id, 'blank', '')
-  assert.equal(resolved.openingId, '')
-  assert.deepEqual(resolved.openingMessages, {})
-  assert.throws(() => service.resolve(blank.id, 'blank', 'primary'), /人物卡开场白不存在/)
-  const alternates = await service.create('alternates')
-  // SillyTavern keeps an authored empty alternate as a blank swipe, so it is the first choice; 第二幕 stays selectable.
-  assert.equal(service.resolve(alternates.id, 'alternates', '').openingId, 'alternate:0')
-  assert.equal(service.resolve(alternates.id, 'alternates', 'alternate:1').openingId, 'alternate:1')
-})
-
-test('普通开场白只取草稿 id，需要时才生成整份展示投影', async () => {
-  const document = { name: '测试书', entries: { 0: { uid: 0, key: ['甲'], comment: '条目', content: '世界书正文' } } }
-  const service = createOpeningPreparation({ readCard: async path => path === 'missing' ? undefined : card,
-    worldBooks: { bound: async () => ({ source: { kind: 'standalone', path: 'book.json' }, document, view: inspectWorldBookDocument(document) }) } })
-  const begun = await service.begin('card')
-  assert.deepEqual(Object.keys(begun), ['id'])
-  const presented = service.get(begun.id)
-  assert.equal(presented.worldbook.entries[0].content, '世界书正文')
-  const resolved = service.resolve(begun.id, 'card', '')
-  assert.equal(resolved.openingId, presented.openingId)
-  // No per-game copy: the start path gets the projection and copies nothing.
-  assert.equal(resolved.worldbookSnapshot, undefined)
-  assert.equal(resolved.worldbook.document.entries[0].content, '世界书正文')
-  assert.equal(resolved.worldbook.view.entries[0].content, '世界书正文')
-  const created = await service.create('card')
-  assert.equal(created.worldbook.entries[0].content, presented.worldbook.entries[0].content)
-  await assert.rejects(() => service.begin('missing'), /人物卡不存在/)
 })

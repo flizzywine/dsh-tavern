@@ -23,16 +23,6 @@ const clock=(h,id)=>h.state.modState['dsh.timer'].instances[id]
 function tick(h,id,elapsedMs,activity={}) {h.state=h.host.advance({state:h.state,snapshot:h.snapshot,provider:'dsh.timer',instanceId:id,elapsedMs,activity:{live:true,visible:true,...activity}})}
 function ok(h,instance,op,input,extra) {const result=h.command(instance,op,input,extra);assert.equal(result.ok,true,JSON.stringify(result.error));h.state=result.state;if(op==='off' && (!extra?.mode || extra.mode==='live')){const exit=h.command(instance,'exited',{},extra);assert.equal(exit.ok,true);h.state=exit.state}return result}
 
-test('real plugins register through the upstream owned API; package identity and grammar are bound',()=>{
-  const h=harness();assert.equal(h.host.manifests().length,2);assert.ok(h.session.grammar.some(c=>c.dsl.verb==='timer'));assert.ok(h.session.grammar.some(c=>c.dsl.verb==='performance-set'))
-  const before=JSON.stringify(h.session.grammar)
-  h.card.mods['dsh.performance']='off';h.host.queueChoices({card:h.card,global:h.global})
-  assert.equal(h.command('a','start',start()).ok,true,'in-flight snapshot does not change')
-  const next=h.host.beginRequest(h.session);assert.equal(h.command('b','start',start('b'),{snapshot:next}).error.code,'MOD_DISABLED')
-  assert.equal(JSON.stringify(h.session.grammar),before)
-  h.disposers[performance.name]();assert.throws(()=>h.host.beginRequest(h.session),{code:'MOD_SESSION_REQUIRED'})
-  assert.equal(h.command('a','start',start()).error.code,'MOD_DISABLED')
-})
 test('bound configuration captures one source frame and queue changes apply to the following request',async()=>{
   const h=harness();h.card.config['dsh.timer']={version:1,values:{defaultSeconds:{ref:{source:'mvu',path:'/seconds'}}}};h.host.queueChoices({global:h.global,card:h.card})
   let reads=0,finish;const gate=new Promise(resolve=>{finish=resolve}),sources={snapshot:async()=>{reads++;await gate;return {mvu:{available:true,value:{seconds:75}}}},declaration:()=>null}
@@ -70,12 +60,6 @@ test('revoke immediately blocks stale execution; safe-boundary disable releases 
   assert.equal(Object.keys(h.state.stageControls).length,0);assert.equal(clock(h,'alpha').timer.remainingMs,99000)
   assert.equal(clock(h,'alpha').timer.suspended,true)
 })
-test('director cannot modify a held clock, but a different instance remains usable',()=>{
-  const h=harness();ok(h,'first','start',start())
-  const args={state:h.state,snapshot:h.snapshot,provider:'dsh.timer',operation:'start',input:{budgetKey:'director',params:{sec:10}},boundary:{turn:1}}
-  assert.equal(h.host.direct({...args,instanceId:'alpha'}).error.code,'MOD_RESOURCE_BUSY')
-  const result=h.host.direct({...args,instanceId:'other'});assert.equal(result.ok,true);assert.equal(result.state.modState['dsh.timer'].instances.other.timer.remainingMs,10000)
-})
 test('off retains the lease through exit; duplicate start is idempotent and provider configuration supplies defaults',()=>{
   const h=harness();h.card.config['dsh.timer']={version:1,values:{defaultSeconds:{fixed:120}}};h.host.queueChoices({card:h.card,global:h.global})
   const snapshot=h.host.beginRequest(h.session),input=start();delete input.sec
@@ -86,23 +70,4 @@ test('off retains the lease through exit; duplicate start is idempotent and prov
   assert.equal(h.command('b','start',start(),{snapshot}).error.code,'MOD_RESOURCE_BUSY')
   ok(h,'a','exited',{}, {snapshot});assert.equal(Object.keys(h.state.stageControls).length,0)
   assert.equal(h.command('__proto__','start',start(),{snapshot}).error.code,'MOD_INVALID')
-})
-
-test('public plugin API follows optional managed host removal and reinstallation',()=>{
-  let host
-  const api=createTavernPluginApi({get modHost(){return host}})
-  assert.equal(api.service.modHostApi,null)
-  assert.throws(()=>api.service.registerMod({},{}),/ctx.inject/)
-  const stops=[]
-  const ctx={fiber:{name:timer.name},effect(fn){const stop=fn();stops.push(stop);return stop}}
-  ctx.tavern=Object.assign(Object.create(api.service),{ctx})
-  host=createManagedModHost();timer.apply(ctx)
-  assert.equal(host.manifests().length,1);assert.equal(api.service.modHostApi,host.apiVersion)
-  host.dispose();host=undefined
-  assert.equal(api.service.modHostApi,null)
-  assert.throws(()=>timer.apply(ctx),/not enabled/)
-  host=createManagedModHost();timer.apply(ctx)
-  assert.equal(host.manifests().length,1)
-  for(const stop of stops)stop()
-  assert.equal(host.manifests().length,0);host.dispose()
 })

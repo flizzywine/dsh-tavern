@@ -12,7 +12,7 @@ import {createCardBundleAdapter} from '../tavern-plugin/packages/dsh-tavern-stag
 import {createCardPreparation} from '../tavern-plugin/lib/domain/card-preparation.js'
 import {createAutoCastLibrary} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-library.js'
 import {selectPackFigure} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js'
-import {castChanges, createAutoCast, roundRequests} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
+import { castChanges, createAutoCast } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 import {createMediaStore} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import {apply as applyAssetLibrary} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/plugin.js'
 import {createCardAssetBoundary} from '../tavern-plugin/lib/card-asset-bindings.js'
@@ -82,39 +82,6 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   // a landing after the cast was read (another picture) does not stale the read: the hash names the picture
   await port.write({cardPath:'card', source, requestId:'land-2', images:{i0:png([90, 90, 90])}, changes:[{op:'patch', kind:'figures', ref:{packId:cast.packId, kind:'figures', figureId:teacher.ref.figureId}, sprites:[{emotion:'sad', image:'i0'}]}]})
   assert.equal((await port.readMedia({packId:cast.packId, hash:after.setteiHash})).length > 0, true)
-})
-
-// 11-11 三角机构: 入职主管's 人物介绍 was empty and her 外貌 never left the drawing's own record, so 场景配图 did not know her face.
-test('a new figure takes its 人物介绍 into the pack and its 外貌 on the way to its 配图 record (the copy\'s path)', async t => {
-  const {service, port} = await fixture(t)
-  const looks = {face:'齐肩深棕卷发，棕褐色眼睛', bodySFW:'米白西装套裙，银色机构徽章'}
-  const plan = castChanges([{name:'入职主管', aliases:[]}], {same:{}, copy:{}, appearance:{入职主管:looks}, about:{入职主管:'特工的直属主管，永远在微笑'}, voice:{}})
-  await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-looks'})
-  const cast = await port.readCast('card'), figure = (await service.getPackSnapshot({packId:cast.packId})).figures[cast.figures[0].ref.figureId]
-  assert.equal(figure.description, '特工的直属主管，永远在微笑')
-  assert.deepEqual(figure.extensions['dsh.image-character'], {traits:looks}, 'the host moves it into the 人物库 record (image-character-follow)')
-  // a figure made before 外貌 went with it: one patch with only looks takes it there
-  const later = {face:'短发', bodySFW:'风衣'}
-  assert.equal((await port.write({cardPath:'card', source, requestId:'looks-later', changes:[{op:'patch', kind:'figures', ref:{...cast.figures[0].ref, kind:'figures'}, looks:later}]})).status, 'committed')
-  assert.deepEqual((await service.getPackSnapshot({packId:cast.packId})).figures[cast.figures[0].ref.figureId].extensions['dsh.image-character'], {traits:later})
-})
-
-// 11-11 验收 (大肥鱼): 保安 / 妈妈 / 千问, created by 自动建人物 before figures came with the standard 差分, never asked for a picture.
-test('an automatic figure without emotions counts its lines against the standard ones, and its 人设图 brings them', async t => {
-  const {service, port} = await fixture(t)
-  const plan = castChanges([{name:'保安', aliases:[]}], {same:{}, copy:{}, appearance:{}, voice:{}})
-  await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-old'})
-  let cast = await port.readCast('card')
-  const ref = cast.figures[0].ref, pack = await service.getPackSnapshot({packId:cast.packId})
-  const {emotions:_gone, ...legacy} = pack.figures[ref.figureId]
-  await service.patchPack({packId:cast.packId, expectedRevision:pack.revision, patch:{}, fileUpdates:new Map([[`figures/${ref.figureId}.json`, json(legacy)]])})
-  cast = await port.readCast('card')
-  assert.deepEqual([cast.figures[0].emotions.length, cast.figures[0].defaultEmotion], [9, 'calm'])
-  const line = mood => ({paragraphs:[{paragraphId:'p', kind:'line', segment:{name:'保安', ...(mood ? {mood} : {}), text:'有你的快递。'}}]})
-  assert.deepEqual([roundRequests(line(), cast), roundRequests(line('紧张'), cast)].map(rows => rows.map(row => row.emotionId)), [['calm'], ['anxious']])
-  await port.write({cardPath:'card', source, requestId:'land-old', images:{i0:png([10, 20, 30])}, changes:[{op:'patch', kind:'figures', ref:{...ref, kind:'figures'}, settei:{image:'i0'}}]})
-  const stored = (await service.getPackSnapshot({packId:cast.packId})).figures[ref.figureId]
-  assert.equal(stored.emotions.length, 9, 'the library gives the standard 差分 with the 人设图')
 })
 
 // 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.

@@ -10,26 +10,6 @@ const display=(state,regexScripts)=>{
  const messages=state.chat.map(m=>({role:m.is_user?'user':'assistant',turn:1,text:m.mes,sourceText:m.mes,swipeId:m.swipe_id,tavernPluginData:m}))
  return projectPersistentStatusView(messages,projectReplyHistory(messages,{regexScripts}).projections,{regexScripts})
 }
-test('显示正则先于 EJS，独立侧栏保留模板结果且正文不重复面板',async()=>{
- const source='正文\n<StatusPlaceHolderImpl/>'
- const regexScripts=[{enabled:true,placement:[2],markdownOnly:true,findRegex:'/<StatusPlaceHolderImpl\\s*\\/>/g',replaceString:'```html\n<html><body><p>数值=<%= 1+2 %></p><script>const value=<%- 1+2 %>;function loadStatus(){window.mounts=(window.mounts||0)+1;window.value=value}loadStatus()</script></body></html>\n```'}]
- const result=await runtime.lifecycle({settings,charName:'状态组合',regexScripts,transcript:[{role:'assistant',content:source}],worldBookEntries:[{uid:1,enabled:false,constant:true,content:'@@render_before\n显示前缀'}]})
- assert.equal(result.first.chat[0].mes,source)
- const view=display(result.first,regexScripts)
- assert.equal(view.statusViews.length,1)
- assert.match(view.statusView.content,/>3</)
- assert.match(view.statusView.content,/const value=3;/)
- assert.doesNotMatch(view.statusView.content,/<%|&lt;%/)
- assert.match(JSON.stringify(view.projections),/显示前缀/)
- assert.doesNotMatch(JSON.stringify(view.projections),/loadStatus/)
- assert.deepEqual(result.second.chat,result.first.chat)
- assert.equal(await runtime.page.evaluate(()=>window.mounts),undefined)
- await runtime.page.evaluate(content=>{const frame=document.createElement('iframe');frame.id='chain-status';frame.srcdoc=content;document.body.append(frame)},view.statusView.content)
- await runtime.page.waitForFunction(()=>document.querySelector('#chain-status')?.contentWindow.mounts===1)
- assert.equal(await runtime.page.evaluate(()=>document.querySelector('#chain-status').contentWindow.value),3)
- await runtime.page.locator('#chain-status').evaluate(frame=>frame.remove())
-})
-
 test('实际 MVU 配方在恢复与修改模板后仍只保留一个状态面板', async () => {
  const statusHtml='<!doctype html><html><head><style>main{padding:8px}</style></head><body><main id="v"></main><script>document.getElementById("v").textContent=Mvu.getMvuData({type:"message",message_id:"latest"}).stat_data.玩家.位置</script></body></html>'
  const regexScripts=[

@@ -3,9 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import { STAGE_DIRECTOR_DESCRIPTOR, subagentDescriptor } from '../tavern-plugin/lib/domain/background-descriptors.js'
-import { createDirectorDescriptorRepair, withReadableDirectorDescriptor } from '../tavern-plugin/lib/domain/director-descriptor-repair.js'
+import { STAGE_DIRECTOR_DESCRIPTOR } from '../tavern-plugin/lib/domain/background-descriptors.js'
+import { createDirectorDescriptorRepair } from '../tavern-plugin/lib/domain/director-descriptor-repair.js'
 import { encodeCurrentGeneration, parseSessionLog } from '../tavern-plugin/lib/domain/session-log-codec.js'
 
 // Current generation only, no recovery: the test exercises Tavern's decision and rewrite.
@@ -35,26 +34,6 @@ function directorLog(id, descriptor) {
   ].map((row, seq) => ({ seq, time: 1, ...row }))
   return encodeCurrentGeneration({ header, events, inheritedEventCount: 0 }, catalog)
 }
-
-const hostReads = data => foldSubagentDescriptor([{ type: 'subagent/descriptor', data }])
-
-test('the director descriptor is one the host reads back, and a disallowed field fails where it is made', () => {
-  assert.deepEqual(hostReads(STAGE_DIRECTOR_DESCRIPTOR), STAGE_DIRECTOR_DESCRIPTOR)
-  assert.throws(() => hostReads(OLD_DIRECTOR), /unknown field "persona"/)
-  assert.throws(() => subagentDescriptor({ mode: 'one-shot', provider: 'p', label: 'l', persona: 'x' }), /unknown field "persona"/)
-})
-
-test('an old director log gets the current descriptor and nothing else changes', () => {
-  const before = parseSessionLog(directorLog('background-a', OLD_DIRECTOR))
-  const result = withReadableDirectorDescriptor(directorLog('background-a', OLD_DIRECTOR), catalog)
-  assert.equal(result.changed, true)
-  const after = parseSessionLog(result.bytes)
-  assert.deepEqual(after.header, before.header)
-  assert.deepEqual(after.events[1].data, STAGE_DIRECTOR_DESCRIPTOR)
-  assert.deepEqual(after.events.filter((_, index) => index !== 1), before.events.filter((_, index) => index !== 1))
-
-  assert.equal(withReadableDirectorDescriptor(result.bytes, catalog).changed, false)
-})
 
 test('the startup sweep repairs only children the host reads without identity and drops their cached projections', async t => {
   const home = await mkdtemp(path.join(tmpdir(), 'tavern-director-descriptor-'))

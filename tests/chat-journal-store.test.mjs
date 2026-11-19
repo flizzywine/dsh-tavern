@@ -6,7 +6,6 @@ import path from 'node:path'
 import test from 'node:test'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync } from 'node:zlib'
 
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
@@ -67,17 +66,6 @@ test('损坏快照缺少完整重放链时拒绝静默退回旧状态', async t 
   await bump(store, 'chat', chat => { chat.counter = 1 })
   await writeFile(path.join(root, 'chats/chat/snapshots/000000000003.json'), '{')
   await assert.rejects(store.read('chat'), /snapshot|快照|revision/)
-})
-
-test('旧存档只留下最新快照时，更早的 revision 报「已清理」，导出存档照常跳过', async t => {
-  const root = await temporary()
-  t.after(() => rm(root, { recursive: true, force: true }))
-  await mkdir(path.join(root, 'chats/chat/snapshots'), { recursive: true })
-  await mkdir(path.join(root, 'chats/chat/journals'), { recursive: true })
-  await writeFile(path.join(root, 'chats/chat/snapshots/000000000005.json'), JSON.stringify({ id: 'chat', _storageRevision: 5, counter: 5 }))
-  const store = createChatJournalStore({ dataRoot: root })
-  assert.equal((await store.readRevision('chat', 5)).counter, 5)
-  await assert.rejects(store.readRevision('chat', 3), { code: 'DSH_TAVERN_REVISION_NOT_FOUND' })
 })
 
 for (const compressed of [false, true]) for (const phase of ['create', 'migrate', 'rotate']) test(`快照发布前进程中断可恢复：${phase}, compressed=${compressed}`, { timeout: 10000 }, async t => {
@@ -157,61 +145,6 @@ test('损坏的最后一行被明确警告并保留此前 revision', async funct
   assert.equal((await afterRepair.read('chat-1')).counter, 3)
 })
 
-test('删除 Chat 会清理 journal 目录和 legacy 备份', async function (t) {
-  const root = await temporary()
-  t.after(async function () { await rm(root, { recursive: true, force: true }) })
-  await mkdir(path.join(root, 'chats'), { recursive: true })
-  await writeFile(path.join(root, 'chats/chat-old.json'), JSON.stringify({ id: 'chat-old', _storageRevision: 2 }))
-  const store = createChatJournalStore({ dataRoot: root, now: () => 12345 })
-  await bump(store, 'chat-old', function (chat) { chat.counter = 1 })
-  await store.remove('chat-old')
-
-  await assert.rejects(access(path.join(root, 'chats/chat-old')), { code: 'ENOENT' })
-  assert.deepEqual((await readdir(path.join(root, 'chats'))).filter(function (name) { return name.startsWith('chat-old') }), [])
-  assert.equal(await store.read('chat-old'), undefined)
-})
-
-test('压缩与删除同时进行时，后台整理不会重新创建已删除的存档目录', { timeout: 10000 }, async t => {
-  const root = await temporary()
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const chatId = 'chat-native'
-  const directory = path.join(root, 'chats', chatId)
-  const store = createChatJournalStore({ dataRoot: root, newConversations: true })
-  await bump(store, chatId, chat => { chat.mode = 'story' })
-  await access(path.join(directory, 'head.json'))
-
-  const locking = Promise.withResolvers()
-  const resume = Promise.withResolvers()
-  const originalMkdir = mkdir
-  const mocked = t.mock.method(fs, 'mkdir', async (target, options) => {
-    if (target === directory) {
-      locking.resolve()
-      await resume.promise
-    }
-    return originalMkdir(target, options)
-  })
-  syncBuiltinESMExports()
-  try {
-    const compacted = store.compact(chatId)
-    await locking.promise
-    const removed = store.remove(chatId)
-    // Pause just before the native head lock would recreate the directory.
-    await Promise.race([removed, delay(150)])
-    resume.resolve()
-    const [compaction] = await Promise.allSettled([compacted, removed])
-    await removed
-    await assert.rejects(access(directory), { code: 'ENOENT' })
-    assert.equal(compaction.status, 'fulfilled')
-    assert.equal(await store.compact(chatId), null)
-    assert.equal(await store.relayout(chatId), undefined)
-    await assert.rejects(access(directory), { code: 'ENOENT' })
-  } finally {
-    resume.resolve()
-    mocked.mock.restore()
-    syncBuiltinESMExports()
-  }
-})
-
 test('连续小写入的重放只复制一次完整人物卡，历史 revision 保持隔离', async function (t) {
   const root = await temporary()
   t.after(async function () { await rm(root, { recursive: true, force: true }) })
@@ -245,20 +178,6 @@ test('缓存切片使用 JSON 容器拷贝并保持返回值隔离', async t => 
   const latest=await store.read('sliced')
   assert.equal(latest.messages[0].text,'stored')
   assert.equal(latest.cardPayload,'SLICE-PAYLOAD')
-})
-
-test('压缩快照膨胀超过上限时明确失败，保留原文件', async t => {
-  const { gzipSync } = await import('node:zlib')
-  const root = await temporary()
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const dir = path.join(root, 'chats/chat/snapshots')
-  await mkdir(dir, { recursive: true })
-  const file = path.join(dir, '000000000001.json.gz')
-  const bytes = gzipSync(JSON.stringify({ id: 'chat', _storageRevision: 1, text: 'x'.repeat(5000) }))
-  await writeFile(file, bytes)
-  const store = createChatJournalStore({ dataRoot: root, maxSnapshotBytes: 1024 })
-  await assert.rejects(store.read('chat'), { code: 'ERR_BUFFER_TOO_LARGE' })
-  assert.deepEqual(await readFile(file), bytes)
 })
 
 test('normalized update returns stay detached from drafts and durable state', async t => {

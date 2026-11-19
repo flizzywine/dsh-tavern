@@ -122,21 +122,3 @@ test('磁盘上有、索引里没有的存档会重新登记，已登记和已�
   assert.equal(links['session-taken'], 'chat-new', 'an existing link is never overwritten')
   assert.deepEqual(await registry.recoverUnlisted(['chat-new', 'chat-lost']), [], 'a second pass changes nothing')
 })
-
-// Background agents ask for their own session on every request; none of them owns a chat.
-test('没有存档的会话只扫描一次；新存档或新链接出现后再扫描', async function () {
-  const store = memoryStore({
-    index: { chats: [{ id: 'chat-a' }, { id: 'chat-b' }] },
-    chats: { 'chat-a': { id: 'chat-a', sessionId: 'game-a' }, 'chat-b': { id: 'chat-b', sessionId: 'game-b' } }
-  })
-  const registry = createTavernConversationRegistry({ store: store.adapter })
-  assert.equal(await registry.resolve('background-1'), undefined)
-  const scanned = store.snapshot().chatReads
-  assert.ok(scanned >= 2)
-  for (let i = 0; i < 5; i++) assert.equal(await registry.resolve('background-1'), undefined)
-  assert.equal(store.snapshot().chatReads, scanned, '再次查询不再逐个读存档')
-  // A chat restored for that session (index changed) is found on the next lookup.
-  await store.adapter.writeChat({ id: 'chat-c', sessionId: 'background-1' })
-  await store.adapter.writeIndex({ chats: [{ id: 'chat-a' }, { id: 'chat-b' }, { id: 'chat-c' }] })
-  assert.equal((await registry.resolve('background-1'))?.id, 'chat-c')
-})

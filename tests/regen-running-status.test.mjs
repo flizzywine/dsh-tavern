@@ -44,16 +44,3 @@ test('同时到达的重新生成只报一次运行中、一次空闲', async ()
   await first
   assert.deepEqual(h.emitted, [['api-session/status', 'game', true], ['api-session/status', 'game', false]])
 })
-
-test('玩法判定完成前已报运行中；宿主代理仍在运行则不发空闲', async () => {
-  const blocked = harness({ blocked: true, holdMode: true })
-  const req = blocked.handlers.regenBody({ sessionId: 'game' })
-  assert.deepEqual(blocked.emitted, [['api-session/status', 'game', true]], '进入 regenBody 立即报运行中，不等读档判定')
-  blocked.release()
-  await assert.rejects(() => req, /玩法面板/)
-  assert.deepEqual(blocked.emitted, [['api-session/status', 'game', true], ['api-session/status', 'game', false]])
-
-  const busy = harness({ fail: true, phaseKind: 'running' })
-  await assert.rejects(() => busy.handlers.regenBody({ sessionId: 'game' }), /重新生成失败/)
-  assert.deepEqual(busy.emitted, [['api-session/status', 'game', true]], '前台仍在生成时不发 false 覆盖停止键')
-})

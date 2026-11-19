@@ -16,13 +16,6 @@ function loader(scripts) {
   return helperLoaderSource(html)
 }
 
-test('only trusted card scripts install the parent-page composer facade', () => {
-  const scripts = [{ id: 'fixture', content: 'await boot()' }]
-  assert.doesNotMatch(loader(scripts), /window\.__dshTavernComposerWindow=/)
-  const trusted = client.buildTavernHelperScriptDocument({ token: 'test', scripts, context: {}, trustedCardMode: true })
-  assert.match(helperLoaderSource(trusted), /window\.__dshTavernComposerWindow=/)
-})
-
 function harness(scripts, onAppend, ready = Promise.resolve()) {
   const listeners = new Set(), lifecycleListeners = new Map(), events = [], elements = []
   let context

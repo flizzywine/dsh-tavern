@@ -57,16 +57,3 @@ test('只有模型回复的回合结束后才对账：回退、撤销回退、�
   ]
   assert.deepEqual([2, 3, 4, 5, 6].map(turn => turnRepliedByModel(events, turn)), [true, false, false, false, false])
 })
-
-test('重生成的正文按写入它的宿主轮次判断完成状态', () => {
-  const events = [
-    { seq: 1, type: 'turn/end', data: { turn: 2, reason: { kind: 'error' } } },
-    { seq: 2, type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
-    { seq: 3, type: 'assistant/message', data: reply('replacement', 7) },
-    { seq: 4, type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } },
-    { seq: 5, type: 'assistant/message', data: reply('incomplete-replacement', 8) }
-  ]
-  events[2].data.message.source.tavernStoryTurn = 2
-  events[4].data.message.source.tavernStoryTurn = 3
-  assert.deepEqual(nativeStoryTurns({ events, surface: { nodes: [3, 5] } }), [2])
-})

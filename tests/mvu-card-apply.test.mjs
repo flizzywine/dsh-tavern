@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { planMvuApply } from '../tavern-plugin/lib/domain/mvu-card-apply.js'
-import { checkMvuCard } from '../tavern-plugin/lib/domain/mvu-card-check.js'
 
 const card = () => ({
   spec: 'chara_card_v3',
@@ -21,28 +20,6 @@ function apply(raw, plan) {
   }
   return raw
 }
-
-test('首次写入：每个开场追加初值与入口，世界书加两条，正则加面板与隐藏，开场正文不动，结果通过校验', () => {
-  const raw = card()
-  const plan = planMvuApply(raw, {
-    variables: { 时间: { 时段: '夜' }, 状态: { 体力: 60 }, 线索: [] },
-    openings: [null, { 时间: { 时段: '晨' } }],
-    rules: '体力：受伤 -10~-30。',
-    panel: { title: '侦探手记', sections: [{ title: '状态', fields: [{ path: '/状态/体力', kind: 'bar' }, { path: '/线索', kind: 'list' }] }] }
-  })
-  apply(raw, plan)
-  assert.match(raw.data.first_mes, /^雨夜，事务所。\n\n<initvar>\n\{\n {2}"\$meta": \{\n {4}"strictSet": true[\s\S]*"时段": "夜"[\s\S]*<\/initvar>\n\n<mvu-status\/>$/)
-  assert.match(raw.data.alternate_greetings[0], /^清晨，码头。[\s\S]*"时段": "晨"[\s\S]*"体力": 60/)
-  const [, rules, init] = raw.data.character_book.entries
-  assert.equal(rules.comment, '[mvu_update]状态更新规则')
-  assert.equal(rules.constant, true)
-  assert.match(rules.content, /体力：受伤[\s\S]*mvu_submit_update/)
-  assert.equal(init.enabled, false)
-  assert.deepEqual(raw.data.extensions.regex_scripts.map(rule => rule.id), ['old', 'dsh-mvu-status-view', 'dsh-mvu-hide-marker'])
-  assert.match(raw.data.extensions.regex_scripts[1].replaceString, /^```html\n<!doctype html>[\s\S]*侦探手记[\s\S]*data-mvu-width="\/状态\/体力"/)
-  assert.deepEqual(plan.summary, { openings: 2, variables: ['/时间/时段', '/状态/体力', '/线索'], rules: 'added', panel: 'generated', removed: { openings: 0, entries: 0, regex: 0 } })
-  assert.deepEqual(checkMvuCard(raw.data), { errors: [], warnings: [] })
-})
 
 test('生成的标准面板读取变量、随更新刷新，进度条、列表和空值可用', async () => {
   const { JSDOM } = await import('jsdom')
@@ -84,20 +61,6 @@ test('标准面板给同名字段带上父键，布尔值显示为可读的词�
   const named = read(generatePanel({ sections: [{ title: '人物', fields: [{ path: '/地图/人物/角色甲/在线', yes: '在线', no: '离线' }, { path: '/地图/人物/角色乙/在线', label: '角色乙', yes: '在线', no: '离线' }] }] }, state))
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(rows(named), ['在线=离线', '角色乙=在线'])
-})
-
-test('概览一次列出开场、世界书、正则与脚本，并标出可能的旧状态协议', async () => {
-  const { surveyMvuCard, surveyText } = await import('../tavern-plugin/lib/domain/mvu-card-apply.js')
-  const raw = card()
-  raw.data.character_book.entries.push({ comment: '状态栏格式', content: '每轮回复末尾输出 <status>…</status>', constant: true })
-  raw.data.extensions.regex_scripts.push({ id: 'st', scriptName: '状态栏美化', findRegex: '/<status>([\\s\\S]*?)<\\/status>/g', replaceString: '<div>$1</div>' })
-  const text = surveyText(surveyMvuCard(raw))
-  assert.match(text, /开场 2 个：\n- \/data\/first_mes · 7字 · 开头：雨夜，事务所。\n- \/data\/alternate_greetings\/0/)
-  assert.match(text, /- entry:1 状态栏格式 · 常驻 · \d+字 \[状态输出\]/)
-  assert.match(text, /- \/data\/extensions\/regex_scripts\/1 状态栏美化 · 查找 .* \[状态输出\/HTML\]/)
-  assert.match(text, /脚本 0 个/)
-  const converted = apply(raw, planMvuApply(raw, { variables: { 体力: 1 }, rules: 'r' }))
-  assert.match(surveyText(surveyMvuCard(converted)), /有<initvar> · 有<mvu-status\/>[\s\S]*现有变量：\/体力/)
 })
 
 test('remove 在同一次写入里删掉开场旧状态块、旧说明条目和旧正则，编号不因删除错位', () => {

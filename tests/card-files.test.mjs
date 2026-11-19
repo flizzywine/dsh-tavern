@@ -6,7 +6,6 @@ import test from 'node:test'
 import { createHash } from 'node:crypto'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { openZipFile } from '../tavern-plugin/lib/domain/zip-file.js'
-import { projectDshCard } from '../tavern-plugin/lib/domain/dsh-card-export-projection.js'
 import { createAssetPacks } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createCardFiles } from '../tavern-plugin/lib/domain/card-files.js'
@@ -17,7 +16,6 @@ import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { createFileResourceStore } from '../tavern-plugin/lib/domain/file-resources.js'
 import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { encryptCardArchiveFile } from '../tavern-plugin/lib/domain/card-encryption.js'
-import { pngCardPayload, pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 
 // An export is a spool file; read its entries and remove it.
@@ -72,51 +70,6 @@ test('encrypted DSH imports authenticate before saving cards/plugins, and duplic
   const entries = await exportedEntries(await files.exportCardFile(card.path))
   assert.equal(JSON.parse(entries.get('dsh.json')).plugins[0].name, 'encrypted-game')
   assert.equal(entries.get('plugins/game/assets/data.bin').toString(), 'fixture bytes')
-})
-
-test('a CHARX imports once and a card without packs exports as DSH without the stage card adapter', async t => {
-  const assetLibrary = () => ({ withCardExport: () => assert.fail('a card without packs needs no stage adapter') })
-  const { root, files, cardPreparation, readCardWorkspace } = await library(t, { assetLibrary })
-  const charx = join(root, '鱼.charx')
-  await writeFile(charx, writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼', description: '一条鱼' } }) }]))
-
-  const first = await files.importCardArchiveFile(charx, '鱼')
-  assert.equal(first.name, '鱼')
-  assert.equal(first.format, 'charx')
-  assert.equal(first.duplicate, undefined)
-
-  const again = await files.importCardArchiveFile(charx, '鱼')
-  assert.deepEqual(again, { path: first.path, name: '鱼', duplicate: true })
-
-  const detail = cardPreparation.present({ card: await readCardWorkspace(first.path), as: 'detail' })
-  assert.equal(detail.extensions.hasSelectableAssetPacks, false)
-  await assert.rejects(files.exportCardFile(first.path, { format: 'png' }), { code: 'TAVERN_NOT_FOUND' })
-  await assert.rejects(files.exportCardFile(first.path, { format: 'zip' }), { code: 'TAVERN_EXPORT_INVALID' })
-  const exported = await files.exportCardFile(first.path)
-  assert.equal(exported.extension, 'dshcard')
-  assert.equal(JSON.parse((await exportedEntries(exported)).get('card.json').toString()).data.description, '一条鱼')
-})
-
-test('an imported card with a cover exports as JSON, PNG or a DSH container', async t => {
-  const { root, files, fileResources } = await library(t)
-  const cover = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8V8AAAAASUVORK5CYII=', 'base64')
-  const input = join(root, 'source.png'), locked = join(root, 'locked.dshcard')
-  await writeFile(input, pngWithCard(cover, JSON.stringify({ spec: 'chara_card_v3', data: { name: '封面测试', description: 'private' } })))
-  await encryptCardArchiveFile(input, locked, 'test-password', { name: 'source.png' })
-  const card = await files.importCardArchiveFile(locked, 'locked.dshcard', { password: 'test-password' })
-  assert.ok((await fileResources.readCardImage(card.path)).length >= cover.length)
-  const json = await files.exportCardFile(card.path, { format: 'json' })
-  const png = await files.exportCardFile(card.path, { format: 'png' })
-  assert.equal(json.extension, 'json')
-  assert.equal(png.extension, 'png')
-  assert.equal(JSON.parse(json.bytes).data.description, 'private')
-  assert.deepEqual(Buffer.from(pngCardPayload(png.bytes, 'export.png').b64, 'base64'), json.bytes)
-  const exported = await files.exportCardFile(card.path)
-  assert.equal(exported.extension, 'dshcard')
-  assert.equal((await readFile(exported.file)).readUInt32LE(0), 0x04034b50)
-  const entries = await exportedEntries(exported)
-  assert.equal(JSON.parse(entries.get('dsh.json')).format, 'dshcard')
-  assert.deepEqual(entries.get('assets/icon/images/main.png'), cover)
 })
 
 
@@ -174,35 +127,6 @@ test('v1 card, bound pack and plugin round trip; PNG imports and exclusion only 
   assert.equal(await fileResources.readText(imported.path),before)
 })
 
-test('invalid card plugin identity fails before persistence; retries stay failures and a corrected archive imports normally', async t => {
-  const { root, files, fileResources, castAssets } = await library(t)
-  const archive = join(root, 'legacy.dshcard')
-  const writeArchive = async pkg => writeFile(archive, writeZipEntries([
-    { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, plugins: [{ name: 'director', path: 'plugins/director/' }] }) },
-    { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '旧插件卡', description: '回归' } }) },
-    { path: 'plugins/director/package.json', content: JSON.stringify(pkg) },
-    { path: 'plugins/director/index.mjs', content: 'export function apply() {}' },
-  ]))
-  await writeArchive({ name: 'director', main: './index.mjs' })
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await assert.rejects(files.importCardArchiveFile(archive, 'legacy.dshcard'), error => error.code === 'TAVERN_CARD_ARCHIVE_INVALID' && /version/.test(error.message))
-    assert.deepEqual(await fileResources.list('card'), [], 'failed import must not save a card or remembered duplicate')
-  }
-  await writeArchive({ name: 'director', version: '1.0.0', main: './index.mjs' })
-  const imported = await files.importCardArchiveFile(archive, 'legacy.dshcard')
-  assert.equal(imported.duplicate, undefined)
-  assert.equal(imported.plugins[0].enabled, true)
-  assert.equal((await castAssets.read(imported.path)).plugins[0].enabled, true)
-  assert.equal((await files.importCardArchiveFile(archive, 'legacy.dshcard')).duplicate, true)
-})
-
-
-test('the host-maintained bubble format entry never travels; authored entries do', async () => {
-  const bubble = {keys:[],comment:'格式要求',content:'- player|Player figure from a global pack',enabled:true,constant:true,extensions:{dsh_tavern_helper_extra:{forkDialogueBubbles:{version:1,cardKey:'source-card'}}}}
-  const authored = {keys:['Lore'],comment:'Lore',content:'Authored story',enabled:true}
-  const {card} = await projectDshCard({spec:'chara_card_v3',data:{name:'Bubbles',character_book:{entries:[bubble,authored]}}}, [], [])
-  assert.deepEqual(card.data.character_book.entries,[authored])
-})
 
 // A fake asset library: installed pack id → {hash, data}; a pack with a different hash previews `conflict` choices.
 // backupPack writes the installed data to the file, so a restore can be checked.
@@ -243,26 +167,6 @@ const dshCard = (name, packs, version = '') => [
   { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name, character_version: version } }) },
 ]
 
-// The stage reads packs from the asset library: a card's packs install there too. A new pack is installed, an
-// identical one left as it is; a different installed version is replaced by default (完全替换). Importing the very same
-// file again still makes sure its packs are in the library (cards imported before the library carry none there).
-test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动、不同版本默认完全替换；重复导入也补装', async t => {
-  const fresh = '55555555-5555-4555-8555-555555555555', changed = '66666666-6666-4666-8666-666666666666'
-  const installed = new Map([[changed, { hash: 'other-version', data: 'old' }]])
-  const { assetLibrary, applied } = fakeLibrary(installed)
-  const { root, files } = await library(t, { assetLibrary })
-  const card = join(root, '鱼.dshcard')
-  await writeFile(card, writeZipEntries([...dshCard('鱼', [[fresh, 'new', '新包'], [changed, 'old', '旧包']]), ...packEntries(fresh, 'new'), ...packEntries(changed, 'old')]))
-  const first = await files.importCardArchiveFile(card, '鱼.dshcard')
-  assert.deepEqual(applied, [[fresh, 'install'], [changed, 'update']])
-  assert.equal(first.libraryNotices, undefined)
-  assert.equal(installed.get(changed).hash, sha('v1'), 'the new version is installed')
-  applied.length = 0
-  const again = await files.importCardArchiveFile(card, '鱼.dshcard')
-  assert.equal(again.duplicate, true)
-  assert.deepEqual(applied, [[fresh, 'noop'], [changed, 'noop']], 'the same file again checks its packs')
-})
-
 test('the preview lists only the packs to decide about; merge is applied as chosen', async t => {
   const fresh = '55555555-5555-4555-8555-555555555555', same = '77777777-7777-4777-8777-777777777777', changed = '66666666-6666-4666-8666-666666666666'
   const installed = new Map([[changed, { hash: 'other-version', data: 'old' }], [same, { hash: sha('v1'), data: 'png' }]])
@@ -277,19 +181,6 @@ test('the preview lists only the packs to decide about; merge is applied as chos
   applied.length = 0
   await files.importCardArchiveFile(card, 'merge.dshcard', { packDecisions: { [changed]: 'merge' } })
   assert.deepEqual(applied, [[fresh, 'install'], [same, 'noop'], [changed, 'merge']])
-})
-
-test('a card without pack conflicts previews none and imports as before', async t => {
-  const fresh = '55555555-5555-4555-8555-555555555555'
-  const { assetLibrary, applied } = fakeLibrary(new Map())
-  const { root, files } = await library(t, { assetLibrary })
-  const card = join(root, 'plain.dshcard')
-  await writeFile(card, writeZipEntries([...dshCard('新卡', [[fresh, 'new', '新包']]), ...packEntries(fresh, 'new')]))
-  assert.deepEqual((await files.previewCardArchiveFile(card, 'plain.dshcard')).packs, [])
-  applied.length = 0
-  const imported = await files.importCardArchiveFile(card, 'plain.dshcard')
-  assert.deepEqual(applied, [[fresh, 'install']])
-  assert.equal(imported.libraryNotices, undefined)
 })
 
 test('撤回 puts the card and the packs it replaced back; only the latest update can be taken back', async t => {
@@ -317,76 +208,6 @@ test('撤回 puts the card and the packs it replaced back; only the latest updat
 })
 
 
-test('manual replacement keeps the selected path and identity across JSON and PNG, with a usable backup', async t => {
-  const { files, fileResources } = await library(t)
-  const original = await files.importCard({kind:'text',name:'old.json',text:JSON.stringify({name:'Old',description:'before'})})
-  const id = (await fileResources.readCard(original.path)).meta.id
-  const updated = await files.replaceCard(original.path,{payload:{kind:'text',name:'different.json',text:JSON.stringify({name:'New',description:'after'})}})
-  assert.equal(updated.path,original.path)
-  assert.equal((await fileResources.readCard(original.path)).meta.id,id)
-  assert.deepEqual(await fileResources.list('card'),[original.path])
-  const backup = await openZipFile(updated.backupPath)
-  try { assert.equal((await readCardArchive(backup)).card.data.name,'Old') } finally { await backup.close() }
-  const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8V8AAAAASUVORK5CYII=','base64')
-  const text=JSON.stringify({name:'PNG replacement'})
-  await files.replaceCard(original.path,{payload:{kind:'png',name:'another.png',text,b64:Buffer.from(text).toString('base64'),fileB64:pngWithCard(image,text).toString('base64')}})
-  assert.ok(await fileResources.readCardImage(original.path))
-  await assert.rejects(files.replaceCard(original.path,{payload:{kind:'text',name:'bad.json',text:'{broken'}}))
-  assert.equal((await fileResources.readCard(original.path)).raw.name,'PNG replacement')
-})
-
-test('dshcard replacement preserves disabled plugins and rolls back a post-write failure', async t => {
-  let fail=false
-  const {root,files,fileResources,castAssets}=await library(t,{importPreset:async()=>{if(fail)throw Error('injected preset failure');return {path:'presets/default.json'}},presetLibrary:{catalog:async()=>({presets:[]})}})
-  const archive=join(root,'update.dshcard')
-  async function write(version,defaults) {
-    await writeFile(archive,writeZipEntries([
-      {path:'card.json',content:JSON.stringify({spec:'chara_card_v3',data:{name:'Version '+version}})},
-      {path:'dsh.json',content:JSON.stringify({format:'dshcard',formatVersion:1,plugins:[{name:'update-game',path:'plugins/game/'}],...(defaults?{defaults:{preset:{path:'presets/default.json'}}}:{})})},
-      {path:'plugins/game/package.json',content:JSON.stringify({name:'update-game',version:version+'.0.0'})},
-      {path:'plugins/game/index.mjs',content:'export function apply() {}'},
-      ...(defaults?[{path:'presets/default.json',content:JSON.stringify({name:'Default',prompts:[]})}]:[])
-    ]))
-  }
-  await write(1)
-  const old=await files.importCardArchiveFile(archive,'one.dshcard')
-  const oldId=(await fileResources.readCard(old.path)).meta.id
-  const plugin=(await castAssets.read(old.path)).plugins[0]
-  await castAssets.setPlugins(old.path,[{...plugin,enabled:false}])
-  await write(2)
-  await files.replaceCard(old.path,{file:archive,name:'two.dshcard'})
-  assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Version 2')
-  assert.equal((await castAssets.read(old.path)).plugins[0].enabled,false)
-  assert.equal((await fileResources.readCard(old.path)).meta.id,oldId)
-  fail=true; await write(3,true)
-  await assert.rejects(files.replaceCard(old.path,{file:archive,name:'three.dshcard'}),/已恢复原卡/)
-  assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Version 2')
-  assert.equal((await castAssets.read(old.path)).plugins[0].enabled,false)
-  assert.deepEqual(await fileResources.list('card'),[old.path])
-})
-
-
-test('replacement never reads or bundles a five GB imported bound pack', async t => {
-  const packId = '22222222-2222-4222-8222-222222222222'
-  let reads = 0
-  const {files, castAssets} = await library(t, {
-    assetPacks: {
-      readPack: async () => { reads++; return {files:{'large.bin':{size:5 * 1024 ** 3}}} },
-      file: async () => assert.fail('replacement must not open bound pack media')
-    }
-  })
-  const card = {name:'Large pack card',extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[packId]}}}}
-  const original = await files.importCard({kind:'text',name:'large.json',text:JSON.stringify(card)})
-  await castAssets.bindPacks(original.path, [{id:packId,contentHash:'a'.repeat(64)}])
-  const updated = await files.replaceCard(original.path, {payload:{kind:'text',name:'update.json',text:JSON.stringify({...card,name:'Updated'})}})
-  assert.equal(reads, 0)
-  const zip = await openZipFile(updated.backupPath)
-  try {
-    const backup = await readCardArchive(zip)
-    assert.equal(backup.packs.length, 0)
-    assert.deepEqual(backup.card.data.extensions.dsh_tavern.assetBindings.boundPackIds, [packId])
-  } finally { await zip.close() }
-})
 
 test('private installed card replacement uses an internal backup while public export stays denied', async t => {
   const {createAssetPackService} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')

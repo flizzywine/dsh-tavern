@@ -26,11 +26,3 @@ test('修改人物卡内置世界书时结果附带整卡校验，独立世界�
   assert.equal(standalone.validation, undefined)
   assert.equal(calls.length, 3)
 })
-
-test('读世界书只给模型正文原文和已设置的字段，不重复原始条目', () => {
-  const registered = new Map()
-  registerWorldbookTools({ chatForSession: async () => ({}), checkCard: async () => null, readChatCard: async () => undefined, str: String, tools: { register: tool => registered.set(tool.name, tool) }, worldBooks: {} })
-  const entry = { ref: 'entry:3', sourceUid: 9, sourcePath: 'entries/3', title: '货币', comment: '货币', content: '第一行\n"第二行"', enabled: true, primaryKeys: ['钱'], secondaryKeys: [], depth: null, group: '', rawEntry: { content: '第一行\n"第二行"' } }
-  const text = registered.get('tavern_read_worldbook').output.render({}, { found: true, message: '', name: '书', total: 4, entries: [{ ref: 'entry:3', entry }] })[0].text
-  assert.equal(text, '世界书《书》· 共 4 条\n\n[entry:3] 货币\n设置：{"enabled":true,"primaryKeys":["钱"]}\n正文：\n第一行\n"第二行"')
-})

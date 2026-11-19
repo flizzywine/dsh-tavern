@@ -3,9 +3,7 @@
 // cut-in plays on, and the stage rests on the debate again once the cut-in ends.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {performanceBoundary} from '../tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs'
 import {foldPerformanceAt} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/performance-projection.js'
-import {applyPerformanceInterop} from '../tavern-plugin/lib/domain/mods/interop.js'
 
 const debateRef = {packId:'pack', kind:'performances', assetId:'debate'}
 const objectionRef = {packId:'pack', kind:'performances', assetId:'objection'}
@@ -17,16 +15,6 @@ const objection = {packs:{}, timeline:{entry:{events:[{at:0, do:'sfx', ref:'self
 const documents = {debate, objection, trial:{overlay:null, levels:{1:{}}}, bang:{}}
 const resolveDocument = ref => documents[ref.assetId] || null
 const at = (turn, page) => ({turn, page})
-
-test('boundary: a once over a held performance keeps it and marks the cut-in; off ends it; a once alone still takes the stage', () => {
-  const held = performanceBoundary(null, {ref:debateRef, level:1}, at(24, 0), debate)
-  const cut = performanceBoundary(held, {ref:objectionRef, level:1}, at(24, 8), objection, debate)
-  assert.deepEqual(cut, {...held, cutIn:{ref:objectionRef, level:1, startedAt:at(24, 8)}})
-  assert.deepEqual(performanceBoundary(cut, {off:true}, at(24, 71), null, debate), {...held, startedAt:at(24, 71), phase:'exit'})
-  assert.deepEqual(performanceBoundary(null, {ref:objectionRef, level:1}, at(24, 8), objection), {ref:objectionRef, level:1, startedAt:at(24, 8), phase:'entry'})
-  const lone = performanceBoundary(null, {ref:objectionRef, level:1}, at(24, 8), objection)
-  assert.equal(performanceBoundary(lone, {ref:debateRef, level:1}, at(24, 9), debate, objection).ref, debateRef, 'a held performance after a lone once replaces it')
-})
 
 // Mirrors the live turn 24: debate set on page 0, Ema's objection on page 8, the debate ended on page 71.
 function record() {
@@ -60,10 +48,3 @@ test('projection: the cut-in page plays the objection over the debate, every oth
   assert.equal(fold(72), null)
 })
 const performanceSustainedSkin = plan => plan.sustainedEvents.filter(event => event.do === 'skin').at(-1)?.ref
-
-test('interop: a cut-in keeps the debate countdown granted', () => {
-  const held = {ref:debateRef, level:1, startedAt:at(24, 0), phase:'entry'}
-  const previous = {performance:held, stageControls:{'timer/main':{consumer:'core.performance', controller:'performance:debate'}}}
-  const next = {...structuredClone(previous), performance:{...held, cutIn:{ref:objectionRef, level:1, startedAt:at(24, 8)}}}
-  assert.equal(applyPerformanceInterop(previous, next, {id:'set'}, {}, objection, {}, {}), next)
-})

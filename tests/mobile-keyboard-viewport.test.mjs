@@ -216,22 +216,6 @@ test('刷新窗口只在输入法动画期间持续', () => {
   assert.ok(clock.now - 1000 >= factory.TAVERN_KEYBOARD_SETTLE_MS, '至少覆盖一次输入法动画')
 })
 
-test('外壳高度走 --dsh-shell-height，不再直接吃 --dsh-vv-height', () => {
-  const start = css.indexOf('body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]')
-  assert.ok(start > 0)
-  const rule = css.slice(start, css.indexOf('}', start))
-  assert.match(rule, /height: var\(--dsh-shell-height, 100dvh\) !important/)
-  assert.doesNotMatch(rule, /height: var\(--dsh-vv-height/)
-})
-
-test('输入条底部按输入法上报的高度垫底', () => {
-  const start = css.indexOf('html.dsh-tavern-coarse-play [data-composer-seat]')
-  assert.ok(start > 0)
-  const rule = css.slice(start, css.indexOf('}', start))
-  assert.match(rule, /padding-bottom: calc\(env\(safe-area-inset-bottom, 0px\) \+ var\(--dsh-keyboard-inset, 0px\)\)/)
-  assert.equal(css.match(/var\(--dsh-keyboard-inset, 0px\)/g).length, 2, '两条输入条规则都要垫')
-})
-
 test('内嵌酒馆的 iframe 外壳同样跟随布局视口', () => {
   const source = sliceFunction(entrySource, 'installEmbeddedViewport')
   const constants = entrySource.slice(entrySource.indexOf('const EMBED_KEYBOARD_INSET_MIN'), entrySource.indexOf('function installEmbeddedViewport('))

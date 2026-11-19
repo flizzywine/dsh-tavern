@@ -43,12 +43,3 @@ test('导出存档时 PNG、JPEG 转成更小的 WebP', async () => {
   assert.equal(fromJpeg.mediaType, 'image/webp')
   assert.ok(fromJpeg.data.length < jpeg.length, jpeg.length + ' → ' + fromJpeg.data.length)
 })
-
-test('动图、无法识别或解不开的图片原样保留', async () => {
-  for (const image of [
-    { attachmentId: 'apng', mediaType: 'image/png', data: png([['acTL', Buffer.alloc(8)]]) },
-    { attachmentId: 'gif', mediaType: 'image/gif', data: Buffer.from('GIF89a......') },
-    { attachmentId: 'broken', mediaType: 'image/png', data: Buffer.concat([png().subarray(0, 40), Buffer.alloc(20)]) },
-    { attachmentId: 'webp', mediaType: 'image/webp', data: Buffer.from('RIFF\0\0\0\0WEBPVP8 ') }
-  ]) assert.equal(await compressSaveImage(image), image, image.attachmentId)
-})

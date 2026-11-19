@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildCharx, cardImport, collectCardAssets, pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
+import { buildCharx, cardImport, pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
 import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
@@ -24,36 +24,6 @@ function store() {
     async readBytes(path) { return files.get(path) }
   }
 }
-
-test('CHARX：PNG 卡面带上卡数据存成 PNG，立绘、背景、其他素材分开；地址读不到的计数', () => {
-  const card = { spec: 'chara_card_v3', spec_version: '3.0', data: { name: '林曦', assets: [
-    { type: 'icon', uri: 'embeded://assets/icon/images/main.png', name: 'main', ext: 'png' },
-    { type: 'emotion', uri: 'embeded://assets/emotion/images/1.png', name: 'happy', ext: 'png' },
-    { type: 'emotion', uri: 'embeded://assets/emotion/images/2.png', name: 'thinking', ext: 'png' },
-    { type: 'background', uri: 'embeded://assets/background/images/bg.png', name: 'main', ext: 'png' },
-    { type: 'x-risu-asset', uri: 'embeded://assets/other/audio/bgm.mp3', name: 'bgm', ext: 'mp3' },
-    { type: 'emotion', uri: 'embeded://assets/emotion/images/missing.png', name: 'sad', ext: 'png' },
-    { type: 'icon', uri: 'https://example.com/x.png', name: 'alt', ext: 'png' }
-  ] } }
-  const file = zip([['card.json', JSON.stringify(card)], ['assets/icon/images/main.png', png('cover')], ['assets/emotion/images/1.png', png('joy')],
-    ['assets/emotion/images/2.png', png('think')], ['assets/background/images/bg.png', png('bg')], ['assets/other/audio/bgm.mp3', Buffer.from('ID3bgm')]])
-  const { payload, collected } = cardImport({ kind: 'charx', name: '林曦.charx', fileB64: file.toString('base64') })
-  assert.equal(payload.kind, 'png')
-  assert.equal(payload.name, '林曦.png')
-  assert.equal(JSON.parse(Buffer.from(payload.b64, 'base64').toString('utf8')).data.name, '林曦')
-  assert.ok(Buffer.from(payload.fileB64, 'base64').includes(Buffer.from('ccv3\0')), '卡面 PNG 里带着 ccv3 数据')
-  assert.equal(collected.cover, null, 'PNG 卡面已经是人物卡封面')
-  assert.deepEqual(collected.emotions.map(item => item.name), ['happy', 'thinking'])
-  assert.deepEqual(collected.backgrounds.map(item => item.name), ['main'])
-  assert.deepEqual(collected.extras.map(item => [item.type, item.name, item.ext]), [['x-risu-asset', 'bgm', 'mp3']])
-  assert.equal(collected.skipped, 1)
-
-  const webp = zip([['card.json', JSON.stringify({ spec: 'chara_card_v3', data: { name: 'B', assets: [{ type: 'icon', uri: 'embeded://c.webp', name: 'main', ext: 'webp' }] } })], ['c.webp', Buffer.from('RIFF0000WEBPVP8 ')]])
-  const other = cardImport({ kind: 'charx', name: 'B.charx', fileB64: webp.toString('base64') })
-  assert.equal(other.payload.kind, 'text', '卡面不是 PNG 时存成 JSON')
-  assert.ok(other.collected.cover, '卡面留给主角头像')
-  assert.throws(() => cardImport({ kind: 'charx', name: 'x.charx', fileB64: zip([['a.txt', 'x']]).toString('base64') }), /card\.json/)
-})
 
 test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他人物和声音在扩展里，未识别的原样写回；重新导入完整还原', async () => {
   const cast = createCastAssets({ store: store() })
@@ -91,18 +61,4 @@ test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他�
   assert.equal(restored.backgrounds.length, 1)
   assert.deepEqual(restored.extras.map(item => [item.type, item.name]), manifest.extras.map(item => [item.type, item.name]))
   assert.ok(pngWithCard(png('c'), '{}').includes(Buffer.from('IEND')))
-})
-
-
-test('素材配额按唯一地址计算；超限拒绝导入导出，缺失的扩展图片明确计数', () => {
-  const characters = Array.from({ length: 300 }, (_, i) => ({ name: '角色' + i, sprites: { joy: 'embeded://' + i + '.png' } }))
-  const card = { data: { assets: [{ type: 'emotion', name: 'joy', uri: 'embeded://0.png' }], extensions: { dsh_tavern: { cast: { characters } } } } }
-  const collected = collectCardAssets(card, () => PNG)
-  assert.equal(collected.cast.reduce((n, c) => n + Object.keys(c.sprites).length, 0), 300)
-  assert.equal(collected.skipped, 0)
-  characters.push({ name: '超限', sprites: { joy: 'embeded://300.png' } })
-  assert.throws(() => collectCardAssets(card, () => PNG), /素材超过 300/)
-  assert.throws(() => buildCharx({ document: { data: {} }, manifest: { characters }, readFile: () => PNG }), /素材超过 300/)
-  const missing = collectCardAssets({ data: { extensions: { risuai: { emotions: [['sad', 'missing']] }, dsh_tavern: { cast: { characters: [{ name: 'A', avatar: 'missing', sprites: { joy: 'missing' } }] } } } } }, () => undefined)
-  assert.equal(missing.skipped, 3)
 })

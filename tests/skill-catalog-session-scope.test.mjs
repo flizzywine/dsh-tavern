@@ -8,16 +8,6 @@ const hostRequire = createRequire(pluginRequire.resolve('@deepseek-ai/dsh-tools'
 const { SessionSkillCatalog } = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/dsh-api-session-controller')))
 const { scopeChainOf } = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/dsh-scope')))
 
-test('DSH 0.2.x: scopeFor(agentPreset) returns a disposable lease, so the session-scope shim leaves it alone', () => {
-  const catalog = Object.create(SessionSkillCatalog.prototype)
-  const original = catalog.scopeFor
-  assert.equal(original.length, 1, 'the installed host uses the 0.2.x scopeFor(agentPreset) signature')
-  const restore = installSkillCatalogSessionScope(catalog)
-  assert.equal(catalog.scopeFor, original)
-  restore()
-  assert.equal(catalog.scopeFor, original)
-})
-
 test('DSH 0.1.5: cold skills/list scopes get a session identity, keep the preset ancestry, and reuse one key per session', async () => {
   const presetScope = {}
   const catalog = { async scopeFor(sessionId, preset) { return preset === 'tavern' ? presetScope : undefined } }

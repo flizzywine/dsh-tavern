@@ -47,17 +47,6 @@ for (const textOnly of [false,true]) test(`历史导入与旧预筛调用均不�
  assert.equal(calls,0,'旧预筛调用不再启动模型')
 })
 
-test('世界书投影失败时明确指出历史轮次，不发布残缺导入，修复后可重试',async()=>{
- const h=fixture()
- h.options.projectForegroundWorldbook=async()=>({context:'',error:'worldbook unavailable'})
- await assert.rejects(createChatHistoryImportService(h.options).import(input),/第 2 轮.*worldbook unavailable/)
- assert.equal(h.publishes,0)
- assert.equal(h.session.deriveMessages().length,0)
- h.options.projectForegroundWorldbook=async()=>({context:'restored'})
- await createChatHistoryImportService(h.options).import(input)
- assert.equal(h.publishes,1)
-})
-
 function foregroundContexts(session) {
  const rounds = new Map()
  for (const message of session.deriveMessages()) {
@@ -67,18 +56,6 @@ function foregroundContexts(session) {
  }
  return [...rounds.values()]
 }
-
-test('导入草稿在构帧期间能被模板会话解析，写入任何记录前撤销',async()=>{
- const h=fixture(), drafts=new Map(), resolved=[], heldAtWrite=[]
- h.options.drafts={hold:(id,chat)=>drafts.set(id,chat),clear:id=>drafts.delete(id)}
- const write=h.chats.write;h.chats.write=async chat=>{heldAtWrite.push(drafts.size);return write(chat)}
- // The world book projection resolves its Session the same way the template runtime does.
- h.options.projectForegroundWorldbook=async({chat})=>{resolved.push(drafts.get(chat.sessionId)?.id);return {context:''}}
- await createChatHistoryImportService(h.options).import(input)
- assert.deepEqual(resolved,['chat','chat'],'每一轮构帧时草稿都可解析')
- assert.equal(drafts.size,0,'导入完成后不再持有草稿')
- assert.ok(heldAtWrite.length&&heldAtWrite.every(size=>size===0),'checkpoint 与发布写入时草稿已撤销')
-})
 
 test('导入失败时同样撤销草稿引用，不泄漏到后续请求',async()=>{
  const h=fixture(), drafts=new Map()

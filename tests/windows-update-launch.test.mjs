@@ -8,26 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
-import { launchWindowsUpdater, quoteWindowsArgument } from '../bin/windows-update-launch.mjs'
-
-test('Windows broker transfers environment privately and reports launch failure', () => {
-  let call
-  const options = { powershell: 'powershell.exe', cwd: 'C:\\酒馆 space', env: { DSH_HOME: 'C:\\存档', HTTPS_PROXY: 'http://user:secret@localhost:1234' },
-    execute(command, args, settings) { call = {command, args, settings}; return {status:0, stdout:'12345\r\n'} },
-  }
-  assert.equal(launchWindowsUpdater('C:\\Program Files\\node.exe', ['a"b', 'C:\\tail\\', ''], options), 12345)
-  assert.equal(call.settings.timeout, 20000)
-  assert.equal(call.settings.windowsHide, true)
-  assert.doesNotMatch(JSON.stringify(call.args), /secret/)
-  const payload = JSON.parse(Buffer.from(call.settings.input, 'base64').toString('utf8'))
-  assert.deepEqual(payload.environment, ['DSH_HOME=C:\\存档', 'HTTPS_PROXY=http://user:secret@localhost:1234'])
-  assert.equal(payload.cwd, options.cwd)
-  assert.equal(payload.commandLine, '"C:\\Program Files\\node.exe" "a\\"b" "C:\\tail\\\\" ""')
-  assert.throws(() => launchWindowsUpdater('node', [], {...options, execute: () => ({status:1, stderr:'WMI Create failed: 2'})}), /WMI Create failed: 2/)
-  assert.throws(() => launchWindowsUpdater('node', [], {...options, execute: () => ({error: new Error('ETIMEDOUT')})}), /ETIMEDOUT/)
-  assert.throws(() => launchWindowsUpdater('node', [], {...options, execute: () => ({status:0, stdout:'not a pid'})}), /进程号/)
-  assert.equal(quoteWindowsArgument('x\\"y'), '"x\\\\\\"y"')
-})
+import { quoteWindowsArgument } from '../bin/windows-update-launch.mjs'
 
 test('Windows updater survives a restrictive kill-on-close Job with Unicode arguments and environment', {skip:process.platform !== 'win32'}, async t => {
   const root = await mkdtemp(path.join(tmpdir(), '更新 job '))

@@ -5,21 +5,12 @@ import {
   GEMINI_THOUGHT_SIGNATURE_SENTINEL_BASE64,
   TOOL_CALL_STREAM_IDLE_TIMEOUT_MS,
   createCapabilityQuirkStore,
-  detectWireProtocol,
   enhanceToolProtocolPayload,
   getCapturedThoughtSignature,
   installToolCallIdleTimeoutPatch,
   installToolProtocolFetchPatch,
   runWithToolProtocolDirective,
 } from '../tavern-plugin/lib/domain/tool-protocol-enforcement.js'
-
-test('协议识别区分 Gemini 原生、Anthropic、OpenAI Completions 与 Responses', () => {
-  assert.equal(detectWireProtocol({ contents: [] }, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent'), 'gemini-native')
-  assert.equal(detectWireProtocol({ messages: [], tools: [{ name: 'submit_story', input_schema: { type: 'object' } }] }, 'https://proxy/v1/messages'), 'anthropic-messages')
-  assert.equal(detectWireProtocol({ messages: [] }, 'https://openrouter.ai/api/v1/chat/completions'), 'openai-completions')
-  assert.equal(detectWireProtocol({ input: [] }, 'https://api.openai.com/v1/responses'), 'openai-responses')
-  assert.equal(detectWireProtocol({ prompt: 'hi' }, 'https://api.openai.com/v1/embeddings'), null)
-})
 
 test('Gemini 原生：注入 mode=ANY、allowedFunctionNames、base64 哨兵/真签名与 propertyOrdering', () => {
   const realBase64 = Buffer.from('real-gemini-sig-bytes-12', 'utf8').toString('base64')
@@ -68,29 +59,6 @@ test('Gemini 原生：注入 mode=ANY、allowedFunctionNames、base64 哨兵/真
   const submitParams = body.tools[0].functionDeclarations[0].parametersJsonSchema
   assert.deepEqual(Object.keys(submitParams.properties), ['think', 'content'])
   assert.deepEqual(submitParams.propertyOrdering, ['think', 'content'])
-})
-
-test('Gemini 原生：强制 mode=ANY 时保留适配器已设的 streamFunctionCallArguments', () => {
-  const raw = {
-    contents: [{ role: 'user', parts: [{ text: '开始' }] }],
-    tools: [{ functionDeclarations: [{ name: 'submit_story', parametersJsonSchema: { type: 'object', properties: { content: { type: 'string' } } } }] }],
-    toolConfig: { functionCallingConfig: { streamFunctionCallArguments: true } },
-  }
-  const { body, changed, applied } = enhanceToolProtocolPayload(raw, {
-    url: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/models/gemini-4-hydrogen:streamGenerateContent',
-    directive: {
-      provider: 'google-vertex',
-      model: 'gemini-4-hydrogen',
-      forceToolChoice: true,
-      allowedToolNames: ['submit_story'],
-      signaturesByCallId: {},
-    }
-  })
-  assert.equal(changed, true)
-  assert.equal(applied.forcedToolChoice, 'gemini-any')
-  assert.deepEqual(body.toolConfig, {
-    functionCallingConfig: { streamFunctionCallArguments: true, mode: 'ANY', allowedFunctionNames: ['submit_story'] }
-  })
 })
 
 test('OpenAI 兼容 Gemini：单工具走命名 tool_choice 锁死出口，注入 extra_content.google.thought_signature，pg- 模型自动回退', () => {

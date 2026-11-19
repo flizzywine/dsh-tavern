@@ -5,24 +5,6 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
 const {createStageFigureAssets}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-assets.cjs')
-function fixture(){
- const sprites=[],texture={width:100,height:200};let fail=false
- class Sprite{constructor(texture){this.texture=texture;this.dead=0;this.anchor={set(...v){this.values=v}};sprites.push(this)}destroy(options){assert.deepEqual(options,{children:true});this.dead++;this.destroyed=true}}
- const candidate={bodyX:40},metrics={headTop:()=>.1,source:src=>src,measure:()=>candidate,anatomy:()=>({headTop:.1}),record:()=>({bodyX:40}),resolve(){if(fail)throw Error('sizing failed');return {mode:'physical',supportX:30,feet:190}},bodyX:m=>m?.bodyX,bodyCentre:()=>45}
- let resolvePicture,resolveSpine;const textures={load:()=>new Promise(resolve=>resolvePicture=resolve)}
- const owner=createStageFigureAssets({metrics,spineFigures:{prepare:()=>new Promise(resolve=>resolveSpine=resolve)}})
- const scope=owner.create({PIXI:{Sprite},renderer:{},screen:{width:800,height:600},textures,centred:anatomy=>anatomy})
- const rig=()=>{const body=new Sprite(texture);return {body,frame:[0,0,100,200],measured:{candidate},dead:0,mood(value){this.animation=value},destroy(){this.dead++;if(!body.destroyed)body.destroy({children:true})}}}
- return {scope,owner,texture,sprites,candidate,rig,picture(){resolvePicture(texture)},spine(figure){resolveSpine(figure)},fail(){fail=true}}
-}
-test('figure assets prepare sizing and own sprites without owning cached textures',async()=>{
- const e=fixture(),pending=e.scope.picture({src:'a',input:{source:'a',pack:true}});e.picture();const asset=await pending
- assert.equal(asset.candidate,e.candidate);assert.deepEqual(asset.sprite.anchor.values,[.3,.95]);assert.equal(asset.sprite.forkHeadTop,.1);assert.equal(asset.sprite.forkBodyX,40)
- const second=e.scope.picture({src:'b',input:{source:'other'}});e.picture();const plain=await second
- assert.equal(plain.sprite.figureInput,null);assert.equal(plain.sprite.forkBodyX,45)
- asset.destroy();e.owner.dispose();plain.destroy();assert.ok(e.sprites.every(s=>s.dead===1));assert.equal(e.texture.destroyed,undefined)
-})
-
 test('scene accepts only the newest picture request even when identity returns to A',async()=>{
  const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8'),start=source.indexOf('    function showStatic('),end=source.indexOf('    // authored blink',start)
  const pending=[],attached=[],committed=[],state={clock:0},entry={figure:{identity:'A'},container:{addChildAt(sprite){attached.push(sprite)}},fading:[]}

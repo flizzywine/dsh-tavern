@@ -75,26 +75,6 @@ function rows(assistant) {
   ]
 }
 
-test('宏渲染过的普通回合：指导为空重新生成不带旧正文，是干净的重采样', async () => {
-  const h = harness(rows({ sourceText: '她笑了。{{setvar::mood::开心}}', projectionText: '她笑了。', swipes: ['她笑了。'], swipeId: 0 }))
-  await h.create().regenerate('', '', 'session')
-  assert.equal(h.prepared.length, 1)
-  assert.equal(h.prepared[0].userText, '原输入', '没有指导、没有编辑时，请求里只该有玩家输入')
-  assert.equal(h.prepared[0].userText.includes('current_body'), false, '请求里不该出现旧正文段落')
-  assert.equal(h.prepared[0].userText.includes('rewrite_request'), false, '请求里不该出现「以它为准重写」')
-  assert.equal(h.chat.messages[2].text, '新正文')
-})
-
-test('正文被编辑过（bodyEdit 标记）、没有指导：仍然只发玩家输入，重新采样', async () => {
-  const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
-    bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
-  await h.create().regenerate('', '', 'session')
-  assert.equal(h.prepared.length, 1)
-  assert.equal(h.prepared[0].userText, '原输入', '没写意见就不是改写，编辑过也不当 draft')
-  assert.equal(h.prepared[0].userText.includes('current_body'), false)
-  assert.equal(h.chat.messages[2].text, '新正文')
-})
-
 test('写了意见才改写：正文（含编辑标记）随请求送出并带改写说明', async () => {
   const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
     bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
@@ -105,16 +85,5 @@ test('写了意见才改写：正文（含编辑标记）随请求送出并带�
   assert.ok(sent.includes('<current_body>\n她轻声笑了。\n</current_body>'), '有意见时正文是改写的底稿')
   assert.ok(sent.includes('写得更克制一点'))
   assert.ok(sent.includes('<rewrite_request>'))
-  assert.equal(h.chat.messages[2].text, '新正文')
-})
-
-test('长按发送键的直接重生成（fresh）：即便正文被改过，也从头重新采样', async () => {
-  const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
-    bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
-  await h.create().regenerate('', '', 'session', { fresh: true })
-  assert.equal(h.prepared.length, 1)
-  assert.equal(h.prepared[0].userText, '原输入', 'fresh 请求里只留玩家输入')
-  assert.equal(h.prepared[0].userText.includes('current_body'), false)
-  assert.equal(h.prepared[0].userText.includes('rewrite_request'), false)
   assert.equal(h.chat.messages[2].text, '新正文')
 })

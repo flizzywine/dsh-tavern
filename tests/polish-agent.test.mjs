@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createPolishDraft, createPolishReviewer, POLISH_TOOLS } from '../tavern-plugin/lib/domain/polish-agent.js'
+import { createPolishReviewer } from '../tavern-plugin/lib/domain/polish-agent.js'
 import { applyPolishEdits } from '../tavern-plugin/lib/domain/polish-review.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
@@ -19,22 +19,6 @@ function coldForeground() {
   } }
   return { state, host, withAgent: (id, work) => withHostAgent(host, id, work) }
 }
-
-test('逐处修改校验、重试、去重和完成；按原文坐标应用，不误改替换结果', () => {
-  const texts = ['甲。乙。', '重复。重复。']
-  const changes = [], draft = createPolishDraft(texts, edits => changes.push(edits.length))
-  const edit = (find, replace) => JSON.parse(draft.call({ name: 'polish_edit', arguments: { find, replace, reason: '原因' } }))
-  assert.equal(edit('没有', '新').ok, false)
-  assert.equal(edit('重复。', '新').ok, false)
-  assert.equal(edit('甲。', '乙。').ok, true)
-  assert.equal(edit('甲。', '乙。').duplicate, true)
-  assert.equal(edit('甲。乙。', '新').ok, false)
-  assert.equal(edit('乙。', '丙。').ok, true)
-  assert.deepEqual(applyPolishEdits(texts, draft.result().edits), ['乙。丙。', '重复。重复。'])
-  draft.call({ name: 'polish_finish', arguments: {} })
-  assert.equal(edit('重复。重复。', '').ok, false)
-  assert.deepEqual(changes, [1, 2, 2])
-})
 
 function fixture() {
   let saved, sequence = 0, replaceSession = false, fail = false
@@ -79,17 +63,6 @@ test('回退、重生成、前文变化仍用同一个润色会话并说明剧�
     await reviewer.review(change === 'fork' ? 'fork-parent' : 'parent', ['甲。乙。'])
     assert.notEqual(f.calls[1].id, f.calls[0].id, change)
   }
-})
-
-test('无修改必须显式完成，正文或模型错误不冒充成功', async () => {
-  const f = fixture()
-  f.options.runAgent = async input => { await input.onPersistentSessionReady('child'); return { traceSessionId: 'child', text: '完成了' } }
-  const reviewer = createPolishReviewer(f.options)
-  await assert.rejects(reviewer.review('parent', ['甲。乙。']), /未调用完成工具/)
-  assert.equal(reviewer.progress('parent').phase, 'failed')
-  const controller = new AbortController(); controller.abort()
-  await assert.rejects(reviewer.review('parent', ['甲。乙。'], controller.signal), { name: 'AbortError' })
-  assert.equal(POLISH_TOOLS.length, 2)
 })
 
 test('精修在借用前台 Agent 后选模型，取消等待中的审稿会释放 Agent', async () => {

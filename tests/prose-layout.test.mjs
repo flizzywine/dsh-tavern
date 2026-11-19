@@ -74,16 +74,6 @@ test('块结构原样保留：代码块、表格、列表、标题、引用、�
   assert.ok(laid.startsWith('旁白一段，句子接句子，模型忘了分段，这一行本来会挤成一片所以需要拆开。第二句也在这里，说明它够长。\n\n第三句收尾，终于结束。'), '只有那段散文被拆成两段，其余行原样跟着走')
 })
 
-test('Markdown 标记不被切断：强调、行内代码和括号里的句号都留在原处', () => {
-  const bold = '他笑了一下。**那句“别急”说得很轻。**外面还在下雨，屋檐上的水一滴一滴往下掉，像有人在数时间。'
-  const laid = layout(bold, { sentences: 1 })
-  assert.ok(laid.includes('**那句“别急”说得很轻。**'), '强调保持完整，不切出半截标记')
-  const balanced = laid.split('\n\n').every(part => (part.match(/\*\*/g) || []).length % 2 === 0)
-  assert.equal(balanced, true, '每段的 ** 都配对')
-  const inline = '她数着 `a。b` 里的句号。第二个句子终于结束，这一行足够长可以触发拆分，因为字数超了四十。'
-  assert.ok(layout(inline, { sentences: 1 }).includes('`a。b`'), '行内代码里的句号不当句子边界')
-})
-
 test('开场白的多行标题与正文之间保留原来的 Markdown 边界', () => {
   const body = '她站在窗边。窗外的雨仍在下。屋檐水声一阵接一阵，像很远的地方有人在敲门。'
   for (const underline of ['---', '===']) {

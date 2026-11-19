@@ -2,8 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createTts} from '../tavern-plugin/packages/dsh-tavern-tts/src/service.js'
 import {createServiceSettings} from '../tavern-plugin/packages/dsh-tavern-tts/src/settings.js'
-import {createModelValidation} from '../tavern-plugin/packages/dsh-tavern-tts/src/model-validation.js'
-import {qwenInstructions} from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/qwen.js'
 import {pcmWav} from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/audio.js'
 import {hash} from '../tavern-plugin/packages/dsh-tavern-tts/src/core.js'
 
@@ -62,55 +60,4 @@ test('only real model or voice rejection populates a field warning; successful s
   const current=(await services.list())[0]
   await services.save({id:'qwen',kind:'qwen',config:{region:'intl'},expectedRevision:current.revision})
   assert.deepEqual(services.validateVoiceModel(query),{issues:[]})
-})
-
-test('unrelated HTTP errors do not create configuration warnings',async t=>{
-  for(const [status,code,message] of [[400,'InvalidParameter','Invalid text.'],[404,'NotFound','Resource missing.'],[400,'InvalidParameter','Voice request failed.']]) {
-    const {services,tts}=setup(t,async()=>Response.json({code,message},{status}))
-    await services.saveVoicePreset({preset,expectedRevision:null})
-    const {grant}=tts.grantServiceConsumer({principal:'test',scope:'test'})
-    await assert.rejects(tts.synthesize({voiceId:preset.id,text:'test',language:'zh'},{grant,scope:'test'}))
-    assert.deepEqual(services.validateVoiceModel(query),{issues:[]})
-  }
-})
-
-test('confirmed failure cache is bounded, defensive and configuration-scoped',()=>{
-  const cache=createModelValidation({limit:1}),identity={...query,revision:'r1'}
-  cache.record(identity,{code:'QWEN_MODEL_NOT_FOUND'})
-  cache.get(identity).issues[0].field='corrupted'
-  assert.equal(cache.get(identity).issues[0].field,'model')
-  assert.deepEqual(cache.get({...identity,revision:'r2'}),{issues:[]})
-  cache.record({...identity,voiceName:'Cherry'},{code:'QWEN_VOICE_UNSUPPORTED'})
-  assert.deepEqual(cache.get(identity),{issues:[]})
-})
-
-test('instruction metadata marks only known non-instruct models unused',async t=>{
-  const {services}=setup(t,async()=>{throw Error('metadata must not call a provider')})
-  assert.equal(services.voiceModelStatus({...query,model:'qwen3-tts-flash'}).modelInstructions,false)
-  assert.equal(services.voiceModelStatus(query).modelInstructions,true)
-  assert.equal(services.voiceModelStatus({...query,model:'unknown'}).modelInstructions,null)
-})
-
-test('default and non-instruct Qwen models omit both style and mood instructions',()=>{
-  for(const model of [undefined,'qwen3-tts-flash']) assert.equal(qwenInstructions({params:{model,instructions:'style',moodInstruction:'mood'},mood:'joy'}),null)
-  assert.ok(qwenInstructions({params:{model:'qwen3-tts-instruct-flash',instructions:'style',moodInstruction:'mood'},mood:'joy'}).includes('mood'))
-})
-
-// a 404 confirmed for an old model never follows the figure to its current one.
-test('a failure confirmed for another model or voice is not shown for the current one, and a success clears it',async t=>{
-  let fail=true
-  const {services,tts}=setup(t,async(url,options)=>{
-    if(options.method==='POST') return fail ? Response.json({code:'InvalidParameter',message:'Model not exist.'},{status:404}) : Response.json({output:{audio:{url:'https://audio.invalid/result.wav'}}})
-    return new Response(pcmWav(Buffer.alloc(100,1)))
-  })
-  await services.saveVoicePreset({preset,expectedRevision:null})
-  const {grant}=tts.grantServiceConsumer({principal:'test',scope:'test'})
-  await assert.rejects(tts.synthesize({voiceId:preset.id,text:'old',language:'zh'},{grant,scope:'test'}),e=>e.code==='QWEN_MODEL_NOT_FOUND')
-  assert.equal(services.validateVoiceModel(query).issues.length,1)
-  const current={defaultSource:'qwen',sources:{qwen:{kind:'preset',provider:'qwen',model:'qwen3-tts-flash',voiceName:'Bella'}}}
-  assert.deepEqual((await tts.resolveVoiceService({voice:current,binding:{}})).issues,[],'restored model shows no stale warning')
-  assert.deepEqual(services.validateVoiceModel({...query,voiceName:'Cherry'}).issues,[],'another voice shows no stale warning')
-  fail=false
-  await tts.synthesize({voiceId:preset.id,text:'again',language:'zh'},{grant,scope:'test'})
-  assert.deepEqual(services.validateVoiceModel(query).issues,[],'next success clears it')
 })

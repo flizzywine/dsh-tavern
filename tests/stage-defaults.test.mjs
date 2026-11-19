@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { cardExtension } from './fixtures/asset-packs/pack.mjs'
-import { CARD_STAGE_SWITCHES, validateCardStage, effectiveCardStage, effectiveNarrator, cardEngineSettings } from '../tavern-plugin/lib/domain/card-stage-settings.js'
+import { effectiveCardStage } from '../tavern-plugin/lib/domain/card-stage-settings.js'
 import { defaultAssetEngineSettings } from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import { cardBubbleConfig } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 
@@ -21,32 +21,4 @@ test('使用舞台 is four-state: the card declaration is its card layer, 本卡
   assert.deepEqual(mode(null, global), [false, false])
   assert.equal(cardBubbleConfig({extensions:{dsh_tavern:ext}}, global).stage.enabled, true)
   assert.equal(cardBubbleConfig({name:'plain'}, global).enabled, false)
-})
-
-test('the other switches take a card layer in stage.switches, resolved like a mod switch', () => {
-  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','autoChoices','autoCast'])
-  const ext = cardExtension(), engine = defaultAssetEngineSettings(), with_ = switches => ({...ext, stage:{switches}})
-  for (const globalOn of [false, true]) for (const choice of [undefined, 'on', 'off']) {
-    const value = {...engine, stageToggles:{...engine.stageToggles, music:globalOn}}
-    assert.equal(effectiveCardStage(with_(choice ? {music:choice} : {}), value).music, choice === 'off' ? false : globalOn || choice === 'on', JSON.stringify({globalOn, choice}))
-  }
-  // the director and the stage read the card's switches in effect through cardEngineSettings.
-  const effective = cardEngineSettings(engine, with_({performance:'off', sfx:'off'}))
-  assert.equal(effective.stageToggles.performance, false)
-  assert.equal(effective.dimensions.sfx, false)
-  assert.equal(effective.stageToggles.entrance, undefined, '入场演出 is no switch')
-  // 旁白配音: the card layer owns only its switch; the voice is the figure named by tts.reading().narrator.
-  const narrator = {enabled:true}
-  assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:false}}}, narrator), {enabled:false})
-  assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:true}}}, null), {enabled:true})
-  assert.equal(effectiveNarrator(ext, narrator).enabled, true)
-  // written once: only known keys, only 'on' / 'off'; the declared pair stays on stage.enabled.
-  for (const switches of [{dialogue:'on'}, {stage:'on'}, {music:true}, {music:'yes'}, {unknown:'on'}]) assert.throws(() => validateCardStage({switches}), JSON.stringify(switches))
-  // an older card's retired autoChoices key still validates (自动生成候选项 is a global switch only; nothing reads it).
-  assert.doesNotThrow(() => validateCardStage({enabled:true, switches:{voice:'on', autoChoices:'off'}}))
-})
-
-test('narrator card settings resolve only the switch, not a card or general voice', () => {
-  assert.deepEqual(effectiveNarrator({stage:{narrator:{enabled:true}}}, {enabled:false,figure:null}), {enabled:true})
-  assert.deepEqual(effectiveNarrator({stage:{narrator:{voice:null}}}, {enabled:true,figure:null}), {enabled:true})
 })

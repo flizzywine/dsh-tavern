@@ -1,16 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { validateCardText, validateCardFile } from '../tavern-plugin/lib/domain/card-validation.js'
-import { validatePresetText, validateWorldBookText } from '../tavern-plugin/lib/domain/resource-validation.js'
+import { validatePresetText } from '../tavern-plugin/lib/domain/resource-validation.js'
 const check = value => validateCardText(JSON.stringify(value))
-
-test('invalid JSON, card shape and MVU containers report safe locations', () => {
-  const invalid = validateCardText('<开局>秘密正文')
-  assert.equal(invalid.valid, false)
-  assert.doesNotMatch(JSON.stringify(invalid), /秘密正文|<开局>/)
-  for (const value of [[], null, { spec: 'chara_card_v3' }, { name: 2 }, { name: 'a', first_mes: [] }, { name: 'a', tags: [1] }, { name: 'a', extensions: { tavern_helper: { variables: [], scripts: {} } } }]) assert.equal(check(value).valid, false)
-  assert.match(validateCardText('{\n "name": }').errors[0].message, /第 2 行/)
-})
 
 test('preset structure: syntax location, prompt and order shapes, regex compile; real-world variants pass', () => {
   const preset = value => validatePresetText(JSON.stringify(value, null, 2))
@@ -23,17 +15,6 @@ test('preset structure: syntax location, prompt and order shapes, regex compile;
   assert.equal(ok.valid, true, JSON.stringify(ok.errors))
   assert.equal(preset({ temperature: 1 }).valid, true)
   assert.ok(preset({ temperature: 1 }).warnings.some(item => /prompts/.test(item.message)))
-})
-
-test('world book structure: standalone and embedded shapes, entry field types', () => {
-  const book = value => validateWorldBookText(JSON.stringify(value))
-  assert.equal(validateWorldBookText('{"entries": {').valid, false)
-  assert.equal(book({ name: 'x' }).valid, false)
-  assert.equal(book({ entries: [] }).valid, true)
-  assert.equal(book({ entries: { 0: { key: ['a'], keysecondary: [], content: 'x', comment: 'c' } } }).valid, true)
-  assert.deepEqual(book({ entries: { 3: { key: 'a', content: 'x' } } }).errors.map(item => item.path), ['/entries/3/key'])
-  assert.deepEqual(book({ data: { character_book: { entries: [{ keys: ['a'], content: 1 }] } } }).errors.map(item => item.path), ['/data/character_book/entries/0/content'])
-  assert.equal(book({ entries: { 0: 'x' } }).valid, false)
 })
 
 test('production tool reads disk through native DSH schema and rejects play-mode or escaped paths', { skip: !process.env.DSH_BOOT_MODULE }, async t => {

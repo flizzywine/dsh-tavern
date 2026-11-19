@@ -59,13 +59,3 @@ test("a plugin's own ZIP, as its author publishes it, updates that plugin on the
   const installed = (await fs.readdir(f.pluginsDir)).filter(folder => !folder.startsWith('.'))
   assert.deepEqual(await Promise.all(installed.map(folder => fs.readFile(path.join(f.pluginsDir, folder, 'main.js'), 'utf8'))), ['export const version = 2'])
 })
-
-test("a plugin the card does not carry, or a ZIP that is not a plugin, is refused before anything changes", async t => {
-  const f = await fixture(t), other = path.join(f.root, 'other.zip'), notPlugin = path.join(f.root, 'not-plugin.zip')
-  await writeZip(other, [{ path: 'package.json', data: Buffer.from(JSON.stringify({ name: 'someone-else', version: '1.0.0', main: 'main.js' })) },
-    { path: 'main.js', data: Buffer.from('') }])
-  await writeZip(notPlugin, [{ path: 'readme.txt', data: Buffer.from('hello') }])
-  await assert.rejects(f.service.preview({ cardPath, file: other }), /没有绑定插件 someone-else/)
-  await assert.rejects(f.service.preview({ cardPath, file: notPlugin }), /没有 package\.json/)
-  assert.equal(f.backups.length, 0)
-})

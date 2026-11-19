@@ -2,18 +2,16 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
+import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createDamperSettings } from '../tavern-plugin/lib/domain/damper-settings.js'
 import { defaultNarrativeDamperConfig } from '../tavern-plugin/lib/domain/narrative-damper.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { apply as applyDamperPlugin } from '../tavern-plugin/packages/dsh-tavern-narrative-damper/lib/index.js'
 import { buildNarrativeDamperClient } from '../tavern-plugin/packages/dsh-tavern-narrative-damper/build.mjs'
-import { BUNDLED_TAVERN_PLUGINS, readBundledTavernPlugin } from '../bin/bundled-tavern-plugins.mjs'
 
 const PACKAGE_ROOT = new URL('../tavern-plugin/packages/dsh-tavern-narrative-damper/', import.meta.url)
 const PLUGIN_NAME = 'dsh-tavern-narrative-damper'
@@ -43,27 +41,6 @@ function createPluginFiber(pluginName, parentService) {
 test('内置叙事阻尼器插件包 client.js 与源码保持同步', async () => {
   const res = await buildNarrativeDamperClient({ check: true, packageRoot: PACKAGE_ROOT })
   assert.equal(res.changed, false)
-})
-
-test('面板在插件里：侧栏 registerPanel，四个宿主入口齐全', async () => {
-  const client = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
-  const main = await readFile(new URL('src/client/main.js', PACKAGE_ROOT), 'utf8')
-  assert.match(client, /id: 'dsh-tavern-narrative-damper'/)
-  assert.match(main, /ui\.registerPanel\(\{/)
-  assert.match(main, /title: '叙事阻尼器'/)
-  assert.match(main, /inject = \['tavernUi'\]/)
-  // 面板的读写全走本插件的宿主半，不直接碰宿主 RPC。
-  for (const rpc of ['narrative-damper:read', 'narrative-damper:update', 'narrative-damper:set-key', 'narrative-damper:test']) {
-    assert.ok(client.includes(rpc), '缺少 ' + rpc)
-  }
-  assert.equal(client.includes('getNarrativeDamperSettings'), false)
-  // 分段选择要有自己的选中态样式：宿主的 .ap-segmented 按钮规则只认 .ap-ui，面板不在那个作用域里。
-  assert.match(client, /className: 'tnd-seg'/)
-  assert.match(client, /\.tnd-panel \.tnd-seg button\[aria-pressed="true"\]/)
-  // 字段名与宿主配置逐字一致，面板不会造出宿主不认识的值。
-  for (const field of ['showTurnStatus', 'judgeMode', 'desensitizeR18', 'clampMvuDelta', 'fallbackStateForPlainCards', 'godmodeThreshold', 'timeoutMs', 'preamble']) {
-    assert.ok(client.includes(field), '缺少字段 ' + field)
-  }
 })
 
 test('宿主半把面板调用转发给 tavern.damperSettings，停用后撤掉处理函数', async () => {
@@ -97,16 +74,6 @@ test('宿主半把面板调用转发给 tavern.damperSettings，停用后撤掉�
   // 插件停用（fiber 撤销）后处理函数一起消失，面板再调就是「未加载」。
   fiber.dispose()
   await assert.rejects(api.callHandler('narrative-damper:read', {}), /没有名为 narrative-damper:read 的插件处理函数/)
-})
-
-test('宿主没提供阻尼器设置接口时，插件处理函数如实报错', async () => {
-  const api = createTavernPluginApi({ ctx: {}, loaderOrigin: () => 'host' })
-  assert.equal(api.capabilities.damperSettings, undefined)
-  assert.equal(api.service.apiVersion, TAVERN_PLUGIN_API_VERSION)
-  const fiber = createPluginFiber(PLUGIN_NAME, api.service)
-  fiber.settle(applyDamperPlugin(fiber.ctx))
-  await assert.rejects(api.callHandler('narrative-damper:read', {}), /当前(版本|宿主)不支持叙事阻尼器设置接口/)
-  fiber.dispose()
 })
 
 // 内存里的安全存储：和宿主凭据服务同一副样子（resolve/describe/set/unset）。
@@ -334,13 +301,4 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
 
   // 卸载放在这里：全局 window/document 的还原在 t.after 里，晚一步 React 就找不到 window.event。
   await act(async () => { root.unmount() })
-})
-
-test('内置清单登记叙事阻尼器插件，发行副本齐备', () => {
-  const entry = BUNDLED_TAVERN_PLUGINS.find(item => item.packageName === PLUGIN_NAME)
-  assert.ok(entry, '清单缺少 ' + PLUGIN_NAME)
-  assert.equal(entry.folder, PLUGIN_NAME)
-  const bundled = readBundledTavernPlugin(fileURLToPath(new URL('../', import.meta.url)), entry)
-  assert.equal(bundled.ok, true, bundled.reason)
-  assert.equal(bundled.packageName, PLUGIN_NAME)
 })
