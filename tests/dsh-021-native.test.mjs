@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -9,6 +9,13 @@ import { patchChatAnswerStep, patchChatSource } from '../bin/chat-answer-step-pa
 import { installHostSubprocessPatch } from '../tavern-plugin/lib/domain/host-subprocess-patch.js'
 
 const native = { skip: !process.env.DSH_BOOT_MODULE }
+
+async function copyClientFiles(source, directory, names) {
+  await mkdir(path.join(directory, 'lib'), { recursive: true })
+  // Electron can read individual ASAR entries. fs.cp cannot traverse the virtual tree.
+  await writeFile(path.join(directory, 'package.json'), await readFile(path.join(source, 'package.json')))
+  for (const name of names) await writeFile(path.join(directory, 'lib', name), await readFile(path.join(source, 'lib', name)))
+}
 
 async function restorePristineFontLimit(directory) {
   for (const name of ['index.js', 'client.js']) {
@@ -25,7 +32,7 @@ test('目标宿主字号补丁只扩大正文字号，重复安装幂等，锚�
   const source = path.dirname(require.resolve('@deepseek-ai/dsh-client-ui-theme/package.json'))
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-theme-native-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
-  await cp(source, directory, { recursive: true })
+  await copyClientFiles(source, directory, ['index.js', 'client.js'])
   // A host installed through Tavern is already patched; start every run from the pristine anchors.
   await restorePristineFontLimit(directory)
   assert.equal(patchThemeFontLimit(directory), true)
@@ -36,7 +43,7 @@ test('目标宿主字号补丁只扩大正文字号，重复安装幂等，锚�
     assert.match(code, /variable\s*:\s*(["'`])--dsh-code-font-size\1\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*16\s*,/)
     assert.match(code, /variable\s*:\s*(["'`])--dsh-terminal-font-size\1\s*,\s*min\s*:\s*10\s*,\s*max\s*:\s*20\s*,/)
   }
-  await cp(source, directory, { recursive: true })
+  await copyClientFiles(source, directory, ['index.js', 'client.js'])
   await restorePristineFontLimit(directory)
   const client = path.join(directory, 'lib/client.js')
   const host = path.join(directory, 'lib/index.js')
@@ -71,7 +78,7 @@ test('目标宿主对话界面补丁：末尾只有替换的编辑步骤不再�
   const source = path.dirname(require.resolve('@deepseek-ai/dsh-client-ui-chat/package.json'))
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-chat-native-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
-  await cp(source, directory, { recursive: true })
+  await copyClientFiles(source, directory, ['client.js'])
   const client = path.join(directory, 'lib', 'client.js')
   const pristine = await readFile(client, 'utf8')
   // A host installed through Tavern is already patched; that counts as installed.
@@ -80,7 +87,8 @@ test('目标宿主对话界面补丁：末尾只有替换的编辑步骤不再�
   assert.equal(patchChatAnswerStep(directory), false)
   const code = await readFile(client, 'utf8')
   // Run the patched function against Turn shapes; the two helpers mirror the host's own.
-  const body = code.match(/function latestAnswer\(turn\) \{[\s\S]*?\n\t\t\}/)[0]
+  const { sourceFunction } = await import('./fixtures/source-function.mjs')
+  const body = sourceFunction(code, 'latestAnswer')
   const latestAnswer = new Function('isFinalAssistant', 'hasAssistantReplyContent', body + '\nreturn latestAnswer')(
     data => data?.finalNode !== undefined,
     blocks => blocks.some(block => block.kind === 'text' && block.text.trim() !== ''))
@@ -95,7 +103,7 @@ test('目标宿主对话界面补丁：末尾只有替换的编辑步骤不再�
   assert.equal(latestAnswer({ steps: [step(final), step(toolStep)] }), null, 'a trailing tool call is still not an answer')
   assert.equal(latestAnswer({ steps: [] }), null, 'turn without steps')
   // A chat view that no longer reads the last step is left untouched.
-  const drifted = pristine.replace(/function latestAnswer\(turn\) \{[\s\S]*?\n\t\t\}/, 'function latestAnswer(turn) {\n\t\t\treturn null;\n\t\t}')
+  const drifted = pristine.replace(sourceFunction(pristine, 'latestAnswer'), 'function latestAnswer(turn) { return null }')
   await writeFile(client, drifted)
   assert.equal(patchChatAnswerStep(directory), null)
   assert.equal(await readFile(client, 'utf8'), drifted)

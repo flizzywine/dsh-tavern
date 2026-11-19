@@ -393,7 +393,11 @@ if (!process.env.P4C_HOST_CHILD) {
   test('production apply passes the live factory to stage and uses its real recall reader', async () => {
     const home = await mkdtemp(join(tmpdir(), 'p4c-host-'))
     try {
-      const child = spawnSync(process.execPath, ['--import', new URL('./fixtures/host-session-patch-preload.mjs', import.meta.url).href, fileURLToPath(import.meta.url)], { encoding: 'utf8', timeout: 90000,
+      const child = spawnSync(process.execPath, [
+        '--import', new URL('./fixtures/host-runtime-preload.mjs', import.meta.url).href,
+        '--import', new URL('./fixtures/host-session-patch-preload.mjs', import.meta.url).href,
+        fileURLToPath(import.meta.url)
+      ], { encoding: 'utf8', timeout: 90000,
         env: { ...process.env, DSH_HOME: home, P4C_HOST_CHILD: '1' } })
       assert.equal(child.status, 0, child.stdout + child.stderr)
     } finally { await rm(home, { recursive: true, force: true }) }

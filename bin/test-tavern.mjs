@@ -24,6 +24,7 @@ console.log(`测试使用 DSH ${runtime.version}：${runtime.boot}`)
 const runtimePreload = pathToFileURL(path.join(SOURCE_ROOT, 'tests/fixtures/host-runtime-preload.mjs')).href
 // Fixtures spawn their own Node/Electron processes. Keep their package lookup on
 // this installation too; the session patch remains an explicit test-runner hook.
+// Desktop Electron may ignore NODE_OPTIONS, so the runner also loads the resolver explicitly.
 runtime.env.NODE_OPTIONS = [runtime.env.NODE_OPTIONS, '--import=' + runtimePreload].filter(Boolean).join(' ')
 runtime.env.DSH_TEST_NODE_EXECUTABLE = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
 
@@ -35,6 +36,7 @@ const tests = selected.length ? selected : ['tests', 'testsets/tests'].flatMap(d
     .sort()
     .map(name => path.join(SOURCE_ROOT, directory, name)))
 const result = spawnSync(runtime.command, [...runtime.args,
+  '--import', runtimePreload,
   '--import', pathToFileURL(path.join(SOURCE_ROOT, 'tests/fixtures/host-session-patch-preload.mjs')).href, '--test', ...tests], {
   cwd: SOURCE_ROOT,
   env: runtime.env,
