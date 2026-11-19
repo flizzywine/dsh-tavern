@@ -681,18 +681,23 @@ test('temporary outfit guidance and carried state let the director restore defau
 })
 
 // editing opening order is not a reset of an already worn outfit.
-test('adding an empty opening outfit preserves an existing stage outfit until explicit reset', async () => {
+test('the director skips an empty opening outfit for selection and reset without disturbing carry', async () => {
   const f = await fixture(), tx = transact(f.prepare())
   assert.equal(tx.submit(batch([{op:'cast.add',actor:ACTOR},{op:'actor.outfit.set',actor:ACTOR,outfit:'casual'}])).ok,true)
   const record=tx.effect(), saved=clone(record)
-  f.input.snapshots[0].figures[FIGURE_ID].outfits.unshift({key:'empty',label:'Empty',enabled:true})
+  f.input.snapshots[0].figures[FIGURE_ID].outfits.unshift({key:'empty',label:'Unfinished costume',enabled:true,recall:{mode:'constant'}})
+  assert.equal(f.prepare().baseline.actors[ACTOR].outfitKey,'school')
   const next=prepareAssetPackDirector({...f.input,record}), noop=transact(next)
+  assert.deepEqual(next.context.actors[ACTOR].outfits.map(outfit=>outfit.key),['school','casual'])
+  const request=buildAssetPackRequest(next,true,undefined,'',true)
+  assert.doesNotMatch(request.sections.find(row=>row.key==='actors.constant').text,/Unfinished costume/)
+  assert.equal(transact(next).submit(batch([{op:'actor.outfit.set',actor:ACTOR,outfit:'empty'}])).ok,false)
   assert.equal(next.baseline.actors[ACTOR].outfitKey,'casual')
   assert.equal(noop.submit(batch([],{beats:[]})).ok,true)
   assert.equal(noop.effect().end.actors[ACTOR].outfitKey,'casual')
   const reset=transact(next)
   assert.equal(reset.submit(batch([{op:'actor.outfit.reset',actor:ACTOR}])).ok,true)
-  assert.equal(reset.effect().end.actors[ACTOR].outfitKey,'empty')
+  assert.equal(reset.effect().end.actors[ACTOR].outfitKey,'school')
   assert.deepEqual(record,saved)
 })
 

@@ -67,26 +67,22 @@ export function frozenActors(extension, snapshots, state, globalEnabledPackIds =
   const rows = selected || figureCatalogue({snapshots,bindings:extension.assetBindings,globalEnabledPackIds,roster:state?.actors})
   for (const row of rows) {
     const {actorKey:alias, figure, ref} = row
-    if (!figure.enabled || figure.appearance === 'avatar') continue
-    const character = figure
-    // a newly reordered empty opening outfit must not evict a valid carried stage outfit.
-    const carried = state?.actors?.[alias]
-    const current = carried?.figure?.packId === ref.packId && carried?.figure?.figureId === ref.figureId
-      ? figure?.outfits.find(outfit => outfit.enabled && outfit.key === carried.outfitKey) : null
-    const opening = figure?.outfits.find(outfit => outfit.enabled)
-    if (packAvatar.packAppearance(current || opening, character.appearance).form === 'avatar') continue
-    const outfits = (figure?.outfits || []).filter(outfit => outfit.enabled).map(outfit => {
-      const form = packAvatar.packAppearance(outfit, character.appearance).form
+    if (!figure.enabled) continue
+    // One catalogue supplies choices, initialization and reset. Portrait-only outfits stay in the library.
+    const outfits = figure.outfits.flatMap(outfit => {
+      if (!outfit.enabled) return []
+      const {form} = packAvatar.packAppearance(outfit, figure.appearance)
+      if (form === 'avatar') return []
       const derive = a => figureScale.packHeadRelativeAnatomy(a, figureHeadReference(figure))
       const spriteAnatomy = Object.fromEntries(Object.entries(outfit.sprite?.anatomy || {}).map(([id, a]) => [id, derive(a)]))
       const anatomy = form === 'sprite' ? Object.values(spriteAnatomy) : [outfit[form]?.anatomy].filter(Boolean).map(derive)
       // the outfit's 使用情景 travels with it; empty adds nothing.
-      return {key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:form !== 'avatar' ? {heightCm:figure.heightCm ?? 150,
-        headRatio:Math.max(0, ...anatomy.map(a => a.headRatio)) || 1, elevationCm:figure.elevationCm ?? 0} : null}
+      return [{key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:{heightCm:figure.heightCm ?? 150,
+        headRatio:Math.max(0, ...anatomy.map(a => a.headRatio)) || 1, elevationCm:figure.elevationCm ?? 0}}]
     })
     // figure order initializes outfits; carry keeps valid story state.
     if (!outfits.length) continue
-    actors[alias] = { figure: ref, emotions:figureEmotionRows(figure), outfits, name: character.name, constant:figure.recall.mode === 'constant', ruler: outfits[0]?.ruler || null }
+    actors[alias] = { figure: ref, emotions:figureEmotionRows(figure), outfits, name: figure.name, constant:figure.recall.mode === 'constant', ruler: outfits[0].ruler }
   }
   return actors
 }
