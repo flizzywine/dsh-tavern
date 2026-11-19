@@ -2102,13 +2102,14 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .dsh-session-rows > :is(.fork-inline-field, .ap-switch-row) + :is(.fork-inline-field, .ap-switch-row) { border-top: 1px dashed var(--ap-border); }
 .dsh-session-rows > .fork-inline-field { grid-template-columns: minmax(4em, max-content) minmax(0, 1fr); min-height: 42px; }
 .dsh-session-rows > .fork-inline-field > .fork-inline-label { color: var(--fork-ink); font-weight: 500; }
-.dsh-session-rows > .fork-inline-field > .fork-inline-value { justify-content: flex-end; margin: 0 -6px 0 0; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-value { justify-content: flex-end; margin: 0; }
+/* A menu's chevron aligns with the switches; text boxes keep their own edge. */
+.dsh-session-rows > .fork-inline-field:is([data-kind=menu], [data-kind=custom]) > .fork-inline-value { margin-right: -6px; }
 .dsh-session-rows > .fork-inline-field > .fork-inline-error { grid-column: 1 / -1; justify-self: end; margin-top: -6px; text-align: right; }
 .dsh-session-rows > .fork-inline-field input.fork-inline-input { text-align: right; }
 /* 后台模型: model · effort side by side at the right edge, the effort wrapping under the model when the row is narrow. */
 .dsh-session-model-picks { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0 2px; min-width: 0; }
 .dsh-session-model-picks > .fork-inline-field { min-width: 0; min-height: 0; }
-.dsh-session-rows > .fork-inline-field.dsh-session-model > .fork-inline-value { margin-right: -6px; }
 /* 舞台: the row into 舞台设置, its state at the right edge where 基础设置 puts its switches. */
 .ap-switch-main > .dsh-session-stage-state { display: inline-flex; align-items: center; order: 3; color: var(--fork-ink-2); font-weight: 400; white-space: nowrap; }
 .ap-switch-main > .dsh-session-tool-source { order: 2; }
@@ -3207,6 +3208,8 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
   --dsw-specific-menu: var(--fk-current-bgSolid); --dsw-specific-input-major: var(--fk-current-bgSolid); --dsw-alias-bg-layer-1: var(--fk-current-hover); --dsw-alias-bg-layer-2: var(--fk-current-hover);
   --dsw-alias-label-primary: var(--fk-current-fg); --dsw-alias-label-secondary: var(--fk-current-fgMuted); --dsw-alias-label-tertiary: var(--fk-current-fgMuted); --dsw-alias-label-caption: var(--fk-current-fgMuted);
   --dsw-alias-interactive-bg-hover: var(--fk-current-hover); --dsw-alias-interactive-bg-active: var(--fk-current-selected); --dsw-alias-border-l2: var(--fk-current-line);
+  /* Keep text boxes and off switches visible when the host and panel use opposite color schemes. */
+  --dsw-alias-bg-base: var(--fk-current-bgSolid); --dsw-alias-border-l3: var(--fk-current-line);
   background: var(--fk-current-bgSolid, Canvas); color: var(--fk-current-fg, CanvasText);
 }
 /* Accent fills everywhere in chat: the table's fill (the accent deepened just enough for white glyphs) and its glyph. */
