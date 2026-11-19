@@ -15,14 +15,16 @@ for (const reject of [false,true]) for (const toolName of ['submit_direction','s
   const { boot } = await import(bootUrl.href)
   const { LlmAdapter } = await import(new URL('../../dsh-llm/lib/index.js', bootUrl))
   const root = await mkdtemp(join(tmpdir(), 'tavern-director-native-'))
-  // the designated Windows executor forbids recursive cleanup.
-  if (!process.env.DSH_KEEP_TEST_DATA) t.after(() => rm(root, { recursive: true, force: true }))
   const config = join(root, 'host.yml')
   const toolExecutor = await import(new URL('../../dsh-tool-executor-native/lib/index.js', bootUrl)).then(() => ['dsh-tool-executor-native'], () => [])
   const packages = ['dsh-system-prompt', 'dsh-tools', ...toolExecutor, 'dsh-agent', 'dsh-llm', 'dsh-session', 'dsh-session-projection', 'dsh-session-persistence-jsonl', 'dsh-token-meter', 'dsh-agent-loop']
   await writeFile(config, packages.map(name => '- id: ' + name + '\n  name: ' + new URL('../../' + name + '/lib/index.js', bootUrl).href + (name === 'dsh-session-persistence-jsonl' ? '\n  config:\n    root: ' + join(root, 'sessions') + '\n    compression: none' : '') + '\n').join(''))
   const ctx = await boot('director-native-test', config)
-  t.after(() => ctx.fiber.dispose())
+  // The host keeps writing session files until it is disposed: remove the data only after that.
+  t.after(async () => {
+    await ctx.fiber.dispose()
+    if (!process.env.DSH_KEEP_TEST_DATA) await rm(root, { recursive: true, force: true })
+  })
   const requests = [], deltas = []
   class Model extends LlmAdapter {
     async resolveModel(provider, model) { return { provider, id: model, name: model } }
