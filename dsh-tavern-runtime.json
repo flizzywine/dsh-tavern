@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "82a1a5116151eaf07aba90fa298e9df631c05b4f",
-  "releaseSequence": 1825,
+  "revision": "837e62d9e3b6ce13c5dabefa55d949358d61b28d",
+  "releaseSequence": 1826,
   "version": "3.3.0",
   "files": [
     {
@@ -1076,8 +1076,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "2b364f64c715ec57120bb56384b1d581b8c98c9e3ed51bf1288a4d14f383b2da",
-      "size": 6410839
+      "sha256": "e20b19f25d4a8032d404902ee18bbf7f273fd8632fce63d8b04e1a167c2825de",
+      "size": 6410899
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3041,8 +3041,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/rollback-surface.js",
-      "sha256": "0c266ed202059dc57d785d921726fc3f5c5fcdd85116a9768a780045d53b6d58",
-      "size": 68442
+      "sha256": "dac89a305daa26379c4f47490b207b85b974b0f406d95307ada64114bbcb2cbb",
+      "size": 68998
     },
     {
       "path": "tavern-plugin/lib/domain/round-anchor.js",
@@ -3056,8 +3056,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/round-history.js",
-      "sha256": "25d3a43d73e0857dcd64e01d588ec890db2f480f3d7553a1cd86d9931cbedd2f",
-      "size": 107558
+      "sha256": "7d330c13ce613223bfa9a804fd82156e9697722268f2ddfd58ebc78534a6d198",
+      "size": 107736
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-content-projection.js",
@@ -3246,8 +3246,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-turn-input.js",
-      "sha256": "db057e601de0187b374289f974d774e22d516ea0b4080f98167fa9da4dbae538",
-      "size": 4180
+      "sha256": "639a9e9b80e005401a9301f0edca647f7e8a3a9db71babbb77c516bf05911626",
+      "size": 4254
     },
     {
       "path": "tavern-plugin/lib/domain/session-turn-result.js",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "a1756a0a56756033e83b65bc4bbba921dd43b16b",
+    "commit": "d9fdd42cabb9e68c7e72da55003bd1384b7d0a3c",
     "path": "runtime.zip",
-    "sha256": "278d87a8027a18243c26fe8933ecfd17df934e39abd667c34325444cc68205ed",
-    "size": 17005781
+    "sha256": "14bedba1d6a66823355de5ecf953f9a649a1f508d4ef3575e759319702bbe176",
+    "size": 17005990
   }
 }
