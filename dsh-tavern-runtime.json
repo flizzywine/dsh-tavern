@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8e662afef1c03f8b47e6652774095f7aea411073",
-  "releaseSequence": 1816,
+  "revision": "904a507e44c02de848a87b08989f8bbf1a506db4",
+  "releaseSequence": 1817,
   "version": "3.3.0",
   "files": [
     {
@@ -606,8 +606,8 @@
     },
     {
       "path": "presets/tavern/skills/card-to-mvu/SKILL.md",
-      "sha256": "f34679a87ac68184cfc35248493e8dccd9962bdf8bd1195c65f11b1e8d1f9367",
-      "size": 3640
+      "sha256": "c08b1e8fe7dcfb2475a12c24d175a4ba65dbdc39038cfa64f2efd3a331fbbc2f",
+      "size": 3965
     },
     {
       "path": "presets/tavern/skills/create-card/SKILL.md",
@@ -616,8 +616,8 @@
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/references/format-and-stage.md",
-      "sha256": "b6df6feb151f0c1c62ddd06822827285f304f7480d1e83b7c7f3da278d456626",
-      "size": 6207
+      "sha256": "6de8146e4b2bea59c1a6a00d1520af22ab8e5b61d1b43273a2907690c194af83",
+      "size": 6305
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/SKILL.md",
@@ -911,8 +911,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-ui.md",
-      "sha256": "5c8b607f405e599e4cde4d2396f180af3dafb68c97f9e9151bd84fb04c54f1ff",
-      "size": 36066
+      "sha256": "b40a42408740db33e7b9d3750e429d4b5c076c35213893d141a552e6ca7a932f",
+      "size": 36203
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
@@ -1026,8 +1026,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "b9cad1b575134154e7c1be4f185b8d52dabfc2e2efdba30ff4656bcde3c5704b",
-      "size": 448260
+      "sha256": "cceb8e7fa1064abc40e27e84b9dd2379627c75b7576813cee4c810cf43fceddb",
+      "size": 451227
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1076,8 +1076,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "c68761458dd70688e2ed2afbf5c37e1a3f3c6396ee7006d97b230f11bfb494f2",
-      "size": 6396988
+      "sha256": "6b5485a11c87ec55d555fd8baefd6eac0025784495dfda926d09f64b2cd5a743",
+      "size": 6399472
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -9606,9 +9606,9 @@
     }
   ],
   "archive": {
-    "commit": "8d9a4336096dfd3d3c3a90d3138610871fdfaa5c",
+    "commit": "c8a498370ba204082dd864adf2c92bde59effaf4",
     "path": "runtime.zip",
-    "sha256": "2d90087b91b4c001e91361c1bfe9d178c52de102cedd42ea3825531b57006e61",
-    "size": 16994669
+    "sha256": "8f0faf1b79958e84d8e82d2c7a0507e1d6b59f7f9b16ebb9fbfa3173796e8db9",
+    "size": 16995867
   }
 }
