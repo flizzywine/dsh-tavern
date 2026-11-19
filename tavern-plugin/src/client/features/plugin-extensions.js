@@ -1127,7 +1127,15 @@
 				React.createElement(TavernTurnPluginView, { view: view, input: Object.assign({}, input, { children: fallback }), fallback: fallback }));
 		}
 
-		function TavernPluginStatusSection(props) { return props.section.render({ gameId: props.sessionId }) || null; }
+		function tavernPluginStatusSection(title, body) {
+			const h = React.createElement;
+			return h("section", { className: "dsh-tavern-status-section dsh-tavern-plugin-status-section" },
+				h("div", { className: "dsh-tavern-status-label" }, title), body);
+		}
+		function TavernPluginStatusSection(props) {
+			const body = props.section.render({ gameId: props.sessionId });
+			return body ? tavernPluginStatusSection(props.section.title, body) : null;
+		}
 		/** Plugins' own sections of 酒馆状态, and the switch for how turn text is shown when a plugin offers one. */
 		function TavernPluginStatusSections(props) {
 			const h = React.createElement;
@@ -1139,10 +1147,9 @@
 					h("div", { className: "dsh-tavern-status-label" }, "正文样式"),
 					h(TavernPluginViewSwitch, { choice: turnView, label: "正文样式", className: "dsh-tavern-turn-view-switch" })) : null,
 				sections.map(function (section) {
-					return h("section", { key: section.key, className: "dsh-tavern-status-section dsh-tavern-plugin-status-section" },
-						h("div", { className: "dsh-tavern-status-label" }, section.title),
-						h(tavernPluginBoundary(), { owner: section.owner, fallback: h("div", { className: "dsh-tavern-plugin-error" }, "插件 " + section.owner + " 的内容出错了") },
-							h(TavernPluginStatusSection, { section: section, sessionId: props.sessionId })));
+					const error = h("div", { className: "dsh-tavern-plugin-error" }, "插件 " + section.owner + " 的内容出错了");
+					return h(tavernPluginBoundary(), { key: section.key + ":" + props.sessionId, owner: section.owner, fallback: tavernPluginStatusSection(section.title, error) },
+						h(TavernPluginStatusSection, { section: section, sessionId: props.sessionId }));
 				}));
 		}
 		/** Plugins' header tools of a game (registerHeaderTool): in the header, or as rows of the phone's ⋯ menu (menu). */

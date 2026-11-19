@@ -374,11 +374,7 @@ function PlotCompassComposerTool({ ui, sessionId, busy }) {
 function PlotCompassStatusSection({ ui, gameId }) {
   const id = String(gameId || '')
   const { state } = usePlotCompassState(ui, id)
-  if (!id) {
-    return h('div', { className: 'dsh-tavern-compass-status-box' },
-      h('p', { className: 'dsh-tavern-compass-desc' }, '打开游玩会话后可在此查看当前锚定路线。')
-    )
-  }
+  if (!id || state.enabled !== true) return null
   const compass = state.plotCompass || pcEmptyCompass()
   const active = pcActiveCompassSummary(compass)
   const activeGoal = pcActiveGoal(compass)
@@ -386,13 +382,11 @@ function PlotCompassStatusSection({ ui, gameId }) {
 
   return h('div', { className: 'dsh-tavern-compass-status-box' },
     h('p', { className: 'dsh-tavern-compass-desc' },
-      state.enabled
-        ? (task.status === 'running'
-          ? '状态：后台推演中…'
-          : (compass.basedOnTurn > 0 ? '状态：已开启（基于第 ' + compass.basedOnTurn + ' 轮）' : '状态：已开启，尚未推演'))
-        : '状态：本局未开启剧情罗盘'
+      task.status === 'running'
+        ? '状态：后台推演中…'
+        : (compass.basedOnTurn > 0 ? '状态：已开启（基于第 ' + compass.basedOnTurn + ' 轮）' : '状态：已开启，尚未推演')
     ),
-    state.enabled && (active.count > 0 || activeGoal)
+    active.count > 0 || activeGoal
       ? h('div', { className: 'dsh-tavern-compass-funnel-items' },
           activeGoal ? h('span', { className: 'dsh-tavern-compass-funnel-chip is-goal' }, '🎯 ' + activeGoal.horizonLabel + '目标：' + activeGoal.text) : null,
           active.shortTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip' }, '今期：' + active.shortTerm.title) : null,

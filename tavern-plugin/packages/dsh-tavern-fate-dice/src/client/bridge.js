@@ -411,6 +411,7 @@ const fdRuntimeFlags = {
 const fdTurnCacheByGame = new Map()
 const fdPendingTurnBatches = new Map()
 const fdBootstrapByUi = new WeakMap()
+const fdSavedSettingsListeners = new Set()
 const FD_MAX_CACHED_GAMES = 16
 const FD_MAX_CACHED_TURNS_PER_GAME = 256
 
@@ -730,7 +731,10 @@ function fdPersistSettings(ui, settings) {
   })
   fdInvalidateTurnCache('')
   return fdCall(ui, FD_RPC.saveSettings, { settings: normalized }).then(res => {
-    if (res && res.ok && res.data) fdNoteRuntimeFlags('', res.data)
+    if (res.ok && res.data?.ok && res.data.settings) {
+      fdNoteRuntimeFlags('', res.data)
+      fdSavedSettingsListeners.forEach(listener => listener(res.data.settings))
+    }
     return { ...res, local: true }
   })
 }

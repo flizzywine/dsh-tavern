@@ -50,7 +50,9 @@ function apply(ctx) {
     pcRegisterSafely(ctx, 'plot-compass: status section', () => ui.registerStatusSection({
       id: 'plot-compass-status',
       title: '剧情罗盘',
-      render: ({ gameId } = {}) => h(PlotCompassStatusSection, { ui, gameId })
+      render: function RenderPlotCompassStatus({ gameId }) {
+        return PlotCompassStatusSection({ ui, gameId })
+      }
     }))
   }
 }

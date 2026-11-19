@@ -19,7 +19,6 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     folder: 'dsh-tavern-plot-compass',
     packageName: 'dsh-tavern-plot-compass',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-plot-compass'],
-    defaultDisabled: true,
   },
   {
     folder: 'dsh-tavern-narrative-damper',
@@ -35,7 +34,6 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     folder: 'dsh-tavern-fate-dice',
     packageName: 'dsh-tavern-fate-dice',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-fate-dice'],
-    defaultDisabled: true,
   },
 ])
 
@@ -134,26 +132,23 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     for (const file of REQUIRED) if (!existsSync(path.join(staging, file))) throw new Error('内置插件复制后缺少 ' + file)
     const digest = treeDigest(staging)
     const recorded = readJson(path.join(target, SOURCE_FILE))
-    // Apply the opt-in default once to fresh installs and older bundled copies.
-    const applyDisabledDefault = definition.defaultDisabled
-      && (!replacing || (recorded?.kind === 'builtin' && recorded.defaultDisabled !== true))
+    // The old installer wrote an empty marker. The plugin manager records manual disables as JSON.
+    const restoreLoadDefault = recorded?.kind === 'builtin' && recorded.defaultDisabled === true
     const unchanged = replacing
-      && !applyDisabledDefault
+      && !restoreLoadDefault
       && comparePluginVersions(bundled.version, installedVersion || '') === 0
       && String(recorded?.digest || '') === digest
     if (unchanged) {
       rmSync(staging, { recursive: true, force: true })
       return { action: 'skipped', reason: '已装的插件与内置副本相同，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
-    writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({
-      kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString(),
-      defaultDisabled: definition.defaultDisabled,
-    }, null, 2) + '\n')
+    writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
     const disabledFile = path.join(target, DISABLED_FILE)
-    if (replacing && existsNoFollow(disabledFile) && lstatSync(disabledFile).isFile()) {
-      copyFileSync(disabledFile, path.join(staging, DISABLED_FILE))
-    } else if (applyDisabledDefault) {
-      writeFileSync(path.join(staging, DISABLED_FILE), '')
+    if (replacing && existsNoFollow(disabledFile)) {
+      const marker = lstatSync(disabledFile)
+      if (marker.isFile() && (!restoreLoadDefault || marker.size > 0)) {
+        copyFileSync(disabledFile, path.join(staging, DISABLED_FILE))
+      }
     }
     if (replacing) {
       rmSync(retired, { recursive: true, force: true })

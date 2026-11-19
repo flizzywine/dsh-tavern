@@ -420,6 +420,7 @@ ctx.tavernUi.registerStatusSection({ id: 'scene', title: '当前场景', render:
 ```
 
 - `id` 规则同 `registerPanel`；`title` 1–20 字，Tavern 画成这一节的标题。
+- `render` 返回 `null` 时隐藏整节。`render` 可以是使用 React hooks 的组件函数，直接返回 `null` 或该节的内容。
 - 出错时这一节只显示一行错误，状态页其余部分照常。卡内插件的分节只出现在它那张卡的局里。插件卸载时自动移除。
 
 ## `registerTurnView({ id, label, render })`（第 3 版）

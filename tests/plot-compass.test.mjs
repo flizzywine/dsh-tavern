@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import vm from 'node:vm'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createStoryEvents } from '../tavern-plugin/lib/domain/story-events.js'
 import { apply as applyPlotCompass } from '../tavern-plugin/packages/dsh-tavern-plot-compass/lib/index.js'
@@ -31,6 +32,40 @@ test('内置剧情罗盘插件包 client.js 与源码保持同步', async () => 
   const packageRoot = new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/', import.meta.url)
   const res = await buildPlotCompassClient({ check: true, packageRoot })
   assert.equal(res.changed, false)
+})
+
+test('剧情罗盘已加载时，本局开关控制状态区和输入框入口', async () => {
+  const client = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  let enabled = false
+  let mod
+  const react = {
+    useState: initial => [{ ...initial, enabled }, () => {}],
+    useEffect() {},
+    createElement: (type, props, ...children) => ({ type, props, children }),
+  }
+  vm.runInNewContext(client, { window: { __ModuleLoader__: {
+    load({ factory }) { mod = factory(() => react) },
+  } } })
+  let panel, status, composer
+  mod.apply({ tavernUi: {
+    registerPanel: entry => { panel = entry },
+    registerComposerTool: entry => { composer = entry },
+    registerStatusSection: entry => { status = entry },
+  } })
+  assert.equal(panel.title, '剧情罗盘')
+  const renderStatus = () => status.render({ gameId: 'g1' })
+  const renderComposer = () => {
+    const tool = composer.render({ sessionId: 'g1' })
+    return tool.type(tool.props)
+  }
+  assert.equal(renderStatus(), null)
+  assert.equal(renderComposer(), null)
+  enabled = true
+  assert.ok(renderStatus())
+  assert.ok(renderComposer())
+  enabled = false
+  assert.equal(renderStatus(), null)
+  assert.equal(renderComposer(), null)
 })
 
 test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落注入、世界书扫描、归卷事件、模型解析与 RPC 全链路', async () => {

@@ -334,6 +334,7 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   let input = null
   plugin.registerTurnView({ id: 'bubble', label: '气泡', render: value => { input = value; return value.settled ? ['wrapped', value.children] : null } })
   plugin.registerStatusSection({ id: 'scene', title: '当前场景', render: ({ gameId }) => 'scene:' + gameId })
+  plugin.registerStatusSection({ id: 'hidden', title: '隐藏标题', render: () => null })
   assert.throws(() => plugin.registerTurnView({ id: 'bubble', label: '重复', render() {} }), /已注册/)
   assert.throws(() => plugin.registerStatusSection({ id: 'Bad', title: 'x', render() {} }), /id/)
   assert.throws(() => plugin.registerStatusSection({ id: 'x', title: '', render() {} }), /title/)
@@ -360,11 +361,13 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   assert.equal(view.tavernTurnViewElement(null, {}, 'tavern-body'), 'tavern-body')
 
   const page = view.TavernPluginStatusSections({ sessionId: 'game-1' })
-  const [turnSwitch, section] = page.children
+  const [turnSwitch, sectionBoundary, hiddenBoundary] = page.children
   assert.equal(turnSwitch.children[0].children[0], '正文样式')
+  const content = sectionBoundary.children[0]
+  const section = content.type(content.props)
   assert.equal(section.children[0].children[0], '当前场景')
-  const content = section.children[1].children[0]
-  assert.equal(content.type(content.props), 'scene:game-1')
+  assert.equal(section.children[1], 'scene:game-1')
+  assert.equal(hiddenBoundary.children[0].type(hiddenBoundary.children[0].props), null)
 })
 
 test('消息按钮：when 拿得到这条消息的正文，可以只在合适的消息下显示', () => {

@@ -54,6 +54,45 @@ test('内置命运之骰插件包 client.js 与源码保持同步', async () => 
   assert.equal(res.changed, false)
 })
 
+test('客户端默认只注册命运之骰面板，功能开关控制其余入口', async () => {
+  const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
+  let mod
+  vm.runInNewContext(clientCode, { console: quiet, window: { __ModuleLoader__: {
+    load({ factory }) { mod = factory(() => ({})) },
+  } } })
+  const registrations = new Set()
+  const register = id => {
+    assert.equal(registrations.has(id), false, '每个入口只能注册一次')
+    registrations.add(id)
+    return () => registrations.delete(id)
+  }
+  const cleanups = []
+  const ui = {
+    registerPanel: () => register('panel'),
+    registerMediaRenderer: () => register('capsule'),
+    registerTurnView: () => register('turn-view'),
+    registerStatusSection: () => register('status'),
+    async callHost(name, payload) {
+      if (name === 'fate-dice:status') return { settings: { enabled: false } }
+      assert.equal(name, 'fate-dice:save-global-settings')
+      return { ok: true, settings: payload.settings }
+    },
+  }
+  mod.apply({ tavernUi: ui, effect: setup => cleanups.push(setup()) })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual([...registrations], ['panel'])
+
+  await mod.__test.fdPersistSettings(ui, { enabled: true })
+  assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
+  await mod.__test.fdPersistSettings(ui, { enabled: false })
+  assert.deepEqual([...registrations], ['panel'])
+  await mod.__test.fdPersistSettings(ui, { enabled: true })
+  assert.equal(registrations.has('status'), true)
+
+  for (const cleanup of cleanups) cleanup()
+  assert.equal(registrations.size, 0)
+})
+
 test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停用后清理', async () => {
   const api = createTavernPluginApi({
     ctx: {},

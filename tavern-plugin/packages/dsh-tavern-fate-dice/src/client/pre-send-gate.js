@@ -605,6 +605,7 @@ function fdMountPreSendGate(ui) {
     fdPreSendGate.offWatch = fdNoop
     fdPreSendGate.offGame = fdNoop
     fdPreSendGate.offEvents = fdNoop
+    fdPreSendGate.gameId = ''
     fdClearPreSendGate()
     const node = fdPreSendGate.root
     fdPreSendGate.root = null
