@@ -20939,20 +20939,19 @@ function tavernModelRefusalNotice(text) {
 		    const focused = owners.filter(function (owner) { return owner.ownsFrame(doc.activeElement); });
 		    if (focused.length === 1) { state.lastOwner = focused[0]; return focused[0]; }
 		    if (state.lastOwner && state.owners.has(state.lastOwner)) return state.lastOwner;
-		    if (owners.length === 1) { state.lastOwner = owners[0]; return owners[0]; }
+		    if (owners.length === 1) return owners[0];
 		    if (allowFallback) {
 		      // Native regexes focus the offscreen textarea before the host observes the
 		      // iframe focus. Draft sync is conversation-wide, so any mounted owner can
 		      // read or fill it; sending still requires an unambiguous focused frame.
-		      state.lastOwner = owners[owners.length - 1];
-		      return state.lastOwner;
+		      return owners[owners.length - 1];
 		    }
 		    throw new Error('无法确定输入框所属的卡片，请重新点击卡片内的选项');
 		  }
 		  function sync() {
 		    const current = state.valueAccessor.get.call(state.area);
 		    // Keep native writes visible until their input event reaches the real draft.
-		    if (state.pendingFills || current !== (state.committedValue ?? '')) return current;
+		    if (state.pendingFills || current !== (state.observedValue ?? '')) return current;
 		    let owner;
 		    try { owner = resolveOwner(true); } catch (_) { return current; }
 		    try {
@@ -20960,16 +20959,18 @@ function tavernModelRefusalNotice(text) {
 		      if (typeof value === 'string') {
 		        if (current !== value) state.valueAccessor.set.call(state.area, value);
 		        // Use the textarea's normalized line endings for later comparisons.
-		        state.committedValue = state.valueAccessor.get.call(state.area);
-		        return state.committedValue;
+		        state.observedValue = state.valueAccessor.get.call(state.area);
+		        state.fillFailed = false;
+		        return state.observedValue;
 		      }
 		    } catch (_) {}
 		    return current;
 		  }
 		  function commit() {
 		    const value = state.valueAccessor.get.call(state.area);
-		    if (state.committedValue === value) return;
-		    state.committedValue = value;
+		    if (state.observedValue === value && !state.fillFailed) return;
+		    state.observedValue = value;
+		    state.fillFailed = false;
 		    state.pendingFills++;
 		    let owner;
 		    // Native option handlers commonly dispatch input and change together. Start
@@ -20978,7 +20979,9 @@ function tavernModelRefusalNotice(text) {
 		      owner = resolveOwner(true);
 		      if (typeof owner.fill === 'function') return owner.fill(value);
 		    }).catch(function (error) {
-		      if (state.committedValue === value) state.committedValue = null;
+		      // Allow explicit retries while keeping the last observed DOM value so
+		      // the next read can refresh from the host draft once pending fills settle.
+		      if (state.observedValue === value) state.fillFailed = true;
 		      if (owner) owner.report(error); else report(error);
 		    }).finally(function () { state.pendingFills--; });
 		  }
@@ -20997,7 +21000,7 @@ function tavernModelRefusalNotice(text) {
 		    area.id = 'send_textarea'; area.tabIndex = -1; area.setAttribute('inputmode', 'none'); button.id = 'send_but'; button.type = 'button';
 		    controls.append(area, button); doc.body.append(controls);
 		    const valueAccessor = Object.getOwnPropertyDescriptor(doc.defaultView.HTMLTextAreaElement.prototype, 'value');
-		    state = { controls, area, owners: new Set(), lastOwner: null, committedValue: null, pendingFills: 0, valueAccessor };
+		    state = { controls, area, owners: new Set(), lastOwner: null, observedValue: null, fillFailed: false, pendingFills: 0, valueAccessor };
 		    tavernHostComposers.set(doc, state);
 		    // Some legacy option panels read and append directly, without focusing the textarea.
 		    Object.defineProperty(area, 'value', { configurable: true, get: sync, set: valueAccessor.set });
@@ -21022,7 +21025,8 @@ function tavernModelRefusalNotice(text) {
 		      owner.sender.send(text).then(function () {
 		        if (valueAccessor.get.call(area) === text) {
 		          valueAccessor.set.call(area, '');
-		          state.committedValue = '';
+		          state.observedValue = '';
+		          state.fillFailed = false;
 		        }
 		      }, owner.report);
 		    });

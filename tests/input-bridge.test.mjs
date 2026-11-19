@@ -70,6 +70,68 @@ test('native options that append without focusing use the current draft after se
   assert.deepEqual(errors, [])
 })
 
+test('reading the shared draft does not choose an unfocused card to send through', async t => {
+  const dom = new JSDOM('<!doctype html><html><body><iframe></iframe><iframe></iframe></body></html>')
+  const doc = dom.window.document
+  const [firstFrame, secondFrame] = doc.querySelectorAll('iframe')
+  const sends = [], errors = []
+  t.after(() => dom.window.close())
+
+  function mount(frame, card) {
+    const release = helperClient.installFrameHostComposer(doc, node => node === frame,
+      text => { sends.push({ card, text }) }, error => errors.push(error), () => {}, () => '手写草稿')
+    t.after(release)
+  }
+
+  mount(firstFrame, '第一张卡片')
+  const area = doc.getElementById('send_textarea')
+  assert.equal(area.value, '手写草稿')
+  mount(secondFrame, '第二张卡片')
+  assert.equal(area.value, '手写草稿')
+
+  const button = doc.getElementById('send_but')
+  area.value = '选项 A'
+  button.click()
+  await tick()
+  assert.deepEqual(sends, [])
+  assert.match(errors[0]?.message, /无法确定输入框所属的卡片/)
+
+  firstFrame.focus()
+  button.click()
+  await tick()
+  assert.deepEqual(sends, [{ card: '第一张卡片', text: '选项 A' }])
+  assert.equal(errors.length, 1)
+})
+
+test('a rejected option fill does not hide the next handwritten draft', async t => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { document: doc, Event } = dom.window
+  const writeError = new Error('草稿写入失败')
+  let rejectFill = true, draft = ''
+  const errors = []
+  const release = helperClient.installFrameHostComposer(doc, () => true,
+    () => Promise.resolve(), error => errors.push(error), async text => {
+      if (rejectFill) throw writeError
+      draft = text
+    }, () => draft)
+  t.after(() => { release(); dom.window.close() })
+
+  const area = doc.getElementById('send_textarea')
+  area.value = '写入失败的选项'
+  area.dispatchEvent(new Event('input'))
+  await tick()
+  assert.deepEqual(errors, [writeError])
+
+  rejectFill = false
+  draft = '新手写草稿'
+  area.focus()
+  area.value += ' 选项 A'
+  area.dispatchEvent(new Event('input'))
+  await tick()
+  assert.equal(draft, '新手写草稿 选项 A')
+  assert.deepEqual(errors, [writeError])
+})
+
 test('multiple mounted cards still fill the shared draft from a native option click', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const doc = dom.window.document
