@@ -21,12 +21,21 @@ export const PROMPT_PROSE = Object.freeze({
 })
 
 
+export function applyCompactionModel(request, selection) {
+  if (!selection?.provider || !selection?.model) return request
+  const next = { ...request, provider: selection.provider, model: selection.model }
+  if (typeof selection.reasoningEffort === 'string' && selection.reasoningEffort) next.reasoningEffort = selection.reasoningEffort
+  else delete next.reasoningEffort
+  return next
+}
+
 export function registerModelStreamHooks({
   agentRegistry,
   pluginBodyGeneration,
   backgroundAgentRunner,
   chatForSession,
   chatHeaderForSession,
+  compactionModel,
   ctx,
   foregroundStrategies,
   fullTemplateRuntime,
@@ -73,15 +82,21 @@ export function registerModelStreamHooks({
     return isGame(sessionId)
   })
   installCompactionRequestProjection(ctx, ownsSession, async request => {
+    // 前台对话压缩优先使用全局设置的专用压缩模型；后台 Agent 保持各自任务模型。
+    const foreground = !backgroundAgentRunner.owns(request.sessionId)
+    const routed = foreground && typeof compactionModel === 'function'
+      ? applyCompactionModel(request, await compactionModel())
+      : request
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
     const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks'])
-    if (!usesStoryCompaction(head)) return { request }
+    if (!usesStoryCompaction(head)) return { request: routed }
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.
     const notes = pluginCompactionNotes ? await pluginCompactionNotes({ gameId: str(request.sessionId) }).catch(() => []) : []
     const session = sessionStore.get(request.sessionId) || agentRegistry.get(request.sessionId)?.session
+    // 保留轮数与前情卷预算仍按前台会话自身模型窗口计算，实际摘要与合并请求走 routed（压缩专用模型）。
     const retention = await storyRetention(request)
     const natively = nativelyRetainedRounds(session, request)
     // Which story turns this compaction folds: everything but the rounds kept verbatim.
@@ -95,25 +110,23 @@ export function registerModelStreamHooks({
       : ((await chatForSession(str(request.sessionId)))?.messages || []).filter(message => message?.role === 'assistant' && Number(message.turn) > 0).map(message => Number(message.turn))
     const volumes = storyVolumePlan(request, { through: turns[turns.length - 1 - kept - natively], budget: retention.volumeBudget, estimate: retention.estimate })
     const instruction = [runtimePrompt('story-compaction'), volumes.instruction, ...(notes.length ? [promptSection('plugin_compaction', [PROMPT_PROSE.p001, ...notes.map(note => note.text)].join('\n\n'))] : [])].join('\n\n')
-    const story = createStoryCompactionRequest(request, instruction)
+    const story = createStoryCompactionRequest(routed, instruction)
     let prefix = volumes.prefix
     if (volumes.merge) {
       // Only the oldest volumes are rewritten, in their own call; a failed merge keeps them all.
-      try { prefix = [prefix[0], await mergeStoryVolumes(volumes.merge, request), ...prefix.slice(1)] }
+      try { prefix = [prefix[0], await mergeStoryVolumes(volumes.merge, routed), ...prefix.slice(1)] }
       catch (error) {
         console.warn('dsh-tavern: 合并旧卷失败，本次原样保留全部旧卷：', error?.message || error)
         prefix = [prefix[0], ...volumes.merge.volumes.map(volume => volume.text), ...prefix.slice(1)]
       }
     }
     return { ...retainRecentStoryRounds(story, retention.rounds - natively, retention), prefix }
-  }, {
-    // Foreground summaries use the body's model; background Agents keep their task route.
-    route: sessionId => backgroundAgentRunner.owns(sessionId) ? null : modelSelection(str(sessionId))
   })
   async function mergeStoryVolumes(merge, request) {
     const { header, prompt } = storyVolumeMerge(merge)
     let text = ''
     for await (const event of ctx.llm.stream({ provider: request.provider, model: request.model, purpose: 'compaction', signal: request.signal,
+      ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
       ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
       messages: [{ id: 'tavern-story-volume-merge', role: 'user', content: [{ type: 'text', text: prompt }] }] })) {
       if (event?.type === 'block-end' && event.block?.type === 'text') text += event.block.text

@@ -800,7 +800,7 @@ export async function apply(ctx) {
   }
   async function updateTavernSettings(patch, { beforeWrite } = {}) {
     if (patch && (Object.hasOwn(patch, 'backgroundModel') || Object.hasOwn(patch, 'backgroundTasks') || Object.hasOwn(patch, 'webSearchEnabled'))) throw new Error('后台配置已移至顶栏的本局设置')
-    for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel']) {
+    for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel', 'defaultCompactionModel']) {
       if (patch?.[name] != null) await llm.resolveCallConfig(patch[name])
     }
     tavernSettingsDocument = await profileData.updateJson(TAVERN_SETTINGS_PATH, async function (current) {
@@ -4959,6 +4959,7 @@ export async function apply(ctx) {
     openReplyObservers: presentationObservers.openReply,
     replyStreamRewriters,
     storyRetention,
+    compactionModel: async () => (await readTavernSettings()).defaultCompactionModel,
   })
   registerTurnLifecycleHooks({
     pluginBodyGeneration,
