@@ -3,10 +3,9 @@
 // are unlocked in 回想 at once. While the owner has unbound that pack, pictures stay in the story only. Deleting one from 回想 takes it out of
 // the pack, the gallery and the turn's plugin media; history pages then show nothing in its place.
 import {createHash, randomBytes} from 'node:crypto'
+import scenePictureOf from '../../dsh-presentation-protocol/src/scene-picture.cjs'
 
 const EXT = {'image/png':'png','image/jpeg':'jpeg','image/webp':'webp'}
-// The entry's origin; only these entries offer 删除这张 CG in 回想.
-export const scenePictureOf = asset => asset?.kind === 'cg' ? asset.extensions?.dsh_tavern?.scenePicture || null : null
 // For a generated CG, the lamp controls future selection, not access to an already recorded picture.
 export const cgPlaybackEnabled = asset => asset?.kind === 'cg' && (asset.enabled === true || !!scenePictureOf(asset))
 const clip = (text, max) => [...String(text || '').trim()].slice(0, max).join('')
