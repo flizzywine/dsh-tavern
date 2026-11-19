@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f61ddc5358a1b82605156f6d9a12654e1514d807",
-  "releaseSequence": 1801,
+  "revision": "42181dd68b877b438264bcca1cf18a2f00371d62",
+  "releaseSequence": 1802,
   "version": "3.3.0",
   "files": [
     {
@@ -8836,8 +8836,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/client.js",
-      "sha256": "3f2855f6cffaea7c44caeffdda9a45b2a79f48d84e9e17c2ecc9eb408133368e",
-      "size": 93929
+      "sha256": "dcb5479c41e050229a7008d3ff77bf6c561991ec54d60c7bc9c5e57657aa7942",
+      "size": 93983
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/core.js",
@@ -9006,8 +9006,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/settings.js",
-      "sha256": "ad9eef36603557d72da47efd38a450f9937900440ed98662d05c4eaf5bf6403d",
-      "size": 47536
+      "sha256": "cd29434abd05ca72c1a9df7b4e362003496a6834ed9f4daa6fff1e7d9c53aad9",
+      "size": 47740
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/azure-voices.json",
@@ -9596,9 +9596,9 @@
     }
   ],
   "archive": {
-    "commit": "8494e5f7e4c7d29f5b122ed7fd9c47a8f8e945ff",
+    "commit": "8a8da73918d48bad9a93de5e842010a5920b0b03",
     "path": "runtime.zip",
-    "sha256": "59a73500daa81759beda72265a1e5ea81e23f71900ce508bdf9db19b2e88ba34",
-    "size": 16965484
+    "sha256": "3b3f9c80528f2acdf8fed4e1c252aa4fdd93226396192c27f7d7cc99e852c3be",
+    "size": 16965570
   }
 }
