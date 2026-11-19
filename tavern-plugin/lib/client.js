@@ -20950,23 +20950,27 @@ function tavernModelRefusalNotice(text) {
 		    throw new Error('无法确定输入框所属的卡片，请重新点击卡片内的选项');
 		  }
 		  function sync() {
-		    if (!state.area) return;
+		    const current = state.valueAccessor.get.call(state.area);
+		    // Keep native writes visible until their input event reaches the real draft.
+		    if (state.pendingFills || current !== (state.committedValue ?? '')) return current;
 		    let owner;
-		    try { owner = resolveOwner(true); } catch (_) { return; }
-		    if (typeof owner.read !== 'function') return;
+		    try { owner = resolveOwner(true); } catch (_) { return current; }
 		    try {
-		      const value = owner.read();
+		      const value = owner.read?.();
 		      if (typeof value === 'string') {
-		        state.committedValue = value;
-		        if (state.area.value !== value) state.area.value = value;
+		        if (current !== value) state.valueAccessor.set.call(state.area, value);
+		        // Use the textarea's normalized line endings for later comparisons.
+		        state.committedValue = state.valueAccessor.get.call(state.area);
+		        return state.committedValue;
 		      }
 		    } catch (_) {}
+		    return current;
 		  }
 		  function commit() {
-		    if (!state.area) return;
-		    const value = String(state.area.value || '');
+		    const value = state.valueAccessor.get.call(state.area);
 		    if (state.committedValue === value) return;
 		    state.committedValue = value;
+		    state.pendingFills++;
 		    let owner;
 		    // Native option handlers commonly dispatch input and change together. Start
 		    // in a microtask so the pair shares one commit, including synchronous errors.
@@ -20976,7 +20980,7 @@ function tavernModelRefusalNotice(text) {
 		    }).catch(function (error) {
 		      if (state.committedValue === value) state.committedValue = null;
 		      if (owner) owner.report(error); else report(error);
-		    });
+		    }).finally(function () { state.pendingFills--; });
 		  }
 		  if (!state) {
 		    if (doc.getElementById('send_textarea') || doc.getElementById('send_but')) return function () {};
@@ -20992,11 +20996,11 @@ function tavernModelRefusalNotice(text) {
 		    // the soft keyboard for an invisible box, so ask for no virtual keyboard.
 		    area.id = 'send_textarea'; area.tabIndex = -1; area.setAttribute('inputmode', 'none'); button.id = 'send_but'; button.type = 'button';
 		    controls.append(area, button); doc.body.append(controls);
-		    state = { controls, area, owners: new Set(), lastOwner: null, committedValue: null };
+		    const valueAccessor = Object.getOwnPropertyDescriptor(doc.defaultView.HTMLTextAreaElement.prototype, 'value');
+		    state = { controls, area, owners: new Set(), lastOwner: null, committedValue: null, pendingFills: 0, valueAccessor };
 		    tavernHostComposers.set(doc, state);
-		    // Native tavern regexes focus #send_textarea, read its value, append their
-		    // option text and fire input. Mirror the live draft on focus so append mode
-		    // keeps whatever the player already typed; input writes it back.
+		    // Some legacy option panels read and append directly, without focusing the textarea.
+		    Object.defineProperty(area, 'value', { configurable: true, get: sync, set: valueAccessor.set });
 		    area.addEventListener('focus', sync);
 		    area.addEventListener('input', commit);
 		    area.addEventListener('change', commit);
@@ -21015,7 +21019,12 @@ function tavernModelRefusalNotice(text) {
 		      try { owner = resolveOwner(); } catch (error) { report(error); return; }
 		      const text = String(area.value || '').trim();
 		      if (!text) return;
-		      owner.sender.send(text).then(function () { if (area.value === text) area.value = ''; }, owner.report);
+		      owner.sender.send(text).then(function () {
+		        if (valueAccessor.get.call(area) === text) {
+		          valueAccessor.set.call(area, '');
+		          state.committedValue = '';
+		        }
+		      }, owner.report);
 		    });
 		  }
 		  const owner = { ownsFrame, report, fill, read };

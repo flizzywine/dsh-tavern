@@ -37,6 +37,39 @@ test('trusted host composer reads the draft on focus and fills on input', async 
   assert.equal(doc.getElementById('send_textarea'), null)
 })
 
+test('native options that append without focusing use the current draft after sending', async t => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { document: doc, Event } = dom.window
+  let draft = ''
+  const errors = []
+  const release = helperClient.installFrameHostComposer(doc, () => true,
+    () => Promise.resolve(), error => errors.push(error), text => { draft = text }, () => draft)
+  t.after(() => { release(); dom.window.close() })
+
+  const area = doc.getElementById('send_textarea')
+  function pick(text) {
+    const existing = area.value
+    area.value = existing + (existing.trim() ? ' ' : '') + text
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  pick('上一轮的选项')
+  await tick()
+  assert.equal(draft, '上一轮的选项')
+  draft = '' // The real composer clears its draft when the player sends.
+  pick('选项 A')
+  await tick()
+  assert.equal(draft, '选项 A')
+  draft = '玩家手写的内容\r\n第二行'
+  assert.equal(area.value, '玩家手写的内容\n第二行')
+  draft = '玩家手写的内容'
+  pick('选项 B')
+  pick('选项 C')
+  await tick()
+  assert.equal(draft, '玩家手写的内容 选项 B 选项 C')
+  assert.deepEqual(errors, [])
+})
+
 test('multiple mounted cards still fill the shared draft from a native option click', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const doc = dom.window.document
