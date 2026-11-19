@@ -131,12 +131,8 @@ function useVoiceReadiness(binding){
 // 「去设置」: the 配音 page (right sidebar) opens with that service's row open (dsh-tts reads the same session key once);
 // `id` opens that saved service, `add` opens 添加语音服务 with the kind chosen.
 const VOICE_FOCUS_KEY='dsh-tts:focus-service';
-// 「付费试听」 asks before the first paid preview; 「今后不再显示」 there is one machine-wide UI preference (localStorage like the
-// panel's other UI preferences, never per card). No menu item to turn it back on.
-const VOICE_PAID_ASK_KEY='dsh-tavern:voice-paid-preview-ask';
-const voicePaidAsk={
-  get(){try{return localStorage.getItem(VOICE_PAID_ASK_KEY)!=='off';}catch(_){return true;}},
-  set(on){try{if(on)localStorage.removeItem(VOICE_PAID_ASK_KEY);else localStorage.setItem(VOICE_PAID_ASK_KEY,'off');}catch(_){}}};
+// 「付费试听」 asks before the first paid preview unless 「以后不再显示」 hid the kind 'voice-paid-preview' (confirm-dialog.js
+// hiddenConfirms; 设置 › 「已隐藏的确认」 brings it back).
 // 「语音后端 ›」 with no provider opens the page as it is (its unset service kinds are rows to set up). The pack window's nav
 // closes the window first (PackModal tabNav); once the tab is open, the same event tells an already-mounted page to take
 // the request and move the keyboard focus there.
@@ -214,12 +210,12 @@ function useVoicePreview(binding,speech){
       let result=await submit(request);
       if(result.status==='confirmation-required'){
         if(!live())return;
-        // 「今后不再显示」 once chosen: the same one-time token is sent back at once (the host still gates every paid preview).
-        let ok=!voicePaidAsk.get();
+        // 「以后不再显示」 once chosen: the same one-time token is sent back at once (the host still gates every paid preview).
+        let ok=hiddenConfirms.has('voice-paid-preview');
         if(!ok){
           const service=await previewWait(serviceName(result.billing?.serviceId,result.billing?.modelLabel),15000,'REQUEST_TIMEOUT',run.abort.signal);
           const answer=live()&&await new Promise(resolve=>{run.resolve=resolve;setAsk({label,service,notice,resolve});});
-          ok=!!answer;if(answer?.quiet)voicePaidAsk.set(false);
+          ok=!!answer;if(answer?.quiet)hiddenConfirms.hide('voice-paid-preview');
         }
         run.resolve=null;setAsk(null);
         if(!ok||!live()){if(current.current===run){current.current=null;setState(null);}return;}
@@ -278,14 +274,12 @@ function useVoicePreview(binding,speech){
   const dialog=ask&&h(VoiceBillingDialog,{...ask,onCancel:()=>ask.resolve(false),onConfirm:quiet=>ask.resolve({quiet})});
   return {state,play,playSample,playBrowser,stop,dialog,of:key=>state?.key===key?state:null};
 }
-// `service`: the billed service and model (「Fish Audio · Drama 3（计费）」). 「今后不再显示」 applies on 确认试听 only.
+// `service`: the billed service and model (「Fish Audio · Drama 3（计费）」). 「以后不再显示」 applies on 确认试听 only.
 function VoiceBillingDialog({label,service,notice,onConfirm,onCancel}) {
   const [quiet,setQuiet]=React.useState(false);
   return h(Modal,{title:'付费试听',onClose:onCancel,closable:false,className:'ap-confirm ap-voice-dialog'},
     h('p',null,(notice?notice+' ':'')+'试听'+(label?'「'+label+'」':'')+'会用'+spacedName(service)+'合成一句短句，按服务价格计费一次。'),
-    h('button',{type:'button',role:'checkbox','aria-checked':quiet,className:'ap-check-row ap-voice-quiet',onClick:()=>setQuiet(v=>!v)},
-      h('span',{className:'ap-check-mark','aria-hidden':true},quiet&&h(Glyph,{name:'check'})),h('span',null,'今后不再显示')),
-    h(Actions,null,h(Button,{onClick:onCancel},'取消'),h(Button,{primary:true,onClick:()=>onConfirm(quiet)},'确认试听')));
+    h(Actions,null,h(HideCheck,{checked:quiet,onToggle:()=>setQuiet(v=>!v)}),h(Button,{onClick:onCancel},'取消'),h(Button,{primary:true,onClick:()=>onConfirm(quiet)},'确认试听')));
 }
 function VoiceSharedDialog({figure,others,onPick}) {
   const names=others.map(f=>f.name).join('、');
@@ -497,7 +491,7 @@ function VoiceTab({binding,pack,figure,rows,status,preview,speech,commitVoice,na
     h(VoicePicker,{binding,pack,figure,current:spec?voice.voice:null,general:true,preview:player,candidate,generalVoice:general,services:readiness.services,
       trigger:({open,toggle})=>h(Button,{'aria-expanded':open,disabled:writer.busy>0,onClick:toggle},'选择声音 ',h(Glyph,{name:'chevDown'})),
       onPick:pick=>guard(async()=>{preview.stop();const done=await writer.pick(pick);if(done){reset();setNotice('已换成「'+pick.name+'」');}}),
-      onAdd:()=>guard(open),onDelete:id=>guard(()=>setRemoving(id)),setError}),
+      onAdd:()=>guard(open),onDelete:id=>guard(()=>hiddenConfirms.has('asset-voice')?Promise.resolve(remove(id)).catch(e=>setError(errorText(e))):setRemoving(id)),setError}),
     h(CatAddTile,{label:'新建声音',className:'ap-vx-new',onClick:()=>guard(open)}));
   return h('div',{className:'ap-voice-page ap-vx-tab',role:'region','aria-label':figure.name+'的声音'},
     !creating&&!spec&&error&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 ',error),
@@ -516,7 +510,7 @@ function VoiceDeleteDialog({pack,voiceId,onConfirm,onClose}) {
   if(!spec)return null;
   const users=voiceUsers(pack,voiceId).map(f=>f.name),clips=Object.values(spec.sources).reduce((n,s)=>n+(s.kind==='reference-list'?s.references.length:0),0);
   const who=users.length?'删除后'+users.join('、')+'改用通用声音':'没有人物在用它';
-  return h(ConfirmDialog,{title:'删除声音「'+spec.name+'」？',confirmLabel:'删除',danger:true,onConfirm,onClose,
+  return h(ConfirmDialog,{title:'删除声音「'+spec.name+'」？',confirmLabel:'删除',danger:true,hide:'asset-voice',onConfirm,onClose,
     body:who+(clips?'，'+clips+' 段参考音频一起删除。':'。')});
 }
 // 试听, one field: ▶ 试听 · the line it reads (editable; Enter plays) · 语气 (which 差分 speaks it; `rows` none: no 语气).
@@ -830,10 +824,11 @@ function LibraryVoiceEdit({binding,selected,target,readiness,preview,openSetting
   const run=async job=>{setError('');try{const result=await job(current.current);if(result.snapshot){current.current=result.snapshot;setSnapshot(result.snapshot);}return result;}
     catch(e){setError(voiceErrorText(e));return null;}};
   const writer={run,saveVoice:voiceSpec=>run(c=>svc.savePackVoice({packId,expectedRevision:c.revision,voiceId,voiceSpec,...(target?{figureId:target.figureId}:{})}))};
+  const deleteVoice=async()=>{const done=await svc.deletePackVoice({packId,expectedRevision:current.current.revision,voiceId});libraryBack();return done;};
   if(!pack||!voice)return h(Modal,{title:'声音库',onClose},(loaded.error||pack)?h(VoiceLoadError,{error:loaded.error||'找不到这个声音',retry:loaded.reload}):h(VoiceLoading));
   return h(React.Fragment,null,h(VoiceEditor,{binding,pack,figure,language:voice.language,readiness,preview,writer,openSettings,libraryBack,onClose,clips,error,
-      candidate:voiceSpec=>({packId,figureId:figure.id,expectedRevision:pack.revision,voiceSpec}),edit:{spec:voice,sourceId:voice.defaultSource},onDone:libraryBack,onDelete:target?null:()=>setRemoving(true)}),
-    removing&&h(VoiceDeleteDialog,{pack,voiceId,onConfirm:async()=>{const done=await svc.deletePackVoice({packId,expectedRevision:current.current.revision,voiceId});libraryBack();return done;},onClose:()=>setRemoving(false)}),preview.dialog);
+      candidate:voiceSpec=>({packId,figureId:figure.id,expectedRevision:pack.revision,voiceSpec}),edit:{spec:voice,sourceId:voice.defaultSource},onDone:libraryBack,onDelete:target?null:()=>hiddenConfirms.has('asset-voice')?deleteVoice().catch(e=>setError(errorText(e))):setRemoving(true)}),
+    removing&&h(VoiceDeleteDialog,{pack,voiceId,onConfirm:deleteVoice,onClose:()=>setRemoving(false)}),preview.dialog);
 }
 // The parameters a service allows (VOICE_TUNING, the adapters' own ranges), a label and its control each: sliders, 风格
 // (Azure, the picked voice's styles), 风格指令 (通义千问). `params` is what the voice keeps; a value at its base is not kept.

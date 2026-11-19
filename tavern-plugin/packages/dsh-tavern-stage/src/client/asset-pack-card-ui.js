@@ -1076,6 +1076,8 @@ function ReadingPresetsEditor({call}) {
     try{const summary=await call(method,args),value=await call('readingPreset',{id:summary.active});if(live.current){setList(summary);show(value);setQuery('');setNote(null);}return true;}
     catch(e){await fail(e);return false;}finally{if(live.current)setBusy(false);}
   });
+  const askRemove=()=>{const p=current.current;askDelete(setConfirm,'reading-preset',{title:'删除预设',body:'删除「'+p.name+'」及其 '+p.entries.length+' 条读音？',confirmLabel:'删除',danger:true},
+    async()=>{if(!await presetOp('deleteReadingPreset',{id:p.id}))throw new Error('删除失败');},()=>{});};
   async function exportPreset(){
     try{const doc=await call('exportReadingPreset',{id:current.current.id});
       const url=URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');
@@ -1133,7 +1135,7 @@ function ReadingPresetsEditor({call}) {
         h(MenuItem,{key:'export',onClick:()=>{close();exportPreset();}},'导出'),
         h(MenuItem,{key:'import',onClick:()=>{close();picker.current?.click?.();}},'导入'),
         h(MenuItem,{key:'merge',disabled:entries.length<2,onClick:()=>{close();countMerge();}},'合并同读音…'),
-        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();setConfirm(true);}},'删除…')]});
+        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();askRemove();}},'删除…')]});
     const head=naming?h(InlineAdd,{open:true,className:'fork-readings-name',label:naming.mode==='create'?'新预设名称':'预设名称',placeholder:'预设名称',maxLength:40,busy,
         value:naming.value,onChange:value=>setNaming(n=>n&&{...n,value}),onCancel:()=>setNaming(null),
         onConfirm:async name=>{const ok=naming.mode==='create'?await presetOp('createReadingPreset',{name}):name===preset.name||await presetOp('renameReadingPreset',{id:preset.id,name});if(ok&&live.current)setNaming(null);return ok;}})
@@ -1164,8 +1166,7 @@ function ReadingPresetsEditor({call}) {
     merging&&preset&&h(ConfirmDialog,{title:'合并同读音',confirmLabel:'合并',
       body:merging.groups+' 组读音相同的条目各合并为一条，写法用逗号分开（'+merging.before+' → '+(merging.before-merging.removed)+' 条）。',
       onConfirm:async()=>{try{await runMerge();}catch(e){await fail(e);throw e;}},onClose:()=>setMerging(null)}),
-    confirm&&preset&&h(ConfirmDialog,{title:'删除预设',body:'删除「'+preset.name+'」及其 '+preset.entries.length+' 条读音？',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{if(!await presetOp('deleteReadingPreset',{id:preset.id}))throw new Error('删除失败');},onClose:()=>setConfirm(false)}));
+    confirm&&preset&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(false)}));
 }
 // the card export helpers of 「素材包」 — a pack's size,
 // and the image packs a chosen pack's 模组 need but that stay behind. A 全局 pack that goes with the card is bound to

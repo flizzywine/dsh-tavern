@@ -1384,7 +1384,7 @@
 				finally { setBusy(false); }
 			}
 			async function removeVersion() {
-				if (busy || !await askConfirm(count > 1 ? "删除这一张？其他版本保留。" : "删除这张插图？")) return;
+				if (busy || !await askConfirm(count > 1 ? "其他版本保留。" : "插图会从这一轮移除。", { title: count > 1 ? "删除这一张？" : "删除这张插图？", confirmText: "删除", danger: true, hide: "illustration" })) return;
 				setBusy(true); setError("");
 				try { await rpc("removePluginMediaVersion", { sessionId: props.sessionId, itemId: item.id, version: current ? null : index }, props.sessionId); }
 				catch (e) { setError(String(e && e.message || e)); }

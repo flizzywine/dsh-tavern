@@ -1104,8 +1104,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
   const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(e?.code==='TARGET_CHANGED')return;setError(errorText(e));});
   const askRemoveImage=(r,k,dynamic=false)=>{const noun=k==='avatar'?'头像':'立绘',kept=k==='avatar'?'立绘、模型':'头像、模型';
-    setConfirm({title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
-    onConfirm:()=>removeFigureImage(figure.id,outfit.key,r.id,k)});};
+    askDelete(setConfirm,'asset-figure-image',{title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true},
+    ()=>removeFigureImage(figure.id,outfit.key,r.id,k),setError);};
   // A 动态立绘 replaced by one picture: 重画 deletes it first, then opens the dialog on the empty slot; 替换 deletes it only
   // once the new picture is framed (finishFraming), so cancelling the picker keeps it.
   const askReplace=(r,how)=>setConfirm(how==='redraw'?{title:'重画「'+r.label+'」？',body:'先删除「'+outfit.label+'」的这张动态立绘（连同口型和眨眼），再生成新图；新图不会动嘴、眨眼。',confirmLabel:'删除并重画',danger:true,
@@ -1116,8 +1116,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     const goes=[['张立绘',o=>emotionMapped('sprite',o,o.sprite&&pack.sprites?.[o.sprite.manifestKey],r.id)],['张头像',o=>!!o.avatars?.[outfitImageId(o,r.id)]],['个模型表情',o=>!!(o.live2d?.emotionMap?.[r.id]||o.spine?.emotionMap?.[r.id])]]
       .map(([noun,has])=>[noun,list.filter(has).length]).filter(([,n])=>n).map(([noun,n])=>n+' '+noun);
     if(figure.voice?.emotionVariants?.[r.id])goes.push('声音设置');
-    setConfirm({title:(list.length>1?'从所有服装删除「'+r.label+'」？':'删除差分「'+r.label+'」？'),body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{await figureActions.removeEmotion(r.id);if(r.id===face)setFace(rows.find(x=>x.id!==r.id)?.id||'');}});};
+    askDelete(setConfirm,'asset-emotion',{title:(list.length>1?'从所有服装删除「'+r.label+'」？':'删除差分「'+r.label+'」？'),body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true},
+      async()=>{await figureActions.removeEmotion(r.id);if(r.id===face)setFace(rows.find(x=>x.id!==r.id)?.id||'');},setError);};
   const menuFor=outfit?(r,close,page,setPage)=>{
     const cell=faces[r.id]?.cell,state=cell?.state||'idle',k=kind,has=!!faces[r.id]?.mapped,target={packId,figureId:figure.id,outfitKey:outfit.key,kind:k,emotionId:r.id};
     const go=fn=>()=>{close();fn();},gate=genView?cellGate(k,r.id):'',dynamic=k==='sprite'&&has&&!takes(r.id);
@@ -1176,8 +1176,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     h(Button,{className:'ap-manage ap-gen-fill',disabled:!!upload.busy,onClick:()=>setModelOpen(true)},h(Glyph,{name:'upload'}),'导入模型'));
   if(figure.emotions?.length===1 && figure.emotions[0].label!==undefined)kindExtras.push({icon:'reset',label:'设为无差分',onClick:()=>write(f=>({emotions:[{id:f.emotions[0].id}]}))});
   // 「删除模型…」 of one outfit — the 模型 heading's ⋯, the outfit tile's menu and the model preview's menu ask the same.
-  const askRemoveModel=o=>setConfirm({title:'删除「'+o.label+'」的模型？',body:'这套服装的 '+(o.live2d?'Live2D':'Spine')+' 模型会被移除；立绘和头像保留。',confirmLabel:'删除',danger:true,
-    onConfirm:()=>figureActions.removeModel(o.key)});
+  const askRemoveModel=o=>askDelete(setConfirm,'asset-model',{title:'删除「'+o.label+'」的模型？',body:'这套服装的 '+(o.live2d?'Live2D':'Spine')+' 模型会被移除；立绘和头像保留。',confirmLabel:'删除',danger:true},
+    ()=>figureActions.removeModel(o.key),setError);
   const modelRemovable=o=>!!o&&!!(o.live2d||o.spine)&&!!figureActions?.removeModel;
   if(isModelKind(kind)&&modelRemovable(outfit))kindExtras.push({icon:'remove',label:'删除模型',menu:'删除模型…',danger:true,onClick:()=>askRemoveModel(outfit)});
   const tool=h(PreviewActions,{key:(outfit?.key||'')+':'+kind+':'+picked.id,actions:viewActions,disabled:!!upload.busy});
@@ -1187,8 +1187,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const pickedOutfits=list.filter(o=>outfitSel.ids?.has(o.key));
   const names=items=>items.map(x=>'「'+x.label+'」').join('');
   const askRemoveOutfits=chosen=>{const keys=new Set(chosen.map(o=>o.key));if(!chosen.length)return;
-    setConfirm({title:chosen.length===1?'删除服装「'+chosen[0].label+'」？':'删除 '+chosen.length+' 套服装？',body:(chosen.length>1?names(chosen)+' 将':'')+'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{await commitFigure(figure.id,f=>figureOutfitRemoval(f,keys));setPicking(null);}});};
+    askDelete(setConfirm,'asset-outfit',{title:chosen.length===1?'删除服装「'+chosen[0].label+'」？':'删除 '+chosen.length+' 套服装？',body:(chosen.length>1?names(chosen)+' 将':'')+'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},
+      async()=>{await commitFigure(figure.id,f=>figureOutfitRemoval(f,keys));setPicking(null);},setError);};
   const deleteOutfits=()=>askRemoveOutfits(pickedOutfits);
   // An outfit tile's right click / long press (it selects the outfit first): 导入模型… (the 模型 heading's sheet, for this
   // outfit), 删除模型… and 删除服装… — the same confirmations as the heading's ⋯ and the grid's delete mode.
@@ -1226,9 +1226,9 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const enable=h('span',{className:'ap-figure-lamp-slot'},h(LampMenu,{label:'人物灯',named:true,mode:outfitLamp(figure),onChange:mode=>write(f=>mode==='off'?{enabled:false}:{enabled:true,recall:{...f.recall,mode}})}));
   const paneRef=React.useRef(null),[automaticReview,setAutomaticReview]=React.useState(false);
   const imageChoice=React.useRef(null);
-  const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
-    children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice}),
-    onConfirm:async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();}});};
+  const removeFigure=()=>{imageChoice.current=null;askDelete(setConfirm,'asset-figure',{title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
+    children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice})},
+    async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();},setError);};
   const more=(figureActions?.copy||figureActions?.remove)&&h(FigureMoreMenu,{figure,actions:figureActions,onRemove:removeFigure});
   return h('div',{ref:paneRef,className:'ap-detail-pane ap-figure-pane ap-figure-editor','data-narrow':narrow||undefined,'data-tab':tab,'data-disabled':figure.enabled===false||undefined,style:{'--figure-color':figureColor(figure)}},
     // Phone: one header only (r4) — ‹ · the name · lamp slot · × replaces the drawer's own title bar.

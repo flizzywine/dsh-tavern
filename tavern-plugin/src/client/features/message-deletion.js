@@ -187,7 +187,7 @@
 					if (state.deleting || confirming.current || !state.items.length) return;
 					confirming.current = true;
 					try {
-						const accepted = await askDeleteConfirm("确定删除选中的 " + state.items.length + " 条消息吗？它们将从对话和后续模型上下文中移除。", { confirmText: "删除", cancelText: "取消" });
+						const accepted = await askDeleteConfirm("它们将从对话和后续模型上下文中移除。", { title: "删除选中的 " + state.items.length + " 条消息？", confirmText: "删除", cancelText: "取消", danger: true, hide: "messages" });
 						if (accepted) await store.remove(props.sessionId);
 					} finally { confirming.current = false; }
 				}

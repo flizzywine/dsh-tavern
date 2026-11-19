@@ -265,8 +265,8 @@ function StageSetupCast({ctx,status,pack,found,library,run,busy,onPerson}) {
     return h('button',{key:name,type:'button',className:'ap-chip-button ap-wizard-name','data-face':avatar?true:undefined,disabled:busy||select.on,onClick:()=>onPerson({name})},
       avatar&&h(Thumb,{binding,packId:match.packId,...avatar,label:match.figure.name,className:'ap-wizard-name-face'}),h('span',null,name));
   };
-  const remove=()=>{const ids=[...select.ids];ctx.setConfirm({title:'移除人物',body:'从本卡素材包移除 '+ids.length+' 个人物？',confirmLabel:'移除',danger:true,
-    onConfirm:()=>run(async()=>{for(const id of ids)await ctx.writer.packOp(packId,c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));select.stop();})});};
+  const remove=()=>{const ids=[...select.ids];askDelete(ctx.setConfirm,'card-pack-figure',{title:'移除人物',body:'从本卡素材包移除 '+ids.length+' 个人物？',confirmLabel:'移除',danger:true},
+    ()=>run(async()=>{for(const id of ids)await ctx.writer.packOp(packId,c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));select.stop();}));};
   const action=select.on?h(SelectBar,{count:select.ids.size,action:'移除',danger:true,onAction:remove,onCancel:select.stop}):
     figures.length>0&&h(Popover,{label:'本卡人物 操作',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 本卡人物','aria-expanded':open,onClick:toggle}),
       content:close=>h(MenuItem,{danger:true,onClick:()=>{close();select.start();}},'移除…')});

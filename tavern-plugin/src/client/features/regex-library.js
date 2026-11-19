@@ -234,7 +234,7 @@
             }
 
             async function removeEntry(entry) {
-                if (!await askConfirm("删除全局正则「" + entry.name + "」吗？\n删除后所有存档都不再应用这条规则。")) return;
+                if (!await askConfirm("删除后所有存档都不再应用这条规则。", { title: "删除全局正则「" + entry.name + "」？", confirmText: "删除", danger: true, hide: "regex" })) return;
                 const result = await writeGlobal((data?.global || []).filter(function (item) { return item.key !== entry.key; }).map(regexEntryScript), "已删除「" + entry.name + "」。");
                 if (!result) return;
                 setDrafts(function (current) { const next = { ...current }; delete next[entry.key]; return next; });

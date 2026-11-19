@@ -816,6 +816,13 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 }
 .dsh-tavern-prompt:focus, .dsh-tavern-prompt:focus-visible { outline: none; }
 .dsh-tavern-prompt-panel { font: 14px/1.6 var(--fork-font-ui); }
+/* 「以后不再显示」: bottom left of the action row, the same round tick as the asset dialogs' (.ap-confirm-hide). */
+.dsh-tavern-prompt-hide { display: inline-flex; align-items: center; gap: 8px; min-height: 30px; margin: 0 auto 0 0; padding: 0 8px 0 4px; border: 0; border-radius: 15px; background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-body); cursor: pointer; }
+.dsh-tavern-prompt-hide:hover { background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-tavern-prompt-hide:focus-visible { outline: var(--fork-focus); }
+.dsh-tavern-prompt-hide-mark { display: grid; flex: none; place-items: center; width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
+.dsh-tavern-prompt-hide[aria-checked=true] .dsh-tavern-prompt-hide-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; }
+.dsh-tavern-prompt-hide[aria-checked=true] .dsh-tavern-prompt-hide-mark::after { content: ""; width: 8px; height: 4px; margin-top: -2px; border: solid var(--fork-on-accent); border-width: 0 0 2px 2px; transform: rotate(-45deg); }
 .fork-bubble-avatar-zoom { padding: 0; border: 0; font: inherit; /* buttons do not inherit font size; the avatar is sized in em */ cursor: zoom-in; transition: transform 140ms var(--fork-ease), box-shadow 140ms var(--fork-ease); }
 .fork-bubble-avatar-zoom:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgb(0 0 0 / .18); }
 .fork-bubble-avatar-zoom:focus-visible { outline: 2px solid var(--bubble-color); outline-offset: 2px; }
@@ -4060,7 +4067,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-gen-stage-wait > .fork-spinner { --fork-spinner-size: 36px; color: var(--fork-accent); }
 .ap-gen-face-time { position: absolute; left: 0; right: 0; bottom: 3px; z-index: 2; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; line-height: 1; text-align: center; }
 .ap-gen-queue { position: absolute; left: 50%; top: 50%; z-index: 2; padding: 1px 6px; border-radius: 8px; background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); line-height: 16px; transform: translate(-50%, -50%); white-space: nowrap; }
-.ap-gen-badge { position: absolute; left: 50%; bottom: 3px; z-index: 2; padding: 0 5px; border-radius: 6px; background: var(--fork-accent-fill, var(--fork-accent)); color: var(--fork-on-accent, Canvas);
+.ap-gen-badge { position: absolute; left: 50%; bottom: 3px; z-index: 2; padding: 0 5px; border-radius: 6px; background: var(--fork-accent-fill, var(--fork-accent)); color: var(--fork-on-accent);
   font-size: var(--fork-fs-meta); font-weight: 600; line-height: 15px; transform: translateX(-50%) scale(.86); transform-origin: center bottom; white-space: nowrap; }
 .ap-face-art > .ap-gen-flag { left: 3px; right: auto; top: 3px; bottom: auto; }
 /* The 差分 header's asset switch (模型 · 立绘 · 头像); an asset this outfit lacks reads lighter. */
@@ -5059,9 +5066,10 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui button.ap-voice-more { justify-self: start; gap: 6px; margin: 0; }
 .ap-voice-more .fork-spinner { --fork-spinner-size: 14px; }
 /* A local model trained for this figure: an accent tag after its name; the engine version is quiet text. */
-/* 付费试听: 「不再提示」 under the sentence, left-aligned. */
-.ap-ui button.ap-check-row.ap-voice-quiet { align-self: flex-start; justify-self: start; margin: 4px 0 0; }
-.ap-voice-quiet .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
+/* 「以后不再显示」 (HideCheck): bottom left of a confirmation's action row; the host dialog's twin is .dsh-tavern-prompt-hide. */
+.ap-ui button.ap-check-row.ap-confirm-hide { margin: 0 auto 0 0; padding-left: 4px; background: none; color: var(--fork-ink-2); }
+.ap-ui button.ap-check-row.ap-confirm-hide:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
+.ap-confirm-hide .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
 
 /* 参考音频 / 本地引擎 clips: № · ▶ · what it says · language · length / size · ⋯; the dashed ＋ row adds clips. */
 .ap-clips { margin: 0; padding: 0; list-style: none; }

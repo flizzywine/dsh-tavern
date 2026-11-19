@@ -310,7 +310,7 @@
 			async function deleteSelectedConversations(customItems) {
 				const pool = Array.isArray(customItems) ? customItems : visibleHistory;
 				const items = pool.filter(function (item) { return selectedChats.includes(item.chatId); });
-				if (busy || !items.length || !await askConfirm("彻底删除这 " + items.length + " 个对话？\n此操作不可撤销，人物卡和世界书会保留。", { confirmText: "彻底删除" })) return;
+				if (busy || !items.length || !await askConfirm("此操作不可撤销，人物卡和世界书会保留。", { title: "彻底删除这 " + items.length + " 个对话？", confirmText: "彻底删除", danger: true, hide: "chat-bulk" })) return;
 				setBusy(true); setError(""); setDeleteNotice("");
 				try {
 					const outcome = await deleteTavernChats(items, props.archiveSession);
@@ -1274,7 +1274,7 @@
 			}
 			async function deleteConversation(item, currentTitle) {
 				setMenuSession(null);
-				if (!await askConfirm("彻底删除对话“" + (currentTitle || item.cardName + "的新对话") + "”？\n此操作不可撤销，人物卡和世界书会保留。", { confirmText: "彻底删除" })) return;
+				if (!await askConfirm("此操作不可撤销，人物卡和世界书会保留。", { title: "彻底删除对话“" + (currentTitle || item.cardName + "的新对话") + "”？", confirmText: "彻底删除", danger: true, hide: "chat" })) return;
 				setBusy(true); setError("");
 				try {
 					await removeChat(item);

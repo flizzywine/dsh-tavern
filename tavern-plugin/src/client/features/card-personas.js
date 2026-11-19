@@ -20,7 +20,7 @@
 					name = await askTavernText({ title: action === "rename" ? "重命名性格" : "新性格名称", initialValue: action === "rename" ? active.name : action === "duplicate" ? active.name + " 副本" : "", maxLength: 80 });
 					if (!name) return;
 				}
-				if (action === "delete" && !await askConfirm("删除性格“" + active.name + "”？" + (active.builtin ? "删除后这个内置性格不再出现。" : "此操作不能撤销。"))) return;
+				if (action === "delete" && !await askConfirm(active.builtin ? "删除后这个内置性格不再出现。" : "此操作不能撤销。", { title: "删除性格“" + active.name + "”？", confirmText: "删除", danger: true, hide: "persona" })) return;
 				if (action === "restore" && !await askConfirm("把“" + active.name + "”恢复为内置的默认内容？你的修改会丢失。")) return;
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
 				try {

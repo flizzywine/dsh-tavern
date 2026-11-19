@@ -143,7 +143,7 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				finally { setBusy(false); }
 			}
 			async function deleteCardFile() {
-				if (!card || !await askConfirm("从人物卡库删除“" + card.name + "”吗？")) return;
+				if (!card || !await askConfirm("人物卡文件会被删除，不能撤销。", { title: "从人物卡库删除“" + card.name + "”？", confirmText: "删除", danger: true, hide: "card" })) return;
 				let chats;
 				try { chats = await askTavernCardChatRemoval([card.path], askConfirm); }
 				catch (err) { setError("读取游玩记录失败，未删除人物卡：" + String(err && err.message || err)); return; }

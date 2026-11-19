@@ -397,7 +397,7 @@
 				finally { setSettlementRetryBusy(false); }
 			}
 			async function removeCharacterDesign(name) {
-				if (designRemoving || !await askConfirm("删除人物档案“" + name + "”？会同时移除本局世界书里为它生成的条目（手动改过的条目保留），人物卡的世界书库不变。")) return;
+				if (designRemoving || !await askConfirm("会同时移除本局世界书里为它生成的条目（手动改过的条目保留），人物卡的世界书库不变。", { title: "删除人物档案“" + name + "”？", confirmText: "删除", danger: true, hide: "character-design" })) return;
 				setDesignRemoving(name);
 				try {
 					const result = await rpc("removeCharacterDesign", { name: name }, props.sessionId);

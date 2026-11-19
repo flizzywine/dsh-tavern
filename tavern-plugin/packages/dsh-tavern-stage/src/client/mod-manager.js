@@ -280,9 +280,12 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
   async function uninstall() {
     let ready;
     try { ready = await mods.task(() => rpc('managedModPlan', { action: 'uninstall', modId: row.id })); } catch (_) { return; }
+    // 「以后不再显示」 on 卸载模组 hides the kind 'mod-uninstall' (hidden-confirms.js); the host plan is still applied as planned.
+    if (hiddenConfirms.has('mod-uninstall')) { try { await applyPlan(ready); } catch (_) {} return; }
     setConfirm(ready);
   }
-  const apply = async () => { await mods.task(() => rpc('managedModApply', { token: confirm.token, revision: confirm.revision, answers: {} })); mods.changed(); onBack(); };
+  const applyPlan = async ready => { await mods.task(() => rpc('managedModApply', { token: ready.token, revision: ready.revision, answers: {} })); mods.changed(); onBack(); };
+  const apply = () => applyPlan(confirm);
   const deps = row.dependencies || [], depNotice = id => (detail?.dependencies || row.notices || []).find(item => item.dependencyId === id), byId = id => mods.data?.mods.find(item => item.id === id);
   const config = detail?.config, labels = list => list?.length ? list.map(field => field.label).join('、') : '无';
   const conflicts = detail?.conflicts || [], assets = detail?.assetKinds, dependents = (detail?.dependents || []).map(item => modQuote(byId(item.consumerId)?.name || item.consumerId));
@@ -312,7 +315,7 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
         h(ModInfoRow, { label: '玩家偏好', help: MOD_DATA_HELP.preferences }, h('span', { className: 'fork-mod-info-list' }, labels(config?.preferenceFields))),
         assets ? h(ModInfoRow, { label: '素材', help: MOD_DATA_HELP.assets }, h('span', { className: 'fork-mod-info-list' }, labels(assets))) : null)),
     row.installed && row.globalRoot !== false ? h('div', { className: 'fork-mod-danger' }, h(Button, { className: 'ap-danger-text', disabled: mods.busy, onClick: uninstall }, '卸载模组…')) : null,
-    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', onConfirm: apply, onClose: () => setConfirm(null),
+    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', hide: 'mod-uninstall', onConfirm: apply, onClose: () => setConfirm(null),
       body: confirm.retainedByCards?.length ? confirm.retainedByCards.length + ' 张卡仍在用它，这些卡保留它的代码；其他卡会缺少这个模组。' : '用到它的卡会缺少这个模组；卡里的选择和设置保留。',
       extra: dependents.length ? dependents.join('、') + '需要它。' : undefined }));
 }

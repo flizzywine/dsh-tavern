@@ -46,7 +46,7 @@
 				finally { setBusy(false); }
 			}
 				async function deleteResource(item) {
-					if (!await askConfirm("删除剧本“" + item.title + "”吗？\n工作版和原版都会删除。")) return;
+					if (!await askConfirm("工作版和原版都会删除。", { title: "删除剧本“" + item.title + "”？", confirmText: "删除", danger: true, hide: "script" })) return;
 				setBusy(true); setError("");
 				try { await rpc("deleteResource", { path: item.path }, props.sessionId); await refresh(); notifyTavernDataChanged(["scripts", "cards", "sessions"], "resources"); }
 				catch (err) { setError(String(err && err.message || err)); }
