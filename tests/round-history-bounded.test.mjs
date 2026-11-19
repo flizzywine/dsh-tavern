@@ -94,6 +94,7 @@ async function fixture(t, bounded, { earlyInput = false } = {}) {
       draft.nativeCommits[String(turn)] = { turn, userText }
     } }).chat, { source: 'foreground.commit' })
     session.append('user/message', { turn, role: 'user', content: [{ type: 'text', text: userText }], source: { kind: 'plugin', plugin: 'dsh-tavern-regen' } }, { surfaceOp: 'append' })
+    if (hooks.runtimeContext) session.append('user/message', { source: { kind: 'runtime-context' }, content: [{ type: 'text', text: '背景' }] }, { surfaceOp: 'append' })
     session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', source: model, content: [{ type: 'text', text }] } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   } }
@@ -240,6 +241,40 @@ test('rollback to a turn stops where the model context ends and keeps the rounds
   assert.deepEqual(partial.rolledBackTo, { target: 70, latest: 80, removed: 2 })
   assert.match(partial.rollbackWarning, /已回退 2 轮，停在第 80 轮.*从这一轮分叉/)
   assert.equal((await h.p.read('chat')).messages.at(-1).turn, 80)
+})
+
+test('回退正文已被后续回退隐藏、原输入仍在模型消息流中的一轮', async t => {
+  const h = await fixture(t, true)
+  h.hooks.runtimeContext = true
+  h.agent.followup({ content: [{ type: 'text', text: '上楼' }] })
+  await h.agent.whenIdle()
+  const reply = h.session.events.findLast(event => event.type === 'assistant/message' && event.data.turn === 82)
+  const input = h.session.events.findLast(event => event.type === 'user/message' && event.data.turn === 82)
+  const context = h.session.events.findLast(event => event.type === 'user/message' && event.data.source?.kind === 'runtime-context')
+  await h.p.update('chat', current => {
+    current.messages.at(-1).nativeAnchor = { formatVersion: 4, turn: 82, input: input.seq, reply: reply.seq }
+    return current
+  })
+
+  h.session.append('assistant/message', { turn: 83, step: 1, message: { role: 'assistant', content: [], source: model } }, {
+    surfaceOp: { op: 'replace', start: context.seq, end: reply.seq }, sourceEventSeqs: [context.seq, reply.seq]
+  })
+  const before = [...h.session.surface.nodes]
+  const describeSurface = nodes => nodes.map(seq => {
+    const { type, data } = h.session.events[seq]
+    return { type, content: data.message?.content ?? data.content }
+  })
+  assert.ok(before.includes(input.seq))
+  const result = await h.rounds.rollback('session', 'chat', 82)
+  assert.equal(result.rolledBack.hiddenTurn, 82)
+  assert.equal((await h.p.read('chat')).messages.at(-1).turn, 81)
+  assert.equal(h.session.surface.nodes.includes(input.seq), false)
+  assert.deepEqual(h.session.surface.nodes.slice(0, -1), before.slice(0, -2))
+
+  await h.rounds.undoRollback('session', 'chat')
+  assert.equal((await h.p.read('chat')).messages.at(-1).turn, 82)
+  assert.deepEqual(describeSurface(h.session.surface.nodes), describeSurface(before))
+  assert.equal((await h.rounds.rollback('session', 'chat', 82)).rolledBack.hiddenTurn, 82)
 })
 
 test('连续回退可以越过已被后续操作隐藏的存档轮次，且仍可撤销', async t => {

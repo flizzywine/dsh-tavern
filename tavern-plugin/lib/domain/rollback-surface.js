@@ -9,7 +9,7 @@ import { createSurfaceOwnership, planSurfaceRecovery, planSurfaceRange, SurfaceR
 import { randomUUID } from 'node:crypto'
 import { inputKind, isTurnInput, isNewTurnInput, isNewPlayerInput, isFailedTurnEnd } from './session-turn-input.js'
 import { resolveRoundAnchor } from './round-anchor.js'
-import { isPluginSource, isProducerSource, sourceProducerName } from './message-source.js'
+import { isProducerSource, sourceProducerName } from './message-source.js'
 
 function object(value) {
   return value !== null && typeof value === 'object' ? value : null
@@ -741,7 +741,7 @@ export function locateRollbackSurface(input) {
     if (isCompactionCheckpoint(event)) return null
     // The round starts at its input: messages other plugins or card scripts add
     // around it belong to the round and go with it, never stand in for it.
-    if (event && event.type === 'user/message' && (isTurnInput(event.data) || !isPluginSource(event.data?.source)) && !isRollbackUserTombstone(event)) {
+    if (event?.type === 'user/message' && (isTurnInput(event.data) || !event.data?.source)) {
       userIndex = index
       break
     }
@@ -1194,18 +1194,28 @@ function alreadyShadowedRollbackTarget(chat, latest, events, nodes) {
   const checkpoint = chat.timeline?.checkpoints?.at(-1)
   if (!Number.isSafeInteger(turn) || turn <= 1 || Number(checkpoint?.turn) !== turn || latest.placeholder || latest.incomplete) return null
   const resolved = resolveRoundAnchor({ events, nodes }, latest.nativeAnchor)
-  if (!resolved || resolved.input === null || resolved.input !== resolved.reply) return null
-  const index = nodes.indexOf(resolved.reply)
-  if (index < 0 || !isRollbackAssistantTombstone(eventAt(events, resolved.reply), events)) return null
-  // A shared native input can cause an earlier saved round to be shadowed along
-  // with a later regenerated round. Its checkpoint can still restore the save.
-  // A compaction or a newer visible input/reply is a different boundary.
-  const hasNewerStory = nodes.slice(index + 1).some(seq => {
+  if (!resolved || resolved.input === null || resolved.reply === null) return null
+  const reply = eventAt(events, resolved.reply)
+  const replyIndex = nodes.indexOf(resolved.reply)
+  if (replyIndex < 0 || !isRollbackAssistantTombstone(reply, events)) return null
+  const storyBoundary = seq => {
     const event = eventAt(events, seq)
-    return isCompactionCheckpoint(event) || (event?.type === 'user/message' && isTurnInput(event.data) && !isRollbackUserTombstone(event)) ||
+    return isCompactionCheckpoint(event) || (event?.type === 'user/message' && (isTurnInput(event.data) || !event.data?.source)) ||
       (event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events))
-  })
-  return hasNewerStory ? null : { turn, alreadyShadowed: true }
+  }
+  // The reply's lineage proves it was shadowed. A newer story or compaction
+  // boundary makes it unsafe to restore just this checkpoint.
+  if (nodes.slice(replyIndex + 1).some(storyBoundary)) return null
+  if (resolved.input === resolved.reply) return { turn, alreadyShadowed: true }
+  // Older rollbacks could start at injected context, leaving the actual input
+  // visible. Include that anchored input only when it still ends at this shadow.
+  const input = eventAt(events, resolved.input)
+  const inputIndex = nodes.indexOf(resolved.input)
+  if (inputIndex < 0 || inputIndex >= replyIndex || input?.type !== 'user/message' || !isTurnInput(input.data)
+    || nodes.slice(inputIndex + 1, replyIndex).some(storyBoundary)) return null
+  const cleanup = { userSeq: resolved.input, endSeq: resolved.reply, shadowedSeqs: nodes.slice(inputIndex, replyIndex + 1),
+    source: modelSourceOf(reply) }
+  return { turn, alreadyShadowed: true, cleanup }
 }
 
 // UI and mutation share the same native target and failed-tail precedence.

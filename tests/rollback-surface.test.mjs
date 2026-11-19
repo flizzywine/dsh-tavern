@@ -29,12 +29,13 @@ test('重生成失败清理墓碑不冒充最后用户输入，仍可回退原�
     sourceEventSeqs: [562, 563, 750]
   }
 
-  const located = locateRollbackSurface({ events, nodes: [15, 555, 753] })
+  events[16] = { seq: 16, type: 'user/message', data: { source: { kind: 'runtime-context' }, content: [{ type: 'text', text: '补充背景' }] }, surfaceOp: 'append' }
+  const located = locateRollbackSurface({ events, nodes: [15, 16, 555, 753] })
 
   assert.equal(located.userSeq, 15)
   assert.equal(located.assistantSeq, 555)
   assert.equal(located.turn, 2)
-  assert.deepEqual(located.shadowedSeqs, [15, 555, 753])
+  assert.deepEqual(located.shadowedSeqs, [15, 16, 555, 753])
 })
 
 test('失败重生成的模型轮次可从尝试区间和持久清理墓碑重建', () => {

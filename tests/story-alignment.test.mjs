@@ -4,6 +4,7 @@ import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from "../tavern-plugin/lib/domain/session-events.js"
 
 import { inspectStoryAlignment, nativeStoryTurns } from '../tavern-plugin/lib/domain/story-alignment.js'
+import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
 import { reshadowRolledBackRounds } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 const input = (id, rpcId) => ({ id, role: 'user', content: [{ type: 'text', text: id }], source: { kind: 'user', rpcId } })
@@ -46,6 +47,24 @@ test('存档漏了一轮：可补记；回退没传到模型上下文：可重�
   assert.equal(strange.state, 'mismatch')
   assert.deepEqual(strange.mismatch, { native: [2], story: [2, 9] })
   assert.equal(inspectStoryAlignment({ session, header: { regenInProgress: true }, storyTurns: [2] }).state, 'regenerating')
+})
+
+test('回退后对账不会拿已回退轮次的输入给前一轮重写正文补记一轮', () => {
+  const { session, round } = game()
+  const second = round(2)
+  const source = { kind: 'model', provider: 'test', model: 'test', tavernStoryTurn: 2 }
+  appendSessionEvent(session, 'turn/start', { turn: 3 })
+  replaceSessionSurface(session, 'assistant/message', reply('rewritten-out-2', 3, source), {
+    start: second.out.seq, end: second.out.seq, sourceEventSeqs: [second.out.seq]
+  })
+  appendSessionEvent(session, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  round(4)
+  assert.deepEqual(reshadowRolledBackRounds(session, new Set([4])), [4])
+  const report = inspectStoryAlignment({
+    session, header: { nativeCommits: { 2: {} }, suppressedDshTurns: [4] }, storyTurns: [2]
+  })
+  assert.deepEqual(report.adopt.map(item => item.turn), [])
+  assert.equal(report.aligned, true)
 })
 
 test('只有模型回复的回合结束后才对账：回退、撤销回退、编辑这类 Tavern 自己的回合不触发', async () => {
