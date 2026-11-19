@@ -502,16 +502,15 @@ export function createTavernPluginApi(deps) {
   }
 
   async function collectSections(registry, context, label, disabled) {
-    const result = []
     const entries = Array.from(registry.values()).filter(entry => !disabled?.has(entry.owner) && (entry.target || 'story') === (context.target || 'story')).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
-    for (const entry of entries) {
+    const collected = await Promise.all(entries.map(async entry => {
       let text
       try { text = typeof entry.text === 'function' ? await bounded(entry.text(structuredClone(context)), label) : entry.text }
-      catch (error) { recordError(context.gameId, entry.owner, label, error); continue }
-      if (typeof text !== 'string' || !text.trim()) continue
-      result.push({ name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' || entry.position === 'last' ? { position: entry.position } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) })
-    }
-    return result
+      catch (error) { recordError(context.gameId, entry.owner, label, error); return null }
+      if (typeof text !== 'string' || !text.trim()) return null
+      return { name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' || entry.position === 'last' ? { position: entry.position } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) }
+    }))
+    return collected.filter(Boolean)
   }
 
   // 宿主在阻尼器裁定前收集插件附加题：本局已关闭的插件与越权卡内插件都不参与
@@ -2122,18 +2121,20 @@ export function createTavernPluginApi(deps) {
     const context = { gameId, turn, input: String(input || ''), ...(target === 'story' ? {} : {target, subject}) }
     const { disabled } = await choicesFor(gameId)
     const result = await collectSections(turnSections, context, '本轮上下文段落', disabled)
-    for (const source of Array.from(worldbookSources.values()).filter(entry => !disabled.has(entry.owner) && entry.target === target).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))) {
+    const activeSources = Array.from(worldbookSources.values()).filter(entry => !disabled.has(entry.owner) && entry.target === target).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
+    const sourceSections = await Promise.all(activeSources.map(async source => {
       let entries
       try { entries = await bounded(source.entries(structuredClone(context)), '世界书来源') }
-      catch (error) { recordError(gameId, source.owner, '世界书来源', error); continue }
+      catch (error) { recordError(gameId, source.owner, '世界书来源', error); return null }
       const items = (Array.isArray(entries) ? entries : []).slice(0, MAX_WORLDBOOK_ENTRIES).flatMap(entry => {
         const content = typeof entry?.content === 'string' ? entry.content.trim().slice(0, MAX_WORLDBOOK_ENTRY) : ''
         if (!content) return []
         const title = typeof entry.title === 'string' ? entry.title.trim().slice(0, 200) : ''
         return [title ? '[' + title + '] ' + content : content]
       })
-      if (items.length) result.push({ name: 'tavern-plugin:' + source.owner + ':' + source.name, owner: source.owner, worldbook: true, text: items.join('\n\n') })
-    }
+      return items.length ? { name: 'tavern-plugin:' + source.owner + ':' + source.name, owner: source.owner, worldbook: true, text: items.join('\n\n') } : null
+    }))
+    for (const item of sourceSections) if (item) result.push(item)
     return result
   }
 

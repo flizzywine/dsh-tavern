@@ -220,41 +220,59 @@ export function registerTurnLifecycleHooks({
     const agent = context && context.agent
     if (agent === undefined || agent.session === undefined) return assembly
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
+    const startedAt = Date.now()
+    const timings = {}
+    const timed = async (key, fn) => {
+      const t0 = Date.now()
+      try { return await fn() }
+      finally { timings[key] = Date.now() - t0 }
+    }
     // DSH assembles the system prompt before agent/pre-step. The first request freezes the
     // variable directory into it, so the opening's MVU variables must be saved before that.
-    if (variableDirectoryOpen(agent.session)) await foregroundHandoff.awaitOpening(agent.session.id)
+    if (variableDirectoryOpen(agent.session)) await timed('opening', () => foregroundHandoff.awaitOpening(agent.session.id))
     const chat = await hookChatForSession(agent.session.id)
-    if (chat) await synchronizeTemplateHistory(agent.session, chat, session => sessionStore.flush(session))
-    if (chat) await synchronizeBodyEdits(agent.session, chat, session => sessionStore.flush(session), persistClearedBodyEdits)
-    if (chat && chat.requestMode !== 'sillytavern' && ['story', 'script', 'card'].includes(await turnOrchestrator.modeFor(agent.session.id))) {
-      await ensureNativeSystemPrefix(agent.session, chat)
+    await timed('sync', async () => {
+      if (chat) await synchronizeTemplateHistory(agent.session, chat, session => sessionStore.flush(session))
+      if (chat) await synchronizeBodyEdits(agent.session, chat, session => sessionStore.flush(session), persistClearedBodyEdits)
+    })
+    const mode = chat && chat.requestMode !== 'sillytavern' ? await turnOrchestrator.modeFor(agent.session.id) : ''
+    if (chat && chat.requestMode !== 'sillytavern' && ['story', 'script', 'card'].includes(mode)) {
+      await timed('prefix', () => ensureNativeSystemPrefix(agent.session, chat))
     }
-    let workspaceProjection = null
-    try { workspaceProjection = await publishResourceWorkspace(agent.session.id, chat) }
-    catch { console.error('dsh-tavern: 资源工作区投影刷新失败，继续使用现有资源文件') }
+    const needWorldbook = Boolean(chat && ['story', 'script'].includes(chat.mode || 'story'))
+    const nativeWorldbook = needWorldbook && chat.worldbookStrategy === 'native-skills'
+    const needPlugins = Boolean(pluginPromptSections && chat && chat.requestMode !== 'sillytavern' && ['story', 'script'].includes(mode))
+    const [workspaceProjection, projectedWorldbook, extraPluginSections] = await Promise.all([
+      timed('workspace', async () => {
+        try { return await publishResourceWorkspace(agent.session.id, chat) }
+        catch { console.error('dsh-tavern: 资源工作区投影刷新失败，继续使用现有资源文件'); return null }
+      }),
+      needWorldbook
+        ? timed('worldbook', async () => nativeWorldBookTemplateContext(chat, await readChatCard(chat), nativeWorldbook ? { restore: false } : undefined))
+        : Promise.resolve(null),
+      needPlugins
+        ? timed('plugins', () => pluginPromptSections({ gameId: agent.session.id }))
+        : Promise.resolve([])
+    ])
     let fixedSystemSections = sessionStablePrefixSections(agent.session)
     let deferWorldbook = false
-    if (chat && ['story', 'script'].includes(chat.mode || 'story')) {
-      const native = chat.worldbookStrategy === 'native-skills'
-      const projected = await nativeWorldBookTemplateContext(chat, await readChatCard(chat), native
-        ? { restore: false } : undefined)
-      deferWorldbook = native && !!context.signal && projected.visibilityPending === true
-      fixedSystemSections = native
-        ? withVirtualWorldbook(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools, { defer: deferWorldbook })
-        : withCurrentWorldbook(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
+    if (needWorldbook && projectedWorldbook) {
+      deferWorldbook = nativeWorldbook && !!context.signal && projectedWorldbook.visibilityPending === true
+      fixedSystemSections = nativeWorldbook
+        ? withVirtualWorldbook(fixedSystemSections, projectedWorldbook.prefixContext ?? '', chat.disabledForegroundTools, { defer: deferWorldbook })
+        : withCurrentWorldbook(fixedSystemSections, projectedWorldbook.prefixContext ?? '', chat.disabledForegroundTools)
     }
-    const assembled = await hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
+    const assembled = await timed('assemble', () => hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
       sessionId: agent.session.id,
       toolDefinitions: tools,
       chat,
       cwd: agent.session.header && agent.session.header.cwd,
       workspaceProjection,
       fixedSystemSections
-    }))
+    })))
     // Third-party plugin sections join the play prompt only, after Tavern's own.
-    if (pluginPromptSections && chat && chat.requestMode !== 'sillytavern' && ['story', 'script'].includes(await turnOrchestrator.modeFor(agent.session.id))) {
-      const extra = await pluginPromptSections({ gameId: agent.session.id })
-      if (extra.length) assembled.sections = [...(assembled.sections || []), ...extra]
+    if (extraPluginSections && extraPluginSections.length) {
+      assembled.sections = [...(assembled.sections || []), ...extraPluginSections]
     }
     // The final reminder goes after those sections, so their length cannot bury
     // the one contract that must be the last thing the model reads.
@@ -264,6 +282,11 @@ export function registerTurnLifecycleHooks({
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
     const result = markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
     if (deferWorldbook) foregroundStrategies.stageWorldbookSection(context, result.sections.find(section => section.name === VIRTUAL_WORLDBOOK_SECTION))
+    const totalMs = Date.now() - startedAt
+    if (totalMs >= 3000) {
+      const breakdown = Object.entries(timings).filter(([, ms]) => ms >= 100).map(([k, ms]) => `${k}=${ms}ms`).join(' ')
+      console.warn(`dsh-tavern: 本轮前置系统提示装配耗时 ${totalMs}ms (${breakdown || 'total'}) session=${agent.session.id}`)
+    }
     return result
   })
 }
