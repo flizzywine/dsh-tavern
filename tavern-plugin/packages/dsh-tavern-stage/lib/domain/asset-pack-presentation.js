@@ -17,6 +17,7 @@ import { assetEntryEnabled, resolveAssetSnapshot, resolveFigureSnapshot } from '
 import { assetPackBackgroundVariant } from '../../../dsh-presentation-protocol/src/asset-pack-stage.js'
 import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
 import {selectAssetVariant} from '../../../dsh-presentation-protocol/src/asset-variants.js'
+import {cgPlaybackEnabled} from '../scene-cg.js'
 import {stageTimeLook} from '../../../dsh-presentation-protocol/src/stage-time.js'
 import { triggerEvidence, normalizeCatalogueText, codepointCompare } from '../../../../lib/domain/asset-pack-lexical.js'
 import spriteEmotions from '../../../../shared/sprite-emotions.cjs'
@@ -524,7 +525,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
     async cg(requested, {descriptors = false} = {}) {
       if (!requested) return null
       const resolved = await resolveAsset(requested.ref), asset = resolved.value
-      if (!asset?.enabled || asset.kind !== 'cg') return null
+      if (!cgPlaybackEnabled(asset) || asset.pendingMedia) return null
       let variant
       try {variant=selectAssetVariant(asset,requested.variant ?? undefined)}
       catch(cause) {if(cause.code!=='REF_UNAVAILABLE')throw cause;variant=selectAssetVariant(asset)}

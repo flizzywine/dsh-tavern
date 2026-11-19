@@ -62,9 +62,10 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
       const unlocked = await read(cardId), keys = new Set(unlocked.map(assetRefKey))
       const snapshot = await assets.snapshot(chat.cardPath), rows = [], packs = new Map(snapshot?.snapshots.map(pack => [pack.manifest.id,pack]))
       for (const pack of snapshot?.snapshots || []) for (const asset of pack.manifest.assets) {
-        if (asset.kind !== 'cg' || !asset.enabled || snapshot.assetStatus[assetRefKey({packId:pack.manifest.id,kind:'cg',assetId:asset.id})]?.available !== true) continue
-        const ref = {packId:pack.manifest.id,kind:'cg',assetId:asset.id}
-        rows.push({ref,unlocked:keys.has(assetRefKey(ref)),available:true,asset})
+        if (asset.kind !== 'cg') continue
+        const ref = {packId:pack.manifest.id,kind:'cg',assetId:asset.id}, key = assetRefKey(ref), isUnlocked = keys.has(key)
+        if ((!asset.enabled && !isUnlocked) || snapshot.assetStatus[key]?.available !== true) continue
+        rows.push({ref,unlocked:isUnlocked,available:true,asset})
       }
       const present = new Set(rows.map(row => assetRefKey(row.ref)))
       for (const ref of unlocked) if (!present.has(assetRefKey(ref)) && !entryDeleted(packs.get(ref.packId),ref)) rows.push({ref,unlocked:true,available:false})
