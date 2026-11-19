@@ -9,7 +9,7 @@ const roundOrdinal = source.slice(source.indexOf('function tavernRoundOrdinal(')
 const withdrawHelper = source.slice(source.indexOf('async function withdrawFailedTavernTurn('), source.indexOf('// Any problem in a game'))
 // The replay submit path sits above CandidateAction; slice it with its only helper.
 
-function harness() {
+function harness(rollbackRpc) {
   let running = true, activity = { phase: 'idle', busy: false, role: '' }, regen = null, fail = false, warning = '', canRollback = true, undoTurn = null, noView = false, bareView = false
   let candidatePanel = null
   const states = [], calls = [], extraView = {}, refs = [], effects = [], timers = [], candidateWrites = []
@@ -41,10 +41,14 @@ function harness() {
       setTimeout(run, delay) { timers.push({ run, delay, cancelled: false, fired: false }); return timers.length },
       clearTimeout(id) { const timer = timers[id - 1]; if (timer) timer.cancelled = true }
     },
-    rpc: async () => { calls.push('rpc'); if (fail) throw new Error('本次回复未完成'); return { view: { rollbackWarning: warning } } },
+    rpc: async (method, args, sessionId) => {
+      calls.push('rpc')
+      if (fail) throw new Error('本次回复未完成')
+      return rollbackRpc ? rollbackRpc(method, args, sessionId) : { view: { rollbackWarning: warning } }
+    },
     historyProjection: { rolledBack: () => calls.push('project'), restored: () => calls.push('restore') },
     setCandidatePanel(next) { calls.push('set-candidate-panel'); candidateWrites.push(next) }, setRegenPanel() { calls.push('set-regen-panel') }, setCandidateGuidePanel() { calls.push('set-guide-panel') },
-    liveTavernView: { setView() {}, invalidate: () => calls.push('refresh-view') },
+    liveTavernView: { setView(_sessionId, value) { Object.assign(extraView, value) }, invalidate: () => calls.push('refresh-view') },
     tavernCoordination: { invalidate: () => calls.push('refresh-activity') },
     notifyTavernDataChanged: () => calls.push('notify'),
     tavernErrorHub: { report: (name, error) => calls.push(name + ': ' + error.message) },
@@ -233,6 +237,30 @@ test('实际回退组件在前台、后台和重生成期间禁用，完成后�
   assert.ok(h.calls.includes('project'))
   assert.ok(!h.calls.includes('confirm'), '点击回退直接执行，不弹确认框')
   assert.equal(h.button().props.disabled, false)
+})
+
+test('连续回退在视图补读返回前使用上一次回退返回的目标轮次', async () => {
+  let latest = 84
+  const requested = []
+  const h = harness((method, args, sessionId) => {
+    assert.equal(method, 'rollbackTurn')
+    assert.equal(sessionId, 'session')
+    requested.push(args.expectedTurn)
+    if (args.expectedTurn !== latest) throw new Error('回退目标已经变化，请刷新后确认实际轮次')
+    latest = latest === 84 ? 75 : 0
+    return { view: { canRollback: latest > 0, rollbackTargetTurn: latest,
+      displayRoundOrder: latest ? [1, 75] : [1] } }
+  })
+  h.running(false)
+  h.view({ rollbackTargetTurn: latest, displayRoundOrder: [1, 75, 84] })
+
+  assert.equal(h.button().children[0], '回退第 3 轮')
+  await h.button().props.onClick()
+  const second = h.button()
+  await second.props.onClick()
+  assert.deepEqual(requested, [84, 75])
+  assert.equal(second.children[0], '回退第 2 轮')
+  assert.equal(h.button(), null)
 })
 
 test('撤回持久输入后立即刷新故事列表，原输入只回填到输入框', async () => {

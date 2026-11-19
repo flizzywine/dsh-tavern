@@ -793,6 +793,7 @@
 							expectedTarget: rollbackViewState.view.clearIncompleteReplyTarget ?? undefined
 						}, props.sessionId)
 						: await rpc("rollbackTurn", { expectedTurn: targetTurn }, props.sessionId);
+					liveTavernView.setView(props.sessionId, result?.view);
 					if (!clearIncomplete || result?.cleared) historyProjection.rolledBack(props.sessionId, result && result.view);
 					setCandidatePanel(null);
 					setRegenPanel(null);
