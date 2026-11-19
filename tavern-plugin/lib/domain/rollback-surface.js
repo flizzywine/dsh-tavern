@@ -803,9 +803,10 @@ export function reshadowRolledBackRounds(session, turns) {
     try { target = locateRollbackSurface({ events: sessionEvents(session), nodes: session.surface?.nodes || [] }) }
     catch (error) { if (error instanceof SurfaceRecoveryError) break; throw error }
     if (!target || !turns.has(target.turn) || done.includes(target.turn)) break
+    const { toolReplay: _toolReplay, replayState: _replayState, ...source } = target.source
     replaceSessionSurface(session, 'assistant/message', {
       turn: target.turn, step: target.step,
-      message: { id: 'tavern-rollback-repair:' + target.turn + ':' + target.assistantSeq, role: 'assistant', content: [], source: target.source }
+      message: { id: 'tavern-rollback-repair:' + target.turn + ':' + target.assistantSeq, role: 'assistant', content: [], source }
     }, { start: target.userSeq, end: target.endSeq, sourceEventSeqs: [...target.shadowedSeqs] })
     done.push(target.turn)
   }
