@@ -115,7 +115,7 @@ test('HelperPopup renders passive markup and the actual facade returns numeric p
   const Popup = load('createTavernHelperPopup')({ document, parent: { postMessage() {} }, token: 'tok' })
   load('installTavernHelperFacade')({
     window, Popup, context: () => ({}), copy: structuredClone, createChatData: () => ({}),
-    createLocalVariables: () => ({}), installCompatibility() {},
+    createLocalVariables: () => ({}), installCompatibility() {}, installContext() {},
   })
   const api = window.SillyTavern
   const markup = '<div class="node" onclick="window.executed=true">Select a node'
