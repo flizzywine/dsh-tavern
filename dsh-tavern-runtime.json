@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "91d7a672ab4d265028461871e296656c238b0466",
-  "releaseSequence": 1795,
+  "revision": "2440b6fdfc41dcea5aca02788db900ee6132bee1",
+  "releaseSequence": 1796,
   "version": "3.3.0",
   "files": [
     {
@@ -2296,13 +2296,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/manual-character-design.js",
-      "sha256": "d57fa5499c402a20ffdcc58c62b49a1596b193910eb1f3d1fce17429ebd9b0f3",
-      "size": 8829
+      "sha256": "836f388dfcb01d6abc9844cfe6b6f65ca48d246a8901f8fe17a50a60125e9cef",
+      "size": 8843
     },
     {
       "path": "tavern-plugin/lib/domain/manual-ledger.js",
-      "sha256": "3c78dd75a958be4c3a691fe532f5356313320d11fe2a98663668273d30cceb71",
-      "size": 9538
+      "sha256": "89e018ceb24ae0857af44d6ad7b8991c7bb97c62df9663ef7a5e90939a28075b",
+      "size": 9550
     },
     {
       "path": "tavern-plugin/lib/domain/message-deletion.js",
@@ -2821,8 +2821,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/polish-agent.js",
-      "sha256": "7cddcec0044f9427cf854d0c8c97b0bb9fe8599b6bdfad7b9f3fe0694a0ec01b",
-      "size": 10981
+      "sha256": "c7613c47648a05cbc8afaeb647bc6f1f7bccbd14c82622002ece346314517c66",
+      "size": 11222
     },
     {
       "path": "tavern-plugin/lib/domain/polish-records.js",
@@ -4116,8 +4116,8 @@
     },
     {
       "path": "tavern-plugin/lib/host/sessions.js",
-      "sha256": "18e7c2cdb85714d6c38bebb3b66b2c9d853c169bf959b8012dcb72b0cfa8db85",
-      "size": 2629
+      "sha256": "6bd3299820ea4d43d80b5443221b7ea4ed5b1c879fad0d78243419b1cc53a154",
+      "size": 2793
     },
     {
       "path": "tavern-plugin/lib/host/tools.js",
@@ -4161,8 +4161,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "7f219d4b23d1804ecfad604018b51480112f064510d96058b40795c40fba6094",
-      "size": 326063
+      "sha256": "17a3245d2c7a6b6ddf94425aa76aeb23313153fd71a9c36c1beabf2bf189c4a5",
+      "size": 326234
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4286,8 +4286,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
-      "sha256": "a663afb45757af2aee7da679db6ef939f908232b595ad268fd7dd5a562b6ba1b",
-      "size": 26650
+      "sha256": "d2ed8769eeb95497d70f4a24f3ab227f27a2f11452133ab29dbf488799474c08",
+      "size": 26802
     },
     {
       "path": "tavern-plugin/lib/rpc/plugins.js",
@@ -9591,9 +9591,9 @@
     }
   ],
   "archive": {
-    "commit": "f859695fbd0a490bad03f2f29aff6fee5d49dfd7",
+    "commit": "53c9a1d39933026445905a25039b6550073c20a3",
     "path": "runtime.zip",
-    "sha256": "af1340bb3f40a80711742781ac3f1046093cc54df0c0e3c855d1960c64960440",
-    "size": 16962154
+    "sha256": "c3752238ca62b4acd3c8ced0381c2cf518d7240a6588aa7324ebf8b9bb618fa5",
+    "size": 16962420
   }
 }
