@@ -899,6 +899,53 @@ for (const mutation of ['resume', 'turn/start', 'surface']) test(`撤销回退�
   }
 })
 
+for (const saveFails of [false, true]) test(`撤销回退逐个释放会话并保留存档结果：saveFails=${saveFails}`, async t => {
+  const h = harness({ checkpoint: true, journal: true })
+  const background = harness().session
+  background.id = 'bg'
+  const worker = { session: background, phase: { kind: 'idle' }, async whenIdle() {} }
+  const participant = { role: 'background', lifetime: 'chat', sessionId: 'bg', boundary: 0, status: 'current', branchId: h.chat.timeline.branchId }
+  h.chat.timeline.checkpoints[0].participants = { background: participant }
+  h.chat.timeline.participants.background = participant
+  const live = new Map([['session', h.agent], ['bg', worker]])
+  const released = []
+  const teardownError = new Error('foreground close reported a failure')
+  const writeError = new Error('undo save failed')
+  const warnings = t.mock.method(console, 'warn', () => {})
+  const host = { sessions: { get: id => live.get(id)?.session }, agents: {
+    get: id => live.get(id),
+    async resume({ resumeSessionId }) {
+      const agent = resumeSessionId === 'bg' ? worker : h.agent
+      live.set(resumeSessionId, agent)
+      return { agent, async dispose() {
+        live.delete(resumeSessionId)
+        released.push(resumeSessionId)
+        if (resumeSessionId === 'session') throw teardownError
+      } }
+    }
+  } }
+  h.options.sessions = {
+    get: host.agents.get, getSession: host.sessions.get,
+    acquire: (id, options) => acquireHostSession(host, id, options), flush: async () => {}
+  }
+  const update = h.options.chats.update
+  h.options.chats.update = async (id, apply, metadata) => {
+    if (saveFails && metadata?.source === 'rollback.undo') throw writeError
+    return update(id, apply, metadata)
+  }
+  const history = h.create()
+  await history.rollback('session', 'chat', 2)
+  assert.equal(h.chat.rollbackUndo.background.length, 1)
+  live.clear()
+
+  if (saveFails) await assert.rejects(history.undoRollback('session', 'chat'), error => error === writeError)
+  else assert.equal((await history.undoRollback('session', 'chat')).undoneRollback.turn, 2)
+  assert.equal(h.chat.messages.length, saveFails ? 1 : 3)
+  assert.deepEqual(released, ['session', 'bg'])
+  assert.equal(live.size, 0)
+  assert.ok(warnings.mock.calls.some(({ arguments: args }) => args.includes(teardownError.message)))
+})
+
 for (const legacy of [false, true]) test('中断重生成后重建模块仍不恢复旧正文：legacy=' + legacy, async () => {
   const h = harness({ checkpoint: true, journal: true })
   const before = structuredClone(h.chat)

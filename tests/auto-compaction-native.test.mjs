@@ -9,7 +9,71 @@ import { pathToFileURL } from 'node:url'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { createAutoCompaction, installCompactionPolicy } from '../tavern-plugin/lib/domain/auto-compaction.js'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
+import { readHostSessionEvents, withHostAgent, withHostSession } from '../tavern-plugin/lib/host/sessions.js'
+import { createBackgroundNativeRuntime } from './fixtures/background-native-runtime.mjs'
 const native = { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }
+
+test('cold native compaction shares its configured writer and keeps it through compaction', native, async t => {
+  let ctx
+  const fixture = await createBackgroundNativeRuntime(process.env.DSH_BOOT_MODULE, { setupHost(value) { ctx = value } })
+  t.after(() => fixture.dispose())
+  const { BasicCompactionEngine } = await import(new URL('../../dsh-compaction-basic/lib/index.js', pathToFileURL(process.env.DSH_BOOT_MODULE)))
+  const engine = new BasicCompactionEngine(ctx, { auto: false })
+  const id = 'cold-compaction'
+  const agentOptions = { provider: 'scene-fixture', model: 'fixture-text' }
+  const initial = await ctx.agents.create({ sessionId: id, meta: { cwd: process.cwd() }, agentOptions })
+  try {
+    for (let turn = 1; turn <= 3; turn++) {
+      initial.agent.followup({ id: 'seed-' + turn, role: 'user', content: [{ type: 'text', text: ('dialogue-' + turn + ' ').repeat(150) }], source: { kind: 'human' } })
+      await initial.agent.whenIdle()
+    }
+    await ctx.sessions.flush(initial.agent.session)
+  } finally { await initial.dispose() }
+  const setup = Promise.withResolvers(), publish = Promise.withResolvers()
+  const borrowed = Promise.withResolvers(), finishBorrow = Promise.withResolvers()
+  const compacting = Promise.withResolvers(), finishCompaction = Promise.withResolvers()
+  let resumes = 0
+  const host = { sessions: ctx.sessions, agents: ctx.agents, persistence: ctx.sessionPersistence, resume(sessionId) {
+    resumes++
+    return ctx.agents.resume({ resumeSessionId: sessionId, agentOptions: { ...agentOptions, model: 'default-fallback' }, async setup() {
+      setup.resolve()
+      await publish.promise
+    } })
+  } }
+  const writer = await host.persistence.open(id, 'write')
+  try {
+    const events = await readHostSessionEvents(host, id)
+    assert.equal(events.filter(event => event.type === 'turn/end').length, 3)
+    assert.equal(resumes, 0)
+  } finally { await writer.close() }
+
+  const first = withHostSession(host, id, () => { borrowed.resolve(); return finishBorrow.promise })
+  let compaction
+  try {
+    await Promise.race([setup.promise, first])
+    assert.equal(ctx.agents.get(id), undefined)
+    compaction = withHostAgent(host, id, async agent => {
+      compacting.resolve()
+      await finishCompaction.promise
+      assert.equal(ctx.sessions.get(id), agent.session)
+      await engine.compactNow(agent, new AbortController().signal)
+    })
+    publish.resolve()
+    await Promise.race([Promise.all([borrowed.promise, compacting.promise]), compaction])
+    finishBorrow.resolve()
+    await first
+    assert.equal(resumes, 1)
+    assert.ok(ctx.agents.get(id))
+  } finally {
+    publish.resolve()
+    finishBorrow.resolve()
+    finishCompaction.resolve()
+    await Promise.all([first, compaction])
+  }
+  assert.equal(ctx.agents.get(id), undefined)
+  assert.ok((await readHostSessionEvents(host, id)).some(event => event.type === 'compaction/summary'))
+  assert.equal(fixture.requests.at(-1).model, agentOptions.model)
+})
 
 
 test('two Cordis proxies install one whole-turn adapter and complete manual compaction', native, async t => {

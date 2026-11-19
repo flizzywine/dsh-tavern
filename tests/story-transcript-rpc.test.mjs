@@ -105,3 +105,51 @@ test('同一故事窗口的世界书传输格式变化会返回新视图', async
   assert.equal(Object.hasOwn(current.view, 'tavernHelperWorldbook'), false)
   assert.notEqual(current.storySignature, old.storySignature)
 })
+
+test('冷会话的工具记录和原生诊断通过只读日志返回', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'story-read-only-cold-'))
+  const previousHome = process.env.DSH_HOME, previousFetch = globalThis.fetch
+  let host
+  process.env.DSH_HOME = home
+  t.after(async () => {
+    await host?.dispose()
+    globalThis.fetch = previousFetch
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await rm(home, { recursive: true, force: true })
+  })
+  const dataRoot = join(home, 'profile-data', 'tavern', 'data')
+  const sessionId = 'test-00000000-0000-4000-8000-000000000001'
+  const events = [
+    { type: 'tool/call', data: { turn: 2, callId: 'lookup', name: '查询', arguments: '{}' } },
+    { type: 'tool/result', data: { turn: 2, message: { role: 'tool', toolCallId: 'lookup', content: [{ type: 'text', text: '结果' }] } } }
+  ]
+  let opens = 0, closes = 0
+  const { createPluginHost } = await import('./fixtures/plugin-host.mjs')
+  await mkdir(join(dataRoot, 'automation'), { recursive: true })
+  await writeFile(join(dataRoot, 'automation', sessionId + '.json'), JSON.stringify({ sessionId }))
+  await writeFile(join(dataRoot, 'sessions.json'), JSON.stringify({ [sessionId]: 'chat' }))
+  host = await createPluginHost({ config: { stage: false }, provide: {
+    agents: { get() {}, list: () => [], resume() { assert.fail('查询不能恢复 Agent') } },
+    sessionPersistence: { async open(id, mode) {
+      assert.equal(id, sessionId)
+      assert.equal(mode, 'read')
+      opens++
+      return { read: async () => ({ events }), close: async () => { closes++ } }
+    } }
+  } })
+  const { card } = await host.rpc('importCard', {
+    payload: { name: 'fixture.json', text: JSON.stringify({ name: '旅店', first_mes: '欢迎' }) }
+  })
+  await createChatPersistence({ store: createChatJournalStore({ dataRoot, newConversations: true }) }).write({
+    id: 'chat', sessionId, mode: 'story', cardPath: card.path,
+    messages: [{ role: 'assistant', turn: 2, text: '正文' }]
+  })
+  const story = await host.rpc('getStoryTranscript', { sessionId, includeToolCalls: true })
+  assert.deepEqual(story.storyTranscript.messages.at(-1).toolCalls, [
+    { id: 'lookup', name: '查询', arguments: '{}', status: 'success', result: '结果' }
+  ])
+  assert.deepEqual((await host.rpc('gameplay.native', { sessionId })).events, events)
+  assert.equal(opens, 2)
+  assert.equal(closes, 2)
+})

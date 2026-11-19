@@ -159,7 +159,7 @@ import { createChatHistoryImportService } from './domain/chat-history-import-ser
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { acquireHostSession, withHostSession } from './host/sessions.js'
+import { acquireHostSession, readHostSessionEvents, withHostAgent, withHostSession } from './host/sessions.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
@@ -630,6 +630,14 @@ export async function apply(ctx) {
   // their edit turn as used (V4 numbers the next turn from phase.lastTurn).
   setAgentResolver(sessionId => agentRegistry.get(String(sessionId || '')))
   const agentDefaultModel = ctx.get('agentDefaultModel')
+  const sessionHost = { sessions: sessionStore, agents: agentRegistry, persistence }
+  const foregroundSessionHost = { ...sessionHost, resume(sessionId) {
+    // Cold foreground writers share the same preset, including its compaction engine.
+    const selection = agentDefaultModel?.currentSelection?.() || {}
+    return agentRegistry.resume({ resumeSessionId: sessionId, setup: tavernPresetSetup(),
+      agentOptions: { provider: selection.provider, model: selection.model } })
+  } }
+  const readNativeEvents = id => readHostSessionEvents(sessionHost, id)
   let autoCompaction = null
   const compactionTimers = new Map()
   const compactionAbort = new AbortController()
@@ -2377,7 +2385,7 @@ export async function apply(ctx) {
     readRecentSummaries: chatPersistence.readRecentSummaries,
     readChat,
     readToolEvents: async id => {
-      try { return await withHostSession({ sessions: sessionStore, agents: agentRegistry }, id, sessionEvents) }
+      try { return await readNativeEvents(id) }
       catch (error) {
         console.warn('dsh-tavern: 读取故事工具调用记录失败', str(error?.message || error))
         return []
@@ -2672,7 +2680,7 @@ export async function apply(ctx) {
       return { source, state, turn, messageIndex, atSeq: null, storyDirect: true, ...(messageUid ? { messageUid } : {}) }
     }
     const { state, turn, messageIndex } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
-    return withHostSession({ sessions: sessionStore, agents: agentRegistry }, source.sessionId, session => {
+    return withHostSession(foregroundSessionHost, source.sessionId, session => {
       const references = upgradeReferences(sessionEvents(session))
       const mapped = structuredClone(state)
       for (const message of mapped.messages || []) {
@@ -3307,7 +3315,7 @@ export async function apply(ctx) {
         const latest = chat && await pluginData.readMode(chat.id)
         if (!latest || latest.revision !== projection.revision) return
         if (!sessionPatch.serverReady) throw new Error('玩法前台记录需要会话兼容模块，请重启酒馆后重试')
-        await restoreGameModeForeground({ sessions: sessionStore, agents: agentRegistry }, gameId, projection)
+        await restoreGameModeForeground(foregroundSessionHost, gameId, projection)
       })
       gameForegroundQueues.set(gameId, work)
       void work.finally(() => { if (gameForegroundQueues.get(gameId) === work) gameForegroundQueues.delete(gameId) }).catch(() => {})
@@ -3587,14 +3595,8 @@ export async function apply(ctx) {
     compactionDisposers.clear()
   })
   const agentCompaction = agent => resolveAgentCompaction(ctx, agent)
-  async function withCompactionSession(id, work) {
-    const live = agentRegistry.get(id)
-    if (live) return work(live)
-    // The compaction engine comes from the preset and needs a model: resume as DSH's session controller does.
-    const selection = agentDefaultModel?.currentSelection?.() || {}
-    const handle = await agentRegistry.resume({ resumeSessionId: id, setup: tavernPresetSetup(),
-      agentOptions: { provider: selection.provider, model: selection.model } })
-    try { return await work(handle.agent) } finally { await handle.dispose() }
+  function withCompactionSession(id, work) {
+    return withHostAgent(foregroundSessionHost, id, work)
   }
   autoCompaction = createAutoCompaction({
     readChat: chatForSession, readState: sessionStateForSession, readMetadata: taskStateReader.forSession, updateChat,
@@ -3632,12 +3634,13 @@ export async function apply(ctx) {
         const retention = await storyRetention({ sessionId: id, provider: header?.provider, model: header?.model, signal })
         return storyHistoryFullyRetained(session, retention.rounds, retention) ? retention.rounds : 0
       }
-      const retained = options.agent ? await covered(options.agent.session) : await withCompactionSession(id, agent => covered(agent.session))
-      if (retained) return { message: `最近 ${retained} 轮剧情保留原文，暂无更早的历史需要压缩` }
-      if (options.openTurnCompact) return options.openTurnCompact()
-      return withCompactionSession(id, async agent => {
+      const compactForeground = async agent => {
+        const retained = await covered(agent.session)
+        if (retained) return { message: `最近 ${retained} 轮剧情保留原文，暂无更早的历史需要压缩` }
+        if (options.openTurnCompact) return options.openTurnCompact()
         return (await configureAgentCompaction(agent)).compactNow(agent, signal)
-      })
+      }
+      return options.agent ? compactForeground(options.agent) : withCompactionSession(id, compactForeground)
     }
   })
   async function configureAgentCompaction(agent) {
@@ -4313,7 +4316,8 @@ export async function apply(ctx) {
       } },
     sessions: { get: function (sessionId) { return ctx.get('agents')?.get(sessionId) },
       getSession: sessionId => sessionStore.get(sessionId),
-      acquire: (sessionId, options) => acquireHostSession({ sessions: sessionStore, agents: agentRegistry }, sessionId, options),
+      acquire: (sessionId, options) => acquireHostSession(foregroundSessionHost, sessionId, options),
+      acquireBackground: sessionId => acquireHostSession(sessionHost, sessionId),
       flush: session => sessionStore.flush(session) },
     scripts: { read: readScript, continuity: scriptContinuity,
       dispatchEvent: function (event) { return tavernScriptHostAdapter.dispatchEvent(event) } },
@@ -4442,11 +4446,7 @@ export async function apply(ctx) {
     chatForSession, listCards,
     requests: async chat => (await modelRequestLog.evidence(chat.id)).requests,
     requestIndex: async chat => chat ? await modelRequestLog.list(chat.id) : [],
-    native: async id => {
-      const live = sessionDebugEvidence(id)
-      if (live.loaded) return live.events
-      return withHostSession({ sessions: sessionStore, agents: agentRegistry }, id, session => sessionEvents(session))
-    },
+    native: readNativeEvents,
     requiresBrowser: async chat => hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath, chat))?.helperScripts)
   })
 

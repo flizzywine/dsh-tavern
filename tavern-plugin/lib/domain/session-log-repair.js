@@ -1,6 +1,7 @@
 import { access, copyFile, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parseSessionLog, encodeCurrentGeneration } from './session-log-codec.js'
+import { SKIP_SESSION_LOG_REPAIR } from '../host/sessions.js'
 
 // DSH refuses a whole log for the damage older Tavern versions and the host itself
 // wrote, and the session can then never be opened again:
@@ -153,7 +154,7 @@ export function installSessionLogAutoRepair({ persistence, repair }) {
     try {
       return await original.call(this, id, access, options)
     } catch (error) {
-      if (error?.name !== 'SessionPersistenceCorruptionError' || options?.signal?.aborted || unrepairable.has(id)) throw error
+      if (error?.name !== 'SessionPersistenceCorruptionError' || options?.[SKIP_SESSION_LOG_REPAIR] || options?.signal?.aborted || unrepairable.has(id)) throw error
       if (!await repairOnce(id)) {
         unrepairable.add(id)
         throw error

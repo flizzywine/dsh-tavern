@@ -1,6 +1,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { withHostSession } from '../tavern-plugin/lib/host/sessions.js'
+import { readHostSessionEvents, SKIP_SESSION_LOG_REPAIR, withHostSession } from '../tavern-plugin/lib/host/sessions.js'
+
+test('event reads prefer the live snapshot and close the cold reader even if reading fails', async () => {
+  const live = [{ type: 'live' }], stored = [{ type: 'stored' }]
+  const failure = new Error('read failed')
+  let current = { snapshotEvents: () => live }, opens = 0, closes = 0, fail = false
+  const host = { sessions: { get: () => current }, agents: { get() {}, resume: () => assert.fail('event reads must not resume') },
+    persistence: { async open(id, mode, options) {
+      assert.equal(id, 'session')
+      assert.equal(mode, 'read')
+      assert.equal(options[SKIP_SESSION_LOG_REPAIR], true)
+      opens++
+      return { async read(from) {
+        assert.equal(from, 0)
+        if (fail) throw failure
+        return { events: stored }
+      }, async close() { closes++ } }
+    } }
+  }
+  assert.deepEqual(await readHostSessionEvents(host, 'session'), live)
+  assert.equal(opens, 0)
+  current = undefined
+  assert.deepEqual(await readHostSessionEvents(host, 'session'), stored)
+  fail = true
+  await assert.rejects(readHostSessionEvents(host, 'session'), error => error === failure)
+  assert.equal(opens, 2)
+  assert.equal(closes, 2)
+})
 
 test('loaded sessions are borrowed without acquiring or disposing an Agent', async () => {
   const session = { id: 'session' }

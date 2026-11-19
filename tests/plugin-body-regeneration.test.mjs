@@ -9,6 +9,7 @@ import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustrati
 import { findBodyRegenerationFrame, visibleBodyRegenerationHistory } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
 import { applyRegenerationProjection } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import { projectPluginReply, projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
+import { acquireHostSession, withHostAgent } from '../tavern-plugin/lib/host/sessions.js'
 
 const copy = value => structuredClone(value)
 
@@ -87,6 +88,56 @@ async function fixture(options = {}) {
     textVersion: computeSceneTarget(original, 2).key, generate, onPhase: value => phases.push(value), ...extra })
   return { chats, timeline, session, agent, original, start, history, deps, run, phases, notifications, commits, settlementInputs }
 }
+
+for (const closeFails of [false, true]) test(`plugin regeneration retains the writer through projection, closeFails=${closeFails}`, async t => {
+  const h = await fixture()
+  const borrowed = Promise.withResolvers(), finishBorrow = Promise.withResolvers()
+  const generating = Promise.withResolvers(), finishGeneration = Promise.withResolvers()
+  const closeError = new Error('writer closed with an error')
+  const warnings = t.mock.method(console, 'warn', () => {})
+  let live = false, resumes = 0, disposals = 0, flushes = 0
+  const host = { sessions: { get: () => live ? h.session : undefined }, agents: {
+    get: () => live ? h.agent : undefined,
+    async resume() {
+      assert.equal(live, false)
+      live = true
+      resumes++
+      return { agent: h.agent, async dispose() {
+        live = false
+        disposals++
+        if (closeFails) throw closeError
+      } }
+    }
+  } }
+  Object.assign(h.deps.sessions, {
+    get: host.agents.get,
+    acquire: (id, options) => acquireHostSession(host, id, options),
+    async flush() { assert.equal(live, true); flushes++ }
+  })
+  const otherWork = withHostAgent(host, 'session', () => { borrowed.resolve(); return finishBorrow.promise })
+  await borrowed.promise
+  const regeneration = h.run(async () => {
+    generating.resolve()
+    await finishGeneration.promise
+    return { text: '新正文' }
+  })
+  try {
+    await Promise.race([generating.promise, regeneration])
+    finishBorrow.resolve()
+    await otherWork
+    assert.equal(disposals, 0)
+  } finally {
+    finishBorrow.resolve()
+    finishGeneration.resolve()
+    await Promise.all([otherWork, regeneration])
+  }
+  assert.equal((await regeneration).text, '新正文')
+  assert.equal((await h.chats.read()).nativeSync, undefined)
+  assert.equal(flushes, 1)
+  assert.equal(resumes, 1)
+  assert.equal(disposals, 1)
+  assert.equal(warnings.mock.calls.some(({ arguments: args }) => args.includes(closeError.message)), closeFails)
+})
 
 test('prepared configuration is durable before generation and guidance is part of the bound material', async () => {
   const h = await fixture()
