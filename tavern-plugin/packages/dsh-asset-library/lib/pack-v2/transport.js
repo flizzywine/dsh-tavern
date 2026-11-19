@@ -32,7 +32,7 @@ const fields = Object.freeze({
   listVoiceCatalogue:[], listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
   deleteVoiceTemplate:['templateId','expectedRevision'], assignVoiceTemplate:['templateId','templateRevision','packId','figureId','expectedRevision'],
   assignPackVoiceCopy:['sourcePackId','voiceId','packId','figureId','expectedRevision'], deletePackVoice:['packId','expectedRevision','voiceId'],
-  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates'], removePack:['packId','expectedRevision'],
+  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates','dryRun'], removePack:['packId','expectedRevision'],
   putBlob:['packId','expectedRevision','bytes','descriptor'], removeBlob:['packId','expectedRevision','hash'],
   putBundle:['packId','expectedRevision','bundleKey','descriptor','files'], removeBundle:['packId','expectedRevision','bundleKey'],
   copyFigure:['source','target'], copyItems:['sourcePackId','itemRefs','target'],

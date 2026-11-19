@@ -194,6 +194,23 @@ export function validatePackManifest(value, path = '$') {
   validateUuid(value.id, path + '.id'); text(value.name, path + '.name'); validateHash(value.contentHash, path + '.contentHash'); validateMetadata(value, path)
   array(value.assets, path + '.assets'); value.assets.forEach((asset, i) => validateAsset(asset, `${path}.assets[${i}]`))
   unique(value.assets.map(a => `${a.kind}/${a.id}`), path + '.assets')
+  const order = value.extensions?.['dsh.entry-order']
+  if (order !== undefined) {
+    const at = path + '.extensions.dsh.entry-order'
+    shape(order, ['groups', 'entries'], ['groups', 'entries'], at)
+    array(order.groups, at + '.groups')
+    order.groups.forEach(group => validateShortId(group, at + '.groups'))
+    unique(order.groups, at + '.groups')
+    const groups = new Set(order.groups)
+    record(order.entries, at + '.entries', (rank, p, key) => {
+      const [kind, id, extra] = key.split('/')
+      check(extra === undefined && (kind === 'figures' || ASSET_KINDS.includes(kind)), p, 'Expected kind/id')
+      if (kind === 'figures') validateUuid(id, p)
+      else validateShortId(id, p)
+      check(Array.isArray(rank) && rank.length === 2 && groups.has(rank[0]), p, 'Expected [group, position] using a declared group')
+      integer(rank[1], p, 1)
+    })
+  }
   array(value.figures, path + '.figures'); value.figures.forEach(id => validateUuid(id, path + '.figures')); unique([value.id, ...value.figures], path + '.figures')
   record(value.sprites, path + '.sprites', (file, p, key) => { validateShortId(key, p); check(file === `sprites/${key}/manifest.json`, p) })
   record(value.bundles, path + '.bundles', (bundle, p, key) => {
