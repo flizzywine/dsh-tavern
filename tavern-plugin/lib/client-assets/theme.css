@@ -5623,6 +5623,10 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 /* 导出 DSH 人物卡 (DshCardExportSheet): the card on top, then hairline pack rows (✓ · name · size, the total in the head)
    and figure rows (✓ · name; an unticked one stays home, its name dimmed); the progress bar is the download sheet's. */
 .ap-dshcard-list { margin: 0; padding: 0; list-style: none; }
+/* no lines between the rows: a row is one tick and a name, it opens
+   nothing; only the section line between 素材包 and 人物 stays, and the foot has no line above 完成 / 导出. */
+.ap-dshcard-list > .ap-dshcard-row { min-height: 36px; border-bottom: 0; }
+.ap-dshcard-sheet .ap-cat-foot { border-top: 0; }
 .ap-dshcard-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fork-fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .ap-dshcard-row > .ap-pack-size { min-width: 0; text-align: right; }
 .ap-dshcard-row:has(.ap-pack-check[aria-checked=false]) .ap-dshcard-name { color: var(--fork-ink-3); }
