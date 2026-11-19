@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url)
 const {createStageResourceOwner} = require('./helpers/stage-resources.cjs')
 const ref = {packId:'p',kind:'music',assetId:'track'}
 const descriptor = (id = 'a', extra = {}) => ({resource:true,kind:'media',ref,revision:'v1',hash:id,identity:'p:'+id,...extra})
-function bytes({maxBytes, maxItems, block, decode, jsonFiles = {}} = {}) {
+function bytes({maxBytes, maxItems, block, decode, jsonFiles = {}, status = 200} = {}) {
   let serial = 0, reads = 0
   const leases = [], releases = [], blobs = new Map(), revoked = []
   const service = {
@@ -22,10 +22,24 @@ function bytes({maxBytes, maxItems, block, decode, jsonFiles = {}} = {}) {
       if (json) return new Response(JSON.stringify(json),{headers:{'content-type':'application/json'}})
       if (url.endsWith('model.model3.json')) return new Response(JSON.stringify({Version:3,FileReferences:{Moc:'model.moc3',Textures:['textures/body.png'],Motions:{Idle:[{File:'motion.motion3.json'}]}}}),{headers:{'content-type':'application/json'}})
       if (url.endsWith('.json')) return new Response('{}',{headers:{'content-type':'application/json'}})
-      return new Response('bytes',{headers:{'content-type':url.endsWith('.png') ? 'image/png' : 'audio/wav'}})
+      return new Response('bytes',{status,headers:{'content-type':url.endsWith('.png') ? 'image/png' : 'audio/wav'}})
     }})
   return {owner,leases,releases,blobs,revoked,get reads(){return reads}}
 }
+
+test('a shared failed bubble avatar request logs the revision and redacts the lease ticket', async t => {
+  const warn = t.mock.method(console,'warn',() => {})
+  const h = bytes({status:404})
+  const face = descriptor('face.png',{ref:{packId:'p',figureId:'f'},outfitKey:'school',stateId:'calm'})
+  const load = () => h.owner.acquire(face,'authority',{usage:'bubble-avatar'})
+  await Promise.all([assert.rejects(load(),{status:404}),assert.rejects(load(),{status:404})])
+  assert.equal(h.reads,1)
+  assert.deepEqual(warn.mock.calls.map(call => call.arguments[0]), ['[stage] Bubble avatar failed '+JSON.stringify({
+    packId:'p',revision:'v1',figureId:'f',outfit:'school',state:'calm',hash:'face.png',
+    url:'/lease/[redacted]/face.png',code:'RESOURCE_READ_FAILED',status:404,servedRevision:null
+  })])
+  h.owner.dispose()
+})
 
 for (const kind of ['music','ambience','background','static','layered','avatar','sfx','bundle']) test(`${kind}: three re-acquisitions retain pinned bytes/handle without a lease, changed hash replaces once`,async () => {
   const h = bytes(), input = descriptor('a',{kind:kind === 'bundle' ? 'bundle' : 'media',bundleKey:kind === 'bundle' ? 'model' : undefined})

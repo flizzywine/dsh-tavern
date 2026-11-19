@@ -28349,13 +28349,12 @@ function tavernModelRefusalNotice(text) {
 		        if (!descriptor || stageSessions.resourceOwner && !authority) return;
 		        const pool = bubbleMediaPool.retain();
 		        let active = true, pin = null;
-		        // loaded transcript rows (including the viewport margin) warm
-		        // their actual mood at idle; ready rows never reacquire original sprite leases.
+		        // Idle rows warm their current mood without re-leasing cached faces.
 		        const load = () => {
 		            // The stage is being entered over this transcript: its faces would only compete with the entry page.
 		            if (typeof galEntering !== 'undefined' && galEntering.get() === sessionId) return Promise.resolve();
 		            if (enabled) setLoaded({key, loading:true});
-		            return pool.owner.acquire(descriptor, authority).then(async value => {
+		            return pool.owner.acquire(descriptor, authority, {usage:enabled?'bubble-avatar':undefined}).then(async value => {
 		            if (!active) { value.release(); return; }
 		            pin = value;
 		            if (enabled) setLoaded({key, media:{identity:value.handle.identity, src:value.handle.url}});
