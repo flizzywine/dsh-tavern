@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c7cd345d58474cdeaee6d418d24b11239d434c39",
-  "releaseSequence": 1805,
+  "revision": "fb89aea4f55a3db8a47d1de274f2c702c6b2e591",
+  "releaseSequence": 1806,
   "version": "3.3.0",
   "files": [
     {
@@ -6586,13 +6586,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.d.ts",
-      "sha256": "cd9afbd92f754fd13d29af132424667dfbf6ec809a99548543baeac1e3e11b15",
-      "size": 31956
+      "sha256": "e3f7d358bb9f3547efd984cc92377249e58e04887822fcc55a102ebb2058fbf7",
+      "size": 32291
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "1290f5e3a52d1e7bbc0835ccdf6754cc4acc9faa80af87ddbc7c836ea1db932d",
-      "size": 114571
+      "sha256": "91d8107deb99308268dec36c8477553ffb4a5851f54d366717e5e5f43cd836dc",
+      "size": 118351
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -6656,8 +6656,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/transport.js",
-      "sha256": "6d19d48582a3687937fe82e5673cb25d3ed754659f2f82b205442439e1a7701c",
-      "size": 25256
+      "sha256": "cc81ca4a1d0ac19ce0b627174b3864c0d5a93eecc6c3d329b5f3d3c6f11adcd3",
+      "size": 25321
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/validation.js",
@@ -8356,8 +8356,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js",
-      "sha256": "44d4453850ab0d450a330a1202ee5518c823992ada8f5aa59448027c4942f2bc",
-      "size": 20633
+      "sha256": "a8dcb7976a2d282666d413d3aed1a85a965a9396dd2cca71d44d63b72288ccd8",
+      "size": 21171
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-zip-target.js",
@@ -9601,9 +9601,9 @@
     }
   ],
   "archive": {
-    "commit": "76bb170bec023078ff4471a14ed8b7b429a96abe",
+    "commit": "6a2f6794ca0cddc505a7e1c923d8b06839f0b3e2",
     "path": "runtime.zip",
-    "sha256": "34880f2269e976af1f957e119f68daf0bac8af3c2dd6bc0deda6dd7f5a67f5a9",
-    "size": 16968648
+    "sha256": "d2ac1eab86e4872816c81b66540c49edeeef75fe6a8023b4105154c217a85be4",
+    "size": 16969669
   }
 }
