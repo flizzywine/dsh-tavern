@@ -300,7 +300,7 @@ export async function createStageModule(core) {
         // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
         cast:async ({chat, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
           selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
-          speakers, rows:cast.rows, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
+          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
       void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))

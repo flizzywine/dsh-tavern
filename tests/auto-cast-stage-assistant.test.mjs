@@ -14,7 +14,7 @@ const raw = {spec:'chara_card_v2', data:{name:'雾港', description:'故事发�
 const speakers = [{name:'晓美焰', aliases:[]}, {name:'护士', aliases:[]}, {name:'雪乃', aliases:[]}]
 const library = {figures:[{packId:LIB, packName:'春物', revision:'lr1', ref:{packId:LIB, kind:'figures', figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}, name:'雪之下雪乃', aliases:['雪乃'], copyable:true, voice:{voiceId:'v-yukino', name:'雪乃'}},
   {packId:LIB, packName:'旧包', revision:'lr1', ref:{packId:LIB, kind:'figures', figureId:'ffffffff-ffff-4fff-8fff-ffffffffffff'}, name:'雪乃（旧）', aliases:[], copyable:false, voice:null}],
-  voices:[{packId:OWN, packName:'雾港', revision:'or1', voiceId:'v-homura', name:'焰', language:'ja'}, {packId:LIB, packName:'通用', revision:'lr1', voiceId:'v-mid', name:'中年女声', language:'zh', guidance:'适合中年女性'}]}
+  voices:[{packId:OWN, packName:'雾港', revision:'or1', voiceId:'v-homura', name:'焰', language:'ja', sound:'homura'}, {packId:LIB, packName:'通用', revision:'lr1', voiceId:'v-mid', name:'中年女声', language:'zh', guidance:'适合中年女性', sound:'mid'}]}
 
 test('lore search covers the card fields, each world book entry by its keys, and the game\'s 人物档案', () => {
   const pieces = lorePieces(raw, {characterDesignDocument:{characters:[{name:'老板', appearance:'光头'}]}})
@@ -30,7 +30,7 @@ test('the tools check their input and answer errors the model can fix', async ()
     ['copy_figure', {figure:'雪乃', packId:LIB, figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}], ['search_library', {query:'雪乃'}],
     ['copy_figure', {figure:'雪乃', packId:LIB, figureId:'ffffffff-ffff-4fff-8fff-ffffffffffff'}], ['copy_figure', {figure:'雪乃', packId:LIB, figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}],
     ['write_appearance', {figure:'路人', face:'x', body:'y'}], ['write_appearance', {figure:'护士', face:'圆脸短发', body:''}], ['write_appearance', {figure:'护士', about:'夜班护士，照顾主角', face:'圆脸短发', body:'微胖，白色护士服'}],
-    ['assign_voice', {figure:'护士', packId:OWN, voiceId:'v-homura'}], ['assign_voice', {figure:'护士', packId:LIB, voiceId:'v-mid'}], ['finish', {}]]
+    ['assign_voice', {figure:'护士', packId:OWN, voiceId:'v-homura', reason:'她的声音要沉稳'}], ['assign_voice', {figure:'护士', packId:LIB, voiceId:'v-mid', reason:'说话平和的中年女声，适合耐心照料病人的护士'}], ['finish', {}]]
   const run = async input => {
     assert.equal(input.task, AUTO_CAST_TASK); assert.equal(input.ownPrefix, true); assert.match(input.system, /选角助理/)
     assert.deepEqual(JSON.parse(input.taskText).新人物, ['晓美焰', '护士', '雪乃'])
@@ -39,7 +39,7 @@ test('the tools check their input and answer errors the model can fix', async ()
     assert.equal(input.tools.find(tool => tool.name === 'finish').countsTowardLimit, false)
     for (const [name, args] of calls) seen.push([name, JSON.parse(await input.onToolCall({name, arguments:args}))])
   }
-  const result = await runCastingAssistant({runAgent:run, selection:{}, sessionId:'s', turn:3, speakers, rows, pieces:lorePieces(raw), search:async () => library})
+  const result = await runCastingAssistant({runAgent:run, selection:{}, sessionId:'s', turn:3, speakers, rows, voiceKeys:new Set(['homura']), pieces:lorePieces(raw), search:async () => library})
   assert.deepEqual(seen.map(([name, reply]) => name + ':' + reply.ok), ['search_lore:true', 'same_as:false', 'same_as:true', 'same_as:false', 'copy_figure:false', 'search_library:true', 'copy_figure:false', 'copy_figure:true',
     'write_appearance:false', 'write_appearance:false', 'write_appearance:true', 'assign_voice:false', 'assign_voice:true', 'finish:true'])
   assert.match(seen[1][1].error, /晓美焰·麻花辫/, 'the error names the existing figures')
@@ -51,7 +51,7 @@ test('the tools check their input and answer errors the model can fix', async ()
   assert.deepEqual(result.copy, {雪乃:{source:{packId:LIB, figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}, revision:'lr1'}})
   assert.deepEqual(result.appearance, {护士:{face:'圆脸短发', bodySFW:'微胖，白色护士服'}})
   assert.deepEqual(result.about, {护士:'夜班护士，照顾主角'})
-  assert.deepEqual(result.voice, {护士:{from:{packId:LIB, voiceId:'v-mid'}, revision:'lr1'}})
+  assert.deepEqual(result.voice, {护士:{from:{packId:LIB, voiceId:'v-mid'}, revision:'lr1', reason:'说话平和的中年女声，适合耐心照料病人的护士'}})
 })
 
 test('without the library, its tools are not offered; a 配音后端 voice is never offered', async () => {
@@ -64,22 +64,40 @@ test('without the library, its tools are not offered; a 配音后端 voice is ne
 })
 
 test('every library 通用声音 is listed with its name, 使用情景, language, pack and speakers, and one of them can be assigned', async () => {
-  const general = {packId:'p-system', packName:'系统设置（请勿删除）', revision:'r1', voiceId:'v-male', name:'通用男性声音的声音', language:'zh', figures:['通用男性声音']}
+  const general = {packId:'p-system', packName:'系统设置（请勿删除）', revision:'r1', voiceId:'v-male', name:'通用男性声音的声音', language:'zh', sound:'male', figures:['通用男性声音']}
   const seen = []
   const result = await runCastingAssistant({selection:{}, speakers:[{name:'林澈', aliases:[]}], rows, pieces:[], search:null, libraryVoices:async () => ({voices:[general], more:3}),
     runAgent:async input => {
-      for (const [name, args] of [['list_library_voices', {}], ['assign_voice', {figure:'林澈', packId:'p-system', voiceId:'v-male'}]]) seen.push(JSON.parse(await input.onToolCall({name, arguments:args})))
+      for (const [name, args] of [['list_library_voices', {}], ['assign_voice', {figure:'林澈', packId:'p-system', voiceId:'v-male', reason:'说话随和，适合自然的成年男声'}]]) seen.push(JSON.parse(await input.onToolCall({name, arguments:args})))
       seen.offered = input.tools.map(tool => tool.name)
     }})
   assert.deepEqual(seen.offered, ['search_lore', 'same_as', 'write_appearance', 'list_library_voices', 'assign_voice', 'finish'])
   assert.deepEqual(seen[0], {ok:true, voices:[{packId:'p-system', voiceId:'v-male', name:'通用男性声音的声音', language:'zh', pack:'系统设置（请勿删除）', figures:['通用男性声音'], inUse:false}], more:3})
-  assert.deepEqual(result.voice['林澈'], {from:{packId:'p-system', voiceId:'v-male'}, revision:'r1'})
+  assert.deepEqual(result.voice['林澈'], {from:{packId:'p-system', voiceId:'v-male'}, revision:'r1', reason:'说话随和，适合自然的成年男声'})
+})
+
+test('a new actor cannot take the same sound through another pack in the same casting run', async () => {
+  const base = {packId:OWN, voiceId:'v-direct', revision:'r1', name:'干练女声', language:'zh', sound:'direct'}
+  const copy = {...base, packId:LIB, voiceId:'copied'}
+  const gentle = {...base, voiceId:'v-gentle', name:'温和女声', sound:'gentle'}
+  const result = await runCastingAssistant({speakers:[{name:'记者'}, {name:'老师'}], rows:[], pieces:[], search:null,
+    libraryVoices:async () => ({voices:[base,copy,gentle], more:0}), runAgent:async ({onToolCall}) => {
+      const call = async (name, args = {}) => JSON.parse(await onToolCall({name, arguments:args}))
+      const pick = (figure, {packId, voiceId}, reason) => call('assign_voice', {figure, packId, voiceId, reason})
+      await call('list_library_voices')
+      assert.match((await pick('记者', base, '')).error, /为什么符合人设/)
+      assert.equal((await pick('记者', base, '说话利落，句子短')).ok, true)
+      assert.deepEqual((await call('list_library_voices')).voices.map(row => row.inUse), [true,true,false])
+      assert.match((await pick('老师', copy, '表达平稳')).error, /已有人在用/)
+      assert.equal((await pick('老师', gentle, '性格温和，说话轻声细语')).ok, true)
+    }})
+  assert.equal(result.voice['老师'].from.voiceId, 'v-gentle')
 })
 
 test('the decisions become one write: same is not created, a copy takes the speaker\'s name, a new figure brings its voice', () => {
-  const decided = {same:{晓美焰:rows[0].ref}, copy:{雪乃:{source:{packId:LIB, figureId:'e1'}, revision:'lr1'}}, appearance:{护士:{face:'圆脸', bodySFW:'护士服'}}, about:{护士:'夜班护士'}, voice:{护士:{from:{packId:LIB, voiceId:'v-mid'}, revision:'lr2'}}}
+  const decided = {same:{晓美焰:rows[0].ref}, copy:{雪乃:{source:{packId:LIB, figureId:'e1'}, revision:'lr1'}}, appearance:{护士:{face:'圆脸', bodySFW:'护士服'}}, about:{护士:'夜班护士'}, voice:{护士:{from:{packId:LIB, voiceId:'v-mid'}, revision:'lr2', reason:'说话沉稳，适合这位耐心的中年护士'}}}
   const plan = castChanges(speakers, decided)
-  assert.deepEqual(plan.changes, [{op:'create', kind:'figures', value:{name:'护士', aliases:[], description:'夜班护士'}, looks:{face:'圆脸', bodySFW:'护士服'}, voice:{from:{packId:LIB, voiceId:'v-mid'}}},
+  assert.deepEqual(plan.changes, [{op:'create', kind:'figures', value:{name:'护士', aliases:[], description:'夜班护士\n\n配音选择：说话沉稳，适合这位耐心的中年护士'}, looks:{face:'圆脸', bodySFW:'护士服'}, voice:{from:{packId:LIB, voiceId:'v-mid'}}},
     {op:'copy', kind:'figures', source:{packId:LIB, figureId:'e1'}, patch:{name:'雪乃', aliases:[]}}])
   assert.deepEqual(plan.sources, [{packId:LIB, revision:'lr2'}, {packId:LIB, revision:'lr1'}])
   assert.deepEqual(plan.entries, [{name:'护士', copied:false, appearance:{face:'圆脸', bodySFW:'护士服'}}, {name:'雪乃', copied:true}])

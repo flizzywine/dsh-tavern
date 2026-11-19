@@ -55,7 +55,7 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   const voice = found.voices.find(row => row.voiceId === 'tsundere'), template = found.figures.find(row => row.ref.figureId === TEMPLATE)
   assert.ok(voice && template)
   const plan = castChanges([{name:'值班老师', aliases:[]}, {name:'冰川理沙', aliases:['理沙']}],
-    {same:{}, copy:{冰川理沙:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{值班老师:{from:{packId:templatePack, voiceId:'tsundere'}, revision:voice.revision}}})
+    {same:{}, copy:{冰川理沙:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{值班老师:{from:{packId:templatePack, voiceId:'tsundere'}, revision:voice.revision, reason:'讲话尖锐，适合带点锋芒的女声'}}})
   const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-1'})
   assert.equal(written.status, 'committed'); assert.equal(written.refs.length, 2)
   cast = await port.readCast('card')
@@ -65,6 +65,9 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   assert.deepEqual([teacher.settei, teacher.sprites], [false, []])
   assert.deepEqual(copy.sprites, ['calm'], 'the copy brings its pictures')
   assert.ok(cast.rows.some(row => row.name === '冰川理沙'), 'the whole cast resolves the new names')
+  assert.deepEqual([...cast.voiceKeys], [voice.sound], 'a copied voice still occupies the original sound')
+  assert.equal((await port.libraryVoices()).voices.filter(row => row.sound === voice.sound).length, 1, 'the catalogue lists the same sound and language once')
+  assert.equal((await service.getPackSnapshot({packId:cast.packId})).figures[teacher.ref.figureId].description, '配音选择：讲话尖锐，适合带点锋芒的女声')
   // On the stage: before its first 立绘 the figure has no outfit (voice only): it speaks in bubbles (name and initial) and is not placed.
   const shown = async emotion => { const pack = await service.getPackSnapshot({packId:cast.packId}); return selectPackFigure(pack.figures[teacher.ref.figureId], pack.sprites || {}, {emotion}) }
   assert.deepEqual([(await shown('joy')).form, (await shown('joy')).diagnostics], [null, ['voice-only']], 'no picture yet: a voice-only figure, not on the stage')  // landing: one write with the 人设图 and a 立绘
@@ -119,7 +122,8 @@ test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用�
   const {service, port, templatePack} = await fixture(t)
   const pack = await service.getPackSnapshot({packId:templatePack}), base = pack.manifest.voiceLibrary.voices.tsundere
   const {guidance:_g, ...plain} = base
-  await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音'}}}}})
+  const sources = voiceName => ({browser:{kind:'preset', provider:'browser', voiceName}})
+  await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false, sources:sources('zh-b')}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音', sources:sources('zh-c')}}}}})
   assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '通用男性声音'])
   assert.deepEqual((await port.search('傲娇')).voices.map(row => row.voiceId), ['tsundere', 'off'], 'the search offers the same candidates')
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})

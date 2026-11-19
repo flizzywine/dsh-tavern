@@ -57,7 +57,7 @@ export interface LibrarySearchResult {
   query: string; identity: {status: 'resolved'; ref: FigureRef} | {status: 'ambiguous' | 'unknown'};
   figures: Array<{packId: string; packName: string; revision: string; ref: FigureRef; name: string; aliases: string[]; description?: string; guidance?: string;
     outfits: number; emotions: number; stage: boolean; voice: {voiceId: string; name: string; guidance?: string} | null; copyable: boolean; match: 'exact' | 'name' | 'text'}>;
-  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; guidance?: string; figures: string[]}>;
+  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; sound: string; guidance?: string; figures: string[]}>;
   more: {figures: number; voices: number};
 }
 export interface AutomaticWriteResult {
@@ -170,7 +170,7 @@ export interface AssetPackService extends CatalogueService {
     readContext(input: {path: string}): Promise<AutomaticReadContext & {detached: boolean; target: AutomaticWriteInput['target']}>;
     /** 全库搜索 over every installed pack; read only. */
     searchLibrary(input: {query: string; limit?: number}): Promise<LibrarySearchResult>;
-    /** Every installed pack's voices (search rows), for a caster that reads them all. */
+    /** Eligible installed voices, one row per distinct voice and language. */
     listLibraryVoices(input?: {limit?: number}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
     /** Context is ephemeral host evidence (e.g. canonical body), never receipt data. */
     authorize(input: AutomaticWriteInput, source: AutomaticSource, context?: Context): AutomaticWriteAuthority;

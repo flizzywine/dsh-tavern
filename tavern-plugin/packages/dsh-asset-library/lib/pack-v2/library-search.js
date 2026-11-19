@@ -50,14 +50,25 @@ export function searchLibrary(packs, {query, limit = 20}) {
     figures:figures.slice(0, limit).map(item => item.row), voices:voices.slice(0, limit),
     more:{figures:Math.max(0, figures.length - limit), voices:Math.max(0, voices.length - limit)}}
 }
-// The casting assistant's voice candidates: the library's 通用声音 (voiceAutoCast) the filter keeps, as search rows — pack,
-// name, language, 使用情景 and the figures speaking with it; by name, then pack name. A figure's own voice is never offered.
+// The audible voice, independent of its pack, display name, language and synthesis model.
+export function castingVoiceKey(voice, binding) {
+  if (!voice || binding?.source === null) return null
+  const source = voice.sources[binding?.source ?? voice.defaultSource]
+  if (!source) return null
+  const identity = source.kind === 'voice-id' ? source.voiceId : source.kind === 'preset' ? source.voiceName
+    : source.references.length ? [...new Set(source.references.map(clip => clip.media))].sort() : null
+  return identity ? JSON.stringify([source.provider, source.kind, identity]) : null
+}
+
+// Shared eligibility for voice search and the full casting catalogue; sorted by name, then pack name.
 function voiceRows(packs, keep) {
   const voices = []
   for (const pack of packs) for (const [voiceId, voice] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
     if (!voiceAutoCast(voice) || !keep(voice, pack)) continue
+    const sound = castingVoiceKey(voice)
+    if (!sound) continue
     const users = pack.manifest.figures.map(id => pack.figures[id]).filter(figure => figure.voice?.voice === voiceId).map(figure => figure.name)
-    voices.push({packId:pack.manifest.id, packName:pack.manifest.name, revision:pack.revision, voiceId, name:voice.name, language:voice.language,
+    voices.push({packId:pack.manifest.id, packName:pack.manifest.name, revision:pack.revision, voiceId, name:voice.name, language:voice.language, sound,
       ...(voice.guidance ? {guidance:voice.guidance} : {}), figures:users})
   }
   return voices.sort((a, b) => codepointCompare(a.name, b.name) || codepointCompare(a.packName, b.packName))
@@ -66,6 +77,12 @@ function voiceRows(packs, keep) {
 // `more` counts what the limit left out.
 export function listLibraryVoices(packs, {limit = 60} = {}) {
   check(Number.isSafeInteger(limit) && limit > 0 && limit <= 200, '$.limit')
-  const voices = voiceRows(packs, () => true)
+  // A copy can add a different language or usage description; show it once per language, preferring a described entry.
+  const distinct = new Map()
+  for (const row of voiceRows(packs, () => true)) {
+    const key = JSON.stringify([row.sound, row.language])
+    if (!distinct.has(key) || !distinct.get(key).guidance && row.guidance) distinct.set(key, row)
+  }
+  const voices = [...distinct.values()]
   return {voices:voices.slice(0, limit), more:Math.max(0, voices.length - limit)}
 }
