@@ -52,6 +52,27 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
 const openPage = (h, extra = {}) => h.panels.open({sessionId: 's1', page: 'status', trustedCardMode: true, host: () => h.host, onClose() {}, onState() {}, onAction() {}, ...extra})
 const responses = frame => frame.contentWindow.posted.filter(message => message.type === 'dsh-card-page-response')
 
+test('a shown card page opens its available plugin panel in the current game', async () => {
+  const requests = [], selections = []
+  const h = harness({options:{findPluginPanel:async (...ref) => {
+    requests.push(ref)
+    return ref[1] === 'travel' ? '旅行与牌桌' : null
+  }}})
+  const page = openPage(h, {onPluginPanel: value => selections.push(value)})
+  await settle()
+  const frame = h.frames[0]
+  frame.listeners.load()
+  h.send(frame.contentWindow, 'openPluginPanel', {plugin:'unrelated', panelId:'table'})
+  await settle()
+  assert.equal(responses(frame).at(-1).ok,false)
+  h.send(frame.contentWindow, 'openPluginPanel', {plugin:'travel', panelId:'table', sessionId:'another-game'})
+  await settle()
+  assert.deepEqual(requests.at(-1), ['s1', 'travel', 'table'])
+  assert.deepEqual(selections, [{plugin:'travel', id:'table', title:'旅行与牌桌'}])
+  assert.deepEqual(responses(frame).at(-1).result, {opened:true})
+  page.dispose()
+})
+
 // A small React stand-in: effects run during render, their cleanups are kept, refs are plain objects.
 function fakeReact(stateOverride) {
   const cleanups = []

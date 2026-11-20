@@ -570,7 +570,7 @@
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} });
-						panels.set(tabId, owner);
+						panels.set(tabId, { owner, title, render, stage: input.stage === true });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -1026,6 +1026,12 @@
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
 				attachPanelOpener: function (fn) { panelOpener = typeof fn === "function" ? fn : null; },
+				stagePanel: function (sessionId, plugin, id) {
+					const panel = panels.get("tavern-plugin:" + plugin + ":" + id);
+					const scopes = tavernCardPluginScopes.get();
+					return panel?.stage && scopes && Object.hasOwn(scopes, plugin) &&
+						Array.isArray(scopes[plugin]) && tavernPluginAllowed(plugin, sessionId) ? panel : null;
+				},
 				attachCandidateRunner: function (fn) {
 					candidateRunner = typeof fn === "function" ? fn : null;
 					return function () { if (candidateRunner === fn) candidateRunner = null; };
@@ -1165,6 +1171,19 @@
 			// Which plugins a game shows waits on the card plugin scopes (tavernPluginAllowed).
 			useTavernCardPluginScopes();
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
+		}
+
+		function TavernStagePluginPanel({ sessionId, plugin, id }) {
+			useTavernUiExtensions();
+			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
+			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
+			return h(tavernPluginBoundary(), {
+				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
+			}, h(panel.render, { gameId: sessionId, visible: true }));
+		}
+		async function findTavernStagePluginPanel(sessionId, plugin, id) {
+			await tavernCardPluginScopes.load();
+			return tavernUiExtensions.stagePanel(sessionId, plugin, id)?.title || null;
 		}
 
 		// Created on first use: React is the host's, not available at bundle load.
