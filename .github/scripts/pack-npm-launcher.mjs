@@ -20,7 +20,9 @@ try {
 
 这是 DSH Tavern 的桌面启动器，支持 Windows 和 macOS 上的 DeepSeek Harness 与 DSH NEXT。
 
-在原版 \`desktop\` Profile 中打开 **插件 → 添加插件**，选择 **npm 官方源**，输入 \`${name}\` 并启用。若已通过其他渠道安装启动器，先移除旧启动器。
+在原版 \`desktop\` Profile 中打开 **插件 → 添加插件**，输入 \`${name}\` 并启用。若已通过其他渠道安装启动器，先移除旧启动器。
+
+[备用安装链接](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz)
 
 打开 **设置 → 酒馆启动器**，点击 **安装酒馆**。启动器会从酒馆的发布渠道下载安装程序。
 
