@@ -50487,10 +50487,10 @@ function askTavernCardPackWay(file, staged) {
                 return h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, title: title, onClick: function () { void run(function () { return rpc("updateUserPlugin", { folder: plugin.folder }); }, installed); } }, latest ? "更新到 " + latest : "更新");
             }
             const stateLabel = { loaded: "已启用", pending: "刷新后生效", restart: "重启 DSH 后生效", failed: "加载失败", skipped: "未加载", disabled: "已停用" };
-            const sourceLabel = function (source) { return source.kind === "builtin" ? "内置插件 · 默认启用，随酒馆更新，不可删除" : source.kind === "github" ? "GitHub · " + source.repo + (source.resolved ? " · " + source.resolved : "") : source.kind === "zip" ? "ZIP 上传" : source.kind === "managed" ? (source.builtin ? "内置舞台模组 · 随酒馆提供" : "舞台模组 · 由模组管理器维护") : source.kind === "card" ? "人物卡附带 · 由人物卡管理，不可在此删除" : "手动放入"; };
+            const sourceLabel = function (source) { return source.kind === "builtin" ? "内置插件 · 默认启用，随酒馆更新，不可删除" : source.kind === "github" ? "GitHub · " + source.repo + (source.resolved ? " · " + source.resolved : "") : source.kind === "zip" ? "ZIP 上传" : source.kind === "managed" ? "舞台模组 · 由模组管理器维护" : "手动放入"; };
             // 内置插件（随酒馆发行、装进 plugins/ 的那几个）照常列出：可停用、随酒馆更新、不可删除。
-            // 只有内置舞台模组不进这个列表——它们在「管理模组」里。
-            const plugins = (data?.plugins || []).filter(plugin => !(plugin.source.kind === "managed" && plugin.source.builtin));
+            // 卡内插件由人物卡库管理，内置舞台模组在「管理模组」里。
+            const plugins = (data?.plugins || []).filter(({ source }) => source.kind !== "card" && !(source.kind === "managed" && source.builtin));
             return h("div", { className: "dsh-tavern-user-plugins" },
                 h("div", { className: "dsh-tavern-user-plugins-install" },
                     // the shared inline text field; Enter keeps the address, 安装 installs it.
@@ -50510,7 +50510,6 @@ function askTavernCardPackWay(file, staged) {
                 data && plugins.length === 0 ? h(EmptyState, { compact: true, noun: "插件" }) : null,
                 plugins.length ? h("ul", { className: "dsh-tavern-user-plugins-list" }, plugins.map(function (plugin) {
                     const managed = plugin.source.kind === "managed";
-                    const canToggle = !managed && (plugin.source.kind !== "card" || plugin.enabled === false);
                     return h("li", { key: plugin.folder, className: "dsh-tavern-user-plugin is-" + plugin.state },
                         h("div", { className: "dsh-tavern-user-plugin-copy" },
                             h("strong", null, plugin.name, plugin.version ? h("small", null, " " + plugin.version) : null,
@@ -50520,9 +50519,9 @@ function askTavernCardPackWay(file, staged) {
                             h("span", { className: "dsh-tavern-user-plugin-source" }, sourceLabel(plugin.source)),
                             plugin.reason ? h("span", { className: "dsh-tavern-settings-error" }, plugin.reason) : null),
                         h("div", { className: "dsh-tavern-user-plugin-actions" },
-                            managed ? h("button", {type:"button", className:"dsh-tavern-btn", onClick:()=>setManageOpen(true)}, "管理模组") : h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !canToggle, title: canToggle ? undefined : "此模组由人物卡管理", onClick: function () { toggle(plugin); } }, canToggle ? (plugin.enabled === false ? "启用" : "停用") : "人物卡管理"),
+                            managed ? h("button", {type:"button", className:"dsh-tavern-btn", onClick:()=>setManageOpen(true)}, "管理模组") : h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { toggle(plugin); } }, plugin.enabled === false ? "启用" : "停用"),
                             plugin.source.kind === "github" ? updateAction(plugin) : null,
-                            (managed || plugin.source.kind === "card" || plugin.source.kind === "builtin") ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
+                            (managed || plugin.source.kind === "builtin") ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
                 })) : null,
                 manageOpen ? h(StagePackView, {view:ui=>ui.mods.ModManager, rpc, onClose:()=>setManageOpen(false)}) : null,
                 h("div", { className: "dsh-tavern-user-plugins-folder" },

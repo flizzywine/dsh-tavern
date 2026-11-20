@@ -37,6 +37,24 @@ for (const installed of [false, true]) {
   })
 }
 
+test('酒馆插件列表隐藏卡内插件，保留酒馆内置插件和第三方舞台模组', async t => {
+  const plugins = [
+    { folder: 'werewolf', name: 'dsh-card-werewolf', source: { kind: 'card' }, enabled: true, state: 'loaded' },
+    { folder: 'massage', name: 'dsh-tavern-massage', source: { kind: 'card' }, enabled: false, state: 'disabled' },
+    { folder: 'audiobook', name: 'dsh-tavern-audiobook', source: { kind: 'builtin' }, enabled: true, state: 'loaded' },
+    { folder: 'stage-builtin', name: 'stage-builtin-mod', source: { kind: 'managed', builtin: true }, enabled: true, state: 'loaded' },
+    { folder: 'stage-custom', name: 'stage-custom-mod', source: { kind: 'managed', builtin: false }, enabled: true, state: 'loaded' },
+  ]
+  const { page } = await openTavernSettings(t, {
+    section: 'dsh-tavern: plugins settings section',
+    respond: method => method === 'listUserPlugins' ? { plugins, dir: '/tmp/tavern/plugins' } : undefined,
+  })
+  const rows = page.locator('.dsh-tavern-user-plugin')
+  await rows.filter({ hasText: 'dsh-tavern-audiobook' }).getByRole('button', { name: '停用', exact: true }).waitFor()
+  await rows.filter({ hasText: 'stage-custom-mod' }).getByRole('button', { name: '管理模组', exact: true }).waitFor()
+  assert.equal(await rows.count(), 2)
+})
+
 // 设置 → 插件：已是最新时不显示更新按钮，有新版时按钮写明版本，停用/启用原地切换。
 // 手动「检查更新」跳过自动检查的缓存，按钮旁边写明结果，徽标和更新按钮随之刷新。
 test('插件列表可以手动检查更新', async t => {
