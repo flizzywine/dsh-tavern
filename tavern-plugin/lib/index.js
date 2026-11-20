@@ -308,7 +308,7 @@ import { readZipEntries } from './domain/zip-entries.js'
 import { createGameFootprint } from './domain/game-footprint.js'
 import { createGameSaveExporter } from './domain/game-save-export.js'
 import { existsSync, readFileSync } from 'node:fs'
-import { readdir, readFile, rm, mkdir, writeFile } from 'node:fs/promises'
+import { readdir, readFile, rm, mkdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const TAVERN_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -4816,6 +4816,9 @@ export async function apply(ctx) {
     }, { start: result.index, end: result.index, sourceEventSeqs: [result.index] })
   }
 
+  // 缓存预设文件的 stat 指纹与内容哈希，避免每轮对话重复读盘与全文 SHA-256。
+  const presetRevisionCache = new Map()
+
   // A game keeps a snapshot of its preset, but edits to that preset apply from the
   // next request: a changed preset file rebuilds and stores the snapshot. A missing
   // or unreadable file keeps the saved snapshot, so the game never loses its preset.
@@ -4823,11 +4826,29 @@ export async function apply(ctx) {
     if (!chat || groupOfMode(chat.mode) !== 'play') return null
     const saved = chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object' ? chat.runtimePresetSnapshot : null
     if (!saved?.presetPath || !chat.id) return saved
+    const normalizedPath = normalizeResourcePath(saved.presetPath, 'preset')
+    const expectedRevision = saved.presetRevision || saved.compatibilityPreset?.revision
+    let fileStat = null
+    try {
+      fileStat = await stat(fileResources.absolute(normalizedPath))
+      const cached = presetRevisionCache.get(normalizedPath)
+      if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
+        if (cached.revision === expectedRevision) return saved
+      }
+    } catch {
+      presetRevisionCache.delete(normalizedPath)
+    }
     let text
-    try { text = await fileResources.readText(normalizeResourcePath(saved.presetPath, 'preset')) } catch { return saved }
+    try { text = await fileResources.readText(normalizedPath) } catch { return saved }
+    if (text === undefined) return saved
+    const revision = createHash('sha256').update(text).digest('hex')
+    if (fileStat) {
+      if (presetRevisionCache.size >= 64) presetRevisionCache.delete(presetRevisionCache.keys().next().value)
+      presetRevisionCache.set(normalizedPath, { mtimeMs: fileStat.mtimeMs, size: fileStat.size, revision })
+    }
     // Snapshots keep only the preset text digest; older saves carry it inside the
     // compatibility document, which is no longer stored with the snapshot.
-    if (text === undefined || createHash('sha256').update(text).digest('hex') === (saved.presetRevision || saved.compatibilityPreset?.revision)) return saved
+    if (revision === expectedRevision) return saved
     let fresh
     try { fresh = await runtimePresets.fullSnapshot(saved.presetPath) } catch { return saved }
     if (!fresh) return saved
