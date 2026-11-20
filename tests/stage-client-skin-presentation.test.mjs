@@ -33,3 +33,24 @@ test('skin selection waits for pages, withdraws immediately and unload restores 
   module.dispose();assert.ok(pendingFonts.length>0);for(const resolve of pendingFonts)resolve(new Blob(['font']));await act(async()=>{});assert.equal(provided,0);assert.equal(listeners.size,0);assert.equal(node.style.getPropertyValue('--gal-ui-font'),'');assert.equal(node.hasAttribute('data-fk-fonts'),false)
  }finally{await act(async()=>root.unmount());module.dispose();skin.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
 })
+
+test('each page\'s copy of the same skin, its fallback and lent controls keeps the skin on screen without repainting the root',async()=>{
+ const dom=new JSDOM('<div id="root"></div>'),before=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
+ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
+ const fonts={subscribe:()=>()=>{},getSnapshot:()=>0,resolve:()=>({family:'serif'}),ensure:async()=>{},provide:async()=>{}}
+ const skin=createStageSkinAdapter({contract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()})
+ const module=createStageSkinPresentation({React,Event:dom.window.Event,fonts,skin,appearance:contract.stageSkinAppearance,forDevice:contract.stageSkinForDevice,files:()=>({})})
+ let active
+ function View({page,other=false}){const ref=React.useRef();const copy=()=>({url:'bundle',document:{...contract.BUILTIN_STAGE_SKINS[other?'classic':'crt']}});active=module.useSkin(ref,copy(),page,false,'classic',{fallback:copy(),controls:copy()});return React.createElement('section',{ref})}
+ const root=createRoot(dom.window.document.getElementById('root'))
+ const render=props=>act(async()=>root.render(React.createElement(View,props)))
+ try{
+  await render({page:'one'});const node=dom.window.document.querySelector('section'),first=active
+  assert.equal(first.id,'crt');assert.ok(node.style.length>0)
+  let painted=0;const observer=new dom.window.MutationObserver(list=>{painted+=list.length});observer.observe(node,{attributes:true})
+  await render({page:'two'});await render({page:'three'})
+  await act(async()=>{});assert.equal(active,first);assert.equal(painted,0)
+  await render({page:'four',other:true});assert.equal(active.id,'classic')
+  observer.disconnect()
+ }finally{await act(async()=>root.unmount());module.dispose();skin.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
+})
