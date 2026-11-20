@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "147ff241826e7462c3513160fcc6d492083f2b5a",
-  "releaseSequence": 1860,
+  "revision": "c66aaed17857103ab2d8500ab2a2e0095b72a692",
+  "releaseSequence": 1861,
   "version": "3.3.0",
   "files": [
     {
@@ -1036,8 +1036,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "ddd25449133adb46e76d79c799ad371b13218d1a543ccc4ee242184532a83f63",
-      "size": 457023
+      "sha256": "93aba3b20787a29b4f9c6f81effcf60424466dada256d898ae092c1b4613c3c0",
+      "size": 457331
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1086,8 +1086,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "448aaec778a5adaf83d67fe41c578402f8c64e20f099084f80e464fcec19b7a8",
-      "size": 6443707
+      "sha256": "d1dc519b8e93586514eb9cb5baab3b9b9c36ea14b3df97498e447a69303cb815",
+      "size": 6444660
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8071,8 +8071,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/client.js",
-      "sha256": "c06e4f28d7609e6a5e50e07d85e942852f4a73b7ab307c73c15000b001f388e4",
-      "size": 29806
+      "sha256": "d086cff24ddf07aa946a02fa6c2e5780adbb1d8182f42836d3e375fc8e9fe8f7",
+      "size": 52774
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/cordis.patch.yml",
@@ -8106,8 +8106,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/panel.js",
-      "sha256": "6e97bcc376eb323bf549ff7bcf92d4b74cd5d0984fc6f63065838d63eb506879",
-      "size": 19649
+      "sha256": "732234cf15d16f056a6a8642d4f293bd045f1f98c1df198f88868f454adffa6d",
+      "size": 34810
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/shared.js",
@@ -8116,8 +8116,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/styles.js",
-      "sha256": "ffc439c7cc780cb89298d13fde5b6cd93bf63c78f468bdd0032135c76eb3b5cc",
-      "size": 4930
+      "sha256": "09c8f83d085628532eef39c6fe068c6cb89d3f8b089b9e6241f0877991d8ec61",
+      "size": 12737
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/build.mjs",
@@ -8126,8 +8126,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/client.js",
-      "sha256": "77179dec2e57a19a8e7ea894ce1ffdf628dfff0ac8272bbda6af59287402e6a9",
-      "size": 120573
+      "sha256": "fd57d1f3a0a5feeaee8e36bce4f969a9d7851b711415cb080e432253246b3307",
+      "size": 125936
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/cordis.patch.yml",
@@ -9626,9 +9626,9 @@
     }
   ],
   "archive": {
-    "commit": "f5fde49786861e67d3c775dcc140923af0e18c50",
+    "commit": "5b54f856e5cfaed8448b399c8ace8413bd41cdaa",
     "path": "runtime.zip",
-    "sha256": "307d170fd2bbdec4042ac5de8e292fcacb332dceeb8cb653b5ddb3ea73445d6a",
-    "size": 17049237
+    "sha256": "77765786f233e803e228092a6586721b67544b5111cee9b0bb7d2df5008c00c7",
+    "size": 17067301
   }
 }
