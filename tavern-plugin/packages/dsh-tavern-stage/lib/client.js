@@ -3585,8 +3585,9 @@ function GalEntryOverlay(props) {
         art?.parts ? h('span', {className:'fork-spinner fork-gal-entry-spinner', 'aria-hidden':true},
             art.parts.map((part, index) => h('span', {key:index, className:'fork-gal-entry-part', 'data-fk-part':part.motion, style:part.tokens})))
             : h(Spinner, {delay:0, className:'fork-gal-entry-spinner'}),
-        // the load's real steps and weighted progress while it runs (stage-load-progress.cjs).
-        props.progress ? h(StageLoadLine, {progress:props.progress, fallback:text, nameOf:props.nameOf,
+        // the load's real steps and weighted progress while it runs (stage-load-progress.cjs). Once the veil is gone the
+        // reading's own preloads would keep cross-fading its step line unseen (an element in and out per step): it rests.
+        props.progress && props.phase !== 'ready' ? h(StageLoadLine, {progress:props.progress, fallback:text, nameOf:props.nameOf,
             revealed:props.phase === 'revealing' || props.phase === 'ready'}) : h('span', null, text));
 }
 
