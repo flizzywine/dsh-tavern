@@ -1742,11 +1742,11 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 .dsh-context-part-break-tag { padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93838) 16%, transparent); color: var(--dsw-alias-state-error-primary, #d93838); font-size: 11px; font-weight: 600; }
 .dsh-context-part-cascade-tag { padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--dsw-alias-state-warning, #d9822b) 16%, transparent); color: var(--dsw-alias-state-warning, #b86818); font-size: 11px; font-weight: 500; }
 .dsh-context-part.is-part-hit > pre,
-.dsh-context-source.is-part-hit { border-left: 3px solid #2f9e66; }
+.dsh-context-source.is-part-hit { border-left: 3px solid #2f9e66; background: color-mix(in srgb, #2f9e66 10%, var(--dsw-alias-interactive-bg-hover)); }
 .dsh-context-part.is-break-part > pre,
-.dsh-context-source.is-break-part { border-left: 3px solid var(--dsw-alias-state-error-primary, #d93838); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93838) 6%, var(--dsw-alias-interactive-bg-hover)); }
+.dsh-context-source.is-break-part { border-left: 3px solid var(--dsw-alias-state-error-primary, #d93838); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93838) 8%, var(--dsw-alias-interactive-bg-hover)); }
 .dsh-context-part.is-part-cascade > pre,
-.dsh-context-source.is-part-cascade { border-left: 3px solid var(--dsw-alias-state-warning, #d9822b); background: color-mix(in srgb, var(--dsw-alias-state-warning, #d9822b) 5%, var(--dsw-alias-interactive-bg-hover)); }
+.dsh-context-source.is-part-cascade { border-left: 3px solid var(--dsw-alias-state-warning, #d9822b); background: color-mix(in srgb, var(--dsw-alias-state-warning, #d9822b) 7%, var(--dsw-alias-interactive-bg-hover)); }
 
 .dsh-context-cache-card { margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base)); display: flex; flex-direction: column; gap: 8px; }
 .dsh-context-cache-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
@@ -1775,10 +1775,13 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 .dsh-context-cache-alert.is-info { border-left: 3px solid var(--dsw-alias-state-warning, #d9822b); background: color-mix(in srgb, var(--dsw-alias-state-warning, #d9822b) 10%, transparent); color: var(--dsw-alias-label-secondary); }
 
 .dsh-context-list details.dsh-context-section { border-left: 3px solid transparent; }
-.dsh-context-list details.dsh-context-section.is-cache-hit { border-left-color: #2f9e66; }
+.dsh-context-list details.dsh-context-section.is-cache-hit { border-left-color: #2f9e66; background: color-mix(in srgb, #2f9e66 6%, transparent); }
+.dsh-context-list details.dsh-context-section.is-cache-hit pre { background: color-mix(in srgb, #2f9e66 10%, var(--dsw-alias-interactive-bg-hover)); }
 .dsh-context-list details.dsh-context-section.is-cache-break { border-left-color: var(--dsw-alias-state-error-primary, #d93838); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93838) 8%, transparent); }
 .dsh-context-list details.dsh-context-section.is-cache-break.has-part-breakdown { background: transparent; }
 .dsh-context-list details.dsh-context-section.is-cache-break.has-part-breakdown > summary { background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93838) 8%, transparent); }
+.dsh-context-list details.dsh-context-section.is-cache-break.has-part-breakdown[open] { border-left-color: transparent; }
+.dsh-context-list details.dsh-context-section.is-cache-break.has-part-breakdown[open] > summary { border-left: 3px solid var(--dsw-alias-state-error-primary, #d93838); margin-left: -3px; }
 .dsh-context-list details.dsh-context-section.is-cache-break > summary .dsh-context-section-title { color: var(--dsw-alias-state-error-primary, #d93838); font-weight: 600; }
 .dsh-context-list details.dsh-context-section.is-cache-cascade { border-left-color: var(--dsw-alias-state-warning, #d9822b); background: color-mix(in srgb, var(--dsw-alias-state-warning, #d9822b) 4%, transparent); }
 .dsh-context-list details.dsh-context-section.is-cache-appended { border-left-color: var(--dsw-alias-border-l2); }
