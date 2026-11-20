@@ -183,8 +183,10 @@ export function createDurableFilePromotion(options = {}) {
       published = true
       // A reader always prefers pending files. Retire older snapshots while
       // the newest one still has its pending name.
-      await cleanupPending(target, pending)
-      if (snapshots.length > 0) await syncDirectory(path.dirname(target))
+      if (snapshots.length > 0) {
+        await cleanupPending(target, pending)
+        await syncDirectory(path.dirname(target))
+      }
       await replaceTarget(pending, target)
       await syncDirectory(path.dirname(target))
       return { status: 'promoted', revision }
