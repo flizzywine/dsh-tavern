@@ -2090,7 +2090,7 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 /* 本局设置 (conversation-settings.js) speaks the same language in the same right panel: caption sections, one row per
    setting with its name on the left and its value, menu or switch on the right edge, one dashed line between rows like
    基础设置's. A head line says the scope (「?」: the cache cost), the save state and the one 模板 menu. */
-.ap-ui.dsh-session-settings { max-width: 760px; padding: 6px 20px 28px; }
+.ap-ui.dsh-session-settings { max-width: 760px; padding: 6px 20px 28px; background: transparent; }
 .dsh-session-bar { display: flex; align-items: center; gap: 10px; min-height: 36px; }
 .dsh-session-scope { display: inline-flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .dsh-session-bar > .ap-save-state { position: static; min-height: 0; white-space: nowrap; }
