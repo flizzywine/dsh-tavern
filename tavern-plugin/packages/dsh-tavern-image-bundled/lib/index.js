@@ -5071,6 +5071,12 @@ function createRuntime(ctx, overrides, logger, deps) {
               position: x.position === 'suffix' ? 'suffix' : 'prefix',
               enabled: x.enabled !== false,
               params: normalizePresetParams(x.params),
+              // 画风示例图只存 descriptor；图片字节留在本机 reference-images/，不写进 config。
+              samples: (Array.isArray(x.samples) ? x.samples : [])
+                .map(normalizeReferenceImage)
+                .filter(Boolean)
+                .slice(0, 8)
+                .map(item => ({ id: item.id, mediaType: item.mediaType, name: item.name, byteLength: item.byteLength })),
             }))
         }
         if (typeof patch.activePreset === 'string') config.activePreset = patch.activePreset.slice(0, 60)
