@@ -152,25 +152,12 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
   assert.deepEqual(await readOptions(), [])
   await assert.rejects(changeOption('maxRoutes', 5), /没有这个插件配置项/)
 
-  // 开启罗盘并切换为跟随前台模型
+  // 开启罗盘并切换为跟随前台模型。设置只走插件工作台面板，宿主本局设置不再有罗盘分组。
   await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
-  assert.deepEqual(settingsChanges.at(-1), { gameId: 'g1', plugin })
-  const [compassSettings] = await readOptions()
-  assert.deepEqual(compassSettings.fields.map(field => field.key), ['autoUpdateInterval', 'maxRoutes'])
-  assert.deepEqual(compassSettings.values, { autoUpdateInterval: 0, maxRoutes: 4 })
-  await assert.rejects(changeOption('enabled', false), /没有这个插件配置项/)
-  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', maxRoutes: 5 })
-  const { settings: [edited] } = await changeOption('autoUpdateInterval', 7)
-  assert.deepEqual(edited.values, { autoUpdateInterval: 7, maxRoutes: 5 })
-  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: false })
   assert.deepEqual(await readOptions(), [])
+  assert.deepEqual(settingsChanges, [])
   assert.equal(await pluginApi.pluginGameSettings('g1', plugin), null)
-  await pluginApi.resetGamePluginSettings('g1', { [plugin]: { enabled: true, autoUpdateInterval: 1, maxRoutes: 4 } })
-  assert.deepEqual(await readOptions(), [])
-  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
-  assert.deepEqual((await readOptions())[0].values, edited.values)
-  await pluginApi.resetGamePluginSettings('g1')
-  assert.deepEqual((await readOptions())[0].values, { autoUpdateInterval: 0, maxRoutes: 4 })
+  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', maxRoutes: 5 })
   await pluginApi.callHandler('plot-compass:set-model', { gameId: 'g1', model: 'foreground' })
 
   const genRes = await pluginApi.callHandler('plot-compass:generate', { gameId: 'g1', scope: 'all', wait: true })
