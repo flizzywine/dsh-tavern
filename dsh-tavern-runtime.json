@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2ba99c26950bd8f24d67ab093997a5a989d979bf",
-  "releaseSequence": 1869,
+  "revision": "dbfc879a75175d05c2cf04852c4286fc7d15ae14",
+  "releaseSequence": 1870,
   "version": "3.3.0",
   "files": [
     {
@@ -101,8 +101,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "a01d2a3ddc8d4c1c55ed4109c29b003ee0f432849cc373d223fc1a2f731970e3",
-      "size": 26539
+      "sha256": "65a03905dfeb171224ade97b5fe1e7b77588b56c05fcbad0659ce17e64034017",
+      "size": 26860
     },
     {
       "path": "bin/build-image-client.mjs",
@@ -168,6 +168,21 @@
       "path": "bin/check-dsh-upgrade.mjs",
       "sha256": "47b3b07d7e622874c4a0bb74c64aaaba42c9bd0da28ac5fc0b48467bd1bb6226",
       "size": 8319
+    },
+    {
+      "path": "bin/cli-completion.mjs",
+      "sha256": "fd5dd23b93269c17debc9c79946959f2377298cd84556a6ce2e718648215aac2",
+      "size": 5418
+    },
+    {
+      "path": "bin/cli-help.mjs",
+      "sha256": "7426eb375a4b6638030abff159b5531e102240799c65c80f37e523b1db90d432",
+      "size": 8442
+    },
+    {
+      "path": "bin/cli-man.mjs",
+      "sha256": "ea3c8d5fb5b311e52820a3075e248b426ccba3dbff042c776c1478c73e01515d",
+      "size": 1969
     },
     {
       "path": "bin/cli-runtime.mjs",
@@ -236,8 +251,8 @@
     },
     {
       "path": "bin/dsh-tavern.mjs",
-      "sha256": "d4b5475cfc83003016fd35f37d3da27f43eb8b41d65c08cfcc5e6c07468f7ae6",
-      "size": 5712
+      "sha256": "6d01266ccfcf6d7e79e65f6ff64a1d3a6cfa39001f52c23a3d257a485c312573",
+      "size": 7268
     },
     {
       "path": "bin/eval-compaction-memory.mjs",
@@ -276,8 +291,8 @@
     },
     {
       "path": "bin/launcher-environment.mjs",
-      "sha256": "c844a5af205d95b25d02b3bd4c3f228bdaa61c7c80bbb941f6aad2256017323c",
-      "size": 13365
+      "sha256": "51490653396ebaafc13847d9a487992b9f8ec4103fe3e3d3bbbc4e69dcbdfbe2",
+      "size": 13607
     },
     {
       "path": "bin/launcher-package-name.mjs",
@@ -366,8 +381,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "a639b07934eb28e09cef3e44a5686a74583ebca7c85423e678dd9a2e1cabc330",
-      "size": 36338
+      "sha256": "9512ad81dfba5ed1478bc60fa48fb5d325a94ecb8376acbf098471a3f95f532e",
+      "size": 36543
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -9246,8 +9261,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "4296dce945a9c2203dde874d1a73803de75086207d646b5fe1bd859a81ba7d66",
-      "size": 20569
+      "sha256": "2bf80bec92267f04f2046bf3ad1fcc5be0456d9105926ebe7619742ca693abe8",
+      "size": 20907
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -9626,9 +9641,9 @@
     }
   ],
   "archive": {
-    "commit": "84a489f5f216d915d2b7b571d38407ac0054b71f",
+    "commit": "9522a70ae62489fd0a8e582230ff167758009192",
     "path": "runtime.zip",
-    "sha256": "34fa430f9adb5e9ccae92069999d7941140f895cddaa79315a9ae5eb21084fd9",
-    "size": 17070967
+    "sha256": "0be7a803b1f7fc7dbb860759bb0e39c3f63bd6b85d2c5d0e7360d32b39a453d4",
+    "size": 17077904
   }
 }
