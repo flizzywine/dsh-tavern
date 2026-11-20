@@ -184,9 +184,9 @@ function compactionSideText(side) {
 function compactionProgressTitle(operation) {
     return operation ? "前台：" + compactionSideText(operation.foreground) + "；后台：" + compactionSideText(operation.background) : "";
 }
-function useCompactionState(sessionId) {
+function useCompactionState(sessionId, paths) {
     const local = React.useSyncExternalStore(compactionRuns.subscribe, function () { return compactionRuns.get(sessionId); });
-    const live = useLiveTavernView(sessionId, "compaction:" + String(local && local.phase || ""));
+    const live = useLiveTavernView(sessionId, "compaction:" + String(local && local.phase || ""), paths);
     const state = live.view && live.view.contextCompaction || null;
     return { local: local, live: live, state: state, operation: state && state.operation,
         running: Boolean(local && local.phase === "running" || state && state.operation && state.operation.status === "running") };

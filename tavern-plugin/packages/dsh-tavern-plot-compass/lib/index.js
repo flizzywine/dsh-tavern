@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs'
 import {
   PLOT_COMPASS_DEFAULT_MAX_ROUTES,
-  PLOT_COMPASS_MAX_MAX_ROUTES,
-  PLOT_COMPASS_MIN_MAX_ROUTES,
-  applyPlotCompassPreferences,
   normalizePlotCompassMaxRoutes,
   normalizePlotCompassStrength,
   plotCompassBodyText,
@@ -166,22 +163,7 @@ export function apply(ctx, options = {}) {
     const legacyModel = !hasExplicitGlobalModel && payload && typeof payload === 'object' && !Array.isArray(payload)
       ? normalizePlotCompassModel(payload.modelSelection)
       : null
-    let record = normalizeGameRecord(payload, defaults)
-    if (!payload && typeof tavern.getGameSettings === 'function') {
-      try {
-        const gs = await tavern.getGameSettings({ gameId: id })
-        if (gs && typeof gs === 'object') {
-          if (typeof gs.enabled === 'boolean') record.enabled = gs.enabled
-          if (Number.isSafeInteger(Number(gs.autoUpdateInterval))) {
-            record.compass.autoUpdateInterval = Math.max(0, Math.min(100, Number(gs.autoUpdateInterval)))
-          }
-          const gsMaxRoutes = normalizePlotCompassMaxRoutes(gs.maxRoutes)
-          if (gs.maxRoutes !== undefined && gsMaxRoutes !== null) {
-            record.compass.maxRoutes = gsMaxRoutes
-          }
-        }
-      } catch {}
-    }
+    const record = normalizeGameRecord(payload, defaults)
     gameCache.set(id, record)
     if (legacyModel && legacyModel !== 'background') {
       await saveDefaults({ modelSelection: legacyModel }, { broadcastExcept: id })
@@ -534,62 +516,6 @@ export function apply(ctx, options = {}) {
       gameCache.delete(id)
       gameLocks.delete(id)
       knownGameIds.delete(id)
-    }))
-  }
-
-  if (typeof tavern.gameSettings === 'function') {
-    try {
-      keep(tavern.gameSettings({
-        title: '剧情罗盘',
-        async present({ gameId }) {
-          const record = await readGame(gameId)
-          if (!record.enabled) return null
-          return { autoUpdateInterval: record.compass.autoUpdateInterval, maxRoutes: record.compass.maxRoutes }
-        },
-        fields: [
-          {
-            key: 'enabled',
-            type: 'boolean',
-            label: '启用剧情罗盘',
-            description: '推演短期、中期、长期多路线剧情发展灵感；关闭后不注入提示词且不自动演进，已保存的路线数据会保留。',
-            default: false
-          },
-          {
-            key: 'autoUpdateInterval',
-            type: 'number',
-            label: '自动更新间隔（楼数）',
-            description: '每隔 N 楼自动全层刷新路线规划（0 表示关闭定时自动更新）',
-            default: 0,
-            min: 0,
-            max: 100
-          },
-          {
-            key: 'maxRoutes',
-            type: 'number',
-            label: '剧情规划条目上限',
-            description: '今期 / 中期 / 长期每个跨度最多保留与推演的剧情路线条目数（1–10，默认 4）',
-            default: PLOT_COMPASS_DEFAULT_MAX_ROUTES,
-            min: PLOT_COMPASS_MIN_MAX_ROUTES,
-            max: PLOT_COMPASS_MAX_MAX_ROUTES
-          }
-        ]
-      }))
-    } catch {}
-  }
-
-  if (typeof tavern.onGameSettingsChanged === 'function') {
-    keep(tavern.onGameSettingsChanged(async ({ gameId, values } = {}) => {
-      if (!gameId || !values) return
-      if (typeof tavern.notifyGameSettings !== 'function' && typeof values.enabled === 'boolean') {
-        await service.setEnabled({ gameId, enabled: values.enabled })
-      }
-      const { autoUpdateInterval, maxRoutes } = values
-      await updateGame(gameId, current => {
-        if (!current.enabled) return
-        current.compass = applyPlotCompassPreferences(current.compass, { autoUpdateInterval, maxRoutes })
-        return current
-      })
-      void publishCompassState(gameId)
     }))
   }
 

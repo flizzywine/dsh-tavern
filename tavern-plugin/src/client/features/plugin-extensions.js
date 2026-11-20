@@ -1029,7 +1029,7 @@
 				stagePanel: function (sessionId, plugin, id) {
 					const panel = panels.get("tavern-plugin:" + plugin + ":" + id);
 					const scopes = tavernCardPluginScopes.get();
-					return panel?.stage && scopes && Object.hasOwn(scopes, plugin) &&
+					return panel?.stage && panel.owner === plugin && scopes && Object.hasOwn(scopes, plugin) &&
 						Array.isArray(scopes[plugin]) && tavernPluginAllowed(plugin, sessionId) ? panel : null;
 				},
 				attachCandidateRunner: function (fn) {
@@ -1175,6 +1175,7 @@
 
 		function TavernStagePluginPanel({ sessionId, plugin, id }) {
 			useTavernUiExtensions();
+			useTavernCardPluginScopes();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
 			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
 			return h(tavernPluginBoundary(), {

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { LATEST_GOOGLE_VERTEX_MODELS, PI_AI_VERTEX_STREAM_MARKER, vertexDisabledThinkingConfig, vertexResolveThinkingLevel, vertexUsesThinkingLevel, createVertexToolCallStreamer, patchPiAiGoogleSharedSource, patchPiAiGoogleVertexModelsJson, patchPiAiGoogleVertexSource, supportsVertexStreamFunctionCallArguments } from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
+import { LATEST_GOOGLE_VERTEX_MODELS, PI_AI_VERTEX_STREAM_MARKER, VERTEX_REGIONS, normalizeVertexLocation, vertexBaseUrlForLocation, vertexDisabledThinkingConfig, vertexLocationFromBaseUrl, vertexResolveThinkingLevel, vertexUsesThinkingLevel, createVertexToolCallStreamer, patchPiAiGoogleSharedSource, patchPiAiGoogleVertexModelsJson, patchPiAiGoogleVertexSource, supportsVertexStreamFunctionCallArguments } from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
 import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, vertexApiKeyFrom } from '../bin/pi-ai-vertex-stream-patch.mjs'
 
 function makeStreamFixture() {
@@ -396,4 +396,41 @@ test('Vertex thinking：Gemini 4 只发 thinkingLevel，旧补丁的运行时也
   assert.equal(upgraded.status, 'applied')
   assert.equal((upgraded.text.match(/function vertexUsesThinkingLevel/g) ?? []).length, 1)
   assert.equal(patchPiAiGoogleVertexSource(upgraded.text).status, 'patched')
+})
+
+test('Vertex 地区 (Region)：规范化、从 baseURL 提取与按地区生成端点地址', () => {
+  assert.equal(normalizeVertexLocation(' Asia-Southeast1 '), 'asia-southeast1')
+  assert.equal(normalizeVertexLocation('GLOBAL'), 'global')
+  assert.equal(normalizeVertexLocation(''), null)
+  assert.equal(normalizeVertexLocation('bad region!'), null)
+
+  assert.equal(
+    vertexBaseUrlForLocation('my-proj-123', 'global'),
+    'https://aiplatform.googleapis.com/v1/projects/my-proj-123/locations/global',
+  )
+  assert.equal(
+    vertexBaseUrlForLocation('my-proj-123', 'asia-southeast1'),
+    'https://asia-southeast1-aiplatform.googleapis.com/v1/projects/my-proj-123/locations/asia-southeast1',
+  )
+  assert.equal(vertexBaseUrlForLocation('', 'asia-southeast1'), null)
+  assert.equal(vertexBaseUrlForLocation('my-proj-123', '???'), null)
+
+  assert.equal(
+    vertexLocationFromBaseUrl('https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global'),
+    'global',
+  )
+  assert.equal(
+    vertexLocationFromBaseUrl('https://asia-northeast1-aiplatform.googleapis.com/v1/projects/379270002840/locations/asia-northeast1'),
+    'asia-northeast1',
+  )
+  assert.equal(
+    vertexLocationFromBaseUrl('https://asia-east2-aiplatform.googleapis.com'),
+    'asia-east2',
+  )
+  assert.equal(vertexLocationFromBaseUrl('https://{location}-aiplatform.googleapis.com'), null)
+
+  const ids = new Set(VERTEX_REGIONS.map(item => item.id))
+  for (const expected of ['global', 'asia-east2', 'asia-northeast1', 'asia-northeast3', 'asia-south1', 'asia-southeast1', 'asia-southeast2', 'australia-southeast1']) {
+    assert.ok(ids.has(expected), `预设地区列表应包含 ${expected}`)
+  }
 })

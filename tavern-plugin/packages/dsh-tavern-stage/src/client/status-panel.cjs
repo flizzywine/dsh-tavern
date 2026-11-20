@@ -164,7 +164,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         if (!closed) onState({phase, label: raw?.label || label || '', title, size: raw?.size || size || 'window', figures: raw?.figures || [], shown, ...extra});
     }
     async function answer(method, args) {
-        if (pluginPanelShowing?.()) throw new Error('请先关闭插件面板');
+        if (pluginPanelShowing?.() && !['asset', 'assets', 'title', 'sound', 'opening'].includes(method)) throw new Error('请先关闭插件面板');
         if (method === 'title') { title = String(args?.text ?? '').trim().slice(0, 60); state(phaseNow); return {title}; }
         if (method === 'asset') return await readAsset(args);
         if (method === 'assets') return await readAsset.list(String(args?.kind || ''));
@@ -455,7 +455,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const title = pluginPanel?.title || state.title || label;
     const closeLabel = pluginPanel ? '返回' + label : entry ? '返回主页面' : '关闭' + label;
     const pageCloses = !pluginPanel && owned && state.shown && state.phase === 'ready';
-    return h('div', {className: 'fork-gal-status', 'data-size': pluginPanel ? 'window' : state.size, 'data-page': pageId, 'data-entry-page': entry && !pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
+    return h('div', {className: 'fork-gal-status', 'data-size': pluginPanel ? 'window' : state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-plugin-panel': pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
             // the empty first child: dsh-pocket's phone stylesheet otherwise takes a page-closed sheet whose body ends in 重试 for DSH's
@@ -465,7 +465,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                 state.size === 'full' && !pluginPanel ? null : h('b', {className: 'fork-gal-status-title'}, title),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
-            pluginPanel ? h('div', {className: 'fork-gal-status-plugin'},
+            pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
                 h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id})) : null,
             h('div', {ref: body, className: 'fork-gal-status-body', style:pluginPanel ? {display:'none'} : undefined},
                 state.phase === 'loading' && !entry ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,

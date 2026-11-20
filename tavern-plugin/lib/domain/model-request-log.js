@@ -291,9 +291,23 @@ export function createModelRequestLog(options = {}) {
     if (!record) throw new Error('请求记录已缺失')
     return evidenceRecord(record, await readJson(base + id + '.result.json'))
   }
+  function isForegroundTurnEntry(item) {
+    return (Number(item?.turn) || 0) > 0 || (Number(item?.agentTurn) || 0) > 0
+  }
   async function latest(chatId, knownId, sessionId, options = {}) {
     const entries = await list(chatId)
-    const matched = entries.filter(item => sessionId ? item.sessionId === sessionId : item.scope === 'foreground')
+    const requestedScope = options && (options.scope === 'foreground' || options.scope === 'background') ? options.scope : ''
+    let matched = entries.filter(item => {
+      if (sessionId && item.sessionId !== sessionId) return false
+      if (requestedScope) return item.scope === requestedScope
+      return sessionId ? true : item.scope === 'foreground'
+    })
+    const primary = matched.filter(item => item.task !== 'compaction')
+    if (primary.length > 0) matched = primary
+    if (matched.some(item => item.scope === 'foreground' && isForegroundTurnEntry(item))) {
+      const foregroundTurns = matched.filter(item => item.scope !== 'foreground' || isForegroundTurnEntry(item))
+      if (foregroundTurns.length > 0) matched = foregroundTurns
+    }
     const entry = matched.at(-1)
     if (!entry) return null
     const base = 'model-requests/' + chatId + '/'
@@ -304,7 +318,15 @@ export function createModelRequestLog(options = {}) {
     const record = await readJson(base + entry.id + '.json')
     if (!record) return null
     const full = evidenceRecord(record, result)
-    const previousEntry = matched.length >= 2 ? matched.at(-2) : null
+    let previousEntry = null
+    for (let i = matched.length - 2; i >= 0; i--) {
+      const candidate = matched[i]
+      if (!candidate) continue
+      if (candidate.scope !== entry.scope) continue
+      if ((candidate.task === 'compaction') !== (entry.task === 'compaction')) continue
+      previousEntry = candidate
+      break
+    }
     const previousRecord = previousEntry && !previousEntry.pruned ? await readJson(base + previousEntry.id + '.json') : null
     return { ...full, cacheDiff: computeRequestCacheDiff(full, previousRecord, previousEntry) }
   }

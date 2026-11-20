@@ -4627,6 +4627,7 @@ export async function apply(ctx) {
     regenBody: { get: () => regenBody },
     replyDisplayForChat: { get: () => replyDisplayForChat },
     requestPerformance: { get: () => requestPerformance },
+    resolveCredentialValue: { get: () => async (ref) => { const entry = await ctx.get('credentials')?.resolve?.(ref); return typeof entry?.value === 'string' ? entry.value : '' } },
     retryStyleReference: { get: () => retryStyleReference },
     rollbackTurn: { get: () => rollbackTurn },
     slotDeclarations: { get: () => slotDeclarations },

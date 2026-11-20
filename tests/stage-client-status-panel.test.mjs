@@ -58,7 +58,7 @@ test('a shown card page opens its available plugin panel in the current game', a
     requests.push(ref)
     return ref[1] === 'travel' ? '旅行与牌桌' : null
   }}})
-  const page = openPage(h, {onPluginPanel: value => selections.push(value)})
+  const page = openPage(h, {onPluginPanel: value => selections.push(value), pluginPanelShowing: () => selections.length > 0})
   await settle()
   const frame = h.frames[0]
   frame.listeners.load()
@@ -70,6 +70,13 @@ test('a shown card page opens its available plugin panel in the current game', a
   assert.deepEqual(requests.at(-1), ['s1', 'travel', 'table'])
   assert.deepEqual(selections, [{plugin:'travel', id:'table', title:'旅行与牌桌'}])
   assert.deepEqual(responses(frame).at(-1).result, {opened:true})
+  h.send(frame.contentWindow, 'title', {text:'旅行'})
+  await settle()
+  assert.deepEqual(responses(frame).at(-1).result, {title:'旅行'})
+  h.send(frame.contentWindow, 'fillInput', {text:'旅行'})
+  await settle()
+  assert.equal(responses(frame).at(-1).ok, false)
+  assert.deepEqual(h.fills, [])
   page.dispose()
 })
 
@@ -77,7 +84,7 @@ test('a shown card page opens its available plugin panel in the current game', a
 function fakeReact(stateOverride) {
   const cleanups = []
   return {cleanups, React: {createElement: (type, props, ...children) => ({type, props: props || {}, children: children.flat()}),
-    useRef: value => ({current: value ?? null}), useState: initial => [stateOverride ?? initial, () => {}],
+    useRef: value => ({current: value ?? null}), useState: initial => [initial === null ? null : stateOverride ?? initial, () => {}],
     useEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) }}}
 }
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
