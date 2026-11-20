@@ -2,7 +2,7 @@
 // one write before anything is drawn. Synthetic data only; ids differ from names.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { runCastingAssistant, AUTO_CAST_TASK } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js'
+import { runCastingAssistant, roundStory, AUTO_CAST_TASK } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js'
 import {cardLorePieces as lorePieces} from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 import {castChanges, newSpeakers} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 import {emptyAutoCastRecord, noteCasting, castDrawn} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
@@ -26,12 +26,16 @@ test('the tools check their input and answer errors the model can fix', async ()
   const run = async input => {
     assert.equal(input.task, AUTO_CAST_TASK); assert.equal(input.ownPrefix, true); assert.match(input.system, /选角助理/)
     assert.deepEqual(JSON.parse(input.taskText).新人物, ['晓美焰', '护士', '雪乃'])
+    // a speaker the card never names is described only where it comes on: the round's text goes with the task
+    assert.equal(JSON.parse(input.taskText).本轮正文, '玩家：门里站着一个穿蓝色水手服的小女孩。\n\n正文：她赤着脚。\n护士：你醒了。')
     assert.ok(input.tools.some(tool => tool.name === 'copy_figure'))
     assert.equal(input.maxToolCalls, 29, 'the call budget grows with the speakers (the runner\'s default 8 runs out at two)')
     assert.equal(input.tools.find(tool => tool.name === 'finish').countsTowardLimit, false)
     for (const [name, args] of calls) seen.push([name, JSON.parse(await input.onToolCall({name, arguments:args}))])
   }
-  const result = await runCastingAssistant({runAgent:run, selection:{}, sessionId:'s', turn:3, speakers, rows, voiceKeys:new Set(['homura']), pieces:lorePieces(raw), search:async () => library})
+  const result = await runCastingAssistant({runAgent:run, selection:{}, sessionId:'s', turn:3, speakers, rows, voiceKeys:new Set(['homura']), pieces:lorePieces(raw), search:async () => library,
+    story:roundStory({messages:[{role:'user', sourceText:'旧的一轮'}, {role:'assistant', text:'旧'}, {role:'user', sourceText:'门里站着一个穿蓝色水手服的小女孩。', text:'门里站着一个穿蓝色水手服的小女孩。'}, {role:'assistant', text:'…'}]},
+      {paragraphs:[{kind:'markdown', text:'她赤着脚。'}, {kind:'line', name:'护士', text:'你醒了。'}]})})
   assert.deepEqual(seen.map(([name, reply]) => name + ':' + reply.ok), ['search_lore:true', 'same_as:false', 'same_as:true', 'same_as:false', 'copy_figure:false', 'search_library:true', 'copy_figure:false', 'copy_figure:true',
     'write_appearance:false', 'write_appearance:false', 'write_appearance:true', 'assign_voice:false', 'assign_voice:true', 'finish:true'])
   assert.match(seen[1][1].error, /晓美焰·麻花辫/, 'the error names the existing figures')

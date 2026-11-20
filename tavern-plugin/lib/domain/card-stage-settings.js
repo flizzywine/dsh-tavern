@@ -92,6 +92,8 @@ export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key =>
 // drawn while idle until each has its sprite and common emotions.
 export const AUTO_CAST_LEVELS = Object.freeze(['late', 'eager', 'all'])
 export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'late'})
+// The global layer's settings section in dsh-tavern's profile entry (settings-config.js declares it writable).
+export const AUTO_CAST_SECTION = 'tavern-auto-cast'
 // One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level) or a card's
 // stage.autoCast (level only; the card's switch is stage.switches.autoCast).
 export function validateAutoCastLayer(value, path, keys = ['level']) {

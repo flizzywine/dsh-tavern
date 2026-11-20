@@ -10,6 +10,14 @@ export const AUTO_CAST_TASK = 'auto-cast'
 const PROMPT = new URL('../../../presets/auto-cast/assistant.md', import.meta.url)
 const SNIPPET = 600, RESULTS = 8, TEXT = 400, CALLS_PER_SPEAKER = 9
 
+// The round the new speakers came on in: the player's input (the round's latest user message) and the reply as the story shows
+// it (the round body auto-cast counts: a line is its speaker's name and words).
+export function roundStory(chat, body) {
+  const input = chat.messages.findLast(row => row.role === 'user'), said = String(input?.sourceText ?? input?.text ?? '').trim()
+  const reply = body.paragraphs.map(row => row.kind === 'line' ? row.name + '：' + row.text : row.text).filter(text => String(text || '').trim()).join('\n')
+  return [['玩家', said], ['正文', reply]].filter(([, text]) => text).map(([label, text]) => label + '：' + text).join('\n\n')
+}
+
 // The card's text as searchable pieces: card-stage.js cardLorePieces.
 export function searchLore(pieces, query) {
   const needle = normalizeCatalogueText(query)
@@ -37,10 +45,11 @@ const TOOLS = [
 
 // One casting run over the round's new speakers [{name, aliases}]. rows: the card's whole cast (the shared resolver's rows);
 // search(query): the library's whole-library search (null: no library tools); libraryVoices(): the library's 通用声音
-// ({voices, more}; null: none); pieces: cardLorePieces (card-stage.js). A voice is chosen only among the library's 通用声音 (those
+// ({voices, more}; null: none); pieces: cardLorePieces (card-stage.js); story: the round's text (roundStory), where a speaker
+// the card never names comes on and is first described. A voice is chosen only among the library's 通用声音 (those
 // offered to it, voiceAutoCast in voice-auto-cast.cjs; library-search.js filters): never a figure's own, nor a bare 配音后端 voice.
 // → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, voice:{[name]:{from, revision, reason}}, finished}
-export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, search, libraryVoices = null}) {
+export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, story = '', search, libraryVoices = null}) {
   const result = {same:{}, copy:{}, appearance:{}, about:{}, voice:{}, finished:false}
   const seen = {figures:new Map(), voices:new Map()}
   const picked = new Map()
@@ -113,7 +122,7 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
     finish() { result.finished = true; return JSON.stringify({ok:true}) },
   }
   const offered = TOOLS.filter(tool => (search || !['search_library', 'copy_figure'].includes(tool.name)) && (libraryVoices || tool.name !== 'list_library_voices') && (search || libraryVoices || tool.name !== 'assign_voice'))
-  const taskText = JSON.stringify({新人物:speakers.map(row => row.name), 本卡已有人物:rows.map(row => [row.name, ...row.aliases].join(' / '))})
+  const taskText = JSON.stringify({新人物:speakers.map(row => row.name), 本卡已有人物:rows.map(row => [row.name, ...row.aliases].join(' / ')), ...(story ? {本轮正文:story} : {})})
   // Each speaker takes a few searches and decisions (lore, library, appearance, voices): the runner's call budget grows with them.
   await runAgent({task:AUTO_CAST_TASK, sessionId, turn, selection, ownPrefix:true, system:await readFile(PROMPT, 'utf8'), taskText, messages:[], signal,
     maxToolCalls:CALLS_PER_SPEAKER * speakers.length + 2, toolLimitMessage:'工具次数用完了：已做的决定都有效，请调用 finish 结束。',

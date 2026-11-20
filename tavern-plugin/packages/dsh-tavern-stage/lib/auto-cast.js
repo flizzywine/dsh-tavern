@@ -74,7 +74,7 @@ const sourceOf = (chat, body) => {
 // store: profile data; settings(cardPath) → {enabled, level} in effect; library: auto-cast-library.js; images: {prompt,
 // generate, status, check} (the plugin image entry's automatic prompt, picture and cheap checks; a channel that cannot draw a
 // transparent picture is keyed inside generate, the same as the asset library's own pictures);
-// cast({cardPath, chat, speakers, cast}) → the assistant's decisions.
+// cast({cardPath, chat, body, speakers, cast}) → the assistant's decisions (body: the round's, where its new speakers came on).
 export function createAutoCast({store, settings, library, images, cast:castAssistant = null, now = Date.now, onError = () => {}}) {
   let active = true, chain = Promise.resolve()
   const records = new Map(), busy = new Map(), pumps = new Map(), landing = new Map(), controllers = new Set()
@@ -230,7 +230,7 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     const speakers = newSpeakers(body, cast, await read(cast.cardId), {actorKey:'player', name:chat.macroState?.userName?.trim() || '你', aliases:[]})
     if (speakers.length && active) {
       let failure = null
-      const decided = castAssistant ? await castAssistant({cardPath, chat, speakers, cast}).catch(error => {
+      const decided = castAssistant ? await castAssistant({cardPath, chat, body, speakers, cast}).catch(error => {
         onError(error); failure = {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)}; return null }) : null
       const plan = castChanges(speakers, decided)
       // a write the library refuses is kept for the player (status), not only the host log; the round's speakers are asked again next round

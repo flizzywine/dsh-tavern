@@ -38,13 +38,13 @@ import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
-import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
+import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, AUTO_CAST_SECTION, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension, cardAssetExtensionView} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
 import {createAutoCast} from './auto-cast.js'
 import {createAutoCastLibrary} from './auto-cast-library.js'
-import {runCastingAssistant} from './auto-cast-assistant.js'
+import {runCastingAssistant, roundStory} from './auto-cast-assistant.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -235,7 +235,7 @@ export async function createStageModule(core) {
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
   // 自动选角's global layer (asset-engine.js createAutoCastSettings); a card's layer is in its stage extension. Its runtime needs the image
   // plugin's channel, so it is built with the requests (below); a round counts once its automatic figures are written.
-  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
+  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {section:AUTO_CAST_SECTION, defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
   let autoCast = null
   const roundBody = async (chat,turn) => (await roundProjection(chat, turn, true))?.body
   ctx.effect(() => registerAutoFigureObserver({storyEvents, chatHeaderForSession:core.chatHeaderForSession,
@@ -303,9 +303,9 @@ export async function createStageModule(core) {
         images:{prompt:input => deps.assetGeneration.autoPrompt(input), generate:input => deps.assetGeneration.image(input), check:(data, kind) => deps.assetGeneration.autoCheck(data, kind),
           status:async () => (await deps.pluginApi.imageProviders()[0]?.status()) || null},
         // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
-        cast:async ({chat, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
+        cast:async ({chat, body, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
           selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
-          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
+          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), story:roundStory(chat, body), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
       void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
