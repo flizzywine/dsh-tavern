@@ -99,6 +99,39 @@ test('插件列表可以手动检查更新', async t => {
   assert.equal(checks()[3].args?.fresh, true)
 })
 
+test('有独立 Release 的内置插件显示检查入口，只能安装兼容且已检查的版本', async t => {
+  const folder = 'dsh-tavern-fate-dice'
+  const target = 'v1.5.0:sha256:checked'
+  const dice = { folder, name: folder, version: '1.4.2', source: { kind: 'builtin', releaseRepo: 'bigmalove/' + folder }, enabled: true, state: 'loaded' }
+  const image = { folder: 'dsh-tavern-image', name: 'dsh-tavern-image', source: { kind: 'builtin' }, enabled: true, state: 'loaded' }
+  let update = { folder, status: 'blocked', reason: '新版需要 Tavern 插件 API v9，请先更新酒馆' }
+  const { page, calls } = await openTavernSettings(t, {
+    section: 'dsh-tavern: plugins settings section',
+    respond(method) {
+      if (method === 'listUserPlugins') return { plugins: [dice, image], dir: '/tmp/tavern/plugins' }
+      if (method === 'checkUserPluginUpdates') return { plugins: [update] }
+      if (method === 'updateUserPlugin') {
+        Object.assign(dice, { version: '1.5.0', state: 'restart' })
+        update = { folder, status: 'latest' }
+        return { plugin: { name: folder, version: dice.version, replaced: true } }
+      }
+    },
+  })
+  const diceRow = page.locator('.dsh-tavern-user-plugin').filter({ hasText: folder })
+  const imageRow = page.locator('.dsh-tavern-user-plugin').filter({ hasText: image.name })
+  await diceRow.getByText(update.reason, { exact: true }).waitFor()
+  assert.equal(await diceRow.getByRole('button', { name: /更新/ }).count(), 0)
+  assert.equal(await imageRow.getByRole('button', { name: /更新/ }).count(), 0)
+
+  update = { folder, status: 'available', latest: 'v1.5.0', target }
+  await page.getByRole('button', { name: '检查更新', exact: true }).click()
+  await diceRow.getByRole('button', { name: '更新到 1.5.0', exact: true }).click()
+  await diceRow.getByText('重启 DSH 后生效', { exact: true }).waitFor()
+  const { args } = calls.find(call => call.method === 'updateUserPlugin')
+  assert.equal(args.folder, folder)
+  assert.equal(args.target, target)
+})
+
 // 手机宽度下卡片内宽只剩两百多像素，「启用 / 更新 / 删除」三个按钮自己就要一百五十多像素：
 // 正文的 flex-basis 是 0，会被压成几十像素宽的文字列，插件名和说明逐字换行成一根竖条，
 // 卡片被撑到几百像素高。正文独占一行，动作按钮换到下一行。

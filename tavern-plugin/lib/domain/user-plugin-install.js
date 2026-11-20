@@ -1,16 +1,19 @@
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { readZipEntries } from './zip-entries.js'
 import { DISABLED_FILE, RESTART_FILE, scanUserPlugins, STATUS_FILE, userPluginPaths } from './user-plugins.js'
 import { pluginDataFile } from './plugin-data-store.js'
-import { pluginManifestProblem } from './plugin-manifest.js'
+import { comparePluginVersions, pluginManifestProblem } from './plugin-manifest.js'
+import { BUNDLED_PLUGIN_RUNTIME_FILES, bundledPluginRelease, bundledReleaseCompatibilityProblem } from './bundled-plugin-release.js'
 // The first-party mods (one per tavern-plugin/mods folder); their managed copies are listed as built in.
 import { firstPartyManifestIds } from '../mod-system-distributions.js'
 
 // 应用内安装插件：粘贴 GitHub 地址或上传 zip，放进 <data>/plugins/<文件夹>；
 // 之后的加载仍由 plugins/ 目录同步负责（宿主侧几秒内加载，浏览器侧刷新后出现）。
 export const SOURCE_FILE = '.tavern-source.json'
+export { comparePluginVersions }
 const CARD_MARKER = '.dsh-card.json'
 const SKIP = new Set(['.git', '.github', 'node_modules/.cache', '.tavern-disabled', '.tavern-status.json', '.tavern-restart.json'])
 const RELEASE_TTL = 5 * 60 * 1000
@@ -19,6 +22,7 @@ const RELEASE_TTL = 5 * 60 * 1000
 const ARCHIVE_TIMEOUT_MS = 30 * 1000
 const DOWNLOAD_HINT = '网络不通时，可以在仓库页面下载 ZIP 后上传'
 const ZIP_ACCEPT = 'application/zip, application/octet-stream'
+const MAX_RELEASE_ZIP_BYTES = 50 * 1024 * 1024
 
 // jsDelivr 不给整包 ZIP，只能「文件列表 + 逐个文件」地取，所以回退路径自己拼插件目录。
 // 20 MB 是 CDN 的单文件上限；总量沿用 ZIP 解压后的上限，别让回退绕过体积限制。
@@ -82,39 +86,6 @@ function fileSignal(signal) {
 }
 
 const skippedRelative = relative => [...SKIP].some(prefix => relative === prefix || relative.startsWith(prefix + '/'))
-
-/**
- * Compare two plugin version strings ("0.2.2", "v0.2.2", "1.0.0-beta.1").
- * Returns 1 when left is newer, -1 when older, 0 when the same, null when either is not a version.
- */
-export function comparePluginVersions(left, right) {
-  const parse = value => {
-    const text = String(value || '').trim().replace(/^v(?=\d)/i, '').split('+')[0]
-    const match = /^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?$/.exec(text)
-    if (!match) return null
-    return { core: match[1].split('.').map(Number), pre: match[2] ? match[2].split('.') : [] }
-  }
-  const a = parse(left), b = parse(right)
-  if (!a || !b) return null
-  const length = Math.max(a.core.length, b.core.length)
-  for (let index = 0; index < length; index++) {
-    const x = a.core[index] || 0, y = b.core[index] || 0
-    if (x !== y) return x > y ? 1 : -1
-  }
-  if (!a.pre.length || !b.pre.length) return a.pre.length === b.pre.length ? 0 : a.pre.length ? -1 : 1
-  const prereleaseLength = Math.max(a.pre.length, b.pre.length)
-  for (let index = 0; index < prereleaseLength; index++) {
-    const x = a.pre[index], y = b.pre[index]
-    if (x === undefined) return -1
-    if (y === undefined) return 1
-    const numeric = /^\d+$/.test(x), otherNumeric = /^\d+$/.test(y)
-    if (numeric && otherNumeric) {
-      if (Number(x) !== Number(y)) return Number(x) > Number(y) ? 1 : -1
-    } else if (numeric !== otherNumeric) return numeric ? -1 : 1
-    else if (x !== y) return x > y ? 1 : -1
-  }
-  return 0
-}
 
 // 有 Release 用最新 Release，否则用默认分支；地址里写了分支或标签就用它。
 // 下载走 codeload.github.com：它不占 GitHub API 的每小时配额，本体 install.sh 也用它。
@@ -295,6 +266,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
   const time = () => { const value = now(); return value instanceof Date ? value.getTime() : Number(value) }
   // Settings asks on every open; one call per repository every few minutes is enough for GitHub's rate limit.
   const releases = new Map()
+  const checkedReleasePackages = new WeakMap()
 
   async function latestRelease(source) {
     const key = source.owner + '/' + source.repo
@@ -307,10 +279,63 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     else if (!response.ok) value = { status: 'error', reason: '读取发布信息失败（HTTP ' + response.status + '）' }
     else {
       const release = await response.json()
-      value = { status: 'release', tag: String(release?.tag_name || '') }
+      value = { status: 'release', tag: String(release?.tag_name || ''), assets: Array.isArray(release?.assets) ? release.assets : [] }
     }
     if (value.status !== 'error') releases.set(key, { at: time(), value })
     return value
+  }
+
+  async function readBundledReleasePackage(asset, folder, latest) {
+    const bytes = await withDeadline(async signal => {
+      const response = await fetchOk(fetchImpl, asset.url, ZIP_ACCEPT, signal)
+      if (!response.ok) fail('下载插件发布包失败（HTTP ' + response.status + '）')
+      const chunks = []
+      let size = 0
+      for await (const chunk of response.body) {
+        size += chunk.byteLength
+        if (size > asset.size) fail('插件发布包大小与 GitHub 发布记录不符')
+        chunks.push(Buffer.from(chunk))
+      }
+      if (size !== asset.size) fail('插件发布包大小与 GitHub 发布记录不符')
+      return Buffer.concat(chunks)
+    }, archiveTimeoutMs, '下载插件发布包超时')
+    if ('sha256:' + createHash('sha256').update(bytes).digest('hex') !== asset.digest) fail('插件发布包的 SHA-256 校验失败')
+    const archive = readPluginArchive(bytes)
+    if (archive.pkg.name !== folder || comparePluginVersions(archive.pkg.version, latest) !== 0) fail('插件发布包的包名或版本与 Release 不符')
+    for (const file of BUNDLED_PLUGIN_RUNTIME_FILES) {
+      if (!archive.files.has(file)) fail('插件发布包缺少 ' + file)
+    }
+    archive.files.delete(CARD_MARKER)
+    return archive
+  }
+
+  async function bundledUpdate(source, folder, current) {
+    const release = await latestRelease(source)
+    if (release.status === 'none') return { status: 'none' }
+    if (release.status === 'error') return { status: 'error', reason: release.reason }
+    const latest = release.tag
+    const version = /^v?(\d+(?:\.\d+){1,2})$/.exec(latest)?.[1]
+    const relation = version ? comparePluginVersions(version, current) : null
+    if (relation === null) return { status: 'error', reason: '无法比较插件发布版本', latest }
+    if (relation <= 0) return { status: 'latest', latest }
+
+    const fileName = source.assetPrefix + '-' + version + '.zip'
+    const entry = release.assets.find(asset => asset?.name === fileName)
+    const digest = String(entry?.digest || '').toLowerCase()
+    if (!/^sha256:[a-f0-9]{64}$/.test(digest) || !Number.isSafeInteger(entry?.size) || entry.size <= 0 || entry.size > MAX_RELEASE_ZIP_BYTES) {
+      return { status: 'error', reason: 'Release 缺少带 SHA-256 校验的有效插件安装包', latest }
+    }
+    const asset = { url: `https://github.com/${source.owner}/${source.repo}/releases/download/${latest}/${fileName}`, digest, size: entry.size }
+    let checked = checkedReleasePackages.get(release)
+    if (!checked) {
+      checked = readBundledReleasePackage(asset, folder, latest)
+        .then(({ pkg }) => bundledReleaseCompatibilityProblem(pkg))
+        .catch(error => { checkedReleasePackages.delete(release); throw error })
+      checkedReleasePackages.set(release, checked)
+    }
+    const reason = await checked
+    if (reason) return { status: 'blocked', reason, latest }
+    return { status: 'available', latest, target: latest + ':' + digest, asset }
   }
 
   // Older installs did not record whether they replaced an existing folder. A backup holding a
@@ -366,7 +391,12 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       if (wasDisabled) await writeFile(path.join(staging, DISABLED_FILE), JSON.stringify({ disabledAt: now().toISOString(), keptAcrossUpdate: true }, null, 2) + '\n')
       if (wasInstalled) await writeFile(path.join(staging, RESTART_FILE), JSON.stringify({ updatedAt: now().toISOString(), previousVersion: String(previous.version || ''), version: String(pkg.version || '') }, null, 2) + '\n')
       const replaced = wasInstalled ? await backup(folder) : null
-      await rename(staging, target)
+      try {
+        await rename(staging, target)
+      } catch (error) {
+        if (replaced) await rename(replaced, target)
+        throw error
+      }
       // The next settings visit should read the Release again, not a cached "available".
       releases.clear()
       await sync()
@@ -392,11 +422,11 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const restart = problem || disabled.includes(folder) ? null : await readJson(path.join(dir, RESTART_FILE))
         const card = await readJson(path.join(dir, CARD_MARKER))
         const isDisabled = disabled.includes(folder)
-        // 随酒馆发行的内置插件在安装时写了 .tavern-source.json：它们和其它插件一样躺在 plugins/，
-        // 只是代码由酒馆更新、不能删除，插件页据此把它们标成「内置插件」。
+        // Built-in status is preserved when a packaged plugin follows its own release.
         const recorded = await readJson(path.join(dir, SOURCE_FILE))
+        const release = recorded?.kind === 'builtin' && bundledPluginRelease(folder, pkg.name)
         const source = recorded?.kind === 'builtin'
-          ? { kind: 'builtin', bundled: true, version: String(recorded.version || '') }
+          ? { kind: 'builtin', bundled: true, version: String(recorded.version || ''), ...(release ? { releaseRepo: release.owner + '/' + release.repo } : {}) }
           : pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' }
             : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: firstPartyManifestIds.includes(card.modId) } : { kind: 'card' })
               : recorded || { kind: 'folder' }
@@ -415,9 +445,8 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       }))
     },
     /**
-     * A GitHub plugin tracks a Release only when it was installed without an explicit ref.
-     * Compare that Release with the installed package.json version so the settings list can
-     * say "已是最新" instead of offering an update that changes nothing.
+     * Compare the installed version with the upstream Release. Pinned GitHub refs keep their
+     * existing update action. Built-in packages also validate the release asset and compatibility.
      */
     async checkUpdates({ fresh = false } = {}) {
       // 手动点「检查更新」时跳过缓存，确实去 GitHub 看一眼。
@@ -427,9 +456,20 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       const checked = await Promise.all(folders.map(async folder => {
         const dir = path.join(paths.plugins, folder)
         const source = await readJson(path.join(dir, SOURCE_FILE))
-        if (source?.kind !== 'github' || !source.repo) return null
+        if (source?.kind !== 'github' && source?.kind !== 'builtin') return null
         const pkg = await readJson(path.join(dir, 'package.json')) || {}
         const current = String(pkg.version || '')
+        if (source.kind === 'builtin') {
+          const release = bundledPluginRelease(folder, pkg.name)
+          if (!release) return null
+          try {
+            const { asset, ...update } = await bundledUpdate(release, folder, current)
+            return { folder, current, ...update }
+          } catch (error) {
+            return { folder, current, status: 'error', reason: String(error?.message || error) }
+          }
+        }
+        if (!source.repo) return null
         if (source.ref) return { folder, current, status: 'ref' }
         let parsed
         try { parsed = parseGithubSource(source.repo) } catch { return { folder, current, status: 'error', reason: '来源地址无法识别' } }
@@ -482,9 +522,21 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     installFromZip(bytes, fileName) {
       return serial(async () => place(readPluginArchive(bytes), { kind: 'zip', file: String(fileName || '') }, String(fileName || '').replace(/\.zip$/i, '')))
     },
-    update(folder) {
+    update(folder, target) {
       return serial(async () => {
-        const source = await readJson(path.join(paths.plugins, String(folder), SOURCE_FILE))
+        const name = folderOf(folder)
+        const dir = path.join(paths.plugins, name)
+        const source = await readJson(path.join(dir, SOURCE_FILE))
+        if (source?.kind === 'builtin') {
+          const pkg = await readJson(path.join(dir, 'package.json'))
+          const release = bundledPluginRelease(name, pkg?.name)
+          if (!release) fail('此内置插件随酒馆更新')
+          if (!target || !(await lstat(dir)).isDirectory()) fail('请先在插件列表检查更新')
+          const candidate = await bundledUpdate(release, name, pkg.version)
+          if (candidate.status !== 'available' || candidate.target !== target) fail(candidate.reason || '插件发布版本已变化，请重新检查更新')
+          const archive = await readBundledReleasePackage(candidate.asset, name, candidate.latest)
+          return place(archive, { kind: 'builtin', bundled: true, releaseRepo: release.owner + '/' + release.repo }, name)
+        }
         if (source?.kind !== 'github') fail('这个插件不是从 GitHub 地址装的，没法自动更新；请重新上传新版 ZIP')
         const parsed = parseGithubSource(source.repo)
         parsed.ref = source.ref || null

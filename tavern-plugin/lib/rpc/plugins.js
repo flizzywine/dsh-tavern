@@ -48,7 +48,7 @@ export function createPluginHandlers(deps) {
       finally { await upload.remove() }
     },
     async updateUserPlugin(args) {
-      return { plugin: await userPluginInstaller.update(args && args.folder) }
+      return { plugin: await userPluginInstaller.update(args?.folder, args?.target) }
     },
     async removeUserPlugin(args) {
       return await userPluginInstaller.remove(args && args.folder)
