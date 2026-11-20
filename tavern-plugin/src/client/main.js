@@ -1416,7 +1416,7 @@ function clipReplayCore() {
             // (view.stage, host-decided); availability = server stage ready and such a session is open.
             const stageClientLoader = createStageClientLoader({
                 sessions: ctx.sessions, views: liveTavernView,
-                runtime: {read: () => rpc('getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
+                runtime: {read: ({workbench}) => rpc(workbench ? 'prepareStageWorkbench' : 'getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
                 load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
                 install: plugin => ctx.plugin(plugin),
                 report: error => tavernErrorHub.report("舞台", error)

@@ -228,7 +228,7 @@ function createConversationSettingsModule({
         if (galStageAvailable.get()) return Promise.resolve();
         return new Promise((resolve, reject) => {
             const off = galStageAvailable.subscribe(() => { if (galStageAvailable.get()) { clearTimeout(timer); off(); resolve(); } });
-            const timer = setTimeout(() => { off(); reject(new Error("舞台还没有加载，可以在侧栏首页的 舞台装置 › 舞台配置 里加载")); }, 15000);
+            const timer = setTimeout(() => { off(); reject(new Error("舞台暂时无法加载，请稍后重试")); }, 15000);
         });
     }
     function SessionStageSection({ sessionId, config, stage }) {

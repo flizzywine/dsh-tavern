@@ -285,6 +285,7 @@ import { createStageReads, markStageRead, stageReadCarries, stageReadScope } fro
 import { modStageContributions } from './domain/mods/stage-contributions.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
+import {createAssetEngineSettings} from './asset-engine-settings-owner.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
 import {activeStageSkin} from './domain/card-stage-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
@@ -1000,7 +1001,10 @@ export async function apply(ctx) {
   ctx.provide('tavernClientAssets', clientAssets)
   // hostLibrary: the core helpers a mod may use (lib/mod-library.js holds their one list; a mod never imports core files).
   const hostLibrary = modLibrary
+  const workbenchAuthority = Object.freeze({})
+  const assetEngineSettings = createAssetEngineSettings(ctx)
   const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
+    assetEngineSettings, ensureStage:() => stageSwitch.ensure(),
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
   const {dialogueBubbles} = stageRuntime.assets
@@ -1594,7 +1598,8 @@ export async function apply(ctx) {
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
   const { replaceCard, revertCardUpdate, importCard, importCardArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
-    readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'),
+    readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), prepareCardAssets: () => stageSwitch.ensure(),
+    withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'),
     syncBubbles: path => dialogueBubbles.sync(worldBooks, path)
   })
   async function listCards() {
@@ -2297,10 +2302,12 @@ export async function apply(ctx) {
   const activeRoundBodies = new Map()
   function replyDisplayForChat(...args) { return sessionProjection.replyDisplay(...args) }
   async function startChat(cardPath, sessionId, mode, openingId, userName, requestMode, preparationId, cardTask) {
+    const playable = groupOfMode(mode || 'story') === 'play'
+    if (playable) await stageRuntime.assets.cardStageMode(cardPath)
     // Plain greetings have no interactive preview draft, but need the same
     // game-local worldbook snapshot as scripted openings.
     const ownsDraft = !preparationId
-    if (ownsDraft && groupOfMode(mode || 'story') === 'play') {
+    if (ownsDraft && playable) {
       preparationId = (await requestPerformance.stage('openingDraft', () => openingPreparation.begin(cardPath, { userName }))).id
     }
     let preparation
@@ -2312,7 +2319,7 @@ export async function apply(ctx) {
       if (!source || !sessionOpeningDescriptor(source, await readChatCard(source)) || Number(source.tavernHelperLifecycleRevision || 0) !== preparation.sourceLifecycleRevision) throw new Error('原对话已变化，请重新选择开场')
     }
     const started = await requestPerformance.stage('initializeConversation', () => conversationInitialization.start({ cardPath, sessionId, mode, openingId, userName, requestMode, preparation, cardTask }))
-    if (groupOfMode(mode || 'story') === 'play') {
+    if (playable) {
       const chat = await chatForSession(sessionId).catch(() => null)
       gameTitles.name(sessionId, chat?.cardName)
     }
@@ -3030,7 +3037,7 @@ export async function apply(ctx) {
   })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  await stageRuntime.start({hostLibrary, contextHost, dataRoot, activeStageSkin,
+  await stageRuntime.start({hostLibrary, contextHost, dataRoot, activeStageSkin, workbenchAuthority,
     // the one reader of variable conditions (an asset's recall.when, revealWhen), for the stage's recall.
     variableConditionHolds: mvuConditionHolds,
     presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
@@ -3942,6 +3949,9 @@ export async function apply(ctx) {
       ? normalizeChat(selected.chat)
       : synced === undefined ? await wholeReads.allow('本进程首次同步', () => chatForSession(sessionId)) : await chatForSession(sessionId)
     if (chat?._storageRevision !== undefined) surfaceSyncedRevisions.set(str(sessionId), chat._storageRevision)
+    if (chat?.cardPath && groupOfMode(chat.mode) === 'play' && stageRuntime.status() !== 'ready') {
+      await stageRuntime.assets.cardStageMode(chat.cardPath)
+    }
     return chat
   }
   async function storyContext({ sessionId, chatId }) {
@@ -4690,19 +4700,36 @@ export async function apply(ctx) {
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
-  const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
+  const stageSwitch = createStageSwitch(stageRuntime)
   // The reading voice of tavernUi.playReading (story-reading.js): a library figure, or the one 旁白声音 points at when none is given.
   rpcHandlers.openReadingVoice = async args => speech.openReading(args && Object.hasOwn(args, 'figure') ? args.figure : undefined)
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
-  rpcHandlers.setStageLoadOnStartup = async args => stageSwitch.setLoadOnStartup(args?.enabled)
-  rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
+  rpcHandlers.prepareStageWorkbench = () => stageSwitch.ensure()
+  rpcHandlers.prepareCardStage = args => stageRuntime.assets.cardStageMode(args?.path)
+  rpcHandlers.setStageEnabled = async args => {
+    if (typeof args?.enabled !== 'boolean') throw new TypeError('舞台启用状态必须是布尔值')
+    if (args.enabled && !stageSwitch.read().installed) throw new Error('舞台插件未安装，无法启用')
+    await (args.enabled ? stageSwitch.enable() : stageSwitch.disable())
+    return stageSwitch.read()
+  }
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})
   stageRuntime.requests(rpcDeps, extensionRequests)
-  ctx.provide('tavernStageControl',Object.freeze({enable:stageRuntime.enable,disable:stageRuntime.disable,status:stageRuntime.status,install:stageSwitch.install,uninstall:stageSwitch.uninstall}))
+  ctx.provide('tavernStageControl',Object.freeze({
+    enable:stageSwitch.enable,disable:stageSwitch.disable,status:stageRuntime.status,install:stageSwitch.install,uninstall:stageSwitch.uninstall,
+    workbench: { deps:rpcDeps, ensure:stageSwitch.ensure, call:(method,args) => extensionRequests.call(method,args,workbenchAuthority) }
+  }))
   ctx.effect(() => () => stageRuntime.dispose(), 'dsh-tavern: optional stage controller')
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
+    // Read-aloud and card frames ask for speaker metadata even in a plain game.
+    if (method === 'getDialogueBubbles' && !extensionRequests.handles(method)) {
+      const chat = await chatHeaderForSession(args?.sessionId, ['cardPath','cardName','mode'])
+      if (chat?.cardPath && groupOfMode(chat.mode) === 'play') await stageRuntime.assets.cardStageMode(chat.cardPath)
+      if (!extensionRequests.handles(method)) {
+        return {cardPath: str(chat?.cardPath), cardName: str(chat?.cardName), config: await dialogueBubbles.read()}
+      }
+    }
     if (extensionRequests.handles(method)) return extensionRequests.call(method,args,authority,serverTemplate)
     if (method.startsWith('gameplay.')) return await gameplayApi.call(method.slice(9), args || {})
     const handler = rpcHandlers[method]
@@ -4731,7 +4758,7 @@ export async function apply(ctx) {
   ctx.provide('tavernSessionSignals', Object.freeze({
     async control(method, args, signal) {
       const multiplexedRead = extensionRequests.remoteRead(method, args)
-        || ['getStoryTranscript', 'syncSession', 'pluginTurnState', 'pluginState'].includes(method)
+        || ['getStoryTranscript', 'syncSession', 'pluginTurnState', 'pluginState', 'getDialogueBubbles'].includes(method)
       if (!multiplexedRead && !['claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState',
         'heartbeatTavernScriptRuntime', 'completeTavernHelperEvent', 'releaseTavernHelperRuntime'].includes(method)) {
         throw new Error('不支持的运行时控制请求')

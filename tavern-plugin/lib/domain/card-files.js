@@ -26,7 +26,7 @@ const packConflict = preview => preview.choices.includes('update') && !(preview.
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
 // backupPack(file, {packId, expectedRevision}) writes an installed pack, unchanged, to a private file (the asset
 // library's assetLibraryPackBackup): an update keeps the versions it replaces so 撤回 can put them back.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, withCardBackup, backupPack, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, prepareCardAssets, withCardBackup, backupPack, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input, options = {}) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -351,6 +351,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       // Only bound library packs need the card adapter supplied by the optional stage runtime.
       const library = backup || boundIds.length ? assetLibrary() : undefined
       if (!backup && (ids.length || chosen && boundIds.length) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      if (library) await prepareCardAssets?.()
       // Replacement owns the card, not its installed packs: retain references without copying media.
       const selection = backup
         ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }

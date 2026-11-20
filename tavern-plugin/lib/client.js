@@ -48598,8 +48598,7 @@ function askTavernCardPackWay(file, staged) {
 			async function stageOpens(card) {
 				if (!card.openingPage) return false;
 				try {
-					if ((await call("getStageRuntimeStatus", {}))?.status !== "ready") return false;
-					return (await call("getCardAssetBindings", { path: card.path, metadataOnly: true }))?.effectiveStage?.stage === true;
+					return (await call("prepareCardStage", { path: card.path }))?.stage === true;
 				} catch (error) { console.warn("dsh-tavern: 读不到舞台设置，改用游戏准备", error); return false; }
 			}
 			function whenStageAvailable(run) {
@@ -50720,45 +50719,24 @@ function askTavernCardPackWay(file, staged) {
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。"),
                         h(TavernUserPluginsSettings)));
             }
-            // The sidebar tab owns startup controls. Its hold loads the stage client's global settings even without an open game.
+            // Opening this workbench loads its settings even without an open game.
             const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, SpineRuntimeEntry, ForkModManagerEntry};
             function TavernStageConfigTab() {
                 const h = React.createElement;
                 React.useEffect(() => galStageHold(), []);
                 const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
-                const [runtime, setRuntime] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+                const [error, setError] = React.useState("");
                 React.useEffect(() => {
-                    let active = true, timer;
-                    async function refresh() {
-                        try {
-                            const value = await rpc("getStageRuntimeStatus", {});
-                            if (!active) return;
-                            setRuntime(value);
-                            if (["loading", "loaded"].includes(value.status)) timer = setTimeout(refresh, 500);
-                        } catch (err) { if (active) setError(err.message); }
-                    }
-                    if (!busy) void refresh();
-                    return () => { active = false; clearTimeout(timer); };
-                }, [enabled, busy]);
-                async function set(method, value) {
-                    setBusy(true); setError("");
-                    try { setRuntime(await rpc(method, {enabled:value})); }
-                    catch (err) { setError(err.message); }
-                    finally { setBusy(false); }
-                }
+                    let active = true;
+                    rpc("prepareStageWorkbench", {}).then(runtime => {
+                        if (active && runtime.status !== "ready") setError(runtime.installed ? "舞台配置暂时无法加载" : "舞台插件不可用");
+                    }, err => { if (active) setError(err.message); });
+                    return () => { active = false; };
+                }, []);
                 const Page = enabled && stageViews ? stageViews.GlobalSettings : null;
                 return h("div", {className:"fork-tab-scroll"},
                     h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings dsh-tavern-stage-config", role:"region", "aria-label":"舞台配置"},
-                        h(SettingsGroup, {title:"舞台启动"},
-                            runtime?.installed ? h(TavernSettingRow, {title:"启动时加载舞台", help:"关闭后，下次启动会跳过舞台。需要时可以在这里为本次运行加载舞台。"},
-                                h(Switch, {label:"启动时加载舞台", checked:runtime.loadOnStartup !== false, disabled:busy, onChange:value => set("setStageLoadOnStartup", value)})) : null,
-                            !Page && runtime?.installed && (!runtime.enabled || runtime.status === "failed") ?
-                                h("button", {type:"button", className:"dsh-tavern-btn", disabled:busy, onClick:() => set("setStageEnabled", true)}, "本次加载舞台") : null,
-                            !Page && (!runtime || runtime.installed && runtime.enabled && runtime.status !== "failed") ?
-                                h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…") : null,
-                            runtime?.installed === false ? h("p", {role:"status"}, "舞台插件不可用") : null,
-                            error ? h("p", {role:"alert"}, error) : null),
-                        Page ? h(Page) : null));
+                        Page ? h(Page) : h("p", {className:"dsh-tavern-settings-desc", role:error ? "alert" : "status"}, error || "正在加载舞台配置…")));
             }
             return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageConfigTab, stageGlobalSettingsOptions };
         }
@@ -61225,7 +61203,7 @@ function createConversationSettingsModule({
         if (galStageAvailable.get()) return Promise.resolve();
         return new Promise((resolve, reject) => {
             const off = galStageAvailable.subscribe(() => { if (galStageAvailable.get()) { clearTimeout(timer); off(); resolve(); } });
-            const timer = setTimeout(() => { off(); reject(new Error("舞台还没有加载，可以在侧栏首页的 舞台装置 › 舞台配置 里加载")); }, 15000);
+            const timer = setTimeout(() => { off(); reject(new Error("舞台暂时无法加载，请稍后重试")); }, 15000);
         });
     }
     function SessionStageSection({ sessionId, config, stage }) {
@@ -68483,7 +68461,7 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
         // Without a session that needs the stage there is nothing to ask the server.
         async read() {
             if (!compute()) return {status:'idle'};
-            const status = await runtime.read();
+            const status = await runtime.read({ workbench: holds.size > 0 });
             return {status: status && status.status === 'ready' ? 'ready' : 'idle'};
         },
         subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; }
@@ -68513,7 +68491,7 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
     }
     return Object.freeze({
         availability,
-        // Pages that show stage settings for any card (the 舞台 settings section) need the client too.
+        // Opening a stage workbench explicitly also needs the client.
         hold() {
             const token = {};
             holds.add(token);
@@ -68783,7 +68761,7 @@ function clipReplayCore() {
             // (view.stage, host-decided); availability = server stage ready and such a session is open.
             const stageClientLoader = createStageClientLoader({
                 sessions: ctx.sessions, views: liveTavernView,
-                runtime: {read: () => rpc('getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
+                runtime: {read: ({workbench}) => rpc(workbench ? 'prepareStageWorkbench' : 'getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
                 load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
                 install: plugin => ctx.plugin(plugin),
                 report: error => tavernErrorHub.report("舞台", error)

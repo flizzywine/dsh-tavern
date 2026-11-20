@@ -134,7 +134,11 @@ test('the first game of a fresh install holds the stage client and enters the ne
     galStageAvailable: { get: () => available, subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
     galStageHold: () => { events.push('hold'); return () => events.push('release') },
     galEnter: (id, target) => events.push(['enter', id, target]),
-    call: async method => method === 'getStageRuntimeStatus' ? { status: 'ready' } : { effectiveStage: { stage: true } },
+    call: async (method, args) => {
+      assert.equal(method, 'prepareCardStage')
+      assert.equal(args.path, 'cards/a.json')
+      return {stage: true}
+    },
     preparePlayConversation: () => events.push('form'),
     newConversation: async (card, mode, openingId, userName, input, from) => { events.push('create'); from.onCreated({ sessionId: 'new-game' }) }
   })
@@ -147,7 +151,7 @@ test('the first game of a fresh install holds the stage client and enters the ne
   assert.deepEqual(JSON.parse(JSON.stringify(events)), ['hold', 'create', 'release', ['enter', 'new-game', { page: 'opening' }]])
   // the server stage is off: the card keeps its 游戏准备
   events.length = 0
-  context.call = async method => method === 'getStageRuntimeStatus' ? { status: 'stopped' } : { effectiveStage: { stage: true } }
+  context.call = async () => ({stage: false})
   await context.openPlayCard({ path: 'cards/a.json', hasOpeningForm: true, openingPage: 'opening' })
   assert.deepEqual(events, ['form'])
 })

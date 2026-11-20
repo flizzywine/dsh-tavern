@@ -43,7 +43,7 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
 // are not shown in the app.
 test('舞台配置页没有卡片的基础设置和素材生图', async t => {
   const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: stage config tab', stageClient: true, respond(method) {
-    if (method === 'getStageRuntimeStatus') return { enabled: true, status: 'ready' }
+    if (method === 'prepareStageWorkbench') return { installed: true, status: 'ready' }
     if (method === 'getTavernSettings') return { settings: {}, modelCatalog: [], modModelSlots: [] }
   } })
   await page.locator('section[aria-label="舞台模型"]').waitFor()
@@ -148,7 +148,7 @@ test('舞台模型与模组的模型只在舞台配置展示，保存沿用原�
     {modId:'dsh.phone',modName:'手机',id:'call',label:'通话模型',fallback:'foreground',owner:'dsh-tavern-stage-mods'}]
   const respond = (method,args) => {
     if (method === 'getBackgroundModelReasoning') return {reasoning:{efforts:[]}}
-    if (method === 'getStageRuntimeStatus') return {enabled:true,status:'ready'}
+    if (method === 'prepareStageWorkbench') return {installed:true,status:'ready'}
     if (method === 'getTavernSettings') return {settings, modelCatalog:[{provider:'p',models:[{id:'saved'},{id:'next'}]}], modModelSlots:slots}
     if (method === 'updateTavernSettings') {
       const value=args.patch.modModelSelection
@@ -171,29 +171,19 @@ test('舞台模型与模组的模型只在舞台配置展示，保存沿用原�
   assert.equal(settings.modModels['dsh.stage'].director.model,'next')
 })
 
-test('从侧栏舞台装置打开舞台配置并只为本次运行加载舞台', async t => {
-  let runtime = { installed: true, loadOnStartup: true, enabled: false, status: 'disabled' }
-  const {page, calls} = await openTavernSettings(t, {sidebarStart:true, stageClient:true, respond(method, args) {
+test('从侧栏按需打开舞台配置，页面没有全局启动开关', async t => {
+  const {page, calls} = await openTavernSettings(t, {sidebarStart:true, stageClient:true, respond(method) {
     if (method === 'cardPluginScopes') return {scopes:{}}
-    if (method === 'getStageRuntimeStatus') return runtime
-    if (method === 'setStageLoadOnStartup') return runtime = {...runtime, loadOnStartup:args.enabled}
-    if (method === 'setStageEnabled') return runtime = {...runtime, enabled:args.enabled, status:'ready'}
+    if (method === 'prepareStageWorkbench') return {installed:true,status:'ready'}
   }})
   const group = page.getByRole('region', {name:'舞台装置'})
   await group.getByRole('button', {name:'舞台素材', exact:true}).waitFor()
-  assert.equal(calls.some(row => row.method === 'getStageRuntimeStatus'), false)
+  assert.equal(calls.some(row => row.method === 'prepareStageWorkbench'), false)
   await group.getByRole('button', {name:'舞台配置', exact:true}).click()
-  const startup = page.getByRole('switch', {name:'启动时加载舞台'})
-  await startup.press('Space')
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="启动时加载舞台"]')?.checked === false)
-  const load = page.getByRole('button', {name:'本次加载舞台'})
-  await load.click()
-  await load.waitFor({state:'hidden'})
-  await page.evaluate(() => window.__tavernTestSignal('plugin:dsh-tavern-stage', 'plugin-lifecycle'))
   await page.getByRole('heading', {name:'舞台模型', exact:true}).waitFor()
-  assert.equal(await startup.isChecked(),false)
-  assert.deepEqual(calls.filter(row => row.method.startsWith('setStage')).map(row => [row.method, row.args.enabled]),
-    [['setStageLoadOnStartup', false], ['setStageEnabled', true]])
+  await page.getByRole('heading', {name:'舞台模组', exact:true}).waitFor()
+  assert.equal(await page.getByRole('switch', {name:'启动时加载舞台'}).count(), 0)
+  assert.equal(await page.getByRole('button', {name:'本次加载舞台'}).count(), 0)
 })
 
 // 内置插件（随酒馆发行、装在 plugins/ 里的那几个）照样列出来：可停用、随酒馆更新、不可删除。

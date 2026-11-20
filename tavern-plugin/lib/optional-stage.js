@@ -1,5 +1,5 @@
 import {normalizeBubbleConfig} from './domain/dialogue-bubbles.js'
-import {cardStageChoice} from './domain/card-stage-settings.js'
+import {cardStageChoice,effectiveCardStage} from './domain/card-stage-settings.js'
 import {cardAssetExtensionView} from './domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from './card-asset-bindings.js'
 
@@ -61,13 +61,13 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
   }
   if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);setState('loaded')}catch(error){failed(error)}
   const emptyConfig=()=>normalizeBubbleConfig({enabled:false})
-  // The card declaration is available even when the stage runtime is disabled.
-  const noStage=Object.freeze({dialogue:false,stage:false})
   async function cardStageMode(cardPath) {
     const raw=(await core.readCardWorkspace(cardPath))?.raw
     const extension=raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null
-    const effective=runtime ? runtime.assets.cardStageMode(extension) : noStage
-    return {...effective,isStageCard:cardStageChoice(extension?.stage,'stage')==='on'}
+    const effective=extension ? effectiveCardStage(extension,core.assetEngineSettings?.read().values) : null
+    if (effective?.dialogue && state !== 'ready') await core.ensureStage?.()
+    return {dialogue:state==='ready' && effective?.dialogue===true,
+      stage:state==='ready' && effective?.stage===true,isStageCard:cardStageChoice(extension?.stage,'stage')==='on'}
   }
   const dialogueBubbles={
     read:(...args)=>runtime ? runtime.assets.dialogueBubbles.read(...args) : Promise.resolve(emptyConfig()),
@@ -81,7 +81,10 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
       phases.set('cards',[bindings])
       if(runtime)try{cards=runtime.cards(bindings)}catch(error){failed(error)}
       return {get cardAssetBindings(){return cards?.cardAssetBindings},cardZipTargets:{
-        reserve:(...args)=>cards ? cards.cardZipTargets.reserve(...args) : Promise.reject(Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})),
+        async reserve(...args) {
+          if (!cards) await core.ensureStage?.()
+          return cards ? cards.cardZipTargets.reserve(...args) : unavailable()
+        },
         release:(...args)=>cards ? cards.cardZipTargets.release(...args) : unavailable()
       }}
     },

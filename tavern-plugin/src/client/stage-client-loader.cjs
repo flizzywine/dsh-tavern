@@ -59,7 +59,7 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
         // Without a session that needs the stage there is nothing to ask the server.
         async read() {
             if (!compute()) return {status:'idle'};
-            const status = await runtime.read();
+            const status = await runtime.read({ workbench: holds.size > 0 });
             return {status: status && status.status === 'ready' ? 'ready' : 'idle'};
         },
         subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; }
@@ -89,7 +89,7 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
     }
     return Object.freeze({
         availability,
-        // Pages that show stage settings for any card (the 舞台 settings section) need the client too.
+        // Opening a stage workbench explicitly also needs the client.
         hold() {
             const token = {};
             holds.add(token);

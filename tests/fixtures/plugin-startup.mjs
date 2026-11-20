@@ -9,7 +9,8 @@ import { resolveTavernDataRoot } from '../../tavern-plugin/lib/domain/tavern-dat
 const root = resolveTavernDataRoot()
 const card = { name: 'Stage test', first_mes: 'A quiet room.', extensions: {} }
 await mkdir(root, { recursive: true })
-await writeFile(join(root, 'sessions.json'), JSON.stringify({ 'stage-session': 'stage-chat' }))
+await writeFile(join(root, 'stage-preferences.json'), JSON.stringify({ enabled: false }))
+await writeFile(join(root, 'sessions.json'), JSON.stringify({ 'stage-session': 'stage-chat', 'active-stage-session': 'active-stage-chat' }))
 await createChatJournalStore({ dataRoot: root }).update('stage-chat', () => ({
   id: 'stage-chat', _storageRevision: 1, sessionId: 'stage-session', mode: 'story', cardPath: 'cards/stage-test.json',
   backgroundConfigVersion: 1, conversationFeaturesVersion: 1, cardDefinitionSnapshot: card,
@@ -52,6 +53,31 @@ try {
   unregister()
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
   assert.deepEqual((await host.rpc('pluginMediaForTurn', { sessionId: 'missing-game', turn: 1 })).items, [])
+  host.services.get('sessions').set('stage-session', { id: 'stage-session', events: [] })
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'disabled')
+  assert.equal((await host.rpc('prepareCardStage', { path: imported.card.path })).stage, false)
+  assert.equal((await host.rpc('getSession', modeArgs)).view.stage.stage, false)
+  assert.equal((await host.rpc('getDialogueBubbles', modeArgs)).config.enabled, false)
+  assert.equal(JSON.parse(await host.services.get('tavernSessionSignals').control('getDialogueBubbles', modeArgs)).config.enabled, false)
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'disabled')
+
+  const stageCard = { ...card, name: 'Stage enabled', extensions: { dsh_tavern: {
+    schemaVersion: 1, assetBindings: { boundPackIds: [] }, stage: { enabled: true }
+  } } }
+  const stageImport = await host.rpc('importCard', { payload: { name: 'stage-enabled.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: stageCard }) } })
+  const journal = createChatJournalStore({ dataRoot: root })
+  await journal.update('active-stage-chat', () => ({
+    id: 'active-stage-chat', _storageRevision: 1, sessionId: 'active-stage-session', mode: 'story', cardPath: stageImport.card.path,
+    backgroundConfigVersion: 1, conversationFeaturesVersion: 1, cardDefinitionSnapshot: stageCard,
+    messages: [{ role: 'assistant', turn: 1, text: 'A quiet room.', sourceText: 'A quiet room.' }]
+  }))
+  host.services.get('sessions').set('active-stage-session', { id: 'active-stage-session', events: [] })
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'disabled', 'importing a stage card is not playing it')
+  const stageView = await host.rpc('getSession', { sessionId: 'active-stage-session' })
+  assert.deepEqual(stageView.view.stage, { dialogue: true, stage: true, isStageCard: true })
+  assert.equal((await host.rpc('prepareCardStage', { path: stageImport.card.path })).stage, true)
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready')
+  assert.equal((await host.rpc('getSession', modeArgs)).view.stage.stage, false)
   // Fork RPCs share the extracted dispatcher, including former switch fallthrough aliases.
   assert.deepEqual((await host.rpc('getAssetVoiceServices', {})).services, [])
   assert.equal(typeof (await host.rpc('getDeploymentActivity', {})).work.busy, 'boolean')
@@ -62,7 +88,6 @@ try {
   assert.equal(typeof tavern.bodyGenerator, 'function')
   assert.deepEqual((await host.rpc('getFrameStorage', {})).values, {})
   assert.ok(await host.rpc('listCards', {}))
-  host.services.get('sessions').set('stage-session', { id: 'stage-session', events: [] })
   const signalsAbort = new AbortController()
   const signals = host.services.get('tavernSessionSignals').follow(['stage-session'], signalsAbort.signal)
   const identityPlugin = Object.assign(Object.create(tavern), { ctx: { fiber: { name: 'identity-test-plugin' } } })

@@ -1054,8 +1054,7 @@
 			async function stageOpens(card) {
 				if (!card.openingPage) return false;
 				try {
-					if ((await call("getStageRuntimeStatus", {}))?.status !== "ready") return false;
-					return (await call("getCardAssetBindings", { path: card.path, metadataOnly: true }))?.effectiveStage?.stage === true;
+					return (await call("prepareCardStage", { path: card.path }))?.stage === true;
 				} catch (error) { console.warn("dsh-tavern: 读不到舞台设置，改用游戏准备", error); return false; }
 			}
 			function whenStageAvailable(run) {
