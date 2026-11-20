@@ -987,3 +987,74 @@ test('剧情罗盘面板：命运之骰同款工作台双页签与 ? / × 详细
 
   await act(async () => { root.unmount() })
 })
+
+test('plot-compass:model-reasoning 兼容 DSH 标准 info.reasoning.efforts 与旧版字段', async () => {
+  const storyEvents = createStoryEvents()
+  const modelInfos = {
+    'google/gemini-4-neon': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } },
+    'legacy/flat': { reasoningEfforts: ['medium', { id: 'max', name: 'Max' }] },
+    'legacy/caps': { capabilities: { reasoningEfforts: [{ id: 'minimal', name: 'Minimal' }] } },
+    'plain/no-effort': { context: { contextWindow: 128000 } }
+  }
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    workflow: { register() { return () => {} } },
+    resolveGame: async () => null,
+    readLatestSettledTurn: async () => null,
+    readPendingTurn: async () => null,
+    currentKey: async () => null,
+    readTurn: async () => null,
+    readHistory: async () => [],
+    readCard: async () => null,
+    readPlayerName: async () => '你',
+    backgroundModel: async () => null,
+    foregroundModel: async () => null,
+    data: {
+      readGame: async () => null,
+      saveGame: async () => {},
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      writeSettings: async () => {}
+    },
+    pluginData: {
+      read: async () => null,
+      save: async () => {}
+    },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {},
+    runTask: async () => ({ text: '' })
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx, {
+    llm: {
+      async resolveModelInfo(provider, model) {
+        return modelInfos[`${provider}/${model}`] || null
+      }
+    }
+  })
+
+  const standard = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'google', model: 'gemini-4-neon' })
+  assert.deepEqual(standard, {
+    ok: true,
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] }
+  })
+
+  const flat = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'legacy', model: 'flat' })
+  assert.deepEqual(flat, {
+    ok: true,
+    reasoning: { efforts: [{ id: 'medium', name: 'medium' }, { id: 'max', name: 'Max' }] }
+  })
+
+  const caps = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'legacy', model: 'caps' })
+  assert.deepEqual(caps, {
+    ok: true,
+    reasoning: { efforts: [{ id: 'minimal', name: 'Minimal' }] }
+  })
+
+  const empty = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'plain', model: 'no-effort' })
+  assert.deepEqual(empty, { ok: true, reasoning: null })
+
+  mounted.dispose()
+})
