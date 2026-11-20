@@ -1,5 +1,6 @@
 import { sceneSaveKeyMap } from './scene-save.js'
 import { computeSceneTarget } from './scene-illustration.js'
+import { rebindImportedStage } from './stage-import-rebind.js'
 
 export function assertImportableSave(save) {
   const states = [save.chat, ...save.revisions.map(item => item.state)]
@@ -61,7 +62,8 @@ export function createGameSaveImportContent(save, { chatId, sessionId, cardPath,
     next.cardContextSnapshotVersion = 0
     delete next.cardContextConstants
     next._storageRevision = latestRevision
-    return next
+    // The stage's records are bound to the round by digests of the old ids: bind them to this game.
+    return rebindImportedStage(state, next)
   }
 
   function recordRevision(sourceRevision, storedRevision) {
