@@ -134,21 +134,17 @@
 
 ## 快速开始
 
+已安装桌面酒馆的用户可以继续使用现有启动器。切换到 npm 版时，在原版 `desktop` Profile 的插件页移除旧启动器，再添加 npm 包。同一 `DSH_HOME` 下，酒馆继续使用已有的 `tavern` Profile 和 `$DSH_HOME/profile-data/tavern/data` 数据目录。
+
 ### 桌面版（Windows / macOS）
 
 先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。然后在下方 **任选一种** 安装方式。
 
 #### 方式一：手动安装（在 DSH 界面操作）
 
-1. **安装酒馆启动器。** 打开左侧的 **插件 → 添加插件**，粘贴下面的地址，点 **安装**，再按提示启用 **dsh-tavern**。
+1. **安装酒馆启动器。** 在原版 DSH 的左侧打开 **插件 → 添加插件**，选择 **npm 官方源**，输入 `@flizzywine/dsh-tavern`，安装并启用。
 
-   ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.4/dsh-tavern-1.5.4.tgz
-   ```
-
-   已安装旧版启动器时，先在插件页移除旧启动器，再添加新版。
-
-   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz)。
+   如果 npm 源暂时搜不到包，可在「添加插件」中粘贴 [GitHub Release 下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz)。
 
 2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。已有兼容的酒馆安装可直接切换。
 3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**。下次启动时打开哪个配置，可以在同一页单独设置。
@@ -179,13 +175,9 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 #### 通过插件界面安装
 
-1. 在 NEXT 的 **桌面设置 → Profile** 选择 `desktop`。打开 **插件 → 添加插件**，粘贴下方地址并启用 `dsh-tavern`。如果该 Profile 里装了旧版酒馆启动器，先从插件页移除旧启动器。
+1. 在 NEXT 的 **桌面设置 → Profile** 选择 `desktop`。打开 **插件 → 添加插件**，选择 **npm 官方源**，输入 `@flizzywine/dsh-tavern`，安装并启用。
 
-   ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.4/dsh-tavern-1.5.4.tgz
-   ```
-
-   CDN 无法访问时，可以使用 [GitHub Release 下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz)。
+   如果 npm 源暂时搜不到包，可在「添加插件」中粘贴 [GitHub Release 下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz)。
 
 2. 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。按提示从应用菜单或托盘退出 NEXT，安装完成后 NEXT 会重新打开。已有兼容安装时可以直接切换。
 3. 点 **重启并切换到 DSH 酒馆**。想回到日常配置时，在同一页点 **重启并切换到原版 DSH**。
@@ -257,9 +249,7 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 在 **设置 → 模型** 填入模型服务和 API 密钥（任意模型都可以，本地模型也行），导入人物卡就能开局。[图文教程 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%90%AF%E5%8A%A8#user-content-a02--section-5)
 
-## 启动器 npm 包
-
-`@flizzywine/dsh-tavern` 是酒馆启动器的 npm 包名。发布后，可在 DeepSeek Harness 或 DSH NEXT 的原版 `desktop` Profile 中打开 **插件 → 添加插件**，选择 **npm 官方源**，输入该包名并启用。若已通过其他渠道安装启动器，先移除旧启动器。随后从 **设置 → 酒馆启动器** 安装或更新酒馆，酒馆程序仍从现有发布渠道下载。
+## 发布启动器 npm 包
 
 维护者可运行 `node .github/scripts/pack-npm-launcher.mjs`，在 `output/` 生成只包含启动器的 npm 压缩包。包版本取自 [启动器清单](tavern-plugin/packages/dsh-tavern/package.json)。使用拥有 `@flizzywine` scope 发布权限的 npm 账号，对生成的 `.tgz` 执行 `npm publish <文件> --access public --registry https://registry.npmjs.org`。酒馆日常更新独立发布。
 
