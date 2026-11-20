@@ -38470,7 +38470,7 @@ function tavernFloorHeightRecall(key, width) {
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} });
-						panels.set(tabId, owner);
+						panels.set(tabId, { owner, title, render, stage: input.stage === true });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -38926,6 +38926,12 @@ function tavernFloorHeightRecall(key, width) {
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
 				attachPanelOpener: function (fn) { panelOpener = typeof fn === "function" ? fn : null; },
+				stagePanel: function (sessionId, plugin, id) {
+					const panel = panels.get("tavern-plugin:" + plugin + ":" + id);
+					const scopes = tavernCardPluginScopes.get();
+					return panel?.stage && panel.owner === plugin && scopes && Object.hasOwn(scopes, plugin) &&
+						Array.isArray(scopes[plugin]) && tavernPluginAllowed(plugin, sessionId) ? panel : null;
+				},
 				attachCandidateRunner: function (fn) {
 					candidateRunner = typeof fn === "function" ? fn : null;
 					return function () { if (candidateRunner === fn) candidateRunner = null; };
@@ -39065,6 +39071,20 @@ function tavernFloorHeightRecall(key, width) {
 			// Which plugins a game shows waits on the card plugin scopes (tavernPluginAllowed).
 			useTavernCardPluginScopes();
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
+		}
+
+		function TavernStagePluginPanel({ sessionId, plugin, id }) {
+			useTavernUiExtensions();
+			useTavernCardPluginScopes();
+			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
+			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
+			return h(tavernPluginBoundary(), {
+				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
+			}, h(panel.render, { gameId: sessionId, visible: true }));
+		}
+		async function findTavernStagePluginPanel(sessionId, plugin, id) {
+			await tavernCardPluginScopes.load();
+			return tavernUiExtensions.stagePanel(sessionId, plugin, id)?.title || null;
 		}
 
 		// Created on first use: React is the host's, not available at bundle load.
@@ -59957,6 +59977,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		            // one start path, dsh-tavern-stage-opening); it settles once the game stands and the stage has entered it.
 		            startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
 		            useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
+		            findPluginPanel:findTavernStagePluginPanel, PluginPanel:TavernStagePluginPanel,
 		            createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
 		        device:{matchMedia},
 		        mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
