@@ -49,14 +49,14 @@ function GalConfigText(props) {
             galConfigRow("跳过标题页", h(GalConfigSwitch, { label: "跳过标题页", checked: reading.skipTitlePage === true, onChange: on => stageReading.set({ skipTitlePage: on }) }), "进入舞台时不显示卡的标题页，直接继续；新聊天的开场页照常出现。"),
             fonts ? null : preview),
         fonts ? galConfigGroup("字体", null,
-            // no context, so 「跟随样式」 follows the active stage's skin declaration
+            // no context, so 「跟随皮肤」 follows the active stage's skin declaration
             // (fonts.js) and updates when the skin switches. 千禧晴空 (aero) declares no stage font: system 微软雅黑.
-            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随样式", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
+            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随皮肤", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
                 h(React.Fragment, null, h("span", null, "文本框、姓名牌、候选项和这个设置画面用的字体，选中立刻生效。"),
-                    h("span", null, "跟随样式：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
+                    h("span", null, "跟随皮肤：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
             props.textSkin ? h(GalConfigTextScale, { skin: props.textSkin, reading }) : null,
-            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随样式", theme, variant: "stage" }),
-                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随样式：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
+            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随皮肤", theme, variant: "stage" }),
+                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随皮肤：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
             preview) : null);
 }
 function GalConfigPreview(props) {
