@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2367459aa3d14a5f1f21c59223ea02f25acf072f",
-  "releaseSequence": 1845,
+  "revision": "edb709f502f32b8b6f3d83ec5839ee90c46f3cee",
+  "releaseSequence": 1846,
   "version": "3.3.0",
   "files": [
     {
@@ -7456,8 +7456,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js",
-      "sha256": "e8bee69b74707df427bb2fc9c1fc7260aac71f6f16fb362c061b98a726a53b25",
-      "size": 19334
+      "sha256": "ea8ab326bfbd43a8f9a53ff20ec04875d0c4964c52972e048bfb99b897de3cf5",
+      "size": 19772
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/dice-engine.js",
@@ -7466,8 +7466,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/difficulty-judge.js",
-      "sha256": "e0c0ceb684c2f7e8a228c6ab95f908f0ad5c6af0cfb32f8606ac330ab75e151c",
-      "size": 19779
+      "sha256": "f2afb9f22197e940236520cfc02079ce6861dc970caf86c378b3d6425140ba8e",
+      "size": 23287
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "29bc4f96e9daf3136f18a28dd5ae6e5755ba1738",
+    "commit": "f33ae4c0f04e4d0344d5dcba3c4abe861a03d0db",
     "path": "runtime.zip",
-    "sha256": "8eb96d3b17e568602b3e2971501a12f10cd030f982fff1905046ce8f613da36b",
-    "size": 17032528
+    "sha256": "d3ac65af4f773ea90cbc2f57c08ff69ce1605b562c24c00574c19e1905f495f7",
+    "size": 17034126
   }
 }
