@@ -81,14 +81,26 @@ test('a shown card page opens its available plugin panel in the current game', a
 })
 
 // A small React stand-in: effects run during render, their cleanups are kept, refs are plain objects.
-function fakeReact(stateOverride) {
+function fakeReact(stateOverride, pluginPanel = null) {
   const cleanups = []
   return {cleanups, React: {createElement: (type, props, ...children) => ({type, props: props || {}, children: children.flat()}),
-    useRef: value => ({current: value ?? null}), useState: initial => [initial === null ? null : stateOverride ?? initial, () => {}],
+    useRef: value => ({current: value ?? null}), useState: initial => [initial === null ? pluginPanel : stateOverride ?? initial, () => {}],
     useEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) }}}
 }
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
 const text = node => !node ? '' : typeof node === 'string' ? node : node.children.map(text).join('')
+
+test('a shared plugin panel receives the host page ID for each card page', () => {
+  const PluginPanel = () => null
+  const {React} = fakeReact(null, {plugin: 'travel', id: 'journal', title: '旅程'})
+  const h = harness({options: {React, PluginPanel}})
+  for (const stagePageId of ['quests', 'inventory']) {
+    const tree = h.panels.Overlay({sessionId: 's1', pageId: stagePageId, onClose() {}})
+    assert.deepEqual(find(tree, node => node.type === PluginPanel).props,
+      {sessionId: 's1', plugin: 'travel', id: 'journal', stagePageId})
+  }
+  h.panels.dispose()
+})
 
 test('title(text) sets the sheet title over the declared label, empty gives the label back', async () => {
   const h = harness()

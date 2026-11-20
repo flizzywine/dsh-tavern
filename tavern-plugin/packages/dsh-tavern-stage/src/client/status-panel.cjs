@@ -466,7 +466,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
-                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id})) : null,
+                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id, stagePageId:pageId})) : null,
             h('div', {ref: body, className: 'fork-gal-status-body', style:pluginPanel ? {display:'none'} : undefined},
                 state.phase === 'loading' && !entry ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,
                 state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有这个页面') : null,
