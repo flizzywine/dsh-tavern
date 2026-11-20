@@ -1236,14 +1236,22 @@ test('双骰对抗识别：扩充词表 + 决策模型与阻尼器语义题 is_c
     resolveCheckFromDamperContext,
   } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js')
 
-  // 1) 兜底词表覆盖“打斗/对抗/激战/抢夺”等常见正面交锋表达
+  // 1) 兜底词表覆盖通用战斗 + 武侠 / 仙侠 / 现代 / 比赛 / 赌博等常见正面交锋表达
   assert.equal(detectContestIntent('我护着安雅和灰枭打斗对抗', 'physical'), true)
   assert.equal(detectContestIntent('与走廊里的守卫激战', 'physical'), true)
   assert.equal(detectContestIntent('冲上去抢夺对方手里的钥匙', 'physical'), true)
+  assert.equal(detectContestIntent('与华山掌门在擂台比武切磋、对掌拼内力', 'physical'), true)
+  assert.equal(detectContestIntent('祭出飞剑与魔修斗法，神识交锋', 'arcana'), true)
+  assert.equal(detectContestIntent('在高速上飙车追车并和匪徒火拼', 'physical'), true)
+  assert.equal(detectContestIntent('在法庭辩论中当场质证对方律师', 'social'), true)
+  assert.equal(detectContestIntent('进入加时赛点球决胜争夺冠军', 'physical'), true)
+  assert.equal(detectContestIntent('在德州扑克牌局里直接梭哈诈唬庄家', 'social'), true)
   assert.equal(detectContestIntent('我护着安雅和灰枭打斗对抗', 'insight'), false)
   const h = heuristicAssess({ input: '我护着安雅和灰枭打斗对抗' })
   assert.equal(h.shouldRoll, true)
   assert.equal(h.checkType, 'contest')
+  assert.equal(heuristicAssess({ input: '在赌局里直接梭哈和庄家对赌' }).checkType, 'contest')
+  assert.equal(heuristicAssess({ input: '和魔修斗法较量' }).checkType, 'contest')
 
   // 2) resolveContestCheckType 优先采信 AI 语义概率，高概率触发、低概率抑制、模糊或缺失回退词表
   assert.equal(

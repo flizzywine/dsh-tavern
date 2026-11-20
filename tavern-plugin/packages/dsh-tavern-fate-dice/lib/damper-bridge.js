@@ -3,7 +3,11 @@ import {
   normalizeDifficulty,
   shiftDifficulty
 } from './dice-engine.js'
-import { heuristicAssessWithSkills, resolveContestCheckType } from './difficulty-judge.js'
+import {
+  CONTEST_QUESTION_INSTRUCTIONS,
+  heuristicAssessWithSkills,
+  resolveContestCheckType
+} from './difficulty-judge.js'
 import {
   CAPABILITY_CRITERIA,
   DOMAIN_FALLBACKS,
@@ -98,7 +102,7 @@ export function buildDamperJudgeQuestions({
   const contestQuestion = {
     id: 'fd_contest',
     type: 'noul',
-    instructions: '这项行动是否是与明确对手/敌人之间的正面交锋、打斗对抗、争夺或双方直接角力（适合双边对抗掷骰，而非单人克服静态环境障碍）？'
+    instructions: CONTEST_QUESTION_INSTRUCTIONS
   }
 
   if (protocol === 'gemini') {
