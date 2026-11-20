@@ -11,13 +11,13 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(),'automatic-writes-')), file = join(root,'card.json')
   const preparation = createCardPreparation()
   await writeFile(file, JSON.stringify(preparation.create({kind:'import',payload:{name:'Test card'}})))
-  let tail = Promise.resolve(), faultPoint, cardWrites = 0, inside = false
+  let tail = Promise.resolve(), faultPoint, cardWrites = 0, inside = false, cardId = 'test-card'
   const lock = (_id, task) => {
     const next = tail.then(async () => { inside = true; try { return await task() } finally { inside = false } })
     tail = next.catch(() => {})
     return next
   }
-  const cards = createCardBundleAdapter({cardPreparation:preparation, authorizeTarget:async () => ({cardId:'test-card'}),
+  const cards = createCardBundleAdapter({cardPreparation:preparation, authorizeTarget:async () => ({cardId}),
     readWorkspace:async () => JSON.parse(await readFile(file,'utf8')),
     writeWorkspace:async (_path,value) => { assert.ok(inside); cardWrites++; await writeFile(file,JSON.stringify(value)) }, withCardLock:lock})
   const service = createAssetPackService({assetRoot:join(root,'assets'),cardTransactions:cards,fault:async point => {
@@ -34,7 +34,7 @@ async function fixture(t) {
   }
   const write = async (name,id) => { const {input,authority} = await request(name,id); return service.writeAutomaticItems(input,authority) }
   t.after(async () => { writer.dispose(); await service.dispose(); await rm(root,{recursive:true,force:true}) })
-  return {service,cards,write,request,writer,file,preparation,lock,setFault:point => {faultPoint=point},get cardWrites() {return cardWrites}}
+  return {service,cards,write,request,writer,file,preparation,lock,setFault:point => {faultPoint=point},setCardId:id => {cardId=id},get cardWrites() {return cardWrites}}
 }
 
 test('automatic writes create and bind atomically, then preserve the card revision and local receipts', async t => {
@@ -204,4 +204,29 @@ test('cardAutomaticPack: the card’s 自动素材 pack, made empty and bound on
   })
   assert.equal(await f.service.cardAutomaticPack({path:'test', create:true}), null, 'an unbound automatic pack is not used, and no second one is made')
   assert.equal((await f.service.listPackSummaries()).length, 1)
+})
+// A card deleted and restored from its save comes back under a new id; its bound 自动素材 pack still names the old one.
+test('adoptAutomaticPack hands the bound automatic pack to a card restored under a new id, so no second pack is made', async t => {
+  const f = await fixture(t)
+  const made = await f.service.cardAutomaticPack({path:'test', create:true})
+  f.setCardId('restored-card')
+  assert.equal(await f.service.cardAutomaticPack({path:'test'}), null, 'the restored card has no automatic pack of its own')
+  const before = await f.service.getPackSnapshot({packId:made.packId})
+  await assert.rejects(f.service.adoptAutomaticPack({path:'test', packId:made.packId, expectedRevision:'stale'}), /REVISION_CONFLICT|changed|revision/i)
+  const adopted = await f.service.adoptAutomaticPack({path:'test', packId:made.packId, expectedRevision:before.revision})
+  assert.deepEqual([adopted.adopted, adopted.cardId, adopted.previousCardId], [true, 'restored-card', 'test-card'])
+  assert.equal((await f.service.adoptAutomaticPack({path:'test', packId:made.packId, expectedRevision:adopted.revision})).adopted, false, 'a repeat changes nothing')
+  assert.deepEqual(await f.service.cardAutomaticPack({path:'test', create:true}), {packId:made.packId})
+  assert.equal((await f.write('First speaker')).packId, made.packId)
+  assert.equal((await f.service.listPackSummaries()).length, 1)
+})
+
+test('adoptAutomaticPack refuses a pack the card does not bind and a card that already has its own', async t => {
+  const f = await fixture(t)
+  const own = await f.service.cardAutomaticPack({path:'test', create:true})
+  const otherId = (await f.service.createPack({name:'Other', expectedRevision:null})).snapshot.manifest.id
+  const otherRevision = (await f.service.getPackSnapshot({packId:otherId})).revision
+  await assert.rejects(f.service.adoptAutomaticPack({path:'test', packId:otherId, expectedRevision:otherRevision}), /Not an automatic pack|not bound/)
+  const ownRevision = (await f.service.getPackSnapshot({packId:own.packId})).revision
+  assert.equal((await f.service.adoptAutomaticPack({path:'test', packId:own.packId, expectedRevision:ownRevision})).adopted, false)
 })
