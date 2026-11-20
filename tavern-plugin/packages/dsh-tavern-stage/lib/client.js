@@ -26034,7 +26034,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     React.useEffect(() => {
         // a page that closes itself takes its own shortcut here too, before the stage's keys close it
         const key = event => {
-            const letter = owned && shortcut && !event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && String(event.key).toLowerCase() === shortcut;
+            const letter = owned && !pluginNow.current && shortcut && !event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && String(event.key).toLowerCase() === shortcut;
             if (event.key !== 'Escape' && !letter) return;
             event.preventDefault();
             event.stopImmediatePropagation();
