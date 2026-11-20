@@ -875,3 +875,109 @@ test('剧情罗盘条目上限 RPC 全链路与客户端面板契约', async () 
 
   mounted.dispose()
 })
+
+test('剧情罗盘面板：命运之骰同款工作台双页签与 ? / × 详细说明展开收起', async t => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://tavern.test/' })
+  const restore = []
+  const install = (name, value) => { restore.push([name, globalThis[name]]); globalThis[name] = value }
+  install('window', dom.window)
+  install('document', dom.window.document)
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  t.after(() => {
+    for (const [name, value] of restore.reverse()) globalThis[name] = value
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT
+    dom.window.close()
+  })
+
+  const React = (await import('react')).default
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  let def = null
+  vm.runInContext(source, vm.createContext({
+    window: { __ModuleLoader__: { load: v => { def = v } } },
+    console
+  }), { filename: 'dsh-tavern-plot-compass/client.js' })
+  const mod = def.factory(spec => {
+    if (spec === 'react') return React
+    throw new Error('意外依赖：' + spec)
+  })
+
+  const statePayload = {
+    enabled: true,
+    modelSelection: 'background',
+    latestAssistantTurn: 4,
+    plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+    plotCompass: {
+      strength: 'guided',
+      pace: 'natural',
+      stalledTurns: 0,
+      blindBox: false,
+      customDirective: '',
+      goal: { enabled: false, horizon: 'shortTerm', text: '' },
+      autoUpdateInterval: 0,
+      maxRoutes: 4,
+      playArchetypes: ['奇幻冒险'],
+      customArchetypes: [],
+      situationDigest: '雨夜暂歇破庙，神龛后似有异响。',
+      shortTerm: [
+        { id: 'st-1', tag: '探神龛', title: '挪开神龛查探密道', summary: '顺风声挪动神龛，发现北岭密道。', beats: [{ text: '试探底座', done: false }] }
+      ],
+      midTerm: [],
+      longTerm: [],
+      pinned: { shortTerm: 'st-1', midTerm: null, longTerm: null },
+      archived: [],
+      chatHistory: [],
+      basedOnTurn: 4
+    }
+  }
+  const calls = []
+  const ui = {
+    async callHost(name, args) {
+      calls.push([name, args])
+      if (name === 'plot-compass:state') return statePayload
+      if (name === 'plot-compass:set-preferences') {
+        Object.assign(statePayload.plotCompass, args)
+        return { plotCompass: statePayload.plotCompass }
+      }
+      return { ok: true }
+    }
+  }
+
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+
+  await act(async () => { root.render(React.createElement(mod.PlotCompassPanel, { ui, gameId: 'g-ui' })) })
+  assert.ok(host.querySelector('.pc-root.pc-workbench'), '应当使用命运之骰同款工作台根节点')
+  assert.match(host.textContent, /挪开神龛查探密道/)
+
+  // 顶栏 ? 点开变 × 并展示多段说明，点「收起」还原
+  const topHelp = host.querySelector('button.pc-help-btn')
+  assert.equal(topHelp.textContent, '?')
+  await act(async () => { topHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(topHelp.textContent, '×')
+  const pop = host.querySelector('.pc-help-pop')
+  assert.ok(pop)
+  assert.ok(pop.querySelectorAll('.pc-help-line').length >= 3)
+  await act(async () => { pop.querySelector('button.pc-help-close').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(host.querySelectorAll('.pc-help-pop').length, 0)
+  assert.equal(topHelp.textContent, '?')
+
+  // 切换到「罗盘设置」页签：所有设置项均有独立 ? 按钮，且点开不发 RPC
+  const settingsTab = [...host.querySelectorAll('button[role="tab"]')].find(b => b.textContent === '罗盘设置')
+  assert.ok(settingsTab, '应当存在「罗盘设置」页签')
+  await act(async () => { settingsTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  const callsBefore = calls.length
+  for (const label of ['查看说明：游玩类型标签', '查看说明：目标导向', '查看说明：约束力度', '查看说明：推进节奏', '查看说明：盲盒防剧透模式', '查看说明：自动更新间隔', '查看说明：每层条目上限', '查看说明：推演模型']) {
+    const btn = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === label)
+    assert.ok(btn, `罗盘设置页应当存在 ${label}`)
+  }
+  const strengthHelp = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === '查看说明：约束力度')
+  await act(async () => { strengthHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.match(host.querySelector('.pc-help-pop').textContent, /软铺垫/)
+  assert.equal(calls.length, callsBefore)
+
+  await act(async () => { root.unmount() })
+})

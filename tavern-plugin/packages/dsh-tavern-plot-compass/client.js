@@ -18,39 +18,701 @@ window.__ModuleLoader__.load({
     const { Fragment, useEffect, useState } = React
 /* ===== src/client/styles.js ===== */
 /* ------------------------------------------------------------------ *
- * styles.js —— 剧情罗盘浏览器端样式（基于宿主 CSS 变量自适应深浅主题）
+ * styles.js —— 剧情罗盘浏览器端样式（与「命运之骰」工作台完全一致的视觉体系）
+ *
+ * 统一基于 currentColor 与宿主强调色 --dsh-tavern-accent 的 color-mix 半透明层，
+ * 在浅色暖白主题与深色主题下都保持对比度与柔和边框。
+ * 输入框入口与状态页概览保留原有类名供宿主挂载位使用。
  * ------------------------------------------------------------------ */
 
 const PC_STYLE_ID = 'dsh-tavern-plot-compass-styles'
 
 const PC_CSS_TEXT = `
-.dsh-tavern-status.dsh-tavern-compass-panel {
-  box-sizing: border-box;
+/* ---------- 工作台根节点与主题变量（与命运之骰完全一致） ---------- */
+.pc-root {
+  --pc-line: rgba(128, 128, 142, 0.24);
+  --pc-line: color-mix(in oklab, currentColor 18%, transparent);
+  --pc-line-soft: rgba(128, 128, 142, 0.14);
+  --pc-line-soft: color-mix(in oklab, currentColor 11%, transparent);
+  --pc-fill: rgba(128, 128, 142, 0.09);
+  --pc-fill: color-mix(in oklab, currentColor 7%, transparent);
+  --pc-fill-strong: rgba(128, 128, 142, 0.16);
+  --pc-fill-strong: color-mix(in oklab, currentColor 13%, transparent);
+  --pc-accent: var(--dsh-tavern-accent, #b9824a);
+  --pc-accent-soft: rgba(185, 130, 74, 0.16);
+  --pc-accent-soft: color-mix(in oklab, var(--pc-accent) 18%, transparent);
+  --pc-ok: #2f8f66;
+  --pc-warn: #b9772f;
+  --pc-bad: #bb5044;
+  --pc-shadow: 0 6px 20px rgba(30, 30, 40, 0.12);
+  color: var(--dsh-ink, inherit);
+  font-size: 13px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pc-root *, .pc-root *::before, .pc-root *::after { box-sizing: border-box; }
+
+/* ---------- 右侧栏工作台：双层弹性滚动架构 ---------- */
+.pc-root.pc-workbench {
+  position: relative;
   width: 100%;
   height: 100%;
   max-height: 100%;
   min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px 12px 0;
+  gap: 0;
+}
+.pc-wb-top {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.pc-wb-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px 20px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  color: var(--dsw-alias-label-primary, var(--dsh-ink, inherit));
+  padding: 2px 2px 48px;
 }
-.dsh-tavern-status.dsh-tavern-compass-panel > .dsh-tavern-status-head {
+.pc-wb-scroll > * { flex-shrink: 0; }
+.pc-wb-scroll::-webkit-scrollbar { width: 8px; }
+.pc-wb-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--pc-line);
+}
+.pc-wb-scroll::-webkit-scrollbar-track { background: transparent; }
+
+.pc-wb-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
-  flex: none;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
-.dsh-tavern-status.dsh-tavern-compass-panel > .dsh-tavern-status-head > .dsh-tavern-status-title {
+.pc-wb-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.pc-wb-title {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
-  white-space: nowrap;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+.pc-wb-toggle {
+  font-size: 12px;
+}
+
+/* ---------- 页签条与分段切换器（与命运之骰 .fd-tabbar 同款） ---------- */
+.pc-tabbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--pc-fill);
+  border: 1px solid var(--pc-line-soft);
+}
+.pc-tabbar.is-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.pc-tab {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.78;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.pc-tab:hover:not(:disabled) { opacity: 0.96; }
+.pc-tab.is-active {
+  background: var(--pc-accent-soft);
+  border-color: var(--pc-line);
+  opacity: 1;
+}
+.pc-tab.is-strict.is-active {
+  background: color-mix(in oklab, var(--pc-bad) 18%, transparent);
+  border-color: color-mix(in oklab, var(--pc-bad) 52%, transparent);
+  color: var(--pc-bad);
+}
+.pc-tab.has-pin .pc-tab-title { color: var(--pc-ok); }
+.pc-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.pc-tab-title { font-size: 12.5px; font-weight: 650; line-height: 1.25; }
+.pc-tab small { font-size: 10.5px; opacity: 0.72; font-weight: 500; line-height: 1.2; }
+
+/* ---------- 分组卡片与行 ---------- */
+.pc-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--pc-fill);
+  border: 1px solid var(--pc-line-soft);
+}
+.pc-section.is-accent {
+  border-color: color-mix(in oklab, var(--pc-ok) 40%, transparent);
+  background: color-mix(in oklab, var(--pc-ok) 8%, var(--pc-fill));
+}
+.pc-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pc-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pc-section-note { font-size: 11.5px; opacity: 0.62; }
+
+.pc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--pc-fill);
+  border: 1px solid var(--pc-line-soft);
+}
+.pc-row.is-plain { background: transparent; border-color: transparent; padding: 4px 0; }
+.pc-row-main { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pc-row-title { font-size: 12.5px; font-weight: 600; word-break: break-word; }
+.pc-row-sub { font-size: 11.5px; opacity: 0.66; word-break: break-word; }
+.pc-row-end { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ---------- 徽章 / 按钮 / 芯片 / 开关 / 输入 ---------- */
+.pc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  border: 1px solid var(--pc-line);
+  background: var(--pc-fill-strong);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.pc-badge.is-ok { color: var(--pc-ok); border-color: color-mix(in oklab, var(--pc-ok) 45%, transparent); }
+.pc-badge.is-warn { color: var(--pc-warn); border-color: color-mix(in oklab, var(--pc-warn) 45%, transparent); }
+.pc-badge.is-bad { color: var(--pc-bad); border-color: color-mix(in oklab, var(--pc-bad) 45%, transparent); }
+.pc-badge.is-accent { color: var(--pc-accent); background: var(--pc-accent-soft); border-color: color-mix(in oklab, var(--pc-accent) 45%, transparent); }
+.pc-badge.is-off { opacity: 0.6; }
+.pc-badge-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.pc-btn {
+  min-height: 34px;
+  padding: 5px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--pc-line);
+  background: var(--pc-fill-strong);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-shadow: 0 1px 2px rgba(24, 24, 32, 0.08);
+  transition: transform 0.14s ease, filter 0.15s ease, box-shadow 0.15s ease;
+}
+.pc-btn:hover:not(:disabled) {
+  transform: translateY(-0.5px);
+  filter: brightness(1.06);
+  box-shadow: 0 2px 6px rgba(24, 24, 32, 0.13);
+}
+.pc-btn:active:not(:disabled) { transform: translateY(0.5px); }
+.pc-btn.is-primary {
+  background: color-mix(in oklab, var(--pc-accent) 26%, var(--pc-fill-strong));
+  border-color: color-mix(in oklab, var(--pc-accent) 68%, transparent);
+  color: inherit;
+}
+.pc-btn.is-danger {
+  background: color-mix(in oklab, var(--pc-bad) 14%, var(--pc-fill-strong));
+  color: var(--pc-bad);
+  border-color: color-mix(in oklab, var(--pc-bad) 52%, transparent);
+}
+.pc-btn.is-sm { min-height: 29px; padding: 3px 10px; font-size: 11.5px; border-radius: 8px; }
+.pc-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
+.pc-btn-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.pc-chip {
+  min-height: 28px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--pc-line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pc-chip:hover:not(:disabled) { background: var(--pc-fill-strong); }
+.pc-chip.is-active {
+  background: var(--pc-accent-soft);
+  border-color: color-mix(in oklab, var(--pc-accent) 60%, transparent);
+  font-weight: 650;
+}
+.pc-chip.is-ok {
+  border-color: color-mix(in oklab, var(--pc-ok) 45%, transparent);
+  background: color-mix(in oklab, var(--pc-ok) 10%, transparent);
+}
+.pc-chip.is-goal {
+  border-color: color-mix(in oklab, var(--pc-accent) 55%, transparent);
+  background: var(--pc-accent-soft);
+  font-weight: 650;
+}
+.pc-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.pc-chip-x {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.pc-chip-group { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+
+.pc-input, .pc-select {
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--pc-line);
+  background: var(--pc-fill);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  min-height: 34px;
+}
+.pc-input:focus-visible, .pc-select:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--pc-accent) 62%, transparent);
+  outline-offset: 1px;
+}
+.pc-input:disabled, .pc-select:disabled { opacity: 0.5; cursor: default; }
+.pc-select { cursor: pointer; }
+.pc-input.is-inline { flex: 1 1 150px; width: auto; min-width: 0; min-height: 32px; padding: 5px 9px; }
+.pc-input.is-num { width: 78px; min-height: 30px; padding: 3px 8px; text-align: center; }
+.pc-field { display: flex; flex-direction: column; gap: 5px; }
+.pc-field-label { font-size: 11.5px; font-weight: 650; opacity: 0.82; }
+
+.pc-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid var(--pc-line);
+  background: var(--pc-fill-strong);
+  cursor: pointer;
+  padding: 0;
+  touch-action: manipulation;
+}
+.pc-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+.pc-switch:disabled { opacity: 0.55; cursor: default; }
+.pc-switch.is-on {
+  background: var(--pc-accent-soft);
+  border-color: color-mix(in oklab, var(--pc-accent) 55%, transparent);
+}
+.pc-switch.is-on::after {
+  transform: translateX(18px);
+  background: var(--pc-accent);
+  opacity: 0.95;
+}
+
+.pc-hint { font-size: 11.5px; opacity: 0.66; margin: 0; line-height: 1.55; }
+.pc-digest { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.pc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--pc-line);
+  background: var(--pc-fill);
+}
+.pc-empty p { margin: 0; }
+
+/* ---------- 提示条 / 确认栏 / 底部浮动 toast ---------- */
+.pc-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid var(--pc-line);
+  background: var(--pc-fill);
+}
+.pc-alert.is-info {
+  border-color: color-mix(in oklab, var(--pc-ok) 45%, transparent);
+  background: color-mix(in oklab, var(--pc-ok) 10%, transparent);
+}
+.pc-alert.is-warn {
+  border-color: color-mix(in oklab, var(--pc-warn) 48%, transparent);
+  background: color-mix(in oklab, var(--pc-warn) 12%, transparent);
+  flex-direction: column;
+  align-items: stretch;
+}
+.pc-alert.is-error {
+  border-color: color-mix(in oklab, var(--pc-bad) 48%, transparent);
+  background: color-mix(in oklab, var(--pc-bad) 12%, transparent);
+  color: var(--pc-bad);
+}
+.pc-alert-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pc-toast {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 5;
+  font-size: 11.5px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: var(--pc-fill-strong);
+  border: 1px solid var(--pc-line);
+  box-shadow: var(--pc-shadow);
+  backdrop-filter: blur(8px);
+}
+.pc-toast.is-alert {
+  color: var(--pc-bad);
+  border-color: color-mix(in oklab, var(--pc-bad) 52%, transparent);
+}
+
+/* ---------- 说明气泡（? / × 按钮 + 左侧强调竖条就地展开卡片，与命运之骰一致） ---------- */
+.pc-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.pc-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--pc-accent) 48%, transparent);
+  background: color-mix(in oklab, var(--pc-accent) 12%, transparent);
+  color: color-mix(in oklab, var(--pc-accent) 86%, currentColor);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.pc-help-btn:hover {
+  transform: scale(1.1);
+  background: color-mix(in oklab, var(--pc-accent) 24%, transparent);
+}
+.pc-help-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--pc-accent) 62%, transparent);
+  outline-offset: 1px;
+}
+.pc-help-btn.is-open {
+  background: color-mix(in oklab, var(--pc-accent) 90%, transparent);
+  border-color: color-mix(in oklab, var(--pc-accent) 90%, transparent);
+  color: var(--pc-on-accent, #fff);
+}
+.pc-help-pop {
+  flex: 1 1 100%;
+  width: 100%;
+  margin: 5px 0 2px;
+  padding: 8px 10px 9px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--pc-accent) 30%, var(--pc-line-soft, transparent));
+  border-left: 3px solid color-mix(in oklab, var(--pc-accent) 82%, transparent);
+  background: color-mix(in oklab, var(--pc-accent) 7%, var(--pc-fill, transparent));
+  color: inherit;
+  box-shadow: 0 3px 12px color-mix(in oklab, var(--pc-accent) 12%, transparent);
+  animation: pc-rise 0.16s ease-out both;
+}
+.pc-help-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.pc-help-pop-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: color-mix(in oklab, var(--pc-accent) 78%, currentColor);
+  opacity: 0.96;
+}
+.pc-help-close {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.6;
+  opacity: 0.66;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pc-help-close:hover {
+  opacity: 1;
+  background: color-mix(in oklab, currentColor 10%, transparent);
+  border-color: color-mix(in oklab, currentColor 16%, transparent);
+}
+.pc-help-pop-body { display: flex; flex-direction: column; gap: 4px; }
+.pc-help-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.72;
+  word-break: break-word;
+  opacity: 0.92;
+}
+
+/* ---------- 路线卡片 / 节拍 / 目标 / 脑暴对话 ---------- */
+.pc-cards { display: flex; flex-direction: column; gap: 10px; }
+.pc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+  border-radius: 12px;
+  border: 1px solid var(--pc-line-soft);
+  background: var(--pc-fill);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pc-card.is-pinned {
+  border-color: color-mix(in oklab, var(--pc-ok) 58%, transparent);
+  background: color-mix(in oklab, var(--pc-ok) 6%, var(--pc-fill));
+  box-shadow: 0 2px 10px color-mix(in oklab, var(--pc-ok) 12%, transparent);
+}
+.pc-card-head { display: flex; flex-direction: column; gap: 5px; }
+.pc-card-titles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.pc-route-tag { font-size: 12px; font-weight: 700; color: var(--pc-ok); }
+.pc-card-title { margin: 0; font-size: 13.5px; font-weight: 700; }
+.pc-card-summary { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.pc-callout {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--pc-fill-strong);
+  border: 1px solid var(--pc-line-soft);
+}
+.pc-steps { display: flex; flex-direction: column; gap: 4px; }
+.pc-steps-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 650;
+  opacity: 0.68;
+}
+.pc-step-list, .pc-prereq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pc-prereq-list li {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.85;
+  padding-left: 12px;
+  position: relative;
+}
+.pc-prereq-list li::before {
+  content: '•';
+  position: absolute;
+  left: 2px;
+  color: var(--pc-accent);
+}
+.pc-step-btn {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.pc-step-btn:hover:not(:disabled) { background: var(--pc-fill-strong); }
+.pc-step-list li.is-done .pc-step-text { text-decoration: line-through; opacity: 0.56; }
+.pc-check { flex: none; color: var(--pc-ok); font-weight: 700; width: 14px; }
+.pc-phase-tag {
+  flex: none;
+  font-size: 10px;
+  line-height: 1.25;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--pc-line);
+  opacity: 0.72;
+}
+.pc-meta-line { margin: 0; font-size: 11.5px; line-height: 1.55; opacity: 0.85; }
+.pc-meta-line.is-subtle { opacity: 0.68; }
+.pc-blindbox-mask {
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px dashed var(--pc-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.pc-goal-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--pc-accent) 45%, transparent);
+  background: color-mix(in oklab, var(--pc-accent) 8%, transparent);
+}
+.pc-goal-box.is-paused {
+  border-style: dashed;
+  border-color: var(--pc-line);
+  background: transparent;
+  opacity: 0.82;
+}
+.pc-goal-text { margin: 0; font-size: 12.5px; line-height: 1.5; word-break: break-word; }
+
+.pc-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--pc-line-soft);
+  border-radius: 10px;
+  background: var(--pc-fill);
+}
+.pc-chat-msg { display: flex; flex-direction: column; gap: 4px; max-width: 92%; }
+.pc-chat-msg.is-user { align-self: flex-end; align-items: flex-end; }
+.pc-chat-msg.is-assistant { align-self: flex-start; align-items: flex-start; }
+.pc-chat-bubble {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--pc-line-soft);
+  background: var(--pc-fill-strong);
+}
+.pc-chat-msg.is-user .pc-chat-bubble {
+  border-color: color-mix(in oklab, var(--pc-accent) 65%, transparent);
+  background: color-mix(in oklab, var(--pc-accent) 24%, var(--pc-fill-strong));
+}
+.pc-archived {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--pc-line-soft);
+  background: var(--pc-fill);
+}
+.pc-archived summary { cursor: pointer; opacity: 0.72; font-weight: 600; }
+
+.pc-divider {
+  height: 1px;
+  background: var(--pc-line-soft);
+  margin: 2px 0;
+}
+
+@keyframes pc-rise {
+  from { transform: translateY(4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ---------- 输入栏挂载入口与状态页概览（保留宿主兼容类名） ---------- */
 .dsh-tavern-compass-composer-wrap {
   display: inline-flex;
   align-items: center;
@@ -82,41 +744,18 @@ const PC_CSS_TEXT = `
   border-color: rgba(38, 130, 101, 0.28);
   background: rgba(38, 130, 101, 0.08);
 }
-.dsh-tavern-compass-dock-glyph {
-  font-size: 12px;
-  line-height: 1;
-}
-/* 窄屏（与宿主手机布局断点一致）：入口默认只留图标，文字改成可访问名称。
-   图标靠左贴住输入条边缘，和上方的楼层药丸同一左边界；触摸目标用 min-width 撑住。 */
+.dsh-tavern-compass-dock-glyph { font-size: 12px; line-height: 1; }
 @media (max-width: 1023px) {
   .dsh-tavern-compass-dock-btn {
-    gap: 0;
-    justify-content: flex-start;
-    min-width: 30px;
-    min-height: 30px;
-    padding: 5px 0;
+    gap: 0; justify-content: flex-start; min-width: 30px; min-height: 30px; padding: 5px 0;
   }
-  /* 钉住路线时按钮变成可见胶囊，贴边会把图标顶住边框，留出内边距。 */
   .dsh-tavern-compass-dock-btn.is-pinned {
-    gap: 0;
-    min-width: 30px;
-    min-height: 30px;
-    padding: 5px 8px;
+    gap: 0; min-width: 30px; min-height: 30px; padding: 5px 8px;
   }
-  .dsh-tavern-compass-dock-label {
-    display: none;
-  }
-  .dsh-tavern-compass-dock-glyph {
-    font-size: 15px;
-    line-height: 1;
-  }
-  .dsh-tavern-compass-dock-btn .dsh-tavern-compass-spinner {
-    width: 14px;
-    height: 14px;
-  }
+  .dsh-tavern-compass-dock-label { display: none; }
+  .dsh-tavern-compass-dock-glyph { font-size: 15px; line-height: 1; }
+  .dsh-tavern-compass-dock-btn .dsh-tavern-compass-spinner { width: 14px; height: 14px; }
 }
-/* 输入框尾部工具区（宿主的提交键 / 模型席同一行）里的罗盘图标：只占一个 28px 的圆点，
-   不再占据输入框上方的一整行，末行正文也就不会被挤进座位的淡出带。 */
 .dsh-tavern-compass-tool-btn {
   position: relative;
   display: inline-flex;
@@ -146,23 +785,12 @@ const PC_CSS_TEXT = `
   border-color: rgba(38, 130, 101, 0.24);
   background: rgba(38, 130, 101, 0.1);
 }
-.dsh-tavern-compass-tool-glyph {
-  font-size: 15px;
-  line-height: 1;
-}
+.dsh-tavern-compass-tool-glyph { font-size: 15px; line-height: 1; }
 .dsh-tavern-compass-tool-dot {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
+  position: absolute; top: 3px; right: 3px; width: 5px; height: 5px;
+  border-radius: 50%; background: currentColor;
 }
-.dsh-tavern-compass-tool-btn .dsh-tavern-compass-spinner {
-  width: 13px;
-  height: 13px;
-}
+.dsh-tavern-compass-tool-btn .dsh-tavern-compass-spinner { width: 13px; height: 13px; }
 .dsh-tavern-compass-spinner {
   display: inline-block;
   width: 12px;
@@ -173,286 +801,11 @@ const PC_CSS_TEXT = `
   animation: dsh-pc-spin 0.8s linear infinite;
   flex: none;
 }
-@keyframes dsh-pc-spin {
-  to { transform: rotate(360deg); }
-}
-.dsh-tavern-compass-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.dsh-tavern-compass-switch-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.dsh-tavern-compass-switch-text {
-  font-size: 12px;
-  color: var(--dsw-alias-label-secondary, rgba(127, 127, 127, 0.85));
-  user-select: none;
-}
-.dsh-tavern-compass-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  width: 34px;
-  height: 19px;
-  padding: 2px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
-  border-radius: 999px;
-  background: var(--dsw-alias-fill-l1, rgba(127, 127, 127, 0.2));
-  cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
-}
-.dsh-tavern-compass-switch.is-checked {
-  background: var(--dsh-tavern-accent, #b9824a);
-  border-color: var(--dsh-tavern-accent, #b9824a);
-}
-.dsh-tavern-compass-switch:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.dsh-tavern-compass-switch-thumb {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: #fff;
-  transform: translateX(0);
-  transition: transform 140ms ease;
-}
-.dsh-tavern-compass-switch.is-checked .dsh-tavern-compass-switch-thumb {
-  transform: translateX(15px);
-}
-.dsh-tavern-compass-disabled-card {
-  margin-top: 6px;
-  padding: 16px;
-  border-radius: 10px;
-  border: 1px dashed var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: flex-start;
-}
-.dsh-tavern-compass-turn-badge {
-  font-size: 11px;
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.85));
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.08));
-}
-.dsh-tavern-compass-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.dsh-tavern-compass-desc {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary, rgba(127, 127, 127, 0.85));
-}
-.dsh-tavern-compass-confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(181, 106, 44, 0.45);
-  background: rgba(181, 106, 44, 0.1);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.dsh-tavern-compass-confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.dsh-tavern-compass-alert {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 11px;
-  border-radius: 9px;
-  font-size: 12px;
-  line-height: 1.45;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.08));
-}
-.dsh-tavern-compass-alert.is-info {
-  border-color: rgba(38, 130, 101, 0.35);
-  background: rgba(38, 130, 101, 0.08);
-}
-.dsh-tavern-compass-alert.is-error {
-  border-color: rgba(192, 72, 62, 0.42);
-  background: rgba(192, 72, 62, 0.1);
-  color: #d0584e;
-}
-.dsh-tavern-compass-alert-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.dsh-tavern-compass-top {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.22));
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-1, transparent);
-}
-.dsh-tavern-compass-archetypes-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.dsh-tavern-compass-label {
-  font-weight: 600;
-  color: var(--dsw-alias-label-secondary, inherit);
-}
-.dsh-tavern-compass-muted {
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.8));
-  font-size: 12px;
-}
-.dsh-tavern-compass-archetype-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--dsh-tavern-accent, #b9824a);
-  background: var(--dsh-tavern-accent-soft, rgba(185, 130, 74, 0.16));
-}
-.dsh-tavern-compass-archetype-chip.is-removable button {
-  appearance: none;
-  border: 0;
-  background: none;
-  color: inherit;
-  padding: 0 2px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.dsh-tavern-compass-link-btn {
-  appearance: none;
-  border: 0;
-  background: none;
-  color: var(--dsh-tavern-accent, #b9824a);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 4px;
-  margin-left: auto;
-}
-.dsh-tavern-compass-link-btn:hover:not(:disabled) {
-  text-decoration: underline;
-}
-.dsh-tavern-compass-link-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.dsh-tavern-compass-archetype-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-}
-.dsh-tavern-compass-preset-tags,
-.dsh-tavern-compass-selected-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.dsh-tavern-compass-preset-tag {
-  appearance: none;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  background: var(--dsw-alias-bg-base, transparent);
-  color: var(--dsw-alias-label-secondary, inherit);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-.dsh-tavern-compass-preset-tag.is-selected {
-  border-color: var(--dsh-tavern-accent-border, var(--dsh-tavern-accent, #b9824a));
-  background: var(--dsh-tavern-accent-soft, rgba(185, 130, 74, 0.16));
-  color: var(--dsh-tavern-accent, #b9824a);
-  font-weight: 600;
-}
-.dsh-tavern-compass-custom-row,
-.dsh-tavern-compass-editor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.dsh-tavern-compass-guidance-box {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-.dsh-tavern-compass-input,
-.dsh-tavern-compass-select {
-  box-sizing: border-box;
-  padding: 6px 9px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--dsw-alias-label-primary, inherit);
-  background: var(--dsw-specific-input-major, var(--dsw-alias-bg-base, transparent));
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.28));
-  border-radius: 8px;
-}
-.dsh-tavern-compass-input {
-  width: 100%;
-  flex: 1 1 160px;
-  min-width: 0;
-}
-.dsh-tavern-compass-select {
-  max-width: 100%;
-  min-width: 120px;
-}
-.dsh-tavern-compass-input:focus,
-.dsh-tavern-compass-select:focus {
-  outline: none;
-  border-color: var(--dsh-tavern-accent, #b9824a);
-}
-.dsh-tavern-compass-digest {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-primary, inherit);
-}
-.dsh-tavern-compass-funnel {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 9px 11px;
-  border-radius: 10px;
-  border: 1px solid rgba(38, 130, 101, 0.35);
-  background: color-mix(in srgb, #268265 9%, transparent);
-}
-.dsh-tavern-compass-funnel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 12px;
-}
-.dsh-tavern-compass-funnel-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+@keyframes dsh-pc-spin { to { transform: rotate(360deg); } }
+.dsh-tavern-compass-status-box { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.dsh-tavern-compass-status-box p { margin: 0; }
+.dsh-tavern-compass-desc { margin: 0; font-size: 12px; line-height: 1.5; opacity: 0.78; }
+.dsh-tavern-compass-funnel-items { display: flex; flex-wrap: wrap; gap: 6px; }
 .dsh-tavern-compass-funnel-chip {
   font-size: 11.5px;
   padding: 2px 8px;
@@ -460,529 +813,17 @@ const PC_CSS_TEXT = `
   background: var(--dsw-alias-bg-base, transparent);
   border: 1px solid rgba(38, 130, 101, 0.28);
   color: var(--dsw-alias-label-primary, inherit);
-  cursor: pointer;
-}
-.dsh-tavern-compass-notice {
-  margin: 0;
-  font-size: 12px;
-  color: #268265;
-}
-.dsh-tavern-compass-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-.dsh-tavern-compass-tab {
-  appearance: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 7px 6px;
-  border-radius: 9px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.24));
-  background: var(--dsw-alias-bg-layer-1, transparent);
-  color: var(--dsw-alias-label-secondary, inherit);
-  cursor: pointer;
-  font: inherit;
-}
-.dsh-tavern-compass-tab.is-active {
-  border-color: var(--dsh-tavern-accent-border, var(--dsh-tavern-accent, #b9824a));
-  background: var(--dsh-tavern-accent-soft, rgba(185, 130, 74, 0.16));
-  color: var(--dsw-alias-label-primary, inherit);
-}
-.dsh-tavern-compass-tab.has-pin .dsh-tavern-compass-tab-title {
-  color: #268265;
-}
-.dsh-tavern-compass-tab-title {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.dsh-tavern-compass-tab small {
-  font-size: 10.5px;
-  opacity: 0.8;
-}
-.dsh-tavern-compass-section-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.dsh-tavern-compass-section-bar p {
-  margin: 0;
-}
-.dsh-tavern-compass-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.dsh-tavern-compass-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 11px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.24));
-  background: var(--dsw-alias-bg-base, transparent);
-  transition: border-color 140ms ease, box-shadow 140ms ease;
-}
-.dsh-tavern-compass-card.is-pinned {
-  border-color: rgba(38, 130, 101, 0.55);
-  box-shadow: 0 2px 10px rgba(38, 130, 101, 0.09);
-}
-.dsh-tavern-compass-card-head {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.dsh-tavern-compass-card-titles {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px;
-}
-.dsh-tavern-compass-route-tag {
-  font-size: 12px;
-  font-weight: 700;
-  color: #268265;
-}
-.dsh-tavern-compass-card-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary, inherit);
-}
-.dsh-tavern-compass-card-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.dsh-tavern-compass-pill {
-  font-size: 10.5px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.1));
-  color: var(--dsw-alias-label-secondary, inherit);
-}
-.dsh-tavern-compass-pill.is-hook {
-  color: #b56a2c;
-  background: rgba(181, 106, 44, 0.14);
-}
-.dsh-tavern-compass-pill.is-active {
-  color: #268265;
-  background: rgba(38, 130, 101, 0.15);
-  font-weight: 600;
-}
-.dsh-tavern-compass-card-summary {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--dsw-alias-label-primary, inherit);
-}
-.dsh-tavern-compass-callout {
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 7px 9px;
-  border-radius: 7px;
-  background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, 0.07));
-  color: var(--dsw-alias-label-secondary, inherit);
-}
-.dsh-tavern-compass-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.dsh-tavern-compass-steps-head {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.8));
-}
-.dsh-tavern-compass-step-list,
-.dsh-tavern-compass-prereq-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.dsh-tavern-compass-prereq-list li {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--dsw-alias-label-secondary, inherit);
-  padding-left: 12px;
-  position: relative;
-}
-.dsh-tavern-compass-prereq-list li::before {
-  content: "•";
-  position: absolute;
-  left: 2px;
-  color: var(--dsh-tavern-accent, #b9824a);
-}
-.dsh-tavern-compass-step-btn {
-  appearance: none;
-  width: 100%;
-  text-align: left;
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary, inherit);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.45;
-  cursor: pointer;
-}
-.dsh-tavern-compass-step-btn:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08));
-}
-.dsh-tavern-compass-step-list li.is-done .dsh-tavern-compass-step-text {
-  text-decoration: line-through;
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.7));
-}
-.dsh-tavern-compass-check {
-  flex: none;
-  color: #268265;
-  font-weight: 700;
-  width: 14px;
-}
-.dsh-tavern-compass-meta-line {
-  margin: 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary, inherit);
-}
-.dsh-tavern-compass-meta-line.is-subtle {
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.8));
-}
-.dsh-tavern-compass-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 4px;
-}
-.dsh-tavern-compass-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 16px 14px;
-  border: 1px dashed var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  border-radius: 10px;
-}
-.dsh-tavern-compass-empty p {
-  margin: 0;
-}
-.dsh-tavern-compass-archived {
-  font-size: 12px;
-  padding-top: 6px;
-  border-top: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.22));
-}
-.dsh-tavern-compass-archived summary {
-  cursor: pointer;
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.85));
-}
-.dsh-tavern-compass-prefs-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.dsh-tavern-compass-pace-group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.dsh-tavern-compass-pace-pills {
-  display: inline-flex;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--dsw-alias-fill-l1, transparent);
-}
-.dsh-tavern-compass-pace-btn {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, inherit);
-  font: inherit;
-  font-size: 11px;
-  padding: 3px 9px;
-  cursor: pointer;
-}
-.dsh-tavern-compass-pace-btn.is-active {
-  background: var(--dsh-tavern-accent, #b9824a);
-  color: #fff;
-  font-weight: 600;
-}
-.dsh-tavern-compass-pace-btn.is-strict.is-active {
-  background: #b84a39;
-  color: #fff;
-}
-.dsh-tavern-compass-pill.is-warn {
-  color: #b84a39;
-  background: rgba(184, 74, 57, 0.14);
-  font-weight: 600;
-}
-.dsh-tavern-compass-interval-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.dsh-tavern-compass-interval-custom {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.dsh-tavern-compass-interval-input {
-  width: 68px;
-  flex: none;
-  padding: 2px 6px;
-  font-size: 12px;
-}
-.dsh-tavern-compass-interval-hint {
-  font-size: 11px;
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.85));
-}
-.dsh-tavern-compass-model-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.dsh-tavern-compass-model-pickers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.dsh-tavern-compass-blindbox-toggle {
-  appearance: none;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  border-radius: 999px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, inherit);
-  font: inherit;
-  font-size: 11px;
-  padding: 3px 9px;
-  cursor: pointer;
-}
-.dsh-tavern-compass-blindbox-toggle.is-active {
-  border-color: var(--dsh-tavern-accent, #b9824a);
-  color: var(--dsh-tavern-accent, #b9824a);
-  font-weight: 600;
-}
-.dsh-tavern-compass-funnel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.dsh-tavern-compass-directive-box {
-  margin-top: 6px;
-}
-.dsh-tavern-compass-directive-edit {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.dsh-tavern-compass-directive-edit .dsh-tavern-compass-input {
-  flex: 1 1 200px;
-}
-.dsh-tavern-compass-blindbox-mask {
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px dashed var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-.dsh-tavern-compass-blindbox-hint {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary, inherit);
-}
-.dsh-tavern-compass-peek-bar {
-  display: flex;
-  justify-content: flex-end;
-}
-.dsh-tavern-compass-phase-tag {
-  flex: none;
-  font-size: 10px;
-  line-height: 1.2;
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  color: var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.85));
-}
-.dsh-tavern-compass-chat-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.dsh-tavern-compass-chat-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.dsh-tavern-compass-chat-thread {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 240px;
-  overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-base, transparent);
-}
-.dsh-tavern-compass-chat-msg {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 92%;
-}
-.dsh-tavern-compass-chat-msg.is-user {
-  align-self: flex-end;
-  align-items: flex-end;
-}
-.dsh-tavern-compass-chat-msg.is-assistant {
-  align-self: flex-start;
-  align-items: flex-start;
-}
-.dsh-tavern-compass-chat-bubble {
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  background: var(--dsw-alias-fill-l1, rgba(127, 127, 127, 0.06));
-  color: var(--dsw-alias-label-primary, inherit);
-}
-.dsh-tavern-compass-chat-msg.is-user .dsh-tavern-compass-chat-bubble {
-  border-color: var(--dsh-tavern-accent, #b9824a);
-  background: var(--dsh-tavern-accent, #b9824a);
-  color: var(--dsw-alias-brand-text, #fff);
-}
-.dsh-tavern-compass-chat-msg-foot,
-.dsh-tavern-compass-chat-apply-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.dsh-tavern-compass-apply-btn {
-  appearance: none;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, inherit);
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.dsh-tavern-compass-apply-btn:hover:not(:disabled) {
-  border-color: var(--dsh-tavern-accent, #b9824a);
-  color: var(--dsh-tavern-accent, #b9824a);
-}
-.dsh-tavern-compass-guidance-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-}
-.dsh-tavern-compass-status-box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12.5px;
-}
-.dsh-tavern-compass-status-box p {
-  margin: 0;
-}
-.dsh-tavern-compass-goal-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.dsh-tavern-compass-goal-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 8px 10px;
-  border-radius: 9px;
-  border: 1px solid rgba(38, 130, 101, 0.38);
-  background: color-mix(in srgb, #268265 8%, transparent);
-}
-.dsh-tavern-compass-goal-banner.is-paused {
-  border-style: dashed;
-  border-color: var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
-  background: var(--dsw-alias-bg-base, transparent);
-  opacity: 0.86;
-}
-.dsh-tavern-compass-goal-banner-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  font-size: 12px;
-}
-.dsh-tavern-compass-goal-banner-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-}
-.dsh-tavern-compass-goal-banner-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.dsh-tavern-compass-goal-banner-actions .dsh-tavern-compass-link-btn {
-  margin-left: 0;
-}
-.dsh-tavern-compass-goal-text {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-  word-break: break-word;
-  color: var(--dsw-alias-label-primary, inherit);
-}
-.dsh-tavern-compass-goal-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 9px 10px;
-  border-radius: 9px;
-  border: 1px dashed var(--dsh-tavern-accent-border, var(--dsh-tavern-accent, #b9824a));
-  background: var(--dsw-alias-bg-base, transparent);
-}
-.dsh-tavern-compass-goal-horizon-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
 }
 .dsh-tavern-compass-funnel-chip.is-goal {
   border-color: var(--dsh-tavern-accent-border, var(--dsh-tavern-accent, #b9824a));
   background: var(--dsh-tavern-accent-soft, rgba(185, 130, 74, 0.14));
   font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .pc-wb-top { gap: 6px; padding-bottom: 6px; }
+  .pc-tab { min-height: 30px; padding: 4px 6px; }
+  .pc-row { align-items: flex-start; }
 }
 `
 
@@ -998,7 +839,11 @@ function pcEnsureStyleInjected() {
 /* ===== src/client/panel.js ===== */
 /* ------------------------------------------------------------------ *
  * panel.js —— 剧情罗盘浏览器端工作台面板、输入栏挂载与状态卡
- * 所有 UI 控件均自包含实现，仅依赖宿主注入的 React 与 tavernUi 接口
+ *
+ * 视觉与交互与「命运之骰」工作台完全一致：
+ * 顶栏固定标题 + ? 说明 + 总开关 + 双页签（路线与推演 / 罗盘设置），
+ * 正文为独立滚动卡片区，底部浮动 toast；全部核心区域与设置项均配 ? / ×
+ * 左侧强调竖条多段详细说明卡（含「收起」与 Esc 关闭）。
  * ------------------------------------------------------------------ */
 
 const PC_PANEL_ID = 'plot-compass'
@@ -1093,6 +938,281 @@ const PC_GOAL_HORIZON_OPTIONS = Object.freeze([
   }
 ])
 
+/* 详细说明文案（与命运之骰同风格：分点分段，覆盖机制、各档差异与实用建议） */
+const PC_HELP = Object.freeze({
+  overview: [
+    '剧情罗盘是后台多路线编剧助手：结合人物卡设定、当前剧情进展、MVU 变量与未触发的世界书暗线，推演「今期（2–5 轮）」「中期（5–20 轮）」「长期（终局蓝图）」三个时间跨度的分支路线。',
+    '你可以随时「点亮」任意跨度的路线作为本局导向，系统会按设定的约束力度与推进节奏将其融入后续正文与下一步候选项角标；也可一键「分叉试玩」克隆平行存档体验不同走向。',
+    '顶栏总开关仅控制当前这一局是否启用剧情罗盘；关闭后已生成的路线会安全保留，随时可重新开启继续使用。',
+    '面板分为「路线与推演」（查看路线、点亮锚定、脑暴讨论与逐层拆解）和「罗盘设置」（题材标签、目标导向、约束力度、节奏、盲盒防剧透、自动更新、条目上限与推演模型）两页，所有 ? 均可点开查看详细说明。'
+  ].join('\n'),
+
+  brainstorm: [
+    '下方输入框默认走「脑暴对话」模式：你可以像和编剧搭档聊天一样讨论灵感、追问伏笔或试探转折，AI 会结合人设、现场定格与世界书暗线给出方案，不会直接覆盖当前已生成的路线卡片。',
+    '聊出满意思路后，点回复下方的「✨ 应用为今期」或「✦ 应用为全局」即可将讨论结果正式生成为路线卡片；若不想聊天只想直接重推，点「✨ 直接重推」即可按输入方向全局刷新今/中/长期路线。'
+  ].join('\n'),
+
+  funnel: [
+    '这里汇总本局所有正在生效的剧情导向（目标导向 + 今期 / 中期 / 长期已点亮路线），点击任意胶囊可快速切到对应跨度查看卡片详情。',
+    '若点亮的今期节拍连续 2 轮以上未达成（且约束力度不是「软铺垫」），系统会自动亮起「⚡ 停滞加压中」标记，在下轮适当加强破局推力，防止剧情原地打转。',
+    '点「✏️ 微调引导」可在不重推路线的前提下，临时补充一句导演侧重点（例如「本段多给对话交锋与误会，先别点破真相」），下轮正文立即生效；点「生成联动候选项」可立即刷新带路线角标的下一步行动建议。'
+  ].join('\n'),
+
+  horizons: [
+    '今期（2–5 轮）：聚焦眼前这一幕的破局动作与小高潮节拍，点亮后直接联动下一步候选项角标，每步节拍会随新回合自动打勾，也可手动点选调整进度。',
+    '中期（5–20 轮）：规划篇章级转折、隐藏支线与阶段里程碑（入线 → 升级 → 抉择 → 高潮），可点「拆解今期 ↘」把选中的中期篇章细化成眼前的今期路线。',
+    '长期（终局蓝图）：给出多结局命运假想与达成前置拐点；点亮长期路线时，前台正文只会收到无剧透的「防剧透暗流指引」，营造宿命氛围而不抢跑结局。可点「拆解中期 ↘」逐层落地。'
+  ].join('\n'),
+
+  settingsSection: [
+    '这一区控制本局剧情罗盘的题材偏向、目标导向、约束力度、推进节奏、盲盒防剧透与刷新频率；每改一项即时生效并自动保存，无需额外提交。',
+    '除「推演模型」为所有对话全局共用外，其余偏好均按当前对局独立保存，不同人物卡和存档可各自采用不同玩法。'
+  ].join('\n'),
+
+  archetypes: [
+    '决定 AI 推演分支路线时优先发散哪些戏剧维度（如情感拉扯、权谋博弈、悬疑调查、修罗场、经营养成等）。',
+    '未手动指定时，推演会自动根据人物卡与当前剧情识别题材；手动锁定 1–5 个标签后，后续推演与刷新会严格围绕这些流派展开。支持点选预设或输入最多 16 字的自定义流派。'
+  ].join('\n'),
+
+  goal: [
+    '默认未设置时，罗盘会发散出风格迥异的多结局自由剧情树；设定「目标导向」后，后续生成的分支路线会「殊途同归」全部收束导向你期望的结果。',
+    '短期目标（2–5 轮）：近期所有路线直接导向达成此结果，中长期路线以此为起点顺延。',
+    '中期目标（5–20 轮）：短期路线作为先导阶梯蓄势，中期篇章路线全部汇聚达成此结果。',
+    '长期目标（20+ 轮至终局）：短中期层层铺路搭桥，长期所有终局蓝图均严格导向该结局（不生成背离结局的分支）。支持随时「暂停」恢复自由发散而保留已填内容。'
+  ].join('\n'),
+
+  strength: [
+    '决定已点亮路线（或目标导向）对前台主写作模型的影响强度：',
+    '软铺垫：仅在常规位置注入氛围与风声提示，不主动打断当前自由对话，适合随缘推进、偶尔借灵感的轻度引导。',
+    '强牵引（默认）：置底导演级引导，在充分回应你当前行动的同时，借在场角色或环境契机实质性推进目标节拍，兼顾自由度与推进效率。',
+    '硬性兑现：置底必达裁定，除主角物理受困或明确反向掀桌外，本轮必须正面促成或引爆当前目标节拍，适合想快速兑现关键剧情的场合。'
+  ].join('\n'),
+
+  pace: [
+    '控制当前目标节拍在正文里的展开速度与张力释放方式：',
+    '只铺垫：侧重感官前兆、试探交锋与悬念蓄势，把局面推至临界点而留白最终摊牌，适合慢热拉扯与悬疑铺陈。',
+    '自然推进（默认）：顺应角色性格与现场因果把当前目标节拍扎实演透，不急不拖。',
+    '尽快引爆：拉满戏剧张力，推动当前节拍或潜藏冲突在本轮正面对撞，适合高燃高潮或快速破冰。'
+  ].join('\n'),
+
+  blindBox: [
+    '开启后，所有路线卡片的详细节拍、因果依据、收益风险与终局剧透都会被自动遮罩，仅保留路线标题、方向基调与世界内预兆风声，让你像玩未知剧本一样在正文中亲自探索。',
+    '需要核对某张卡细节时，可随时点击该卡的「👀 临时查看此卡剧透」单独掀开，再点「🙈 收起剧透」恢复遮罩；关闭开关即全体切回明牌模式。'
+  ].join('\n'),
+
+  autoUpdate: [
+    '设置每隔多少楼回合结算后，后台自动执行一次全层演进刷新，让路线进度与最新剧情保持同步，不影响继续对话。',
+    '关闭（默认）：仅在你手动点「全局演进刷新」或触发归卷时更新，最省模型调用。',
+    '可选每 3 / 5 / 10 楼预设，或点「自定义」输入 1–100 之间的任意整数楼数；开启后会实时显示距离下次全局刷新的剩余楼数。'
+  ].join('\n'),
+
+  maxRoutes: [
+    '控制今期、中期、长期每个时间跨度每次推演与保留的路线条目上限，支持 1–10 条，默认 4 条。',
+    '调小（如 2–3 条）可让路线更聚焦、推演更快、面板更清爽；调大（如 6 条）可获得更丰富的分支脑洞与多结局对比。'
+  ].join('\n'),
+
+  model: [
+    '指定剧情罗盘执行路线推演与脑暴对话所用的模型，此项为全局设置，所有对话共用：',
+    '跟随后台（默认）：复用当前对话或全局后台模型，兼顾速度与开销。',
+    '跟随前台：复用当前对话的主写作前台模型，文风与人物理解最一致，但耗时与成本较高。',
+    '独立：为剧情罗盘单独指定一个服务商/模型（及可选推理强度），不受前后台模型切换影响。'
+  ].join('\n')
+})
+
+function pcUseRef(initial) {
+  return typeof React.useRef === 'function' ? React.useRef(initial) : { current: initial }
+}
+
+function pcHelpLines(text) {
+  if (text === undefined || text === null || text === false || text === '') return []
+  const raw = Array.isArray(text) ? text : [text]
+  const out = []
+  raw.forEach(item => {
+    if (item === undefined || item === null || item === false || item === '') return
+    if (typeof item === 'string' || typeof item === 'number') {
+      String(item).split('\n').forEach(part => {
+        const line = part.trim()
+        if (line) out.push(line)
+      })
+      return
+    }
+    out.push(item)
+  })
+  return out
+}
+
+function pcHelpTitle(title) {
+  return typeof title === 'string' || typeof title === 'number' ? String(title) : '详细说明'
+}
+
+function pcHasHelp(help) {
+  return help !== undefined && help !== null && help !== false && help !== ''
+}
+
+function pcRevealHelp(open, node) {
+  if (!open || !node || typeof node.scrollIntoView !== 'function') return
+  node.scrollIntoView({ block: 'nearest' })
+}
+
+/* 说明按钮（受控）：圆角 ? / 展开后变 ×，与命运之骰 FdHelpToggle 一致 */
+function PcHelpToggle(props) {
+  const { title, open, onToggle } = props || {}
+  const plain = pcHelpTitle(title)
+  const label = '查看说明：' + plain
+  return h('button', {
+    type: 'button',
+    className: 'pc-help-btn' + (open ? ' is-open' : ''),
+    'aria-label': label,
+    'aria-expanded': open ? 'true' : 'false',
+    title: open ? '收起说明：' + plain : label,
+    onClick: event => {
+      if (event && typeof event.preventDefault === 'function') event.preventDefault()
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+      if (typeof onToggle === 'function') onToggle(!open)
+    },
+    onKeyDown: event => {
+      if (event && event.key === 'Escape' && open) {
+        event.preventDefault()
+        if (typeof onToggle === 'function') onToggle(false)
+      }
+    }
+  }, open ? '×' : '?')
+}
+
+/* 说明卡片（左侧强调竖条 + 标题 + 右上角「收起」，深浅主题自适应） */
+function pcHelpPop(title, help, onClose, ref) {
+  const lines = pcHelpLines(help)
+  const stop = event => {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault()
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+  }
+  return h('div', { ref, className: 'pc-help-pop', role: 'note' },
+    h('div', { className: 'pc-help-pop-head' },
+      h('span', { className: 'pc-help-pop-title' }, pcHelpTitle(title)),
+      h('button', {
+        type: 'button',
+        className: 'pc-help-close',
+        'aria-label': '收起说明',
+        onClick: event => {
+          stop(event)
+          if (typeof onClose === 'function') onClose()
+        }
+      }, '收起')),
+    h('div', { className: 'pc-help-pop-body' },
+      lines.length
+        ? lines.map((line, idx) => h('p', { key: idx, className: 'pc-help-line' }, String(line)))
+        : h('p', { className: 'pc-help-line' }, '暂无说明')))
+}
+
+function PcBtn(props) {
+  const { children, onClick, primary, danger, small, disabled, title, ariaLabel } = props || {}
+  const cls = 'pc-btn' + (primary ? ' is-primary' : '') + (danger ? ' is-danger' : '') + (small ? ' is-sm' : '')
+  return h('button', {
+    type: 'button',
+    className: cls,
+    onClick: typeof onClick === 'function' ? onClick : undefined,
+    disabled: Boolean(disabled),
+    title: title || undefined,
+    'aria-label': ariaLabel || undefined
+  }, children)
+}
+
+function PcChip(props) {
+  const { children, onClick, active, tone, disabled, title } = props || {}
+  return h('button', {
+    type: 'button',
+    className: 'pc-chip' + (active ? ' is-active' : '') + (tone ? ' is-' + tone : ''),
+    disabled: Boolean(disabled),
+    onClick: typeof onClick === 'function' ? onClick : undefined,
+    title: title || undefined,
+    'aria-pressed': active ? 'true' : 'false'
+  }, children)
+}
+
+function PcBadge(props) {
+  const { children, tone, title } = props || {}
+  return h('span', {
+    className: 'pc-badge' + (tone ? ' is-' + tone : ''),
+    title: title || undefined
+  }, children)
+}
+
+function PcSwitch({ label, checked, disabled, onChange }) {
+  return h('button', {
+    type: 'button',
+    role: 'switch',
+    'aria-label': label || '开关',
+    'aria-checked': checked ? 'true' : 'false',
+    disabled: Boolean(disabled),
+    className: 'pc-switch' + (checked ? ' is-on' : ''),
+    onClick: () => {
+      if (!disabled && typeof onChange === 'function') onChange(!checked)
+    }
+  })
+}
+
+function PcSection(props) {
+  const { title, helpTitle, help, note, actions, accent, ariaLabel, children } = props || {}
+  const withHelp = pcHasHelp(help)
+  const [open, setOpen] = useState(false)
+  const helpRef = pcUseRef(null)
+  useEffect(() => { pcRevealHelp(open, helpRef.current) }, [open])
+  const plainTitle = helpTitle || title
+  return h('section', { className: 'pc-section' + (accent ? ' is-accent' : ''), 'aria-label': ariaLabel || plainTitle },
+    title || actions || note || withHelp
+      ? h('div', { className: 'pc-section-head' },
+        h('span', { className: 'pc-label-row' },
+          title ? h('span', { className: 'pc-section-title' }, title) : null,
+          withHelp ? h(PcHelpToggle, { title: plainTitle, open, onToggle: value => setOpen(Boolean(value)) }) : null),
+        note ? h('span', { className: 'pc-section-note' }, note) : null,
+        actions ? h('div', { className: 'pc-btn-row' }, actions) : null)
+      : null,
+    withHelp && open ? pcHelpPop(plainTitle, help, () => setOpen(false), helpRef) : null,
+    children)
+}
+
+function PcRow(props) {
+  const { title, help, sub, children, plain } = props || {}
+  const withHelp = pcHasHelp(help)
+  const [open, setOpen] = useState(false)
+  const helpRef = pcUseRef(null)
+  useEffect(() => { pcRevealHelp(open, helpRef.current) }, [open])
+  return h('div', { className: 'pc-row' + (plain ? ' is-plain' : '') },
+    h('div', { className: 'pc-row-main' },
+      h('div', { className: 'pc-label-row' },
+        h('span', { className: 'pc-row-title' }, title),
+        withHelp ? h(PcHelpToggle, { title, open, onToggle: value => setOpen(Boolean(value)) }) : null),
+      withHelp && open ? pcHelpPop(title, help, () => setOpen(false), helpRef) : null,
+      sub ? h('span', { className: 'pc-row-sub' }, sub) : null),
+    children ? h('div', { className: 'pc-row-end' }, children) : null)
+}
+
+function PcField(props) {
+  const { label, help, hint, actions, children } = props || {}
+  const withHelp = pcHasHelp(help)
+  const [open, setOpen] = useState(false)
+  const helpRef = pcUseRef(null)
+  useEffect(() => { pcRevealHelp(open, helpRef.current) }, [open])
+  return h('div', { className: 'pc-field' },
+    label || withHelp || actions
+      ? h('div', { className: 'pc-section-head' },
+        h('div', { className: 'pc-label-row' },
+          label ? h('span', { className: 'pc-field-label' }, label) : null,
+          withHelp ? h(PcHelpToggle, { title: label, open, onToggle: value => setOpen(Boolean(value)) }) : null),
+        actions ? h('div', { className: 'pc-btn-row' }, actions) : null)
+      : null,
+    withHelp && open ? pcHelpPop(label, help, () => setOpen(false), helpRef) : null,
+    children,
+    hint ? h('span', { className: 'pc-hint' }, hint) : null)
+}
+
+function PcSpinner({ className }) {
+  return h('span', {
+    className: 'dsh-tavern-compass-spinner' + (className ? ' ' + className : ''),
+    'aria-hidden': 'true'
+  })
+}
+
 function pcEmptyCompass() {
   return {
     strength: 'guided',
@@ -1163,27 +1283,6 @@ async function pcCall(ui, name, args) {
     throw new Error(res.error || '操作失败')
   }
   return res || {}
-}
-
-function PcSwitch({ label, checked, disabled, onChange }) {
-  return h('button', {
-    type: 'button',
-    role: 'switch',
-    'aria-label': label,
-    'aria-checked': checked ? 'true' : 'false',
-    disabled: Boolean(disabled),
-    className: 'dsh-tavern-compass-switch' + (checked ? ' is-checked' : ''),
-    onClick: () => {
-      if (!disabled && typeof onChange === 'function') onChange(!checked)
-    }
-  }, h('span', { className: 'dsh-tavern-compass-switch-thumb' }))
-}
-
-function PcSpinner({ className }) {
-  return h('span', {
-    className: 'dsh-tavern-compass-spinner' + (className ? ' ' + className : ''),
-    'aria-hidden': 'true'
-  })
 }
 
 function usePlotCompassState(ui, gameId) {
@@ -1329,9 +1428,6 @@ function PlotCompassComposerDock({ ui, gameId, sessionId }) {
   )
 }
 
-// 输入框尾部工具区的紧凑入口（tavernUi.registerComposerTool，apiVersion 10）：
-// 只放一个图标，与模型席、提交键同一行。这样罗盘不再独占输入框上方的一行，
-// 也就不会把末尾正文挤进输入座位顶部的淡出带里。状态靠小圆点表达，文字放在 title。
 function PlotCompassComposerTool({ ui, sessionId, busy }) {
   const id = String(sessionId || '')
   const { state } = usePlotCompassState(ui, id)
@@ -1408,6 +1504,9 @@ function PlotCompassPanel({ ui, gameId }) {
   const sessionId = String(gameId || '')
   const { state, setState, refresh } = usePlotCompassState(ui, sessionId)
 
+  const [panelTab, setPanelTab] = useState('routes')
+  const [overviewHelpOpen, setOverviewHelpOpen] = useState(false)
+  const overviewHelpRef = pcUseRef(null)
   const [activeHorizon, setActiveHorizon] = useState('shortTerm')
   const [guidance, setGuidance] = useState('')
   const [editingArchetypes, setEditingArchetypes] = useState(false)
@@ -1432,6 +1531,23 @@ function PlotCompassPanel({ ui, gameId }) {
   const [intervalDraft, setIntervalDraft] = useState('')
   const [customMaxRoutesOpen, setCustomMaxRoutesOpen] = useState(false)
   const [maxRoutesDraft, setMaxRoutesDraft] = useState(String(PC_MAX_ROUTES_DEFAULT))
+  const toastTimer = pcUseRef(null)
+
+  useEffect(() => { pcRevealHelp(overviewHelpOpen, overviewHelpRef.current) }, [overviewHelpOpen])
+
+  function notify(message) {
+    setLocalNotice(String(message || ''))
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    if (message) {
+      toastTimer.current = setTimeout(() => {
+        setLocalNotice(prev => (prev === message ? '' : prev))
+      }, 4200)
+    }
+  }
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+  }, [])
 
   const compass = state.plotCompass || pcEmptyCompass()
   const compassEnabled = state.enabled === true
@@ -1454,6 +1570,7 @@ function PlotCompassPanel({ ui, gameId }) {
   const currentStrength = PC_STRENGTH_OPTIONS.some(opt => opt.key === compass.strength) ? compass.strength : 'guided'
   const currentStrengthOption = PC_STRENGTH_OPTIONS.find(opt => opt.key === currentStrength) || PC_STRENGTH_OPTIONS[1]
   const currentPace = compass.pace || 'natural'
+  const currentPaceOption = PC_PACE_OPTIONS.find(opt => opt.key === currentPace) || PC_PACE_OPTIONS[1]
   const stalledTurns = Math.max(0, Number(compass.stalledTurns) || 0)
   const blindBox = compass.blindBox === true
   const customDirective = String(compass.customDirective || '')
@@ -1549,7 +1666,7 @@ function PlotCompassPanel({ ui, gameId }) {
       }
       await refresh()
       setPickingIndependentModel(false)
-      if (message) setLocalNotice(message)
+      if (message) notify(message)
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1566,7 +1683,7 @@ function PlotCompassPanel({ ui, gameId }) {
       await pcCall(ui, 'plot-compass:set-enabled', { gameId: sessionId, enabled: Boolean(nextEnabled) })
       setState(prev => ({ ...prev, enabled: Boolean(nextEnabled) }))
       await refresh()
-      setLocalNotice(nextEnabled ? '已开启剧情罗盘。' : '已关闭剧情罗盘，本局将不再注入提示词或自动演进，已有路线已保留。')
+      notify(nextEnabled ? '已开启剧情罗盘。' : '已关闭剧情罗盘，本局将不再注入提示词或自动演进，已有路线已保留。')
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1624,7 +1741,7 @@ function PlotCompassPanel({ ui, gameId }) {
       if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
       setChatOpen(false)
       await refresh()
-      setLocalNotice('已清空脑暴对话记录。')
+      notify('已清空脑暴对话记录。')
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1636,6 +1753,7 @@ function PlotCompassPanel({ ui, gameId }) {
     const target = scope === 'shortTerm' ? 'shortTerm' : 'all'
     const promptText = '请严格围绕我们刚才在罗盘对话里讨论通过的以下思路，直接生成并更新正式的多分支路线规划：\n' + String(ideaText || '').slice(0, 680)
     if (target === 'shortTerm') setActiveHorizon('shortTerm')
+    setPanelTab('routes')
     await runGenerate(target, promptText)
   }
 
@@ -1663,7 +1781,7 @@ function PlotCompassPanel({ ui, gameId }) {
       const res = await pcCall(ui, 'plot-compass:pin', { gameId: sessionId, horizon, routeId: route.id })
       if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
       await refresh()
-      setLocalNotice(wasPinned
+      notify(wasPinned
         ? '已取消锚定「' + route.title + '」'
         : '已点亮「' + route.title + '」，将按「' + currentStrengthOption.label + '」力度牵引后续正文与候选项。')
     } catch (err) {
@@ -1705,7 +1823,7 @@ function PlotCompassPanel({ ui, gameId }) {
       const targetId = typeof forked === 'string' ? forked : String(forked?.gameId || '')
       if (targetId) {
         await pcCall(ui, 'plot-compass:pin', { gameId: targetId, horizon, routeId: route.id, exact: true })
-        setLocalNotice('已分叉平行存档，并点亮「' + route.title + '」。')
+        notify('已分叉平行存档，并点亮「' + route.title + '」。')
       }
     } catch (err) {
       setLocalError(String(err && err.message || err))
@@ -1734,7 +1852,7 @@ function PlotCompassPanel({ ui, gameId }) {
     setLocalNotice('')
     try {
       await ui.regenerateCandidates(sessionId, '')
-      setLocalNotice('已提交候选项生成，新候选项将携带当前罗盘路线角标。')
+      notify('已提交候选项生成，新候选项将携带当前罗盘路线角标。')
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1785,10 +1903,11 @@ function PlotCompassPanel({ ui, gameId }) {
       await refresh()
       if (andRegenerate) {
         setBusyAction('')
+        setPanelTab('routes')
         await runGenerate('all')
         return
       }
-      setLocalNotice(finalTags.length ? '已锁定游玩类型标签：' + finalTags.join('、') : '已恢复自动识别游玩类型')
+      notify(finalTags.length ? '已锁定游玩类型标签：' + finalTags.join('、') : '已恢复自动识别游玩类型')
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1828,6 +1947,7 @@ function PlotCompassPanel({ ui, gameId }) {
       await refresh()
       if (andRegenerate && !isRunning) {
         setBusyAction('')
+        setPanelTab('routes')
         setActiveHorizon(opt.key)
         await runGenerate(
           'all',
@@ -1835,7 +1955,7 @@ function PlotCompassPanel({ ui, gameId }) {
         )
         return
       }
-      setLocalNotice('已开启「' + opt.label + '」目标导向，后续生成的剧情树与正文推进将导向此结果。')
+      notify('已开启「' + opt.label + '」目标导向，后续生成的剧情树与正文推进将导向此结果。')
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1855,7 +1975,7 @@ function PlotCompassPanel({ ui, gameId }) {
       })
       if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
       await refresh()
-      setLocalNotice(nextEnabled
+      notify(nextEnabled
         ? '已恢复「' + savedGoalHorizonOpt.label + '」目标导向，后续生成的剧情树将导向所设目标。'
         : '已暂停目标导向，恢复自由发散推演（目标内容已保留）。')
     } catch (err) {
@@ -1880,7 +2000,7 @@ function PlotCompassPanel({ ui, gameId }) {
       setGoalTextDraft('')
       setEditingGoal(false)
       await refresh()
-      setLocalNotice('已清除目标导向，恢复多结局自由发散模式。')
+      notify('已清除目标导向，恢复多结局自由发散模式。')
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1896,7 +2016,7 @@ function PlotCompassPanel({ ui, gameId }) {
       const res = await pcCall(ui, 'plot-compass:set-preferences', { gameId: sessionId, ...patch })
       if (res.plotCompass) setState(prev => ({ ...prev, plotCompass: res.plotCompass }))
       await refresh()
-      if (noticeText) setLocalNotice(noticeText)
+      if (noticeText) notify(noticeText)
     } catch (err) {
       setLocalError(String(err && err.message || err))
     } finally {
@@ -1957,22 +2077,28 @@ function PlotCompassPanel({ ui, gameId }) {
     setPeekedCards(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
+  const topTitleBlock = h('h3', { className: 'pc-wb-title' },
+    '🧭 剧情罗盘',
+    h(PcHelpToggle, { title: '剧情罗盘', open: overviewHelpOpen, onToggle: value => setOverviewHelpOpen(Boolean(value)) }))
+
   if (!sessionId) {
-    return h('aside', { className: 'dsh-tavern-status dsh-tavern-compass-panel' },
-      h('div', { className: 'dsh-tavern-status-head' }, h('div', { className: 'dsh-tavern-status-title' }, '剧情罗盘')),
-      h('div', { className: 'dsh-tavern-status-body' },
-        h('p', { className: 'dsh-tavern-compass-desc' }, '请先打开一局游玩对话，即可推演今期、中期、长期的多路线剧情发展灵感。')
-      )
-    )
+    return h('aside', { className: 'pc-root pc-workbench' },
+      h('div', { className: 'pc-wb-top' },
+        h('div', { className: 'pc-wb-head' }, topTitleBlock),
+        overviewHelpOpen ? pcHelpPop('剧情罗盘', PC_HELP.overview, () => setOverviewHelpOpen(false), overviewHelpRef) : null),
+      h('div', { className: 'pc-wb-scroll' },
+        h('div', { className: 'pc-empty' },
+          h('p', { className: 'pc-hint' }, '请先打开一局游玩对话，即可推演今期、中期、长期的多路线剧情发展灵感。'))))
   }
 
   if (!state.loaded) {
-    return h('aside', { className: 'dsh-tavern-status dsh-tavern-compass-panel' },
-      h('div', { className: 'dsh-tavern-status-head' }, h('div', { className: 'dsh-tavern-status-title' }, '剧情罗盘')),
-      h('div', { className: 'dsh-tavern-status-body' },
-        h('p', { className: 'dsh-tavern-compass-desc' }, '正在读取当前对局…')
-      )
-    )
+    return h('aside', { className: 'pc-root pc-workbench', 'aria-busy': true },
+      h('div', { className: 'pc-wb-top' },
+        h('div', { className: 'pc-wb-head' }, topTitleBlock),
+        overviewHelpOpen ? pcHelpPop('剧情罗盘', PC_HELP.overview, () => setOverviewHelpOpen(false), overviewHelpRef) : null),
+      h('div', { className: 'pc-wb-scroll' },
+        h('div', { className: 'pc-section' },
+          h('p', { className: 'pc-hint', role: 'status' }, '正在读取当前对局…'))))
   }
 
   const activeMeta = PC_HORIZON_META.find(m => m.key === activeHorizon) || PC_HORIZON_META[0]
@@ -1990,6 +2116,85 @@ function PlotCompassPanel({ ui, gameId }) {
     setActiveHorizon(PC_HORIZON_META[nextAt].key)
   }
 
+  function renderGoalBlock() {
+    if (editingGoal) {
+      return h('div', { className: 'pc-goal-box', role: 'region', 'aria-label': '目标导向设置' },
+        h('div', { className: 'pc-tabbar is-3', role: 'group', 'aria-label': '目标时间跨度' },
+          PC_GOAL_HORIZON_OPTIONS.map(opt => {
+            const selected = goalDraftHorizonOpt.key === opt.key
+            return h('button', {
+              key: opt.key,
+              type: 'button',
+              className: 'pc-tab' + (selected ? ' is-active' : ''),
+              disabled: Boolean(busyAction),
+              'aria-pressed': selected ? 'true' : 'false',
+              title: opt.title,
+              onClick: () => setGoalHorizonDraft(opt.key)
+            }, h('span', { className: 'pc-tab-title' }, opt.label), h('small', null, opt.span))
+          })),
+        h('input', {
+          type: 'text',
+          className: 'pc-input',
+          'aria-label': '目标结果内容',
+          maxLength: 300,
+          placeholder: goalDraftHorizonOpt.placeholder,
+          value: goalTextDraft,
+          disabled: Boolean(busyAction),
+          onChange: e => setGoalTextDraft(e.target.value),
+          onKeyDown: e => {
+            if (e.key === 'Enter' && !e.isComposing && goalTextDraft.trim()) {
+              e.preventDefault()
+              saveGoal(!isRunning)
+            }
+          }
+        }),
+        h('p', { className: 'pc-hint' }, goalDraftHorizonOpt.hint),
+        h('div', { className: 'pc-btn-row' },
+          h(PcBtn, {
+            small: true, primary: true,
+            disabled: Boolean(busyAction) || isRunning || !goalTextDraft.trim(),
+            title: '保存目标导向并立即推演导向该目标结果的整棵剧情树',
+            onClick: () => saveGoal(true)
+          }, '保存并推演剧情树'),
+          h(PcBtn, {
+            small: true,
+            disabled: Boolean(busyAction) || !goalTextDraft.trim(),
+            title: '保存目标导向，后续手动推演、自动演进与正文推进均将导向此结果',
+            onClick: () => saveGoal(false)
+          }, '仅保存目标'),
+          hasSavedGoal ? h(PcBtn, { small: true, danger: true, disabled: Boolean(busyAction), onClick: clearGoal }, '清除目标') : null,
+          h(PcBtn, { small: true, disabled: Boolean(busyAction), onClick: () => setEditingGoal(false) }, '取消')))
+    }
+
+    if (hasSavedGoal) {
+      return h('div', {
+        className: 'pc-goal-box' + (rawGoal.enabled ? '' : ' is-paused'),
+        'aria-label': '当前目标导向'
+      },
+        h('div', { className: 'pc-section-head' },
+          h('div', { className: 'pc-badge-row' },
+            h('strong', { style: { fontSize: '12px' } }, '🎯 目标导向'),
+            h(PcBadge, { tone: rawGoal.enabled ? 'ok' : 'off' }, savedGoalHorizonOpt.label + ' · ' + savedGoalHorizonOpt.span),
+            !rawGoal.enabled ? h(PcBadge, { tone: 'off' }, '已暂停') : null),
+          h('div', { className: 'pc-btn-row' },
+            h(PcChip, { disabled: Boolean(busyAction), onClick: () => toggleGoalEnabled(!rawGoal.enabled) }, rawGoal.enabled ? '暂停' : '启用'),
+            h(PcChip, { disabled: Boolean(busyAction), onClick: openGoalEditor }, '修改'),
+            h(PcChip, { disabled: Boolean(busyAction), onClick: clearGoal }, '清除'))),
+        h('p', { className: 'pc-goal-text' }, savedGoalText))
+    }
+
+    return h('div', { className: 'pc-row is-plain' },
+      h('div', { className: 'pc-row-main' },
+        h('span', { className: 'pc-row-sub' }, '未设置（默认发散多结局自由剧情树）')),
+      h('div', { className: 'pc-row-end' },
+        h(PcBtn, {
+          small: true,
+          disabled: Boolean(busyAction),
+          title: '设置短期 / 中期 / 长期目标结果，使后续生成的剧情树全部导向达成该结果',
+          onClick: openGoalEditor
+        }, '🎯 设置目标')))
+  }
+
   function renderRouteCard(horizon, route) {
     const isPinned = currentPinnedId === route.id
     const steps = horizon === 'shortTerm' ? (route.beats || []) : horizon === 'midTerm' ? (route.milestones || []) : []
@@ -2000,823 +2205,638 @@ function PlotCompassPanel({ ui, gameId }) {
 
     return h('article', {
       key: route.id,
-      className: 'dsh-tavern-compass-card' + (isPinned ? ' is-pinned' : '') + (isMasked ? ' is-blindbox' : ''),
+      className: 'pc-card' + (isPinned ? ' is-pinned' : '') + (isMasked ? ' is-blindbox' : ''),
       'data-horizon': horizon
     },
-      h('header', { className: 'dsh-tavern-compass-card-head' },
-        h('div', { className: 'dsh-tavern-compass-card-titles' },
-          h('span', { className: 'dsh-tavern-compass-route-tag' }, '〔' + route.tag + '〕'),
-          h('h4', { className: 'dsh-tavern-compass-card-title' }, route.title)
-        ),
-        h('div', { className: 'dsh-tavern-compass-card-badges' },
-          route.direction || route.tone ? h('span', { className: 'dsh-tavern-compass-pill is-direction' }, route.direction || route.tone) : null,
-          route.sourceHook ? h('span', { className: 'dsh-tavern-compass-pill is-hook', title: '灵感来源' }, route.sourceHook) : null,
-          isPinned ? h('span', { className: 'dsh-tavern-compass-pill is-active' }, '★ 已锚定') : null
-        )
-      ),
+      h('header', { className: 'pc-card-head' },
+        h('div', { className: 'pc-card-titles' },
+          h('span', { className: 'pc-route-tag' }, '〔' + route.tag + '〕'),
+          h('h4', { className: 'pc-card-title' }, route.title)),
+        h('div', { className: 'pc-badge-row' },
+          route.direction || route.tone ? h(PcBadge, null, route.direction || route.tone) : null,
+          route.sourceHook ? h(PcBadge, { tone: 'warn', title: '灵感来源' }, route.sourceHook) : null,
+          isPinned ? h(PcBadge, { tone: 'ok' }, '★ 已锚定') : null)),
       isMasked
-        ? h('div', { className: 'dsh-tavern-compass-blindbox-mask' },
-            h('p', { className: 'dsh-tavern-compass-blindbox-hint' },
+        ? h('div', { className: 'pc-blindbox-mask' },
+            h('p', { className: 'pc-meta-line' },
               route.diegeticOmen
                 ? '🎁 盲盒防剧透已开启（已隐藏走向与节点）：' + route.diegeticOmen
-                : '🎁 盲盒防剧透已开启：详细节拍、因果依据与终局剧透已遮罩，仅保留方向基调，放心在正文中探索未知。'
-            ),
-            steps.length > 0 ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle' }, '当前进度：' + doneCount + '/' + steps.length + ' 阶段已完成') : null,
-            h('button', {
-              type: 'button',
-              className: 'dsh-tavern-compass-link-btn',
-              onClick: () => toggleCardPeek(horizon, route.id)
-            }, '👀 临时查看此卡剧透')
-          )
+                : '🎁 盲盒防剧透已开启：详细节拍、因果依据与终局剧透已遮罩，仅保留方向基调，放心在正文中探索未知。'),
+            steps.length > 0 ? h('p', { className: 'pc-meta-line is-subtle' }, '当前进度：' + doneCount + '/' + steps.length + ' 阶段已完成') : null,
+            h(PcChip, { onClick: () => toggleCardPeek(horizon, route.id) }, '👀 临时查看此卡剧透'))
         : h(Fragment, null,
-            blindBox ? h('div', { className: 'dsh-tavern-compass-peek-bar' },
-              h('button', {
-                type: 'button',
-                className: 'dsh-tavern-compass-link-btn',
-                onClick: () => toggleCardPeek(horizon, route.id)
-              }, '🙈 收起剧透（恢复盲盒遮罩）')
-            ) : null,
-            h('p', { className: 'dsh-tavern-compass-card-summary' }, horizon === 'longTerm' ? route.vision : route.summary),
-            route.causalBasis && horizon !== 'longTerm' ? h('p', { className: 'dsh-tavern-compass-meta-line is-causal' },
-              h('strong', null, '因果依据：'), route.causalBasis
-            ) : null,
-            horizon === 'shortTerm' && route.sceneTrigger ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle', title: '仅在对话空转时供正文参考的破冰引子，不限制候选与正文的临场演法' },
-              h('strong', null, '破冰参考：'), route.sceneTrigger
-            ) : null,
-            horizon === 'midTerm' && route.entryHook ? h('div', { className: 'dsh-tavern-compass-callout' },
-              h('strong', null, '入线契机：'),
-              h('span', null, route.entryHook)
-            ) : null,
-            steps.length > 0 ? h('div', { className: 'dsh-tavern-compass-steps' },
-              h('div', { className: 'dsh-tavern-compass-steps-head' },
-                h('span', null, (horizon === 'shortTerm' ? '推进节拍' : '篇章里程碑') + ' · 随新回合自动打勾（也可手动点选）'),
-                h('span', null, doneCount + '/' + steps.length)
-              ),
-              h('ul', { className: 'dsh-tavern-compass-step-list' }, steps.map((step, idx) => {
+            blindBox ? h('div', { className: 'pc-btn-row', style: { justifyContent: 'flex-end' } },
+              h(PcChip, { onClick: () => toggleCardPeek(horizon, route.id) }, '🙈 收起剧透')) : null,
+            h('p', { className: 'pc-card-summary' }, horizon === 'longTerm' ? route.vision : route.summary),
+            route.causalBasis && horizon !== 'longTerm' ? h('p', { className: 'pc-meta-line' },
+              h('strong', null, '因果依据：'), route.causalBasis) : null,
+            horizon === 'shortTerm' && route.sceneTrigger ? h('p', { className: 'pc-meta-line is-subtle', title: '仅在对话空转时供正文参考的破冰引子，不限制候选与正文的临场演法' },
+              h('strong', null, '破冰参考：'), route.sceneTrigger) : null,
+            horizon === 'midTerm' && route.entryHook ? h('div', { className: 'pc-callout' },
+              h('strong', null, '入线契机：'), h('span', null, route.entryHook)) : null,
+            steps.length > 0 ? h('div', { className: 'pc-steps' },
+              h('div', { className: 'pc-steps-head' },
+                h('span', null, (horizon === 'shortTerm' ? '推进节拍' : '篇章里程碑') + ' · 随新回合自动打勾（可点选）'),
+                h('span', null, doneCount + '/' + steps.length)),
+              h('ul', { className: 'pc-step-list' }, steps.map((step, idx) => {
                 const checked = Boolean(step && step.done)
                 const roleLabel = horizon === 'midTerm' ? pcMidPhaseLabel(idx, steps.length) : ''
                 return h('li', { key: idx, className: checked ? 'is-done' : '' },
                   h('button', {
                     type: 'button',
-                    className: 'dsh-tavern-compass-step-btn',
+                    className: 'pc-step-btn',
                     disabled: Boolean(busyAction),
                     'aria-pressed': checked ? 'true' : 'false',
                     title: checked ? '标记为未完成' : '标记为已达成',
                     onClick: () => toggleStep(horizon, route.id, idx)
                   },
-                    h('span', { className: 'dsh-tavern-compass-check', 'aria-hidden': true }, checked ? '✓' : '○'),
-                    roleLabel ? h('span', { className: 'dsh-tavern-compass-phase-tag' }, roleLabel) : null,
-                    h('span', { className: 'dsh-tavern-compass-step-text' }, step.text)
-                  )
-                )
-              }))
-            ) : null,
-            horizon === 'midTerm' && route.stakes ? h('p', { className: 'dsh-tavern-compass-meta-line' },
-              h('strong', null, '收益与风险：'), route.stakes
-            ) : null,
-            horizon === 'longTerm' && Array.isArray(route.prerequisites) && route.prerequisites.length > 0 ? h('div', { className: 'dsh-tavern-compass-steps' },
-              h('div', { className: 'dsh-tavern-compass-steps-head' }, h('span', null, '达成前置拐点')),
-              h('ul', { className: 'dsh-tavern-compass-prereq-list' }, route.prerequisites.map((req, idx) => h('li', { key: idx }, req)))
-            ) : null,
-            horizon === 'longTerm' && route.toneGuidance ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle', title: '点亮此终局后，前台正文只会收到这句暗流基调，不会剧透或抢跑结局' },
-              h('strong', null, '防剧透暗流指引：'), route.toneGuidance
-            ) : null,
-            route.diegeticOmen && horizon !== 'shortTerm' ? h('p', { className: 'dsh-tavern-compass-meta-line is-subtle', title: '点亮此路线时，正文可通过传闻/异象自然透出此风声（不剧透）' },
-              h('strong', null, '世界内预兆：'), route.diegeticOmen
-            ) : null
-          ),
-      h('footer', { className: 'dsh-tavern-compass-card-actions' },
-        h('button', {
-          type: 'button',
-          className: 'dsh-tavern-btn' + (isPinned ? ' primary' : ''),
+                    h('span', { className: 'pc-check', 'aria-hidden': true }, checked ? '✓' : '○'),
+                    roleLabel ? h('span', { className: 'pc-phase-tag' }, roleLabel) : null,
+                    h('span', { className: 'pc-step-text' }, step.text)))
+              }))) : null,
+            horizon === 'midTerm' && route.stakes ? h('p', { className: 'pc-meta-line' },
+              h('strong', null, '收益与风险：'), route.stakes) : null,
+            horizon === 'longTerm' && Array.isArray(route.prerequisites) && route.prerequisites.length > 0 ? h('div', { className: 'pc-steps' },
+              h('div', { className: 'pc-steps-head' }, h('span', null, '达成前置拐点')),
+              h('ul', { className: 'pc-prereq-list' }, route.prerequisites.map((req, idx) => h('li', { key: idx }, req)))) : null,
+            horizon === 'longTerm' && route.toneGuidance ? h('p', { className: 'pc-meta-line is-subtle', title: '点亮此终局后，前台正文只会收到这句暗流基调，不会剧透或抢跑结局' },
+              h('strong', null, '防剧透暗流指引：'), route.toneGuidance) : null,
+            route.diegeticOmen && horizon !== 'shortTerm' ? h('p', { className: 'pc-meta-line is-subtle', title: '点亮此路线时，正文可通过传闻/异象自然透出此风声（不剧透）' },
+              h('strong', null, '世界内预兆：'), route.diegeticOmen) : null),
+      h('footer', { className: 'pc-btn-row' },
+        h(PcBtn, {
+          small: true,
+          primary: isPinned,
           disabled: Boolean(busyAction),
           onClick: () => togglePin(horizon, route)
         }, isPinned ? '✓ 已点亮（取消）' : '点亮此路线'),
-        horizon !== 'shortTerm' ? h('button', {
-          type: 'button',
-          className: 'dsh-tavern-btn',
+        horizon !== 'shortTerm' ? h(PcBtn, {
+          small: true,
           disabled: isRunning || Boolean(busyAction),
           title: horizon === 'longTerm' ? '围绕此终局推演配套的中期篇章路线' : '围绕此篇章推演眼前的今期节拍路线',
           onClick: () => drillDownRoute(horizon, route)
         }, horizon === 'longTerm' ? '拆解中期 ↘' : '拆解今期 ↘') : null,
-        ui && typeof ui.forkGame === 'function' ? h('button', {
-          type: 'button',
-          className: 'dsh-tavern-btn',
+        ui && typeof ui.forkGame === 'function' ? h(PcBtn, {
+          small: true,
           disabled: isRunning || Boolean(busyAction),
           title: '从当前回合克隆出一个独立平行存档，并自动点亮此路线',
           onClick: () => forkWithRoute(horizon, route)
-        }, '分叉试玩 ⑂') : null
-      )
-    )
+        }, '分叉试玩 ⑂') : null))
   }
 
-  return h('aside', { className: 'dsh-tavern-status dsh-tavern-compass-panel' },
-    h('div', { className: 'dsh-tavern-status-head' },
-      h('div', { className: 'dsh-tavern-status-title' }, '剧情罗盘'),
-      h('div', { className: 'dsh-tavern-compass-head-actions' },
-        compassEnabled && compass.basedOnTurn > 0 ? h('span', { className: 'dsh-tavern-compass-turn-badge' }, '第 ' + compass.basedOnTurn + ' 轮') : null,
-        h('div', { className: 'dsh-tavern-compass-switch-wrap', title: compassEnabled ? '关闭本局剧情罗盘' : '开启本局剧情罗盘' },
-          h('span', { className: 'dsh-tavern-compass-switch-text' }, compassEnabled ? '已开启' : '已关闭'),
-          h(PcSwitch, { label: '剧情罗盘', checked: compassEnabled, disabled: Boolean(busyAction), onChange: toggleEnabled })
-        ),
-        compassEnabled ? (
-          isRunning
-            ? h('button', { type: 'button', className: 'dsh-tavern-btn danger', disabled: busyAction === 'cancel', onClick: cancelGenerate }, '取消推演')
-            : h(Fragment, null,
-                hasAnyRoutes ? h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-btn',
-                  disabled: Boolean(busyAction),
-                  title: '作废当前全部路线与点亮标记，模型看不到旧路线，只按当前剧情重新推演一套独立方向',
-                  onClick: () => setConfirmingFresh(!confirmingFresh)
-                }, '✦ 全新生成') : null,
-                h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-btn primary',
-                  disabled: Boolean(busyAction),
-                  onClick: () => runGenerate('all')
-                }, hasAnyRoutes ? '全局演进刷新' : '✦ 推演多路线')
-              )
-        ) : null
-      )
-    ),
-    !compassEnabled
-      ? h('div', { className: 'dsh-tavern-status-body dsh-tavern-compass-body' },
-          localError ? h('div', { className: 'dsh-tavern-compass-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
-          localNotice ? h('p', { className: 'dsh-tavern-compass-notice', role: 'status' }, localNotice) : null,
-          h('div', { className: 'dsh-tavern-compass-disabled-card' },
-            h('strong', null, '剧情罗盘已关闭'),
-            h('p', { className: 'dsh-tavern-compass-desc' },
-              hasAnyRoutes
-                ? '当前对局已关闭剧情罗盘，后台推演/自动演进与提示词软引导已暂停，已生成的路线数据会为您安全保留，重新开启后可立即恢复使用。'
-                : '开启后，剧情罗盘会结合人设、剧情与世界书为您推演今期/中期/长期多路线分支方向，并支持点亮软引导与一键分叉试玩。'
-            ),
-            h('button', {
-              type: 'button',
-              className: 'dsh-tavern-btn primary',
+  const routesTabBody = h(Fragment, null,
+    confirmingFresh ? h('div', { className: 'pc-alert is-warn', role: 'dialog', 'aria-label': '确认全新生成' },
+      h('span', null,
+        '全新生成会作废当前盘面上的今期 / 中期 / 长期全部路线和点亮标记，模型也看不到这些旧内容，只会依据当前剧情重新推演一套独立方向。' +
+        (activeGoal ? '当前开启的「' + activeGoal.horizonLabel + '目标导向」会保留，新生成的剧情树仍将导向该目标结果。' : '已归档的历史记录会保留。') +
+        '确定继续？'),
+      h('div', { className: 'pc-btn-row', style: { justifyContent: 'flex-end' } },
+        h(PcBtn, { small: true, onClick: () => setConfirmingFresh(false) }, '取消'),
+        h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: () => runGenerate('all', undefined, { fresh: true }) }, '全新生成'))) : null,
+
+    isRunning ? h('div', { className: 'pc-alert is-info', role: 'status' },
+      h('div', { className: 'pc-alert-left' },
+        h(PcSpinner),
+        h('span', null, task.scope === 'chat'
+          ? '脑暴灵感助手正在结合人设、现场定格' + (activeGoal ? '与' + activeGoal.horizonLabel + '目标导向' : '与世界书暗线') + '构思回复…'
+          : '后台正在' + (activeGoal ? '围绕「' + activeGoal.horizonLabel + '目标导向」' : '结合人物卡、变量状态与世界书暗线') + '推演' + (task.scope === 'shortTerm' ? '今期' : task.scope === 'midTerm' ? '中期' : task.scope === 'longTerm' ? '长期' : '今期 / 中期 / 长期') + '路线…（不影响继续对话）'))) : null,
+
+    task.status === 'failed' && task.error ? h('div', { className: 'pc-alert is-error', role: 'alert' },
+      h('span', null, task.error),
+      task.scope !== 'chat' ? h(PcBtn, { small: true, disabled: isRunning || Boolean(busyAction), onClick: () => runGenerate(task.scope || 'all') }, '重试') : null) : null,
+
+    localError ? h('div', { className: 'pc-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
+
+    /* 局势摘要 + 目标导向 + 脑暴灵感对话 */
+    h(PcSection, {
+      title: '💬 局势与脑暴灵感',
+      helpTitle: '局势与脑暴灵感',
+      help: PC_HELP.brainstorm,
+      note: displayArchetypes.length ? displayArchetypes.slice(0, 3).join(' · ') : '自动识别题材'
+    },
+      compass.situationDigest ? h('p', { className: 'pc-digest' }, compass.situationDigest) : null,
+      renderGoalBlock(),
+      chatHistory.length > 0 ? h('div', { className: 'pc-section-head' },
+        h(PcChip, { onClick: () => setChatOpen(!chatOpen) }, (chatOpen ? '▾ 收起' : '▸ 展开') + '脑暴对话（' + chatHistory.length + '）'),
+        chatOpen ? h(PcChip, { disabled: isRunning || Boolean(busyAction), onClick: clearCompassChatHistory }, '清空记录') : null) : null,
+      chatOpen && chatHistory.length > 0 ? h('div', { className: 'pc-chat-thread', 'aria-label': '剧情罗盘脑暴对话记录' },
+        chatHistory.map(msg => {
+          const isUser = msg.role === 'user'
+          const scopeBadge = msg.scopeApplied === 'shortTerm' ? '今期'
+            : msg.scopeApplied === 'midTerm' ? '中期'
+            : msg.scopeApplied === 'longTerm' ? '长期'
+            : msg.scopeApplied === 'all' ? '全部' : ''
+          return h('div', { key: msg.id, className: 'pc-chat-msg ' + (isUser ? 'is-user' : 'is-assistant') },
+            h('div', { className: 'pc-chat-bubble' }, msg.text),
+            !isUser ? h('div', { className: 'pc-btn-row' },
+              scopeBadge
+                ? h(PcChip, {
+                    tone: 'ok',
+                    onClick: () => { if (msg.scopeApplied && msg.scopeApplied !== 'all') setActiveHorizon(msg.scopeApplied) }
+                  }, '★ 已按此对话更新「' + scopeBadge + '」路线')
+                : h(Fragment, null,
+                    h(PcChip, {
+                      disabled: isRunning || Boolean(busyAction),
+                      title: '将上面讨论的方案立即生成并更新今期路线卡片',
+                      onClick: () => applyBrainstormIdea('shortTerm', msg.text)
+                    }, '✨ 应用为今期'),
+                    h(PcChip, {
+                      disabled: isRunning || Boolean(busyAction),
+                      title: '将上面讨论的方案同步规划进今/中/长期全部路线',
+                      onClick: () => applyBrainstormIdea('all', msg.text)
+                    }, '✦ 应用为全局'))) : null)
+        })) : null,
+      h('div', { className: 'pc-btn-row' },
+        h('input', {
+          type: 'text',
+          className: 'pc-input is-inline',
+          maxLength: 400,
+          disabled: isRunning,
+          placeholder: '聊聊剧情点子或指定发展方向（回车商量，不覆盖当前路线）',
+          value: guidance,
+          onChange: e => setGuidance(e.target.value),
+          onKeyDown: e => {
+            if (e.key === 'Enter' && !e.isComposing && !isRunning) {
+              e.preventDefault()
+              sendCompassChat()
+            }
+          }
+        }),
+        h(PcBtn, {
+          small: true, primary: true,
+          disabled: isRunning || Boolean(busyAction) || !guidance.trim(),
+          title: '与剧情罗盘多轮讨论灵感（仅当你在对话里明确要求改路线时才会更新卡片）',
+          onClick: () => sendCompassChat()
+        }, isRunning && task.scope === 'chat' ? '思考中…' : '💬 发送'),
+        guidance.trim() ? h(PcBtn, {
+          small: true,
+          disabled: isRunning || Boolean(busyAction),
+          title: '不经对话，直接按输入框方向全局重推今/中/长期路线',
+          onClick: () => runGenerate('all')
+        }, '✨ 直接重推') : null)),
+
+    /* 当前激活方向 + 微调引导 */
+    (active.count > 0 || activeGoal || editingDirective || customDirective)
+      ? h(PcSection, {
+        accent: true,
+        title: (active.count > 0 || activeGoal) ? '🧭 当前激活方向' : '✏️ 剧情微调引导',
+        helpTitle: '当前激活方向与微调引导',
+        help: PC_HELP.funnel,
+        actions: h(Fragment, null,
+          h(PcChip, {
+            disabled: Boolean(busyAction),
+            title: '在不重推路线的前提下，补充或微调前台正文导演引导的侧重点',
+            onClick: () => setEditingDirective(!editingDirective)
+          }, editingDirective ? '收起微调' : (customDirective ? '✏️ 已设微调' : '✏️ 微调引导')),
+          (active.count > 0 || activeGoal) && ui && typeof ui.regenerateCandidates === 'function'
+            ? h(PcBtn, {
+              small: true,
               disabled: Boolean(busyAction),
-              onClick: () => toggleEnabled(true)
-            }, busyAction === 'toggleEnabled' ? '正在开启...' : '开启剧情罗盘')
-          )
-        )
-      : h('div', { className: 'dsh-tavern-status-body dsh-tavern-compass-body' },
-          confirmingFresh ? h('div', { className: 'dsh-tavern-compass-confirm', role: 'dialog', 'aria-label': '确认全新生成' },
-            h('span', null,
-              '全新生成会作废当前盘面上的今期 / 中期 / 长期全部路线和点亮标记，模型也看不到这些旧内容，只会依据当前剧情重新推演一套独立方向。' +
-              (activeGoal ? '当前开启的「' + activeGoal.horizonLabel + '目标导向」会保留，新生成的剧情树仍将导向该目标结果。' : '已归档的历史记录会保留。') +
-              '确定继续？'
-            ),
-            h('div', { className: 'dsh-tavern-compass-confirm-actions' },
-              h('button', { type: 'button', className: 'dsh-tavern-btn', onClick: () => setConfirmingFresh(false) }, '取消'),
-              h('button', { type: 'button', className: 'dsh-tavern-btn primary', disabled: Boolean(busyAction), onClick: () => runGenerate('all', undefined, { fresh: true }) }, '全新生成')
-            )
-          ) : null,
-
-          h('section', { className: 'dsh-tavern-compass-top' },
-            h('div', { className: 'dsh-tavern-compass-archetypes-row' },
-              h('span', { className: 'dsh-tavern-compass-label' }, '游玩类型：'),
-              displayArchetypes.length > 0
-                ? displayArchetypes.map(tag => h('span', { key: tag, className: 'dsh-tavern-compass-archetype-chip' }, tag))
-                : h('span', { className: 'dsh-tavern-compass-muted' }, '推演时自动识别，或手动指定'),
-              h('button', {
-                type: 'button',
-                className: 'dsh-tavern-compass-link-btn',
-                disabled: Boolean(busyAction),
-                onClick: () => { editingArchetypes ? setEditingArchetypes(false) : openArchetypeEditor() }
-              }, editingArchetypes ? '收起' : '定制标签')
-            ),
-            editingArchetypes ? h('div', { className: 'dsh-tavern-compass-archetype-editor' },
-              h('p', { className: 'dsh-tavern-compass-desc' }, '选择或输入 1–5 个游玩题材/流派标签，AI 将按对应戏剧维度发散不同路线：'),
-              h('div', { className: 'dsh-tavern-compass-preset-tags' }, PC_PRESET_ARCHETYPES.map(tag => {
-                const on = selectedArchetypes.includes(tag)
-                return h('button', {
-                  key: tag,
-                  type: 'button',
-                  className: 'dsh-tavern-compass-preset-tag' + (on ? ' is-selected' : ''),
-                  onClick: () => togglePresetArchetype(tag)
-                }, (on ? '✓ ' : '+ ') + tag)
-              })),
-              selectedArchetypes.length > 0 ? h('div', { className: 'dsh-tavern-compass-selected-tags' },
-                selectedArchetypes.map(tag => h('span', { key: tag, className: 'dsh-tavern-compass-archetype-chip is-removable' },
-                  tag,
-                  h('button', {
-                    type: 'button',
-                    'aria-label': '移除 ' + tag,
-                    onClick: () => setSelectedArchetypes(selectedArchetypes.filter(t => t !== tag))
-                  }, '×')
-                ))
-              ) : null,
-              h('div', { className: 'dsh-tavern-compass-custom-row' },
+              title: '按当前罗盘路线与目标导向重新生成下一步行动候选项（带路线角标）',
+              onClick: refreshCandidatesFromCompass
+            }, busyAction === 'candidates' ? '提交中…' : '生成联动候选项')
+            : null)
+      },
+        (active.count > 0 || activeGoal) ? h('div', { className: 'pc-badge-row' },
+          h(PcBadge, { tone: currentStrength === 'strict' ? 'bad' : 'ok' }, '力度：' + currentStrengthOption.label),
+          h(PcBadge, null, '节奏：' + currentPaceOption.label),
+          active.shortTerm && currentStrength !== 'soft' && stalledTurns >= 2
+            ? h(PcBadge, { tone: 'warn', title: '当前点亮的今期节拍已连续 ' + stalledTurns + ' 轮未达成，下轮将自动加强破局推力' }, '⚡ 停滞 ' + stalledTurns + ' 轮·加压中')
+            : null) : null,
+        (active.count > 0 || activeGoal) ? h('div', { className: 'pc-chip-group' },
+          activeGoal ? h(PcChip, { tone: 'goal', title: '点击查看对应跨度路线', onClick: () => setActiveHorizon(activeGoal.horizon) }, '🎯 ' + activeGoal.horizonLabel + '目标：' + activeGoal.text) : null,
+          active.shortTerm ? h(PcChip, { tone: 'ok', onClick: () => setActiveHorizon('shortTerm') }, '今期：' + active.shortTerm.title) : null,
+          active.midTerm ? h(PcChip, { tone: 'ok', onClick: () => setActiveHorizon('midTerm') }, '中期：' + active.midTerm.title) : null,
+          active.longTerm ? h(PcChip, { tone: 'ok', onClick: () => setActiveHorizon('longTerm') }, '长期：' + active.longTerm.title) : null) : null,
+        (editingDirective || customDirective) ? (
+          editingDirective
+            ? h('div', { className: 'pc-btn-row' },
                 h('input', {
                   type: 'text',
-                  className: 'dsh-tavern-compass-input',
-                  maxLength: 16,
-                  placeholder: '自定义流派（如：克苏鲁调查、赛博跑团）',
-                  value: archetypeDraft,
-                  onChange: e => setArchetypeDraft(e.target.value),
-                  onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomArchetypeChip() } }
-                }),
-                h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-btn',
-                  disabled: !archetypeDraft.trim() || selectedArchetypes.length >= 5,
-                  onClick: addCustomArchetypeChip
-                }, '添加')
-              ),
-              h('div', { className: 'dsh-tavern-compass-editor-actions' },
-                h('button', { type: 'button', className: 'dsh-tavern-btn primary', disabled: Boolean(busyAction), onClick: () => saveArchetypes(true) }, '保存并立即重推路线'),
-                h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: () => saveArchetypes(false) }, '仅保存'),
-                selectedArchetypes.length > 0 ? h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: () => setSelectedArchetypes([]) }, '清空') : null
-              )
-            ) : null,
-
-            editingGoal
-              ? h('div', { className: 'dsh-tavern-compass-goal-editor', role: 'region', 'aria-label': '目标导向设置' },
-                  h('div', { className: 'dsh-tavern-compass-goal-horizon-bar', role: 'group', 'aria-label': '目标时间跨度' },
-                    h('span', { className: 'dsh-tavern-compass-label' }, '目标导向：'),
-                    h('div', { className: 'dsh-tavern-compass-pace-pills' }, PC_GOAL_HORIZON_OPTIONS.map(opt => {
-                      const selected = goalDraftHorizonOpt.key === opt.key
-                      return h('button', {
-                        key: opt.key,
-                        type: 'button',
-                        className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
-                        disabled: Boolean(busyAction),
-                        'aria-pressed': selected ? 'true' : 'false',
-                        title: opt.title,
-                        onClick: () => setGoalHorizonDraft(opt.key)
-                      }, opt.label + ' (' + opt.span + ')')
-                    }))
-                  ),
-                  h('input', {
-                    type: 'text',
-                    className: 'dsh-tavern-compass-input',
-                    'aria-label': '目标结果内容',
-                    maxLength: 300,
-                    placeholder: goalDraftHorizonOpt.placeholder,
-                    value: goalTextDraft,
-                    disabled: Boolean(busyAction),
-                    onChange: e => setGoalTextDraft(e.target.value),
-                    onKeyDown: e => {
-                      if (e.key === 'Enter' && !e.isComposing && goalTextDraft.trim()) {
-                        e.preventDefault()
-                        saveGoal(!isRunning)
-                      }
-                    }
-                  }),
-                  h('p', { className: 'dsh-tavern-compass-desc' }, goalDraftHorizonOpt.hint),
-                  h('div', { className: 'dsh-tavern-compass-editor-actions' },
-                    h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-btn primary',
-                      disabled: Boolean(busyAction) || isRunning || !goalTextDraft.trim(),
-                      title: '保存目标导向并立即推演导向该目标结果的整棵剧情树',
-                      onClick: () => saveGoal(true)
-                    }, '保存并推演剧情树'),
-                    h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-btn',
-                      disabled: Boolean(busyAction) || !goalTextDraft.trim(),
-                      title: '保存目标导向，后续手动推演、自动演进与正文推进均将导向此结果',
-                      onClick: () => saveGoal(false)
-                    }, '仅保存目标'),
-                    hasSavedGoal ? h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-btn',
-                      disabled: Boolean(busyAction),
-                      onClick: clearGoal
-                    }, '清除目标') : null,
-                    h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-btn',
-                      disabled: Boolean(busyAction),
-                      onClick: () => setEditingGoal(false)
-                    }, '取消')
-                  )
-                )
-              : hasSavedGoal
-                ? h('div', {
-                    className: 'dsh-tavern-compass-goal-banner' + (rawGoal.enabled ? '' : ' is-paused'),
-                    'aria-label': '当前目标导向'
-                  },
-                    h('div', { className: 'dsh-tavern-compass-goal-banner-head' },
-                      h('div', { className: 'dsh-tavern-compass-goal-banner-badges' },
-                        h('strong', null, '🎯 目标导向'),
-                        h('span', { className: 'dsh-tavern-compass-pill ' + (rawGoal.enabled ? 'is-active' : '') },
-                          savedGoalHorizonOpt.label + ' · ' + savedGoalHorizonOpt.span
-                        ),
-                        !rawGoal.enabled ? h('span', { className: 'dsh-tavern-compass-pill' }, '已暂停') : null
-                      ),
-                      h('div', { className: 'dsh-tavern-compass-goal-banner-actions' },
-                        h('button', {
-                          type: 'button',
-                          className: 'dsh-tavern-compass-link-btn',
-                          disabled: Boolean(busyAction),
-                          onClick: () => toggleGoalEnabled(!rawGoal.enabled)
-                        }, rawGoal.enabled ? '暂停' : '启用'),
-                        h('button', {
-                          type: 'button',
-                          className: 'dsh-tavern-compass-link-btn',
-                          disabled: Boolean(busyAction),
-                          onClick: openGoalEditor
-                        }, '修改'),
-                        h('button', {
-                          type: 'button',
-                          className: 'dsh-tavern-compass-link-btn',
-                          disabled: Boolean(busyAction),
-                          onClick: clearGoal
-                        }, '清除')
-                      )
-                    ),
-                    h('p', { className: 'dsh-tavern-compass-goal-text' }, savedGoalText)
-                  )
-                : h('div', { className: 'dsh-tavern-compass-goal-row' },
-                    h('span', { className: 'dsh-tavern-compass-label' }, '目标导向：'),
-                    h('span', { className: 'dsh-tavern-compass-muted' }, '未设置（默认发散多结局剧情树）'),
-                    h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-compass-link-btn',
-                      disabled: Boolean(busyAction),
-                      title: '设置短期 / 中期 / 长期目标结果，使后续生成的剧情树全部导向达成该结果',
-                      onClick: openGoalEditor
-                    }, '🎯 设置目标')
-                  ),
-
-            compass.situationDigest ? h('p', { className: 'dsh-tavern-compass-digest' }, compass.situationDigest) : null,
-
-            h('div', { className: 'dsh-tavern-compass-prefs-row' },
-              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '约束力度' },
-                h('span', { className: 'dsh-tavern-compass-label' }, '约束力度：'),
-                h('div', { className: 'dsh-tavern-compass-pace-pills' }, PC_STRENGTH_OPTIONS.map(opt => {
-                  const selected = currentStrength === opt.key
-                  return h('button', {
-                    key: opt.key,
-                    type: 'button',
-                    className: 'dsh-tavern-compass-pace-btn' + (opt.key === 'strict' ? ' is-strict' : '') + (selected ? ' is-active' : ''),
-                    disabled: Boolean(busyAction),
-                    'aria-pressed': selected ? 'true' : 'false',
-                    title: opt.title,
-                    onClick: () => {
-                      if (!selected) savePreferences({ strength: opt.key }, '约束力度已切换为「' + opt.label + '」')
-                    }
-                  }, opt.label)
-                }))
-              ),
-              h('button', {
-                type: 'button',
-                className: 'dsh-tavern-compass-blindbox-toggle' + (blindBox ? ' is-active' : ''),
-                disabled: Boolean(busyAction),
-                'aria-pressed': blindBox ? 'true' : 'false',
-                title: blindBox ? '盲盒防剧透已开启：隐藏路线详情与终局剧透，点击切回明牌' : '开启盲盒防剧透模式：隐藏节拍/终局剧透详情，仅凭标题与预兆风声游玩',
-                onClick: () => savePreferences({ blindBox: !blindBox }, !blindBox ? '已开启盲盒防剧透模式，卡片剧透详情已遮罩。' : '已切回明牌模式。')
-              }, blindBox ? '🎁 盲盒防剧透：开' : '👁 明牌模式')
-            ),
-
-            h('div', { className: 'dsh-tavern-compass-prefs-row' },
-              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '推进节奏' },
-                h('span', { className: 'dsh-tavern-compass-label' }, '推进节奏：'),
-                h('div', { className: 'dsh-tavern-compass-pace-pills' }, PC_PACE_OPTIONS.map(opt => {
-                  const selected = currentPace === opt.key
-                  return h('button', {
-                    key: opt.key,
-                    type: 'button',
-                    className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
-                    disabled: Boolean(busyAction),
-                    'aria-pressed': selected ? 'true' : 'false',
-                    title: opt.title,
-                    onClick: () => {
-                      if (!selected) savePreferences({ pace: opt.key }, '推进节奏已切换为「' + opt.label + '」')
-                    }
-                  }, opt.label)
-                }))
-              ),
-              (active.count === 0 && !activeGoal) ? h('button', {
-                type: 'button',
-                className: 'dsh-tavern-compass-link-btn',
-                disabled: Boolean(busyAction),
-                title: '直接指定本段剧情的导演微调要求（无需先推演或点亮路线）',
-                onClick: () => setEditingDirective(!editingDirective)
-              }, editingDirective ? '收起微调' : (customDirective ? '✏️ 已设微调引导' : '✏️ 微调引导')) : null
-            ),
-
-            h('div', { className: 'dsh-tavern-compass-interval-row' },
-              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '剧情罗盘自动更新间隔' },
-                h('span', { className: 'dsh-tavern-compass-label' }, '自动更新：'),
-                h('div', { className: 'dsh-tavern-compass-pace-pills' },
-                  PC_AUTO_UPDATE_PRESETS.map(opt => {
-                    const selected = !customIntervalOpen && autoUpdateInterval === opt.value
-                    return h('button', {
-                      key: opt.value,
-                      type: 'button',
-                      className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
-                      disabled: Boolean(busyAction),
-                      'aria-pressed': selected ? 'true' : 'false',
-                      title: opt.value === 0 ? '仅手动推演或归卷时更新' : '每隔 ' + opt.value + ' 楼回合结算后自动全层刷新路线',
-                      onClick: () => {
-                        setCustomIntervalOpen(false)
-                        if (autoUpdateInterval !== opt.value) {
-                          savePreferences({ autoUpdateInterval: opt.value }, opt.value > 0 ? '已设置每 ' + opt.value + ' 楼自动全局刷新剧情罗盘。' : '已关闭剧情罗盘定期自动更新。')
-                        }
-                      }
-                    }, opt.label)
-                  }),
-                  h('button', {
-                    key: 'custom',
-                    type: 'button',
-                    className: 'dsh-tavern-compass-pace-btn' + ((customIntervalOpen || !isPresetAutoUpdateInterval) ? ' is-active' : ''),
-                    disabled: Boolean(busyAction),
-                    'aria-pressed': (customIntervalOpen || !isPresetAutoUpdateInterval) ? 'true' : 'false',
-                    title: '自定义每隔多少楼自动全层刷新（1–100 楼，0 为关闭）',
-                    onClick: () => {
-                      setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
-                      setCustomIntervalOpen(true)
-                    }
-                  }, !isPresetAutoUpdateInterval && autoUpdateInterval > 0 ? '自定义(' + autoUpdateInterval + '楼)' : '自定义')
-                )
-              ),
-              (customIntervalOpen || !isPresetAutoUpdateInterval) ? h('div', { className: 'dsh-tavern-compass-interval-custom' },
-                h('input', {
-                  type: 'number',
-                  min: 0,
-                  max: 100,
-                  step: 1,
-                  className: 'dsh-tavern-compass-input dsh-tavern-compass-interval-input',
-                  'aria-label': '自定义自动更新楼数',
-                  placeholder: '1–100',
-                  value: intervalDraft,
-                  disabled: Boolean(busyAction),
-                  onChange: e => setIntervalDraft(e.target.value),
-                  onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commitCustomInterval() } }
-                }),
-                h('span', { className: 'dsh-tavern-compass-label' }, '楼'),
-                h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: commitCustomInterval }, '应用')
-              ) : null,
-              autoUpdateInterval > 0 ? h('span', { className: 'dsh-tavern-compass-interval-hint' }, autoUpdateHint) : null
-            ),
-
-            h('div', { className: 'dsh-tavern-compass-interval-row' },
-              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '剧情规划条目上限' },
-                h('span', { className: 'dsh-tavern-compass-label' }, '条目上限：'),
-                h('div', { className: 'dsh-tavern-compass-pace-pills' },
-                  PC_MAX_ROUTES_PRESETS.map(opt => {
-                    const selected = !customMaxRoutesOpen && maxRoutes === opt.value
-                    return h('button', {
-                      key: opt.value,
-                      type: 'button',
-                      className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
-                      disabled: Boolean(busyAction),
-                      'aria-pressed': selected ? 'true' : 'false',
-                      title: '今期 / 中期 / 长期每个跨度最多保留与推演 ' + opt.value + ' 条剧情规划（默认 4 条）',
-                      onClick: () => {
-                        setCustomMaxRoutesOpen(false)
-                        if (maxRoutes !== opt.value) {
-                          savePreferences({ maxRoutes: opt.value }, '已设置每层剧情规划上限为 ' + opt.value + ' 条。')
-                        }
-                      }
-                    }, opt.label)
-                  }),
-                  h('button', {
-                    key: 'custom',
-                    type: 'button',
-                    className: 'dsh-tavern-compass-pace-btn' + ((customMaxRoutesOpen || !isPresetMaxRoutes) ? ' is-active' : ''),
-                    disabled: Boolean(busyAction),
-                    'aria-pressed': (customMaxRoutesOpen || !isPresetMaxRoutes) ? 'true' : 'false',
-                    title: '自定义每层剧情规划条目上限（' + PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX + ' 条，默认 4 条）',
-                    onClick: () => {
-                      setMaxRoutesDraft(String(maxRoutes))
-                      setCustomMaxRoutesOpen(true)
-                    }
-                  }, !isPresetMaxRoutes ? '自定义(' + maxRoutes + '条)' : '自定义')
-                )
-              ),
-              (customMaxRoutesOpen || !isPresetMaxRoutes) ? h('div', { className: 'dsh-tavern-compass-interval-custom' },
-                h('input', {
-                  type: 'number',
-                  min: PC_MAX_ROUTES_MIN,
-                  max: PC_MAX_ROUTES_MAX,
-                  step: 1,
-                  className: 'dsh-tavern-compass-input dsh-tavern-compass-interval-input',
-                  'aria-label': '自定义剧情规划条目上限',
-                  placeholder: PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX,
-                  value: maxRoutesDraft,
-                  disabled: Boolean(busyAction),
-                  onChange: e => setMaxRoutesDraft(e.target.value),
-                  onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commitCustomMaxRoutes() } }
-                }),
-                h('span', { className: 'dsh-tavern-compass-label' }, '条'),
-                h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: Boolean(busyAction), onClick: commitCustomMaxRoutes }, '应用')
-              ) : null
-            ),
-
-            h('div', { className: 'dsh-tavern-compass-model-row' },
-              h('div', { className: 'dsh-tavern-compass-pace-group', role: 'group', 'aria-label': '剧情罗盘模型' },
-                h('span', { className: 'dsh-tavern-compass-label' }, '推演模型：'),
-                h('div', { className: 'dsh-tavern-compass-pace-pills' }, PC_MODEL_OPTIONS.map(opt => {
-                  const activeMode = pickingIndependentModel ? 'independent' : compassModelMode
-                  const selected = activeMode === opt.key
-                  return h('button', {
-                    key: opt.key,
-                    type: 'button',
-                    className: 'dsh-tavern-compass-pace-btn' + (selected ? ' is-active' : ''),
-                    disabled: Boolean(busyAction),
-                    'aria-pressed': selected ? 'true' : 'false',
-                    title: opt.title,
-                    onClick: () => {
-                      if (opt.key === 'independent') {
-                        setPickingIndependentModel(true)
-                        return
-                      }
-                      setPickingIndependentModel(false)
-                      if (compassModelMode !== opt.key) {
-                        saveCompassModel(opt.key, '剧情罗盘推演模型已切换为「' + opt.label + '」（全局生效）。')
-                      }
-                    }
-                  }, opt.label)
-                }))
-              ),
-              (compassModelIsObject || pickingIndependentModel) ? (() => {
-                const compassEfforts = modelReasoning.key === compassModelKey ? (modelReasoning.value && modelReasoning.value.efforts) || [] : []
-                const compassKnown = !compassModelIsObject || modelCatalog.some(group =>
-                  group.provider === compassModel.provider && Array.isArray(group.models) && group.models.some(m => m.id === compassModel.model)
-                )
-                const fallbackName = compassModelIsObject ? (compassModel.provider + ' / ' + compassModel.model) : ''
-                const effortVal = compassModelIsObject ? (compassModel.reasoningEffort || '') : ''
-                return h('div', { className: 'dsh-tavern-compass-model-pickers' },
-                  h('select', {
-                    className: 'dsh-tavern-compass-select',
-                    'aria-label': '剧情罗盘独立模型',
-                    value: compassModelKey,
-                    disabled: Boolean(busyAction) || catalogLoading,
-                    onChange: e => {
-                      const val = e.target.value
-                      if (!val) return
-                      saveCompassModel(JSON.parse(val), '已切换剧情罗盘独立模型（全局生效）。')
-                    }
-                  },
-                    !compassModelIsObject ? h('option', { value: '' }, catalogLoading ? '正在加载模型…' : '选择独立模型') : null,
-                    !compassKnown && compassModelIsObject ? h('option', { value: compassModelKey }, fallbackName + '（当前不可用）') : null,
-                    modelCatalog.map(group => h('optgroup', {
-                      key: group.provider,
-                      label: group.providerName || group.provider
-                    }, (group.models || []).map(model => h('option', {
-                      key: group.provider + '/' + model.id,
-                      value: JSON.stringify({ provider: group.provider, model: model.id })
-                    }, model.name || model.id))))
-                  ),
-                  compassModelKey ? h('select', {
-                    className: 'dsh-tavern-compass-select',
-                    'aria-label': '剧情罗盘推理强度',
-                    value: effortVal,
-                    disabled: Boolean(busyAction) || !compassEfforts.length,
-                    onChange: e => {
-                      const next = { provider: compassModel.provider, model: compassModel.model }
-                      if (e.target.value) next.reasoningEffort = e.target.value
-                      saveCompassModel(next, '已更新剧情罗盘推理强度（全局生效）。')
-                    }
-                  },
-                    h('option', { value: '' }, '模型默认'),
-                    effortVal && !compassEfforts.some(item => item.id === effortVal) ? h('option', { value: effortVal }, effortVal) : null,
-                    compassEfforts.map(item => h('option', { key: item.id, value: item.id }, item.name || item.id))
-                  ) : null
-                )
-              })() : null
-            ),
-
-            h('div', { className: 'dsh-tavern-compass-chat-wrap' },
-              chatHistory.length > 0 ? h('div', { className: 'dsh-tavern-compass-chat-bar' },
-                h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-compass-link-btn',
-                  onClick: () => setChatOpen(!chatOpen)
-                }, (chatOpen ? '▾ 收起' : '▸ 展开') + '脑暴对话（' + chatHistory.length + '）'),
-                chatOpen ? h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-compass-link-btn',
-                  disabled: isRunning || Boolean(busyAction),
-                  onClick: clearCompassChatHistory
-                }, '清空记录') : null
-              ) : null,
-              chatOpen && chatHistory.length > 0 ? h('div', { className: 'dsh-tavern-compass-chat-thread', 'aria-label': '剧情罗盘脑暴对话记录' },
-                chatHistory.map(msg => {
-                  const isUser = msg.role === 'user'
-                  const scopeBadge = msg.scopeApplied === 'shortTerm' ? '今期'
-                    : msg.scopeApplied === 'midTerm' ? '中期'
-                    : msg.scopeApplied === 'longTerm' ? '长期'
-                    : msg.scopeApplied === 'all' ? '全部' : ''
-                  return h('div', { key: msg.id, className: 'dsh-tavern-compass-chat-msg ' + (isUser ? 'is-user' : 'is-assistant') },
-                    h('div', { className: 'dsh-tavern-compass-chat-bubble' }, msg.text),
-                    !isUser ? h('div', { className: 'dsh-tavern-compass-chat-msg-foot' },
-                      scopeBadge
-                        ? h('button', {
-                            type: 'button',
-                            className: 'dsh-tavern-compass-pill is-active',
-                            onClick: () => {
-                              if (msg.scopeApplied && msg.scopeApplied !== 'all') setActiveHorizon(msg.scopeApplied)
-                            }
-                          }, '★ 已按此对话更新「' + scopeBadge + '」路线')
-                        : h('div', { className: 'dsh-tavern-compass-chat-apply-row' },
-                            h('button', {
-                              type: 'button',
-                              className: 'dsh-tavern-compass-apply-btn',
-                              disabled: isRunning || Boolean(busyAction),
-                              title: '将上面讨论的方案立即生成并更新今期路线卡片',
-                              onClick: () => applyBrainstormIdea('shortTerm', msg.text)
-                            }, '✨ 应用为今期'),
-                            h('button', {
-                              type: 'button',
-                              className: 'dsh-tavern-compass-apply-btn',
-                              disabled: isRunning || Boolean(busyAction),
-                              title: '将上面讨论的方案同步规划进今/中/长期全部路线',
-                              onClick: () => applyBrainstormIdea('all', msg.text)
-                            }, '✦ 应用为全局')
-                          )
-                    ) : null
-                  )
-                })
-              ) : null,
-              h('div', { className: 'dsh-tavern-compass-guidance-box' },
-                h('input', {
-                  type: 'text',
-                  className: 'dsh-tavern-compass-input',
-                  maxLength: 400,
-                  disabled: isRunning,
-                  placeholder: '聊聊剧情点子或指定发展方向（回车对话商量，不覆盖当前路线）',
-                  value: guidance,
-                  onChange: e => setGuidance(e.target.value),
+                  className: 'pc-input is-inline',
+                  maxLength: 240,
+                  placeholder: '微调导演引导语气或侧重点（如：本段多给对话交锋与误会，先别点破真相）',
+                  value: directiveDraft,
+                  onChange: e => setDirectiveDraft(e.target.value),
                   onKeyDown: e => {
-                    if (e.key === 'Enter' && !e.isComposing && !isRunning) {
+                    if (e.key === 'Enter' && !e.isComposing) {
                       e.preventDefault()
-                      sendCompassChat()
+                      savePreferences({ customDirective: directiveDraft }, directiveDraft.trim() ? '已更新微调引导（无需重推路线，下轮立即生效）' : '已清空微调引导').then(() => setEditingDirective(false))
                     }
                   }
                 }),
-                h('div', { className: 'dsh-tavern-compass-guidance-actions' },
-                  h('button', {
-                    type: 'button',
-                    className: 'dsh-tavern-btn primary',
-                    disabled: isRunning || Boolean(busyAction) || !guidance.trim(),
-                    title: '与剧情罗盘多轮讨论灵感（仅当你在对话里明确要求改路线时才会更新卡片）',
-                    onClick: () => sendCompassChat()
-                  }, isRunning && task.scope === 'chat' ? '思考中…' : '💬 发送'),
-                  guidance.trim() ? h('button', {
-                    type: 'button',
-                    className: 'dsh-tavern-btn',
-                    disabled: isRunning || Boolean(busyAction),
-                    title: '不经对话，直接按输入框方向全局重推今/中/长期路线',
-                    onClick: () => runGenerate('all')
-                  }, '✨ 直接重推') : null
-                )
-              )
-            )
-          ),
+                h(PcBtn, {
+                  small: true, primary: true, disabled: Boolean(busyAction),
+                  onClick: () => savePreferences({ customDirective: directiveDraft }, directiveDraft.trim() ? '已更新微调引导（无需重推路线，下轮立即生效）' : '已清空微调引导').then(() => setEditingDirective(false))
+                }, '应用'),
+                customDirective ? h(PcBtn, {
+                  small: true, danger: true, disabled: Boolean(busyAction),
+                  onClick: () => { setDirectiveDraft(''); savePreferences({ customDirective: '' }, '已清空微调引导').then(() => setEditingDirective(false)) }
+                }, '清空') : null)
+            : h('p', { className: 'pc-meta-line is-subtle' }, h('strong', null, '微调引导：'), customDirective)
+        ) : null)
+      : null,
 
-          (active.count > 0 || activeGoal || editingDirective || customDirective) ? h('section', { className: 'dsh-tavern-compass-funnel', 'aria-label': '当前激活方向' },
-            h('div', { className: 'dsh-tavern-compass-funnel-head' },
-              h('div', { className: 'dsh-tavern-compass-card-badges' },
-                h('strong', null, (active.count > 0 || activeGoal) ? '🧭 当前激活方向' : '🧭 剧情微调引导'),
-                (active.count > 0 || activeGoal) ? h('span', {
-                  className: 'dsh-tavern-compass-pill ' + (currentStrength === 'strict' ? 'is-warn' : 'is-active')
-                }, currentStrengthOption.label) : null,
-                active.shortTerm && currentStrength !== 'soft' && stalledTurns >= 2 ? h('span', {
-                  className: 'dsh-tavern-compass-pill is-warn',
-                  title: '当前点亮的今期节拍已连续 ' + stalledTurns + ' 轮未达成，下轮将自动加强破局推力'
-                }, '⚡ 停滞 ' + stalledTurns + ' 轮·加压中') : null
-              ),
-              h('div', { className: 'dsh-tavern-compass-funnel-actions' },
-                h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-compass-link-btn',
-                  disabled: Boolean(busyAction),
-                  title: '在不重推路线的前提下，补充或微调前台正文导演引导的侧重点',
-                  onClick: () => setEditingDirective(!editingDirective)
-                }, editingDirective ? '收起微调' : (customDirective ? '✏️ 已设微调引导' : '✏️ 微调引导')),
-                (active.count > 0 || activeGoal) && ui && typeof ui.regenerateCandidates === 'function' ? h('button', {
-                  type: 'button',
-                  className: 'dsh-tavern-btn',
-                  disabled: Boolean(busyAction),
-                  title: '按当前罗盘路线与目标导向重新生成下一步行动候选项（带路线角标）',
-                  onClick: refreshCandidatesFromCompass
-                }, busyAction === 'candidates' ? '提交中…' : '生成联动候选项') : null
-              )
-            ),
-            (active.count > 0 || activeGoal) ? h('div', { className: 'dsh-tavern-compass-funnel-items' },
-              activeGoal ? h('span', {
-                className: 'dsh-tavern-compass-funnel-chip is-goal',
-                title: '点击查看对应跨度路线',
-                onClick: () => setActiveHorizon(activeGoal.horizon)
-              }, '🎯 ' + activeGoal.horizonLabel + '目标：' + activeGoal.text) : null,
-              active.shortTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip', onClick: () => setActiveHorizon('shortTerm') }, '今期：' + active.shortTerm.title) : null,
-              active.midTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip', onClick: () => setActiveHorizon('midTerm') }, '中期：' + active.midTerm.title) : null,
-              active.longTerm ? h('span', { className: 'dsh-tavern-compass-funnel-chip', onClick: () => setActiveHorizon('longTerm') }, '长期：' + active.longTerm.title) : null
-            ) : null,
-            (editingDirective || customDirective) ? h('div', { className: 'dsh-tavern-compass-directive-box' },
-              editingDirective
-                ? h('div', { className: 'dsh-tavern-compass-directive-edit' },
-                    h('input', {
-                      type: 'text',
-                      className: 'dsh-tavern-compass-input',
-                      maxLength: 240,
-                      placeholder: '微调导演引导语气或侧重点（如：本段多给对话交锋与误会，先别点破真相）',
-                      value: directiveDraft,
-                      onChange: e => setDirectiveDraft(e.target.value),
-                      onKeyDown: e => {
-                        if (e.key === 'Enter' && !e.isComposing) {
-                          e.preventDefault()
-                          savePreferences({ customDirective: directiveDraft }, directiveDraft.trim() ? '已更新微调引导（无需重推路线，下轮立即生效）' : '已清空微调引导').then(() => setEditingDirective(false))
-                        }
-                      }
-                    }),
-                    h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-btn primary',
-                      disabled: Boolean(busyAction),
-                      onClick: () => savePreferences({ customDirective: directiveDraft }, directiveDraft.trim() ? '已更新微调引导（无需重推路线，下轮立即生效）' : '已清空微调引导').then(() => setEditingDirective(false))
-                    }, '应用'),
-                    customDirective ? h('button', {
-                      type: 'button',
-                      className: 'dsh-tavern-btn',
-                      disabled: Boolean(busyAction),
-                      onClick: () => {
-                        setDirectiveDraft('')
-                        savePreferences({ customDirective: '' }, '已清空微调引导').then(() => setEditingDirective(false))
-                      }
-                    }, '清空') : null
-                  )
-                : h('p', { className: 'dsh-tavern-compass-meta-line is-subtle' }, h('strong', null, '微调引导：'), customDirective)
-            ) : null
-          ) : null,
+    /* 三层时间跨度路线区 */
+    h(PcSection, {
+      title: '🗺️ 多路线剧情树',
+      helpTitle: '三层时间跨度路线',
+      help: PC_HELP.horizons,
+      actions: h(Fragment, null,
+        (active.count === 0 && !activeGoal)
+          ? h(PcChip, {
+            disabled: Boolean(busyAction),
+            title: '直接指定本段剧情的导演微调要求（无需先推演或点亮路线）',
+            onClick: () => setEditingDirective(!editingDirective)
+          }, editingDirective ? '收起微调' : (customDirective ? '✏️ 已设微调' : '✏️ 微调引导'))
+          : null,
+        hasAnyRoutes && !isRunning
+          ? h(PcChip, { disabled: Boolean(busyAction), onClick: () => runGenerate(activeHorizon) }, '↻ 换一批' + activeMeta.label)
+          : null)
+    },
+      h('div', { className: 'pc-tabbar is-3', role: 'tablist', 'aria-label': '剧情规划时间跨度', onKeyDown: onHorizonKeyDown },
+        PC_HORIZON_META.map(meta => {
+          const selected = meta.key === activeHorizon
+          const count = Array.isArray(compass[meta.key]) ? compass[meta.key].length : 0
+          const hasPin = Boolean(compass.pinned && compass.pinned[meta.key])
+          const isGoalHorizon = Boolean(activeGoal && activeGoal.horizon === meta.key)
+          return h('button', {
+            key: meta.key,
+            type: 'button',
+            role: 'tab',
+            'aria-selected': selected ? 'true' : 'false',
+            tabIndex: selected ? 0 : -1,
+            className: 'pc-tab' + (selected ? ' is-active' : '') + (hasPin ? ' has-pin' : ''),
+            onClick: () => setActiveHorizon(meta.key)
+          },
+            h('span', { className: 'pc-tab-title' }, (isGoalHorizon ? '🎯 ' : '') + (hasPin ? '★ ' : '') + meta.label),
+            h('small', null, count > 0 ? meta.span + ' · ' + count : meta.span))
+        })),
+      h('p', { className: 'pc-hint' },
+        activeGoal && activeGoal.horizon === activeHorizon
+          ? '🎯 当前层级已锁定目标导向，所有路线将殊途同归导向所设结果'
+          : activeMeta.subtitle),
+      currentRoutes.length > 0
+        ? h('div', { className: 'pc-cards' }, currentRoutes.map(route => renderRouteCard(activeHorizon, route)))
+        : !isRunning
+          ? h('div', { className: 'pc-empty' },
+              h('p', null, '尚未生成' + activeMeta.label + '路线规划。'),
+              h('p', { className: 'pc-hint' },
+                activeGoal
+                  ? '已设置「' + activeGoal.horizonLabel + '」目标导向。点击下方按钮，AI 将结合当前剧情、人物卡与世界书暗线，推演出整棵导向该目标结果的多分支剧情树。'
+                  : '点击「✦ 推演多路线」，AI 将基于本卡题材玩法、已埋伏笔与未触发的世界书暗线，提供多条截然不同的近/中/长期发展路线供你挑选灵感或一键分叉试玩。'),
+              h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: () => runGenerate('all') },
+                activeGoal ? '✦ 立即推演目标导向剧情树' : '✦ 立即推演今期 / 中期 / 长期路线'))
+          : null),
 
-          isRunning ? h('div', { className: 'dsh-tavern-compass-alert is-info', role: 'status' },
-            h('div', { className: 'dsh-tavern-compass-alert-left' },
-              h(PcSpinner),
-              h('span', null, task.scope === 'chat'
-                ? '脑暴灵感助手正在结合人设、现场定格' + (activeGoal ? '与' + activeGoal.horizonLabel + '目标导向' : '与世界书暗线') + '构思回复…'
-                : '后台正在' + (activeGoal ? '围绕「' + activeGoal.horizonLabel + '目标导向」' : '结合人物卡、变量状态与世界书暗线') + '推演' + (task.scope === 'shortTerm' ? '今期' : task.scope === 'midTerm' ? '中期' : task.scope === 'longTerm' ? '长期' : '今期 / 中期 / 长期') + '路线…（不影响继续对话）')
-            )
-          ) : null,
-          task.status === 'failed' && task.error ? h('div', { className: 'dsh-tavern-compass-alert is-error', role: 'alert' },
-            h('span', null, task.error),
-            task.scope !== 'chat' ? h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: isRunning || Boolean(busyAction), onClick: () => runGenerate(task.scope || 'all') }, '重试') : null
-          ) : null,
-          localError ? h('div', { className: 'dsh-tavern-compass-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
-          localNotice ? h('p', { className: 'dsh-tavern-compass-notice', role: 'status' }, localNotice) : null,
+    Array.isArray(compass.archived) && compass.archived.length > 0 ? h('details', { className: 'pc-archived' },
+      h('summary', null, '已偏离/归档的旧路线（' + compass.archived.length + '）'),
+      compass.archived.map((item, idx) => h('p', { key: idx, className: 'pc-hint', style: { marginTop: '4px' } },
+        '【第 ' + (item.turn || '?') + ' 轮 · ' + item.title + '】' + (item.reason || '剧情已走向新分支')))) : null)
 
-          h('div', { className: 'dsh-tavern-compass-tabs', role: 'tablist', 'aria-label': '剧情规划时间跨度', onKeyDown: onHorizonKeyDown },
-            PC_HORIZON_META.map(meta => {
-              const selected = meta.key === activeHorizon
-              const count = Array.isArray(compass[meta.key]) ? compass[meta.key].length : 0
-              const hasPin = Boolean(compass.pinned && compass.pinned[meta.key])
-              const isGoalHorizon = Boolean(activeGoal && activeGoal.horizon === meta.key)
-              return h('button', {
-                key: meta.key,
+  const settingsTabBody = h(Fragment, null,
+    localError ? h('div', { className: 'pc-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
+
+    h(PcSection, {
+      title: '⚙️ 推演与引导设置',
+      helpTitle: '推演与引导设置',
+      note: '改动即时生效 · 自动保存',
+      help: PC_HELP.settingsSection
+    },
+      h(PcField, {
+        label: '游玩类型标签',
+        help: PC_HELP.archetypes,
+        actions: h(PcChip, {
+          disabled: Boolean(busyAction),
+          onClick: () => { editingArchetypes ? setEditingArchetypes(false) : openArchetypeEditor() }
+        }, editingArchetypes ? '收起' : '定制标签')
+      },
+        h('div', { className: 'pc-badge-row' },
+          displayArchetypes.length > 0
+            ? displayArchetypes.map(tag => h(PcBadge, { key: tag, tone: 'accent' }, tag))
+            : h('span', { className: 'pc-hint' }, '推演时自动识别，也可点右侧「定制标签」手动锁定')),
+        editingArchetypes ? h('div', { className: 'pc-field', style: { marginTop: '4px' } },
+          h('span', { className: 'pc-hint' }, '选择或输入 1–5 个游玩题材/流派标签，AI 将按对应戏剧维度发散路线：'),
+          h('div', { className: 'pc-chip-group' }, PC_PRESET_ARCHETYPES.map(tag => {
+            const on = selectedArchetypes.includes(tag)
+            return h(PcChip, { key: tag, active: on, onClick: () => togglePresetArchetype(tag) }, (on ? '✓ ' : '+ ') + tag)
+          })),
+          selectedArchetypes.length > 0 ? h('div', { className: 'pc-chip-group' },
+            selectedArchetypes.map(tag => h('span', { key: tag, className: 'pc-badge is-accent' },
+              tag,
+              h('button', {
                 type: 'button',
-                role: 'tab',
-                'aria-selected': selected ? 'true' : 'false',
-                tabIndex: selected ? 0 : -1,
-                className: 'dsh-tavern-compass-tab' + (selected ? ' is-active' : '') + (hasPin ? ' has-pin' : '') + (isGoalHorizon ? ' is-goal-target' : ''),
-                onClick: () => setActiveHorizon(meta.key)
-              },
-                h('span', { className: 'dsh-tavern-compass-tab-title' }, (isGoalHorizon ? '🎯 ' : '') + (hasPin ? '★ ' : '') + meta.label),
-                h('small', null, count > 0 ? meta.span + ' · ' + count : meta.span)
-              )
-            })
-          ),
+                className: 'pc-chip-x',
+                'aria-label': '移除 ' + tag,
+                onClick: () => setSelectedArchetypes(selectedArchetypes.filter(t => t !== tag))
+              }, '×')))) : null,
+          h('div', { className: 'pc-btn-row' },
+            h('input', {
+              type: 'text',
+              className: 'pc-input is-inline',
+              maxLength: 16,
+              placeholder: '自定义流派（如：克苏鲁调查、赛博跑团）',
+              value: archetypeDraft,
+              onChange: e => setArchetypeDraft(e.target.value),
+              onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomArchetypeChip() } }
+            }),
+            h(PcBtn, { small: true, disabled: !archetypeDraft.trim() || selectedArchetypes.length >= 5, onClick: addCustomArchetypeChip }, '添加')),
+          h('div', { className: 'pc-btn-row' },
+            h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: () => saveArchetypes(true) }, '保存并立即重推路线'),
+            h(PcBtn, { small: true, disabled: Boolean(busyAction), onClick: () => saveArchetypes(false) }, '仅保存'),
+            selectedArchetypes.length > 0 ? h(PcBtn, { small: true, danger: true, disabled: Boolean(busyAction), onClick: () => setSelectedArchetypes([]) }, '清空') : null)) : null),
 
-          h('div', { className: 'dsh-tavern-compass-section-bar' },
-            h('p', { className: 'dsh-tavern-compass-desc' },
-              activeGoal && activeGoal.horizon === activeHorizon
-                ? '🎯 当前层级已锁定目标导向，所有路线将殊途同归导向所设结果'
-                : activeMeta.subtitle
-            ),
-            hasAnyRoutes && !isRunning ? h('button', {
+      h('div', { className: 'pc-divider' }),
+
+      h(PcField, {
+        label: '目标导向',
+        help: PC_HELP.goal
+      }, renderGoalBlock()),
+
+      h('div', { className: 'pc-divider' }),
+
+      h(PcField, {
+        label: '约束力度',
+        help: PC_HELP.strength,
+        hint: currentStrengthOption.title
+      },
+        h('div', { className: 'pc-tabbar is-3', role: 'group', 'aria-label': '约束力度' },
+          PC_STRENGTH_OPTIONS.map(opt => {
+            const selected = currentStrength === opt.key
+            return h('button', {
+              key: opt.key,
               type: 'button',
-              className: 'dsh-tavern-compass-link-btn',
+              className: 'pc-tab' + (opt.key === 'strict' ? ' is-strict' : '') + (selected ? ' is-active' : ''),
               disabled: Boolean(busyAction),
-              onClick: () => runGenerate(activeHorizon)
-            }, '↻ 仅换一批' + activeMeta.label) : null
-          ),
+              'aria-pressed': selected ? 'true' : 'false',
+              title: opt.title,
+              onClick: () => {
+                if (!selected) savePreferences({ strength: opt.key }, '约束力度已切换为「' + opt.label + '」')
+              }
+            }, opt.label)
+          }))),
 
-          currentRoutes.length > 0
-            ? h('div', { className: 'dsh-tavern-compass-cards' }, currentRoutes.map(route => renderRouteCard(activeHorizon, route)))
-            : !isRunning
-              ? h('div', { className: 'dsh-tavern-compass-empty' },
-                  h('p', null, '尚未生成' + activeMeta.label + '路线规划。'),
-                  h('p', { className: 'dsh-tavern-compass-desc' },
-                    activeGoal
-                      ? '已设置「' + activeGoal.horizonLabel + '」目标导向。点击下方按钮，AI 将结合当前剧情、人物卡与世界书暗线，推演出整棵导向该目标结果的多分支剧情树。'
-                      : '点击上方「✦ 推演多路线」，AI 将基于本卡题材玩法、已埋伏笔与未触发的世界书暗线，提供多条截然不同的近/中/长期发展路线供你挑选灵感或一键分叉试玩。'
-                  ),
-                  h('button', { type: 'button', className: 'dsh-tavern-btn primary', disabled: Boolean(busyAction), onClick: () => runGenerate('all') }, activeGoal ? '✦ 立即推演目标导向剧情树' : '✦ 立即推演今期 / 中期 / 长期路线')
-                )
-              : null,
+      h(PcField, {
+        label: '推进节奏',
+        help: PC_HELP.pace,
+        hint: currentPaceOption.title
+      },
+        h('div', { className: 'pc-tabbar is-3', role: 'group', 'aria-label': '推进节奏' },
+          PC_PACE_OPTIONS.map(opt => {
+            const selected = currentPace === opt.key
+            return h('button', {
+              key: opt.key,
+              type: 'button',
+              className: 'pc-tab' + (selected ? ' is-active' : ''),
+              disabled: Boolean(busyAction),
+              'aria-pressed': selected ? 'true' : 'false',
+              title: opt.title,
+              onClick: () => {
+                if (!selected) savePreferences({ pace: opt.key }, '推进节奏已切换为「' + opt.label + '」')
+              }
+            }, opt.label)
+          }))),
 
-          Array.isArray(compass.archived) && compass.archived.length > 0 ? h('details', { className: 'dsh-tavern-compass-archived' },
-            h('summary', null, '已偏离/归档的旧路线（' + compass.archived.length + '）'),
-            compass.archived.map((item, idx) => h('p', { key: idx, className: 'dsh-tavern-compass-desc' },
-              '【第 ' + (item.turn || '?') + ' 轮 · ' + item.title + '】' + (item.reason || '剧情已走向新分支')
-            ))
-          ) : null
-        )
-  )
+      h(PcRow, {
+        plain: true,
+        title: '盲盒防剧透模式',
+        sub: blindBox ? '已开启：卡片节拍与终局剧透已遮罩，仅凭风声探索' : '默认关闭：明牌展示所有节拍、因果依据与终局剧透',
+        help: PC_HELP.blindBox
+      },
+        h(PcSwitch, {
+          label: '盲盒防剧透模式',
+          checked: blindBox,
+          disabled: Boolean(busyAction),
+          onChange: next => savePreferences({ blindBox: next }, next ? '已开启盲盒防剧透模式，卡片剧透详情已遮罩。' : '已切回明牌模式。')
+        })),
+
+      h(PcField, {
+        label: '自动更新间隔',
+        help: PC_HELP.autoUpdate,
+        hint: autoUpdateInterval > 0 ? autoUpdateHint : '当前关闭：仅手动点刷新或归卷时更新'
+      },
+        h('div', { className: 'pc-chip-group', role: 'group', 'aria-label': '剧情罗盘自动更新间隔' },
+          PC_AUTO_UPDATE_PRESETS.map(opt => {
+            const selected = !customIntervalOpen && autoUpdateInterval === opt.value
+            return h(PcChip, {
+              key: opt.value,
+              active: selected,
+              disabled: Boolean(busyAction),
+              title: opt.value === 0 ? '仅手动推演或归卷时更新' : '每隔 ' + opt.value + ' 楼回合结算后自动全层刷新路线',
+              onClick: () => {
+                setCustomIntervalOpen(false)
+                if (autoUpdateInterval !== opt.value) {
+                  savePreferences({ autoUpdateInterval: opt.value }, opt.value > 0 ? '已设置每 ' + opt.value + ' 楼自动全局刷新剧情罗盘。' : '已关闭剧情罗盘定期自动更新。')
+                }
+              }
+            }, opt.label)
+          }),
+          h(PcChip, {
+            active: customIntervalOpen || !isPresetAutoUpdateInterval,
+            disabled: Boolean(busyAction),
+            title: '自定义每隔多少楼自动全层刷新（1–100 楼，0 为关闭）',
+            onClick: () => {
+              setIntervalDraft(autoUpdateInterval > 0 ? String(autoUpdateInterval) : '')
+              setCustomIntervalOpen(true)
+            }
+          }, !isPresetAutoUpdateInterval && autoUpdateInterval > 0 ? '自定义(' + autoUpdateInterval + '楼)' : '自定义')),
+        (customIntervalOpen || !isPresetAutoUpdateInterval) ? h('div', { className: 'pc-btn-row' },
+          h('input', {
+            type: 'number', min: 0, max: 100, step: 1,
+            className: 'pc-input is-num',
+            'aria-label': '自定义自动更新楼数',
+            placeholder: '1–100',
+            value: intervalDraft,
+            disabled: Boolean(busyAction),
+            onChange: e => setIntervalDraft(e.target.value),
+            onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commitCustomInterval() } }
+          }),
+          h('span', { className: 'pc-hint' }, '楼'),
+          h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: commitCustomInterval }, '应用')) : null),
+
+      h(PcField, {
+        label: '每层条目上限',
+        help: PC_HELP.maxRoutes,
+        hint: '当前每跨度最多保留与推演 ' + maxRoutes + ' 条路线（范围 ' + PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX + ' 条）'
+      },
+        h('div', { className: 'pc-chip-group', role: 'group', 'aria-label': '剧情规划条目上限' },
+          PC_MAX_ROUTES_PRESETS.map(opt => {
+            const selected = !customMaxRoutesOpen && maxRoutes === opt.value
+            return h(PcChip, {
+              key: opt.value,
+              active: selected,
+              disabled: Boolean(busyAction),
+              title: '今期 / 中期 / 长期每个跨度最多保留与推演 ' + opt.value + ' 条剧情规划（默认 4 条）',
+              onClick: () => {
+                setCustomMaxRoutesOpen(false)
+                if (maxRoutes !== opt.value) {
+                  savePreferences({ maxRoutes: opt.value }, '已设置每层剧情规划上限为 ' + opt.value + ' 条。')
+                }
+              }
+            }, opt.label)
+          }),
+          h(PcChip, {
+            active: customMaxRoutesOpen || !isPresetMaxRoutes,
+            disabled: Boolean(busyAction),
+            title: '自定义每层剧情规划条目上限（' + PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX + ' 条，默认 4 条）',
+            onClick: () => {
+              setMaxRoutesDraft(String(maxRoutes))
+              setCustomMaxRoutesOpen(true)
+            }
+          }, !isPresetMaxRoutes ? '自定义(' + maxRoutes + '条)' : '自定义')),
+        (customMaxRoutesOpen || !isPresetMaxRoutes) ? h('div', { className: 'pc-btn-row' },
+          h('input', {
+            type: 'number', min: PC_MAX_ROUTES_MIN, max: PC_MAX_ROUTES_MAX, step: 1,
+            className: 'pc-input is-num',
+            'aria-label': '自定义剧情规划条目上限',
+            placeholder: PC_MAX_ROUTES_MIN + '–' + PC_MAX_ROUTES_MAX,
+            value: maxRoutesDraft,
+            disabled: Boolean(busyAction),
+            onChange: e => setMaxRoutesDraft(e.target.value),
+            onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commitCustomMaxRoutes() } }
+          }),
+          h('span', { className: 'pc-hint' }, '条'),
+          h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: commitCustomMaxRoutes }, '应用')) : null)),
+
+    h(PcSection, {
+      title: '🤖 推演模型设置',
+      helpTitle: '推演模型设置',
+      note: '所有对话全局共用',
+      help: PC_HELP.model
+    },
+      h(PcField, {
+        label: '推演模型',
+        help: PC_HELP.model
+      },
+        h('div', { className: 'pc-tabbar is-3', role: 'group', 'aria-label': '剧情罗盘模型' },
+          PC_MODEL_OPTIONS.map(opt => {
+            const activeMode = pickingIndependentModel ? 'independent' : compassModelMode
+            const selected = activeMode === opt.key
+            return h('button', {
+              key: opt.key,
+              type: 'button',
+              className: 'pc-tab' + (selected ? ' is-active' : ''),
+              disabled: Boolean(busyAction),
+              'aria-pressed': selected ? 'true' : 'false',
+              title: opt.title,
+              onClick: () => {
+                if (opt.key === 'independent') {
+                  setPickingIndependentModel(true)
+                  return
+                }
+                setPickingIndependentModel(false)
+                if (compassModelMode !== opt.key) {
+                  saveCompassModel(opt.key, '剧情罗盘推演模型已切换为「' + opt.label + '」（全局生效）。')
+                }
+              }
+            }, opt.label)
+          })),
+        (compassModelIsObject || pickingIndependentModel) ? (() => {
+          const compassEfforts = modelReasoning.key === compassModelKey ? (modelReasoning.value && modelReasoning.value.efforts) || [] : []
+          const compassKnown = !compassModelIsObject || modelCatalog.some(group =>
+            group.provider === compassModel.provider && Array.isArray(group.models) && group.models.some(m => m.id === compassModel.model)
+          )
+          const fallbackName = compassModelIsObject ? (compassModel.provider + ' / ' + compassModel.model) : ''
+          const effortVal = compassModelIsObject ? (compassModel.reasoningEffort || '') : ''
+          return h('div', { className: 'pc-field', style: { marginTop: '4px' } },
+            h('select', {
+              className: 'pc-select',
+              'aria-label': '剧情罗盘独立模型',
+              value: compassModelKey,
+              disabled: Boolean(busyAction) || catalogLoading,
+              onChange: e => {
+                const val = e.target.value
+                if (!val) return
+                saveCompassModel(JSON.parse(val), '已切换剧情罗盘独立模型（全局生效）。')
+              }
+            },
+              !compassModelIsObject ? h('option', { value: '' }, catalogLoading ? '正在加载模型…' : '选择独立模型') : null,
+              !compassKnown && compassModelIsObject ? h('option', { value: compassModelKey }, fallbackName + '（当前不可用）') : null,
+              modelCatalog.map(group => h('optgroup', {
+                key: group.provider,
+                label: group.providerName || group.provider
+              }, (group.models || []).map(model => h('option', {
+                key: group.provider + '/' + model.id,
+                value: JSON.stringify({ provider: group.provider, model: model.id })
+              }, model.name || model.id))))),
+            compassModelKey ? h('select', {
+              className: 'pc-select',
+              'aria-label': '剧情罗盘推理强度',
+              value: effortVal,
+              disabled: Boolean(busyAction) || !compassEfforts.length,
+              onChange: e => {
+                const next = { provider: compassModel.provider, model: compassModel.model }
+                if (e.target.value) next.reasoningEffort = e.target.value
+                saveCompassModel(next, '已更新剧情罗盘推理强度（全局生效）。')
+              }
+            },
+              h('option', { value: '' }, '推理强度：模型默认'),
+              effortVal && !compassEfforts.some(item => item.id === effortVal) ? h('option', { value: effortVal }, effortVal) : null,
+              compassEfforts.map(item => h('option', { key: item.id, value: item.id }, item.name || item.id))) : null)
+        })() : null)),
+
+    h('p', { className: 'pc-hint' }, '以上改动即时生效并自动保存，无需手动提交；面板重新打开或切换对话都会保留。'))
+
+  const panelTabs = [
+    ['routes', '路线与推演'],
+    ['settings', '罗盘设置']
+  ]
+
+  return h('aside', { className: 'pc-root pc-workbench' },
+    h('div', { className: 'pc-wb-top' },
+      h('div', { className: 'pc-wb-head' },
+        h('div', { className: 'pc-wb-head-left' },
+          topTitleBlock,
+          h('div', { className: 'pc-btn-row pc-wb-toggle', title: compassEnabled ? '关闭本局剧情罗盘' : '开启本局剧情罗盘' },
+            h(PcSwitch, { label: '剧情罗盘', checked: compassEnabled, disabled: Boolean(busyAction), onChange: toggleEnabled }),
+            h('span', null, compassEnabled ? '已开启' : '已关闭'),
+            compassEnabled && compass.basedOnTurn > 0 ? h(PcBadge, null, '第 ' + compass.basedOnTurn + ' 轮') : null)),
+        compassEnabled ? h('div', { className: 'pc-btn-row' },
+          isRunning
+            ? h(PcBtn, { small: true, danger: true, disabled: busyAction === 'cancel', onClick: cancelGenerate }, '取消推演')
+            : h(Fragment, null,
+                hasAnyRoutes ? h(PcBtn, {
+                  small: true,
+                  disabled: Boolean(busyAction),
+                  title: '作废当前全部路线与点亮标记，模型看不到旧路线，只按当前剧情重新推演一套独立方向',
+                  onClick: () => { setPanelTab('routes'); setConfirmingFresh(!confirmingFresh) }
+                }, '✦ 全新生成') : null,
+                h(PcBtn, {
+                  small: true,
+                  primary: true,
+                  disabled: Boolean(busyAction),
+                  onClick: () => { setPanelTab('routes'); runGenerate('all') }
+                }, hasAnyRoutes ? '全局演进刷新' : '✦ 推演多路线'))) : null),
+      overviewHelpOpen ? pcHelpPop('剧情罗盘', PC_HELP.overview, () => setOverviewHelpOpen(false), overviewHelpRef) : null,
+      compassEnabled ? h('div', { className: 'pc-tabbar', role: 'tablist', 'aria-label': '剧情罗盘工作台页签' },
+        panelTabs.map(([value, label]) => h('button', {
+          key: value,
+          type: 'button',
+          role: 'tab',
+          'aria-selected': panelTab === value ? 'true' : 'false',
+          className: 'pc-tab' + (panelTab === value ? ' is-active' : ''),
+          onClick: () => setPanelTab(value)
+        }, label))) : null),
+
+    h('div', { className: 'pc-wb-scroll' },
+      !compassEnabled
+        ? h(Fragment, null,
+            localError ? h('div', { className: 'pc-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
+            h('div', { className: 'pc-empty' },
+              h('strong', null, '剧情罗盘已关闭'),
+              h('p', { className: 'pc-hint' },
+                hasAnyRoutes
+                  ? '当前对局已关闭剧情罗盘，后台推演、自动演进与提示词软引导已暂停；已生成的路线数据已为您安全保留，重新开启后可立即恢复使用。'
+                  : '开启后，剧情罗盘会结合人物卡、当前剧情与未触发的世界书暗线，为您推演今期 / 中期 / 长期多路线分支方向，并支持点亮导向、脑暴讨论与一键分叉试玩。'),
+              h(PcBtn, {
+                small: true,
+                primary: true,
+                disabled: Boolean(busyAction),
+                onClick: () => toggleEnabled(true)
+              }, busyAction === 'toggleEnabled' ? '正在开启…' : '开启剧情罗盘')))
+        : (panelTab === 'settings' ? settingsTabBody : routesTabBody)),
+
+    localNotice ? h('div', { className: 'pc-toast', role: 'status' }, localNotice) : null)
 }
 
 /* ===== src/client/main.js ===== */
