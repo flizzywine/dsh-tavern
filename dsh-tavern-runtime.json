@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "145d36db05b0f8449c19c4e115386f7b8ba891e8",
-  "releaseSequence": 1834,
+  "revision": "09093143af96e9b64520f3847d935c2392d6d33e",
+  "releaseSequence": 1835,
   "version": "3.3.0",
   "files": [
     {
@@ -1386,8 +1386,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-asset-bindings.js",
-      "sha256": "36bf862a46206bc38998eb098b1d9cf47e22f2963ee8b0f38fc7661399c07f89",
-      "size": 5032
+      "sha256": "721048be3da76e2b68c6a796a3b18f4b39ab540620810d75b3280538ba8c3d5a",
+      "size": 5339
     },
     {
       "path": "tavern-plugin/lib/domain/card-assets.js",
@@ -1486,8 +1486,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-plugin-managed.js",
-      "sha256": "610d2d319a0a508e980621b5b3b4d9a35c9f407e65e4b108f2c6000ddf7400ef",
-      "size": 12135
+      "sha256": "f856f172c256d84e11d54fdb4b71393278fcf3c672c351992e961964cb9a845d",
+      "size": 13171
     },
     {
       "path": "tavern-plugin/lib/domain/card-plugins.js",
@@ -8326,8 +8326,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/asset-runtime.js",
-      "sha256": "c0d259993ac74b82d27b346ff0cbd191ffce1eecdc9041d6fca4c9ec865cc8bf",
-      "size": 9403
+      "sha256": "33d77dba99508bf0a4cd32e2c55f707239d7c9734b538e00a1f0347c00cc7b61",
+      "size": 9427
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js",
@@ -8361,8 +8361,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js",
-      "sha256": "a8dcb7976a2d282666d413d3aed1a85a965a9396dd2cca71d44d63b72288ccd8",
-      "size": 21171
+      "sha256": "d3b6e2b30e4e9c2c80a9d2bfb7ab775c1ce99af1137079ec35fab945d5a28306",
+      "size": 22410
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-zip-target.js",
@@ -8731,8 +8731,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
-      "sha256": "ec2e2b1258ead40851f0dd4bf942441004df8bd591d042c70175ee662e5eee5e",
-      "size": 39092
+      "sha256": "e658fb72348acaff940c87c72960eb837494445d37660bfb34649352bda8e28c",
+      "size": 39095
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/reading-voice-migration.js",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "e9fb075f5b9bae358c79fc9a77e55ba53d47aa99",
+    "commit": "ff9280a39094b93ab28f4ab38bcbaab0d47de727",
     "path": "runtime.zip",
-    "sha256": "ef50ab212b8247dbf14cb7d8a36892fd9cd282993789b01fd8a9e1f50d0d1c47",
-    "size": 17016237
+    "sha256": "0c465df9ad6838d468c5c0e93d4a16403865469831d033f0835b92a52c922216",
+    "size": 17017022
   }
 }
