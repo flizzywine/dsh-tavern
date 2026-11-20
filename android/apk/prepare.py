@@ -32,6 +32,37 @@ def replace(file, before, after):
     file.write_text(text.replace(before, after))
 
 
+def patch_web_upload_limits(java, tests):
+    # Match Tavern's 1 GiB card upload limit and leave room for two full batches in the native cache.
+    replace(java / 'util/WebTransferPolicy.java',
+            'UPLOAD_LIMIT = 256L * 1024 * 1024;',
+            'UPLOAD_LIMIT = 1024L * 1024 * 1024;')
+    replace(java / 'util/WebUploadSessionBudget.java',
+            'MAX_SESSION_BYTES = 512L * 1024L * 1024L;',
+            'MAX_SESSION_BYTES = 2L * 1024 * 1024 * 1024;')
+    uploads = java / 'ui/WebUploads.java'
+    replace(uploads,
+            'com.deepseekharness.app.util.UiText.text("本次上传超过 256 MiB")',
+            '''com.deepseekharness.app.util.UiText.choose(
+                      "本次上传超过 1 GiB", "This upload exceeds 1 GiB")''')
+    replace(uploads,
+            'com.deepseekharness.app.util.UiText.text("浏览器会话上传缓存已达 512 MiB 或 40 个文件，请重新打开对话后再试")',
+            '''com.deepseekharness.app.util.UiText.choose(
+          "浏览器会话上传缓存已达 2 GiB 或 40 个文件，请重新打开对话后再试",
+          "This browser session reached the 2 GiB or 40-file upload cache limit. Reopen the page and try again.")''')
+    session_test = tests / 'WebUploadSessionBudgetTest.java'
+    replace(session_test,
+            '''      budget.addBytes(reservation, 256L * 1024L * 1024L);
+      budget.finishCopy(reservation);''',
+            '''      budget.addBytes(reservation, WebTransferPolicy.UPLOAD_LIMIT);
+      if (batch == 1)
+        assertThrows(WebUploadSessionBudget.LimitExceededException.class,
+            () -> budget.addBytes(reservation, 1));
+      budget.finishCopy(reservation);''')
+    replace(session_test, 'assertEquals(512L * 1024L * 1024L, budget.committedBytes());',
+            'assertEquals(2L * 1024 * 1024 * 1024, budget.committedBytes());')
+
+
 def patch_web_fullscreen_ui(web_ui):
     """输入法弹出/收起是动画：只在动画结束跳一次内边距，WebView 里的酒馆就会「键盘先到、页面后到」。
 
@@ -367,6 +398,7 @@ tasks.configureEach {
             '''      if (com.deepseekharness.app.BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true);
       WebView view = new WebView(new android.content.MutableContextWrapper(this));''')
     patch_web_fullscreen_ui(java / 'ui/WebFullscreenUi.java')
+    patch_web_upload_limits(java, tests)
     # 独立包不可接受上游 DSHA 的 APK 更新；Tavern 内的源码更新保持原样。
     replace(java / 'core/UpdateEngine.java', '  private void check(boolean startup) {',
             f'''  private void check(boolean startup) {{
