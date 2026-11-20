@@ -1952,11 +1952,13 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (comfyProgress.active) {
           comfyProgress.sweep(endpointOf(config.comfyUrl), job => jobs.get(job.id) === job && (job.submitting || job.state === 'pending' || job.state === 'running'))
         }
+        if (jobs.size === 0) return
         for (const job of jobs.values()) {
           if ((job.state === 'pending' || job.state === 'running' || job.state === 'uncertain')
             && (job.comfyId || (resumableChannelForJob(job) && job.providerTaskId))) refresh(job).catch(() => {})
         }
       }, 3000)
+      timer.unref?.()
       return () => clearInterval(timer)
     }
     if (typeof ctx.effect === 'function') ctx.effect(startJobSweeper, 'dsh-tavern-image: job sweeper')

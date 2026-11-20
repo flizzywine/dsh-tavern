@@ -194,7 +194,13 @@ export function resolveDshInvocation(command, args, host = 'cli', nodePath = pro
     return { command: pinned.executable, args: ['--expose-internals', pinned.bootstrap, ...args], env: { ELECTRON_RUN_AS_NODE: '1' } }
   }
   if (host !== 'android') return { command, args }
-  return { command: nodePath, args: ['--expose-internals', command, ...args] }
+  // 移动端限制 V8 老生代堆上限，避免 64 位 Android 上延迟触发 Full GC 导致 LMK 强杀。
+  const hasHeapFlag = String(env.NODE_OPTIONS || '').includes('--max-old-space-size')
+  const parsedHeap = Number(env.DSH_TAVERN_MAX_OLD_SPACE_MB || 1024)
+  const heapFlag = !hasHeapFlag && Number.isInteger(parsedHeap) && parsedHeap >= 256 && parsedHeap <= 4096
+    ? [`--max-old-space-size=${parsedHeap}`]
+    : []
+  return { command: nodePath, args: [...heapFlag, '--expose-internals', command, ...args] }
 }
 
 export function requireCommand(command, installHint = '') {

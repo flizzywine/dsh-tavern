@@ -1364,12 +1364,38 @@ export async function apply(ctx) {
       return changed ? current : undefined
     }, { source: 'body-edit.stale-clear' })
   }
+  // 缓存 sessions.json 的 stat 指纹与内容，避免每 5 秒协调轮询重复 readdir/读盘/解析。
+  let sessionsLinksCache = null
+  const sessionsLinksPath = path.join(dataRoot, 'sessions.json')
+  function cloneLinks(value) {
+    if (!value || typeof value !== 'object') return value
+    return structuredClone(value)
+  }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
-      readLinks: async function () { return await readJson('sessions.json') },
-      updateLinks: async function (updater) { return await profileData.updateJson('sessions.json', updater) },
+      readLinks: async function () {
+        let info = null
+        try { info = await stat(sessionsLinksPath) } catch { sessionsLinksCache = null }
+        if (info && sessionsLinksCache && sessionsLinksCache.mtimeMs === info.mtimeMs && sessionsLinksCache.size === info.size) {
+          return cloneLinks(sessionsLinksCache.value)
+        }
+        const value = await readJson('sessions.json')
+        try {
+          const after = info || await stat(sessionsLinksPath)
+          sessionsLinksCache = { mtimeMs: after.mtimeMs, size: after.size, value: cloneLinks(value) }
+        } catch { sessionsLinksCache = null }
+        return value
+      },
+      updateLinks: async function (updater) {
+        const result = await profileData.updateJson('sessions.json', updater)
+        try {
+          const info = await stat(sessionsLinksPath)
+          sessionsLinksCache = { mtimeMs: info.mtimeMs, size: info.size, value: cloneLinks(result) }
+        } catch { sessionsLinksCache = null }
+        return result
+      },
       readIndex,
       updateIndex,
       readChat,
@@ -3855,6 +3881,7 @@ export async function apply(ctx) {
   })
   // 自动生成候选项: fed by live turn ends only, submitting through candidateTasks like the button.
   const autoChoices = createAutoChoices({
+    canRun: async () => (await readTavernSettings()).candidateAutoGenerate === true,
     enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && (await readTavernSettings()).candidateAutoGenerate === true,
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
