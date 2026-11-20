@@ -318,10 +318,10 @@ body.dsh-tavern-shell-active [data-slot="settings.launcher"] button[data-signed-
 .dsh-tavern-lockup { background: var(--dsh-tavern-lockup) left center / contain no-repeat; }
 [data-ds-dark-theme] .dsh-tavern-lockup, .dsh-tavern-lockup[data-ds-dark-theme] { background-image: var(--dsh-tavern-lockup-dark); }
 .dsh-tavern-side-brand { flex: 1; min-width: 0; height: 56px; margin-right: 40px; }
-/* 宿主顶部 logo 行只剩收起按钮，却占 68px；让酒馆标志顶到最上方，收起按钮浮在标志右侧同一行。 */
-body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]):has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: relative; }
-/* :has() 放在标志行自身（它排在 regionArea 之前）：:has() 之后再跟 [class*=] 会并入所有 :has() 失效集，宿主任一 :has() 变化都会重算整页样式。 */
-body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: absolute; z-index: 2; top: 18px; right: 12px; height: 64px; margin: 0; padding: 0; }
+/* 展开酒馆侧栏时，让宿主标志行脱离布局并保留收起按钮。新版 DSH 将工作区插槽移进了滚动区。 */
+body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]):has(> :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: relative; }
+/* 在标志行上检查后续的工作区，避免从宿主的所有 :has() 变化重算其子元素。 */
+body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: absolute; z-index: 2; top: 18px; right: 12px; height: 64px; margin: 0; padding: 0; }
 /* Official Desktop adds its own brand identity. Tavern already renders one.
    On macOS the toggle lives in the native title strip, so remove the empty
    logo row altogether while retaining the window controls and drag area. */
@@ -3566,7 +3566,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     font: inherit; font-size: 12px; cursor: pointer;
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
-  body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
+  body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
 }
 
 /* ---------- DSH 0.2.2 官方抽屉（[data-sidebar-drawer]）与 dsh-go 手机抽屉（[data-dsh-app-layout="drawer"]） ----------
@@ -3647,7 +3647,7 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
 }
 body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-identity-wide { display: none; }
 body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-identity-compact { display: inline; }
-body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
+body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
 @media (max-width: 640px) {
   .dsh-tavern-history-manager-search, .dsh-tavern-history-manager-select { flex: 1 1 100%; max-width: none; }
   .dsh-tavern-history-manager-filters { width: 100%; }
