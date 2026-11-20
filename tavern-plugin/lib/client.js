@@ -22383,7 +22383,9 @@ function tavernModelRefusalNotice(text) {
 		    return { left: Math.round(left), top: Math.round(up ? anchor.top - gap - height : anchor.bottom + gap), width: Math.round(width), maxHeight: Math.floor(maxHeight), up };
 		}
 		// A floating panel rendered into <body> (above modals and their nav) with fixed positioning from
-		// `anchor` (a ref to the trigger). Re-placed after every render and on scroll / resize.
+		// `anchor` (a ref to the trigger). Re-placed after every render and on scroll / resize; a panel taller
+		// than its room scrolls inside itself, and its own scrolling (wheel, touch, focus into view) moves no
+		// trigger, so it does not re-place it (re-measuring the natural height would reset the scroll).
 		// props: anchor, className, style, align, minWidth, gap, popRef, children, and any DOM attributes.
 		function FloatingPanel(props) {
 		    const h = React.createElement;
@@ -22393,7 +22395,8 @@ function tavernModelRefusalNotice(text) {
 		    function place() {
 		        const menu = node.current, trigger = anchor && anchor.current;
 		        if (!menu || !trigger || typeof window === "undefined") return;
-		        // Natural size first (no inline constraints), then the placement.
+		        // Natural size first (no inline constraints), then the placement; the panel keeps its scroll.
+		        const scrolled = menu.scrollTop;
 		        menu.style.width = ""; menu.style.maxHeight = "";
 		        const natural = menu.getBoundingClientRect();
 		        const area = trigger.closest ? trigger.closest(".fork-modal-body") : null;
@@ -22401,11 +22404,12 @@ function tavernModelRefusalNotice(text) {
 		            { width: window.innerWidth, height: window.innerHeight }, { bounds: area ? area.getBoundingClientRect() : null, align, minWidth, gap });
 		        Object.assign(menu.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px", maxHeight: at.maxHeight + "px" });
 		        menu.setAttribute("data-placed", at.up ? "up" : "down");
+		        menu.scrollTop = scrolled;
 		    }
 		    useLayout(function () { place(); });
 		    React.useEffect(function () {
 		        if (typeof window === "undefined") return undefined;
-		        const again = () => place();
+		        const again = event => { if (!(event && event.type === "scroll" && node.current && node.current.contains(event.target))) place(); };
 		        window.addEventListener("resize", again);
 		        window.addEventListener("scroll", again, true);
 		        return () => { window.removeEventListener("resize", again); window.removeEventListener("scroll", again, true); };
