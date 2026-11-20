@@ -327,6 +327,25 @@ body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]) > [clas
    logo row altogether while retaining the window controls and drag area. */
 body.dsh-tavern-shell-active [class*="_logoRow"] > [class*="_brand"] { display: none !important; }
 body.dsh-tavern-shell-active [class*="_topStrip"] + [class*="_logoRow"] { display: none !important; }
+/* Windows 标题栏下方只留一层侧栏边距，去掉隐藏的会话入口和全局导航留下的间隔。 */
+@media (min-width: 1024px) {
+  :root[data-windows-titlebar] body.dsh-tavern-shell-active [class*="_newSessionRow"]:has(> [data-slot="sidebar.session.action"] :is(button[aria-label="新建会话"], button[aria-label="New session"])):has(~ [class*="_scrollRegion"] [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
+    margin-block-start: 0;
+  }
+  :root[data-windows-titlebar] body.dsh-tavern-shell-active [class*="_scrollRegion"]:has(> [data-sidebar-scrollport] > [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
+    margin-block-start: 0;
+  }
+  :root[data-windows-titlebar] body.dsh-tavern-shell-active [data-sidebar-scrollport]:has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) {
+    grid-template-rows: 0 max-content 0 max-content;
+  }
+  :root[data-windows-titlebar] body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) {
+    padding-block-start: 4px !important;
+  }
+  :root[data-windows-titlebar] body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) .dsh-tavern-side-head {
+    height: auto;
+    padding-block-start: 0 !important;
+  }
+}
 .dsh-tavern-hero-lockup { display: block; width: min(400px, 76vw); aspect-ratio: 715 / 200; background-position: center; }
 /* 酒馆标志已包含名称，隐藏宿主的标题与预览标记。 */
 body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display: none !important; }
