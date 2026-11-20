@@ -179,7 +179,7 @@ test('浏览器半能被模块加载器接上：注册面板，面板在无会�
   assert.equal(panels[0].title, '叙事阻尼器')
   const html = renderToStaticMarkup(React.createElement(panels[0].render, { gameId: 'g1' }))
   assert.match(html, /正在读取叙事阻尼器设置/)
-  assert.match(html, /dsh-tavern-global-settings/)
+  assert.match(html, /tnd-root tnd-workbench/)
 })
 
 
@@ -252,14 +252,17 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   const root = createRoot(host)
 
   await act(async () => { root.render(React.createElement(TndPanel, { ui })) })
-  assert.match(host.textContent, /启用叙事阻尼器/)
+  assert.match(host.textContent, /叙事阻尼器/)
   assert.match(host.textContent, /已配置（安全存储）/)
   assert.equal(calls[0][0], 'narrative-damper:read')
   assert.equal(host.querySelectorAll('select option').length, 5)
 
-  const enabled = host.querySelector('input[role="switch"][aria-label="启用叙事阻尼器"]')
+  const enabled = host.querySelector('button[role="switch"][aria-label="启用叙事阻尼器"]')
+  assert.ok(enabled, '顶栏应当有总开关')
+  assert.equal(enabled.getAttribute('aria-checked'), 'false')
   await act(async () => { enabled.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
   assert.deepEqual(plain(calls.at(-1)), ['narrative-damper:update', { values: { enabled: true } }])
+  assert.equal(enabled.getAttribute('aria-checked'), 'true')
 
   const provider = host.querySelector('select')
   await act(async () => {
@@ -271,7 +274,7 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   assert.deepEqual(plain(calls.at(-1)), ['narrative-damper:update', { values: { provider: 'openai-compatible', model: 'gpt-6-luna', keyName: 'OPENAI_API_KEY', baseUrl: '' } }])
 
   // 自定义接口地址只在兼容接口下出现
-  assert.ok([...host.querySelectorAll('.dsh-tavern-settings-title')].some(node => node.textContent.includes('自定义接口地址')))
+  assert.ok([...host.querySelectorAll('.tnd-field-label')].some(node => node.textContent.includes('自定义接口地址')))
 
   // 阈值：填 0.9 后失焦提交，面板先按 0.50–0.95 收紧。
   // 换提供方会让「自定义接口地址」那一行插进来，行的位置全变，必须重新取节点。
@@ -299,25 +302,36 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   assert.equal(probeCall[1].config.model, 'gpt-6-luna')
   assert.match(host.textContent, /连接正常/)
 
-  // 问号：以前只挂 title，点一下什么也不出。现在点开就在原地展开说明，再点收起。
+  // 命运之骰同款 ? / × 说明气泡：点开变 ×，出现标题栏 + 多段正文 + 右上角「收起」按钮。
   assert.equal(host.querySelectorAll('.tnd-help-pop').length, 0)
-  const groupHelp = host.querySelector('button.tnd-help')
-  assert.equal(groupHelp.getAttribute('aria-expanded'), 'false')
-  await act(async () => { groupHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
-  assert.equal(groupHelp.getAttribute('aria-expanded'), 'true')
+  const topHelp = host.querySelector('button.tnd-help-btn')
+  assert.equal(topHelp.textContent, '?')
+  assert.equal(topHelp.getAttribute('aria-expanded'), 'false')
+  await act(async () => { topHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(topHelp.textContent, '×')
+  assert.equal(topHelp.getAttribute('aria-expanded'), 'true')
   const pop = host.querySelector('.tnd-help-pop')
-  assert.ok(pop, '点开问号应当出现说明')
-  assert.match(pop.textContent, /通用防口胡与状态惯性引擎/)
-  await act(async () => { groupHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.ok(pop, '点开问号应当出现说明卡片')
+  assert.equal(pop.querySelector('.tnd-help-pop-title').textContent, '叙事阻尼器')
+  assert.ok(pop.querySelectorAll('.tnd-help-line').length >= 3, '说明应当分多段展示')
+  assert.match(pop.textContent, /防口胡与状态惯性/)
+  // 点右上角「收起」按钮可收起
+  const closeBtn = pop.querySelector('button.tnd-help-close')
+  assert.ok(closeBtn, '说明卡片应当有收起按钮')
+  await act(async () => { closeBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
   assert.equal(host.querySelectorAll('.tnd-help-pop').length, 0)
-  assert.equal(groupHelp.getAttribute('aria-expanded'), 'false')
+  assert.equal(topHelp.textContent, '?')
+  assert.equal(topHelp.getAttribute('aria-expanded'), 'false')
 
-  // 行内的问号各自独立展开，且不触发那一行的任何保存。
+  // 所有主要配置项（含决策服务提供方、决策模型名称、判定阈值）都有独立问号且不触发保存。
   const callsBeforeHelp = calls.length
-  const rowHelp = [...host.querySelectorAll('button.tnd-help')].find(button => button.getAttribute('aria-label') === '判定阈值说明')
-  assert.ok(rowHelp, '判定阈值那一行应当有问号')
+  for (const label of ['查看说明：决策服务提供方', '查看说明：决策模型名称', '查看说明：判定阈值']) {
+    const btn = [...host.querySelectorAll('button.tnd-help-btn')].find(button => button.getAttribute('aria-label') === label)
+    assert.ok(btn, `应当存在 ${label}`)
+  }
+  const rowHelp = [...host.querySelectorAll('button.tnd-help-btn')].find(button => button.getAttribute('aria-label') === '查看说明：判定阈值')
   await act(async () => { rowHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
-  assert.match(host.querySelector('.tnd-help-pop').textContent, /概率达到此阈值时触发裁定/)
+  assert.match(host.querySelector('.tnd-help-pop').textContent, /触发裁定干预的概率门槛/)
   assert.equal(host.querySelectorAll('.tnd-help-pop').length, 1)
   assert.equal(calls.length, callsBeforeHelp)
 
