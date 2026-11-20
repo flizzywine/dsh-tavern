@@ -22183,8 +22183,19 @@ function stageSkinControls(appearance, source, controls) {
     // which draws none of them.
     return {id:own.id,quickMenu:own.quickMenu,icons:stageSkinControlIcons(own,files,controls.entry || ''),hud:Object.keys(hud).length ? hud : undefined,declared:Object.keys(own.art.buttons),buttons:art.buttons,decor:art.decor,timerHide:art.timerHide,marks,tokens};
 }
-function useStageSkin(rootRef, candidate, pageKey, film, theme, {ready = true, snap = false, defaultKey = '', fallback = null, shown = null, deferFonts = false, controls = null, side = 'pc'} = {}) {
+// A projected skin object with the same content as the one before: the one before (see useStageSkin).
+function useSameSkin(value) {
+    const kept = React.useRef({input:value,value});
+    if (kept.current.input !== value) {
+        const old = kept.current.value, same = old && value && JSON.stringify(old) === JSON.stringify(value);
+        kept.current = {input:value,value:same ? old : value};
+    }
+    return kept.current.value;
+}
+function useStageSkin(rootRef, candidate, pageKey, film, theme, {ready = true, snap = false, defaultKey = '', fallback: fallbackInput = null, shown = null, deferFonts = false, controls: controlsInput = null, side = 'pc'} = {}) {
     const selected = React.useRef({page:null,value:null,hydrated:false});
+    // The fallback and the lent controls are page projections too: each page's copy would redraw the same skin.
+    const fallback = useSameSkin(fallbackInput), controls = useSameSkin(controlsInput);
     const previousDefault=React.useRef(defaultKey);
     if(previousDefault.current!==defaultKey) {selected.current={page:null,value:null,hydrated:false};previousDefault.current=defaultKey;}
     // Every page projects a new skin object with the same content: keep the one on screen, so the skin is not taken off and
