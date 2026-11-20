@@ -390,11 +390,13 @@ const skinMenuSignal = skinObject({image:skinImage,alert:skinImage,x:skinPx,y:sk
 // the wide sheet); rows = the bars stacked full width from x (left inset) and y, gap apart, slant px right per bar (each bar
 // that much shorter), at least 44 CSS px tall; title = the title strip centred x px right of the screen's middle at y, scale x
 // its wide size; signal = the lamp at x, y from the title's top-left (none on phones without it). The info and key strips are
-// not drawn (touch has no focus line or keys); the motion is the wide menu's.
+// not drawn (touch has no focus line or keys); the motion is the wide menu's. anchor middle: the title and the bars stand as one
+// block centred in the screen's height under the top bar (phones of every height), rows.y the space from the title to the first
+// bar; title.y is then unused.
 // rows.poses (§18 N32): each label's own offset (x design px) and turn (rot degrees), cycled by its place - a hand-pasted, staggered
 // column; the bar and hit area stay.
 const skinMenuPoses = skinArray(skinObject({x:skinNumber(-256,256),rot:skinNumber(-12,12)}),1,12);
-const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,
+const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,anchor:skinEnum(['middle']),
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256),poses:skinMenuPoses}),
     title:skinObject({x:skinPx,y:skinPx,scale:skinNumber(.25,4)}),signal:skinObject({x:skinPx,y:skinPx},['x','y'])},['unit']);
 const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:skinMenuTiles,dim:skinNumber(0,1),blur:skinNumber(0,64),grey:skinNumber(0,1),signal:skinMenuSignal,narrow:skinMenuNarrow,
@@ -410,12 +412,14 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     // come from the glyph and its place in the word (labels.cjs galRansomGlyphs), so a word always reads the same.
     glyphTiles:skinObject(skinGlyphTileFields,['shape','tiles']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
+    // rows.stroke: a hard outline round the labels under the ink (an original's white words with a darker rim), wide and phone.
     // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
     // larger (its bar and hit area unchanged), on phones too.
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),slant:skinNumber(-256,256),
         font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y']),
         // fit: the bars' most height (the menu's capacity) - past it they scroll inside it.
-        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses,fit:skinNumber(16,4096)},
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses,fit:skinNumber(16,4096),
+        stroke:skinObject({color:skinColor,width:skinNumber(0,16)},['color','width'])},
         ['images','slice','text','font','x','y','gap']),
     title:skinMenuTitle,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
     && (!value.tiles?.plainFocus || Boolean(value.tiles.plain)) && (value.tiles?.minScale === undefined || value.tiles.fit !== undefined)
