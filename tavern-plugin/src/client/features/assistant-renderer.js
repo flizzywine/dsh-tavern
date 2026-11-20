@@ -963,8 +963,6 @@
 				const forkStageSource = React.useMemo(() => ({ nativeTurn: turn, nodeId: props.node.id, order: props.node.anchorSeq, superseded }), [turn, props.node.id, props.node.anchorSeq, superseded]);
 				const waitingForHistory = Boolean(currentView?.historyWindow && ownsTurn && !projection && settled && storyTurn>0 && storyTurn<latestProjectionTurn);
 				const playView = isPlayMode(liveState.view && liveState.view.mode) && storyTurn > 0 && !sessionTransitioning && ownsTurn;
-				useTavernUiExtensions();
-				useTavernProseLayoutRevision();
 				const turnView = useTavernTurnView(props.sessionId);
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
 				const pluginText = playView ? createTavernPluginTextContext({ items: pluginMedia.items, extras: [], sessionId: props.sessionId, turn: storyTurn, streaming: data.status === "running" }) : null;
