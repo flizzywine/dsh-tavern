@@ -30,7 +30,7 @@ import { buildOutfitPrompt, clampBatchCount, mergeOutfits, parseOutfits } from '
  *   GET  /plugins/dsh-tavern-image/jobs?id=&image=1  查作业 / 取图
  */
 import { createHash, randomUUID, randomInt } from 'node:crypto'
-import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -4173,6 +4173,53 @@ function createRuntime(ctx, overrides, logger, deps) {
             const referenceImage = await referenceStore.put({ data: input.data, mediaType: input.mediaType, name: input.name })
             sendJson(response, 200, { ok: true, referenceImage })
           } else sendJson(response, 405, { ok: false, error: 'method-not-allowed' })
+        } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
+        return
+      }
+      // 参考图是内容寻址存储：解绑只清描述符，字节一直留在 reference-images/。
+      // 这里按引用扫一遍，只删三类引用都不认的文件（人物库、画风示例图、作业快照）。
+      if (action === 'reference-gc') {
+        try {
+          const directory = join(ROOT, 'reference-images')
+          const referenced = new Set()
+          const collect = text => { for (const id of String(text ?? '').match(/\b[0-9a-f]{64}\b/g) || []) referenced.add(id) }
+          collect(JSON.stringify(config))
+          collect(JSON.stringify(definitions))
+          collect(await readFile(join(ROOT, 'jobs-store.json'), 'utf8').catch(() => ''))
+          // 还没落盘的作业也要算引用，否则刚生成的图会被当成孤儿删掉。
+          for (const job of jobs.values()) collect(JSON.stringify(job.referenceSnapshot ?? null))
+          const names = await readdir(directory).catch(() => [])
+          const files = []
+          let totalBytes = 0
+          for (const name of names) {
+            if (!/^[0-9a-f]{64}$/.test(name)) continue
+            const info = await lstat(join(directory, name)).catch(() => null)
+            if (!info || !info.isFile() || info.isSymbolicLink()) continue
+            totalBytes += info.size
+            files.push({ id: name, size: info.size, referenced: referenced.has(name) })
+          }
+          const orphans = files.filter(item => !item.referenced)
+          const orphanBytes = orphans.reduce((sum, item) => sum + item.size, 0)
+          if (request.method !== 'POST') {
+            sendJson(response, 200, { ok: true, total: files.length, totalBytes, referenced: files.length - orphans.length, orphanCount: orphans.length, orphanBytes })
+            return
+          }
+          const origin = request.headers.origin
+          if ((origin && origin !== _url.origin) || !String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+            sendJson(response, 403, { ok: false, error: '请从生图设置里清理参考图' }); return
+          }
+          let removed = 0, removedBytes = 0, failed = 0
+          for (const orphan of orphans) {
+            try {
+              const file = join(directory, orphan.id)
+              const before = await lstat(file)
+              if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) { failed += 1; continue }
+              await rm(file, { force: true })
+              removed += 1
+              removedBytes += orphan.size
+            } catch { failed += 1 }
+          }
+          sendJson(response, 200, { ok: true, removed, removedBytes, kept: files.length - orphans.length + failed, failed })
         } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
         return
       }

@@ -182,6 +182,27 @@
         return () => { alive = false }
       }, [])
       const [peopleBatchOpen, setPeopleBatchOpen] = React.useState(false)
+      // 参考图是内容寻址存储，解绑只清描述符；这里让用户手动回收没人引用的文件。
+      const [referenceGcNote, setReferenceGcNote] = React.useState('')
+      const [referenceGcBusy, setReferenceGcBusy] = React.useState(false)
+      const cleanReferenceImages = async () => {
+        if (referenceGcBusy) return
+        setReferenceGcBusy(true)
+        setReferenceGcNote('正在统计…')
+        try {
+          const stats = await jsonFetch(BASE + '/reference-gc')
+          if (!stats?.ok) throw new Error(stats?.error || '读取参考图占用失败')
+          const mb = value => (Number(value || 0) / 1048576).toFixed(2)
+          if (!stats.orphanCount) { setReferenceGcNote('没有可清理的图：' + stats.total + ' 张全部仍被引用，共 ' + mb(stats.totalBytes) + ' MB'); return }
+          if (!window.confirm('参考图目录共 ' + stats.total + ' 张、' + mb(stats.totalBytes) + ' MB。\n其中 ' + stats.orphanCount + ' 张已无引用，可释放 ' + mb(stats.orphanBytes) + ' MB；被人物库、画风示例图或旧作业引用的会保留。\n\n删除这 ' + stats.orphanCount + ' 张？')) return
+          setReferenceGcNote('正在清理…')
+          const result = await jsonFetch(BASE + '/reference-gc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+          if (!result?.ok) throw new Error(result?.error || '清理失败')
+          setReferenceGcNote('已删除 ' + result.removed + ' 张，释放 ' + mb(result.removedBytes) + ' MB；保留 ' + result.kept + ' 张' + (result.failed ? '（' + result.failed + ' 张删除失败）' : ''))
+        } catch (error) {
+          setReferenceGcNote('清理失败：' + (error?.message || error))
+        } finally { setReferenceGcBusy(false) }
+      }
       const [peopleBatchField, setPeopleBatchField] = React.useState('feature')
       const [peopleBatchMode, setPeopleBatchMode] = React.useState('replace')
       const [peopleBatchValue, setPeopleBatchValue] = React.useState('')
@@ -1844,7 +1865,9 @@
                 h('summary', { style: PROMPT_DISCLOSURE }, '库管理'),
                 h('div', { style: S.row },
                   h('button', { style: buttonStyle, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
-                  h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(open => !open) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑')),
+                  h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(open => !open) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
+                  h('button', { style: buttonStyle, disabled: referenceGcBusy, title: '删除没有任何引用的参考图文件；人物库、画风示例图和旧作业还用着的会保留', onClick: cleanReferenceImages }, referenceGcBusy ? '清理中…' : '清理参考图')),
+                referenceGcNote ? h('div', { role: 'status', style: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0' } }, referenceGcNote) : null,
                 peopleTidyOpen ? tidyPanel() : null, batchPanel())),
             h('div', { role: 'status', style: STRUCTURE_MUTED }, saveState.startsWith('failed') ? '保存失败，请重试'
               : libraryDirty.current ? '有未保存修改' : saveState === 'saved' ? '人物库已保存' : '')),
