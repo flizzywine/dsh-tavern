@@ -72,6 +72,7 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-mobile-import-meta b { display: block; max-width: 100%; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-mobile-import-meta span { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-mobile-import-count { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsh-tavern-mobile-import-notice { white-space: pre-line; overflow-wrap: anywhere; }
 .dsh-tavern-mobile-import-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
 .dsh-tavern-mobile-import-search { width: 100%; min-width: 0; box-sizing: border-box; height: 32px; padding: 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); color: inherit; font: inherit; font-size: 13px; }
 .dsh-tavern-mobile-import-sort { max-width: min(46%, 220px); min-width: 0; box-sizing: border-box; height: 32px; padding: 0 28px 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background-color: var(--dsw-alias-bg-base); color: inherit; font: inherit; font-size: 13px; }

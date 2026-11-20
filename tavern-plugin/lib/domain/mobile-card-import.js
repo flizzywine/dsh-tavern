@@ -3,10 +3,10 @@ import path from 'node:path'
 
 import { pngCardPayload } from './card-assets.js'
 import { renderPngThumbnail } from './png-thumbnail.js'
-import { MAX_CARD_UPLOAD_BYTES } from './uploads.js'
 
-const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx', '.dshcard'])
-const CARD_ARCHIVE_EXTENSIONS = new Set(['.charx', '.dshcard'])
+const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx', '.dshcard', '.zip'])
+// Read from disk where they are, never loaded whole: no size limit (the phone's free space is the limit).
+const CARD_ARCHIVE_EXTENSIONS = new Set(['.charx', '.dshcard', '.zip'])
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 const DEFAULT_THUMBNAIL_CACHE = 240
 
@@ -42,7 +42,7 @@ export function createMobileCardImport(options = {}) {
   async function inspect(root, name) {
     const extension = path.extname(name).toLowerCase()
     if (path.basename(name) !== name || !CARD_EXTENSIONS.has(extension)) return null
-    const limit = maxBytes ?? (CARD_ARCHIVE_EXTENSIONS.has(extension) ? MAX_CARD_UPLOAD_BYTES : DEFAULT_MAX_BYTES)
+    const limit = maxBytes ?? (CARD_ARCHIVE_EXTENSIONS.has(extension) ? Infinity : DEFAULT_MAX_BYTES)
     const target = path.join(root.path, name)
     let info
     try { info = await lstat(target) } catch { return null }
@@ -69,7 +69,7 @@ export function createMobileCardImport(options = {}) {
     return { available: true, storageAccessible: readableRoots > 0, total: files.length, files }
   }
 
-  /** Archives (CHARX, DSH cards) are read from disk where they are, not loaded whole. */
+  /** Archives (CHARX, DSH cards, pack ZIPs) are read from disk where they are, not loaded whole. */
   async function archive(id) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
@@ -81,9 +81,8 @@ export function createMobileCardImport(options = {}) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
     const extension = path.extname(entry.item.name).toLowerCase()
-    if (extension === '.dshcard') throw new Error('请通过卡包入口导入 .dshcard 文件')
+    if (CARD_ARCHIVE_EXTENSIONS.has(extension)) throw new Error('请通过卡包入口导入 ' + extension + ' 文件')
     const buffer = await readFile(path.join(entry.root.path, entry.item.name))
-    if (extension === '.charx') return { kind: 'charx', name: entry.item.name, fileB64: buffer.toString('base64') }
     return extension === '.json'
       ? { kind: 'text', name: entry.item.name, text: buffer.toString('utf8') }
       : pngPayload(buffer, entry.item.name)

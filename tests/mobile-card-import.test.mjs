@@ -41,15 +41,14 @@ test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按
   })
 })
 
-test('Android 下载目录允许直接读取 1 GiB 的 DSH 和 CHARX 卡包，PNG/JSON 限制为 32 MiB', async t => {
+test('Android 下载目录直接读取任意大小的 DSH 卡包、CHARX 和素材包 ZIP，PNG/JSON 限制为 32 MiB', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-mobile-archive-'))
   t.after(() => rm(root, { recursive: true, force: true }))
-  const names = ['辉夜姬.DSHCARD', '舞台.CHARX']
-  const max = 1024 ** 3
-  for (const name of names) {
-    const file = path.join(root, name)
-    await writeFile(file, '')
-    await truncate(file, max)
+  const big = 3 * 1024 ** 3
+  const archives = ['示例卡.DSHCARD', '舞台.CHARX', '示例素材包.zip']
+  for (const name of archives) {
+    await writeFile(path.join(root, name), '')
+    await truncate(path.join(root, name), big)
   }
   for (const extension of ['json', 'png']) {
     const legacy = path.join(root, 'large.' + extension)
@@ -59,14 +58,13 @@ test('Android 下载目录允许直接读取 1 GiB 的 DSH 和 CHARX 卡包，PN
 
   const imports = createMobileCardImport({ runtimeHost: 'android', roots: [{ id: 'download', label: 'Download', path: root }] })
   const { files } = await imports.list()
-  assert.deepEqual(files.map(item => item.name).sort(), names.slice().sort())
-  for (const { id, name, size } of files) {
-    const file = path.join(root, name)
-    assert.equal(size, max)
-    assert.deepEqual(await imports.archive(id), { file, name })
-    await truncate(file, max + 1)
-    await assert.rejects(imports.archive(id), /过大/)
+  assert.deepEqual(files.map(item => [item.name, item.size]).sort(), archives.map(name => [name, big]).sort())
+  for (const item of files) {
+    assert.deepEqual(await imports.archive(item.id), { file: path.join(root, item.name), name: item.name })
+    await assert.rejects(imports.read(item.id), /请通过卡包入口/)
   }
 
-  assert.deepEqual((await imports.list()).files, [])
+  await rm(path.join(root, '示例素材包.zip'))
+  assert.deepEqual((await imports.list()).files.map(item => item.name).sort(), ['舞台.CHARX', '示例卡.DSHCARD'].sort())
+  await assert.rejects(imports.archive(files.find(item => item.name.endsWith('.zip')).id), /不存在|过大/)
 })
