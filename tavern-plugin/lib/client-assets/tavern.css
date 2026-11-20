@@ -3300,6 +3300,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     margin-top: 3px; font-size: 10px; line-height: 1.35;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  body.dsh-tavern-shell-active .dsh-tavern-update-status[data-mobile-update-detail="hidden"] { display: none; }
 
   /* 输入区保持宿主的滚动与草稿生命周期，不再用 bottom 额外上推一个键盘高度。 */
   html.dsh-tavern-coarse-play [data-composer-seat] {
@@ -3666,6 +3667,7 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
 }
 body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-identity-wide { display: none; }
 body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-identity-compact { display: inline; }
+body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) .dsh-tavern-update-status[data-mobile-update-detail="hidden"] { display: none; }
 body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layout="drawer"] [data-dsh-app-drawer]) [class*="_root"]:not([class*="_collapsed"]) > [class*="_logoRow"]:has(~ :is([class*="_regionArea"], [class*="_scrollRegion"]) [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { display: none !important; }
 @media (max-width: 640px) {
   .dsh-tavern-history-manager-search, .dsh-tavern-history-manager-select { flex: 1 1 100%; max-width: none; }
