@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import officialDesktop from './official-desktop-runtime.cjs'
 import { fileURLToPath } from 'node:url'
-import { SCRIPT_PATH, RUNTIME_HOST, DSH_ROOT } from './launcher-environment.mjs'
+import { SCRIPT_PATH, RUNTIME_HOST, DSH_ROOT, argsBeforeOptionTerminator } from './launcher-environment.mjs'
 import { installProfile, parseInstallHost } from './profile-installation.mjs'
 import { startService, stopService, statusService, openService, bootstrapFrontendOnce } from './service-lifecycle.mjs'
 import { updateApplication, parseUpdateOptions } from './application-update.mjs'
@@ -37,26 +37,28 @@ function failUnknown(action) {
 function updateDiagnostic(event, details = {}) {
   if (process.argv[2] !== 'update') return
   // Read the two flags leniently: invalid arguments are themselves worth recording.
-  const flag = name => { const args = process.argv.slice(3), at = args.indexOf(name); return at >= 0 ? args[at + 1] : args.find(arg => arg.startsWith(name + '='))?.slice(name.length + 1) }
+  const options = argsBeforeOptionTerminator(process.argv.slice(3))
+  const flag = name => {
+    const index = options.indexOf(name)
+    return index >= 0 ? options[index + 1] : options.find(arg => arg.startsWith(name + '='))?.slice(name.length + 1)
+  }
   const statusFile = flag('--status-file')
   if (statusFile && path.isAbsolute(statusFile)) recordUpdateDiagnostic(path.dirname(statusFile), { attemptId: flag('--attempt-id'), event, ...details })
 }
 
 async function main() {
   const action = process.argv[2] || 'status'
-  const args = process.argv.slice(2)
+  const args = process.argv.slice(3)
   if (action === '-v' || action === '-V' || action === '--version') {
     console.log(('dsh-tavern ' + tavernVersion()).trim())
     return
   }
-  const optionEnd = args.indexOf('--')
-  const optionArgs = optionEnd === -1 ? args : args.slice(0, optionEnd)
-  const helpFlag = optionArgs.includes('-h') || optionArgs.includes('--help')
+  const helpFlag = args[0] === '-h' || args[0] === '--help'
+  const firstOperand = args[0] === '--' ? args[1] : args[0]
   if (action === 'help' || action === '-h' || action === '--help' || (helpFlag && hasCommand(action))) {
-    const requested = action === 'help'
-      ? (args[1] === '--' ? args[2] : args[1])
+    const topic = action === 'help'
+      ? (helpFlag ? '' : firstOperand)
       : (hasCommand(action) ? action : '')
-    const topic = requested && !requested.startsWith('-') ? requested : ''
     if (topic && !hasCommand(topic)) {
       failUnknown(topic)
       return
@@ -65,7 +67,7 @@ async function main() {
     return
   }
   if (action === 'completion') {
-    const shell = args[1] === '--' ? args[2] : args[1]
+    const shell = firstOperand
     if (!shell) {
       console.error('缺少 shell 参数：completion bash|zsh|fish|powershell')
       process.exitCode = 2
@@ -85,6 +87,9 @@ async function main() {
     process.stdout.write(renderManPage())
     return
   }
+  if (action === 'update') process.once('exit', code => updateDiagnostic('updater.exit', { code }))
+  const installHost = action === 'install' ? parseInstallHost(args) : undefined
+  const updateOptions = action === 'update' ? parseUpdateOptions(args) : undefined
   if (RUNTIME_HOST === 'next' && action !== 'install') {
     throw new Error('Next 由应用管理启动与切换。更新源码后重新运行 install --host next。')
   }
@@ -109,10 +114,10 @@ async function main() {
   }
   switch (action) {
     case 'install':
-      await installProfile(parseInstallHost(process.argv.slice(3)))
+      await installProfile(installHost)
       break
     case 'update':
-      await updateApplication(parseUpdateOptions(process.argv.slice(3)))
+      await updateApplication(updateOptions)
       break
     case 'start':
       {
@@ -146,7 +151,6 @@ async function main() {
 
 const isEntrypoint = process.argv[1] && realpathSync(SCRIPT_PATH) === realpathSync(path.resolve(process.argv[1]))
 if (isEntrypoint) {
-  process.once('exit', code => updateDiagnostic('updater.exit', { code }))
   main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error)
     updateDiagnostic('updater.failed', { error: message })

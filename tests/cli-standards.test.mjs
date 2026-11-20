@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
@@ -47,14 +49,33 @@ test('补全脚本带有各 shell 的启用标记', () => {
   assert.ok(fish.includes('complete -c dsh-tavern'))
   assert.ok(fish.includes('__fish_use_subcommand'))
   const powershell = renderCompletion('powershell')
-  assert.ok(powershell.includes('Register-ArgumentCompleter -Native -CommandName dsh-tavern'))
+  assert.ok(powershell.includes('Register-ArgumentCompleter -Native -CommandName dsh-tavern,dsh-tavern.cmd'))
   assert.ok(powershell.includes('CompletionResult'))
 })
 
-test('bash 补全脚本通过 bash -n 语法检查', () => {
-  const checked = spawnSync('bash', ['-n'], { input: renderCompletion('bash'), encoding: 'utf8' })
-  if (checked.error?.code === 'ENOENT') return
+test('bash 加载脚本后可补全宿主与帮助主题', t => {
+  const checked = spawnSync('bash', ['-c', [
+    'source /dev/stdin',
+    'COMP_WORDS=(dsh-tavern install --host cl); COMP_CWORD=3; _dsh_tavern',
+    'printf "%s\n" "${COMPREPLY[@]}"',
+    'COMP_WORDS=(dsh-tavern help up); COMP_CWORD=2; _dsh_tavern',
+    'printf "%s\n" "${COMPREPLY[@]}"',
+  ].join('\n')], { input: renderCompletion('bash'), encoding: 'utf8' })
+  if (checked.error?.code === 'ENOENT') return t.skip('bash 不可用')
   assert.equal(checked.status, 0, checked.stderr)
+  assert.equal(checked.stdout, 'cli\nupdate\n')
+})
+
+test('zsh 可通过 eval 注册补全', t => {
+  const checked = spawnSync('zsh', ['-fc', [
+    'autoload -Uz compinit',
+    'compinit -D -i',
+    'eval "$(cat)"',
+    '[[ ${_comps[dsh-tavern]} == _dsh_tavern ]]',
+  ].join('\n')], { input: renderCompletion('zsh'), encoding: 'utf8' })
+  if (checked.error?.code === 'ENOENT') return t.skip('zsh 不可用')
+  assert.equal(checked.status, 0, checked.stderr)
+  assert.equal(checked.stderr, '')
 })
 
 test('man 手册包含标准段落、全部命令与环境变量', () => {
@@ -67,7 +88,7 @@ test('man 手册包含标准段落、全部命令与环境变量', () => {
   assert.ok(page.includes('9.9.9'))
   assert.ok(page.includes('DSH_TAVERN_PORT=3081'))
   assert.ok(page.includes('\\-\\-host'), '连字符应转义')
-  assert.ok(page.includes('未知命令或参数'))
+  assert.ok(page.includes('未知命令、帮助主题或补全参数'))
 })
 
 test('全帮助列出全局选项与补全、man 命令', () => {
@@ -87,6 +108,9 @@ test('安装与更新解析器接受 -- 终止符', { skip: !hasDependencies }, 
   assert.throws(() => parseInstallHost(['--', '--host', 'cli']), /无法识别的安装参数：--host/)
   assert.equal(parseUpdateOptions(['--host', 'cli', '--']).host, 'cli')
   assert.throws(() => parseUpdateOptions(['--', '--host']), /无法识别的更新参数：--host/)
+  assert.throws(() => parseUpdateOptions(['--attempt-id', '--', '--host', 'cli']), /无法识别的更新参数：--host/)
+  assert.equal(parseUpdateOptions(['--attempt-id', '--help']).attemptId, '--help')
+  assert.throws(() => parseUpdateOptions(['--attempt-id', '--']), /缺少更新参数值：--attempt-id/)
   const { INSTALL_HOSTS } = await import('../bin/launcher-environment.mjs')
   assert.deepEqual([...INSTALL_HOSTS].sort(), [...HOST_VALUES].sort())
 })
@@ -124,6 +148,29 @@ test('-- 终止符区分帮助参数与位置参数', { skip: !hasDependencies }
   assert.notEqual(noHelp.exitCode, 0)
   assert.equal(noHelp.stdout, '')
   assert.ok(noHelp.stderr.includes('无法识别的安装参数：--help'))
+})
+
+test('-- 后的参数不参与宿主选择和更新诊断', { skip: !hasDependencies }, (t) => {
+  const desktopEnv = {
+    DSH_TAVERN_RUNTIME_HOST: 'desktop',
+    DSH_DESKTOP_APP_EXECUTABLE: '/nonexistent/dsh-desktop',
+  }
+  for (const env of [{}, desktopEnv]) {
+    for (const [command, label] of [['install', '安装'], ['update', '更新']]) {
+      const result = runCli([command, '--', '--host', 'next'], env)
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.stderr.trim(), '无法识别的' + label + '参数：--host')
+    }
+  }
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dsh-cli-args-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const statusFile = path.join(root, 'status.json')
+  const update = runCli(['update', '--', '--status-file', statusFile])
+  assert.equal(update.exitCode, 1)
+  assert.equal(existsSync(path.join(root, 'update-diagnostics.jsonl')), false)
+  const help = runCli(['update', '--attempt-id', '--help', '--', 'unexpected'])
+  assert.equal(help.exitCode, 1)
+  assert.match(help.stderr, /无法识别的更新参数：unexpected/)
 })
 
 test('desktop 与 next 宿主下 completion、man 不重启应用', { skip: !hasDependencies }, () => {

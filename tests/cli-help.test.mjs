@@ -41,7 +41,7 @@ test('总帮助覆盖全部命令、环境变量与退出码', () => {
     assert.ok(help.includes(name), '缺少环境变量：' + name)
   }
   assert.ok(help.includes('常用示例'))
-  assert.ok(help.includes('退出码：0 成功；1 执行失败；2 未知命令或参数。'))
+  assert.ok(help.includes('退出码：0 成功；1 执行失败；2 未知命令、帮助主题或补全参数。'))
   assert.ok(help.includes('全局选项：'))
   assert.ok(help.includes('-h, --help'))
   assert.ok(help.includes('-v, -V, --version'))

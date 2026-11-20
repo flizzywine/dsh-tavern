@@ -23,7 +23,8 @@ export const COMMANDS = [
       '            dsh-tavern install --host next',
       '  android   Android 应用内安装',
       '',
-      '省略 --host 时沿用当前安装的宿主，否则用 DSH_TAVERN_HOST（默认 cli）。',
+      '省略 --host 时优先使用 DSH_TAVERN_RUNTIME_HOST、DSH_TAVERN_HOST，',
+      '其次沿用现有安装的宿主，默认使用 cli。',
       '重复安装会保留人物卡、会话和设置。安装过程较慢，请保持终端运行。',
     ],
   },
@@ -109,7 +110,7 @@ export const COMMANDS = [
       '启用方式：',
       '  bash        eval "$(dsh-tavern completion bash)"',
       '              或写入 ~/.bash_completion 由 bash-completion 加载',
-      '  zsh         保存为 _dsh-tavern 放入 $fpath，或 eval "$(dsh-tavern completion zsh)"',
+      '  zsh         保存为 _dsh-tavern 放入 $fpath，或在 compinit 后 eval "$(dsh-tavern completion zsh)"',
       '  fish        dsh-tavern completion fish > ~/.config/fish/completions/dsh-tavern.fish',
       '  powershell  dsh-tavern completion powershell | Out-String | Invoke-Expression',
       '',
@@ -125,8 +126,8 @@ export const COMMANDS = [
       '以 roff 格式输出 dsh-tavern 的 man 手册。',
       '',
       '查看方式：',
-      '  man -l <(dsh-tavern man)          直接分页查看（bash/zsh）',
-      '  dsh-tavern man > dsh-tavern.1     先写入文件，再 man dsh-tavern.1',
+      '  dsh-tavern man > dsh-tavern.1',
+      '  man ./dsh-tavern.1',
       '',
       '手册包含全部命令、全局选项、环境变量和退出码。',
     ],
@@ -166,7 +167,7 @@ export const ENV_VARIABLES = [
 
 // 全帮助与 man 手册共用同一份全局选项表。
 export const GLOBAL_OPTIONS = [
-  ['-h, --help', '显示帮助；放在命令后显示该命令的说明'],
+  ['-h, --help', '显示帮助；紧跟命令时显示该命令的说明'],
   ['-v, -V, --version', '显示版本'],
   ['--', '结束选项；其后的参数按位置参数处理'],
 ]
@@ -216,7 +217,7 @@ export function renderHelp({ version = tavernVersion() } = {}) {
     lines.push('        ' + description)
   }
   lines.push('')
-  lines.push('退出码：0 成功；1 执行失败；2 未知命令或参数。')
+  lines.push('退出码：0 成功；1 执行失败；2 未知命令、帮助主题或补全参数。')
   lines.push('文档：' + WIKI_URL)
   return lines.join('\n')
 }

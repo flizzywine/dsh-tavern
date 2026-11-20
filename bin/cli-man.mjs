@@ -55,7 +55,7 @@ export function renderManPage({ version = tavernVersion() } = {}) {
   lines.push('执行失败。')
   lines.push('.TP')
   lines.push('.B 2')
-  lines.push('未知命令或参数。')
+  lines.push('未知命令、帮助主题或补全参数。')
   lines.push('.SH "SEE ALSO"')
   lines.push(escapeRoff('dsh-tavern help 显示帮助；' + WIKI_URL))
   return lines.join('\n') + '\n'
