@@ -268,7 +268,7 @@ export function createSessionViewProjection({
       // tavernStatusView duplicated tavernStatusViews[0] in every read; clients use the list.
       tavernStatusViews: replyDisplay.statusViews || [],
       cardStage,
-      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true},
+      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true, isStageCard: stageMode.isStageCard === true},
       mvuVisibility: cardExtensions.mvuVisibility || null,
       mvuReceipts: mvuReceiptsOf(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;

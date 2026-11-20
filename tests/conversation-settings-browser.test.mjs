@@ -8,6 +8,34 @@ async function toolMenu(page, item) { await page.getByRole('button', { name: '�
 const openTools = page => page.locator('.ap-section-toggle', { hasText: '前台工具' }).click()
 async function templateMenu(page, item) { await page.getByRole('button', { name: '模板', exact: true }).click(); await page.getByRole('menuitem', { name: item, exact: true }).click() }
 
+test('本局设置只为声明舞台的卡片显示舞台分组', async t => {
+  for (const [name, stage] of [
+    ['普通卡跟随全局开启舞台', { isStageCard: false, dialogue: true, stage: true }],
+    ['舞台卡的舞台模块未开启', { isStageCard: true, dialogue: false, stage: false }]
+  ]) {
+    await t.test(name, async t => {
+      const { page } = await openTavernSettings(t, { sessionId: 'game', respond(method) {
+        if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
+        if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story', playerName: name, stage } }
+        if (method === 'getConversationBackgroundConfig') return { backgroundTasks: {}, modelCatalog: [] }
+        if (method === 'listGamePlugins') return { plugins: { settings: [] } }
+        if (method === 'getConversationWritingSkills') return { skills: [] }
+      } })
+      await page.waitForFunction(name => document.querySelector('[aria-label="玩家称呼"]')?.value === name, name)
+      const section = page.getByRole('button', { name: '舞台', exact: true })
+      const settings = page.getByText('舞台设置', { exact: true })
+      if (stage.isStageCard) {
+        await section.waitFor()
+        await settings.waitFor()
+        await page.getByText('未开启', { exact: true }).waitFor()
+      } else {
+        assert.equal(await section.count(), 0)
+        assert.equal(await settings.count(), 0)
+      }
+    })
+  }
+})
+
 test('注册的本局设置保存玩家称呼、预设、后台模型与前台工具，失败时保留已保存模型', async t => {
   let playerName = '你', preset = null, model = null, disabledTools = [], strategy = 'legacy', screening = true, fail = false, candidateTabs = true
   const { page, calls } = await openTavernSettings(t, { sessionId: 'game', respond(method, args) {

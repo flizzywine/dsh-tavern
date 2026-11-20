@@ -231,9 +231,7 @@ function createConversationSettingsModule({
             const timer = setTimeout(() => { off(); reject(new Error("舞台还没有加载，可以在 设置 › 舞台 里加载")); }, 15000);
         });
     }
-    function SessionStageSection({ sessionId, config }) {
-        const state = useLiveTavernView(sessionId, undefined, [["stage"]]);
-        const stage = state && state.view && state.view.stage;
+    function SessionStageSection({ sessionId, config, stage }) {
         const [opening, setOpening] = React.useState(false), [problem, setProblem] = React.useState("");
         const [writeProblem, write] = useSectionWriter(config);
         const hold = React.useRef(null);
@@ -248,7 +246,7 @@ function createConversationSettingsModule({
             } catch (err) { setProblem(errorText(err)); }
             finally { setOpening(false); }
         }
-        const word = !stage ? "" : stage.stage ? "舞台模式已开启" : stage.dialogue ? "仅对话气泡" : "未开启";
+        const word = stage.stage ? "舞台模式已开启" : stage.dialogue ? "仅对话气泡" : "未开启";
         // A model this game chose for a stage slot before the stage kept them: still used, so it is named here, with the way back.
         const data = config.data;
         const chosen = (data?.modModelSlots || []).filter(slot => slot.owner !== "core" && data.modModels?.[slot.modId]?.[slot.id]);
@@ -409,6 +407,7 @@ function createConversationSettingsModule({
     // The sections that share the background config: keyed by the page so 恢复默认模板 reads them again.
     function SessionConfigSections({ sessionId }) {
         const config = useSessionConfig(sessionId);
+        const stage = useLiveTavernView(sessionId, undefined, [["stage"]])?.view?.stage;
         return h(React.Fragment, null,
             h(packUi.StageSection, { title: "玩法", foldKey: FOLD("玩法") },
                 rows(
@@ -417,7 +416,7 @@ function createConversationSettingsModule({
                     h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
                         track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
-            h(SessionStageSection, { sessionId, config }),
+            stage?.isStageCard === true ? h(SessionStageSection, { sessionId, config, stage }) : null,
             h(SessionModelSection, { sessionId, config }),
             h(SessionBodyGeneration, { sessionId }),
             h(SessionFeatureSection, { config }),

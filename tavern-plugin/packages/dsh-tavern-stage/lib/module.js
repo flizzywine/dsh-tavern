@@ -366,9 +366,8 @@ export function createStageAssets(core) {
     return effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)[key] === true
   }
   // The two switches the session view publishes (view.stage): the client loads and asks the stage only when one is on.
-  async function cardStageMode(cardPath) {
-    const raw = (await readCardWorkspace(cardPath))?.raw
-    const stage = effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)
+  function cardStageMode(extension) {
+    const stage = effectiveCardStage(extension, assetEngineSettings.read().values)
     return {dialogue:stage.dialogue === true, stage:stage.stage === true}
   }
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
