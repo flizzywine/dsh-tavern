@@ -580,12 +580,12 @@
         }
 
         // @include modules/global-settings.js
-        const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions } = createGlobalSettingsModule({
+        const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageConfigTab, stageGlobalSettingsOptions } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
             CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
-            // 设置 › 舞台 › 模组管理 (mod-manager.js), a stage package page: drawn once the stage client binds it (StagePackView).
+            // 舞台配置 › 舞台模组 (mod-manager.js), drawn once the stage client binds it.
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null

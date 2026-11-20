@@ -199,7 +199,7 @@ function createConversationSettingsModule({
         const [reasonProblem, setReasonProblem] = React.useState("");
         const data = config.data, disabled = !data || config.busy, catalog = data?.modelCatalog || [];
         const selection = data?.backgroundModel || null;
-        // the core's own slots stay per game here; the stage's and its mods' are the stage's (设置 › 舞台 › 舞台模型).
+        // the core's own slots stay per game here; stage and mod slots live in 舞台配置 › 舞台模型.
         const slots = (data?.modModelSlots || []).filter(slot => slot.owner === "core");
         const slotCatalog = slot => slot.kind === "scoring" ? (data.scoringCatalog || []).map(row => ({ provider: row.provider, models: [{ id: row.model }] })) : catalog;
         return h(packUi.StageSection, { title: "模型", foldKey: FOLD("模型"),
@@ -228,7 +228,7 @@ function createConversationSettingsModule({
         if (galStageAvailable.get()) return Promise.resolve();
         return new Promise((resolve, reject) => {
             const off = galStageAvailable.subscribe(() => { if (galStageAvailable.get()) { clearTimeout(timer); off(); resolve(); } });
-            const timer = setTimeout(() => { off(); reject(new Error("舞台还没有加载，可以在 设置 › 舞台 里加载")); }, 15000);
+            const timer = setTimeout(() => { off(); reject(new Error("舞台还没有加载，可以在侧栏首页的 舞台装置 › 舞台配置 里加载")); }, 15000);
         });
     }
     function SessionStageSection({ sessionId, config, stage }) {
@@ -254,7 +254,7 @@ function createConversationSettingsModule({
             for (const slot of chosen) if (!await write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: null } })) return;
         }
         return h(packUi.StageSection, { title: "舞台", foldKey: FOLD("舞台"),
-                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在 设置 › 舞台 › 舞台模型。" },
+                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
             rows(h(packUi.SwitchRow, { label: "舞台设置", icon: "stage", onOpen: () => void open(),
                 tag: h("span", { className: "dsh-session-stage-state" }, opening ? h(Spinner, { label: "正在打开舞台设置" }) : word),
                 status: h("button", { type: "button", className: "ap-kind-jump", "aria-label": "打开舞台设置", title: "打开舞台设置", onClick: () => void open() }, h(packUi.Glyph, { name: "chevRight" })) })),

@@ -2484,6 +2484,7 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 
 /* Global settings: grouped cards with label-left / control-right rows, matching DSH general settings. */
 .dsh-tavern-global-settings { gap: 32px; padding-bottom: 8px; container-type: inline-size; }
+.dsh-tavern-stage-config { box-sizing: border-box; width: 100%; max-width: 760px; flex: none; margin-inline: auto; padding: 16px 20px 28px; }
 .dsh-tavern-gs-group { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .dsh-tavern-gs-head { padding: 0 2px; }
 .dsh-tavern-gs-head h2 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.4; color: var(--dsw-alias-label-primary); }

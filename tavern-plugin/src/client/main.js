@@ -1364,6 +1364,13 @@ function clipReplayCore() {
 			if (typeof ctx.provide === "function") provideAssetPackWorkbench(ctx);
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			if (ctx.betterSidebar) {
+				ctx.effect(() => registerTab(ctx.betterSidebar, {
+					id: "dsh-tavern:stage-config", title: "舞台配置", order: 9.75, single: true,
+					component: TavernStageConfigTab
+				}), "dsh-tavern: stage config tab");
+				tavernUiExtensions.service.registerStartGroup({ title: "舞台装置", tabs: ["dsh-tavern:stage-config"] });
+			}
 			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
@@ -1583,9 +1590,6 @@ function clipReplayCore() {
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
             }, "dsh-tavern: plugins settings section");
-            ctx.effect(function () {
-                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-stage-settings", order:114, label:() => "舞台" }, TavernStageSettingsSection); });
-            }, "dsh-tavern: stage settings section");
 			// 系统提示词与长期偏好在「预设」标签页（preset-hub.js）。
 
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

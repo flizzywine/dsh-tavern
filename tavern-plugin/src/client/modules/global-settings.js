@@ -121,7 +121,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
             React.createElement(TavernDefaultModelSetting, { label: "前台对话压缩模型", title: "压缩模型", description: "用于整理较早的前台对话内容（手动 /compact 与自动压缩）；设为「跟随前台」时使用当前对话的前台模型", fallback: "跟随前台", selection: state.defaultCompactionModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultCompactionModel", selection) }),
             null),
-                // the core's own slots; the stage's and its mods' (手机 · 通话模型) are on 设置 › 舞台 › 舞台模型.
+                // the core's own slots; the stage's and its mods' (手机 · 通话模型) are on 舞台配置 › 舞台模型.
                 h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.owner === 'core'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
             group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",
                 state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
@@ -189,11 +189,9 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。"),
                 h(TavernUserPluginsSettings)));
     }
-    // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
-    // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the
-    // page needs from the core travel as the stage view options (gal-stage.js bindStageViews, globalSettings);
+    // The sidebar tab owns startup controls. Its hold loads the stage client's global settings even without an open game.
     const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, SpineRuntimeEntry, ForkModManagerEntry};
-    function TavernStageSettingsSection() {
+    function TavernStageConfigTab() {
         const h = React.createElement;
         React.useEffect(() => galStageHold(), []);
         const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
@@ -218,8 +216,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             finally { setBusy(false); }
         }
         const Page = enabled && stageViews ? stageViews.GlobalSettings : null;
-        return h(React.Fragment, null,
-            h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+        return h("div", {className:"fork-tab-scroll"},
+            h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings dsh-tavern-stage-config", role:"region", "aria-label":"舞台配置"},
                 h(SettingsGroup, {title:"舞台启动"},
                     runtime?.installed ? h(TavernSettingRow, {title:"启动时加载舞台", help:"关闭后，下次启动会跳过舞台。需要时可以在这里为本次运行加载舞台。"},
                         h(Switch, {label:"启动时加载舞台", checked:runtime.loadOnStartup !== false, disabled:busy, onChange:value => set("setStageLoadOnStartup", value)})) : null,
@@ -228,8 +226,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     !Page && (!runtime || runtime.installed && runtime.enabled && runtime.status !== "failed") ?
                         h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…") : null,
                     runtime?.installed === false ? h("p", {role:"status"}, "舞台插件不可用") : null,
-                    error ? h("p", {role:"alert"}, error) : null)),
-            Page ? h(Page) : null);
+                    error ? h("p", {role:"alert"}, error) : null),
+                Page ? h(Page) : null));
     }
-    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions };
+    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageConfigTab, stageGlobalSettingsOptions };
 }
