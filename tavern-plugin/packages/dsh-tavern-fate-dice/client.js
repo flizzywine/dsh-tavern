@@ -4488,6 +4488,7 @@ uniform float u_time;
 uniform int u_theme;
 uniform int u_tier;
 uniform int u_dieIndex;
+uniform int u_contestSide; // 0: normal, 1: ally (left/emerald), 2: rival (right/crimson)
 uniform int u_winningFace;
 uniform int u_maxFaceIdx;
 uniform int u_styleAtlasOffset;
@@ -4496,6 +4497,19 @@ uniform float u_climax;
 uniform int u_faceTiles[20];
 
 const float PI = 3.14159265359;
+
+vec3 applyContestSideTint(vec3 col, float glyphMask, float edgeLine, float rim) {
+  if (u_contestSide == 1) {
+    vec3 bodyTint = col * vec3(0.84, 1.06, 0.96) + vec3(0.01, 0.04, 0.03);
+    col = mix(col, bodyTint, 0.36 * (1.0 - glyphMask));
+    col += vec3(0.22, 0.88, 0.64) * (edgeLine * 0.34 + rim * 0.28) * (1.0 - glyphMask * 0.7);
+  } else if (u_contestSide == 2) {
+    vec3 bodyTint = col * vec3(1.18, 0.60, 0.54) + vec3(0.14, 0.02, 0.02);
+    col = mix(col, bodyTint, 0.54 * (1.0 - glyphMask));
+    col += vec3(0.98, 0.34, 0.24) * (edgeLine * 0.44 + rim * 0.34) * (1.0 - glyphMask * 0.7);
+  }
+  return max(col, vec3(0.0));
+}
 
 float hash31(vec3 p) {
   p = fract(p * 0.1031);
@@ -4669,7 +4683,7 @@ void main() {
       body = mix(body, pixInk, glyphMask);
       if (u_settled > 0.5 && !isWinFace) body *= 0.68;
 
-      fragColor = vec4(body, objIdAlpha);
+      fragColor = vec4(applyContestSideTint(body, glyphMask, ridgeLine, fresnel), objIdAlpha);
       return;
     }
 
@@ -4710,7 +4724,7 @@ void main() {
       col = mix(col, redInkGlyph ? cinnabar : ironInk, glyphMask);
       if (u_settled > 0.5 && !isWinFace) col = mix(vellum * 0.88, col, 0.76);
 
-      fragColor = vec4(col, objIdAlpha);
+      fragColor = vec4(applyContestSideTint(col, glyphMask, ridgeLine, fresnel), objIdAlpha);
       return;
     }
 
@@ -4750,7 +4764,7 @@ void main() {
         vec3 specular = (F * env * (1.0 - rough * 0.42) + F * (spec1 + chamferGlint) * vec3(1.15, 1.02, 0.84)) * antiGlare;
         specular += vec3(0.06) * pow(max(dot(v_faceN, H1), 0.0), 64.0) * glyphMask;
 
-        fragColor = vec4((diffuse + specular) * focusDim, objIdAlpha);
+        fragColor = vec4(applyContestSideTint((diffuse + specular) * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
         return;
       } else {
         float boneGrain = sin((v_localPos.x * 15.0 + v_localPos.y * 13.0) + noise3(v_localPos * 4.5) * 2.2) * 0.5 + 0.5;
@@ -4767,7 +4781,7 @@ void main() {
         float spec = pow(max(dot(N, H1), 0.0), 54.0) * 0.26 * antiGlare;
         col += vec3(1.0, 0.96, 0.88) * spec + env * fresnel * 0.14 * antiGlare;
 
-        fragColor = vec4(col * focusDim, objIdAlpha);
+        fragColor = vec4(applyContestSideTint(col * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
         return;
       }
     }
@@ -4802,7 +4816,7 @@ void main() {
       vec3 specular = (env * coatFresnel * 0.42 + vec3(1.2, 1.12, 1.0) * clearcoatSpec) * (1.0 - glyphMask * 0.75);
       specular += makieGold * pow(max(dot(N, H1), 0.0), 26.0) * 0.42 * glyphMask;
 
-      fragColor = vec4((diffuse + specular) * focusDim, objIdAlpha);
+      fragColor = vec4(applyContestSideTint((diffuse + specular) * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
       return;
     }
 
@@ -4834,7 +4848,7 @@ void main() {
       col = mix(col, glyphAlbedo * (0.76 + 0.28 * max(dot(v_faceN, L1), 0.0)), glyphMask);
       if (u_settled > 0.5 && !isWinFace) col *= 0.85;
 
-      fragColor = vec4(col, objIdAlpha);
+      fragColor = vec4(applyContestSideTint(col, glyphMask, ridgeLine, fresnel), objIdAlpha);
       return;
     }
 
@@ -4870,7 +4884,7 @@ void main() {
     float spec = pow(max(dot(N, H1), 0.0), 78.0) * 1.35;
     vec3 specular = (env * (0.06 + 0.82 * fresnel) * 0.52 + vec3(1.15, 1.25, 1.3) * spec) * antiGlare;
 
-    fragColor = vec4((body + specular) * focusDim, objIdAlpha);
+    fragColor = vec4(applyContestSideTint((body + specular) * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
     return;
   }
 
@@ -5009,7 +5023,7 @@ void main() {
 
   specular += F * bevelMask * pow(max(dot(v_smoothN, H1), 0.0), 42.0) * 1.75 * antiGlare;
 
-  vec3 finalHDR = diffuse + specular + emissive;
+  vec3 finalHDR = applyContestSideTint(diffuse + specular + emissive, glyphMask, ridgeLine, fresnel);
   fragColor = vec4(max(finalHDR, vec3(0.0)), 1.0);
 }
 `
@@ -5593,7 +5607,7 @@ class WebGLDiceRenderer {
     this.diceProg = cacheUniforms(linkProgram(gl, DICE_VERT, DICE_FRAG), [
       'u_viewProj', 'u_rotMat', 'u_diePos', 'u_dieRadius',
       'u_atlas', 'u_camPos', 'u_time', 'u_theme', 'u_tier',
-      'u_dieIndex', 'u_winningFace', 'u_maxFaceIdx', 'u_styleAtlasOffset',
+      'u_dieIndex', 'u_contestSide', 'u_winningFace', 'u_maxFaceIdx', 'u_styleAtlasOffset',
       'u_settled', 'u_climax', 'u_faceTiles[0]'
     ])
 
@@ -5951,6 +5965,7 @@ class WebGLDiceRenderer {
       gl.uniform3f(du.u_diePos, d.x, d.y, d.z)
       gl.uniform1f(du.u_dieRadius, d.radius)
       gl.uniform1i(du.u_dieIndex, i)
+      gl.uniform1i(du.u_contestSide, d.side === 'ally' ? 1 : (d.side === 'rival' ? 2 : 0))
       gl.uniform1i(du.u_winningFace, d.targetFace ? d.targetFace.index : 0)
       gl.uniform1i(du.u_maxFaceIdx, gpu.maxFaceIdx)
       gl.uniform1f(du.u_settled, d.settled ? 1.0 : 0.0)
@@ -8203,6 +8218,7 @@ class CinematicDiceStage {
 
     this.tier = spec.tier || 'success'
     this.mode = spec.mode || 'normal'
+    this.contestMeta = spec.contestMeta || null
     this.revealed = false
     this.total = spec.total !== undefined ? spec.total : diceSpecs.reduce((s, d) => s + d.targetValue, 0)
     this.checkName = spec.checkName || '命运裁定'
@@ -8358,19 +8374,23 @@ class CinematicDiceStage {
         wy = (Math.random() < 0.5 ? -1 : 1) * nSpin * 0.92
         wz = (Math.random() - 0.5) * nSpin * 1.1
       } else if (!spec.silentStatic && this.mode === 'contest') {
-        // ⚔️ 双边交锋对抗：我方从左翼抛入、对手从右翼迎面抛入，中央碰撞后各据左右半区
+        // ⚔️ 双边分庭对抗：我方在左半场独立落骰，对手在右半场独立落骰，中线硬隔离绝不串边混杂
         const isRival = ds.side === 'rival'
         const sideSign = isRival ? 1 : -1
-        const sideLane = isRival ? (i - Math.floor(count / 2)) : i
-        startX = sideSign * boundX * (0.94 + Math.random() * 0.06)
-        startY = -boundY * (0.62 + (sideLane % 2) * 0.24) + (Math.random() - 0.5) * 14
-        startZ = baseR + (this.theaterMode ? 116 : 96) + sideLane * 14 + Math.random() * 24
-        const aimX = sideSign * Math.min(boundX * 0.42, baseR * 1.15)
-        const aimY = (sideLane - 0.35) * baseR * 0.65 + 4
-        const tFlight = (this.theaterMode ? 0.48 : 0.36) + Math.random() * 0.05
-        vx = (aimX - startX) / tFlight + (Math.random() - 0.5) * 42
-        vy = (aimY - startY) / tFlight + (Math.random() - 0.5) * 36
-        vz = (this.theaterMode ? 150 : 128) + Math.random() * 72
+        const allyCount = Math.max(1, diceSpecs.filter(s => s.side !== 'rival').length)
+        const sideLane = isRival ? Math.max(0, i - allyCount) : i
+        const laneCount = isRival ? Math.max(1, count - allyCount) : allyCount
+        const laneOffset = laneCount > 1 ? ((sideLane / (laneCount - 1)) - 0.5) : 0
+        startX = sideSign * boundX * (0.94 + Math.random() * 0.05)
+        startY = -boundY * (0.64 + (sideLane % 2) * 0.22) + (Math.random() - 0.5) * 12
+        startZ = baseR + (this.theaterMode ? 116 : 96) + sideLane * 14 + Math.random() * 22
+        const halfCenter = Math.max(boundX * 0.48, baseR * 2.1)
+        const aimX = sideSign * Math.min(boundX * 0.78, halfCenter + (sideLane % 2 === 0 ? -baseR * 0.45 : baseR * 0.55))
+        const aimY = laneOffset * Math.min(boundY * 0.72, baseR * 1.65) + 4
+        const tFlight = (this.theaterMode ? 0.46 : 0.35) + Math.random() * 0.05
+        vx = (aimX - startX) / tFlight + (Math.random() - 0.5) * 28
+        vy = (aimY - startY) / tFlight + (Math.random() - 0.5) * 28
+        vz = (this.theaterMode ? 148 : 126) + Math.random() * 64
         wx = (Math.random() < 0.5 ? -1 : 1) * (16 + Math.random() * 12)
         wy = (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 12)
         wz = (Math.random() - 0.5) * 18
@@ -8487,6 +8507,9 @@ class CinematicDiceStage {
     let peakAvgZ = -Infinity
     let peakStep = 24
     let pairCollisions = 0
+    const contestDivider = isContest
+      ? Math.min(boundX * 0.26, Math.max(18, (dice[0]?.radius || 18) * 1.25))
+      : 0
 
     for (let step = 0; step < MAX_STEPS; step++) {
       let sumZ = 0
@@ -8505,6 +8528,15 @@ class CinematicDiceStage {
 
           if (d.x < -boundX) { d.x = -boundX; d.vx = Math.abs(d.vx) * wallRest; d.wz += wallSpin }
           else if (d.x > boundX) { d.x = boundX; d.vx = -Math.abs(d.vx) * wallRest; d.wz -= wallSpin }
+          if (isContest && d.side === 'ally' && d.x > -contestDivider) {
+            d.x = -contestDivider
+            d.vx = -Math.abs(d.vx) * wallRest
+            d.wz -= wallSpin * 0.8
+          } else if (isContest && d.side === 'rival' && d.x < contestDivider) {
+            d.x = contestDivider
+            d.vx = Math.abs(d.vx) * wallRest
+            d.wz += wallSpin * 0.8
+          }
           if (d.y < -boundY) { d.y = -boundY; d.vy = Math.abs(d.vy) * wallRest; d.wx += wallSpin }
           else if (d.y > boundY) { d.y = boundY; d.vy = -Math.abs(d.vy) * wallRest; d.wx -= wallSpin }
 
@@ -8589,6 +8621,12 @@ class CinematicDiceStage {
             const overlap = (minDist - dist) * 0.52
             a.x -= nx * overlap; a.y -= ny * overlap
             b.x += nx * overlap; b.y += ny * overlap
+            if (isContest) {
+              if (a.side === 'ally' && a.x > -contestDivider) a.x = -contestDivider
+              if (a.side === 'rival' && a.x < contestDivider) a.x = contestDivider
+              if (b.side === 'ally' && b.x > -contestDivider) b.x = -contestDivider
+              if (b.side === 'rival' && b.x < contestDivider) b.x = contestDivider
+            }
             const rvx = b.vx - a.vx, rvy = b.vy - a.vy, rvz = b.vz - a.vz
             const vn = rvx * nx + rvy * ny + rvz * nz
             if (vn < 0) {
@@ -8643,21 +8681,28 @@ class CinematicDiceStage {
     }
     centerX /= Math.max(1, count)
     centerY /= Math.max(1, count)
-    let layoutCost = Math.hypot(centerX, centerY) * 0.9
+    const targetHalfX = Math.max(boundX * 0.46, (dice[0]?.radius || 18) * 2.1)
+    let layoutCost = isContest ? Math.abs(centerY) * 0.8 : Math.hypot(centerX, centerY) * 0.9
     for (let i = 0; i < count; i++) {
       const a = sim[i]
-      if (isContest && a.side === 'ally' && a.x > -8) layoutCost += (a.x + 8) * 3.2
-      if (isContest && a.side === 'rival' && a.x < 8) layoutCost += (8 - a.x) * 3.2
+      if (isContest && a.side === 'ally') {
+        layoutCost += Math.abs(a.x + targetHalfX) * 0.85
+        if (a.x > -contestDivider) layoutCost += (a.x + contestDivider) * 8.0
+      } else if (isContest && a.side === 'rival') {
+        layoutCost += Math.abs(a.x - targetHalfX) * 0.85
+        if (a.x < contestDivider) layoutCost += (contestDivider - a.x) * 8.0
+      }
       for (let j = i + 1; j < count; j++) {
         const b = sim[j]
         const sep = Math.hypot(a.x - b.x, a.y - b.y)
         const minSep = (a.radius + b.radius) * 1.15
         const maxSep = (a.radius + b.radius) * 4.2
         if (sep < minSep) layoutCost += (minSep - sep) * 4.5
-        else if (sep > maxSep) layoutCost += (sep - maxSep) * 1.4
+        else if (!isContest || a.side === b.side) {
+          if (sep > maxSep) layoutCost += (sep - maxSep) * 1.4
+        }
       }
     }
-    if (isContest && pairCollisions > 0) layoutCost -= 18
 
     return { sim, bounceQueue, maxSettleStep, peakStep, layoutCost }
   }
@@ -9991,7 +10036,14 @@ class CinematicDiceStage {
         tier,
         mode: mode === "normal" ? "contest" : mode,
         total: Number(roll.total) || 0,
-        checkName: roll.check || "交锋对抗"
+        checkName: roll.check || "交锋对抗",
+        contestMeta: {
+          allyLabel: "我方",
+          rivalLabel: roll.contest.rivalName || "对手",
+          allyTotal: Number(roll.total),
+          rivalTotal: Number(roll.contest.rivalTotal),
+          margin: Number(roll.contest.margin) || 0
+        }
       }
     }
 
@@ -10132,7 +10184,7 @@ class CinematicDiceStage {
       this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
 
       const sealWindow = this.pinSettled ? Infinity : (this.theaterMode ? 3.5 : 2.5)
-      if (this.settled && !this.charging && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
+      if (this.mode !== "contest" && this.settled && !this.charging && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
         const panelRightMargin = this.theme.themeIndex >= 6 ? 56 : 46
         drawThemeSealOverlay(ctx, {
           themeIndex: this.theme.themeIndex,
@@ -10147,44 +10199,100 @@ class CinematicDiceStage {
         })
       }
 
-      if (this.mode === "contest" && this.settled && !this.charging && !hiddenMask && (this.pinSettled || this.settleTime < 2.8) && !this.compactMode) {
-        const fade = (!this.pinSettled && this.settleTime > 2.1) ? Math.max(0, 1 - (this.settleTime - 2.1) / 0.7) : Math.min(1, this.settleTime * 5)
-        ctx.save()
-        ctx.globalAlpha = fade
-        ctx.font = '700 10.5px system-ui, -apple-system, "PingFang SC", sans-serif'
-        ctx.textAlign = "center"
-        ctx.textBaseline = "middle"
-        const grouped = { ally: { sumX: 0, sumY: 0, count: 0, label: "我方" }, rival: { sumX: 0, sumY: 0, count: 0, label: "对手" } }
-        for (let i = 0; i < this.dice.length; i++) {
-          const d = this.dice[i]
-          if (d.side !== "ally" && d.side !== "rival") continue
-          const uv = this.renderer.projectToUV(d.x, d.y, d.z, this._uvTmp)
-          if (!uv.visible) continue
-          const bucket = grouped[d.side]
-          bucket.sumX += uv.u * W
-          bucket.sumY += (1 - uv.v) * H
-          bucket.count += 1
-          if (d.ownerLabel) bucket.label = d.ownerLabel
-        }
-        for (const [sideKey, info] of Object.entries(grouped)) {
-          if (!info.count) continue
-          const cx = info.sumX / info.count
-          const cy = Math.max(24, info.sumY / info.count - 36)
-          const strokeCol = sideKey === "ally" ? "#4ad295" : "#f06a54"
-          const txt = sideKey === "ally" ? `⚔ ${info.label}` : `🛡 ${info.label}`
-          const tw = Math.ceil(ctx.measureText(txt).width) + 16
-          ctx.fillStyle = isLightSurface ? "rgba(250, 245, 235, 0.9)" : "rgba(10, 12, 20, 0.84)"
-          ctx.strokeStyle = strokeCol
-          ctx.lineWidth = 1.2
+      if (this.mode === "contest" && !this.charging && !hiddenMask && !this.compactMode) {
+        const settleFade = (!this.settled || this.pinSettled)
+          ? 1
+          : (this.settleTime > 2.6 ? Math.max(0, 1 - (this.settleTime - 2.6) / 0.8) : 1)
+        if (settleFade > 0.01) {
+          ctx.save()
+          ctx.globalAlpha = settleFade
+
+          // 左右阵营环境色微染色，一眼区分半场
+          const leftGrad = ctx.createLinearGradient(0, 0, W * 0.48, 0)
+          leftGrad.addColorStop(0, isLightSurface ? "rgba(16, 185, 129, 0.14)" : "rgba(52, 211, 153, 0.13)")
+          leftGrad.addColorStop(1, "rgba(52, 211, 153, 0)")
+          ctx.fillStyle = leftGrad
+          ctx.fillRect(0, 0, W * 0.5, H)
+
+          const rightGrad = ctx.createLinearGradient(W, 0, W * 0.52, 0)
+          rightGrad.addColorStop(0, isLightSurface ? "rgba(225, 29, 72, 0.14)" : "rgba(244, 63, 94, 0.14)")
+          rightGrad.addColorStop(1, "rgba(244, 63, 94, 0)")
+          ctx.fillStyle = rightGrad
+          ctx.fillRect(W * 0.5, 0, W * 0.5, H)
+
+          // 中央垂直分割线 + 发光 VS 徽章
+          const midX = Math.round(W * 0.5) + 0.5
+          const midY = Math.round(H * 0.52)
+          const lineGrad = ctx.createLinearGradient(midX, 16, midX, H - 16)
+          lineGrad.addColorStop(0, "rgba(255, 215, 140, 0)")
+          lineGrad.addColorStop(0.22, isLightSurface ? "rgba(180, 130, 60, 0.48)" : "rgba(255, 215, 140, 0.42)")
+          lineGrad.addColorStop(0.5, isLightSurface ? "rgba(180, 130, 60, 0.78)" : "rgba(255, 224, 158, 0.78)")
+          lineGrad.addColorStop(0.78, isLightSurface ? "rgba(180, 130, 60, 0.48)" : "rgba(255, 215, 140, 0.42)")
+          lineGrad.addColorStop(1, "rgba(255, 215, 140, 0)")
+          ctx.strokeStyle = lineGrad
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([4, 4])
           ctx.beginPath()
-          if (typeof ctx.roundRect === "function") ctx.roundRect(cx - tw / 2, cy - 10, tw, 20, 10)
-          else ctx.rect(cx - tw / 2, cy - 10, tw, 20)
+          ctx.moveTo(midX, 18)
+          ctx.lineTo(midX, H - 18)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          const vsR = this.theaterMode ? 17 : 14
+          ctx.fillStyle = isLightSurface ? "rgba(252, 246, 236, 0.94)" : "rgba(14, 16, 26, 0.92)"
+          ctx.strokeStyle = isLightSurface ? "rgba(180, 128, 52, 0.85)" : "rgba(245, 200, 118, 0.85)"
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          ctx.arc(midX, midY, vsR, 0, Math.PI * 2)
           ctx.fill()
           ctx.stroke()
-          ctx.fillStyle = strokeCol
-          ctx.fillText(txt, cx, cy + 0.5)
+
+          ctx.font = `800 ${this.theaterMode ? 11.5 : 10}px system-ui, -apple-system, "PingFang SC", sans-serif`
+          ctx.textAlign = "center"
+          ctx.textBaseline = "middle"
+          ctx.fillStyle = isLightSurface ? "#9a5d14" : "#f7d488"
+          ctx.fillText("VS", midX, midY + 0.5)
+
+          // 左右半场顶部阵营铭牌（投掷全程常驻，落定后亮出总点数）
+          const meta = this.contestMeta || {}
+          const allyName = meta.allyLabel || "我方"
+          const rivalName = meta.rivalLabel || (this.dice.find(d => d.side === "rival")?.ownerLabel) || "对手"
+          const showScore = this.settled && Number.isFinite(meta.allyTotal) && Number.isFinite(meta.rivalTotal)
+          const allyWin = showScore && meta.allyTotal > meta.rivalTotal
+          const rivalWin = showScore && meta.rivalTotal > meta.allyTotal
+          const pills = [
+            {
+              cx: W * 0.25,
+              text: showScore ? `⚔ ${allyName} · ${meta.allyTotal}` : `⚔ ${allyName}`,
+              color: isLightSurface ? "#0f766e" : "#4ad295",
+              win: allyWin
+            },
+            {
+              cx: W * 0.75,
+              text: showScore ? `🛡 ${rivalName} · ${meta.rivalTotal}` : `🛡 ${rivalName}`,
+              color: isLightSurface ? "#be123c" : "#fb7185",
+              win: rivalWin
+            }
+          ]
+          ctx.font = `700 ${this.theaterMode ? 12 : 11}px system-ui, -apple-system, "PingFang SC", sans-serif`
+          const pillY = this.theaterMode ? 52 : 24
+          for (const p of pills) {
+            const tw = Math.ceil(ctx.measureText(p.text).width) + 20
+            const ph = this.theaterMode ? 24 : 21
+            ctx.fillStyle = isLightSurface ? "rgba(250, 246, 238, 0.92)" : "rgba(10, 12, 20, 0.86)"
+            ctx.strokeStyle = p.color
+            ctx.lineWidth = p.win ? 2.0 : 1.2
+            ctx.beginPath()
+            if (typeof ctx.roundRect === "function") ctx.roundRect(p.cx - tw / 2, pillY - ph / 2, tw, ph, ph / 2)
+            else ctx.rect(p.cx - tw / 2, pillY - ph / 2, tw, ph)
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = p.color
+            ctx.fillText(p.text, p.cx, pillY + 0.5)
+          }
+
+          ctx.restore()
         }
-        ctx.restore()
       }
 
       if (this.theme.themeIndex === 3 && this.settled && !this.charging && !hiddenMask && (this.pinSettled || this.settleTime < 2.4) && this.dice.length <= 4 && !this.compactMode) {

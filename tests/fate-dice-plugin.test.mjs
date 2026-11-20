@@ -1115,6 +1115,9 @@ test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示
   assert.equal(stageSpec.diceSpecs.length, 4)
   assert.equal(stageSpec.diceSpecs.filter(d => d.side === 'ally').length, 2)
   assert.equal(stageSpec.diceSpecs.filter(d => d.side === 'rival').length, 2)
+  assert.equal(stageSpec.contestMeta?.rivalLabel, '哥布林剑士')
+  assert.equal(stageSpec.contestMeta?.allyTotal, contestRoll.total)
+  assert.equal(stageSpec.contestMeta?.rivalTotal, contestRoll.contest.rivalTotal)
 
   const stage = new FD3D.CinematicDiceStage({
     getBoundingClientRect: () => ({ width: 800, height: 320 }),
@@ -1138,6 +1141,11 @@ test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示
   assert.equal(stage.dice.length, 4)
   assert.ok(stage.dice[0].trajPos[0] < 0, '我方骰应从左翼抛入')
   assert.ok(stage.dice[2].trajPos[0] > 0, '对手骰应从右翼抛入')
+  for (const d of stage.dice) {
+    const endX = d.trajPos[d.settleStep * 3]
+    if (d.side === 'ally') assert.ok(endX < -15, `我方骰应严格落定在左半区，实际 x=${endX}`)
+    if (d.side === 'rival') assert.ok(endX > 15, `对手骰应严格落定在右半区，实际 x=${endX}`)
+  }
 
   // 5) 宿命序列（无小模型真骰带）与局势/奇遇骰端到端接线
   const tape = generateFateTape({ rule: '2d6', count: 6 }, () => 4)
