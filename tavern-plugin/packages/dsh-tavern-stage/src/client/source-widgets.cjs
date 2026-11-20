@@ -856,7 +856,7 @@ function useWidgetStage(props) {
     context.transcripts ||= new Set();
     const [,redraw]=React.useState(0), [geometry,setGeometry]=React.useState(null), [ready,setReady]=React.useState({}), [failed,setFailed]=React.useState({});
     // The phone's band in this layout (phoneModStageSize memory) and the last measured geometry (held while the box eases).
-    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null),rushMeasure=React.useRef(null);
+    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null),rushMeasure=React.useRef(null),liveText=React.useRef(false);
     // the reader's phone size and place on this device, and whether it may be dragged.
     const phonePrefs=React.useSyncExternalStore(typeof phoneModPrefs!=='undefined' ? phoneModPrefs.subscribe : ()=>()=>{},typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null,typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null);
     const [visible,setVisible]=React.useState({key:'',text:''}), [grants,setGrants]=React.useState({key:'',items:[]}), [history,setHistory]=React.useState(null), [sheet,setSheet]=React.useState(null);
@@ -947,11 +947,14 @@ function useWidgetStage(props) {
         return()=>{live=false;};
     },[directoryKey]);
     const directory=phoneDirectory?.scope===scope ? phoneDirectory.value : null;
+    // Whether a source widget shows the page being typed (onVisible below).
+    let carriesPage=false;
     const items=[...byRef].slice(0,64).map(([key,value])=>{
         const phone=isPhoneRef(value.ref);
         const source=value.sourceOnly ? stageWidgetThread({rows,ref:value.ref,cursor,characters:props.config?.characters,visibleText:text,revealed:props.revealed,limited:history?.limited,unavailable:history?.unavailable,
             ...(phone ? {phoneView:{...phoneView,follow:phoneFollow.current},directory,reads,limits:phoneLimits.scope===readScope ? phoneLimits.values : null} : {})}) : null;
         if (phone && source?.current && source.livePhoneId) phoneFollow.current=source.livePhoneId;
+        if (source?.current?.turn===props.turn && source.current.para===cursor.para) carriesPage=true;
         // The player's phone contacts in the directory's (manifest) order, for the phone's 电话 app.
         // Every contact is listed: the phone's 通讯录 has no cap (the prompt's contacts are not read from here).
         if (phone && source && directory) source.contacts=directory.contacts.map(({id,name})=>({id,name}));
@@ -1150,6 +1153,7 @@ function useWidgetStage(props) {
         remeasure.current=guardedMeasure;register(()=>{remeasure.current=null;});
         register(()=>window.visualViewport?.removeEventListener('resize',guardedMeasure));window.visualViewport?.addEventListener('resize',guardedMeasure);
     },[props.rootRef,props.film]);
+    liveText.current=carriesPage;
     const phone=items.find(item=>isPhoneRef(item.ref)),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
     const phoneEntry=phone && context.state.entries.get(phone.key),userClosed=Boolean(phoneRun && phoneClosed.current===phoneRun.key);
     // a real phone's banner — only for an incoming message that reaches a closed phone (the
@@ -1350,7 +1354,9 @@ function useWidgetStage(props) {
     });
     return {items:projected,readingKey,claim:Boolean(claimed),phoneBeat,phoneLine,phoneOpen,phoneShade,phoneHeld,covered,paused,scrollOwner:scrollOwner?.key || null,
         scroll:event=>{if (scrollOwner && !closed) sandbox.scroll(scrollOwner.identity,event.deltaY,event.deltaMode);},viewport:geometry?.viewport,narrow:geometry?.viewport.width<700,portrait,action,place,clampPlace,adjust,resize,openKey:projected.find(item=>item.requestedState==='open')?.key,
-        onVisible:value=>setVisible(old=>old.key===readingKey && old.text===value ? old : {key:readingKey,text:value}),
+        // The typed text reaches the widgets only while one of them shows this page's line: every typing step re-renders
+        // the whole stage, which on other pages only cost a phone's main thread.
+        onVisible:value=>{if (liveText.current) setVisible(old=>old.key===readingKey && old.text===value ? old : {key:readingKey,text:value});},
         onReady:(identity,value)=>setReady(old=>old[identity]===value?old:{...old,[identity]:value}),onFailure:identity=>setFailed(old=>({...old,[identity]:true}))};
 }
 

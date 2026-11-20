@@ -577,7 +577,10 @@ function GalTypewriter(props) {
     // A glyph holds each of its `poses` entrance poses `hold` steps (stageSkinReveal), then joins the shown run.
     const span = stepped ? reveal.poses * reveal.hold : 0;
     const landed = stepped ? hop.current.born.findIndex((born, i) => i < visible && born + span > skinStep) : -1;
-    const done = instant ? visible : stepped ? (landed < 0 ? visible : landed) : Math.min(visible, Math.max(0, settled, visible - tail));
+    // props.glyphFade false (画质 below high): glyphs appear without the fade, so typing only rewrites the shown and hidden
+    // runs' text. Each fading glyph is an element put in and taken out, and on the host page every element inserted or
+    // removed restyles the whole stage (its :has() rules), a phone's largest reading cost.
+    const done = instant || props.glyphFade === false && !stepped ? visible : stepped ? (landed < 0 ? visible : landed) : Math.min(visible, Math.max(0, settled, visible - tail));
     const h = React.createElement;
     const fx = stepped ? props.skin.textFx : null;
     // The page's line starts as laid out whole (one run, as the typed page shows it). A revealing page is several runs
@@ -591,11 +594,20 @@ function GalTypewriter(props) {
     React.useLayoutEffect(() => {
         const type = typeRef.current, host = type && type.parentElement;
         if (instant || !fontsReady || !host || !host.parentNode || typeof ResizeObserver !== "function") return;
-        const measure = () => { const starts = galTypeLineStarts(type, whole, glyphs); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
-        measure();
-        const observer = new ResizeObserver(measure); observer.observe(host);
-        document.fonts?.addEventListener('loadingdone', measure);
-        return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
+        // The probe is an element put into the page (a whole-stage restyle on the host page), so the observer's calls that
+        // leave the text's width and font as they were (its first call, the box growing a line taller) measure nothing.
+        let laidFor = null;
+        const measure = force => {
+            const style = getComputedStyle(host), key = [host.clientWidth, style.font, style.letterSpacing, style.padding].join('|');
+            if (force !== true && key === laidFor) return;
+            laidFor = key;
+            const starts = galTypeLineStarts(type, whole, glyphs); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts });
+        };
+        const fontLoaded = () => measure(true);
+        measure(true);
+        const observer = new ResizeObserver(() => measure()); observer.observe(host);
+        document.fonts?.addEventListener('loadingdone', fontLoaded);
+        return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', fontLoaded); };
     }, [whole, instant, fontsReady]);
     const glyphNode = (glyph, at) => {
         const mark = markOf(at);
@@ -606,12 +618,15 @@ function GalTypewriter(props) {
                 style:jitter ? {'--gj-x':jitter[0] + 'em','--gj-y':jitter[1] + 'em'} : undefined}) : null);
     };
     // the shown run, the fading glyphs and the hidden rest within [from, to)
+    // Typing without the fade keeps both runs of every line in place (empty while unused), so a line starting or ending
+    // changes text, not elements.
+    const steady = props.glyphFade === false && !stepped && !instant;
     const runs = (from, to) => {
         const a = Math.max(from, 0), b = Math.min(to, done), out = [];
-        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, ...stepRun(a, b)));
+        if (b > a || steady) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, ...stepRun(a, Math.max(a, b))));
         for (let at = Math.max(from, done); at < Math.min(to, visible); at++) out.push(glyphNode(glyphs[at], at));
         const r = Math.max(from, visible);
-        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, ...stepRun(r, to)));
+        if (to > r || steady) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, ...stepRun(Math.min(r, to), to)));
         return out;
     };
     const lines = !instant && done < glyphs.length && laid && laid.text === whole && laid.starts.length ? [0, ...laid.starts, glyphs.length] : null;
@@ -7694,7 +7709,10 @@ const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(.
 const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
 // A full-stage cover (desc.covered) stops the frame loop once its opening has settled; the scene still ticks this often.
 const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10, GAL_SETTLE_MS = 4000;
-const GAL_SIGNATURE_SKIP = new Set(["audio", "effectTables", "safety", "tapMedia", "tapGate", "preload"]);
+// Parts of the description that change no picture: media handles and tables, and per page the presentation revision (a
+// receipt, onPresented) and each figure's voice key (the mouth follows the voice itself, "voice" in unsettled()). A page
+// turn that changes nobody's look therefore does not wake a settled scene.
+const GAL_SIGNATURE_SKIP = new Set(["audio", "effectTables", "safety", "tapMedia", "tapGate", "preload", "presentationRevision", "spriteVoiceKey"]);
 // Every figure kind beyond static pictures (Spine, Live2D) draws through a registered renderer. Register before creating
 // scenes; a scene snapshots the factories and owns their instances. Per scene factory(scene) returns
 //   load(entry)                         start loading entry.figure; once ready set entry.model (or entry.sprite) and call scene.commit(entry)
@@ -11649,7 +11667,8 @@ function rawStageRects({root, host = globalThis, document:doc = root.ownerDocume
         let rebind = false, changed = false;
         for (const record of records) {
             if (record.type === 'attributes') changed ||= (record.target === root || Object.values(elements).includes(record.target) || elements.widgets.includes(record.target)) && geometric(record);
-            else if(record.type === 'characterData') changed = true;
+            // Text typed into the box changes no box: its size is the ResizeObserver's. Only the name plate's text is read.
+            else if(record.type === 'characterData') changed ||= Boolean(elements.name?.contains(record.target));
             else rebind ||= [...record.addedNodes,...record.removedNodes].some(node => node.nodeType === 1 && (Object.values(selectors).some(selector => node.matches?.(selector) || node.querySelector?.(selector)) || node.matches?.(widgetSelector) || node.querySelector?.(widgetSelector)));
         }
         if (rebind) bind(); if (changed || rebind) invalidate();
@@ -13568,7 +13587,7 @@ function useWidgetStage(props) {
     context.transcripts ||= new Set();
     const [,redraw]=React.useState(0), [geometry,setGeometry]=React.useState(null), [ready,setReady]=React.useState({}), [failed,setFailed]=React.useState({});
     // The phone's band in this layout (phoneModStageSize memory) and the last measured geometry (held while the box eases).
-    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null),rushMeasure=React.useRef(null);
+    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null),rushMeasure=React.useRef(null),liveText=React.useRef(false);
     // the reader's phone size and place on this device, and whether it may be dragged.
     const phonePrefs=React.useSyncExternalStore(typeof phoneModPrefs!=='undefined' ? phoneModPrefs.subscribe : ()=>()=>{},typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null,typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null);
     const [visible,setVisible]=React.useState({key:'',text:''}), [grants,setGrants]=React.useState({key:'',items:[]}), [history,setHistory]=React.useState(null), [sheet,setSheet]=React.useState(null);
@@ -13659,11 +13678,14 @@ function useWidgetStage(props) {
         return()=>{live=false;};
     },[directoryKey]);
     const directory=phoneDirectory?.scope===scope ? phoneDirectory.value : null;
+    // Whether a source widget shows the page being typed (onVisible below).
+    let carriesPage=false;
     const items=[...byRef].slice(0,64).map(([key,value])=>{
         const phone=isPhoneRef(value.ref);
         const source=value.sourceOnly ? stageWidgetThread({rows,ref:value.ref,cursor,characters:props.config?.characters,visibleText:text,revealed:props.revealed,limited:history?.limited,unavailable:history?.unavailable,
             ...(phone ? {phoneView:{...phoneView,follow:phoneFollow.current},directory,reads,limits:phoneLimits.scope===readScope ? phoneLimits.values : null} : {})}) : null;
         if (phone && source?.current && source.livePhoneId) phoneFollow.current=source.livePhoneId;
+        if (source?.current?.turn===props.turn && source.current.para===cursor.para) carriesPage=true;
         // The player's phone contacts in the directory's (manifest) order, for the phone's 电话 app.
         // Every contact is listed: the phone's 通讯录 has no cap (the prompt's contacts are not read from here).
         if (phone && source && directory) source.contacts=directory.contacts.map(({id,name})=>({id,name}));
@@ -13862,6 +13884,7 @@ function useWidgetStage(props) {
         remeasure.current=guardedMeasure;register(()=>{remeasure.current=null;});
         register(()=>window.visualViewport?.removeEventListener('resize',guardedMeasure));window.visualViewport?.addEventListener('resize',guardedMeasure);
     },[props.rootRef,props.film]);
+    liveText.current=carriesPage;
     const phone=items.find(item=>isPhoneRef(item.ref)),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
     const phoneEntry=phone && context.state.entries.get(phone.key),userClosed=Boolean(phoneRun && phoneClosed.current===phoneRun.key);
     // a real phone's banner — only for an incoming message that reaches a closed phone (the
@@ -14062,7 +14085,9 @@ function useWidgetStage(props) {
     });
     return {items:projected,readingKey,claim:Boolean(claimed),phoneBeat,phoneLine,phoneOpen,phoneShade,phoneHeld,covered,paused,scrollOwner:scrollOwner?.key || null,
         scroll:event=>{if (scrollOwner && !closed) sandbox.scroll(scrollOwner.identity,event.deltaY,event.deltaMode);},viewport:geometry?.viewport,narrow:geometry?.viewport.width<700,portrait,action,place,clampPlace,adjust,resize,openKey:projected.find(item=>item.requestedState==='open')?.key,
-        onVisible:value=>setVisible(old=>old.key===readingKey && old.text===value ? old : {key:readingKey,text:value}),
+        // The typed text reaches the widgets only while one of them shows this page's line: every typing step re-renders
+        // the whole stage, which on other pages only cost a phone's main thread.
+        onVisible:value=>{if (liveText.current) setVisible(old=>old.key===readingKey && old.text===value ? old : {key:readingKey,text:value});},
         onReady:(identity,value)=>setReady(old=>old[identity]===value?old:{...old,[identity]:value}),onFailure:identity=>setFailed(old=>({...old,[identity]:true}))};
 }
 
@@ -14439,7 +14464,10 @@ function GalStage(props) {
     const partsMap = React.useMemo(() => new Map([...runtime.textIndex.values()].flatMap(row => (row.unloaded ? [{scope:'unloaded:' + row.turn,turn:row.turn,segments:[],unloaded:true}] : row.parts).map(part => [part.scope, part]))), [runtime.textIndex]);
     const config = props.data && props.data.config || { characters: [] };
     const [, redraw] = React.useState(0);
-    React.useEffect(() => voicePlayer.subscribe(() => redraw(n => n + 1)), []);
+    // The voice player notifies on every clip it prepares, fails or retires for any line; the stage draws again only
+    // when what it shows of the line on screen changes (galVoiceView, kept below once the line is known).
+    const voiceSeen = React.useRef({voice:null,view:''});
+    React.useEffect(() => voicePlayer.subscribe(() => { if (galVoiceView(voicePlayer, voiceSeen.current.voice) !== voiceSeen.current.view) redraw(n => n + 1); }), []);
     const grouped = React.useMemo(() => stageViews.position.turnIndex(partsMap ? Array.from(partsMap.values()) : []), [partsMap]);
     const turns = Array.from(runtime.textIndex.keys()).sort((a, b) => a - b);
     const latestTurn = runtime.latestSource?.turn || turns[turns.length - 1] || 0;
@@ -15260,6 +15288,7 @@ function GalStage(props) {
     const phoneCall = typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null;
     const phoneCallKey = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, (phoneCall || GAL_NO_PHONE_CALL).stage);
     const phoneVoice = phoneCallKey ? phoneCall.speaking() : null, callAudio = phoneVoice?.audio || null;
+    voiceSeen.current = {voice, view:galVoiceView(voicePlayer, voice)};
     const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
     const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
     // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
@@ -15678,7 +15707,7 @@ function GalStage(props) {
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,glyphFade:quality === "high",
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming || leasing ? "……" : "还没有正文"),
@@ -15830,6 +15859,12 @@ function galCallVoice(call) {
     const state = call?.get?.(), voice = state?.voice;
     if (!voice || voice.state === 'loading' && state.status !== 'thinking') return '';
     return JSON.stringify({key:['phone-call', voice.turn], state:voice.state, failed:voice.failed === true});
+}
+// What the stage shows of the voice player for the line on screen, as a string: the clip playing (whose, loaded,
+// paused, failed) and the line's own failure.
+function galVoiceView(player, voice) {
+    const now = player.get(), audio = now?.audio;
+    return JSON.stringify([now?.owner ?? null, now?.id ?? null, Boolean(audio), Boolean(audio?.paused), now?.error ?? null, voice ? player.getError(voice) ?? null : null]);
 }
 function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 // The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
@@ -24324,7 +24359,7 @@ function GalConfigScreenTab(props) {
         galConfigGroup("效果", null,
             galConfigRow("画质", galConfigSegmented({ label: "画质", value: qualitySetting, options: [["auto", "自动"], ["high", "高"], ["medium", "中"], ["saver", "省电"]], onChange: value => stageQuality.set(value) }),
                 h(React.Fragment, null, h("span", null, "自动：电脑用「高」，手机和平板用「中」，电量低或性能弱时用「省电」。这台设备现在是「" + GAL_QUALITY_NAMES[quality] + "」。"),
-                    h("span", null, "中：人物和背景的分辨率降低，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
+                    h("span", null, "中：人物和背景的分辨率降低，逐字出现的文字不再淡入，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
             galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate(quality, true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
                 "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降帧。画质为「省电」时仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),
@@ -26161,7 +26196,7 @@ function galDeviceState(state, profile) {
 // resolves to here. Auto is the device's recommendation (galQualityRecommend): a desktop or a laptop with a touch screen
 // (a fine primary pointer) draws high, as it always did; a phone or a tablet draws medium, or saver when it reports
 // little power or speed. What each tier draws: scene-math.cjs galFrameRate (frame rates), canvas-resolution.cjs
-// galResolution (pixel ratio), scene.cjs (multisampling, depth of field, effects).
+// galResolution (pixel ratio), scene.cjs (multisampling, depth of field, effects), text.cjs (the typed glyphs' fade: high only).
 const GAL_QUALITY_TIERS = Object.freeze(["high", "medium", "saver"]);
 // A phone or tablet in the hand: a coarse primary pointer, or iPadOS's desktop-class Safari (a Mac user agent with a
 // touch screen; a real Mac reports no touch points).

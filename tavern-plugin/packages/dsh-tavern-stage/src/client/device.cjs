@@ -79,7 +79,7 @@ function galDeviceState(state, profile) {
 // resolves to here. Auto is the device's recommendation (galQualityRecommend): a desktop or a laptop with a touch screen
 // (a fine primary pointer) draws high, as it always did; a phone or a tablet draws medium, or saver when it reports
 // little power or speed. What each tier draws: scene-math.cjs galFrameRate (frame rates), canvas-resolution.cjs
-// galResolution (pixel ratio), scene.cjs (multisampling, depth of field, effects).
+// galResolution (pixel ratio), scene.cjs (multisampling, depth of field, effects), text.cjs (the typed glyphs' fade: high only).
 const GAL_QUALITY_TIERS = Object.freeze(["high", "medium", "saver"]);
 // A phone or tablet in the hand: a coarse primary pointer, or iPadOS's desktop-class Safari (a Mac user agent with a
 // touch screen; a real Mac reports no touch points).
