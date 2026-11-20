@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c1cb26890b915fe390be4dfcfbb6911c11bbf80f",
-  "releaseSequence": 1864,
+  "revision": "88bc634bf3987e105d4bc33a231e321acf3c7d34",
+  "releaseSequence": 1865,
   "version": "3.3.0",
   "files": [
     {
@@ -6471,8 +6471,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/image-closure.js",
-      "sha256": "4a9f769aabfd92a0af5c700ce1f3d47db797bc35d52516fda90118c41328d846",
-      "size": 4571
+      "sha256": "35ba134d1b6f0586cac924db14d0480085cab6b57e3a6eeac8b5c0c29103beb1",
+      "size": 4578
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/import-figure-variants.js",
@@ -9626,9 +9626,9 @@
     }
   ],
   "archive": {
-    "commit": "1a355a67e1268b0f2f507da328a117d9c4279805",
+    "commit": "b488ed74669f60b535fc4301a1ce9e0e0636db27",
     "path": "runtime.zip",
-    "sha256": "b412c6de12c6251580197ca01096b664ada35bad86e2c5cc8ddfdab17332e60d",
-    "size": 17069690
+    "sha256": "27202e0cfb4a5d716e92fbe5af3e9ebb5301cf6d65b8efadaee51bdffa1d7615",
+    "size": 17069688
   }
 }
