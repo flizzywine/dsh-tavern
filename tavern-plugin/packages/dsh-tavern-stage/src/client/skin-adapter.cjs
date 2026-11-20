@@ -612,6 +612,7 @@ function stageSkinArt(document, files, entry = '') {
         if (r.letter) marks['data-fk-skin-art-menu-letter']=r.letter;
         if (r.focusScale) Object.assign(tokens,{'--art-mr-focus-scale':String(r.focusScale),'--art-mr-origin':({center:'50%',end:'100%'}[r.align] || '0%') + ' 50%'});
         if (r.spacing !== undefined) tokens['--art-mr-spacing']=r.spacing + 'em';
+        if (r.stroke) Object.assign(tokens,{'--art-mr-stroke':r.stroke.color,'--art-mr-stroke-w':String(r.stroke.width)});
         // poses (§18 N32): each label's own offset and turn, cycled over twelve places (wide --art-mr-p*, phone --art-mn-p*)
         const poses=(p,list) => {for (let i=0; i < 12; i++) {const pose=list[i % list.length]; Object.assign(tokens,{[p + 'x-' + (i + 1)]:String(pose.x || 0),[p + 'r-' + (i + 1)]:(pose.rot || 0) + 'deg'});}};
         if (r.poses) {marks['data-fk-skin-art-menu-poses']=''; poses('--art-mr-p',r.poses);}
@@ -625,6 +626,7 @@ function stageSkinArt(document, files, entry = '') {
         if (m.narrow) {
             const n=m.narrow, nr={...r,...n.rows,x:n.rows?.x || 0,slant:n.rows?.slant ?? r.slant ?? 0}, [nw,nh]=size(nr.images.plain), [nt,ns,nb,nl]=stageSkinSlice(nr.slice), [nleft,nright]=nr.text, sheet=n.sheet || m.sheet;
             marks['data-fk-skin-art-menu-narrow']='';
+            if (n.anchor) marks['data-fk-skin-art-menu-narrow-anchor']=n.anchor;
             Object.assign(tokens,{'--art-mn-u':n.unit + 'px','--art-mn-sheet':sheet ? url(sheet) : 'none','--art-mn-r':url(nr.images.plain),'--art-mn-r-focus':url(nr.images.focus),'--art-mn-r-off':url(nr.images.off || nr.images.plain),
                 '--art-mn-r-w':String(nw),'--art-mn-r-h':String(nh),'--art-mn-r-st':String(nt),'--art-mn-r-sr':String(ns),'--art-mn-r-sb':String(nb),'--art-mn-r-sl':String(nl),'--art-mn-r-l':String(nleft),'--art-mn-r-r':String(nright),
                 '--art-mn-r-font':String(nr.font),'--art-mn-r-x':String(nr.x),'--art-mn-r-y':String(nr.y),'--art-mn-r-gap':String(nr.gap),'--art-mn-r-slant':String(nr.slant)});
