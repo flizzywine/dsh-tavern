@@ -3,21 +3,22 @@ import {openZipFile} from './zip-file.js'
 import {inspectManagedArchive} from './dsh-card-managed-import.js'
 import { validPackId } from './asset-packs.js'
 import { pluginManifestProblem } from './plugin-manifest.js'
+import { MAX_CARD_ASSET_BYTES, MAX_CARD_ASSETS, MAX_CARD_JSON_BYTES } from './card-assets.js'
+import { MAX_SHARED_PRESET_BYTES } from './preset-reading.js'
 
 // Card archives read from disk (zip-file.js): a DSH card (.dshcard, Wiki「设计：dsh-card-format」),
 // the Galgame fork's card bundle (dsh-tavern-card-bundle.json), or a plain CHARX.
 
 const RESERVED = new Set(['icon', 'emotion', 'background', 'user_icon', 'other'])
-const MAX_REFERENCED_BYTES = 20 * 1024 * 1024
-const MAX_REFERENCED = 300
 export const DSH_CARD_FORMAT_VERSION = 1
 
 function invalid(message) { return Object.assign(new Error(message), { code: 'TAVERN_CARD_ARCHIVE_INVALID' }) }
 
-async function readJson(zip, entryPath, label) {
+async function readJson(zip, entryPath, label, limit = 8 * 1024 * 1024) {
   const entry = zip.entries.get(entryPath)
   if (!entry) throw invalid(label + '缺少 ' + entryPath)
-  try { return JSON.parse((await zip.readBuffer(entry, 8 * 1024 * 1024)).toString('utf8')) }
+  if (entry.size > limit) throw invalid(entryPath + ' 超过 ' + limit / 1024 ** 2 + ' MiB')
+  try { return JSON.parse((await zip.readBuffer(entry, limit)).toString('utf8')) }
   catch (error) { throw error?.code === 'TAVERN_ZIP_INVALID' ? error : invalid(entryPath + ' 不是有效的 JSON') }
 }
 
@@ -40,7 +41,7 @@ function referencedPaths(card) {
     uris.push(character && character.avatar, ...Object.values(character && character.sprites || {}),
       ...(Array.isArray(character?.voiceReferences) ? character.voiceReferences.map(clip => clip && clip.audio) : []))
   }
-  return [...new Set(uris.filter(uri => typeof uri === 'string' && uri.startsWith('embeded://')).map(uri => uri.slice('embeded://'.length)))].slice(0, MAX_REFERENCED)
+  return [...new Set(uris.filter(uri => typeof uri === 'string' && uri.startsWith('embeded://')).map(uri => uri.slice('embeded://'.length)))].slice(0, MAX_CARD_ASSETS)
 }
 
 /**
@@ -55,7 +56,7 @@ export async function readCardArchive(zip) {
     if (manifest.format !== 'dshcard') throw invalid('dsh.json 的 format 不是 dshcard')
     if (!Number.isInteger(manifest.formatVersion) || manifest.formatVersion > DSH_CARD_FORMAT_VERSION) throw invalid('这张 DSH 人物卡的格式版本较新（' + manifest.formatVersion + '），请先更新 Tavern')
     if (manifest.lock) managed = await inspectManagedArchive(zip.file)
-    card = await readJson(zip, 'card.json', 'DSH 人物卡')
+    card = await readJson(zip, 'card.json', 'DSH 人物卡', MAX_CARD_JSON_BYTES)
     info = { version: String(manifest.card?.version || '').slice(0, 40), title: String(manifest.card?.title || '').slice(0, 120), author: String(manifest.card?.author || '').slice(0, 120),
       tavernApi: Number(manifest.requires?.tavernApi) || null }
     for (const pack of Array.isArray(manifest.packs) ? manifest.packs : []) {
@@ -86,7 +87,7 @@ export async function readCardArchive(zip) {
     kind = 'bundle'
     const bundle = await readJson(zip, 'dsh-tavern-card-bundle.json', '卡包')
     if (bundle.format !== 'dsh-tavern-card-bundle') throw invalid('不认识的卡包格式：' + bundle.format)
-    card = await readJson(zip, 'card/card.json', '卡包')
+    card = await readJson(zip, 'card/card.json', '卡包', MAX_CARD_JSON_BYTES)
     for (const dependency of Array.isArray(bundle.dependencies) ? bundle.dependencies : []) {
       if (!validPackId(dependency.packId)) throw invalid('素材包 id 无效：' + dependency.packId)
       const prefix = 'packs/' + dependency.packId + '/'
@@ -102,13 +103,13 @@ export async function readCardArchive(zip) {
     }
   } else {
     kind = 'charx'
-    card = await readJson(zip, 'card.json', 'CHARX')
+    card = await readJson(zip, 'card.json', 'CHARX', MAX_CARD_JSON_BYTES)
   }
   if (!card || typeof card !== 'object') throw invalid('人物卡数据不是 JSON 对象')
   const files = new Map()
   for (const file of referencedPaths(card)) {
     const entry = zip.entries.get(file)
-    if (entry && entry.size <= MAX_REFERENCED_BYTES) files.set(file, await zip.readBuffer(entry, MAX_REFERENCED_BYTES))
+    if (entry && entry.size <= MAX_CARD_ASSET_BYTES) files.set(file, await zip.readBuffer(entry, MAX_CARD_ASSET_BYTES))
   }
   const resolve = uri => {
     if (typeof uri !== 'string') return undefined
@@ -149,7 +150,7 @@ async function startDefaults(zip, value) {
     const file = path.posix.normalize(preset.path)
     if (!/^presets\/[^/]+\.json$/i.test(file) || !zip.entries.has(file)) throw invalid('dsh.json 的 defaults.preset 应指向包内 presets/ 下的 JSON 预设：' + preset.path)
     const title = typeof preset.title === 'string' ? preset.title.replace(/[\\/:*?"<>|\r\n]/g, ' ').trim().slice(0, 80) : ''
-    result.preset = { name: (title || file.slice('presets/'.length).replace(/\.json$/i, '')) + '.json', text: (await zip.readBuffer(zip.entries.get(file), 4 * 1024 * 1024)).toString('utf8') }
+    result.preset = { name: (title || file.slice('presets/'.length).replace(/\.json$/i, '')) + '.json', text: (await zip.readBuffer(zip.entries.get(file), MAX_SHARED_PRESET_BYTES)).toString('utf8') }
   }
   const settings = startSettings(value.settings)
   if (settings) result.settings = settings

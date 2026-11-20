@@ -2,14 +2,13 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { readZipEntries } from './zip-entries.js'
-import { emotionRank, emotionSlot as emotionSlotOf } from './card-assets.js'
+import { emotionRank, emotionSlot as emotionSlotOf, MAX_CARD_ASSET_BYTES } from './card-assets.js'
 
 // Per-card character material (Wiki「设计：cast-presentation」): avatar and expression sprites
 // per character, laid out like a SillyTavern sprite pack so such packs import as they are.
 const hash = value => createHash('sha256').update(value).digest('hex')
 export const castManifestPath = (dataRoot, cardPath) => path.join(path.resolve(dataRoot), 'cast-assets', hash(String(cardPath)), 'cast.json')
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024
-const MAX_EXTRA_BYTES = 20 * 1024 * 1024
+const MAX_IMAGE_BYTES = 16 * 1024 * 1024
 const MAX_CHARACTERS = 64
 const MAX_NAME = 24
 const IMAGE_TYPES = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })
@@ -89,7 +88,7 @@ export function createCastAssets({ store }) {
   /** Store one image, content-addressed, so a browser may cache its URL forever. */
   async function writeImage(cardPath, bytes) {
     if (!bytes?.length) throw invalid('图片为空')
-    if (bytes.length > MAX_IMAGE_BYTES) throw invalid('单张图片不能超过 8 MB')
+    if (bytes.length > MAX_IMAGE_BYTES) throw invalid('单张图片不能超过 ' + MAX_IMAGE_BYTES / 1024 ** 2 + ' MiB')
     const extension = imageExtension(bytes)
     if (!extension) throw invalid('只支持 PNG、JPEG、WebP、GIF 图片')
     const file = hash(bytes).slice(0, 32) + '.' + extension
@@ -184,7 +183,7 @@ export function createCastAssets({ store }) {
   /** A file kept only to be exported again (audio, models, unrecognized expressions). */
   async function writeExtra(cardPath, bytes, ext) {
     if (!bytes?.length) throw invalid('文件为空')
-    if (bytes.length > MAX_EXTRA_BYTES) throw invalid('单个素材不能超过 20 MB')
+    if (bytes.length > MAX_CARD_ASSET_BYTES) throw invalid('单个素材不能超过 ' + MAX_CARD_ASSET_BYTES / 1024 ** 2 + ' MiB')
     const file = hash(bytes).slice(0, 32) + '.' + (/^[a-z0-9]{1,10}$/.test(ext) ? ext : 'bin')
     await store.writeBytes(dirOf(cardPath) + '/files/' + file, bytes)
     return file

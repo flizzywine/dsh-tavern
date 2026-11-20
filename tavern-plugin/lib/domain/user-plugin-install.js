@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { createWriteStream, existsSync } from 'node:fs'
+import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { readZipEntries } from './zip-entries.js'
+import { openZipFile } from './zip-file.js'
 import { DISABLED_FILE, RESTART_FILE, scanUserPlugins, STATUS_FILE, userPluginPaths } from './user-plugins.js'
 import { pluginDataFile } from './plugin-data-store.js'
 import { comparePluginVersions, pluginManifestProblem } from './plugin-manifest.js'
@@ -19,10 +21,13 @@ const SKIP = new Set(['.git', '.github', 'node_modules/.cache', '.tavern-disable
 const RELEASE_TTL = 5 * 60 * 1000
 // codeload 下载不像 GitHub API 那样有超时保护：连不上或 body 一直不发数据时，
 // 安装 RPC 会永远不返回，设置页的「处理中…」也就永久锁住。给整段下载一个有界的截止时间。
-const ARCHIVE_TIMEOUT_MS = 30 * 1000
+const ARCHIVE_TIMEOUT_MS = 120 * 1000
 const DOWNLOAD_HINT = '网络不通时，可以在仓库页面下载 ZIP 后上传'
 const ZIP_ACCEPT = 'application/zip, application/octet-stream'
-const MAX_RELEASE_ZIP_BYTES = 50 * 1024 * 1024
+export const PLUGIN_ZIP_LIMITS = Object.freeze({
+  maxArchiveBytes: 256 * 1024 * 1024,
+  maxExpandedBytes: 512 * 1024 * 1024,
+})
 
 // jsDelivr 不给整包 ZIP，只能「文件列表 + 逐个文件」地取，所以回退路径自己拼插件目录。
 // 20 MB 是 CDN 的单文件上限；总量沿用 ZIP 解压后的上限，别让回退绕过体积限制。
@@ -87,10 +92,28 @@ function fileSignal(signal) {
 
 const skippedRelative = relative => [...SKIP].some(prefix => relative === prefix || relative.startsWith(prefix + '/'))
 
+async function* pluginZipChunks(response, expectedSize) {
+  const maximum = expectedSize ?? PLUGIN_ZIP_LIMITS.maxArchiveBytes
+  let size = 0
+  const mismatch = () => fail(expectedSize === undefined
+    ? '插件 ZIP 超过 ' + maximum / 1024 ** 2 + ' MiB'
+    : '插件发布包大小与 GitHub 发布记录不符')
+  if (Number(response.headers?.get?.('content-length')) > maximum) {
+    await response.body?.cancel().catch(() => {})
+    mismatch()
+  }
+  for await (const bytes of response.body ?? [Buffer.from(await response.arrayBuffer())]) {
+    size += bytes.length
+    if (size > maximum) mismatch()
+    yield Buffer.from(bytes)
+  }
+  if (expectedSize !== undefined && size !== expectedSize) mismatch()
+}
+
 // 有 Release 用最新 Release，否则用默认分支；地址里写了分支或标签就用它。
 // 下载走 codeload.github.com：它不占 GitHub API 的每小时配额，本体 install.sh 也用它。
 // api.github.com 只用来问「最新 Release 是哪个」，问答失败只是退回默认分支，不中断安装。
-async function githubArchive(source, { fetchImpl, timeoutMs }) {
+async function githubArchive(source, { fetchImpl, timeoutMs, file }) {
   const api = `https://api.github.com/repos/${source.owner}/${source.repo}`
   const archive = `https://codeload.github.com/${source.owner}/${source.repo}/zip`
   let ref = source.ref, label = source.ref ? source.ref : '默认分支', warning = ''
@@ -121,9 +144,13 @@ async function githubArchive(source, { fetchImpl, timeoutMs }) {
         fail('找不到仓库 ' + source.owner + '/' + source.repo + ' 的 ' + ref + '，请检查地址，或确认仓库是公开的')
       }
       if (!response.ok) fail('下载插件失败（HTTP ' + response.status + '）')
-      return Buffer.from(await response.arrayBuffer())
+      if (file) return await pipeline(pluginZipChunks(response), createWriteStream(file, { flags: 'wx' }), { signal })
+      const chunks = []
+      for await (const chunk of pluginZipChunks(response)) chunks.push(chunk)
+      return Buffer.concat(chunks)
     }, timeoutMs, '下载插件超时（仓库压缩包一直没下载完）', { timeout: true })
-    return { files: readZipEntries(bytes, { label: '插件 ZIP', fail }), ref: ref || 'HEAD', label, warning }
+    const content = file ? { archive: await openPluginArchive(file) } : { files: readZipEntries(bytes, { label: '插件 ZIP', fail, ...PLUGIN_ZIP_LIMITS }) }
+    return { ...content, ref: ref || 'HEAD', label, warning }
   } catch (error) {
     // 换线路时也要把「为什么没装成 Release」带上，不然回退成功后解释就没了。
     if (warning) error.warning = warning
@@ -177,10 +204,10 @@ async function jsdelivrArchive(source, { fetchImpl, timeoutMs }) {
  * 优先 GitHub 官方通道；只有连不上 / 超时这种「线路不通」才换 jsDelivr，
  * 仓库不存在之类的 404 原样报错，换线路也救不回来。
  */
-export async function downloadGithubPlugin(source, { fetchImpl = fetch, timeoutMs = ARCHIVE_TIMEOUT_MS } = {}) {
+export async function downloadGithubPlugin(source, { fetchImpl = fetch, timeoutMs = ARCHIVE_TIMEOUT_MS, file } = {}) {
   let primary
   try {
-    return await githubArchive(source, { fetchImpl, timeoutMs })
+    return await githubArchive(source, { fetchImpl, timeoutMs, file })
   } catch (error) {
     if (!error?.network && !error?.timeout) throw error
     primary = error
@@ -211,7 +238,7 @@ function hostEntryOf(pkg) {
  * ZIP 内的条目带一层仓库前缀（repo-ref/lib/x.js），jsDelivr 的列表是仓库根绝对路径（/lib/x.js），
  * 两种都先归一成不带前导斜杠的相对路径，再按最浅清单剥掉前缀，插件放在子目录里也能认。
  */
-export function readPluginFiles(entries) {
+function locatePluginFiles(entries) {
   const normalized = new Map()
   for (const [name, data] of entries) {
     const relative = String(name).replace(/^\.\//, '').replace(/^\/+/, '')
@@ -220,9 +247,13 @@ export function readPluginFiles(entries) {
   const manifests = [...normalized.keys()].filter(name => /(^|\/)package\.json$/.test(name) && !name.includes('node_modules/'))
     .sort((left, right) => left.split('/').length - right.split('/').length)
   if (!manifests.length) fail('压缩包里没有 package.json，不是 Tavern 插件')
-  const root = manifests[0].slice(0, -'package.json'.length)
+  return { normalized, manifest: manifests[0] }
+}
+
+function readPluginManifest({ normalized, manifest }, manifestBytes) {
+  const root = manifest.slice(0, -'package.json'.length)
   let pkg
-  try { pkg = JSON.parse(normalized.get(manifests[0]).toString('utf8')) } catch (error) { fail('package.json 无法解析：' + error.message) }
+  try { pkg = JSON.parse(manifestBytes.toString('utf8')) } catch (error) { fail('package.json 无法解析：' + error.message) }
   const manifestProblem = pluginManifestProblem(pkg)
   if (manifestProblem) fail(manifestProblem)
   const files = new Map()
@@ -242,9 +273,23 @@ export function readPluginFiles(entries) {
   return { pkg, files }
 }
 
+export function readPluginFiles(entries) {
+  const plugin = locatePluginFiles(entries)
+  return readPluginManifest(plugin, plugin.normalized.get(plugin.manifest))
+}
+
 /** 上传的 ZIP：先解包再按同一套规则认插件根。 */
 export function readPluginArchive(bytes) {
-  return readPluginFiles(readZipEntries(bytes, { label: '插件 ZIP', fail }))
+  return readPluginFiles(readZipEntries(bytes, { label: '插件 ZIP', fail, ...PLUGIN_ZIP_LIMITS }))
+}
+
+async function openPluginArchive(file) {
+  const zip = await openZipFile(file, { label: '插件 ZIP', ...PLUGIN_ZIP_LIMITS })
+  try {
+    const plugin = locatePluginFiles([...zip.entries].map(([name, entry]) => [name, () => zip.stream(entry)]))
+    const manifest = await zip.readBuffer(zip.entries.get(plugin.manifest))
+    return { ...readPluginManifest(plugin, manifest), close: zip.close }
+  } catch (error) { await zip.close(); throw error }
 }
 
 function folderFor(pkg, fallback) {
@@ -285,28 +330,31 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     return value
   }
 
-  async function readBundledReleasePackage(asset, folder, latest) {
-    const bytes = await withDeadline(async signal => {
-      const response = await fetchOk(fetchImpl, asset.url, ZIP_ACCEPT, signal)
-      if (!response.ok) fail('下载插件发布包失败（HTTP ' + response.status + '）')
-      const chunks = []
-      let size = 0
-      for await (const chunk of response.body) {
-        size += chunk.byteLength
-        if (size > asset.size) fail('插件发布包大小与 GitHub 发布记录不符')
-        chunks.push(Buffer.from(chunk))
-      }
-      if (size !== asset.size) fail('插件发布包大小与 GitHub 发布记录不符')
-      return Buffer.concat(chunks)
-    }, archiveTimeoutMs, '下载插件发布包超时')
-    if ('sha256:' + createHash('sha256').update(bytes).digest('hex') !== asset.digest) fail('插件发布包的 SHA-256 校验失败')
-    const archive = readPluginArchive(bytes)
-    if (archive.pkg.name !== folder || comparePluginVersions(archive.pkg.version, latest) !== 0) fail('插件发布包的包名或版本与 Release 不符')
-    for (const file of BUNDLED_PLUGIN_RUNTIME_FILES) {
-      if (!archive.files.has(file)) fail('插件发布包缺少 ' + file)
-    }
-    archive.files.delete(CARD_MARKER)
-    return archive
+  async function temporaryArchive(use) {
+    const directory = await mkdtemp(path.join(dataRoot, '.plugin-download-'))
+    try { return await use(path.join(directory, 'archive.zip')) }
+    finally { await rm(directory, { recursive: true, force: true }) }
+  }
+
+  async function useBundledReleasePackage(asset, folder, latest, use) {
+    return temporaryArchive(async file => {
+      const hash = createHash('sha256')
+      await withDeadline(async signal => {
+        const response = await fetchOk(fetchImpl, asset.url, ZIP_ACCEPT, signal)
+        if (!response.ok) fail('下载插件发布包失败（HTTP ' + response.status + '）')
+        await pipeline(pluginZipChunks(response, asset.size), async function* (source) {
+          for await (const chunk of source) { hash.update(chunk); yield chunk }
+        }, createWriteStream(file, { flags: 'wx' }), { signal })
+      }, archiveTimeoutMs, '下载插件发布包超时')
+      if ('sha256:' + hash.digest('hex') !== asset.digest) fail('插件发布包的 SHA-256 校验失败')
+      const archive = await openPluginArchive(file)
+      try {
+        if (archive.pkg.name !== folder || comparePluginVersions(archive.pkg.version, latest) !== 0) fail('插件发布包的包名或版本与 Release 不符')
+        for (const name of BUNDLED_PLUGIN_RUNTIME_FILES) if (!archive.files.has(name)) fail('插件发布包缺少 ' + name)
+        archive.files.delete(CARD_MARKER)
+        return await use(archive)
+      } finally { await archive.close() }
+    })
   }
 
   async function bundledUpdate(source, folder, current) {
@@ -322,14 +370,13 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     const fileName = source.assetPrefix + '-' + version + '.zip'
     const entry = release.assets.find(asset => asset?.name === fileName)
     const digest = String(entry?.digest || '').toLowerCase()
-    if (!/^sha256:[a-f0-9]{64}$/.test(digest) || !Number.isSafeInteger(entry?.size) || entry.size <= 0 || entry.size > MAX_RELEASE_ZIP_BYTES) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(digest) || !Number.isSafeInteger(entry?.size) || entry.size <= 0 || entry.size > PLUGIN_ZIP_LIMITS.maxArchiveBytes) {
       return { status: 'error', reason: 'Release 缺少带 SHA-256 校验的有效插件安装包', latest }
     }
     const asset = { url: `https://github.com/${source.owner}/${source.repo}/releases/download/${latest}/${fileName}`, digest, size: entry.size }
     let checked = checkedReleasePackages.get(release)
     if (!checked) {
-      checked = readBundledReleasePackage(asset, folder, latest)
-        .then(({ pkg }) => bundledReleaseCompatibilityProblem(pkg))
+      checked = useBundledReleasePackage(asset, folder, latest, ({ pkg }) => bundledReleaseCompatibilityProblem(pkg))
         .catch(error => { checkedReleasePackages.delete(release); throw error })
       checkedReleasePackages.set(release, checked)
     }
@@ -382,7 +429,8 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       for (const [relative, data] of files) {
         const file = path.join(staging, ...relative.split('/'))
         await mkdir(path.dirname(file), { recursive: true })
-        await writeFile(file, data)
+        if (typeof data === 'function') await pipeline(await data(), createWriteStream(file, { flags: 'wx' }))
+        else await writeFile(file, data)
       }
       // 来源记录：warning 只是这一次安装的附注，没有内容就不落盘。
       const record = { ...source, version: String(pkg.version || ''), replaced: wasInstalled, installedAt: now().toISOString() }
@@ -406,6 +454,19 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         ...(source.warning ? { warning: String(source.warning) } : {}),
       }
     } finally { await rm(staging, { recursive: true, force: true }) }
+  }
+
+  async function installGithub(source) {
+    return temporaryArchive(async file => {
+      const downloaded = await downloadGithubPlugin(source, { fetchImpl, timeoutMs: archiveTimeoutMs, file })
+      const archive = downloaded.archive || readPluginFiles(downloaded.files)
+      try {
+        return await place(archive, {
+          kind: 'github', repo: source.owner + '/' + source.repo, ref: source.ref,
+          resolved: downloaded.label, warning: downloaded.warning,
+        }, source.repo)
+      } finally { await archive.close?.() }
+    })
   }
 
   return {
@@ -513,14 +574,18 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       })
     },
     installFromGithub(input) {
-      return serial(async () => {
-        const source = parseGithubSource(input)
-        const downloaded = await downloadGithubPlugin(source, { fetchImpl, timeoutMs: archiveTimeoutMs })
-        return place(readPluginFiles(downloaded.files), { kind: 'github', repo: source.owner + '/' + source.repo, ref: source.ref, resolved: downloaded.label, warning: downloaded.warning }, source.repo)
-      })
+      return serial(() => installGithub(parseGithubSource(input)))
     },
     installFromZip(bytes, fileName) {
       return serial(async () => place(readPluginArchive(bytes), { kind: 'zip', file: String(fileName || '') }, String(fileName || '').replace(/\.zip$/i, '')))
+    },
+    installFromZipFile(file, fileName) {
+      return serial(async () => {
+        const archive = await openPluginArchive(file)
+        const name = String(fileName || '')
+        try { return await place(archive, { kind: 'zip', file: name }, name.replace(/\.zip$/i, '')) }
+        finally { await archive.close() }
+      })
     },
     update(folder, target) {
       return serial(async () => {
@@ -534,14 +599,13 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
           if (!target || !(await lstat(dir)).isDirectory()) fail('请先在插件列表检查更新')
           const candidate = await bundledUpdate(release, name, pkg.version)
           if (candidate.status !== 'available' || candidate.target !== target) fail(candidate.reason || '插件发布版本已变化，请重新检查更新')
-          const archive = await readBundledReleasePackage(candidate.asset, name, candidate.latest)
-          return place(archive, { kind: 'builtin', bundled: true, releaseRepo: release.owner + '/' + release.repo }, name)
+          return useBundledReleasePackage(candidate.asset, name, candidate.latest,
+            archive => place(archive, { kind: 'builtin', bundled: true, releaseRepo: release.owner + '/' + release.repo }, name))
         }
         if (source?.kind !== 'github') fail('这个插件不是从 GitHub 地址装的，没法自动更新；请重新上传新版 ZIP')
         const parsed = parseGithubSource(source.repo)
         parsed.ref = source.ref || null
-        const downloaded = await downloadGithubPlugin(parsed, { fetchImpl, timeoutMs: archiveTimeoutMs })
-        return place(readPluginFiles(downloaded.files), { kind: 'github', repo: source.repo, ref: source.ref || null, resolved: downloaded.label, warning: downloaded.warning }, parsed.repo)
+        return installGithub(parsed)
       })
     },
     remove(folder) {

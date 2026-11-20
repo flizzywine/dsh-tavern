@@ -96,7 +96,7 @@ async function prepareLive2dEntries(entries) {
   for(const name of paths){const found=byPath.get(base+name);if(!found)throw new Error('缺少模型文件：'+name);out.set(name,await found.read());}
   const moc=out.get(refs.Moc);
   if(String.fromCharCode(...moc.subarray(0,4))!=='MOC3')throw new Error('「'+refs.Moc+'」不是 Cubism 3 及以上的 .moc3 文件');
-  if([...out.values()].reduce((n,b)=>n+b.length,0)>256*1024*1024)throw new Error('模型文件过大（上限 256 MB）');
+  if([...out.values()].reduce((n,b)=>n+b.length,0)>384*1024*1024)throw new Error('模型文件过大（上限 384 MiB）');
   return {kind:'live2d',entry,document,files:out,descriptor:{kind:'live2d',entry},folder:base.replace(/\/$/,'').split('/').pop()||''};
 }
 // The names the model declares: expression Names and motion groups with their clips (a clip's label is its declared

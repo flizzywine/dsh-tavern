@@ -13,6 +13,7 @@ import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { openCardZip } from './card-encryption.js'
+import { MAX_SHARED_PRESET_BYTES } from './preset-reading.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -320,7 +321,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     if (material.startDefaults?.presetPath) {
       defaults.preset = { path: 'presets/default.json', title: material.startDefaults.presetPath.split('/').pop().replace(/\.json$/i, '') }
-      entries.push({ path: defaults.preset.path, data: Buffer.from(await fileResources.readText(material.startDefaults.presetPath)) })
+      const preset = Buffer.from(await fileResources.readText(material.startDefaults.presetPath))
+      if (preset.length > MAX_SHARED_PRESET_BYTES) throw new Error('卡包内的默认预设超过 ' + MAX_SHARED_PRESET_BYTES / 1024 ** 2 + ' MiB')
+      entries.push({ path: defaults.preset.path, data: preset })
     }
     const cover = await fileResources.readCardImage(cardPath)
     await mkdir(exportRoot, { recursive: true })

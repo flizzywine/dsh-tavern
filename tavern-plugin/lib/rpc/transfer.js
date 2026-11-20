@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { exportSillyTavernMigrationScript, MIGRATION_HELPER_FILENAME } from '../domain/sillytavern-migration-helper.js'
-import { buildTransferManifest, packTransferBundle, readTransferBundle, safeTransferFileName, TRANSFER_EXTENSION } from '../domain/transfer-bundle.js'
+import { buildTransferManifest, packTransferBundle, readTransferBundleFile, safeTransferFileName, TRANSFER_EXTENSION } from '../domain/transfer-bundle.js'
 import { createTransferAssets } from '../domain/transfer-assets.js'
 import { createTransferCatalog } from '../domain/transfer-catalog.js'
 import { createTransferChats } from '../domain/transfer-chats.js'
@@ -20,10 +20,8 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-// A package waiting to be applied lives in memory for a quarter of an hour; a reload asks again.
+// A verified upload stays on disk while its preview token can be applied.
 const TOKEN_TTL_MS = 15 * 60 * 1000
-// P0 bundles carry text only; anything far larger is probably not one of ours.
-const MAX_IMPORT_BYTES = 128 * 1024 * 1024
 // A 16 MB ZIP is already awkward as base64 inside one JSON reply.
 const STREAM_THRESHOLD_BYTES = 16 * 1024 * 1024
 
@@ -36,7 +34,7 @@ function stamp() {
 
 /** Export / import of `.dshtransfer` bundles (Wiki「设计：data-transfer」). */
 export function createTransferHandlers(deps) {
-  const { dataRoot, uploads, fileResources, worldBooks, presetLibrary, promptDocuments, userPreferenceProfile,
+  const { ctx, dataRoot, uploads, fileResources, worldBooks, presetLibrary, promptDocuments, userPreferenceProfile,
     regexManager, readTavernSettings, updateTavernSettings, importCard, importPreset, readCardWorkspace,
     cardPreparation, TAVERN_PACKAGE_VERSION, listTavernSessions, readChat, chatPersistence, exportGameSave, importGameSave,
     importChatHistoryText, userPluginInstaller, pluginDataStore, tavernSkills, transferExports, exportTavernLogs,
@@ -132,8 +130,22 @@ export function createTransferHandlers(deps) {
   const applyProgress = new Map()
   const runningExports = new Set()
   const exportProgress = new Map()
+  const previewsByUpload = new Map()
+  async function discardPreview(token) {
+    const entry = tokens.get(token)
+    if (!entry) return
+    tokens.delete(token)
+    previewsByUpload.delete(entry.uploadId)
+    clearTimeout(entry.expiry)
+    try { await entry.close() } finally { await entry.remove() }
+  }
+  ctx?.effect?.(() => () => {
+    for (const token of tokens.keys()) if (!runningApplies.has(token)) void discardPreview(token).catch(() => {})
+  })
   function sweepTokens(now = Date.now()) {
-    for (const [token, entry] of tokens) if (now - entry.at > TOKEN_TTL_MS) tokens.delete(token)
+    for (const [token, entry] of tokens) {
+      if (now - entry.at >= TOKEN_TTL_MS && !runningApplies.has(token)) void discardPreview(token).catch(() => {})
+    }
     for (const [token, entry] of undoTokens) if (now - entry.at > TOKEN_TTL_MS) undoTokens.delete(token)
     for (const [token, entry] of finishedApplies) if (now - entry.at > TOKEN_TTL_MS) finishedApplies.delete(token)
     for (const [token, entry] of applyProgress) if (now - entry.at > TOKEN_TTL_MS) applyProgress.delete(token)
@@ -235,30 +247,39 @@ export function createTransferHandlers(deps) {
 
     async previewTransferBundle(args) {
       sweepTokens()
-      const upload = await uploads.take(str(args && args.uploadId))
-      try {
-        const buffer = await readFile(upload.file)
-        if (buffer.length > MAX_IMPORT_BYTES) throw new Error('导出包超过 ' + Math.round(MAX_IMPORT_BYTES / 1048576) + ' MB，暂不支持这么大的包')
-        const bundle = readTransferBundle(buffer)
-        const preview = await importer.preview(bundle.manifest, bundle.files)
-        const token = randomUUID()
-        tokens.set(token, { at: Date.now(), manifest: bundle.manifest, files: bundle.files })
-        return {
-          token,
-          bundle: {
-            name: bundle.manifest.name,
-            createdAt: bundle.manifest.createdAt,
-            source: bundle.manifest.source,
-            bytes: buffer.length,
-            totals: preview.totals,
-            parts: preview.parts,
-            canApply: preview.canApply,
-            issues: bundle.issues
+      const uploadId = str(args && args.uploadId)
+      if (previewsByUpload.has(uploadId)) return await previewsByUpload.get(uploadId)
+      const read = (async () => {
+        const upload = await uploads.take(uploadId)
+        let bundle
+        try {
+          bundle = await readTransferBundleFile(upload.file)
+          const preview = await importer.preview(bundle.manifest, bundle.files)
+          const token = randomUUID()
+          const expiry = setTimeout(() => { if (!runningApplies.has(token)) void discardPreview(token).catch(() => {}) }, TOKEN_TTL_MS)
+          expiry.unref?.()
+          tokens.set(token, { ...bundle, uploadId, at: Date.now(), expiry, remove: upload.remove })
+          return {
+            token,
+            bundle: {
+              name: bundle.manifest.name,
+              createdAt: bundle.manifest.createdAt,
+              source: bundle.manifest.source,
+              bytes: bundle.bytes,
+              totals: preview.totals,
+              parts: preview.parts,
+              canApply: preview.canApply,
+              issues: bundle.issues
+            }
           }
+        } catch (error) {
+          try { await bundle?.close() } finally { await upload.remove() }
+          throw error
         }
-      } finally {
-        await upload.remove()
-      }
+      })()
+      previewsByUpload.set(uploadId, read)
+      try { return await read }
+      catch (error) { previewsByUpload.delete(uploadId); throw error }
     },
 
     async applyTransferBundle(args) {
@@ -301,8 +322,8 @@ export function createTransferHandlers(deps) {
       runningApplies.set(token, run)
       try {
         const result = await run
-        tokens.delete(token)
         finishedApplies.set(token, { at: Date.now(), result })
+        await discardPreview(token).catch(() => {})
         return result
       } catch (error) {
         // Token 还在 tokens 里，用户可以原地再试一次；只有成功才把它回收。
@@ -310,6 +331,7 @@ export function createTransferHandlers(deps) {
       } finally {
         runningApplies.delete(token)
         applyProgress.delete(token)
+        sweepTokens()
       }
     },
 

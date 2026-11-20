@@ -16,7 +16,7 @@ function stageVideoContract() {
     const FITS = ['cover', 'contain'];
     const VIDEO_TYPES = { webm: 'video/webm', mp4: 'video/mp4' };
     const POSTER_TYPES = ['webp', 'png', 'jpg', 'jpeg'];
-    const MAX_BYTES = 96 * 1024 * 1024, MAX_MS = 10 * 60 * 1000;
+    const MAX_BYTES = 256 * 1024 * 1024, MAX_MS = 10 * 60 * 1000;
     const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
     const isId = value => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
     const isFile = (value, types) => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}(\/[a-z0-9][a-z0-9_-]{0,63}){0,3}\.[a-z0-9]+$/.test(value)

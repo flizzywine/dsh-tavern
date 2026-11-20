@@ -75,7 +75,7 @@ export async function createStageModule(core) {
       await syncCardName(cardPath,cardPreparation.project(workspace).name)
     }}
   const readModStage=createModConfigStageReader({readChat:sessionId=>readStageChat.view(sessionId,{stateOnly:true}),readRevision:chatPersistence.readRevision})
-  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,...modCardStorage,
+  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,uploads:core.uploads,...modCardStorage,
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),
     async readSkin(cardPath,{sessionId}={}) {
       const base=await cardStage.skin(cardPath)

@@ -828,7 +828,7 @@ function createTransferFeatureModule() {
 					h("span", null, stats.count + " 项"),
 					h("span", null, "约 " + fmtBytes(stats.bytes)),
 					chatsSelected ? h("span", { className: "is-warn" }, "对话按实际大小打包") : null,
-					stats.bytes > 45 * 1024 * 1024 ? h("span", { className: "is-warn" }, "超过 45 MB，可能打包失败") : null,
+					stats.bytes > 1024 ** 3 ? h("span", { className: "is-warn" }, "所选内容超过 1 GiB，压缩后可能需要分批导出") : null,
 					exportInfo ? h("span", { className: "is-warn" }, exportInfo.summary) : null
 				),
 				h("span", { className: "dsh-tavern-transfer-switch" + (chatsSelected ? "" : " is-off") },

@@ -860,7 +860,7 @@
 				finally { setBusy(false); }
 			}
 			async function readChatImportFile(file) {
-				if (file.size > 8 * 1024 * 1024) throw new Error("聊天文件最大支持 8 MB");
+				if (file.size > 24 * 1024 * 1024) throw new Error("聊天文件最大支持 24 MiB");
 				return await file.text();
 			}
 			// 多份记录共用这张人物卡与同一个玩家称呼，预览合并成一次确认。
@@ -925,10 +925,8 @@
 					const hint = misplacedFileHint(file, true);
 					if (hint) throw new Error(hint);
 					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件太大（上限 256 MB）。");
-					const bytes = new Uint8Array(await file.arrayBuffer());
-					let binary = "";
-					for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-					const imported = await call("importGameSave", { fileB64: btoa(binary) });
+					const uploadId = await uploadTavernCardFile(file, () => {});
+					const imported = await call("importGameSave", { uploadId });
 					notifyDataChanged(["cards", "sessions"]);
 					closePicker();
 					await finishPendingOpen({ sessionId: imported.sessionId, targetMode: "story" });

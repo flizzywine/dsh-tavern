@@ -144,19 +144,11 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
     const transaction=await readJson(journalFile,null)
     if(transaction)await publish(transaction)
   }
-  return Object.freeze({
-    inspect:bytes=>serial(async()=>{
-      if(!Buffer.isBuffer(bytes) || !bytes.length || bytes.length>MOD_PACKAGE_LIMIT)fail('MOD_INVALID','Package must be a nonempty ZIP of at most 64 MiB')
+  async function inspectFile(file) {
       await recover()
-      const directory=path.join(root,'uploads');await fs.mkdir(directory,{recursive:true})
-      const file=path.join(directory,randomUUID()+'.dshmod')
-      let bundle
-      try {
-        await fs.writeFile(file,bytes,{flag:'wx'})
-        const inspected=await inspectModPackage(file)
-        if(retiredIds.includes(inspected.manifest.id))fail('MOD_INVALID','This capability is now built into the host, not an installable mod')
-        bundle={manifest:inspected.manifest,files:inspected.files,sha256:inspected.sha256,folder:'local',entries:[...inspected.code].map(([path,data])=>({path,data}))}
-      } finally {await fs.rm(file,{force:true})}
+      const inspected=await inspectModPackage(file)
+      if(retiredIds.includes(inspected.manifest.id))fail('MOD_INVALID','This capability is now built into the host, not an installable mod')
+      const bundle={manifest:inspected.manifest,files:inspected.files,sha256:inspected.sha256,folder:'local',entries:[...inspected.code].map(([path,data])=>({path,data}))}
       const current=await frame(),value=clone(current.value)
       const row={manifest:clone(bundle.manifest),digest:bundle.sha256,files:clone(bundle.files),installed:false,active:false,authorized:false,globalRoot:false}
       if(value.releases.some(item=>item.manifest.id===row.manifest.id && item.manifest.packageName!==row.manifest.packageName || item.manifest.id!==row.manifest.id && item.manifest.packageName===row.manifest.packageName))fail('MOD_CODE_CONFLICT','Package and mod identities must remain one-to-one',{mods:[row.manifest.id]})
@@ -166,6 +158,17 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
         await writeState({revision:current.stateRevision+1,value})
       }
       return {modId:row.manifest.id,version:row.manifest.version,digest:row.digest}
+  }
+  return Object.freeze({
+    inspectFile:file=>serial(()=>inspectFile(file)),
+    inspect:bytes=>serial(async()=>{
+      if(!Buffer.isBuffer(bytes) || !bytes.length || bytes.length>MOD_PACKAGE_LIMIT)fail('MOD_INVALID','模组文件必须是非空 ZIP，最大 '+MOD_PACKAGE_LIMIT/1024**2+' MiB')
+      const directory=path.join(root,'uploads');await fs.mkdir(directory,{recursive:true})
+      const file=path.join(directory,randomUUID()+'.dshmod')
+      try {
+        await fs.writeFile(file,bytes,{flag:'wx'})
+        return await inspectFile(file)
+      } finally {await fs.rm(file,{force:true})}
     }),
     read:()=>serial(async()=>{await recover();const {revision,value}=await frame();return {revision,value}}),
     releasesNeedUpdate:update=>serial(async()=>{

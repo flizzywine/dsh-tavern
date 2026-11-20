@@ -243,10 +243,13 @@ test('开局默认：dsh.json 指向包内预设，只认少数几项设置，�
   const dir = await temp(t)
   const dsh = { format: 'dshcard', formatVersion: 1, packs: [], plugins: [], defaults: { preset: 'presets/舞台.json',
     settings: { statusBarPlacement: 'body', backgroundTasks: { posture: true, variables: 'x' }, webSearch: false, backgroundModel: { provider: 'p' }, playerName: '作者' } } }
-  const zip = await openZipFile(await zipFile(dir, 'a.dshcard', { 'card.json': '{"spec":"chara_card_v3","data":{"name":"鱼"}}', 'dsh.json': JSON.stringify(dsh), 'presets/舞台.json': '{"prompts":[]}' }))
+  const card = JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼', description: 'x'.repeat(9 * 1024 ** 2) } })
+  const preset = JSON.stringify({ prompts: [{ content: 'x'.repeat(5 * 1024 ** 2) }] })
+  const zip = await openZipFile(await zipFile(dir, 'a.dshcard', { 'card.json': card, 'dsh.json': JSON.stringify(dsh), 'presets/舞台.json': preset }))
   const archive = await readCardArchive(zip)
   await zip.close()
-  assert.deepEqual(archive.defaults, { preset: { name: '舞台.json', text: '{"prompts":[]}' }, settings: { statusBarPlacement: 'body', backgroundTasks: { posture: true }, webSearchEnabled: false } })
+  assert.equal(archive.card.data.description.length, 9 * 1024 ** 2)
+  assert.deepEqual(archive.defaults, { preset: { name: '舞台.json', text: preset }, settings: { statusBarPlacement: 'body', backgroundTasks: { posture: true }, webSearchEnabled: false } })
   assert.equal(startSettings({ playerName: 'x' }), null)
   const bad = await openZipFile(await zipFile(dir, 'b.dshcard', { 'card.json': '{}', 'dsh.json': JSON.stringify({ ...dsh, defaults: { preset: '../x.json' } }) }))
   await assert.rejects(readCardArchive(bad), /defaults\.preset/)

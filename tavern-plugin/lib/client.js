@@ -5396,7 +5396,7 @@ window.__ModuleLoader__.load({
 		      if(/timed out|stalled/i.test(detail))return {text:'下载超时。请检查网络后重试。',again:true};
 		      return {text:'连不上这个网址。请检查网络，或确认地址能在浏览器里打开。',again:true};
 		    }
-		    if(code==='LIMIT_EXCEEDED')return {text:'文件太大（上限 256 MB），或者暂存空间不够。',file:true};
+		    if(code==='LIMIT_EXCEEDED')return {text:'文件太大（上限 1 GiB），或者暂存空间不够。',file:true};
 		    if(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH'].includes(code))return {text:'下载到的不是卡片 ZIP。请确认地址直接指向 .zip 文件，而不是网页。',file:true};
 		    if(code==='ASSET_UNAVAILABLE')return {text:'暂时下载不了（可能有另一张卡正在下载），请稍后重试。',again:true};
 		    return null;
@@ -6164,7 +6164,7 @@ window.__ModuleLoader__.load({
 		  async function prepareAudio(file) {
 		    const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
 		    if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
-		    if(bytes.length>60*1024*1024)throw new Error('音频过大（上限 60 MB）');
+		    if(bytes.length>96*1024*1024)throw new Error('音频过大（上限 96 MiB）');
 		    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
 		  }
 		  const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
@@ -9543,7 +9543,7 @@ window.__ModuleLoader__.load({
 		    }
 		    const renamed=Object.keys(rename);
 		    out.set(atlasOf(entry),renamed.length?new TextEncoder().encode(spineAtlasEdit(atlasText,rename).text):atlasBytes);
-		    if([...out.values()].reduce((n,b)=>n+b.length,0)>256*1024*1024)throw new Error('模型文件过大（上限 256 MB）');
+		    if([...out.values()].reduce((n,b)=>n+b.length,0)>384*1024*1024)throw new Error('模型文件过大（上限 384 MiB）');
 		    return {entry,files:out,renamed,descriptor:{kind:'spine',entry}};
 		  }
 		  const spineBundleIdentity=(pack,outfit)=>JSON.stringify([pack?.manifest.id,outfit?.spine?.bundleKey,pack?.manifest.bundles?.[outfit?.spine?.bundleKey]?.contentHash]);
@@ -9784,7 +9784,7 @@ window.__ModuleLoader__.load({
 		    for(const name of paths){const found=byPath.get(base+name);if(!found)throw new Error('缺少模型文件：'+name);out.set(name,await found.read());}
 		    const moc=out.get(refs.Moc);
 		    if(String.fromCharCode(...moc.subarray(0,4))!=='MOC3')throw new Error('「'+refs.Moc+'」不是 Cubism 3 及以上的 .moc3 文件');
-		    if([...out.values()].reduce((n,b)=>n+b.length,0)>256*1024*1024)throw new Error('模型文件过大（上限 256 MB）');
+		    if([...out.values()].reduce((n,b)=>n+b.length,0)>384*1024*1024)throw new Error('模型文件过大（上限 384 MiB）');
 		    return {kind:'live2d',entry,document,files:out,descriptor:{kind:'live2d',entry},folder:base.replace(/\/$/,'').split('/').pop()||''};
 		  }
 		  // The names the model declares: expression Names and motion groups with their clips (a clip's label is its declared
@@ -10416,7 +10416,7 @@ window.__ModuleLoader__.load({
 		  async function prepareVoiceClip(file,limit){
 		    const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
 		    if(ext!=='wav'&&ext!=='mp3')throw new Error('参考音频只能是 WAV 或 MP3');
-		    if(bytes.length>(limit||60*1024*1024))throw new Error(limit?'这里的单段参考音频不能超过 '+voiceBytes(limit):'音频过大（上限 60 MB）');
+		    if(bytes.length>(limit||96*1024*1024))throw new Error(limit?'这里的单段参考音频不能超过 '+voiceBytes(limit):'音频过大（上限 96 MiB）');
 		    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length}};
 		  }
 		  // Every pack write of the page goes through the modal's serialized CAS queue (commitVoice). An edit of the figure's
@@ -12856,7 +12856,7 @@ window.__ModuleLoader__.load({
 		      {icon:'check',label:on?'取消选择':'选择',pressed:on,onClick:()=>onToggle(row.key)}]});
 		  }
 		  // shared figure image, preview and crop authoring; no card-level character editor.
-		  const IMAGE_LIMIT=6*1024*1024, IMAGE_KEPT={'image/png':'png','image/webp':'webp'};
+		  const IMAGE_LIMIT=12*1024*1024, IMAGE_KEPT={'image/png':'png','image/webp':'webp'};
 		  const DEFAULT_AVATAR_CROP={x:0.3,y:0,w:0.4,h:0.21};
 		  // sample only at explicit authoring ingress, never in a thumbnail/read effect.
 		  async function figureAutoValue(binding,pack,figure,imported) {
@@ -12892,7 +12892,7 @@ window.__ModuleLoader__.load({
 		  // measured here for the §7.2 warnings.
 		  async function browserPrepareImage(file,kind,sampleColor=true) {
 		    const kept=IMAGE_KEPT[file?.type]||(/\.png$/i.test(file?.name)?'png':/\.webp$/i.test(file?.name)?'webp':'');
-		    if(kept&&file.size>IMAGE_LIMIT)throw new Error('图片过大（上限 6 MB）');
+		    if(kept&&file.size>IMAGE_LIMIT)throw new Error('图片过大（上限 12 MiB）');
 		    const bitmap=await createImageBitmap(file).catch(()=>{throw new Error('读不出这张图片，请换成 PNG、JPG 或 WebP 图片');}),width=bitmap.width,height=bitmap.height;
 		    try {
 		    if(width>8192||height>8192||width*height>32*1024*1024)throw new Error('图片尺寸过大（上限 8192 像素、总计 32 MP）');
@@ -12903,7 +12903,7 @@ window.__ModuleLoader__.load({
 		      blob=await new Promise(resolve=>c.toBlob(resolve,'image/webp',0.92));ext='webp';
 		      if(!blob||blob.type!=='image/webp'){blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));ext='png';}
 		      if(!blob)throw new Error('没能转换这张图片，请换成 PNG 或 WebP 图片');
-		      if(blob.size>IMAGE_LIMIT)throw new Error('图片转换后过大（上限 6 MB）');
+		      if(blob.size>IMAGE_LIMIT)throw new Error('图片转换后过大（上限 12 MiB）');
 		    }
 		    const side=64,c=canvas(side,side),g=c.getContext('2d');g.drawImage(bitmap,0,0,side,side);
 		    const data=g.getImageData(0,0,side,side).data;for(let i=3;i<data.length;i+=4)if(data[i]<250){alpha=true;break;}
@@ -14349,7 +14349,7 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 卡包最大支持 1 GiB。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包最大支持 1 GiB。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
@@ -48404,7 +48404,7 @@ function askTavernCardPackWay(file, staged) {
 				finally { setBusy(false); }
 			}
 			async function readChatImportFile(file) {
-				if (file.size > 8 * 1024 * 1024) throw new Error("聊天文件最大支持 8 MB");
+				if (file.size > 24 * 1024 * 1024) throw new Error("聊天文件最大支持 24 MiB");
 				return await file.text();
 			}
 			// 多份记录共用这张人物卡与同一个玩家称呼，预览合并成一次确认。
@@ -48469,10 +48469,8 @@ function askTavernCardPackWay(file, staged) {
 					const hint = misplacedFileHint(file, true);
 					if (hint) throw new Error(hint);
 					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件太大（上限 256 MB）。");
-					const bytes = new Uint8Array(await file.arrayBuffer());
-					let binary = "";
-					for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-					const imported = await call("importGameSave", { fileB64: btoa(binary) });
+					const uploadId = await uploadTavernCardFile(file, () => {});
+					const imported = await call("importGameSave", { uploadId });
 					notifyDataChanged(["cards", "sessions"]);
 					closePicker();
 					await finishPendingOpen({ sessionId: imported.sessionId, targetMode: "story" });
@@ -52995,7 +52993,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 				if (!file) return;
 				const zip = /\.zip$/i.test(file.name);
 				if (!zip && !/\.md$/i.test(file.name)) throw new Error("请选择 SKILL.md 或 Skill 文件夹的 .zip 压缩包");
-				if (file.size > 20 * 1024 * 1024) throw new Error("文件不能超过 20 MB");
+				if (file.size > 50 * 1024 * 1024) throw new Error("文件不能超过 50 MiB");
 				const bytes = new Uint8Array(await file.arrayBuffer());
 				const payload = zip ? { fileB64: bytesToBase64(bytes) } : { text: decodeTextResource(bytes.buffer) };
 				let result = await rpc("importSkill", payload, props.sessionId);
@@ -55216,7 +55214,7 @@ function createTransferFeatureModule() {
 					h("span", null, stats.count + " 项"),
 					h("span", null, "约 " + fmtBytes(stats.bytes)),
 					chatsSelected ? h("span", { className: "is-warn" }, "对话按实际大小打包") : null,
-					stats.bytes > 45 * 1024 * 1024 ? h("span", { className: "is-warn" }, "超过 45 MB，可能打包失败") : null,
+					stats.bytes > 1024 ** 3 ? h("span", { className: "is-warn" }, "所选内容超过 1 GiB，压缩后可能需要分批导出") : null,
 					exportInfo ? h("span", { className: "is-warn" }, exportInfo.summary) : null
 				),
 				h("span", { className: "dsh-tavern-transfer-switch" + (chatsSelected ? "" : " is-off") },
@@ -59425,7 +59423,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    const FITS = ['cover', 'contain'];
 		    const VIDEO_TYPES = { webm: 'video/webm', mp4: 'video/mp4' };
 		    const POSTER_TYPES = ['webp', 'png', 'jpg', 'jpeg'];
-		    const MAX_BYTES = 96 * 1024 * 1024, MAX_MS = 10 * 60 * 1000;
+		    const MAX_BYTES = 256 * 1024 * 1024, MAX_MS = 10 * 60 * 1000;
 		    const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 		    const isId = value => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
 		    const isFile = (value, types) => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}(\/[a-z0-9][a-z0-9_-]{0,63}){0,3}\.[a-z0-9]+$/.test(value)

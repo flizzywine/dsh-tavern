@@ -291,7 +291,7 @@ function VoiceSharedDialog({figure,others,onPick}) {
 async function prepareVoiceClip(file,limit){
   const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
   if(ext!=='wav'&&ext!=='mp3')throw new Error('参考音频只能是 WAV 或 MP3');
-  if(bytes.length>(limit||60*1024*1024))throw new Error(limit?'这里的单段参考音频不能超过 '+voiceBytes(limit):'音频过大（上限 60 MB）');
+  if(bytes.length>(limit||96*1024*1024))throw new Error(limit?'这里的单段参考音频不能超过 '+voiceBytes(limit):'音频过大（上限 96 MiB）');
   return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length}};
 }
 // Every pack write of the page goes through the modal's serialized CAS queue (commitVoice). An edit of the figure's

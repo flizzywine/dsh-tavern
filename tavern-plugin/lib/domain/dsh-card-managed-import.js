@@ -6,23 +6,26 @@ import {modPackageIdentity as packageHash} from '../mod-system-distributions.js'
 import {modVersionMatches} from './mod-system-semver.js'
 import {validateDistributionManifest,validateDependencyGraph} from './mod-system.js'
 import {validateModSystem,emptyCardMods,MOD_HOST_API,modError} from './mod-system-contract.js'
+import {MAX_CARD_JSON_BYTES} from './card-assets.js'
+import {MOD_PACKAGE_LIMIT} from './mod-system-package.js'
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
 const json=value=>Buffer.from(JSON.stringify(value,null,2)+'\n')
 const rawChoices=card=>card.data?.extensions?.dsh_tavern?.modSystem || emptyCardMods()
 export async function inspectManagedArchive(file,installed={packages:{},packs:{}},trusted=[]) {
   const zip=await openZip(file),entries=new Map(zip.entries.map(e=>[e.path,e]))
-  async function readJson(name) {const entry=entries.get(name);if(!entry || entry.size>8*1024*1024)throw modError('MOD_INVALID','Missing or oversized JSON: '+name);return JSON.parse((await zip.read(entry)).toString('utf8'))}
-  const archive=await readJson('dsh.json'),card=await readJson('card.json'),lock=await readJson('dsh-lock.json')
+  async function readJson(name,limit=8*1024*1024) {const entry=entries.get(name);if(!entry || entry.size>limit)throw modError('MOD_INVALID','Missing or oversized JSON: '+name);return JSON.parse((await zip.read(entry)).toString('utf8'))}
+  const archive=await readJson('dsh.json'),card=await readJson('card.json',MAX_CARD_JSON_BYTES),lock=await readJson('dsh-lock.json')
   validateModSystem('archive',archive);validateModSystem('lock',lock);validateModSystem('card',rawChoices(card))
   if(!['managed-mods/1','mod-lock/2','mod-dependencies/1'].every(feature=>archive.requires.features.includes(feature)))throw modError('MOD_HOST_API','Archive lacks the current direct mod dependency feature gate')
   if(!modVersionMatches(MOD_HOST_API,archive.requires.modHostApi))throw modError('MOD_HOST_API','This archive requires a different mod host API')
-  if(Object.values(lock.mods).flatMap(mod=>mod.files).reduce((sum,file)=>sum+file.size,0)>64*1024**2)throw modError('MOD_INVALID','Archive executable code budget exceeds 64 MiB')
+  const archiveModLimit=2*MOD_PACKAGE_LIMIT
+  if(Object.values(lock.mods).flatMap(mod=>mod.files).reduce((sum,file)=>sum+file.size,0)>archiveModLimit)throw modError('MOD_INVALID','Archive executable code budget exceeds '+archiveModLimit/1024**2+' MiB')
   const expected=new Map([['dsh.json',null],['card.json',null],['dsh-lock.json',null]]),code=new Map(),modules=[],conflicts=[]
   for(const [id,item] of Object.entries(lock.mods)) {
     const descriptor=archive.plugins.find(p=>p.name===item.packageName)
     if(!descriptor || !/^plugins\/[a-z0-9][a-z0-9._-]{0,63}\/$/.test(descriptor.path))throw modError('MOD_INVALID','Lock/plugin mismatch')
     if(packageHash(item.files)!==item.sha256)throw modError('MOD_INTEGRITY','Plugin identity does not match its file table')
-    if(item.files.reduce((n,f)=>n+f.size,0)>64*1024*1024)throw modError('MOD_INVALID','Plugin exceeds 64 MiB')
+    if(item.files.reduce((n,f)=>n+f.size,0)>MOD_PACKAGE_LIMIT)throw modError('MOD_INVALID','Plugin exceeds '+MOD_PACKAGE_LIMIT/1024**2+' MiB')
     for(const row of item.files) {
       zipPath(row.path);const full=descriptor.path+row.path,entry=entries.get(full)
       if(expected.has(full) || !entry || entry.size!==row.size)throw modError('MOD_INVALID','Duplicate, missing or wrong-size plugin file: '+full)

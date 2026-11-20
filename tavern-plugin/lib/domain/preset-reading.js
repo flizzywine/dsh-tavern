@@ -1,3 +1,5 @@
+export const MAX_SHARED_PRESET_BYTES = 32 * 1024 * 1024
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
