@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "452b42ff87ed94db62570a4ed67712fc45470dd8",
-  "releaseSequence": 1868,
+  "revision": "2ba99c26950bd8f24d67ab093997a5a989d979bf",
+  "releaseSequence": 1869,
   "version": "3.3.0",
   "files": [
     {
@@ -1511,8 +1511,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-preparation.js",
-      "sha256": "a2d9af9341a20a02353b92f13087198249fff78c6055eb98c9561d41f45b3c89",
-      "size": 29417
+      "sha256": "15fb7ce953d9e63529858daec53b1626521c6431d817cb8133bceb333d85355f",
+      "size": 29275
     },
     {
       "path": "tavern-plugin/lib/domain/card-reading.js",
@@ -9626,9 +9626,9 @@
     }
   ],
   "archive": {
-    "commit": "4b3cd1e95e2d59f5def9ee5086737dc04c304353",
+    "commit": "84a489f5f216d915d2b7b571d38407ac0054b71f",
     "path": "runtime.zip",
-    "sha256": "564801f31af4ff9454f3097f57f6e8ee5d1ad13861a64c1b84f18d59175c71a2",
-    "size": 17071033
+    "sha256": "34fa430f9adb5e9ccae92069999d7941140f895cddaa79315a9ae5eb21084fd9",
+    "size": 17070967
   }
 }
