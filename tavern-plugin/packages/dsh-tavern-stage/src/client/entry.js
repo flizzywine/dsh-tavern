@@ -233,9 +233,11 @@ const stageClientPlugin = (() => {
                     const progress = createStageProgress({React:options.React, ...options.admission});
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
-                    const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
+                    // CONFIG 文字's font rows draw the stage's own picker (config-fields.cjs createStageFontPicker).
+                    const FontPicker = createStageFontPicker({React:options.React, ...options.fontPicker});
+                    const configFields = own(createStageConfigFields({React:options.React, ...options.configFields, FontPicker}));
                     const textViews = createStageText({React:options.React, document, ...options.text});
-                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
+                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, FontPicker, themes:STAGE_THEMES}));
                     // The device profile, and the 画质 in force on it (the setting store resolved by the device).
                     const device = own(createStageDevice({React:options.React, window, ...options.device}));
                     const quality = device.quality(options.configAppearance?.quality);
