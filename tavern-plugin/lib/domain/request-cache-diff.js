@@ -496,7 +496,7 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
       const curBreak = curSlots[breakIndex]
       const prevBreak = prevSlots[breakIndex]
       sectionStatus[curBreak.key] = 'break'
-      breakTokens = curBreak.tokens
+      const roleChanged = curBreak.kind === 'message' && prevBreak.kind === 'message' && curBreak.role !== prevBreak.role
 
       const remainingPrevCanonicals = new Set(prevSlots.slice(breakIndex + 1).map(slot => slot.canonical))
       let cascadeCount = 0
@@ -512,7 +512,31 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
         }
       }
 
-      const partDiff = findDifferingPartLabel(prevBreak, curBreak)
+      const partDiff = roleChanged ? null : findDifferingPartLabel(prevBreak, curBreak)
+      const curParts = (curBreak.parts || []).filter(p => p?.text?.trim())
+      if (partDiff && Number.isInteger(partDiff.partIndex) && curParts.length > 0) {
+        const idx = partDiff.partIndex
+        if (idx >= curParts.length) {
+          hitTokens += curBreak.tokens
+          breakTokens = 0
+        } else {
+          const prefixHitTokens = curParts.slice(0, idx).reduce((sum, p) => sum + estimateRequestTokens(p.text), 0)
+          const partHit = Math.min(curBreak.tokens, prefixHitTokens)
+          const remaining = curBreak.tokens - partHit
+          if (idx === curParts.length - 1) {
+            hitTokens += partHit
+            breakTokens = remaining
+          } else {
+            const partBreak = Math.min(remaining, estimateRequestTokens(curParts[idx].text))
+            hitTokens += partHit
+            breakTokens = partBreak
+            cascadeTokens += remaining - partBreak
+          }
+        }
+      } else {
+        breakTokens = curBreak.tokens
+      }
+
       const diff = partDiff
         ? computeLineDiff(partDiff.beforeText, partDiff.afterText)
         : computeLineDiff(prevBreak.text, curBreak.text)
@@ -524,7 +548,7 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
         partLabel: partDiff?.label || null,
         partIndex: partDiff?.partIndex ?? null,
         previousTitle: prevBreak.title,
-        roleChanged: curBreak.kind === 'message' && prevBreak.kind === 'message' && curBreak.role !== prevBreak.role,
+        roleChanged,
         affectedSections: cascadeCount,
         affectedTokens: cascadeTokens,
         breakTokens,

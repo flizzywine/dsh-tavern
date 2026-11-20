@@ -421,13 +421,14 @@
                         const isBreakSection = Boolean(breakPoint && section.cacheKey === breakPoint.key);
                         const isJumpTarget = Boolean(jumpTarget.key && section.cacheKey === jumpTarget.key);
                         const renderedParts = (section.displayParts || [{ text: section.text }]).filter(part => part.text.trim());
+                        const hasPartBreakdown = isBreakSection && !breakPoint.roleChanged && Number.isInteger(breakPoint.partIndex) && (renderedParts.length > 1 || breakPoint.partIndex >= renderedParts.length);
                         const sectionSources = section.sources || [];
                         const shownSources = sectionSources.slice(0, 2);
                         const extraSourceCount = sectionSources.length - shownSources.length;
                         const allSourceTitle = sectionSources.map(s => (CONTEXT_SOURCE_CATEGORIES[s.category] ? CONTEXT_SOURCE_CATEGORIES[s.category] + " · " : "") + s.label).join(" / ");
                         return h(TavernLazyDetails, {
                             key: record.id + ":" + (section.displayKey || section.title) + (deferredQuery ? ":search" : "") + (isJumpTarget ? ":jump:" + jumpTarget.tick : ""),
-                            className: statusMeta ? "dsh-context-section " + statusMeta.cls : undefined,
+                            className: statusMeta ? "dsh-context-section " + statusMeta.cls + (hasPartBreakdown ? " has-part-breakdown" : "") : undefined,
                             attributes: section.cacheKey ? { "data-cache-key": section.cacheKey } : undefined,
                             // Searching opens the first matches only; opening every match would lay out the whole request.
                             defaultOpen: (!!deferredQuery && sectionIndex < 20) || isJumpTarget,
@@ -444,17 +445,33 @@
                             render: () => h(React.Fragment, null,
                                 isBreakSection ? renderBreakDiffBox(h, breakPoint) : null,
                                 ...renderedParts.map((part, index) => {
-                                    const isBreakPart = isBreakSection && breakPoint.partIndex === index;
+                                    const partCacheState = hasPartBreakdown
+                                        ? (index < breakPoint.partIndex ? "hit" : index === breakPoint.partIndex ? "break" : "cascade")
+                                        : (isBreakSection && breakPoint.partIndex === index ? "break" : "");
+                                    const partCacheCls = partCacheState === "hit"
+                                        ? " is-part-hit"
+                                        : partCacheState === "break"
+                                            ? " is-break-part"
+                                            : partCacheState === "cascade"
+                                                ? " is-part-cascade"
+                                                : "";
+                                    const partCacheTag = partCacheState === "break"
+                                        ? h("span", { className: "dsh-context-part-break-tag" }, "破坏点")
+                                        : partCacheState === "hit"
+                                            ? h("span", { className: "dsh-context-part-hit-tag" }, "命中前缀")
+                                            : partCacheState === "cascade"
+                                                ? h("span", { className: "dsh-context-part-cascade-tag" }, "受波及失效")
+                                                : null;
                                     const partCat = part.sourceCategory && CONTEXT_SOURCE_CATEGORIES[part.sourceCategory];
                                     return part.catalog
-                                        ? h("details", { key: index, className: "dsh-context-source" + (isBreakPart ? " is-break-part" : "") },
-                                            h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), part.label),
+                                        ? h("details", { key: index, className: "dsh-context-source" + partCacheCls },
+                                            h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), part.label, partCacheTag),
                                             h("pre", null, part.text))
-                                        : h("div", { key: index, className: isBreakPart ? "dsh-context-part is-break-part" : undefined },
+                                        : h("div", { key: index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
                                             part.label ? h("div", { className: "dsh-context-part-label" },
                                                 partCat ? h("span", { className: "dsh-context-source-pill is-src-" + part.sourceCategory }, partCat) : null,
                                                 part.label,
-                                                isBreakPart ? h("span", { className: "dsh-context-part-break-tag" }, "破坏点") : null) : null,
+                                                partCacheTag) : null,
                                             h("pre", null, part.text));
                                 }),
                                 section.metadataText && section.metadataText !== "{}" ? h("details", { className: "dsh-context-source" },
