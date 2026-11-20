@@ -106,6 +106,7 @@
 					.concat(profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return { value: item.id, label: item.name }; }));
 				return h(React.Fragment, null,
 					h(props.Field, { kind: "menu", label: "长期偏好", controlLabel: "本局长期偏好", value: chosen, options: options, placeholder: current ? undefined : "正在读取…",
+						help: h(HelpTip, { label: "长期偏好说明" }, "选择已确认的游玩和写作偏好，作为本局生成时的参考。"),
 						disabled: !current || busy || editing, error: error, onCommit: function (value) { return toggleCurrent(Boolean(value), value); },
 						trail: on ? h("button", { type: "button", className: "ap-link dsh-session-reveal", "aria-expanded": reveal, onClick: function () { setReveal(!reveal); } }, reveal ? "收起" : "查看") : null }),
 					on && reveal ? h("div", { className: "dsh-session-profile-text" }, current.content || "暂无长期偏好内容") : null,

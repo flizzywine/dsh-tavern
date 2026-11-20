@@ -82,6 +82,7 @@ function createConversationSettingsModule({
             } catch (err) { setError("保存失败：" + errorText(err)); }
         }
         return h(InlineField, { kind: "text", label: "玩家称呼", value: name || "", placeholder: name === null ? "正在读取…" : "你", maxLength: 80,
+            help: help("玩家称呼", "设置本局故事中使用的玩家称呼。留空时使用「你」。"),
             disabled: name === null, error, onCommit: save });
     }
     function SessionPreset({ sessionId }) {
@@ -103,6 +104,7 @@ function createConversationSettingsModule({
         }
         const current = data?.current;
         return h(InlineField, { kind: "menu", label: "预设", controlLabel: "本局预设", value: current?.id || "", disabled: busy || !data, error, onCommit: change,
+            help: help("预设", "为本局选择一套酒馆预设，应用其中的提示词和正则。"),
             placeholder: data ? undefined : "正在读取…",
             options: [{ value: "", label: "不使用酒馆预设" },
                 ...(current?.id && !data.presets.some(p => p.path === current.id) ? [{ value: current.id, label: current.name + "（源文件已移除）" }] : []),
@@ -269,6 +271,7 @@ function createConversationSettingsModule({
         if (mode === "script") return null;
         const data = config.data;
         return h(InlineField, { kind: "menu", label: "候选项数量", value: data?.candidateTabs === true ? "expanded" : "compact", disabled: !data || config.busy, error: problem,
+            help: help("候选项数量", "少量候选提供 4 条行动和 1 条场景切换。大量候选按角色和全局事件分组，并提供精选。"),
             placeholder: data ? undefined : "正在读取…",
             options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
             onCommit: value => write({ candidateTabs: value === "expanded" }, { candidateTabs: value === "expanded" }) });
