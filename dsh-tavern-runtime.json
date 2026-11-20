@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c66aaed17857103ab2d8500ab2a2e0095b72a692",
-  "releaseSequence": 1861,
+  "revision": "ee3368a0a921db1497259f2dd92f02f3ce132a2e",
+  "releaseSequence": 1862,
   "version": "3.3.0",
   "files": [
     {
@@ -1036,8 +1036,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "93aba3b20787a29b4f9c6f81effcf60424466dada256d898ae092c1b4613c3c0",
-      "size": 457331
+      "sha256": "e731e283688331765b74d50bf52793a6f36ea334189c98c7d72303bbe08eaf1d",
+      "size": 459019
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1086,8 +1086,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "d1dc519b8e93586514eb9cb5baab3b9b9c36ea14b3df97498e447a69303cb815",
-      "size": 6444660
+      "sha256": "513aa8c38e9cf63dc6661e1a1eb11ad0087e7662c453934b23ed3647cf8e8399",
+      "size": 6447736
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2991,8 +2991,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/request-cache-diff.js",
-      "sha256": "8e31cdb7a5b882ff9436fce000f49ebf960080991fdde8f0b23cc6b0c4bceb3b",
-      "size": 22005
+      "sha256": "72ca81064c4d0868dda9eb7d22ccd82486abc59d0b2abb848574f35d395f6018",
+      "size": 23003
     },
     {
       "path": "tavern-plugin/lib/domain/request-lineage.js",
@@ -8136,8 +8136,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/index.js",
-      "sha256": "c4361e9461f765907dbd0c34f1a8cb0e0b28cd5d37fbc1794c0d3f6780712ead",
-      "size": 24464
+      "sha256": "37f3aad0c3e44c1fb509d94dbff332d5f6adeb7f70d9e5b136cba13a74eb9333",
+      "size": 24553
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass-service.js",
@@ -9626,9 +9626,9 @@
     }
   ],
   "archive": {
-    "commit": "5b54f856e5cfaed8448b399c8ace8413bd41cdaa",
+    "commit": "8603e1850f0a0514eb43330f0fa5a3aa130ca915",
     "path": "runtime.zip",
-    "sha256": "77765786f233e803e228092a6586721b67544b5111cee9b0bb7d2df5008c00c7",
-    "size": 17067301
+    "sha256": "cad59c47e7043a0d4e58cd92936280a2efd55fa16c83ccb61379869b99e23300",
+    "size": 17067915
   }
 }
