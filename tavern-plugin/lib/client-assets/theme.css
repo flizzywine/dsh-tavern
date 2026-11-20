@@ -3209,7 +3209,12 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
   --dsw-alias-interactive-bg-hover: var(--fk-current-hover); --dsw-alias-interactive-bg-active: var(--fk-current-selected); --dsw-alias-border-l2: var(--fk-current-line);
   background: var(--fk-current-bgSolid, Canvas); color: var(--fk-current-fg, CanvasText);
 }
-.ap-ui.dsh-session-settings:not(.fork-gal-theme-scope) { background: transparent; }
+.ap-ui.dsh-session-settings:not(.fork-gal-theme-scope) {
+  /* The transparent panel sits on the host surface, so its text uses the host palette. */
+  --fk-current-fg: var(--dsh-tavern-accent-ink, CanvasText);
+  --fk-current-fgMuted: var(--dsh-tavern-accent-muted, GrayText);
+  background: transparent;
+}
 /* Accent fills everywhere in chat: the table's fill (the accent deepened just enough for white glyphs) and its glyph. */
 body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-accent: var(--fk-s-base-onAccent, #fff); }
 /* Image-preserving narration. The stage supplies the mode; skins supply only design-space paint and geometry.
