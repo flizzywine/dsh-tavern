@@ -182,7 +182,7 @@ test('original-mode update refreshes only owned packages without switching profi
 const upstreamBridge = { name: 'dsh-profile-bridge', version: '0.2.0-tavern.1', license: 'MIT',
   repository: { url: 'git+https://github.com/2NF/dsh-profile-bridge.git' }, dsh: { bundle: { patch: './cordis.patch.yml' } } }
 
-for (const legacy of ['legacy-profile-switcher', 'legacy-tavern-entry', upstreamBridge.name]) test(`refresh keeps the legacy ${legacy} package name while updating its code`, t => {
+for (const legacy of ['legacy-profile-switcher', 'legacy-tavern-entry', upstreamBridge.name, '@flizzywine/dsh-tavern']) test(`refresh keeps the installed ${legacy} package name while updating its code`, t => {
   const f = fixture(t)
   const launcher = 'dsh-tavern'
   const manifestFile = path.join(f.original, 'package.json')
