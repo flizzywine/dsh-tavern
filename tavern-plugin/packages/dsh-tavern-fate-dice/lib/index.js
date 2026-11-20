@@ -1316,13 +1316,26 @@ export function apply(ctx) {
     return injection
   }
 
+  function isGameDisabledFast(gameId) {
+    if (!gameId || !globalCache || !gameStateCache.has(gameId)) return false
+    const cached = gameStateCache.get(gameId)
+    const effectiveEnabled = cached?.config?.enabled !== undefined ? cached.config.enabled : globalCache.settings?.enabled
+    return effectiveEnabled === false
+  }
+
+  async function readGameView(gameId, fallbackRule = '2d6') {
+    if (!gameId) return normalizeGameState(null, fallbackRule)
+    if (gameStateCache.has(gameId)) return gameStateCache.get(gameId)
+    return await readGame(gameId, fallbackRule)
+  }
+
   // ── 发前无感检定注入 ────────────────────────────────────────────
   if (typeof tavern.turnSection === 'function') {
     tavern.turnSection({
       name: 'fate-dice',
       position: 'after',
       async text({ gameId, turn, input } = {}) {
-        if (!gameId) return ''
+        if (!gameId || isGameDisabledFast(gameId)) return ''
         const startedAt = Date.now()
         const record = await computeTurn({ gameId, turn, input })
         if (!record?.injection) {
@@ -1340,8 +1353,9 @@ export function apply(ctx) {
       tavern.damperTurnQuestions({
         name: 'fate-dice-judge',
         async questions({ gameId, protocol: dynamicProtocol, capabilities: dynCaps } = {}) {
+          if (isGameDisabledFast(gameId)) return []
           const globalStore = await readGlobal()
-          const game = await readGame(gameId, globalStore.settings.rule)
+          const game = await readGameView(gameId, globalStore.settings.rule)
           const settings = effectiveSettings(globalStore, game)
           if (!settings.enabled || !settings.autoCheck || !settings.damperLinkage) return []
           const activeRule = normalizeRule(settings.rule)
@@ -1385,8 +1399,9 @@ export function apply(ctx) {
       async text({ gameId } = {}) {
         if (!gameId) return ''
         lastActiveGameId = gameId
+        if (isGameDisabledFast(gameId)) return ''
         const globalStore = await readGlobal()
-        const game = await readGame(gameId, globalStore.settings.rule)
+        const game = await readGameView(gameId, globalStore.settings.rule)
         const settings = effectiveSettings(globalStore, game)
         if (!settings.enabled || !settings.autoCheck) return ''
         return buildProfileSyncSection(game, settings)
