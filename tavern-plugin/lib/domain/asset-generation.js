@@ -156,7 +156,7 @@ export function composeAssetPrompt(template, values) {
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value
 function authority(ctx, kind) {
   if (['background','identity-settei'].includes(kind)) return null
-  return JSON.stringify(canonical({identity:ctx.figure.identitySettei ?? null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
+  return JSON.stringify(canonical({identity:ctx.figure.identitySettei ?? null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,...(ctx.outfit.setteiParts ? {setteiParts:ctx.outfit.setteiParts} : {}),parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
 }
 function inspectImage(bytes, mediaType, max) {
   assert(bytes.length > 0 && bytes.length <= max, 'LIMIT_EXCEEDED', '图片为空或过大')
@@ -347,10 +347,15 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       if (!['background','identity-settei'].includes(target.kind) && !omit.has('identity')) {
         const identity = ctx.figure.identitySettei, stale = !!identity && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== identity.version
         if (identity && !stale) await packImage(identity.board, roles.identity, 'identity-settei')
+        // An outfit settei is drawn from both sheets of the identity settei; a 差分 takes the outfit's own two sheets below.
+        if (identity?.parts && target.kind === 'settei') await packImage(identity.parts, roles.identityParts, 'identity-settei')
       }
       let anchor
       if (['sprite','avatar','avatar-sheet'].includes(target.kind)) {
-        if (ctx.outfit.settei && !omit.has('settei')) await packImage(ctx.outfit.settei, roles.settei)
+        if (ctx.outfit.settei && !omit.has('settei')) {
+          await packImage(ctx.outfit.settei, roles.settei)
+          if (ctx.outfit.setteiParts) await packImage(ctx.outfit.setteiParts, roles.setteiParts)
+        }
         const defaultEmotion=figureDefaultEmotion(ctx.figure,ctx.outfit)
         const sprite = ctx.outfit.sprite, manifest = sprite && pack.sprites[sprite.manifestKey]
         const stateFor = emotion => manifest ? spriteEmotions.spriteEmotionState(manifest,(emotion===target.emotionId?target.imageId:null) || ctx.outfit.sprite?.imagePools?.[emotion]?.defaultImageId || emotion) : null
@@ -376,11 +381,15 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         }
       }
       if (target.kind === 'background') for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
+      // Four pictures at most: a second settei sheet gives way first (an eight-face sheet also takes its 立绘 and 头像).
+      for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > 4 && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '设定图与补充参考合计最多四张')
       // The identity board, the outfit 设定图 and a 头像's own 立绘 are references, not prerequisites: a channel that takes
       // fewer pictures (none, for a text-only one) draws from the 设定文字 instead — the identity board is left out first, then
-      // the outfit 设定图, then the 立绘. What the user added stays.
-      if (!preview && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.settei, roles.emotionSprite]) {
+      // the outfit 设定图, then the 立绘. What the user added stays. A settei of two sheets loses its second sheet (eye and
+      // accessories) before its four views, so a channel of one picture gets the four views; the outfit's own two sheets
+      // outlast the identity board, as its first sheet always did.
+      if (!preview && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identityParts, roles.identity, roles.setteiParts, roles.settei, roles.emotionSprite]) {
         const at = refs.findIndex(ref => ref.role === role)
         if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) }
       }

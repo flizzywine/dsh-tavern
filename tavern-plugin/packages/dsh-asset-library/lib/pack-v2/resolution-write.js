@@ -19,8 +19,10 @@ export function resolutionBindings(manifest, figures) {
   const add=(hash,kind,replace,binding)=>{if(!hash)return;const rows=refs.get(hash)||[];rows.push({kind,replace,binding});refs.set(hash,rows)}
   for(const figure of Object.values(figures)) {
     add(figure.identitySettei?.board,'unknown')
+    add(figure.identitySettei?.parts,'unknown')
     for(const outfit of figure.outfits) {
       add(outfit.settei,'unknown')
+      add(outfit.setteiParts,'unknown')
       for(const [key,hash] of Object.entries(outfit.avatars||{}))add(hash,'avatar',next=>{outfit.avatars[key]=next},`figure/${figure.id}/${outfit.key}/avatar/${key}`)
       for(const hash of Object.values(outfit.sprite?.assets||{}))add(hash,'unknown')
     }

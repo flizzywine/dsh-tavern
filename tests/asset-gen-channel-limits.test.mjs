@@ -53,7 +53,15 @@ async function fixture(t) {
     const snapshot = await library.getPackSnapshot({packId:pack.manifest.id})
     await library.patchPack(await publisher.figure({snapshot, image, media:await publication.closure(image), figureId:created.figureId, outfitKey:'daily', emotion:'calm', kind:'sprite'}))
   }
-  return {service, channel, provider, revision, prepare, draw, addSprite}
+  // An outfit settei of two sheets (four views, then eye and pieces over the colour card), registered as pack install does.
+  async function addSettei() {
+    const sheet = async n => { const bytes = encodeAssetRgba({width:16, height:9, data:new Uint8ClampedArray(16 * 9 * 4).fill(n)}), image = {bytes, descriptor:{ext:'png', mime:'image/png', size:bytes.length}}; return publication.closure(image) }
+    const [views, parts] = [await sheet(90), await sheet(180)], snapshot = await library.getPackSnapshot({packId:pack.manifest.id}), figure = snapshot.figures[created.figureId]
+    const files = new Map([...views.files, ...parts.files, ['figures/' + created.figureId + '.json', publication.jsonBytes({...figure, outfits:figure.outfits.map(o => ({...o, settei:views.hash, setteiParts:parts.hash}))})]])
+    await library.patchPack(publication.publish(snapshot, {blobs:{...views.blobs, ...parts.blobs}, files}))
+    return {views:views.hash, parts:parts.hash}
+  }
+  return {service, channel, provider, revision, prepare, draw, addSprite, addSettei}
 }
 
 test('a text-only channel draws the 设定图 from text, and a JPEG answer is stored as PNG', async t => {
@@ -89,4 +97,16 @@ test('a 头像 is drawn from its 立绘 where the channel takes it, from the tex
   f.channel.maxReferences = 4
   const drawn = await f.draw('avatar', {emotionId:'calm'})
   assert.equal(f.channel.sent.at(-1).references.length, 1); assert.equal(drawn.plan.references[0].purpose, 'emotion-sprite')
+})
+
+test('a 立绘 takes both settei sheets, four views first, where the channel takes several, and the four views alone where it takes one', async t => {
+  const f = await fixture(t)
+  await f.addSprite()
+  const sheets = await f.addSettei()
+  f.channel.maxReferences = 4
+  const both = await f.prepare('sprite', {emotionId:'calm'})
+  assert.deepEqual(both.references.filter(r => [sheets.views, sheets.parts].includes(r.hash)).map(r => r.hash), [sheets.views, sheets.parts])
+  f.channel.maxReferences = 1
+  const one = await f.prepare('sprite', {emotionId:'calm'})
+  assert.deepEqual(one.references.map(r => r.hash), [sheets.views])
 })
