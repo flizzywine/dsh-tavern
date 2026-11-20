@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5fc93ce2b75ff957e35738c1fa6e91e0713197a6",
-  "releaseSequence": 1857,
+  "revision": "7b4cf72333e6d3d955bc17183f7f5723c080f817",
+  "releaseSequence": 1858,
   "version": "3.3.0",
   "files": [
     {
@@ -21,8 +21,8 @@
     },
     {
       "path": "android/apk/prepare.py",
-      "sha256": "dfe6168d4e9eda126795ab48cb5203c608ca05c519a3230a973545b9f8e08f51",
-      "size": 22663
+      "sha256": "3d8a4d24680f73eb1c0c15af201aa60582407a2ba3db6b6c3660deeaf6383dee",
+      "size": 24560
     },
     {
       "path": "android/apk/README.md",
@@ -1086,8 +1086,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "92ec266db31c928d285ed8d910d4e14ca349a7f5e8e2e9783026231f1661ca7c",
-      "size": 6443820
+      "sha256": "0cf0953c38edd49ce59adb6268b5395a73dacbba356dc6811be3b8fe8907849e",
+      "size": 6443839
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -9246,8 +9246,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "632711c5d20e6c320e9ff06b2049355f16714b5eea653aa399d23f3a8a856321",
-      "size": 21017
+      "sha256": "4296dce945a9c2203dde874d1a73803de75086207d646b5fe1bd859a81ba7d66",
+      "size": 20569
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -9626,9 +9626,9 @@
     }
   ],
   "archive": {
-    "commit": "30f65c700727a0fa0c0a1215778e0fcb4873e17a",
+    "commit": "04ff09a98bac4b30fca5379af7ee66fff7330727",
     "path": "runtime.zip",
-    "sha256": "c2f04b9d1440ccfbf5fd42672638869f8a5ce7a469df779aea6fd2318ba0a2bc",
-    "size": 17045810
+    "sha256": "9e60ee656f34156df89be84a31eedde319c4ff1fa267c88456247286b9dde168",
+    "size": 17046139
   }
 }
