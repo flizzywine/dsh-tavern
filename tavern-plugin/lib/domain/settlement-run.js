@@ -20,7 +20,7 @@ const SETTLEMENT_HEADER_FIELDS = Object.freeze(['posture', 'settleStatus', 'sett
 // a stale commit runs again, a failure is recorded. Manual plugin tasks run here too.
 // `deps` is read on each call, so a test may swap a service after creation.
 export function createSettlementRun(deps) {
-  async function runSettlement(chatId, signal) {
+  async function runSettlement(chatId, signal, setOperation) {
     const { backgroundTasks, chatPersistence, mvuSettlementEngine, readChat, readChatCard, worldBookScanDepth } = deps
     const retryStale = createSettlementProgressGuard({ backgroundTasks, onStopped: ({ operationId, error }) => {
       console.error('dsh-tavern: 结算连续三次未能提交且剧情状态未前进，已停止，可重新结算', chatId, operationId, str(error?.message || error || '提交已过期'))
@@ -33,6 +33,7 @@ export function createSettlementRun(deps) {
       const taskRun = await backgroundTasks.begin(snapshot, 'settlement', { reuseSnapshot: true, queue: true, signal })
       snapshot = taskRun.chat
       const trace = { sessionId: str(taskRun.participantRequest.sessionId), boundary: null }
+      setOperation?.(taskRun.operationId)
       try {
         signal?.throwIfAborted()
         if (deps.pluginApi?.hostBehavior && !(await deps.pluginApi.hostBehavior.forGame(snapshot.sessionId)).backgroundAgents) {
@@ -110,7 +111,7 @@ export function createSettlementRun(deps) {
         }
         console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
-      }
+      } finally { setOperation?.(null) }
     }
   }
   // The main settlement's engine: official MVU variables carry the posture in their
@@ -128,14 +129,14 @@ export function createSettlementRun(deps) {
     const { text, result } = await plainSettlementEngine.run({ snapshot, taskRun, card, signal, trace, backgroundTasksSettings })
     return { text, result, mvuResult: null, mvuTarget, backgroundTasksSettings }
   }
-  async function runSettlementCycle(chatId, signal) {
+  async function runSettlementCycle(chatId, signal, setOperation) {
     const { backgroundTasks, pluginApi, pluginSettlementProgress, taskStateReader } = deps
     const state = await taskStateReader.read(chatId).catch(() => null)
     const gameId = str(state?.sessionId)
     if (gameId && pluginApi.hostBehavior && !(await pluginApi.hostBehavior.forGame(gameId)).backgroundAgents) {
       deps.backgroundAgentRunner?.cancel(gameId)
       await deps.backgroundAgentRunner?.releaseFor(gameId)
-      await runSettlement(chatId, signal)
+      await runSettlement(chatId, signal, setOperation)
       return
     }
     const onStart = label => pluginSettlementProgress.begin(gameId, label)
@@ -151,7 +152,7 @@ export function createSettlementRun(deps) {
       { id: 'settle', run: async () => {
         const alongside = turnPending() && !signal?.aborted ? pluginApi.runSettlementTasks({ gameId, phase: 'parallel', signal, onStart })
           .catch(error => console.warn('dsh-tavern: 插件并行任务失败:', str(error?.message || error))) : null
-        try { await runSettlement(chatId, signal) } finally { await alongside }
+        try { await runSettlement(chatId, signal, setOperation) } finally { await alongside }
       } },
       // Tavern's settlement is committed by now: a plugin-task operation keeps the game busy (and stoppable).
       { id: 'after', when: () => Boolean(gameId) && !signal?.aborted,

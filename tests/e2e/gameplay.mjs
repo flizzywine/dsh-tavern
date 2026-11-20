@@ -101,6 +101,7 @@ const report = { status: 'running', scope: 'real isolated DSH + Tavern + Chromiu
 const started = Date.now(), errors = []
 let log = '', browser, context, child, page, restartServer, cpuProfiler
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+const serverExited = () => child.exitCode !== null || child.signalCode !== null
 async function step(name, action) {
   const start = Date.now()
   report.currentStep = name
@@ -316,7 +317,7 @@ try {
         if (spawnError) throw spawnError
         url = log.slice(logOffset).match(/https?:\/\/(?:127\.0\.0\.1|localhost):\d+[^\s\u001b]*/)?.[0]
         if (url) break
-        if (child.exitCode !== null) throw Error('DSH exited ' + child.exitCode)
+        if (serverExited()) throw Error('DSH exited ' + (child.exitCode ?? child.signalCode))
         await pause(100)
       }
       assert.ok(url, 'DSH startup timeout')
@@ -328,9 +329,10 @@ try {
       // A cold restart closes the old page before shutting down its server;
       // otherwise background polling races shutdown and reports spurious fetch errors.
       await page.goto('about:blank')
+      const exit = new Promise(resolve => child.once('exit', resolve))
       child.kill('SIGTERM')
-      await Promise.race([new Promise(resolve => child.once('exit', resolve)), pause(5000)])
-      assert.notEqual(child.exitCode, null, '旧服务必须退出后再重启')
+      await Promise.race([exit, pause(5000)])
+      assert.ok(serverExited(), '旧服务必须退出后再重启')
       await whileStopped?.()
       const bootStarted = Date.now()
       const next = new URL(await launchServer())
@@ -343,7 +345,9 @@ try {
       const sidebarToggle = page.getByRole('button', { name: /^(Open|Expand) sidebar$/ })
       await history.filter({visible:true}).or(sidebarToggle.filter({visible:true})).first().waitFor()
       if (!await history.isVisible()) await sidebarToggle.click()
-      await history.click()
+      await history.evaluate(button => {
+        if (button.getAttribute('aria-expanded') === 'false') button.click()
+      })
       const openSessionStarted=Date.now()
       await page.locator('.dsh-tavern-side-row-name').first().click()
       await openStatus()
@@ -1429,10 +1433,11 @@ try {
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})
   await browser?.close()
-  if (child && child.exitCode === null) {
+  if (child && !serverExited()) {
+    const exit = new Promise(resolve => child.once('exit', resolve))
     child.kill('SIGTERM')
-    await Promise.race([new Promise(resolve => child.once('exit', resolve)), pause(1000)])
-    if (child.exitCode === null) child.kill('SIGKILL')
+    await Promise.race([exit, pause(1000)])
+    if (!serverExited()) child.kill('SIGKILL')
   }
   report.ms = Date.now() - started; report.errors = errors
   await writeFile(join(output, 'server.log'), log.replace(/token=[^\s&]+/g, 'token=REDACTED'))

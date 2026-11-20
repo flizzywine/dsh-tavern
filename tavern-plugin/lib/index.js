@@ -215,7 +215,7 @@ import { createMvuSettlementEngine } from './domain/mvu-settlement-engine.js'
 import { createPlainSettlementEngine } from './domain/plain-settlement-engine.js'
 import { createSettlementRun } from './domain/settlement-run.js'
 import { createSettlementParticipants } from './domain/settlement-participants.js'
-import { createSettlementControls } from './domain/settlement-controls.js'
+import { createSettlementControls, installSettlementSubagentStop } from './domain/settlement-controls.js'
 import { createMvuSettlementResume } from './domain/mvu-settlement-resume.js'
 import {
   CHARACTER_DESIGN_READ_TOOL,
@@ -3987,12 +3987,16 @@ export async function apply(ctx) {
     mvuSettlementReconciler.dispose()
     settlementJobs.dispose()
   }, 'dsh-tavern: reconcile deferred MVU settlement')
-  const { stopBackground, retrySettlement, pullBackgroundCycle } = createSettlementControls({
+  const { stopBackground, stopSettlementAgent, retrySettlement, pullBackgroundCycle } = createSettlementControls({
     chatForSession, readOpeningWindow, projectOpeningWindow, view, readChatCard, backgroundTasks, storyTimeline,
     readSlice: chatPersistence.readSlice,
-    patchChat, writeChat, queueSettlement, cancelSettlement, mvuSettlementEngine, pluginApi, backgroundAgentRunner,
+    patchChat, writeChat, queueSettlement, cancelSettlement, cancelSettlementOperation: settlementJobs.cancelOperation,
+    readChat, mvuSettlementEngine, pluginApi, backgroundAgentRunner,
     // 停止后台 stops the game's director too, through the stage's presentation observer.
     stageDirector: { cancel: chat => { void presentationObservers.cancelled(chat.sessionId) } }
+  })
+  ctx.inject(['subagents'], scope => {
+    scope.effect(() => installSettlementSubagentStop(scope.get('subagents'), stopSettlementAgent), 'dsh-tavern: stop settlement from the native composer')
   })
   // ---------- 卡片工作台：剧本素材与新卡创建 ----------
   async function sourceWindowOf(chat) {
