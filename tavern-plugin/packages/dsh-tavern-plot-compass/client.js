@@ -944,7 +944,7 @@ const PC_HELP = Object.freeze({
     '剧情罗盘是后台多路线编剧助手：结合人物卡设定、当前剧情进展、MVU 变量与未触发的世界书暗线，推演「今期（2–5 轮）」「中期（5–20 轮）」「长期（终局蓝图）」三个时间跨度的分支路线。',
     '你可以随时「点亮」任意跨度的路线作为本局导向，系统会按设定的约束力度与推进节奏将其融入后续正文与下一步候选项角标；也可一键「分叉试玩」克隆平行存档体验不同走向。',
     '顶栏总开关仅控制当前这一局是否启用剧情罗盘；关闭后已生成的路线会安全保留，随时可重新开启继续使用。',
-    '面板分为「路线与推演」（查看路线、点亮锚定、脑暴讨论与逐层拆解）和「罗盘设置」（题材标签、目标导向、约束力度、节奏、盲盒防剧透、自动更新、条目上限与推演模型）两页，所有 ? 均可点开查看详细说明。'
+    '面板分为「路线与推演」（配置游玩类型与目标导向、查看路线、点亮锚定、脑暴讨论与逐层拆解）和「罗盘设置」（约束力度、节奏、盲盒防剧透、自动更新、条目上限与推演模型）两页，所有 ? 均可点开查看详细说明。'
   ].join('\n'),
 
   brainstorm: [
@@ -965,7 +965,7 @@ const PC_HELP = Object.freeze({
   ].join('\n'),
 
   settingsSection: [
-    '这一区控制本局剧情罗盘的题材偏向、目标导向、约束力度、推进节奏、盲盒防剧透与刷新频率；每改一项即时生效并自动保存，无需额外提交。',
+    '这一区控制本局剧情罗盘的约束力度、推进节奏、盲盒防剧透、自动更新间隔与每层条目上限；每改一项即时生效并自动保存，无需额外提交。',
     '除「推演模型」为所有对话全局共用外，其余偏好均按当前对局独立保存，不同人物卡和存档可各自采用不同玩法。'
   ].join('\n'),
 
@@ -2307,15 +2307,65 @@ function PlotCompassPanel({ ui, gameId }) {
 
     localError ? h('div', { className: 'pc-alert is-error', role: 'alert' }, h('span', null, localError)) : null,
 
-    /* 局势摘要 + 目标导向 + 脑暴灵感对话 */
+    /* 头部：游玩类型标签 + 目标导向 */
+    h('section', { className: 'pc-section', 'aria-label': '游玩类型与目标导向' },
+      h(PcField, {
+        label: '游玩类型标签',
+        help: PC_HELP.archetypes,
+        actions: h(PcChip, {
+          disabled: Boolean(busyAction),
+          onClick: () => { editingArchetypes ? setEditingArchetypes(false) : openArchetypeEditor() }
+        }, editingArchetypes ? '收起' : '定制标签')
+      },
+        h('div', { className: 'pc-badge-row' },
+          displayArchetypes.length > 0
+            ? displayArchetypes.map(tag => h(PcBadge, { key: tag, tone: 'accent' }, tag))
+            : h('span', { className: 'pc-hint' }, '推演时自动识别，也可点右侧「定制标签」手动锁定')),
+        editingArchetypes ? h('div', { className: 'pc-field', style: { marginTop: '4px' } },
+          h('span', { className: 'pc-hint' }, '选择或输入 1–5 个游玩题材/流派标签，AI 将按对应戏剧维度发散路线：'),
+          h('div', { className: 'pc-chip-group' }, PC_PRESET_ARCHETYPES.map(tag => {
+            const on = selectedArchetypes.includes(tag)
+            return h(PcChip, { key: tag, active: on, onClick: () => togglePresetArchetype(tag) }, (on ? '✓ ' : '+ ') + tag)
+          })),
+          selectedArchetypes.length > 0 ? h('div', { className: 'pc-chip-group' },
+            selectedArchetypes.map(tag => h('span', { key: tag, className: 'pc-badge is-accent' },
+              tag,
+              h('button', {
+                type: 'button',
+                className: 'pc-chip-x',
+                'aria-label': '移除 ' + tag,
+                onClick: () => setSelectedArchetypes(selectedArchetypes.filter(t => t !== tag))
+              }, '×')))) : null,
+          h('div', { className: 'pc-btn-row' },
+            h('input', {
+              type: 'text',
+              className: 'pc-input is-inline',
+              maxLength: 16,
+              placeholder: '自定义流派（如：克苏鲁调查、赛博跑团）',
+              value: archetypeDraft,
+              onChange: e => setArchetypeDraft(e.target.value),
+              onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomArchetypeChip() } }
+            }),
+            h(PcBtn, { small: true, disabled: !archetypeDraft.trim() || selectedArchetypes.length >= 5, onClick: addCustomArchetypeChip }, '添加')),
+          h('div', { className: 'pc-btn-row' },
+            h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: () => saveArchetypes(true) }, '保存并立即重推路线'),
+            h(PcBtn, { small: true, disabled: Boolean(busyAction), onClick: () => saveArchetypes(false) }, '仅保存'),
+            selectedArchetypes.length > 0 ? h(PcBtn, { small: true, danger: true, disabled: Boolean(busyAction), onClick: () => setSelectedArchetypes([]) }, '清空') : null)) : null),
+
+      h('div', { className: 'pc-divider' }),
+
+      h(PcField, {
+        label: '目标导向',
+        help: PC_HELP.goal
+      }, renderGoalBlock())),
+
+    /* 局势摘要 + 脑暴灵感对话 */
     h(PcSection, {
       title: '💬 局势与脑暴灵感',
       helpTitle: '局势与脑暴灵感',
-      help: PC_HELP.brainstorm,
-      note: displayArchetypes.length ? displayArchetypes.slice(0, 3).join(' · ') : '自动识别题材'
+      help: PC_HELP.brainstorm
     },
       compass.situationDigest ? h('p', { className: 'pc-digest' }, compass.situationDigest) : null,
-      renderGoalBlock(),
       chatHistory.length > 0 ? h('div', { className: 'pc-section-head' },
         h(PcChip, { onClick: () => setChatOpen(!chatOpen) }, (chatOpen ? '▾ 收起' : '▸ 展开') + '脑暴对话（' + chatHistory.length + '）'),
         chatOpen ? h(PcChip, { disabled: isRunning || Boolean(busyAction), onClick: clearCompassChatHistory }, '清空记录') : null) : null,
@@ -2503,58 +2553,6 @@ function PlotCompassPanel({ ui, gameId }) {
       note: '改动即时生效 · 自动保存',
       help: PC_HELP.settingsSection
     },
-      h(PcField, {
-        label: '游玩类型标签',
-        help: PC_HELP.archetypes,
-        actions: h(PcChip, {
-          disabled: Boolean(busyAction),
-          onClick: () => { editingArchetypes ? setEditingArchetypes(false) : openArchetypeEditor() }
-        }, editingArchetypes ? '收起' : '定制标签')
-      },
-        h('div', { className: 'pc-badge-row' },
-          displayArchetypes.length > 0
-            ? displayArchetypes.map(tag => h(PcBadge, { key: tag, tone: 'accent' }, tag))
-            : h('span', { className: 'pc-hint' }, '推演时自动识别，也可点右侧「定制标签」手动锁定')),
-        editingArchetypes ? h('div', { className: 'pc-field', style: { marginTop: '4px' } },
-          h('span', { className: 'pc-hint' }, '选择或输入 1–5 个游玩题材/流派标签，AI 将按对应戏剧维度发散路线：'),
-          h('div', { className: 'pc-chip-group' }, PC_PRESET_ARCHETYPES.map(tag => {
-            const on = selectedArchetypes.includes(tag)
-            return h(PcChip, { key: tag, active: on, onClick: () => togglePresetArchetype(tag) }, (on ? '✓ ' : '+ ') + tag)
-          })),
-          selectedArchetypes.length > 0 ? h('div', { className: 'pc-chip-group' },
-            selectedArchetypes.map(tag => h('span', { key: tag, className: 'pc-badge is-accent' },
-              tag,
-              h('button', {
-                type: 'button',
-                className: 'pc-chip-x',
-                'aria-label': '移除 ' + tag,
-                onClick: () => setSelectedArchetypes(selectedArchetypes.filter(t => t !== tag))
-              }, '×')))) : null,
-          h('div', { className: 'pc-btn-row' },
-            h('input', {
-              type: 'text',
-              className: 'pc-input is-inline',
-              maxLength: 16,
-              placeholder: '自定义流派（如：克苏鲁调查、赛博跑团）',
-              value: archetypeDraft,
-              onChange: e => setArchetypeDraft(e.target.value),
-              onKeyDown: e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomArchetypeChip() } }
-            }),
-            h(PcBtn, { small: true, disabled: !archetypeDraft.trim() || selectedArchetypes.length >= 5, onClick: addCustomArchetypeChip }, '添加')),
-          h('div', { className: 'pc-btn-row' },
-            h(PcBtn, { small: true, primary: true, disabled: Boolean(busyAction), onClick: () => saveArchetypes(true) }, '保存并立即重推路线'),
-            h(PcBtn, { small: true, disabled: Boolean(busyAction), onClick: () => saveArchetypes(false) }, '仅保存'),
-            selectedArchetypes.length > 0 ? h(PcBtn, { small: true, danger: true, disabled: Boolean(busyAction), onClick: () => setSelectedArchetypes([]) }, '清空') : null)) : null),
-
-      h('div', { className: 'pc-divider' }),
-
-      h(PcField, {
-        label: '目标导向',
-        help: PC_HELP.goal
-      }, renderGoalBlock()),
-
-      h('div', { className: 'pc-divider' }),
-
       h(PcField, {
         label: '约束力度',
         help: PC_HELP.strength,

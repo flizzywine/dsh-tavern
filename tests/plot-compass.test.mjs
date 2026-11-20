@@ -965,12 +965,18 @@ test('剧情罗盘面板：命运之骰同款工作台双页签与 ? / × 详细
   assert.equal(host.querySelectorAll('.pc-help-pop').length, 0)
   assert.equal(topHelp.textContent, '?')
 
-  // 切换到「罗盘设置」页签：所有设置项均有独立 ? 按钮，且点开不发 RPC
+  // 第一页头部包含「游玩类型标签」与「目标导向」及其独立问号
+  for (const label of ['查看说明：游玩类型标签', '查看说明：目标导向']) {
+    const btn = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === label)
+    assert.ok(btn, `路线与推演页头部应当存在 ${label}`)
+  }
+
+  // 切换到「罗盘设置」页签：其余设置项均有独立 ? 按钮，且点开不发 RPC
   const settingsTab = [...host.querySelectorAll('button[role="tab"]')].find(b => b.textContent === '罗盘设置')
   assert.ok(settingsTab, '应当存在「罗盘设置」页签')
   await act(async () => { settingsTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
   const callsBefore = calls.length
-  for (const label of ['查看说明：游玩类型标签', '查看说明：目标导向', '查看说明：约束力度', '查看说明：推进节奏', '查看说明：盲盒防剧透模式', '查看说明：自动更新间隔', '查看说明：每层条目上限', '查看说明：推演模型']) {
+  for (const label of ['查看说明：约束力度', '查看说明：推进节奏', '查看说明：盲盒防剧透模式', '查看说明：自动更新间隔', '查看说明：每层条目上限', '查看说明：推演模型']) {
     const btn = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === label)
     assert.ok(btn, `罗盘设置页应当存在 ${label}`)
   }
