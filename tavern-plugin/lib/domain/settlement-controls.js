@@ -8,51 +8,63 @@ function str(value) {
 // settlement workers are listed in that catalog but are owned by Tavern.
 export function installSettlementSubagentStop(service, stopSettlementAgent) {
   const subagents = service?.[Symbol.for('cordis.original')] || service
-  const original = subagents?.interruptByUser
-  if (typeof original !== 'function') return () => {}
-  const own = Object.hasOwn(subagents, 'interruptByUser')
-  function interruptByUser(childSessionId) {
-    const stopping = stopSettlementAgent(childSessionId)
-    if (!stopping) return original.call(this, childSessionId)
-    return stopping.then(() => ({ accepted: true }))
+  const restore = []
+  for (const method of ['interruptByUser', 'interruptByParent']) {
+    const original = subagents?.[method]
+    if (typeof original !== 'function') continue
+    const own = Object.hasOwn(subagents, method)
+    function interrupt(...args) {
+      const [childSessionId, parentSessionId, mode] = args
+      const stopping = method === 'interruptByUser' ? stopSettlementAgent(childSessionId)
+        : typeof parentSessionId === 'string' && parentSessionId !== '' && mode === 'continuable'
+          ? stopSettlementAgent(childSessionId, parentSessionId) : undefined
+      return stopping ? stopping.then(() => ({ accepted: true })) : original.apply(this, args)
+    }
+    subagents[method] = interrupt
+    restore.push(() => {
+      if (subagents[method] !== interrupt) return
+      if (own) subagents[method] = original
+      else delete subagents[method]
+    })
   }
-  subagents.interruptByUser = interruptByUser
-  return () => {
-    if (subagents.interruptByUser !== interruptByUser) return
-    if (own) subagents.interruptByUser = original
-    else delete subagents.interruptByUser
-  }
+  return () => { for (const dispose of restore) dispose() }
 }
 
 // What the player does to a game's background work: stop it, retry the latest reply's
 // settlement, and start the settlement an older opening still waits for.
 // `deps` is read on each call, so a test may swap a service after creation.
 export function createSettlementControls(deps) {
-  async function stopBackground(sessionId, operationId, expectedRun) {
+  async function stopBackground(sessionId, operationId) {
     const { backgroundAgentRunner, backgroundTasks, cancelSettlement, chatForSession, stageDirector, pluginApi, readChatCard, view } = deps
     const chat = await chatForSession(sessionId)
-    if (expectedRun && backgroundAgentRunner.activeRequestContext(expectedRun.childSessionId) !== expectedRun.context) return
     if (!chat) throw new Error('对话不存在')
     const activity = backgroundTasks.activity(chat)
     const coreActive = activity.busy || activity.phase === 'pending'
     if (!operationId || !(coreActive && activity.operationId === operationId || activity.director?.operationId === operationId)) return view(chat, await readChatCard(chat))
-    if (!expectedRun) {
-      stageDirector?.cancel(chat)
-      backgroundAgentRunner.cancel(chat.sessionId, { task: 'stage-director' })
-      pluginApi.stopTasks(chat.sessionId)
-      backgroundAgentRunner.cancel(chat.sessionId)
-    }
-    // The settlement job also aborts its model request. Persist the interruption
-    // before allowing any late result to be applied to this operation.
+    stageDirector?.cancel(chat)
+    backgroundAgentRunner.cancel(chat.sessionId, { task: 'stage-director' })
+    pluginApi.stopTasks(chat.sessionId)
+    backgroundAgentRunner.cancel(chat.sessionId)
     await cancelSettlement(chat.id, { wait: false })
     const stopped = coreActive ? await backgroundTasks.recover(chat, { operationId: activity.operationId }) : { chat }
     return view(stopped.chat, await readChatCard(stopped.chat))
   }
 
-  function stopSettlementAgent(childSessionId) {
+  function stopSettlementAgent(childSessionId, parentSessionId) {
     const context = deps.backgroundAgentRunner.activeRequestContext(childSessionId)
     if (context?.task !== 'settlement' || !context.operationId) return
-    return stopBackground(context.parentSessionId, context.operationId, { childSessionId, context })
+    if (parentSessionId !== undefined && context.parentSessionId !== parentSessionId) return
+    return interruptSettlement(context.operationId)
+  }
+
+  async function interruptSettlement(operationId) {
+    const { cancelSettlementOperation, readChat, backgroundTasks } = deps
+    // Abort the exact job before reading storage. The provider can finish while the
+    // read is in flight, and the chat may already have queued a different operation.
+    const chatId = await cancelSettlementOperation(operationId)
+    if (chatId === undefined) return
+    const chat = await readChat(chatId)
+    if (chat) await backgroundTasks.recover(chat, { operationId })
   }
 
   async function retrySettlement(sessionId, turn, guidance) {

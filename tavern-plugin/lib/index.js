@@ -3963,7 +3963,8 @@ export async function apply(ctx) {
   const { stopBackground, stopSettlementAgent, retrySettlement, pullBackgroundCycle } = createSettlementControls({
     chatForSession, readOpeningWindow, projectOpeningWindow, view, readChatCard, backgroundTasks, storyTimeline,
     readSlice: chatPersistence.readSlice,
-    patchChat, writeChat, queueSettlement, cancelSettlement, mvuSettlementEngine, pluginApi, backgroundAgentRunner,
+    patchChat, writeChat, queueSettlement, cancelSettlement, cancelSettlementOperation: settlementJobs.cancelOperation,
+    readChat, mvuSettlementEngine, pluginApi, backgroundAgentRunner,
     // 停止后台 stops the game's director too, through the stage's presentation observer.
     stageDirector: { cancel: chat => { void presentationObservers.cancelled(chat.sessionId) } }
   })
