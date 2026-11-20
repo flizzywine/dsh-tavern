@@ -48043,7 +48043,8 @@ function askTavernCardPackWay(file, staged) {
 					(!kinds || kinds.indexOf("cards") >= 0) && call("listCards").then(function (result) {
 						setCards(result.cards || []); tavernErrorHub.resolve("左侧栏人物卡");
 					}, function (err) { tavernErrorHub.report("左侧栏人物卡", err); }),
-					(!kinds || kinds.indexOf("sessions") >= 0) && call("listSessions").then(function (result) {
+					// History rows carry their card's name, so a card change (a rename) reloads them too.
+					(!kinds || kinds.indexOf("sessions") >= 0 || kinds.indexOf("cards") >= 0) && call("listSessions").then(function (result) {
 						const sessions = result.sessions || [];
 						setHistory(sessions); setTrustedCardMode(!result.capabilities || result.capabilities.trustedCardMode !== false); publishSessionModes(sessions);
 						tavernErrorHub.resolve("左侧栏历史");
