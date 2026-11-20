@@ -251,10 +251,6 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 在 **设置 → 模型** 填入模型服务和 API 密钥（任意模型都可以，本地模型也行），导入人物卡就能开局。[图文教程 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%90%AF%E5%8A%A8#user-content-a02--section-5)
 
-## 发布启动器 npm 包
-
-维护者可运行 `node .github/scripts/pack-npm-launcher.mjs`，在 `output/` 生成只包含启动器的 npm 压缩包。包版本取自 [启动器清单](../../../tavern-plugin/packages/dsh-tavern/package.json)。使用拥有 `@flizzywine` scope 发布权限的 npm 账号，对生成的 `.tgz` 执行 `npm publish <文件> --access public --registry https://registry.npmjs.org`。酒馆日常更新独立发布。
-
 ## 交流与反馈
 
 欢迎交流使用经验、分享人物卡或反馈问题：
