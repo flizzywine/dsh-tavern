@@ -6,17 +6,38 @@
  * 宿主的引擎照旧在每轮生成前介入。
  * ------------------------------------------------------------------ */
 
-function TndHelp({ label, text }) {
-  if (!text) return null
+// 说明按钮：原来的问号只挂了 title，得悬停一秒才冒原生提示，点它一点反应都没有。
+// 现在点一下就在同一列里展开说明，再点收起；键盘 Enter / 空格切换，Esc 收起。
+function TndHelp({ label, open, onToggle }) {
   const h = React.createElement
-  return h('span', { className: 'tnd-help', role: 'img', tabIndex: 0, title: text, 'aria-label': label + '说明' }, '?')
+  return h('button', {
+    type: 'button',
+    className: 'tnd-help' + (open ? ' is-open' : ''),
+    'aria-label': label + '说明',
+    'aria-expanded': open ? 'true' : 'false',
+    title: open ? '收起说明' : '查看说明',
+    onClick: event => { event.preventDefault(); event.stopPropagation(); onToggle() },
+    onKeyDown: event => { if (event.key === 'Escape' && open) { event.preventDefault(); onToggle() } }
+  }, h('span', { 'aria-hidden': 'true' }, '?'))
 }
 
+// 说明展开在滚动区下沿之外时把它滚进来，别让文字藏在看不见的地方。
+function tndRevealHelp(open, node) {
+  if (!open || !node || typeof node.scrollIntoView !== 'function') return
+  node.scrollIntoView({ block: 'nearest' })
+}
+
+// 行：标题、问号与展开出来的说明同属左列；说明是块级元素，展开时把这一列撑高，不动控件列。
 function TndRow({ title, help, helpLabel, note, children }) {
   const h = React.createElement
+  const [helpOpen, setHelpOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(helpOpen, helpRef.current) }, [helpOpen])
   return h('div', { className: 'dsh-tavern-settings-row' },
     h('span', { className: 'dsh-tavern-settings-copy' },
-      h('span', { className: 'dsh-tavern-settings-title' }, title, h(TndHelp, { label: helpLabel || title, text: help }))),
+      h('span', { className: 'dsh-tavern-settings-title' }, title,
+        help ? h(TndHelp, { label: helpLabel || title, open: helpOpen, onToggle: () => setHelpOpen(value => !value) }) : null),
+      help && helpOpen ? h('span', { ref: helpRef, className: 'tnd-help-pop', role: 'note' }, help) : null),
     h('span', { className: 'dsh-tavern-settings-control' },
       note ? h('span', { className: 'tnd-notice', role: 'status' }, note) : null,
       children))
@@ -24,11 +45,15 @@ function TndRow({ title, help, helpLabel, note, children }) {
 
 function TndGroup({ title, help, notice, children }) {
   const h = React.createElement
+  const [helpOpen, setHelpOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(helpOpen, helpRef.current) }, [helpOpen])
   return h('section', { className: 'dsh-tavern-gs-group', 'aria-label': title },
     h('header', { className: 'dsh-tavern-gs-head' },
       h('h2', null, title),
-      h(TndHelp, { label: title, text: help }),
+      help ? h(TndHelp, { label: title, open: helpOpen, onToggle: () => setHelpOpen(value => !value) }) : null,
       notice),
+    help && helpOpen ? h('p', { ref: helpRef, className: 'tnd-help-pop is-group', role: 'note' }, help) : null,
     h('div', { className: 'dsh-tavern-gs-card' }, children))
 }
 

@@ -30,8 +30,15 @@ const TND_STYLE_ID = 'dsh-tavern-narrative-damper-style'
 const TND_CSS = `
 .tnd-panel { display: flex; flex-direction: column; gap: 22px; box-sizing: border-box; min-width: 0; height: 100%; overflow-y: auto; padding: 12px 14px 24px; }
 .tnd-panel .dsh-tavern-gs-group > .dsh-tavern-settings-group:last-child { padding-bottom: 4px; }
-.tnd-help { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 2px; border-radius: 50%;
-  background: var(--fork-hover, rgba(127,127,127,.14)); color: var(--fork-ink-3, #8a8a8a); font-size: 10px; font-weight: 700; line-height: 1; cursor: help; }
+.tnd-help { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 2px; border: 0; padding: 0; border-radius: 50%;
+  background: var(--fork-hover, rgba(127,127,127,.14)); color: var(--fork-ink-3, #8a8a8a); font: inherit; font-size: 10px; font-weight: 700; line-height: 1; cursor: pointer; }
+.tnd-help:hover { color: var(--fork-ink, inherit); }
+.tnd-help.is-open { background: var(--fork-accent-soft, rgba(127,127,127,.22)); color: var(--fork-ink, inherit); }
+.tnd-help:focus-visible { outline: var(--fork-focus, 2px solid currentColor); outline-offset: 1px; }
+.tnd-help-pop { display: block; min-width: 0; align-self: stretch; margin: 6px 0 0; padding: 8px 10px; border-radius: 8px;
+  background: var(--fork-hover, rgba(127, 127, 127, .10)); color: var(--fork-ink-2, inherit);
+  font-size: var(--fork-fs-meta, 12px); line-height: 1.65; text-align: left; overflow-wrap: anywhere; white-space: normal; }
+.tnd-help-pop.is-group { margin: 0 0 10px; }
 .tnd-input, .tnd-select, .tnd-area {
   box-sizing: border-box; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--fork-hairline, rgba(127,127,127,.28)); border-radius: 8px;
   background: var(--fork-raised, transparent); color: var(--fork-ink, inherit); font: inherit; font-size: var(--fork-fs-body, 13px); line-height: 1.5;
@@ -151,17 +158,38 @@ function tndCall(ui, name, args) {
  * 宿主的引擎照旧在每轮生成前介入。
  * ------------------------------------------------------------------ */
 
-function TndHelp({ label, text }) {
-  if (!text) return null
+// 说明按钮：原来的问号只挂了 title，得悬停一秒才冒原生提示，点它一点反应都没有。
+// 现在点一下就在同一列里展开说明，再点收起；键盘 Enter / 空格切换，Esc 收起。
+function TndHelp({ label, open, onToggle }) {
   const h = React.createElement
-  return h('span', { className: 'tnd-help', role: 'img', tabIndex: 0, title: text, 'aria-label': label + '说明' }, '?')
+  return h('button', {
+    type: 'button',
+    className: 'tnd-help' + (open ? ' is-open' : ''),
+    'aria-label': label + '说明',
+    'aria-expanded': open ? 'true' : 'false',
+    title: open ? '收起说明' : '查看说明',
+    onClick: event => { event.preventDefault(); event.stopPropagation(); onToggle() },
+    onKeyDown: event => { if (event.key === 'Escape' && open) { event.preventDefault(); onToggle() } }
+  }, h('span', { 'aria-hidden': 'true' }, '?'))
 }
 
+// 说明展开在滚动区下沿之外时把它滚进来，别让文字藏在看不见的地方。
+function tndRevealHelp(open, node) {
+  if (!open || !node || typeof node.scrollIntoView !== 'function') return
+  node.scrollIntoView({ block: 'nearest' })
+}
+
+// 行：标题、问号与展开出来的说明同属左列；说明是块级元素，展开时把这一列撑高，不动控件列。
 function TndRow({ title, help, helpLabel, note, children }) {
   const h = React.createElement
+  const [helpOpen, setHelpOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(helpOpen, helpRef.current) }, [helpOpen])
   return h('div', { className: 'dsh-tavern-settings-row' },
     h('span', { className: 'dsh-tavern-settings-copy' },
-      h('span', { className: 'dsh-tavern-settings-title' }, title, h(TndHelp, { label: helpLabel || title, text: help }))),
+      h('span', { className: 'dsh-tavern-settings-title' }, title,
+        help ? h(TndHelp, { label: helpLabel || title, open: helpOpen, onToggle: () => setHelpOpen(value => !value) }) : null),
+      help && helpOpen ? h('span', { ref: helpRef, className: 'tnd-help-pop', role: 'note' }, help) : null),
     h('span', { className: 'dsh-tavern-settings-control' },
       note ? h('span', { className: 'tnd-notice', role: 'status' }, note) : null,
       children))
@@ -169,11 +197,15 @@ function TndRow({ title, help, helpLabel, note, children }) {
 
 function TndGroup({ title, help, notice, children }) {
   const h = React.createElement
+  const [helpOpen, setHelpOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(helpOpen, helpRef.current) }, [helpOpen])
   return h('section', { className: 'dsh-tavern-gs-group', 'aria-label': title },
     h('header', { className: 'dsh-tavern-gs-head' },
       h('h2', null, title),
-      h(TndHelp, { label: title, text: help }),
+      help ? h(TndHelp, { label: title, open: helpOpen, onToggle: () => setHelpOpen(value => !value) }) : null,
       notice),
+    help && helpOpen ? h('p', { ref: helpRef, className: 'tnd-help-pop is-group', role: 'note' }, help) : null,
     h('div', { className: 'dsh-tavern-gs-card' }, children))
 }
 

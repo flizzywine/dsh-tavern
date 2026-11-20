@@ -299,6 +299,28 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   assert.equal(probeCall[1].config.model, 'gpt-6-luna')
   assert.match(host.textContent, /连接正常/)
 
+  // 问号：以前只挂 title，点一下什么也不出。现在点开就在原地展开说明，再点收起。
+  assert.equal(host.querySelectorAll('.tnd-help-pop').length, 0)
+  const groupHelp = host.querySelector('button.tnd-help')
+  assert.equal(groupHelp.getAttribute('aria-expanded'), 'false')
+  await act(async () => { groupHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(groupHelp.getAttribute('aria-expanded'), 'true')
+  const pop = host.querySelector('.tnd-help-pop')
+  assert.ok(pop, '点开问号应当出现说明')
+  assert.match(pop.textContent, /通用防口胡与状态惯性引擎/)
+  await act(async () => { groupHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(host.querySelectorAll('.tnd-help-pop').length, 0)
+  assert.equal(groupHelp.getAttribute('aria-expanded'), 'false')
+
+  // 行内的问号各自独立展开，且不触发那一行的任何保存。
+  const callsBeforeHelp = calls.length
+  const rowHelp = [...host.querySelectorAll('button.tnd-help')].find(button => button.getAttribute('aria-label') === '判定阈值说明')
+  assert.ok(rowHelp, '判定阈值那一行应当有问号')
+  await act(async () => { rowHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.match(host.querySelector('.tnd-help-pop').textContent, /概率达到此阈值时触发裁定/)
+  assert.equal(host.querySelectorAll('.tnd-help-pop').length, 1)
+  assert.equal(calls.length, callsBeforeHelp)
+
   // 卸载放在这里：全局 window/document 的还原在 t.after 里，晚一步 React 就找不到 window.event。
   await act(async () => { root.unmount() })
 })

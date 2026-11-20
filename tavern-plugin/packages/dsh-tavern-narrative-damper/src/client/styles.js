@@ -11,8 +11,15 @@ const TND_STYLE_ID = 'dsh-tavern-narrative-damper-style'
 const TND_CSS = `
 .tnd-panel { display: flex; flex-direction: column; gap: 22px; box-sizing: border-box; min-width: 0; height: 100%; overflow-y: auto; padding: 12px 14px 24px; }
 .tnd-panel .dsh-tavern-gs-group > .dsh-tavern-settings-group:last-child { padding-bottom: 4px; }
-.tnd-help { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 2px; border-radius: 50%;
-  background: var(--fork-hover, rgba(127,127,127,.14)); color: var(--fork-ink-3, #8a8a8a); font-size: 10px; font-weight: 700; line-height: 1; cursor: help; }
+.tnd-help { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 2px; border: 0; padding: 0; border-radius: 50%;
+  background: var(--fork-hover, rgba(127,127,127,.14)); color: var(--fork-ink-3, #8a8a8a); font: inherit; font-size: 10px; font-weight: 700; line-height: 1; cursor: pointer; }
+.tnd-help:hover { color: var(--fork-ink, inherit); }
+.tnd-help.is-open { background: var(--fork-accent-soft, rgba(127,127,127,.22)); color: var(--fork-ink, inherit); }
+.tnd-help:focus-visible { outline: var(--fork-focus, 2px solid currentColor); outline-offset: 1px; }
+.tnd-help-pop { display: block; min-width: 0; align-self: stretch; margin: 6px 0 0; padding: 8px 10px; border-radius: 8px;
+  background: var(--fork-hover, rgba(127, 127, 127, .10)); color: var(--fork-ink-2, inherit);
+  font-size: var(--fork-fs-meta, 12px); line-height: 1.65; text-align: left; overflow-wrap: anywhere; white-space: normal; }
+.tnd-help-pop.is-group { margin: 0 0 10px; }
 .tnd-input, .tnd-select, .tnd-area {
   box-sizing: border-box; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--fork-hairline, rgba(127,127,127,.28)); border-radius: 8px;
   background: var(--fork-raised, transparent); color: var(--fork-ink, inherit); font: inherit; font-size: var(--fork-fs-body, 13px); line-height: 1.5;
