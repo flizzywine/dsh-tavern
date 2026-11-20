@@ -46,9 +46,9 @@ importers:
       mathjs:
         specifier: 12.4.3
         version: 12.4.3
-      pinyin-pro:
-        specifier: 3.29.5
-        version: 3.29.5
+      parse5:
+        specifier: 7.3.0
+        version: 7.3.0
       schemastery:
         specifier: 3.18.0
         version: 3.18.0
@@ -1364,9 +1364,6 @@ packages:
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
     engines: {node: '>=8'}
-
-  pinyin-pro@3.29.5:
-    resolution: {integrity: sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==}
 
   playwright-core@1.58.2:
     resolution: {integrity: sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==}
@@ -2887,8 +2884,6 @@ snapshots:
   path-data-parser@0.1.0: {}
 
   path-exists@4.0.0: {}
-
-  pinyin-pro@3.29.5: {}
 
   playwright-core@1.58.2: {}
 
