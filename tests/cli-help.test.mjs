@@ -42,6 +42,10 @@ test('总帮助覆盖全部命令、环境变量与退出码', () => {
   }
   assert.ok(help.includes('常用示例'))
   assert.ok(help.includes('退出码：0 成功；1 执行失败；2 未知命令或参数。'))
+  assert.ok(help.includes('全局选项：'))
+  assert.ok(help.includes('-h, --help'))
+  assert.ok(help.includes('-v, -V, --version'))
+  assert.ok(help.includes('结束选项'))
   assert.ok(help.includes('https://github.com/flizzywine/dsh-tavern/wiki'))
   assert.equal(help.includes(String.fromCharCode(27)), false)
 })
@@ -55,6 +59,14 @@ test('每个命令都有可用的分命令帮助', () => {
   assert.equal(hasCommand('install'), true)
   assert.equal(hasCommand('nope'), false)
   assert.equal(renderCommandHelp('nope'), '')
+})
+
+test('completion 与 man 帮助说明用法', () => {
+  const completion = renderCommandHelp('completion')
+  for (const shell of ['bash', 'zsh', 'fish', 'powershell']) assert.ok(completion.includes(shell), '缺少 shell：' + shell)
+  const man = renderCommandHelp('man')
+  assert.ok(man.includes('roff'))
+  assert.ok(man.includes('dsh-tavern man'))
 })
 
 test('install 帮助说明四种宿主与前置条件', () => {
@@ -83,6 +95,8 @@ test('命令行帮助、分命令帮助与版本输出', { skip: !hasDependencie
   assert.equal(help.stderr, '')
   assert.ok(help.stdout.includes('安装与更新：'))
   assert.ok(help.stdout.includes('start'))
+  assert.ok(help.stdout.includes('completion'))
+  assert.ok(help.stdout.includes('man'))
   const install = await runCli(['help', 'install'])
   assert.equal(install.exitCode, 0)
   assert.ok(install.stdout.includes('--host cli|desktop|next|android'))
@@ -95,6 +109,8 @@ test('命令行帮助、分命令帮助与版本输出', { skip: !hasDependencie
   assert.equal(versionOutput.stdout.trim(), 'dsh-tavern ' + version)
   const shortVersion = await runCli(['-v'])
   assert.equal(shortVersion.stdout.trim(), 'dsh-tavern ' + version)
+  const upperVersion = await runCli(['-V'])
+  assert.equal(upperVersion.stdout.trim(), 'dsh-tavern ' + version)
 })
 
 test('未知命令与未知帮助主题以退出码 2 报错', { skip: !hasDependencies }, async () => {
@@ -113,7 +129,7 @@ test('桌面宿主下 --help 不触发应用重启', { skip: !hasDependencies },
     DSH_TAVERN_HOST: 'desktop',
     DSH_DESKTOP_APP_EXECUTABLE: '/nonexistent/dsh-desktop',
   }
-  for (const args of [['install', '--help'], ['start', '--help']]) {
+  for (const args of [['install', '--help'], ['start', '--help'], ['completion', '--help']]) {
     const started = Date.now()
     const result = await runCli(args, desktopEnv)
     assert.equal(result.exitCode, 0, '应直接返回帮助：' + args.join(' '))

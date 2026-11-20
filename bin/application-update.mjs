@@ -98,8 +98,14 @@ export function parseUpdateOptions(args) {
   let targetCommit = ''
   let attemptId = ''
   let desktopPids
+  let terminated = false
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index]
+    if (terminated) throw new Error(`无法识别的更新参数：${value}`)
+    if (value === '--') {
+      terminated = true
+      continue
+    }
     if (value === '--host') host = args[++index]
     else if (value.startsWith('--host=')) host = value.slice('--host='.length)
     else if (value === '--status-file') statusFile = args[++index]

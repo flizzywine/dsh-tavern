@@ -43,9 +43,13 @@ export { extractDshVersion } from './dsh-compatibility.mjs'
 
 export function parseInstallHost(args = []) {
   let host = RUNTIME_HOST
+  let terminated = false
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-    if (argument === '--host') {
+    if (terminated) throw new Error(`无法识别的安装参数：${argument}`)
+    if (argument === '--') {
+      terminated = true
+    } else if (argument === '--host') {
       host = args[index + 1]
       index += 1
     } else if (argument.startsWith('--host=')) {

@@ -12,6 +12,8 @@ import { updateApplication, parseUpdateOptions } from './application-update.mjs'
 import { openTavernWindow } from './tavern-window.mjs'
 import { recordUpdateDiagnostic } from './update-diagnostics.mjs'
 import { renderHelp, renderCommandHelp, hasCommand, tavernVersion } from './cli-help.mjs'
+import { renderCompletion } from './cli-completion.mjs'
+import { renderManPage } from './cli-man.mjs'
 
 // Keep the existing import surface while the executable only dispatches commands.
 export { resolveServicePort, resolveDshInvocation } from './launcher-environment.mjs'
@@ -43,19 +45,44 @@ function updateDiagnostic(event, details = {}) {
 async function main() {
   const action = process.argv[2] || 'status'
   const args = process.argv.slice(2)
-  if (action === '-v' || action === '--version') {
+  if (action === '-v' || action === '-V' || action === '--version') {
     console.log(('dsh-tavern ' + tavernVersion()).trim())
     return
   }
-  const helpFlag = args.includes('-h') || args.includes('--help')
+  const optionEnd = args.indexOf('--')
+  const optionArgs = optionEnd === -1 ? args : args.slice(0, optionEnd)
+  const helpFlag = optionArgs.includes('-h') || optionArgs.includes('--help')
   if (action === 'help' || action === '-h' || action === '--help' || (helpFlag && hasCommand(action))) {
-    const requested = action === 'help' ? args[1] : (hasCommand(action) ? action : '')
+    const requested = action === 'help'
+      ? (args[1] === '--' ? args[2] : args[1])
+      : (hasCommand(action) ? action : '')
     const topic = requested && !requested.startsWith('-') ? requested : ''
     if (topic && !hasCommand(topic)) {
       failUnknown(topic)
       return
     }
     console.log(topic ? renderCommandHelp(topic) : renderHelp())
+    return
+  }
+  if (action === 'completion') {
+    const shell = args[1] === '--' ? args[2] : args[1]
+    if (!shell) {
+      console.error('缺少 shell 参数：completion bash|zsh|fish|powershell')
+      process.exitCode = 2
+      return
+    }
+    const script = renderCompletion(shell)
+    if (!script) {
+      console.error('不支持的 shell：' + shell)
+      console.error('支持的 shell：bash、zsh、fish、powershell。')
+      process.exitCode = 2
+      return
+    }
+    process.stdout.write(script)
+    return
+  }
+  if (action === 'man') {
+    process.stdout.write(renderManPage())
     return
   }
   if (RUNTIME_HOST === 'next' && action !== 'install') {

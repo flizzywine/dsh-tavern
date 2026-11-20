@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const PACKAGE_FILE = fileURLToPath(new URL('../package.json', import.meta.url))
-const WIKI_URL = 'https://github.com/flizzywine/dsh-tavern/wiki'
+export const WIKI_URL = 'https://github.com/flizzywine/dsh-tavern/wiki'
+export const HOST_VALUES = ['cli', 'desktop', 'next', 'android']
 
 // 帮助文本只描述命令行本身，不读取安装环境，未安装依赖时也能单独测试。
 export const COMMANDS = [
@@ -98,6 +99,39 @@ export const COMMANDS = [
     ],
   },
   {
+    name: 'completion',
+    group: '帮助',
+    summary: '输出 shell 补全脚本',
+    usage: ['dsh-tavern completion bash|zsh|fish|powershell'],
+    body: [
+      '把补全脚本输出到标准输出，支持 bash、zsh、fish 和 powershell。',
+      '',
+      '启用方式：',
+      '  bash        eval "$(dsh-tavern completion bash)"',
+      '              或写入 ~/.bash_completion 由 bash-completion 加载',
+      '  zsh         保存为 _dsh-tavern 放入 $fpath，或 eval "$(dsh-tavern completion zsh)"',
+      '  fish        dsh-tavern completion fish > ~/.config/fish/completions/dsh-tavern.fish',
+      '  powershell  dsh-tavern completion powershell | Out-String | Invoke-Expression',
+      '',
+      '补全内容跟随当前版本的全部命令与 install --host 取值。',
+    ],
+  },
+  {
+    name: 'man',
+    group: '帮助',
+    summary: '输出 man 手册',
+    usage: ['dsh-tavern man'],
+    body: [
+      '以 roff 格式输出 dsh-tavern 的 man 手册。',
+      '',
+      '查看方式：',
+      '  man -l <(dsh-tavern man)          直接分页查看（bash/zsh）',
+      '  dsh-tavern man > dsh-tavern.1     先写入文件，再 man dsh-tavern.1',
+      '',
+      '手册包含全部命令、全局选项、环境变量和退出码。',
+    ],
+  },
+  {
     name: 'help',
     group: '帮助',
     summary: '显示帮助；给出命令名时显示该命令的完整说明',
@@ -108,7 +142,7 @@ export const COMMANDS = [
       '也可以直接用 dsh-tavern <命令> --help。',
       '',
       '可用的命令名：install、update、start、stop、restart、status、open、',
-      'window、help。',
+      'window、completion、man、help。',
     ],
   },
 ]
@@ -117,16 +151,24 @@ const EXAMPLES = [
   ['dsh-tavern install --host cli', '安装命令行版（数据目录 ~/.dsh-tavern）'],
   ['dsh-tavern start', '启动并显示访问地址'],
   ['dsh-tavern open', '在浏览器中打开'],
+  ['dsh-tavern completion bash', '输出 bash 补全脚本'],
   ['dsh-tavern help install', '查看安装宿主的说明'],
 ]
 
-const ENV_VARIABLES = [
+export const ENV_VARIABLES = [
   ['DSH_TAVERN_HOST=cli|desktop|next|android', '默认安装宿主；未指定 --host 时使用'],
   ['DSH_TAVERN_PORT=3081', '服务端口；被占用且未显式设置时自动顺延到下一个空闲端口'],
   ['DSH_TAVERN_BIND=127.0.0.1', '监听地址；默认仅本机，远程访问须指定可信内网或 VPN 地址'],
   ['DSH_TAVERN_CLI_HOME=~/.dsh-tavern', '命令行版的数据目录'],
   ['DSH_TAVERN_NO_OPEN=1', '启动时不自动打开浏览器'],
   ['DSH_TAVERN_START_TIMEOUT=120', '等待服务启动的秒数'],
+]
+
+// 全帮助与 man 手册共用同一份全局选项表。
+export const GLOBAL_OPTIONS = [
+  ['-h, --help', '显示帮助；放在命令后显示该命令的说明'],
+  ['-v, -V, --version', '显示版本'],
+  ['--', '结束选项；其后的参数按位置参数处理'],
 ]
 
 export function tavernVersion() {
@@ -155,16 +197,15 @@ export function renderHelp({ version = tavernVersion() } = {}) {
     '  dsh-tavern                     显示运行状态（等同 status）',
     '',
   ]
-  for (const group of ['安装与更新', '运行']) {
+  for (const group of ['安装与更新', '运行', '帮助']) {
     lines.push(group + '：')
     for (const command of COMMANDS.filter(item => item.group === group)) {
       lines.push('  ' + command.name.padEnd(12) + command.summary)
     }
     lines.push('')
   }
-  lines.push('帮助：')
-  lines.push('  help [命令]  显示帮助；给出命令名时显示该命令的完整说明')
-  lines.push('  --version    显示版本')
+  lines.push('全局选项：')
+  for (const [flags, description] of GLOBAL_OPTIONS) lines.push('  ' + flags.padEnd(20) + description)
   lines.push('')
   lines.push('常用示例：')
   for (const [example, description] of EXAMPLES) lines.push('  ' + example.padEnd(32) + description)
