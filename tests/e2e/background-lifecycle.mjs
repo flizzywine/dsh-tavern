@@ -18,7 +18,7 @@ export async function backgroundLifecycleChecks({page,step,savedChat,data,output
     const before = await savedChat()
     const id = before.timeline.participants.background.sessionId
     if (native) {
-      await page.locator('[data-subagent-count]').filter({visible:true}).first().click()
+      await page.getByText(/^\d+ subagents?(?: running)?$/).filter({visible:true}).first().click()
       const child = page.getByRole('treeitem', {name:/酒馆后台 Agent/})
       await child.getByRole('button', {name:/在侧边栏打开|Open.*in sidebar/i}).click()
       await page.getByRole('button', {name:/^(停止生成|Stop generating)$/}).filter({visible:true}).last().click()
