@@ -184,6 +184,7 @@ export interface AssetPackService extends CatalogueService {
   listAutomaticWrites(input: {packId: string; cursor?: number; limit?: number}): Promise<{revision: string; entries: AutomaticWriteEntry[]; nextCursor: number | null}>;
   reviewAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: AutomaticWriteEntry['status']; revision: string}>;
   undoAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: 'undone'; revision: string; refs: Array<FigureRef & {kind: 'figures'}>}>;
+  adoptAutomaticPack(input: PackWrite & {path: string}): Promise<{packId: string; cardId: string; previousCardId?: string; revision: string; adopted: boolean}>;
   readonly apiVersion: 2;
   readonly capabilities: readonly string[];
   /** Host-only config namespace; not exposed by the asset editor control RPC. */
