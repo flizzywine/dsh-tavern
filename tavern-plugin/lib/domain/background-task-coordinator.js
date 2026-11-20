@@ -288,6 +288,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
     // One agent operation at a time holds a game's background slot, from here to its commit.
     const gameId = str(chat?.sessionId || begun.chat?.sessionId)
     if (begun.value.created !== false) options.lockEvent?.({ kind: 'held', sessionId: gameId, slot: slotOf(role), role: str(role), operationId: begun.value.operationId })
+    const settlementSignal = role === 'settlement' ? input.signal : undefined
     const task = {
       chat: begun.chat,
       operationId: begun.value.operationId,
@@ -381,7 +382,9 @@ export function createBackgroundTaskCoordinator(options = {}) {
       async commit(input = {}) {
         // Preparation stays outside the chat queue (only writes are serialized); the slot frees once the outcome is known.
         const outcome = await (async () => {
-          const metadata = { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId }
+          settlementSignal?.throwIfAborted()
+          const metadata = { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId,
+            ...(settlementSignal ? { assertCurrent: () => settlementSignal.throwIfAborted() } : {}) }
           // This opt-in seam declares every floor the settlement callback can read/write.
           // Prepare without monopolizing the chat queue; retry on revision conflict.
           // Keep variable effects, delivery cleanup, receipt and timeline in one CAS frame.

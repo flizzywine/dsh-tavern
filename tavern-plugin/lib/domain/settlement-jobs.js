@@ -8,11 +8,11 @@ export function createSettlementJobs({ run, onSettled }) {
     if (disposed) return Promise.resolve()
     const existing = jobs.get(chatId)
     if (existing) return existing.promise
-    const job = { controller: new AbortController(), promise: null }
+    const job = { controller: new AbortController(), promise: null, operationId: null }
     const signal = AbortSignal.any([job.controller.signal, lifetime.signal])
     job.promise = Promise.resolve().then(() => {
       signal.throwIfAborted()
-      return run(chatId, signal)
+      return run(chatId, signal, operationId => { job.operationId = operationId })
     }).finally(async () => {
       if (jobs.get(chatId) === job) jobs.delete(chatId)
       // Cancellation/deletion must not publish a new wake before their durable
@@ -38,6 +38,15 @@ export function createSettlementJobs({ run, onSettled }) {
     return true
   }
 
+  async function cancelOperation(operationId) {
+    if (!operationId) return
+    for (const [chatId, job] of jobs) {
+      if (job.operationId !== operationId) continue
+      await cancel(chatId, { wait: false })
+      return chatId
+    }
+  }
+
   function dispose() {
     disposed = true
     lifetime.abort()
@@ -45,5 +54,5 @@ export function createSettlementJobs({ run, onSettled }) {
     jobs.clear()
   }
 
-  return Object.freeze({ start, pending, cancel, dispose })
+  return Object.freeze({ start, pending, cancel, cancelOperation, dispose })
 }

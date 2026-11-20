@@ -134,7 +134,9 @@
     "@deepseek-ai/dsh-tools"
   ],
   "tavern-plugin/lib/domain/workspace-instruction-presentation.js": [
+    "@deepseek-ai/dsh-",
     "@deepseek-ai/dsh-agent-instructions",
+    "@deepseek-ai/dsh-tool-registry",
     "@deepseek-ai/dsh-user-approval"
   ],
   "tavern-plugin/lib/host/tools.js": [

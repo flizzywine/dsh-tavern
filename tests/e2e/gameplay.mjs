@@ -346,7 +346,9 @@ try {
       const sidebarToggle = page.getByRole('button', { name: /^(Open|Expand) sidebar$/ })
       await history.filter({visible:true}).or(sidebarToggle.filter({visible:true})).first().waitFor()
       if (!await history.isVisible()) await sidebarToggle.click()
-      if (await history.getAttribute('aria-expanded') !== 'true') await history.click()
+      await history.evaluate(button => {
+        if (button.getAttribute('aria-expanded') === 'false') button.click()
+      })
       const openSessionStarted=Date.now()
       await page.locator('.dsh-tavern-side-row-name').first().click()
       await openStatus()
