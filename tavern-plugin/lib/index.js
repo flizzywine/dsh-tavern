@@ -3444,6 +3444,8 @@ export async function apply(ctx) {
       setKey: input => requireDamperSettings().setKey(input),
       test: config => requireDamperSettings().test(config)
     },
+    readTavernSettings,
+    updateTavernSettings,
     readDefaultPlayerName: async () => (await readTavernSettings()).defaultPlaySettings.playerName,
     readPlayerName: async sessionId => (await chatHeaderForSession(sessionId, ['macroState']))?.macroState?.userName,
     writeDefaultPlayerName: async playerName => (await updateTavernSettings({ defaultPlaySettings: { playerName } })).defaultPlaySettings.playerName,

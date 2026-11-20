@@ -7,6 +7,7 @@ import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMed
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
+import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 function memoryStore() {
   const files = new Map()
@@ -108,6 +109,52 @@ async function harness(t, overrides = {}) {
     .map(([, plugin, stage, message]) => ({ plugin, stage, message })).reverse()
   return { root, api, media, published, errors, setLatest(value) { latest = value } }
 }
+
+test('正文生成默认值在插件与宿主设置间共用，且仅全局插件能配置自己的生成器', { skip: !cordis }, async t => {
+  let settings = { storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'writer:body', storyPluginOutputRegex: true }
+  const readTavernSettings = async () => structuredClone(settings)
+  const updateTavernSettings = async (patch, { beforeWrite } = {}) => {
+    const next = applyTavernSettingsPatch(settings, patch)
+    await beforeWrite?.(settings)
+    settings = next
+    return readTavernSettings()
+  }
+  const h = await harness(t, { readTavernSettings, updateTavernSettings,
+    cardScope: async () => new Map([['card-writer', { cards: ['/cards/a.json'] }]]) })
+  const installWriter = async name => {
+    let tavern
+    await h.root.plugin({ name, inject: ['tavern'], apply(ctx) {
+      tavern = ctx.tavern
+      tavern.bodyGenerator({ name: 'body', title: '正文', generate: async () => ({ text: '正文' }) })
+    } })
+    return tavern
+  }
+  const writer = await installWriter('writer')
+  const cardWriter = await installWriter('card-writer')
+  const legacy = createSettingsHandlers({ readTavernSettings, updateTavernSettings, autoChoices: { cancelAll() {} } })
+  assert.equal(writer.capabilities.bodyGenerationDefaults, 1)
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body' }), { mode: 'plugin-tool-call', hostRegex: true })
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'unregistered' }), /请先注册/)
+  await assert.rejects(cardWriter.bodyGenerationDefaults({ name: 'body', mode: 'plugin-direct' }), /只有全局插件/)
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', mode: 'invalid' }), /生成方式无效/)
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'plugin-direct', hostRegex: false }), { mode: 'plugin-direct', hostRegex: false })
+  assert.equal(settings.storyGenerationProvider, 'writer:body')
+  assert.equal(settings.storyGenerationMode, 'plugin-direct')
+  assert.equal(settings.storyPluginOutputRegex, false)
+
+  await legacy.updateTavernSettings({ patch: { storyGenerationProvider: 'other:body' } })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body' }), { mode: 'host', hostRegex: false })
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', hostRegex: true }), /默认生成器已更改/)
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), /默认生成器已更改/)
+  assert.equal(settings.storyGenerationProvider, 'other:body')
+  assert.equal(settings.storyPluginOutputRegex, false)
+
+  await writer.bodyGenerationDefaults({ name: 'body', mode: 'plugin-tool-call' })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', hostRegex: true }), { mode: 'plugin-tool-call', hostRegex: true })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), { mode: 'host', hostRegex: true })
+  assert.equal(settings.storyGenerationProvider, '')
+  assert.equal(settings.storyGenerationMode, 'host')
+})
 
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {
   let cardPath = '/cards/a.json'

@@ -211,6 +211,7 @@ export function createTavernPluginApi(deps) {
     return name
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
+    ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
     ...(deps.damperSettings ? { damperSettings: 1 } : {}),
@@ -1397,6 +1398,35 @@ export function createTavernPluginApi(deps) {
       if (typeof generate !== 'function') throw new TypeError('generate 需要一个函数')
       if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('prepare 需要一个函数')
       return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate, controlInput: controlInput === true }), 'tavern.bodyGenerator()')
+    },
+
+    async bodyGenerationDefaults({ name, mode, hostRegex } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      if (!capabilities.bodyGenerationDefaults) throw new Error('当前版本不支持正文生成默认设置')
+      if (await accessScope(owner)) throw new Error('只有全局插件可以设置默认正文生成器')
+      const id = owner + ':' + name
+      if (!(await bodyGenerators.list()).some(provider => provider.id === id)) throw new Error('请先注册正文生成器')
+
+      const pluginModes = ['plugin-direct', 'plugin-tool-call']
+      const selectedMode = settings => settings?.storyGenerationProvider === id && pluginModes.includes(settings.storyGenerationMode)
+        ? settings.storyGenerationMode : 'host'
+      const present = settings => ({ mode: selectedMode(settings), hostRegex: settings?.storyPluginOutputRegex === true })
+      if (mode === undefined && hostRegex === undefined) return present(await deps.readTavernSettings())
+      if (mode !== undefined && mode !== 'host' && !pluginModes.includes(mode)) throw new Error('正文生成方式无效')
+      if (hostRegex !== undefined && (typeof hostRegex !== 'boolean' || mode === 'host')) throw new Error('插件正文宿主正则设置无效')
+
+      const patch = {}
+      if (mode !== undefined) {
+        patch.storyGenerationMode = mode
+        patch.storyGenerationProvider = mode === 'host' ? '' : id
+      }
+      if (hostRegex !== undefined) patch.storyPluginOutputRegex = hostRegex
+      return present(await deps.updateTavernSettings(patch, { beforeWrite(current) {
+        if ((mode === undefined || mode === 'host') && selectedMode(current) === 'host') {
+          throw new Error('当前默认生成器已更改，请重新打开插件页')
+        }
+      } }))
     },
 
     // A resident background Agent of this plugin: one per game, its own Session and prompt cache.
