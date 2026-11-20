@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f0bc6d6cb7a075dbd61cbfd1b905aba2f89e2ca4",
-  "releaseSequence": 1854,
+  "revision": "d8e53b20fd80c2989e9eb11d158f9e47a4a305eb",
+  "releaseSequence": 1855,
   "version": "3.3.0",
   "files": [
     {
@@ -8066,8 +8066,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/client.js",
-      "sha256": "0f14d91d07e8d9c4882891fc6b9e14febe8570e004cd5386fd0fdbd64276a066",
-      "size": 27474
+      "sha256": "c06e4f28d7609e6a5e50e07d85e942852f4a73b7ab307c73c15000b001f388e4",
+      "size": 29806
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/cordis.patch.yml",
@@ -8101,8 +8101,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/panel.js",
-      "sha256": "4e7787e41ceb7b422c3492367f4fe2f1f68d48e6afaaa7b00b7bcd8c7ef1ffa8",
-      "size": 18014
+      "sha256": "6e97bcc376eb323bf549ff7bcf92d4b74cd5d0984fc6f63065838d63eb506879",
+      "size": 19649
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/shared.js",
@@ -8111,8 +8111,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/styles.js",
-      "sha256": "9d3cf2a2f693deb3d72fe8d0c9e1f4493136cb7b5450a214605b734626d4b367",
-      "size": 4233
+      "sha256": "ffc439c7cc780cb89298d13fde5b6cd93bf63c78f468bdd0032135c76eb3b5cc",
+      "size": 4930
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/build.mjs",
@@ -9621,9 +9621,9 @@
     }
   ],
   "archive": {
-    "commit": "7441659db1ab45ba8fac4bb2536fe1baa6f4af1c",
+    "commit": "c5bb087ed7ca12fdbdd4c8e1948034de1f18f8de",
     "path": "runtime.zip",
-    "sha256": "e896436dfa4045f6b025734c2bbda69bb59702c3754e7789996587a66762379f",
-    "size": 17042624
+    "sha256": "abfebc707a76769d5b01bc80c8ad660d0098fe7b38dea3cd66182cbe45c01772",
+    "size": 17044107
   }
 }
