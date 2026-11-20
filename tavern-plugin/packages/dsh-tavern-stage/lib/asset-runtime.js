@@ -1,6 +1,6 @@
 import { createAssetPackPresentation } from './domain/asset-pack-presentation.js'
 import { createAssetPackSpeech } from '../../../lib/domain/asset-pack-speech.js'
-import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
+import { readCardAssetExtension, cardAssetExtensionView } from '../../../lib/domain/card-asset-bindings.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'
 import { cardEngineSettings, effectiveCardStage } from '../../../lib/domain/card-stage-settings.js'
 import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protocol/src/asset-packs.js'
@@ -123,7 +123,7 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     return entry
   }
   return {snapshot, consumer, invalidate:clear, get revision() {return generation},
-    async hasBindings(cardPath) {const raw = (await readWorkspace(cardPath))?.raw; return !!raw && hasCardAssetBindings(raw) && effectiveCardStage(readCardAssetExtension(raw), engineSettings.read().values).stage},
+    async hasBindings(cardPath) {const raw = (await readWorkspace(cardPath))?.raw; return !!raw && hasCardAssetBindings(raw) && effectiveCardStage(cardAssetExtensionView(raw), engineSettings.read().values).stage},
     subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn)},
     dispose() {disposed = true; offEngine(); clear(undefined,{kind:'revoked',scope:{authority:true},reason:'disposed'}); listeners.clear()}}
 }
