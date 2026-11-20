@@ -1242,6 +1242,8 @@ function clipReplayCore() {
 
 
 		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
+			useCompactionState: playControlsFeature.useCompactionState,
+			compactionProgressTitle: playControlsFeature.compactionProgressTitle,
 			replyActions: {
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,

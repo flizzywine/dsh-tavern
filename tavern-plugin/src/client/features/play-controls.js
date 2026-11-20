@@ -1184,15 +1184,17 @@
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const running = props.useSession(function (snapshot) { return snapshot.running === true; });
 			const live = useLiveTavernView(ownerSessionId, String(running) + ":" + String(latestMessageId || ""));
+			const compaction = useCompactionState(ownerSessionId, [["contextCompaction"]]);
 			const mobileDockOpen = useMobileDockActionsOpen();
 			const imageTurn = Number(live.view && live.view.latestAssistantTurn) || 0;
 			const h = React.createElement;
 			if (!sessionMode) return null;
 			const toggleMobileDock = function () { setMobileDockActionsOpen(!mobileDockOpen); };
-			const compacting = live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running";
-			const compactionStatus = live.view && live.view.contextCompaction && (compacting || live.view.contextCompaction.warning) ? h("span", { role: "status", className: "dsh-tavern-settings-desc fork-compaction-status" }, compacting ? "正在压缩前后台上下文…" : live.view.contextCompaction.warning,
+			const compacting = compaction.running;
+			const compactionWarning = live.view && live.view.contextCompaction && live.view.contextCompaction.warning;
+			const compactionStatus = (compacting || compactionWarning) ? h("span", { role: "status", className: "dsh-tavern-settings-desc fork-compaction-status" }, compacting ? "正在压缩前后台上下文…" : compactionWarning,
 				// a warning can be dismissed; it otherwise stays until a later compaction succeeds.
-				!compacting && live.view.contextCompaction.warning ? h("button", { type: "button", className: "fork-compaction-dismiss", "aria-label": "关闭这条提示", title: "关闭这条提示", onClick: function () {
+				!compacting && compactionWarning ? h("button", { type: "button", className: "fork-compaction-dismiss", "aria-label": "关闭这条提示", title: "关闭这条提示", onClick: function () {
 					rpc("dismissCompactionWarning", { sessionId: ownerSessionId }, ownerSessionId).then(function () { liveTavernView.invalidate(ownerSessionId); }, function (error) { tavernErrorHub.report("关闭压缩提示", error); });
 				} }, "×") : null) : null;
 			if (address) return isPlayMode(sessionMode) ? h(React.Fragment, null,
@@ -1202,7 +1204,7 @@
 			return h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-dock-actions",
 					"data-mobile-collapsed": !mobileDockOpen || undefined,
-					"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
+					"data-compacting": compacting || undefined },
 					h("div", { className: "dsh-tavern-dock-actions-primary" },
 						isPlayMode(sessionMode) ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
 						isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
@@ -1678,7 +1680,7 @@
 				function (props) { return React.createElement(React.Fragment, null, React.createElement(RegenPanel, props), React.createElement(BodyEditPanel, props)); }
 			)), "dsh-tavern: regen body panel");
 		}
-		return Object.freeze({ register: register, RollbackToTurnButton: TavernRollbackToTurnButton, TurnReceiptButton, LatestReplyActions });
+		return Object.freeze({ register: register, RollbackToTurnButton: TavernRollbackToTurnButton, TurnReceiptButton, LatestReplyActions, useCompactionState, compactionProgressTitle });
 		}
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
