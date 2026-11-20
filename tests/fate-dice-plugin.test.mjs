@@ -1223,3 +1223,93 @@ test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示
     for (const fn of cleanups.splice(0)) fn()
   }
 })
+
+test('双骰对抗识别：扩充词表 + 决策模型与阻尼器语义题 is_contest / fd_contest', async () => {
+  const {
+    detectContestIntent,
+    heuristicAssess,
+    judgeActionDifficulty,
+    resolveContestCheckType,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/difficulty-judge.js')
+  const {
+    buildDamperJudgeQuestions,
+    resolveCheckFromDamperContext,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js')
+
+  // 1) 兜底词表覆盖“打斗/对抗/激战/抢夺”等常见正面交锋表达
+  assert.equal(detectContestIntent('我护着安雅和灰枭打斗对抗', 'physical'), true)
+  assert.equal(detectContestIntent('与走廊里的守卫激战', 'physical'), true)
+  assert.equal(detectContestIntent('冲上去抢夺对方手里的钥匙', 'physical'), true)
+  assert.equal(detectContestIntent('我护着安雅和灰枭打斗对抗', 'insight'), false)
+  const h = heuristicAssess({ input: '我护着安雅和灰枭打斗对抗' })
+  assert.equal(h.shouldRoll, true)
+  assert.equal(h.checkType, 'contest')
+
+  // 2) resolveContestCheckType 优先采信 AI 语义概率，高概率触发、低概率抑制、模糊或缺失回退词表
+  assert.equal(
+    resolveContestCheckType({ input: '我死死抵住门板不让门外的人推开', category: 'physical', hidden: false, contestProb: 0.85 }),
+    'contest'
+  )
+  assert.equal(
+    resolveContestCheckType({ input: '我回忆起那场惨烈的战斗，叹了口气', category: 'will', hidden: false, contestProb: 0.1 }),
+    'normal'
+  )
+  assert.equal(
+    resolveContestCheckType({ input: '安雅和灰枭打斗对抗', category: 'physical', hidden: false, contestProb: 0.45 }),
+    'contest'
+  )
+  assert.equal(
+    resolveContestCheckType({ input: '安雅和灰枭打斗对抗', category: 'physical', hidden: true, contestProb: 0.95 }),
+    'normal'
+  )
+
+  // 3) 决策模型 judgeActionDifficulty 发送 is_contest 题并正确消费
+  let capturedQuestions = null
+  const mockTavern = {
+    capabilities: { decisionJudge: true },
+    async decisionJudgeStatus() {
+      return { available: true, provider: 'gemini', capabilities: { choice: true, score: true } }
+    },
+    async judgeDecision({ questions }) {
+      capturedQuestions = questions
+      return {
+        provider: 'gemini',
+        judgeTier: 'full',
+        answers: {
+          needs_check: { probability: 0.9 },
+          difficulty_tier: { choice: 'hard' },
+          character_capability: { score: 2 },
+          check_category: { choice: 'physical' },
+          situation_edge: { score: 1 },
+          is_contest: { probability: 0.88 },
+        },
+      }
+    },
+  }
+  const judged = await judgeActionDifficulty({
+    tavern: mockTavern,
+    input: '我死死抵住门板不让灰枭撞开',
+  })
+  assert.ok(capturedQuestions.some(q => q.id === 'is_contest' && q.type === 'noul'))
+  assert.equal(judged.checkType, 'contest')
+
+  // 4) 阻尼器合并题包含 fd_contest 并正确解析
+  const geminiQs = buildDamperJudgeQuestions({ protocol: 'gemini', autoProfile: true })
+  assert.ok(geminiQs.some(q => q.id === 'fd_contest' && q.type === 'noul'))
+  const noulQs = buildDamperJudgeQuestions({ protocol: 'noul', autoProfile: true })
+  assert.ok(noulQs.some(q => q.id === 'fd_contest' && q.type === 'noul'))
+
+  const damperRes = resolveCheckFromDamperContext({
+    input: '我死死抵住门板不让灰枭撞开',
+    damperContext: {
+      answers: {
+        fd_needs_check: { probability: 0.85 },
+        fd_difficulty: { choice: 'hard' },
+        fd_capability: { score: 2 },
+        fd_domain: { choice: 'physical' },
+        fd_contest: { probability: 0.82 },
+      },
+    },
+  })
+  assert.equal(damperRes.checkType, 'contest')
+})

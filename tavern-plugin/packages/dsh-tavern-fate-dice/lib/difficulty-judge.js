@@ -33,19 +33,28 @@ const HEURISTIC_RULES = [
   { key: 'stealth', pattern: /潜行|偷窃|撬锁|开锁|躲避|藏匿|摸近|跟踪|溜进|逃跑|摆脱/ },
   { key: 'social', pattern: /说服|劝说|诱骗|欺骗|撒谎|威逼|威胁|谈判|讨价还价|安抚|套话|诱导|审问/ },
   { key: 'arcana', pattern: /施法|魔力|破解|黑客|骇入|手术|炼金|操控|拆弹|修理|驾驶|黑进/ },
-  { key: 'physical', pattern: /攻击|闪避|格挡|冲撞|攀爬|跳跃|踢开|砸开|按住|挣脱|反抗|追逐|搏斗|推倒|强行/ },
+  { key: 'physical', pattern: /攻击|闪避|格挡|冲撞|攀爬|跳跃|踢开|砸开|按住|挣脱|反抗|追逐|搏斗|打斗|对抗|战斗|交锋|交战|缠斗|扭打|激战|对决|厮杀|拼杀|推倒|强行/ },
   { key: 'will', pattern: /抵抗|强忍|抵御|克制|直面|承受|稳住|克服恐惧/ }
 ]
 
 const HIGH_STAKES_CUE = /强行|拼死|当面|守卫|防备|严密|不可能|徒手|几乎|违抗|高空|重伤|绝境|暗杀/
 const EASY_CUE = /顺手|悄悄检查|尝试|打听|轻微|试探|简单/
-const CONTEST_CUE = /挥剑|拔剑|砍向|劈向|刺向|开枪|射击|攻击|格挡|迎战|交手|决斗|搏斗|拼刀|反击|追逐|追击|擒拿|压制|硬刚|对峙/
+const CONTEST_CUE = /挥剑|拔剑|砍向|劈向|刺向|开枪|射击|攻击|格挡|迎战|交手|决斗|搏斗|拼刀|反击|追逐|追击|擒拿|压制|硬刚|对峙|打斗|对抗|战斗|交锋|交战|缠斗|扭打|肉搏|激战|对决|过招|比试|较量|开打|打起来|厮杀|拼杀|对攻|交火|抢夺|争夺|扑向|冲上去打|制伏|制服/
 
 export function detectContestIntent(input, category = 'physical') {
   const text = String(input || '')
   if (!text) return false
   if (category === 'insight' || category === 'stealth') return false
   return CONTEST_CUE.test(text)
+}
+
+export function resolveContestCheckType({ input, category = 'physical', hidden = false, contestProb = NaN } = {}) {
+  if (hidden) return 'normal'
+  if (Number.isFinite(contestProb)) {
+    if (contestProb >= 0.6) return 'contest'
+    if (contestProb <= 0.25) return 'normal'
+  }
+  return detectContestIntent(input, category) ? 'contest' : 'normal'
 }
 
 function scoreToEdgeBonus(scoreValue) {
@@ -307,6 +316,11 @@ export async function judgeActionDifficulty({
             '2: 有一定铺垫、契机或利用了现成环境条件',
             '3: 准备极充分、精准拿捏关键条件或掌握压倒性筹码'
           ]
+        },
+        {
+          id: 'is_contest',
+          type: 'noul',
+          instructions: '这项行动是否是与明确对手/敌人之间的正面交锋、打斗对抗、争夺或双方直接角力（适合双边对抗掷骰，而非单人克服静态环境障碍）？'
         }
       ]
 
@@ -344,7 +358,8 @@ export async function judgeActionDifficulty({
       const category = domain ? domain.category : (matched?.category || catKey)
       const hiddenMeta = CATEGORY_META[category] || meta
       const hidden = Boolean(allowHidden && (domain?.hidden || matched?.hidden || hiddenMeta.hidden))
-      const checkType = !hidden && detectContestIntent(input, category) ? 'contest' : 'normal'
+      const contestProb = ans.is_contest?.probability !== undefined ? Number(ans.is_contest.probability) : NaN
+      const checkType = resolveContestCheckType({ input, category, hidden, contestProb })
       const resistanceFactors = []
       if (edgeBonus > 0) resistanceFactors.push({ label: '铺垫/地利', delta: `+${edgeBonus}`, source: 'edge' })
       else if (edgeBonus < 0) resistanceFactors.push({ label: '仓促/被动', delta: `${edgeBonus}`, source: 'edge' })
@@ -417,6 +432,11 @@ export async function judgeActionDifficulty({
           id: 'character_impaired',
           type: 'noul',
           instructions: '受控角色当前是否处于短板、伤病、虚弱或被束缚的状态，从而难以正常发挥？'
+        },
+        {
+          id: 'is_contest',
+          type: 'noul',
+          instructions: '这项行动是否是与明确对手/敌人之间的正面交锋、打斗对抗、争夺或双方直接角力（适合双边对抗掷骰，而非单人克服静态环境障碍）？'
         }
       ]
     })
@@ -443,7 +463,8 @@ export async function judgeActionDifficulty({
     const check = guessed?.name || (isHidden ? '察觉' : '行动')
     const category = guessed?.category || (isHidden ? 'insight' : 'physical')
     const finalHidden = Boolean(isHidden || (allowHidden && guessed?.hidden))
-    const checkType = !finalHidden && detectContestIntent(input, category) ? 'contest' : 'normal'
+    const contestProb = ans.is_contest?.probability !== undefined ? Number(ans.is_contest.probability) : NaN
+    const checkType = resolveContestCheckType({ input, category, hidden: finalHidden, contestProb })
     const resistanceFactors = []
     if (edgeBonus > 0) resistanceFactors.push({ label: '有利处境', delta: '+1', source: 'edge' })
     else if (edgeBonus < 0) resistanceFactors.push({ label: '不利处境', delta: '-1', source: 'edge' })
