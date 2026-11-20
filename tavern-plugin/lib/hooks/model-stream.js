@@ -352,9 +352,11 @@ export function registerModelStreamHooks({
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat
         if (owner && requestRecord) {
-          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
-            interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }) }
-          catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
+          // complete() 内部同步进入 chatId 写盘队列，evidence()/settled() 会自动等待落盘，
+          // 无需在流结束 finally 阻塞主回合提交。
+          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
+            interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }))
+            .catch(error => { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) })
         }
       }
     })()

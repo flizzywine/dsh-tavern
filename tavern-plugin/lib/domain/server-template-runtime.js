@@ -124,7 +124,8 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     if (disposed || !sessionId) throw new Error('服务端提示词模板会话不可用')
     // Match the former JSON transport: host-only callbacks (notably random)
     // stay in the caller; randomSeed/randomRef carry deterministic evaluation.
-    input = JSON.parse(JSON.stringify(input))
+    // request 投影输入本身是纯消息/系统文本对象，跳过 MB 级同步深拷贝，直接交由 IPC 序列化。
+    if (operation !== 'request') input = JSON.parse(JSON.stringify(input))
     const generation = generations.get(sessionId)
     const pending = (tails.get(sessionId) || Promise.resolve()).catch(() => {}).then(async () => {
       if (disposed || generation !== generations.get(sessionId)) throw new Error('提示词模板任务已取消')

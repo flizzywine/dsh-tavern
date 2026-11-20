@@ -41028,7 +41028,8 @@ function tavernFloorHeightRecall(key, width) {
 				pinned: true,
 				prevActive: live,
 				lastTop: 0,
-				programmaticTop: null
+				programmaticTop: null,
+				rafId: 0
 			}) : null;
 			const useEffectHook = canHook ? (typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect) : null;
 			const syncToBottom = canHook ? React.useCallback(function () {
@@ -41053,8 +41054,25 @@ function tavernFloorHeightRecall(key, width) {
 					if (live && !state.prevActive) state.pinned = true;
 					state.prevActive = live;
 					if (!text) return;
-					syncToBottom();
+					if (typeof requestAnimationFrame !== "function") {
+						syncToBottom();
+						return;
+					}
+					if (state.rafId) return;
+					state.rafId = requestAnimationFrame(function () {
+						state.rafId = 0;
+						syncToBottom();
+					});
 				}, [live, text, syncToBottom]);
+				React.useEffect(function () {
+					return function () {
+						const state = scrollStateRef.current;
+						if (state && state.rafId && typeof cancelAnimationFrame === "function") {
+							cancelAnimationFrame(state.rafId);
+							state.rafId = 0;
+						}
+					};
+				}, []);
 			}
 			const onScroll = canHook ? React.useCallback(function (event) {
 				const el = event && event.currentTarget;
@@ -42134,7 +42152,8 @@ function tavernFloorHeightRecall(key, width) {
 					pinned: true,
 					prevActive: Boolean(active),
 					lastTop: 0,
-					programmaticTop: null
+					programmaticTop: null,
+					rafId: 0
 				});
 				const useEffectHook = typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect;
 				const syncToBottom = React.useCallback(function () {
@@ -42158,8 +42177,25 @@ function tavernFloorHeightRecall(key, width) {
 					if (active && !state.prevActive) state.pinned = true;
 					state.prevActive = Boolean(active);
 					if (!text) return;
-					syncToBottom();
+					if (typeof requestAnimationFrame !== "function") {
+						syncToBottom();
+						return;
+					}
+					if (state.rafId) return;
+					state.rafId = requestAnimationFrame(function () {
+						state.rafId = 0;
+						syncToBottom();
+					});
 				}, [active, text, syncToBottom]);
+				React.useEffect(function () {
+					return function () {
+						const state = stateRef.current;
+						if (state.rafId && typeof cancelAnimationFrame === "function") {
+							cancelAnimationFrame(state.rafId);
+							state.rafId = 0;
+						}
+					};
+				}, []);
 				const onScroll = React.useCallback(function (event) {
 					const el = event && event.currentTarget;
 					if (!el) return;
