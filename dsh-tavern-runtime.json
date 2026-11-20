@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "38218d22b9a83804d4dee27cb64398e00ba6bb4c",
-  "releaseSequence": 1847,
+  "revision": "a5e55bc435ca97982bb262c8c690023ce4cab679",
+  "releaseSequence": 1848,
   "version": "3.3.0",
   "files": [
     {
@@ -1031,8 +1031,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "f2c3e444dee7308fd4ece008b78fc5d5f52a05c48c4aa32f81e172b60ffd6ab1",
-      "size": 733121
+      "sha256": "0623121b5cd2949bd2f27d90646df20ccb10a350ca9386703225b978c0fe3c84",
+      "size": 733205
     },
     {
       "path": "tavern-plugin/lib/client-assets/ui-sfx/cancel.ogg",
@@ -1076,8 +1076,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "9d6670dd49e805763292edae57074bf4f8825000984174c9a21fc0077d7cc79a",
-      "size": 6443794
+      "sha256": "d4e0e33e9f2e975fcbbc6ddde7180216326a544c5b42ce4b418d6baa7d132ddf",
+      "size": 6443872
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7441,8 +7441,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/client.js",
-      "sha256": "d320bb8bb0d73abc05bc6dcbb0e211f256dffd49c36d8629917e747422b9ef48",
-      "size": 603692
+      "sha256": "d6e564c1dc5886fc5f615c4107e218e4d82fec1626e9c9338dab0b9bf649fd5d",
+      "size": 609523
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/cordis.patch.yml",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "53aa273bf8a614f7ccc0710063f1b8878b7d8b48",
+    "commit": "ca8a2c0ec11c3c958713bfcbe5797c8c86f573e1",
     "path": "runtime.zip",
-    "sha256": "51710ccb5f19b9a91177b84b8276000f5f8aac4940e5d0dd58bc50eb24700314",
-    "size": 17034133
+    "sha256": "6572dede238289a0c78a32ad3760cbbce066d743dcc86319418ed39fde9384be",
+    "size": 17035234
   }
 }
