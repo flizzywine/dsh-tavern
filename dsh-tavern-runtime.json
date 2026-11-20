@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a5e55bc435ca97982bb262c8c690023ce4cab679",
-  "releaseSequence": 1848,
+  "revision": "2530b095f5eca5e9f3b7aa2d3307d2b6ecc0c48f",
+  "releaseSequence": 1849,
   "version": "3.3.0",
   "files": [
     {
@@ -526,8 +526,8 @@
     },
     {
       "path": "config/dsh-dependency-baseline.json",
-      "sha256": "9d9d80859026fb7c60681c7e829c0577e3c5b2e11b8c0a77bfba1f86c312aed0",
-      "size": 10815
+      "sha256": "1e64ad39c24fd8fd04e72a11a82b5aa12b50a1423b6ffa77671bd6ba8d87a872",
+      "size": 10878
     },
     {
       "path": "config/legacy-profile-patch-v0.6.yml",
@@ -1271,8 +1271,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/background-task-coordinator.js",
-      "sha256": "d7045081825007c512295847268775a1d7f4a7776b6d5127f7603ec1928146f4",
-      "size": 30663
+      "sha256": "1c9d1b8a674ad6728bf4d407158b46d5a6114fd454935e8608be7ba50a26085e",
+      "size": 30887
     },
     {
       "path": "tavern-plugin/lib/domain/background-task-prompt.js",
@@ -2526,8 +2526,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
-      "sha256": "09aa9d383542d2771a70de7b5d4d247530ae36365e4e7fa373d338e6c17cb826",
-      "size": 55086
+      "sha256": "b6d0d7144962feab7c6df7450d2518d2ce67929f07503e00d46143dbcab19526",
+      "size": 55150
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-apply.js",
@@ -2696,8 +2696,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plain-settlement-engine.js",
-      "sha256": "a20275a5ef7f46e64959bb0d95164217f2f456fb358d7033db4c1babd61f0a66",
-      "size": 5531
+      "sha256": "e49ec7b248d669ed7f859a79a17f9c8d24f303de2af952e8a54038b52b791704",
+      "size": 5571
     },
     {
       "path": "tavern-plugin/lib/domain/play-card-snapshots.js",
@@ -3296,8 +3296,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-controls.js",
-      "sha256": "d90c63481c00fe459cc4f5527e1e132c6b32b6d15cc77655027f96d5bc09fca4",
-      "size": 6691
+      "sha256": "ea1f0a47f49b974e5e4f9cf19ee3c9873a8355f8a52db03f08050b0062d1f38b",
+      "size": 8757
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-input.js",
@@ -3306,8 +3306,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-jobs.js",
-      "sha256": "455a677437020e43b3b66fbd342d71a61c80a3264f0cfc83b12cbb8a9e8c6915",
-      "size": 1655
+      "sha256": "2f9a60bb74037b5c7231239d66686a1e5e58e4d88f09bb3ffe62f7a3f951f8ea",
+      "size": 1985
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-participants.js",
@@ -3321,8 +3321,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-run.js",
-      "sha256": "cfc003c1b58ed4c93e5831ccb29b9906e58d6044a843b6f5889b3e9f2e6601b2",
-      "size": 12812
+      "sha256": "24d12668bc77a02021f192ed1e0b6c5a0f2e83b1b23057f9c1f9c886b6f6d1ce",
+      "size": 12943
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-turn.js",
@@ -4171,8 +4171,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "ae0cd27eefe3fb59bc7e3b5b922cce18dd857a9a98fc4aafee1d4dae6b52f376",
-      "size": 330249
+      "sha256": "0aceef4eb532340922f5e988a3d37e1a4ea138d1436d45f829019b3e445a1e3b",
+      "size": 330573
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9611,9 +9611,9 @@
     }
   ],
   "archive": {
-    "commit": "ca8a2c0ec11c3c958713bfcbe5797c8c86f573e1",
+    "commit": "a324c03c9e550691bccbd5d97c2748a820caa388",
     "path": "runtime.zip",
-    "sha256": "6572dede238289a0c78a32ad3760cbbce066d743dcc86319418ed39fde9384be",
-    "size": 17035234
+    "sha256": "89508e8b4fe509e13ed7975439d68f045cdec570ff50c546eb670988e7c50dbc",
+    "size": 17036166
   }
 }
