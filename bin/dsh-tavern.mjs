@@ -11,6 +11,7 @@ import { startService, stopService, statusService, openService, bootstrapFronten
 import { updateApplication, parseUpdateOptions } from './application-update.mjs'
 import { openTavernWindow } from './tavern-window.mjs'
 import { recordUpdateDiagnostic } from './update-diagnostics.mjs'
+import { renderHelp, renderCommandHelp, hasCommand, tavernVersion } from './cli-help.mjs'
 
 // Keep the existing import surface while the executable only dispatches commands.
 export { resolveServicePort, resolveDshInvocation } from './launcher-environment.mjs'
@@ -24,8 +25,10 @@ function fail(message) {
   process.exitCode = 1
 }
 
-function usage() {
-  console.log('用法：dsh-tavern install [--host cli|desktop|next|android] | {update|start|open|window|stop|restart|status}')
+function failUnknown(action) {
+  console.error('未知命令：' + action)
+  console.error('运行 dsh-tavern help 查看可用命令。')
+  process.exitCode = 2
 }
 
 // A detached in-app update has no console; keep its trail next to its status file.
@@ -39,7 +42,23 @@ function updateDiagnostic(event, details = {}) {
 
 async function main() {
   const action = process.argv[2] || 'status'
-  if (RUNTIME_HOST === 'next' && action !== 'install' && !['help', '-h', '--help'].includes(action)) {
+  const args = process.argv.slice(2)
+  if (action === '-v' || action === '--version') {
+    console.log(('dsh-tavern ' + tavernVersion()).trim())
+    return
+  }
+  const helpFlag = args.includes('-h') || args.includes('--help')
+  if (action === 'help' || action === '-h' || action === '--help' || (helpFlag && hasCommand(action))) {
+    const requested = action === 'help' ? args[1] : (hasCommand(action) ? action : '')
+    const topic = requested && !requested.startsWith('-') ? requested : ''
+    if (topic && !hasCommand(topic)) {
+      failUnknown(topic)
+      return
+    }
+    console.log(topic ? renderCommandHelp(topic) : renderHelp())
+    return
+  }
+  if (RUNTIME_HOST === 'next' && action !== 'install') {
     throw new Error('Next 由应用管理启动与切换。更新源码后重新运行 install --host next。')
   }
   updateDiagnostic('updater.started', { execPath: process.execPath, electron: process.versions.electron || '', runtimeHost: RUNTIME_HOST, cwd: process.cwd() })
@@ -93,14 +112,8 @@ async function main() {
     case 'window':
       await openTavernWindow()
       break
-    case '-h':
-    case '--help':
-    case 'help':
-      usage()
-      break
     default:
-      usage()
-      process.exitCode = 2
+      failUnknown(action)
   }
 }
 
