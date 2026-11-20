@@ -1634,6 +1634,10 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
         typingSlot.className = "fork-gal-typing";
         typingSlot.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
         typingSlot.style.marginRight = "0";
+        // Each probe only rewrites this text node: inserting or removing an element anywhere restyles the whole page (the
+        // host's :has() rules), so the clone gets its children once per run, before it joins the document.
+        const words = document.createTextNode("");
+        let ran = null;
         function measure() {
             if (disposed || scheduled) return;
             scheduled = forkForeground.requestAnimationFrame(function () { scheduled = 0; run(); });
@@ -1642,7 +1646,20 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
             if (disposed || !active) return;
             const width = element.clientWidth || element.getBoundingClientRect().width;
             if (!width) return;
+            // A run where nothing it reads has changed since the last (the observer's first call, a resize or a stage-layout that
+            // moved nothing) cuts the same cards: it stops before the clone joins the document. The transition label's room is
+            // measured on the stage, so a page set with a transition always runs.
+            const live = getComputedStyle(element);
+            const inputs = pages.some(item => item.kind === "transition") ? null : JSON.stringify([width, pageRef.current, live.font, live.letterSpacing, live.wordBreak,
+                live.overflowWrap, live.whiteSpace, live.padding, live.boxSizing, galPageLines(element, live, film), element.closest('.fork-gal-stage')?.dataset.fkSkinLayout]);
+            if (inputs && inputs === ran) return;
+            ran = inputs;
             clone.style.width = width + "px";
+            // the last line keeps room for the typing indicator that
+            // follows the last glyph while the page streams; a full third line wrapped it onto a clipped fourth.
+            // Every card reserves it, so a paragraph read live and from history still has the same cards.
+            words.data = "";
+            if (film) clone.replaceChildren(words); else clone.replaceChildren(words, typingSlot);
             element.parentNode.appendChild(clone);
             try {
                 const style = getComputedStyle(clone), lineHeight = parseFloat(style.lineHeight);
@@ -1656,11 +1673,7 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
                 const labelRoom = !film && pages.some(item => item.kind === "transition") ? galInputLabelRoom(element, lineHeight * lines) : 0;
                 const fits = item => text => {
                     // The real inline typewriter/cursor also occupies the line after a trailing newline.
-                    clone.textContent = (quoted && item.kind === 'line' ? galQuoted(text, false) : text) + (/[\r\n]$/.test(text) ? "\u200b" : "");
-                    // the last line keeps room for the typing indicator that
-                    // follows the last glyph while the page streams; a full third line wrapped it onto a clipped fourth.
-                    // Every card reserves it, so a paragraph read live and from history still has the same cards.
-                    if (!film) clone.appendChild(typingSlot);
+                    words.data = (quoted && item.kind === 'line' ? galQuoted(text, false) : text) + (/[\r\n]$/.test(text) ? "\u200b" : "");
                     // Layout pixels ignore both dock scaling and statement rotation; a rotated AABB distorts height.
                     return clone.offsetHeight <= lineHeight * lines + 0.5;
                 };
@@ -1696,9 +1709,9 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
         // A skin, skin mode or layout change on the stage (dispatched from its layout effect, after this one in the same commit)
         // re-measures at once, so the first painted frame already has the cards of the box it paints in.
         stage?.addEventListener('stage-layout', run);
-        const unsubscribe = typeof tavernFonts !== "undefined" ? tavernFonts.subscribe(() => Promise.resolve().then(() => { if (!disposed) measure(); })) : null;
+        const unsubscribe = typeof tavernFonts !== "undefined" ? tavernFonts.subscribe(() => Promise.resolve().then(() => { if (!disposed) { ran = null; measure(); } })) : null;
         const fonts = typeof document !== "undefined" && document.fonts;
-        function fontLoaded() { cache.clear(); layoutRef.current = null; measure(); }
+        function fontLoaded() { cache.clear(); layoutRef.current = null; ran = null; measure(); }
         if (fonts) fonts.addEventListener("loadingdone", fontLoaded);
         return () => { disposed = true; measureNow.current = null; forkForeground.cancelAnimationFrame(scheduled); clone.remove(); if (observer) observer.disconnect(); window.removeEventListener("resize", measure); stage?.removeEventListener('stage-layout', run); if (unsubscribe) unsubscribe(); if (fonts) fonts.removeEventListener("loadingdone", fontLoaded); };
     }, [film, texts, theme, element, textScales, active, limit]);
