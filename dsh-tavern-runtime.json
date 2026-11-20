@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e2478869ca79319442c6fbb20d00a7871e16fad5",
-  "releaseSequence": 1856,
+  "revision": "5fc93ce2b75ff957e35738c1fa6e91e0713197a6",
+  "releaseSequence": 1857,
   "version": "3.3.0",
   "files": [
     {
@@ -280,6 +280,11 @@
       "size": 13365
     },
     {
+      "path": "bin/launcher-package-name.mjs",
+      "sha256": "c303b11576ce66bae0e926371ea2c14ef3d727f4fba10310b75da552faf6d758",
+      "size": 698
+    },
+    {
       "path": "bin/launcher-settings.mjs",
       "sha256": "1fafa2b56e6e82b34b41ed836673241da78c82a278384b87effa0f04226cc22d",
       "size": 2901
@@ -311,8 +316,8 @@
     },
     {
       "path": "bin/original-bridge-update.mjs",
-      "sha256": "a7a83ff7d9e40f086c3db3a8d2a136790f6bf08ac91c966ddfbfe2eeb5da88c8",
-      "size": 15602
+      "sha256": "cd8f01cb477a5608d1f0a0e648298e11055cccb421047f7edbe3244779782aff",
+      "size": 15188
     },
     {
       "path": "bin/pi-ai-nonstream-patch.mjs",
@@ -9136,8 +9141,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "b65de75cddbdb4e83128bed03558948261523e482f78af78ba93faf9d6fdbab9",
-      "size": 47801
+      "sha256": "736b217643f2259c36ed55c9a58d039a4b0e2190269b00386e3e562fecd8a148",
+      "size": 48086
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -9151,8 +9156,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/index.js",
-      "sha256": "27b8ff54f2f81e2d865f0dd671bd4bad5a81d37b71dc6d60d01ecd9f43a282b3",
-      "size": 15028
+      "sha256": "1d3df6205d8909c82dfa514c80636573de9631f8718decd1b204ec0b397be78a",
+      "size": 15613
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/helper.mjs",
@@ -9236,13 +9241,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/package.json",
-      "sha256": "4ee08ef172fb80a5d88dbf3db4271db2d3eb0d30adf8218299f4b8cea5453e09",
+      "sha256": "d2d6f0a6a863bc8967b60ede10426ba4dc9783ac84007c08c38819885d3b8dc1",
       "size": 1324
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "00da866bd96c2f73dbaa71f49c51a38bbb3bffffc8ed879c29d77e8bbebaff47",
-      "size": 20783
+      "sha256": "632711c5d20e6c320e9ff06b2049355f16714b5eea653aa399d23f3a8a856321",
+      "size": 21017
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -9621,9 +9626,9 @@
     }
   ],
   "archive": {
-    "commit": "240a9d765299ca4094b6f5712fbb4394f8c354a5",
+    "commit": "30f65c700727a0fa0c0a1215778e0fcb4873e17a",
     "path": "runtime.zip",
-    "sha256": "258aec89f49da32c3a0c5c0b9bb2b393f05999df1a565fbea902597c751a554f",
-    "size": 17044944
+    "sha256": "c2f04b9d1440ccfbf5fd42672638869f8a5ce7a469df779aea6fd2318ba0a2bc",
+    "size": 17045810
   }
 }
