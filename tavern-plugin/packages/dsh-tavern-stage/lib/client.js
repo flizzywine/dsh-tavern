@@ -29388,10 +29388,11 @@ function stageSkinPalette(document) {
   return {bg:paint.bg,fg,accent:paint.accent||look.textStyle?.emphasis||fg,border:paint.border||paint.fgMuted||fg,radius:typeof radius==='number'?radius:10};
 }
 // packs: the full documents of the packs whose skins are offered (the global default offers the globally enabled packs').
+// A skin switched off (关闭, enabled: false; protocol assetEntryEnabled) is not offered.
 function stageSkinChoices(packs) {
   const choices=STAGE_BUILTIN_SKINS.map(([value,label])=>({value,label}));
   for(const pack of packs) {
-    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
+    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins'&&a.enabled!==false)) {
       const document=pack.skins?.[asset.id];if(!document)continue;
       choices.push({value:{packId:pack.manifest.id,kind:'skins',assetId:asset.id},label:document.label,note:document.directorNote,palette:stageSkinPalette(document)});
     }
