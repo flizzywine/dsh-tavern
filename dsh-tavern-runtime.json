@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fef13642afe3200d95debbee893d434de711d512",
-  "releaseSequence": 1875,
+  "revision": "ea0f58e787636383b8817480f6db95977da1fd10",
+  "releaseSequence": 1876,
   "version": "3.3.0",
   "files": [
     {
@@ -961,8 +961,8 @@
     },
     {
       "path": "presets/tavern/skills/user-profile/SKILL.md",
-      "sha256": "f5d038c102fbdf96d4a8a1a1d169ab6e6299ec93a6da7e96e834f8ee0e3ab14f",
-      "size": 2479
+      "sha256": "661767d0d2f6e31c3286d28bd7207d3e03b27c23c97c6c1a00d676b2886e2118",
+      "size": 2461
     },
     {
       "path": "tavern-plugin/cordis.patch.yml",
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "553a1cbd33e8e2e9e7f029915a5f913a017192e1b4b2756d76449d558b31e19c",
-      "size": 6447608
+      "sha256": "82a687d1fa6d8a084408671234daa98155c9b360f7acf3c5bd94ea820fb5fb37",
+      "size": 6446801
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1976,8 +1976,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "68a6c8a55c19c3bcac564116b28bf4ca32a67390d4cbe56f62a94962a6f1934e",
-      "size": 37743
+      "sha256": "b891281559e725c901ddf2aaa60dcd0530ada77ace9a8a5b44c173ca41a3c12b",
+      "size": 37923
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -9426,8 +9426,8 @@
     },
     {
       "path": "tavern-plugin/prompts/card-workspace.md",
-      "sha256": "8a581791a6758f1d267b58c04810f2eca96f6361dc3b75f597e99b3be1b5db67",
-      "size": 2228
+      "sha256": "4076c52ab57c10bd1e6deedf88cceadf8f23c3020df415ae26bbc8049f4752f6",
+      "size": 2239
     },
     {
       "path": "tavern-plugin/prompts/dice.md",
@@ -9641,9 +9641,9 @@
     }
   ],
   "archive": {
-    "commit": "84ac9529ea618ef71db06e1613e984a41df23185",
+    "commit": "10e843081177cbb46384111ea311bfc58d993896",
     "path": "runtime.zip",
-    "sha256": "229e191919f05a125c12165f2617a6d8d3f7c08276ff3746ac5e12ebf296d875",
-    "size": 17084790
+    "sha256": "04310c57583f72d19f1f850dfcf9f1ea612d5ddd8dc453a2d09cfcb541675e4b",
+    "size": 17084374
   }
 }
