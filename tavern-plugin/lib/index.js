@@ -759,7 +759,7 @@ export async function apply(ctx) {
   const tavernExtensionSettings = createTavernExtensionSettings(profileData)
   const dialogueBubblePresets = createDialogueBubblePresets(profileData)
   const cardStorage = createCardStorage({ dataRoot, profileData })
-  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStorage.resolve })
+  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStorage.findId })
   const mvuDiagnostics = createMvuDiagnosticStore(profileData)
   ctx.effect(() => () => mvuDiagnostics.dispose(), 'dsh-tavern: flush diagnostic logs')
   const apiDiagnostics = createTavernApiDiagnostics(profileData)
