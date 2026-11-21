@@ -4488,8 +4488,8 @@ window.__ModuleLoader__.load({
 		    add('lighting.mood.clear','lighting.mood',{},() => patch({lighting:{mood:null}}),{summary:"Remove the mood look without changing time lighting.",requires:['lighting']});
 		    add('weather.set','weather',{weather:en(['rain','storm','snow','sakura','leaves','sparkle'])},op => patch({weather:op.weather}),{summary:"Set persistent weather."});
 		    add('weather.clear','weather',{},() => patch({weather:'none'}),{summary:"Remove the weather."});
-		    add('ambience.set','soundscape',{refs:{type:'array',minItems:1,maxItems:2,uniqueItems:true,items:ref}},op => ({op:'soundscape.set',refs:op.refs}),{summary:'Replace the ambience with one or two looping layers.',requires:['sound'],refs:{refs:'ambience'},available:available('ambience'),promptLine:"- ambience.set: one or two looping layers heard at the current place; omit to keep them across replies and weather."});
-		    add('ambience.clear','soundscape',{},() => ({op:'soundscape.clear'}),{summary:'Remove all ambience.',requires:['sound'],promptLine:'- ambience.clear: ambience belongs to a place. On any beat where the carried layers no longer fit where the story is now (outdoor birds in a classroom), set fitting listed ones or clear.'});
+		    add('ambience.set','soundscape',{refs:{type:'array',minItems:1,maxItems:2,uniqueItems:true,items:ref}},op => ({op:'soundscape.set',refs:op.refs}),{summary:'Set one or two looping layers that fit the current location.',requires:['sound'],refs:{refs:'ambience'},available:available('ambience'),promptLine:"- ambience.set: one or two looping layers heard at the current place; omit only if the current loops still fit."});
+		    add('ambience.clear','soundscape',{},() => ({op:'soundscape.clear'}),{summary:'Stop all ambience, including loops left over from the previous location.',requires:['sound'],promptLine:'- ambience.clear: On the same beat as a location change, replace mismatched loops or clear them. Leaving a windy road for a quiet room: clear.'});
 		    const musicOverride = {force:{type:'boolean',description:'With reason for further music changes; not same-track resume.'},reason:{type:'string',minLength:1,maxLength:120}};
 		    add('music.set','music',{ref,...musicOverride},op => ({op:'music.set',value:op.ref,...(op.force === undefined ? {} : {force:op.force}),...(op.reason === undefined ? {} : {reason:op.reason})}),{summary:'Change BGM.',required:['ref'],refs:{ref:'music'},available:available('music')});
 		    add('music.clear','music',musicOverride,op => ({...op,op:'music.stop'}),{summary:'Stop the BGM, leaving silence.',required:[]});
@@ -5154,8 +5154,43 @@ window.__ModuleLoader__.load({
 
 
 		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {measurePcmLoudness}
+		// Average Hann-windowed power spectra before computing flatness; a single frame
+		// overstates narrow peaks and makes the result depend on where a loop starts.
+		function measureAmbienceBrightness(channels, rate) {
+		  const size = 1024, power = new Float64Array(size / 2 + 1)
+		  const re = new Float64Array(size), im = new Float64Array(size)
+		  const window = re.map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / size))
+		  for (const pcm of channels) for (let start = 0; start + size <= Math.min(pcm.length, 60 * rate); start += size) {
+		    for (let i = 0, j = 0; i < size; i++) {
+		      re[j] = pcm[start + i] * window[i]; im[j] = 0
+		      let bit = size >> 1
+		      while (bit && (j & bit)) { j ^= bit; bit >>= 1 }
+		      j ^= bit
+		    }
+		    for (let span = 2; span <= size; span *= 2) {
+		      for (let k = 0; k < span / 2; k++) {
+		        const angle = -2 * Math.PI * k / span, c = Math.cos(angle), s = Math.sin(angle)
+		        for (let i = k; i < size; i += span) {
+		          const j = i + span / 2, r = re[j] * c - im[j] * s, q = re[j] * s + im[j] * c
+		          re[j] = re[i] - r; im[j] = im[i] - q; re[i] += r; im[i] += q
+		        }
+		      }
+		    }
+		    for (let i = 1; i < power.length; i++) power[i] += re[i] ** 2 + im[i] ** 2
+		  }
+		  const total = power.reduce((a, b) => a + b, 0)
+		  if (!total) return 0
+		  const band = (lo, hi) => power.slice(Math.ceil(lo * size / rate), Math.ceil(hi * size / rate))
+		  const high = band(4000, 12000).reduce((a, b) => a + b, 0) / total
+		  const bins = band(200, 12000).map(p => p / total)
+		  const mean = bins.reduce((a, b) => a + b, 0) / bins.length
+		  const flatness = mean ? Math.exp(bins.reduce((a, b) => a + Math.log(Math.max(1e-15, b)), 0) / bins.length) / mean : 0
+		  return Math.round(Math.min(5, Math.max(0, high - 0.09) * (9 + 5 * flatness)) * 100) / 100
+		}
 
-		async function measureAudioBufferLoudness(audio) {
+		if (typeof window === 'undefined' && typeof module !== 'undefined' && module.exports) module.exports = { measureAmbienceBrightness };
+
+		async function measureAudioBufferLoudness(audio, kind) {
 		  const channels = Array.from({length:audio.numberOfChannels}, (_, i) => audio.getChannelData(i));
 		  let measured;
 		  if (audio.duration < 10) measured = measurePcmLoudness(channels, audio.sampleRate);
@@ -5173,16 +5208,17 @@ window.__ModuleLoader__.load({
 		      });
 		    } finally { worker?.terminate(); URL.revokeObjectURL(url); }
 		  }
-		  return {v:1, lufs:measured.lufs ?? -100, peak:Math.max(-100, measured.truePeak ?? -100)};
+		  return {v:1, lufs:measured.lufs ?? -100, peak:Math.max(-100, measured.truePeak ?? -100),
+		    ...(kind === "ambience" ? {brightnessDb:measureAmbienceBrightness(channels, audio.sampleRate),durationMs:audio.length * 1000 / audio.sampleRate} : {})};
 		}
 
-		async function measureBrowserAudio(bytes) {
+		async function measureBrowserAudio(bytes, kind) {
 		  const context = new AudioContext();
 		  try {
 		    let audio;
 		    try { audio = await context.decodeAudioData(bytes.slice().buffer); }
 		    catch { throw new Error('浏览器无法解码此音频，请转换为 WAV 或浏览器支持的音频格式后重试'); }
-		    return await measureAudioBufferLoudness(audio);
+		    return await measureAudioBufferLoudness(audio, kind);
 		  } finally { await context.close(); }
 		}
 		// one kind order — built-in kinds as listed, then mod-brought kinds grouped by mod id
@@ -6161,11 +6197,11 @@ window.__ModuleLoader__.load({
 		    if(ascii(4,8)==='ftyp')return 'm4a';
 		    return '';
 		  }
-		  async function prepareAudio(file) {
+		  async function prepareAudio(file, kind) {
 		    const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
 		    if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
 		    if(bytes.length>96*1024*1024)throw new Error('音频过大（上限 96 MiB）');
-		    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
+		    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes, kind)};
 		  }
 		  const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
 		  // The default name of a new entry, unique within its kind (新背景, 新背景 2, …).
@@ -6320,7 +6356,7 @@ window.__ModuleLoader__.load({
 		      return binding.service.patchPack({packId,expectedRevision:c.revision,patch,fileUpdates:files});
 		    });
 		    const uploadVariant=async(kind,assetId,variantId,file)=>{
-		      const media=AUDIO_KINDS.includes(kind)?await prepareAudio(file):await prepareImage(file,'background');
+		      const media=AUDIO_KINDS.includes(kind)?await prepareAudio(file, kind):await prepareImage(file,'background');
 		      const closure=await imageClosure(media);
 		      return enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,fileUpdates:closure.files,patch:{blobs:{...snapshot.manifest.blobs,...closure.blobs},assets:snapshot.manifest.assets.map(asset=>{
 		        if(asset.kind!==kind||asset.id!==assetId)return asset;
@@ -25984,26 +26020,29 @@ function tavernModelRefusalNotice(text) {
 		// Kept platform-free so the browser fallback can be checked against ffmpeg in Node.
 		// Bus levels before the sliders. Voice is the
 		// anchor (every cached line is gained to -18 LUFS); BGM sits 6 LU under it and 10 LU under it while a line speaks,
-		// ambience 12 LU under. The sliders all default to 1, so the balance lives here and nowhere else.
+		// ambience 12 LU under before spectral correction and the foreground-to-bed envelope.
+		// The sliders all default to 1, so the balance lives here and nowhere else.
 		const AUDIO_TARGETS = Object.freeze({ voice: -18, music: -24, sfx: -20, ui: -26, ambience: -30 });
 		// Ducking matrix: trigger -> bus -> dB. Priority call > voice > sfx > ambience > music: a trigger only lowers the
 		// buses below it. With several triggers sounding the deepest dip wins (never stacked). The call holds from dialling
 		// (ringback) to hang-up, so BGM stays down through her pauses too.
 		const AUDIO_DUCK = Object.freeze({
 		    call: Object.freeze({ sfx: -6, ui: -6, ambience: -10, music: -10 }),
-		    voice: Object.freeze({ sfx: -2, ui: -2, ambience: -4, music: -4 }),
+		    voice: Object.freeze({ sfx: -2, ui: -2, ambience: -7, music: -4 }),
 		    sfx: Object.freeze({ ambience: -3, music: -2 }),
 		    ambience: Object.freeze({})
 		});
 		// setTargetAtTime time constants in seconds: attack when the trigger starts; on its end the dip waits `hold`, then
 		// releases. Back within 0.5 dB of the full level: voice 0.25 s hold + 0.38 s, call 0.63 s, SE 0.05 + 0.25 s - every dip
-		// is gone within 1 s, also on the 400 ms momentary meter.
+		// is gone within 1 s except dialogue on the ambience bus.
 		const AUDIO_DUCK_TIME = Object.freeze({
 		    call: Object.freeze({ attack: 0.08, hold: 0, release: 0.25 }),
 		    voice: Object.freeze({ attack: 0.05, hold: 0.25, release: 0.2 }),
 		    sfx: Object.freeze({ attack: 0.02, hold: 0.05, release: 0.15 }),
 		    ambience: Object.freeze({ attack: 0.1, hold: 0, release: 0.3 })
 		});
+		// Keep the ambience bed down across reading pauses; the release itself takes about a second.
+		const AUDIO_AMBIENCE_VOICE_TIME = Object.freeze({ attack: AUDIO_DUCK_TIME.voice.attack, hold: 4.5, release: 0.33 });
 		// The engine's matrix with an open stage skin's `duck` (voice / sfx rows, -24..0 dB, checked where the skin enters) over
 		// it, cell by cell; cells the skin leaves out keep the engine's amount.
 		function audioDuckMatrix(skin) {
@@ -26032,7 +26071,8 @@ function tavernModelRefusalNotice(text) {
 		    const value = audioMeasurement(measured) ? measured : { lufs: -10, peak: 0 };
 		    if (value.lufs <= -70) return 0;
 		    // Authored SFX gain follows normalization, with the same true-peak ceiling.
-		    const normalized = Math.min(AUDIO_TARGETS[layer] - value.lufs, -1 - value.peak, 12);
+		    const correction = layer === "ambience" ? value.brightnessDb ?? 0 : 0;
+		    const normalized = Math.min(AUDIO_TARGETS[layer] - value.lufs - correction, -1 - value.peak, 12);
 		    const authored = layer === "sfx" || layer === "ui" ? gainDb : 0;
 		    return Math.pow(10, Math.min(normalized + authored, -1 - value.peak) / 20);
 		}
@@ -26348,7 +26388,8 @@ function tavernModelRefusalNotice(text) {
 		        if (context) for (const layer of Object.keys(buses)) {
 		            const bus = buses[layer], dip = dipOf(layer);
 		            if (dip.db === bus.db) { bus.by = dip.by; continue; }
-		            const now = context.currentTime, deeper = dip.db < bus.db, time = AUDIO_DUCK_TIME[deeper ? dip.by : bus.by];
+		            const now = context.currentTime, deeper = dip.db < bus.db, by = deeper ? dip.by : bus.by;
+		            const time = layer === "ambience" && by === "voice" ? AUDIO_AMBIENCE_VOICE_TIME : AUDIO_DUCK_TIME[by];
 		            holdAudioParam(bus.duck.gain, now);
 		            bus.duck.gain.setTargetAtTime(Math.pow(10, dip.db / 20), deeper ? now : now + time.hold, deeper ? time.attack : time.release);
 		            bus.db = dip.db; bus.by = dip.by; bus.to = Math.pow(10, dip.db / 20);

@@ -985,11 +985,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     if(ascii(4,8)==='ftyp')return 'm4a';
     return '';
   }
-  async function prepareAudio(file) {
+  async function prepareAudio(file, kind) {
     const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
     if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
     if(bytes.length>96*1024*1024)throw new Error('音频过大（上限 96 MiB）');
-    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
+    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes, kind)};
   }
   const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
   // The default name of a new entry, unique within its kind (新背景, 新背景 2, …).
@@ -1144,7 +1144,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       return binding.service.patchPack({packId,expectedRevision:c.revision,patch,fileUpdates:files});
     });
     const uploadVariant=async(kind,assetId,variantId,file)=>{
-      const media=AUDIO_KINDS.includes(kind)?await prepareAudio(file):await prepareImage(file,'background');
+      const media=AUDIO_KINDS.includes(kind)?await prepareAudio(file, kind):await prepareImage(file,'background');
       const closure=await imageClosure(media);
       return enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,fileUpdates:closure.files,patch:{blobs:{...snapshot.manifest.blobs,...closure.blobs},assets:snapshot.manifest.assets.map(asset=>{
         if(asset.kind!==kind||asset.id!==assetId)return asset;
