@@ -2207,6 +2207,7 @@ export async function apply(ctx) {
       return session ? prepareTemplateHistory(session, before, after) : after
     },
     readCard: readChatCard,
+    readLibraryCard: readCard,
     modelFor: chat => modelSelection(chat.sessionId)?.model || '',
     worldBooks,
     scriptDispatch: tavernScriptDispatch,
