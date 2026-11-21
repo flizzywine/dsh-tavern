@@ -1,9 +1,10 @@
 import { libraryPromptFields } from './library-prompts.js'
+import { normalizeOutfitParts } from './outfit-parts.js'
 
 const localOutfitId = (characterId, outfitId) => JSON.stringify([characterId, outfitId])
 const outfit = (item, characterId = null) => {
-  // Shared outfits have a front/back schema; character-owned outfits already use six parts.
-  const parts = characterId === null ? { ...item, upper: item.body || item.upper, back: item.fullBack || item.bodyBack || item.back } : item
+  // 两套服装库字段已统一；通用服装的旧 body/fullBack/bodyBack 在这里映射到 upper/back。
+  const parts = normalizeOutfitParts(item)
   return {
     id: localOutfitId(characterId, item.id), name: item.name, characterId,
     parts: Object.fromEntries(['upper', 'lower', 'shoes', 'accessory', 'full', 'back'].map(key => [key, String(parts[key] || '')])),

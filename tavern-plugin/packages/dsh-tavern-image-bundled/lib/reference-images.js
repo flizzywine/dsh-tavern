@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, lutimes, mkdir, open, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { normalizeOutfitParts } from './outfit-parts.js'
 
 /** Local-only immutable references. No URLs, caller-selected paths, or network I/O. */
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
@@ -675,13 +676,9 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
   // also enter per-character expansion below, whose schema is upper/full/back.
   // Map on the clone (including standalone shared macros), keeping author data
   // untouched. Pictured costumes will subsequently have all these fields erased.
-  for (const outfit of arr(result.outfits).filter(enabled)) {
-    if (!cleanText(outfit.upper) && cleanText(outfit.body)) outfit.upper = outfit.body
-    if (!cleanText(outfit.back)) {
-      const back = [outfit.bodyBack, outfit.fullBack].map(cleanText).filter(Boolean).join('\n')
-      if (back) outfit.back = back
-    }
-  }
+  // 通用服装与角色服装的字段已统一；旧 body/fullBack/bodyBack 在这里映射到 upper/back。
+  // 映射发生在克隆上，不动作者数据；带参考图的服装随后会把服装字段整块擦掉换成标记。
+  for (const outfit of arr(result.outfits).filter(enabled)) Object.assign(outfit, normalizeOutfitParts(outfit))
   const original = catalog(result)
   const characterRefs = new Map(checked.filter(ref => ref.kind !== 'outfit').map(ref => [ref.characterId, ref]))
   const outfitRefs = new Map(checked.filter(ref => ref.kind !== 'character').map(ref => [JSON.stringify([ref.characterId || '', ref.outfitId]), ref]))

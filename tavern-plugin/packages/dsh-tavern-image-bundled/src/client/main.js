@@ -168,6 +168,7 @@ let openImageOverlay = null
     // @include workflow-lora.js
     // @include workflow-inputs.js
     // @include image-editor.js
+    // @include outfit-parts.js
     // @include library-prompts.js
     // @include settings-fields.js
     // @include card-worldbook.js
