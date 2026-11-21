@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f6f6431542828b0e9d81e6cdc41b243f842b463f",
-  "releaseSequence": 1880,
+  "revision": "bc3b64eb98a592c24ec94d50670ef6fb455f6dc6",
+  "releaseSequence": 1881,
   "version": "3.4.0",
   "files": [
     {
@@ -2631,8 +2631,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/narrative-damper.js",
-      "sha256": "43f32cdff6c662480361f2f9f6c5dcbf1e7f12e47030e749259e703f6dcb27ea",
-      "size": 104908
+      "sha256": "8c04653fda69fccaae7a410c0f588485d34a64ad73f4891105567162e484546f",
+      "size": 104855
     },
     {
       "path": "tavern-plugin/lib/domain/native-conversation-storage.js",
@@ -9641,9 +9641,9 @@
     }
   ],
   "archive": {
-    "commit": "6a0a79617055dca9feedfbd3b22cfc791c65275b",
+    "commit": "6ad367ef3d7aee02c69ecf2d820d5f4563c8fe55",
     "path": "runtime.zip",
-    "sha256": "78e3ad63d190c69d2c68292ca0b659e184c46def1886d868152efc315030c92f",
-    "size": 17086302
+    "sha256": "c913308c634e0e9e3450af20011d84f7398818f6552de7c5571597434dfe7e93",
+    "size": 17086330
   }
 }
