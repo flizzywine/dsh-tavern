@@ -9,11 +9,11 @@ import { createGameSaveImporter } from '../tavern-plugin/lib/domain/game-save-im
 import { createConversationHandlers } from '../tavern-plugin/lib/rpc/conversations.js'
 import { createUploads } from '../tavern-plugin/lib/domain/uploads.js'
 
-function archive(world = null) {
+function archive(world = null, historyMessages) {
   const state = { id: 'old-chat', sessionId: 'old-session', mode: 'story', cardPath: 'cards/a.json',
     cardDefinitionSnapshot: { name: 'A' }, messages: [{ role: 'assistant', turn: 1, text: '故事' }],
     timeline: { checkpoints: [{ beforeRevision: 7 }], operations: { old: {} } }, regenRecovery: { id: 'old' } }
-  return { fileB64: buildGameSave({ chat: state, world, revisions: [{ revision: 7, state: { ...state, timeline: {} } }],
+  return { fileB64: buildGameSave({ chat: state, world, revisions: [{ revision: 7, state: { ...state, messages: historyMessages ?? state.messages, timeline: { branchId: 'branch-1', revision: 7 } } }],
     session: { header: { id: 'old-session' }, events: [{ seq: 0, type: 'turn/end', data: { turn: 1 } }] },
     plugins: { data: {}, media: {}, attachments: [] }, tavernVersion: '3.0.1' }).toString('base64') }
 }
@@ -57,6 +57,15 @@ for (const failure of ['create', 'flush', 'plugins', 'publish']) test('import co
   if (failure !== 'publish') assert.equal(h.calls.includes('publish'), false)
   await assert.rejects(h.run(archive()), /failed/)
   assert.equal(h.calls.filter(name => name === 'resources').length, 2)
+})
+
+test('历史修订缺少可选舞台绑定时，保留正文、发布当前进度并报告跳过的位置', async t => {
+  const h = await harness(t)
+  const result = await h.run(archive(null, [{ role: 'assistant', text: '旧正文', stageDirectionAssetPacks: {} }]))
+  assert.deepEqual(result.warnings, ['历史修订 7，第 1 条消息：已跳过无法绑定的演出记录。'])
+  assert.deepEqual(h.states[0].messages, [{ role: 'assistant', text: '旧正文' }])
+  assert.equal(h.states[1].messages[0].text, '故事')
+  assert.ok(h.calls.includes('publish'))
 })
 
 test('same source import cannot overlap; completion allows another import', async t => {

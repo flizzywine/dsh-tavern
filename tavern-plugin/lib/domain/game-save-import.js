@@ -63,7 +63,7 @@ export function createGameSaveImporter({ tavernVersion, dataRoot, readCard, prep
         // 只要最新进度时这些存档点不写：一局 7 份快照就是 7 倍写盘，还带来几千个块。
         const historyRevisions = args?.latestOnly === true ? [] : save.revisions
         for (const { revision, state } of historyRevisions) {
-          const historyState = await rawWriteChat(adoptConfiguration(await restorePresetSnapshot(prepare(state))), { source: 'game-save.import.history' })
+          const historyState = await rawWriteChat(adoptConfiguration(await restorePresetSnapshot(prepare(state, revision))), { source: 'game-save.import.history' })
           written = true
           content.recordRevision(revision, historyState._storageRevision)
         }
@@ -134,7 +134,7 @@ export function createGameSaveImporter({ tavernVersion, dataRoot, readCard, prep
         console.log('dsh-tavern: 导入存档「' + str(saved.title) + '」用时 ' + elapsed + ' ms（' +
           Object.entries(stageMs).map(function (row) { return row[0] + ' ' + row[1] }).join(' / ') + '）')
       }
-      return { chatId, sessionId, cardPath, title: saved.title, revisions: save.revisions.length, images: replacedRefs.size, stageMs: elapsed >= 300 ? stageMs : undefined }
+      return { chatId, sessionId, cardPath, title: saved.title, revisions: save.revisions.length, images: replacedRefs.size, warnings: content.warnings, stageMs: elapsed >= 300 ? stageMs : undefined }
     } catch (error) {
       try { await importedResources?.rollback() } catch {}
       throw error
