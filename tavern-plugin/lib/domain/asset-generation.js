@@ -330,12 +330,19 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const userPrompt = text(input.userPrompt), references = input.references || []
       assert(Array.isArray(references) && references.length <= 4, 'LIMIT_EXCEEDED', '参考图最多四张')
       const images = [], refs = []
+      // A pack picture is listed first and read only once it is kept: a second settei sheet the channel has no room for is
+      // never read, so its size cannot stop a request that does not use it.
       async function packImage(blobHash, role, purpose = 'user') {
         validateHash(blobHash)
-        const {bytes,descriptor} = await library().readMedia({packId:target.packId,expectedRevision:pack.revision,hash:blobHash})
-        assert(['image/png','image/jpeg','image/webp'].includes(descriptor.mime) && descriptor.size <= 8 * 1024 ** 2, 'LIMIT_EXCEEDED', '参考图须为最多 8 MiB 的 PNG/JPEG/WebP')
         if (refs.some(ref => ref.hash === blobHash)) return
-        images.push({data:Buffer.from(bytes),mediaType:descriptor.mime}); refs.push({hash:blobHash,role,purpose})
+        images.push({pending:blobHash}); refs.push({hash:blobHash,role,purpose})
+      }
+      async function readKept() {
+        for (const [index, image] of images.entries()) if (image.pending) {
+          const {bytes,descriptor} = await library().readMedia({packId:target.packId,expectedRevision:pack.revision,hash:image.pending})
+          assert(['image/png','image/jpeg','image/webp'].includes(descriptor.mime) && descriptor.size <= 8 * 1024 ** 2, 'LIMIT_EXCEEDED', `参考图 ${image.pending.slice(0, 12)}…（${refs[index].purpose === 'user' ? '补充参考' : refs[index].purpose || '设定图'}）须为最多 8 MiB 的 PNG/JPEG/WebP：请在对话框里关掉这张，或换一张较小的图`)
+          images[index] = {data:Buffer.from(bytes),mediaType:descriptor.mime}
+        }
       }
       // in the app the identity board, the outfit 设定图 and the 平和
       // pictures are references used when they exist, never prerequisites (the portable CLI keeps its stricter
@@ -384,6 +391,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // Four pictures at most: a second settei sheet gives way first (an eight-face sheet also takes its 立绘 and 头像).
       for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > 4 && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '设定图与补充参考合计最多四张')
+      // A channel of fewer pictures loses the second settei sheets first, whatever is drawn (an eight-face sheet too).
+      if (!preview && !input.redrawOf) for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       // The identity board, the outfit 设定图 and a 头像's own 立绘 are references, not prerequisites: a channel that takes
       // fewer pictures (none, for a text-only one) draws from the 设定文字 instead — the identity board is left out first, then
       // the outfit 设定图, then the 立绘. What the user added stays. A settei of two sheets loses its second sheet (eye and
@@ -432,6 +441,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
           prompt += `\nImage ${images.length}: rejected candidate, use only with the user correction above.`
         }
       }
+      await readKept()
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '全部参考合计最多四张')
       if (!preview) assert(images.length <= status.maxReferences, 'UNSUPPORTED_CHANNEL', status.maxReferences
         ? `当前生图渠道最多带 ${status.maxReferences} 张参考图，这次需要 ${images.length} 张；可在对话框里少选几张参考`
@@ -619,7 +629,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         const patch = {blobs:{...pack.manifest.blobs,[media]:descriptor}}, fileUpdates = new Map([['media/'+media+'.png',bytes]])
         if (job.target.kind === 'identity-settei' || job.target.kind === 'settei') {
           const figure = job.target.kind === 'identity-settei' ? {...ctx.figure,identitySettei} : recorded({...ctx.figure,
-            outfits:ctx.figure.outfits.map(o => o.key === job.target.outfitKey ? {...o,settei:media,...(ctx.figure.identitySettei ? {setteiParentVersion:ctx.figure.identitySettei.version} : {})} : o)},job)
+            outfits:ctx.figure.outfits.map(o => o.key === job.target.outfitKey ? {...(({setteiParts, ...rest}) => rest)(o),settei:media,...(ctx.figure.identitySettei ? {setteiParentVersion:ctx.figure.identitySettei.version} : {})} : o)},job)
           fileUpdates.set('figures/'+figure.id+'.json',Buffer.from(JSON.stringify(figure)))
         } else {
           patch.assets = job.target.assetId ? pack.manifest.assets.map(a => a.id === job.target.assetId && a.kind === 'backgrounds' ? {...a,media,pendingMedia:false} : a) :
