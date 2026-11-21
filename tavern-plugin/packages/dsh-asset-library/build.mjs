@@ -29,6 +29,7 @@ const skinSchemaPath = join(root, '../dsh-presentation-protocol/schema/skin.sche
 const skinSchemaText = readFileSync(skinSchemaPath, 'utf8')
 emit(skinSchemaPath, skinSchemaText.replace(/("derived":\s*\{\s*"type": "array",\s*"items": \{\s*"enum": )\[[^\]]*\]/,
   (_, prefix) => prefix + '[\n' + STAGE_SKIN_SOURCE_KINDS.map(kind => '       ' + JSON.stringify(kind)).join(',\n') + '\n      ]'))
+emit(join(root,'src/shared/ambience-brightness.cjs'), readFileSync(join(root,'../../shared/ambience-brightness.cjs'),'utf8'))
 // Vendor only the inert P0 contracts so the asset package remains standalone.
 // The protocol package is their sole maintained source; --check covers both copies.
 emit(join(root,'src/shared/figure-mouth.cjs'), '// Generated from Tavern shared/figure-mouth.cjs by build.mjs; do not edit.\n' + readFileSync(join(root,'../../shared/figure-mouth.cjs'),'utf8'))

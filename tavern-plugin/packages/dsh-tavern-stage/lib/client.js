@@ -4066,6 +4066,8 @@ function createSoundscapePlayer(deps) {
     // performance: the stage performance's own ambience layer (ambience.cjs).
     const slots = { layer1: { current: null, outgoing: null }, layer2: { current: null, outgoing: null }, performance: { current: null, outgoing: null } };
     const duration = 1200, openCutoff = 24000;
+    const establishMs = 6000, retreatMs = 8000, bedGain = 10 ** (-4 / 20);
+    const delay = deps.setTimeout || setTimeout, cancelDelay = deps.clearTimeout || clearTimeout;
     let frame = null, disposed = false, warnings = [];
     const settled = new Set();
     function acknowledge() { for (const resolve of settled) resolve(); settled.clear(); }
@@ -4111,6 +4113,7 @@ function createSoundscapePlayer(deps) {
     function release(track) {
         if (!track || !track.alive) return;
         track.alive = false; track.ticket++;
+        cancelDelay(track.retreatTimer);
         cleanupAll([
             () => track.node.removeEventListener('error', track.onError),
             () => mixer.level(track.node, 0), () => clearMedia(track.node),
@@ -4127,7 +4130,19 @@ function createSoundscapePlayer(deps) {
         try {
             Promise.resolve(track.node.play()).then(() => {
                 if (!track.alive) { clearMedia(track.node); return; }
-                if (!disposed && track.ticket === ticket) { track.status = 'playing'; track.error = null; }
+                if (!disposed && track.ticket === ticket) {
+                    track.status = 'playing'; track.error = null;
+                    if (track.retreatTimer == null && !track.inBed) {
+                        track.retreatTimer = delay(() => {
+                            track.retreatTimer = null;
+                            if (!Object.values(slots).some(slot => slot.current === track)) return;
+                            track.inBed = true;
+                            target(track, track.gain * bedGain, track.lowpassHz, false, retreatMs);
+                            schedule();
+                        }, establishMs);
+                        track.retreatTimer?.unref?.();
+                    }
+                }
             }, failed);
         } catch (_) { failed(); }
     }
@@ -4152,11 +4167,11 @@ function createSoundscapePlayer(deps) {
         track.cutoff = value;
         if (typeof mixer.filter === 'function') mixer.filter(track.node, value);
     }
-    function target(track, gain, cutoff, snap) {
+    function target(track, gain, cutoff, snap, fadeMs = duration) {
         if (snap) {
             track.transition = null; mixer.level(track.node, gain); setCutoff(track, cutoff); return;
         }
-        track.transition = { at: now(), from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
+        track.transition = { at: now(), fadeMs, from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
     }
     function step() {
         frame = null;
@@ -4164,7 +4179,7 @@ function createSoundscapePlayer(deps) {
         for (const slot of Object.values(slots)) for (const key of ['current', 'outgoing']) {
             const track = slot[key], fade = track && track.transition;
             if (!fade) continue;
-            const t = Math.max(0, Math.min(1, (now() - fade.at) / duration));
+            const t = Math.max(0, Math.min(1, (now() - fade.at) / fade.fadeMs));
             mixer.level(track.node, fade.from + (fade.to - fade.from) * t);
             if (fade.cutoffFrom !== fade.cutoffTo) setCutoff(track, t === 1 ? fade.cutoffTo :
                 (fade.cutoffFrom || openCutoff) + ((fade.cutoffTo || openCutoff) - (fade.cutoffFrom || openCutoff)) * t);
@@ -4195,7 +4210,7 @@ function createSoundscapePlayer(deps) {
         for (const [name, slot] of Object.entries(slots)) {
             const layer = layers.find(item => item.slot === name), current = slot.current;
             if (layer && current && current.identity === layer.identity) {
-                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain, layer.lowpassHz, snap);
+                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain * (current.inBed ? bedGain : 1), layer.lowpassHz, snap);
                 if (current.volume !== layer.volume && typeof mixer.trim === 'function') mixer.trim(current.node, layer.volume);
                 current.url = layer.url; current.id = layer.id; current.gain = layer.gain; current.volume = layer.volume; current.lowpassHz = layer.lowpassHz;
                 play(current);
@@ -4208,6 +4223,7 @@ function createSoundscapePlayer(deps) {
             }
             release(slot.outgoing); slot.outgoing = current; slot.current = null;
             if (current) {
+                cancelDelay(current.retreatTimer);
                 if (snap) { release(current); slot.outgoing = null; }
                 else target(current, 0, current.cutoff, false);
             }

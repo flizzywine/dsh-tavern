@@ -17,7 +17,7 @@ export interface AssetContentMap {
   timers: TimerContent;
   music: {media:Sha256|null;pendingMedia?:boolean;usage?:string;volume?:number;tags?:string[];loopStart?:number;loopEnd?:number;loudness?:{v:1;lufs:number;peak:number}};
   sfx: {media:Sha256|null;pendingMedia?:boolean;loop?:false;durationMs?:number;volume?:number;tags?:string[];gainDb?:number;loudness?:{v:1;lufs:number;peak:number}};
-  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number}};
+  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number;brightnessDb?:number;durationMs?:number}};
   looks: {params:Extensions;layer:'mood';event?:boolean};
   skins: {bundleKey:string;entry:string};
   performances: {bundleKey:string;entry:string};
