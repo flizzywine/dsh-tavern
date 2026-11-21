@@ -308,11 +308,11 @@
 					batch.forEach(function (id) { attemptedPreviewIds.current.delete(id); });
 				});
 			}, [history, historyGroupState, historyManagerOpen]);
-			const removedChatsHandler = React.useRef(null);
+			const unavailableSessionsHandler = React.useRef(null);
 			React.useEffect(function () {
-				function onRemoved(event) { if (removedChatsHandler.current) removedChatsHandler.current(event.detail && event.detail.sessionIds || []); }
-				window.addEventListener("dsh-tavern-chats-removed", onRemoved);
-				return function () { window.removeEventListener("dsh-tavern-chats-removed", onRemoved); };
+				function onUnavailable(event) { if (unavailableSessionsHandler.current) unavailableSessionsHandler.current(event.detail?.sessionIds || []); }
+				window.addEventListener("dsh-tavern-sessions-unavailable", onUnavailable);
+				return function () { window.removeEventListener("dsh-tavern-sessions-unavailable", onUnavailable); };
 			}, []);
 			function toggleChatSelection(chatId) {
 				if (busy) return;
@@ -329,14 +329,8 @@
 					const removed = outcome.removed;
 					setSelectedChats(failures.map(function (result) { return result.chatId; }));
 					setDeleteNotice("已删除 " + removed.length + " 个" + (failures.length ? "，" + failures.length + " 个失败，可重试" : ""));
+					await leaveUnavailableConversation(outcome.unavailableSessionIds, true);
 					if (failures.length) setError(failures.map(function (result) { const item = items.find(function (item) { return item.chatId === result.chatId; }); return (item && (item.title || item.cardName) || result.chatId) + "：" + result.error; }).join("\n"));
-					if (items.some(function (item) { return item.sessionId === current && removed.includes(item.chatId); })) {
-						props.sessions.clear();
-						// A failed deletion can leave the selected chat in the archive.
-						const next = activeHistory.find(item => !selectedChats.includes(item.chatId));
-						if (next) await openSessionWhenReady(next.sessionId);
-						else { await openBlankConversation(); openPicker("cards"); }
-					}
 					// Deleting a chat never touches cards, so reload only the history list.
 					await refresh(["sessions"]);
 				} catch (error) { setError(String(error.message || error)); await refresh(); }
@@ -352,7 +346,7 @@
 				setBusy(true); setError(""); setDeleteNotice("");
 				const failures = [];
 				let next = 0;
-				let archivedCount = 0;
+				const changedSessionIds = [];
 				async function worker() {
 					for (;;) {
 						const index = next++;
@@ -361,22 +355,16 @@
 						try {
 							if (archive) await props.archiveSession(item.sessionId);
 							else await props.workspaces.unarchiveSession(item.sessionId);
-							archivedCount++;
-						} catch (err) { failures.push((item.title || item.cardName || item.chatId) + "：" + String(err && err.message || err)); }
+							changedSessionIds.push(item.sessionId);
+						} catch (err) { failures.push({ chatId: item.chatId, message: (item.title || item.cardName || item.chatId) + "：" + String(err && err.message || err) }); }
 					}
 				}
 				try {
 					await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
-					if (archive && items.some(function (item) { return item.sessionId === current; })) {
-						props.sessions.clear();
-						const archivedIds = new Set(items.map(function (item) { return item.sessionId; }));
-						const alternative = activeHistory.find(function (entry) { return !archivedIds.has(entry.sessionId); });
-						if (alternative) await openSessionWhenReady(alternative.sessionId);
-						else await openBlankConversation();
-					}
-					setSelectedChats([]);
-					setDeleteNotice((archive ? "已归档 " : "已恢复 ") + archivedCount + " 个对话" + (failures.length ? "，" + failures.length + " 个失败" : ""));
-					if (failures.length) setError(failures.slice(0, 10).join("\n"));
+					setSelectedChats(failures.map(result => result.chatId));
+					setDeleteNotice((archive ? "已归档 " : "已恢复 ") + changedSessionIds.length + " 个对话" + (failures.length ? "，" + failures.length + " 个失败" : ""));
+					if (archive) await leaveUnavailableConversation(changedSessionIds);
+					if (failures.length) setError(failures.slice(0, 10).map(result => result.message).join("\n"));
 					await refresh(["sessions"]);
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
@@ -1264,12 +1252,7 @@
 				try {
 					if (archive) {
 						await props.archiveSession(item.sessionId);
-						if (current === item.sessionId) {
-							props.sessions.clear();
-							const next = activeHistory.find(entry => entry.sessionId !== item.sessionId);
-							if (next) await openSessionWhenReady(next.sessionId);
-							else await openBlankConversation();
-						}
+						await leaveUnavailableConversation([item.sessionId]);
 					} else {
 						await props.workspaces.unarchiveSession(item.sessionId);
 					}
@@ -1278,6 +1261,7 @@
 			}
 			async function removeChat(item) {
 				const outcome = await deleteTavernChats([item], props.archiveSession);
+				await leaveUnavailableConversation(outcome.unavailableSessionIds, true);
 				if (outcome.failures.length) throw new Error(outcome.failures[0].error);
 			}
 			async function deleteConversation(item, currentTitle) {
@@ -1286,11 +1270,6 @@
 				setBusy(true); setError("");
 				try {
 					await removeChat(item);
-					if (current === item.sessionId) {
-						const next = activeHistory.find(entry => entry.sessionId !== item.sessionId);
-						if (next) await openSessionWhenReady(next.sessionId);
-						else { await openBlankConversation(); openPicker("cards"); }
-					}
 				} catch (err) { setError(String(err && err.message || err)); }
 				// Deleting a chat never touches cards, so reload only the history list; a failed
 				// deletion reloads it too, or the row would stay listed as it was before.
@@ -1382,13 +1361,21 @@
 			const groupedActiveHistory = React.useMemo(function () {
 				return uiMode === "play" ? groupTavernHistory(orderedActiveHistory, summaries, historyOrder) : [];
 			}, [uiMode, orderedActiveHistory, summaries, historyOrder]);
-			// Deleting a card elsewhere may remove the chat open here; never leave it on screen.
-			removedChatsHandler.current = function (sessionIds) {
-				if (!sessionIds.includes(current)) return;
-				props.sessions.clear();
-				const next = activeHistory.find(function (item) { return !sessionIds.includes(item.sessionId); });
-				if (next) openSessionWhenReady(next.sessionId).catch(function (err) { setError(String(err && err.message || err)); });
-				else void openBlankConversation().then(function () { openPicker("cards"); });
+			async function leaveUnavailableConversation(sessionIds, showPicker) {
+				// A deletion can take long enough for the host to switch views on its own.
+				const openSession = tavernMainSessionId(props.sessions);
+				if (!sessionIds.includes(openSession || current)) return;
+				if (openSession) props.sessions.clear();
+				const removing = tavernChatRemovals.getSnapshot();
+				const next = activeHistory.find(item => !sessionIds.includes(item.sessionId) && !removing.has(item.chatId));
+				if (next) await openSessionWhenReady(next.sessionId);
+				else {
+					await openBlankConversation();
+					if (showPicker) openPicker("cards");
+				}
+			}
+			unavailableSessionsHandler.current = function (sessionIds) {
+				void leaveUnavailableConversation(sessionIds, true).catch(err => setError(String(err && err.message || err)));
 			};
 			// The host writes a reply (or a workbench task) through the native chat, so `sessionStatus` knows a
 			// conversation is generating. The Tavern sidebar replaced the host's session tree, so this row is the

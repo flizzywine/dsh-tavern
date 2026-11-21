@@ -53,7 +53,7 @@
 		}
 		async function archiveAndDeleteTavernChats(items, archiveSession, call) {
 			const failures = [];
-			if (!items.length) return { removed: [], failures };
+			if (!items.length) return { removed: [], failures, unavailableSessionIds: [] };
 			const prepared = await call("prepareDeleteChats", { chatIds: items.map(item => item.chatId) });
 			failures.push(...prepared.results.filter(result => !result.ok));
 			const eligible = items.filter(item => prepared.results.some(result => result.chatId === item.chatId && result.ok));
@@ -72,11 +72,18 @@
 				}
 			}
 			await Promise.all(Array.from({ length: Math.min(ARCHIVE_CONCURRENCY, eligible.length) }, archiveSome));
-			const ready = eligible.filter(item => archived.has(item.chatId)).map(item => item.chatId);
-			if (!ready.length) return { removed: [], failures };
-			const deleted = await call("deleteChats", { chatIds: ready });
-			failures.push(...deleted.results.filter(result => !result.ok));
-			return { removed: deleted.results.filter(result => result.ok).map(result => result.chatId), failures };
+			const ready = eligible.filter(item => archived.has(item.chatId));
+			const unavailableSessionIds = ready.map(item => item.sessionId);
+			if (!ready.length) return { removed: [], failures, unavailableSessionIds };
+			const chatIds = ready.map(item => item.chatId);
+			try {
+				const deleted = await call("deleteChats", { chatIds });
+				failures.push(...deleted.results.filter(result => !result.ok));
+				return { removed: deleted.results.filter(result => result.ok).map(result => result.chatId), failures, unavailableSessionIds };
+			} catch (error) {
+				failures.push(...chatIds.map(chatId => ({ chatId, error: String(error && error.message || error) })));
+				return { removed: [], failures, unavailableSessionIds };
+			}
 		}
 
 		function tavernCardPathKey(path) {
@@ -104,13 +111,12 @@
 			let outcome;
 			try { outcome = await deleteTavernChats(items, archiveSession, call); }
 			catch (error) { return { notice: "游玩记录删除失败：" + String(error && error.message || error), sessionIds: [] }; }
-			const sessionIds = items.filter(entry => outcome.removed.includes(entry.chatId)).map(entry => entry.sessionId);
-			return { notice: "游玩记录删除 " + outcome.removed.length + " 个" + (outcome.failures.length ? "，" + outcome.failures.length + " 个失败，可在左侧历史中重试" : ""), sessionIds };
+			return { notice: "游玩记录删除 " + outcome.removed.length + " 个" + (outcome.failures.length ? "，" + outcome.failures.length + " 个失败，可在左侧历史中重试" : ""), sessionIds: outcome.unavailableSessionIds };
 		}
 
-		// The sidebar listens so an open chat of a deleted card does not stay on screen.
-		function announceTavernChatsRemoved(sessionIds) {
-			if (sessionIds.length) window.dispatchEvent(new CustomEvent("dsh-tavern-chats-removed", { detail: { sessionIds } }));
+		// An archived session leaves the active history even if its save could not be deleted.
+		function announceTavernSessionsUnavailable(sessionIds) {
+			if (sessionIds.length) window.dispatchEvent(new CustomEvent("dsh-tavern-sessions-unavailable", { detail: { sessionIds } }));
 		}
 
 		// @include card-organization.js
@@ -138,7 +144,7 @@
 					const failed = results.filter(item => !item.ok);
 					const chatRemoval = await removeTavernCardChats(chats, results, archiveSession);
 					const chatNotice = chatRemoval.notice;
-					announceTavernChatsRemoved(chatRemoval.sessionIds);
+					announceTavernSessionsUnavailable(chatRemoval.sessionIds);
 					setPaths(failed.map(item => item.path));
 					setNotice("已删除 " + (results.length - failed.length) + " 张" + (failed.length ? "，" + failed.length + " 张失败，可重试：" + failed.map(item => item.name + "：" + item.error).join("；") : "。") + (chatNotice ? " " + chatNotice + "。" : ""));
 					await refresh();
