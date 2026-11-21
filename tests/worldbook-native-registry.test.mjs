@@ -72,12 +72,14 @@ test('native list, grep and read pipeline isolates files and background leases w
   function success(result) { assert.equal(result.isError, false, output(result)); return result.value }
   function failure(result) { assert.equal(result.isError, true, output(result)); return output(result) }
   async function discover(caller) {
-    const result = success(await execute(caller, 'worldbook_list', {}))
-    return JSON.parse(result.result).files[0].path
+    const result = success(await execute(caller, 'grep_lorebook', { query: '港口' }))
+    return JSON.parse(result.result).matches[0].path
   }
+  assert.equal(ctx.tools.get('worldbook_list', a), undefined)
+  assert.equal(ctx.tools.get('worldbook_grep', a), undefined)
   const [pa, pb] = await Promise.all([discover(a), discover(b)])
   assert.notEqual(pa, pb)
-  const found = JSON.parse(success(await execute(a, 'worldbook_grep', { query: 'SECRET' })).result)
+  const found = JSON.parse(success(await execute(a, 'grep_lorebook', { query: 'SECRET' })).result)
   assert.equal(found.matches.length, 1)
   assert.equal(found.matches[0].path, pa)
   const direct = async (caller, keyword) => {
@@ -95,7 +97,7 @@ test('native list, grep and read pipeline isolates files and background leases w
   assert.equal(filesystemReads, 1, 'actual native filesystem reader executes')
   assert.equal(body.meta.path, pa)
   for (const caller of [b, background, undefined]) failure(await read(caller, pa))
-  failure(await execute(background, 'worldbook_list', {}))
+  failure(await execute(background, 'list_lorebook', {}))
   failure(await execute(background, 'read_lorebook', { keyword: '港口' }))
   assert.deepEqual((await ctx.skills.list()).map(item => item.name), ['core-skill'])
   const ordinary = path.join(directory, '..', path.basename(directory) + '-ordinary.txt')
@@ -104,11 +106,14 @@ test('native list, grep and read pipeline isolates files and background leases w
   failure(await read(a, ordinary))
   states.set(background, { ...states.get(a), authorizedSessionId: background.session.id })
   assert.equal(await discover(background), pa)
+  const backgroundTitles = await execute(background, 'list_lorebook', {})
+  success(backgroundTitles)
+  assert.equal(output(backgroundTitles), 'A 港口')
   assert.equal(output(await direct(background, 'A 港口')), 'SECRET BODY A')
   success(await read(background, pa))
   failure(await read(background, pb))
   states.delete(background)
-  failure(await execute(background, 'worldbook_grep', { query: 'SECRET' }))
+  failure(await execute(background, 'grep_lorebook', { query: 'SECRET' }))
   failure(await execute(background, 'read_lorebook', { keyword: 'A 港口' }))
   failure(await read(background, pa))
   states.get(a).worldBook.view.entries[0].content = 'UPDATED BODY'
@@ -118,7 +123,14 @@ test('native list, grep and read pipeline isolates files and background leases w
   assert.match(output(await read(a, updated)), /UPDATED BODY/)
   states.get(a).chat.worldbookStrategy = 'legacy'
   assert.match(output(await read(a, updated)), /UPDATED BODY/)
-  assert.match(output(await execute(a, 'worldbook_list', {})), /测试书/)
+  states.get(a).worldBook.view.entries.push({ ref: 'test:more', title: '薛姨妈', enabled: true, content: '第二条正文' })
+  const list = async args => {
+    const result = await execute(a, 'list_lorebook', args)
+    success(result)
+    return output(result)
+  }
+  assert.equal(await list({}), 'A 港口\n薛姨妈')
+  assert.equal(await list({ offset: 1, limit: 1 }), '薛姨妈')
   const aborted = new AbortController(); aborted.abort()
-  failure(await execute(b, 'worldbook_grep', { query: 'SECRET' }, aborted.signal))
+  failure(await execute(b, 'grep_lorebook', { query: 'SECRET' }, aborted.signal))
 })

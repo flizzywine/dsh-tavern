@@ -44,7 +44,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
       if (directLookup && lookup === 0) {
         block = { type: 'tool-call', id: 'lookup-' + requests.length, name: 'read_lorebook', arguments: JSON.stringify({ keyword: '少林' }) }
       } else if (!directLookup && (lookup === 0 || lookup === 1)) {
-        block = { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'worldbook_grep' : 'read',
+        block = { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'grep_lorebook' : 'read',
           arguments: JSON.stringify(lookup === 0 ? { query: '少林' } : { file_path: worldbookPath }) }
       }
       yield { type: 'block-start', index: 0, blockType: block.type }

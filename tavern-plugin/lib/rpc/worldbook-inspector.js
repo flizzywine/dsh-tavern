@@ -1,4 +1,4 @@
-import { READ_LOREBOOK_TOOL } from '../domain/foreground-tools.js'
+import { GREP_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from '../domain/foreground-tools.js'
 import { readLorebookReceipt } from '../domain/worldbook-files.js'
 
 // Only native tool events are evidence of loading/reading, never prose adoption.
@@ -9,13 +9,14 @@ export function worldbookReadHistory(events, directory, skillNames = [], inlineE
     if (event.type === 'tool/call') {
       let args
       try { args = typeof d.arguments === 'string' ? JSON.parse(d.arguments) : d.arguments } catch { continue }
-      const navigation = ['worldbook_list', 'worldbook_grep'].includes(d.name)
-      const direct = d.name === READ_LOREBOOK_TOOL
+      const name = lorebookToolName(d.name)
+      const navigation = [LIST_LOREBOOK_TOOL, GREP_LOREBOOK_TOOL].includes(name)
+      const direct = name === READ_LOREBOOK_TOOL
       const target = direct ? args?.keyword : navigation ? (args?.query || '世界书文件列表') : d.name === 'skill' ? args?.name : d.name === 'read' ? args?.file_path : null
       const normalized = typeof target === 'string' ? target.replaceAll('\\', '/') : ''
       const physical = directory && normalized.startsWith(directory.replaceAll('\\', '/') + '/')
       if (typeof target !== 'string' || !(direct || navigation || d.name === 'skill' || target.startsWith('/__tavern_worldbook__/') || physical)) continue
-      calls.set(d.callId, { id: d.callId, seq: event.seq, turn: d.turn, step: d.step, kind: d.name, target, reference: (physical && !normalized.includes('/references/') || /\/(?:entries|references)\//.test(normalized)) && !normalized.endsWith('/references/资料目录.md'), offset: args.offset, limit: args.limit, status: 'pending' })
+      calls.set(d.callId, { id: d.callId, seq: event.seq, turn: d.turn, step: d.step, kind: name, target, reference: (physical && !normalized.includes('/references/') || /\/(?:entries|references)\//.test(normalized)) && !normalized.endsWith('/references/资料目录.md'), offset: args.offset, limit: args.limit, status: 'pending' })
     } else if (event.type === 'tool/result' && calls.has(d.message?.toolCallId)) {
       const item = calls.get(d.message.toolCallId)
       item.status = d.message.isError ? 'error' : 'success'

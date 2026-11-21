@@ -324,7 +324,7 @@ import { createForegroundWorldbook } from './domain/foreground-worldbook.js'
 import { createWorldbookStrategies } from './domain/worldbook-strategies.js'
 import { createWorldbookFiles } from './domain/worldbook-files.js'
 import { recentWorldbookLookups } from './domain/worldbook-title-hints.js'
-import { WORLDBOOK_ACCESS_TOOLS } from './domain/foreground-tools.js'
+import { WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
 import { registerWorldbookFileTools } from './tools/worldbook-files.js'
 import { projectVirtualWorldbookPrefix } from './domain/worldbook-virtual-state.js'
 import { installWorldbookSkillRead, nativeWorldbookReadAvailable } from './domain/worldbook-skill-read.js'
@@ -3390,7 +3390,7 @@ export async function apply(ctx) {
     settingsChanged: (gameId, plugin) => sessionSignals.publish(gameId, { kind: 'plugin-settings', version: plugin + ':' + Date.now() + ':' + Math.random().toString(36).slice(2) }),
     // A plugin published new state for its page side (tavernUi.watchState re-reads it).
     publishState: (gameId, plugin, name) => sessionSignals.publish(gameId, { kind: 'plugin-state:' + plugin + ':' + name, version: Date.now() + ':' + Math.random().toString(36).slice(2) }),
-    reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat(['style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', 'web_search', 'web_fetch', 'skill']).filter(Boolean),
+    reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat(['style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', ...WORLDBOOK_ACCESS_TOOLS.filter(name => name !== 'read'), WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'web_search', 'web_fetch', 'skill']).filter(Boolean),
     media: pluginMedia,
     data: pluginData,
     projectGameForeground(gameId, projection) {
@@ -4994,7 +4994,7 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       // Input side: replay past bodies as calls of the submission tool.

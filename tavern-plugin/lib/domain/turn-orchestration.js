@@ -18,7 +18,7 @@ import { applyJsonChangesShared, diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
 import { projectPluginBody } from './st-contract-service.js'
 import { STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
-import { normalizeDisabledForegroundTools, WORLDBOOK_ACCESS_TOOLS } from './foreground-tools.js'
+import { normalizeDisabledForegroundTools, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
@@ -1504,7 +1504,7 @@ export function createTurnOrchestrator(options) {
     }
     if (pluginGeneration && ['story', 'script'].includes(mode)) storyTools.push(STORY_GENERATE_TOOL_NAME)
     // Card workbenches keep their fixed editing tools; the per-game switches are play-only.
-    if (mode === 'card') return [...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response']
+    if (mode === 'card') return [...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response']
     // A mod's foreground tool (options.modTools: [{modId, name}]) is offered where this game's history already calls it (a
     // replayed call needs its tool declared), where the card offers it (cardOffer, lib/mod-tools.js: 'card'), or where the card
     // leaves it to the mod switch (null) and the card has the mod on.

@@ -42,7 +42,7 @@ function cardReferenceSection(section) {
   if (section.name === 'tavern:constant-worldbook') {
     const chars = Array.from((stableSectionBody(section.name, text) ?? text).trim()).length
     if (chars <= CARD_REFERENCE_WORLDBOOK_LIMIT) return section
-    return { name: section.name, text: promptSection('lorebook_constant', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_worldbook by keyword or number when needed.') }
+    return { name: section.name, text: promptSection('lorebook_constant', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_lorebook by keyword or number when needed.') }
   }
   const chars = Array.from(text).length
   if (chars <= CARD_REFERENCE_SECTION_LIMIT) return section

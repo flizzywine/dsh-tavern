@@ -52,7 +52,7 @@ function fixture({ worldbookSkillsEnabled, webSearchEnabled, enabled = true, sha
         return { agent: { session,
           followup(message) {
             pending = (async () => {
-              const toolNames = ['read', 'worldbook_list', 'worldbook_grep', 'read_lorebook', 'web_search', 'web_fetch', ...registered.keys()]
+              const toolNames = ['read', 'list_lorebook', 'grep_lorebook', 'read_lorebook', 'web_search', 'web_fetch', ...registered.keys()]
               let assembly = { sections: [], tools: toolNames.map(name => {
                 const tool = registered.get(name)
                 return { name, ...(tool?.description ? { description: tool.description } : {}), parameters: tool?.parameters || { type: 'object' } }

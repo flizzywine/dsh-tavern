@@ -27,6 +27,7 @@ test('关键词直读在排查面板按命中的条目记数', async () => {
     agentRegistry: { get: () => agent }, chatForSession: async () => ({ sessionId: 'one' }),
     worldbookSkillProvider: { inspect: async () => ({ files: [{ title: '薛姨妈', lookupId: 'entry-id' }] }) },
     sessionDebugEvidence: () => ({ loaded: true, events: [
+      call('legacy', 'worldbook_list', {}), result('legacy'),
       call('a', 'read_lorebook', { keyword: '薛姨妈' }), finish('a', { status: 'found', id: 'entry-id', title: '薛姨妈', text: '设定正文' }),
       call('b', 'read_lorebook', { keyword: '薛' }), finish('b', { status: 'multiple', total: 2 }),
     ] }),
@@ -36,4 +37,5 @@ test('关键词直读在排查面板按命中的条目记数', async () => {
   assert.equal(page.catalog.files[0].readCount, 1)
   assert.equal(page.records[1].title, '薛姨妈')
   assert.equal(page.records[1].result, '设定正文')
+  assert.equal(page.records[2].kind, 'list_lorebook')
 })

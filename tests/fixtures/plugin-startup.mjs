@@ -30,7 +30,7 @@ try {
   for (const name of ['tavern_test_response', 'tavern_recall_history', 'tavern_user_profile_read',
     'tavern_read_skill_reference', 'tavern_read_variables',
     'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_memory_search', 'tavern_validate_card', 'tavern_read_play_chat',
-    'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_restore_card',
+    'tavern_read_script', 'tavern_read_lorebook', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_restore_card',
     'submit_story', 'tavern_generate_body']) {
     assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered')
   }

@@ -15,9 +15,11 @@ function session(messages) {
 test('主动查阅提示只用于有检索工具的前台续写', () => {
   const instruction = sections => sections.find(section => section.name === 'tavern:worldbook-skills')?.text
   assert.match(instruction(withVirtualWorldbook([], '')), /优先用 read_lorebook.*续写前先判断/)
+  assert.match(instruction(withVirtualWorldbook([], '')), /grep_lorebook.*list_lorebook/)
   assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep'])), /玩家没提条目名/)
   assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep', 'worldbook_list'])), /read_lorebook/)
   assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'worldbook_grep', 'worldbook_list'])), undefined)
+  assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'grep_lorebook', 'list_lorebook'])), undefined)
   assert.match(instruction(withVirtualWorldbook([], '', ['read_lorebook'])), /再用 read/)
   assert.doesNotMatch(instruction(withWorldbookFileInstructions([])), /续写前先判断/)
 })

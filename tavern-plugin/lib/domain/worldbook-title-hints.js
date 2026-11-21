@@ -3,7 +3,7 @@ import { isStaticWorldbookSkillEntry } from './worldbook-entry-classification.js
 import { worldbookEntryTitle } from './worldbook-entry-title.js'
 import { promptSection } from './prompt-section.js'
 import { toolResultsOf } from './tool-result-message.js'
-import { READ_LOREBOOK_TOOL } from './foreground-tools.js'
+import { GREP_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from './foreground-tools.js'
 import { readLorebookReceipt } from './worldbook-files.js'
 
 const RECENT_STORY_ROUNDS = 10
@@ -41,15 +41,17 @@ export function recentWorldbookLookups(session, messages) {
     }
     if (event.type !== 'assistant/message' || message?.source?.kind !== 'model') continue
     for (const call of message.content || []) {
-      if (call?.type !== 'tool-call' || !['read', 'worldbook_grep', READ_LOREBOOK_TOOL].includes(call.name)) continue
+      if (call?.type !== 'tool-call') continue
+      const name = lorebookToolName(call.name)
+      if (!['read', GREP_LOREBOOK_TOOL, READ_LOREBOOK_TOOL].includes(name)) continue
       const result = results.get(turn + ':' + call.id)
       if (!result) continue
       const body = result.content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
       if (!body.trim()) continue
-      if (call.name === 'read') {
+      if (name === 'read') {
         const file = parseJson(call.arguments)?.file_path
         if (typeof file === 'string' && file) paths.add(file)
-      } else if (call.name === READ_LOREBOOK_TOOL) {
+      } else if (name === READ_LOREBOOK_TOOL) {
         const receipt = readLorebookReceipt(body, result.meta)
         if (receipt) ids.add(receipt.id)
       } else {

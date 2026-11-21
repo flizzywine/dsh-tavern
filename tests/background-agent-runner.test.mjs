@@ -411,7 +411,7 @@ test('stage-director isolates native tools/persona and preserves correction hist
         assert.match(system, /GLOBAL APPEND/)
         assert.notEqual(system, 'DIRECTOR COMPLETE PERSONA')
         assert.deepEqual(modes, [])
-        assert.deepEqual(restrictions, [['skill', 'read', 'worldbook_list', 'worldbook_grep', 'read_lorebook', 'tavern_read_skill_reference', 'web_search']])
+        assert.deepEqual(restrictions, [['skill', 'read', 'list_lorebook', 'grep_lorebook', 'read_lorebook', 'tavern_read_skill_reference', 'web_search']])
         assert.match(followed[0].content[0].text, /DIRECTOR COMPLETE PERSONA/)
       }
     } finally { await runner.dispose() }
