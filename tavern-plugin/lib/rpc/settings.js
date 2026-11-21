@@ -1,9 +1,8 @@
 import { normalizeBackgroundModel, readBackgroundModelReasoning } from '../domain/background-model-selection.js'
 import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
-import { configuredBodyGeneration } from '../domain/plugin-body-generation.js'
 import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
-import { conversationUsesExpandedCandidates, normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
+import { conversationUsesExpandedCandidates, normalizeConfiguredBackgroundTasks } from '../domain/tavern-settings.js'
 import { createDamperSettings } from '../domain/damper-settings.js'
 import {
   discoverVertexProject,
@@ -26,38 +25,6 @@ export function createSettingsHandlers(deps) {
   }))
   let tavernSettingsPending = null
   const handlers = {
-    async getBodyGenerationSettings(args) {
-      const chat = await chatForSession(str(args?.sessionId))
-      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
-      return { ...configuredBodyGeneration(chat, await readTavernSettings()),
-        inherited: chat.storyGenerationMode === undefined,
-        hostRegexInherited: chat.storyPluginOutputRegex === undefined,
-        providers: await deps.pluginApi.bodyGenerators.list(chat.sessionId) }
-    },
-    async setBodyGenerationSettings(args) {
-      const chat = await chatForSession(str(args?.sessionId))
-      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
-      const regexChange = Object.hasOwn(args, 'hostRegex')
-      const routeChange = !regexChange || args.inherit === true || Object.hasOwn(args, 'mode') || Object.hasOwn(args, 'provider')
-      if (regexChange && args.hostRegex !== null && typeof args.hostRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
-      if (routeChange && args.inherit !== true) {
-        if (!['host', 'plugin-direct', 'plugin-tool-call'].includes(args.mode)) throw new Error('正文生成方式无效')
-        if (typeof args.provider !== 'string' || args.provider.length > 300) throw new Error('正文生成器无效')
-        if (args.mode !== 'host') await deps.pluginApi.bodyGenerators.require(args.provider, chat.sessionId)
-      }
-      await updateChat(chat.id, current => {
-        if (routeChange) {
-          if (args.inherit === true) { delete current.storyGenerationMode; delete current.storyGenerationProvider }
-          else { current.storyGenerationMode = args.mode; current.storyGenerationProvider = args.provider }
-        }
-        if (regexChange) {
-          if (args.hostRegex === null) delete current.storyPluginOutputRegex
-          else current.storyPluginOutputRegex = args.hostRegex
-        }
-        return current
-      }, { source: 'settings.body-generation' })
-      return handlers.getBodyGenerationSettings(args)
-    },
     async getUserPreferenceProfile(args) {
       const chat = args?.sessionId && args.globalDefaults !== true ? await chatHeaderForSession(args.sessionId, ['userProfileEnabled','userProfileContextSnapshot','userProfileId','userProfileRevision']) : null
       return {
@@ -218,14 +185,6 @@ export function createSettingsHandlers(deps) {
       const disabledWritingSkills = (Array.isArray(chat.disabledWritingSkills) ? chat.disabledWritingSkills : [])
         .map(canonicalTavernSkillName)
         .filter(name => typeof name === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))
-      const defaultBodyGeneration = {
-        mode: ['host', 'plugin-direct', 'plugin-tool-call'].includes(chat.storyGenerationMode) ? chat.storyGenerationMode : 'inherit',
-        provider: typeof chat.storyGenerationProvider === 'string' ? chat.storyGenerationProvider : '',
-        hostRegex: typeof chat.storyPluginOutputRegex === 'boolean' ? chat.storyPluginOutputRegex : null
-      }
-      if (defaultBodyGeneration.mode.startsWith('plugin-') && !defaultBodyGeneration.provider.trim()) {
-        defaultBodyGeneration.mode = 'inherit'
-      }
       const defaultPluginGameSettings = { ...(currentSettings.defaultPluginGameSettings || {}) }
       const gamePlugins = await deps.pluginApi?.gamePlugins?.(sessionId).catch(() => null)
       for (const entry of gamePlugins?.settings || []) {
@@ -263,7 +222,6 @@ export function createSettingsHandlers(deps) {
         },
         defaultDisabledForegroundTools: disabledForegroundTools,
         defaultDisabledWritingSkills: disabledWritingSkills,
-        defaultBodyGeneration,
         defaultPluginGameSettings,
         ...(includeBackgroundModel ? { defaultBackgroundModel: backgroundModel } : {})
       }
@@ -289,13 +247,6 @@ export function createSettingsHandlers(deps) {
             presetSnapshot = null
             warnings.push('默认预设不可用，已切换为不使用酒馆预设')
           }
-        }
-      }
-      let bodyDefaults = normalizeDefaultBodyGeneration(settings.defaultBodyGeneration)
-      if (bodyDefaults.mode !== 'inherit' && bodyDefaults.mode !== 'host' && deps.pluginApi?.bodyGenerators?.require) {
-        try { await deps.pluginApi.bodyGenerators.require(bodyDefaults.provider, chat.sessionId) } catch {
-          bodyDefaults = { ...bodyDefaults, mode: 'inherit', provider: '' }
-          warnings.push('默认正文生成插件不可用，已恢复为跟随全局设置')
         }
       }
       if (typeof deps.setPlayerName === 'function') {
@@ -336,15 +287,6 @@ export function createSettingsHandlers(deps) {
         current.webSearchEnabled = defaults.webSearchEnabled === true
         current.disabledForegroundTools = normalizeDisabledForegroundTools(settings.defaultDisabledForegroundTools)
         current.disabledWritingSkills = [...(settings.defaultDisabledWritingSkills || [])]
-        if (bodyDefaults.mode === 'inherit') {
-          delete current.storyGenerationMode
-          delete current.storyGenerationProvider
-        } else {
-          current.storyGenerationMode = bodyDefaults.mode
-          current.storyGenerationProvider = bodyDefaults.provider
-        }
-        if (bodyDefaults.hostRegex === null) delete current.storyPluginOutputRegex
-        else current.storyPluginOutputRegex = bodyDefaults.hostRegex
         return current
       }, { source: 'settings.restore-default-template' })
       deps.invalidateTavernSkills?.()

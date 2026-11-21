@@ -138,7 +138,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                                     ? [{ value: state.settings.storyGenerationProvider, label: "已选插件不可用" }] : []),
                                 ...(state.bodyGenerationProviders || []).map(item => ({ value: item.id, label: item.title + "（" + item.owner + "）" }))],
                             onCommit: value => saveDefault("storyGenerationProvider", value) })),
-                    h(TavernSettingRow, { title: "正文生成方式", help: "直接生成由插件组织上下文并请求正文；检索模式先由前台收集资料。正文完成后一次性显示。本局设置可覆盖此选择。" },
+                    h(TavernSettingRow, { title: "正文生成方式", help: "直接生成由插件组织上下文并请求正文；检索模式先由前台收集资料。正文完成后一次性显示。" },
                         h(InlineField, { kind: "menu", label: "正文生成方式", hideLabel: true, disabled: state.loading || state.busy,
                             value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
                             onCommit: value => saveDefault("storyGenerationMode", value) })),

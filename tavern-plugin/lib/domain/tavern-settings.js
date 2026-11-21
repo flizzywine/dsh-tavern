@@ -7,14 +7,6 @@ import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from '.
 
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
-export function normalizeDefaultBodyGeneration(value) {
-  const input = object(value)
-  const mode = ['host', 'plugin-direct', 'plugin-tool-call'].includes(input.mode) ? input.mode : 'inherit'
-  const provider = typeof input.provider === 'string' ? input.provider.slice(0, 300) : ''
-  const hostRegex = typeof input.hostRegex === 'boolean' ? input.hostRegex : null
-  return { mode: mode.startsWith('plugin-') && !provider.trim() ? 'inherit' : mode, provider, hostRegex }
-}
-
 export function normalizeDefaultPluginGameSettings(value) {
   const result = {}
   for (const [owner, fields] of Object.entries(object(value))) {
@@ -289,17 +281,6 @@ export function applyTavernSettingsPatch(current, patch) {
     if (!Array.isArray(input.defaultDisabledForegroundTools)) throw new Error('前台工具默认配置无效')
     next.defaultDisabledForegroundTools = normalizeDisabledForegroundTools(input.defaultDisabledForegroundTools)
   }
-  if (Object.hasOwn(input, 'defaultBodyGeneration')) {
-    const body = input.defaultBodyGeneration
-    if (body !== null && (typeof body !== 'object' || Array.isArray(body))) throw new Error('默认正文生成设置无效')
-    if (body !== null) {
-      if (Object.hasOwn(body, 'mode') && !['inherit', 'host', 'plugin-direct', 'plugin-tool-call'].includes(body.mode)) throw new Error('正文生成方式无效')
-      if (Object.hasOwn(body, 'provider') && (typeof body.provider !== 'string' || body.provider.length > 300)) throw new Error('正文生成插件标识无效')
-      if (Object.hasOwn(body, 'hostRegex') && body.hostRegex !== null && typeof body.hostRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
-      if (body.mode?.startsWith('plugin-') && !body.provider?.trim()) throw new Error('请先选择正文生成插件')
-    }
-    next.defaultBodyGeneration = normalizeDefaultBodyGeneration(body)
-  }
   if (Object.hasOwn(input, 'defaultPluginGameSettings')) {
     if (input.defaultPluginGameSettings !== null && (typeof input.defaultPluginGameSettings !== 'object' || Array.isArray(input.defaultPluginGameSettings))) throw new Error('默认插件本局设置无效')
     next.defaultPluginGameSettings = normalizeDefaultPluginGameSettings(input.defaultPluginGameSettings)
@@ -519,7 +500,6 @@ export function presentTavernSettings(document, defaults) {
     scriptChunkSize: Number.isSafeInteger(object(document).scriptChunkSize) && document.scriptChunkSize >= 100 && document.scriptChunkSize <= 10000 ? document.scriptChunkSize : 500,
     defaultDisabledWritingSkills: Array.isArray(object(document).defaultDisabledWritingSkills) ? object(document).defaultDisabledWritingSkills.filter(name => typeof name === 'string') : [],
     defaultDisabledForegroundTools: normalizeDisabledForegroundTools(object(document).defaultDisabledForegroundTools),
-    defaultBodyGeneration: normalizeDefaultBodyGeneration(object(document).defaultBodyGeneration),
     defaultPluginGameSettings: normalizeDefaultPluginGameSettings(object(document).defaultPluginGameSettings),
     modModels: structuredClone(object(document).modModels || {}),
     defaultForegroundModel: normalizeBackgroundModel(object(document).defaultForegroundModel),

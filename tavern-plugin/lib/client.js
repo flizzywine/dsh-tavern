@@ -50778,7 +50778,7 @@ function askTavernCardPackWay(file, staged) {
                                             ? [{ value: state.settings.storyGenerationProvider, label: "已选插件不可用" }] : []),
                                         ...(state.bodyGenerationProviders || []).map(item => ({ value: item.id, label: item.title + "（" + item.owner + "）" }))],
                                     onCommit: value => saveDefault("storyGenerationProvider", value) })),
-                            h(TavernSettingRow, { title: "正文生成方式", help: "直接生成由插件组织上下文并请求正文；检索模式先由前台收集资料。正文完成后一次性显示。本局设置可覆盖此选择。" },
+                            h(TavernSettingRow, { title: "正文生成方式", help: "直接生成由插件组织上下文并请求正文；检索模式先由前台收集资料。正文完成后一次性显示。" },
                                 h(InlineField, { kind: "menu", label: "正文生成方式", hideLabel: true, disabled: state.loading || state.busy,
                                     value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
                                     onCommit: value => saveDefault("storyGenerationMode", value) })),
@@ -61386,37 +61386,6 @@ function createConversationSettingsModule({
             problemLine(problem));
     }
 
-    // ---------- 正文生成 ----------
-    function SessionBodyGeneration({ sessionId }) {
-        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
-        const load = React.useCallback(() => {
-            setError("");
-            return rpc("getBodyGenerationSettings", { sessionId }, sessionId).then(setData, err => setError("读取失败：" + errorText(err)));
-        }, [sessionId]);
-        React.useEffect(() => { void load(); }, [load]);
-        async function save(patch) {
-            setBusy(true); setError("");
-            const selection = Object.hasOwn(patch, "hostRegex") ? {} : { mode: data.mode, provider: data.provider };
-            try { setData(await trackTavernSettingsWrite(sessionId, rpc("setBodyGenerationSettings", { sessionId, ...selection, ...patch }, sessionId))); }
-            catch (err) { setError("保存失败：" + errorText(err)); }
-            finally { setBusy(false); }
-        }
-        const off = busy || !data;
-        return h(packUi.StageSection, { title: "正文生成", foldKey: FOLD("正文生成"), help: "先选生成插件，再切换方式。改动从下一次操作生效。" },
-            rows(
-                h(InlineField, { kind: "menu", label: "生成方式", controlLabel: "本局正文生成方式", value: data?.inherited ? "inherit" : data?.mode || "host", disabled: off,
-                    options: [{ value: "inherit", label: "跟随全局设置" }, { value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
-                    onCommit: value => save(value === "inherit" ? { inherit: true } : { mode: value }) }),
-                h(InlineField, { kind: "menu", label: "生成插件", controlLabel: "本局正文生成插件", value: data?.provider || "", disabled: off,
-                    options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
-                    onCommit: provider => save({ provider }) }),
-                h(InlineField, { kind: "menu", label: "宿主正则", controlLabel: "插件生成正文后仍应用宿主正则", help: help("宿主正则", "插件生成正文后，是否仍应用全局、预设和人物卡的正则。"),
-                    value: data?.hostRegexInherited ? "inherit" : data?.hostRegex ? "on" : "off", disabled: off,
-                    options: [{ value: "inherit", label: "跟随全局设置" }, { value: "on", label: "开启" }, { value: "off", label: "关闭" }],
-                    onCommit: value => save({ hostRegex: value === "inherit" ? null : value === "on" }) })),
-            problemLine(error, error.startsWith("读取") ? load : null));
-    }
-
     // ---------- the options plugins add to this game (tavern.gameSettings), one section per plugin ----------
     // Plugins themselves are switched on and off globally, on the 酒馆插件 page.
     function SessionPluginSettings({ sessionId }) {
@@ -61509,7 +61478,6 @@ function createConversationSettingsModule({
                     h(SessionCandidateCount, { sessionId, config }))),
             stage?.isStageCard === true ? h(SessionStageSection, { sessionId, config, stage }) : null,
             h(SessionModelSection, { sessionId, config }),
-            h(SessionBodyGeneration, { sessionId }),
             h(SessionFeatureSection, { config }),
             h(SessionPluginSettings, { sessionId }),
             h(SessionToolsSection, { config }),
