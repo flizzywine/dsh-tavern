@@ -175,6 +175,7 @@ function sameSummary(left, right) {
  */
 export function createTavernConversationRegistry(options = {}) {
   const store = options.store || {}
+  const isDeleted = options.isDeleted || (() => false)
   const stage = (name, operation) => typeof options.trace?.stage === 'function' ? options.trace.stage(name, operation) : operation()
   for (const method of ['readLinks', 'updateLinks', 'readIndex', 'updateIndex', 'readChat', 'writeChat', 'removeChat']) {
     if (typeof store[method] !== 'function') throw new Error('Tavern Conversation Registry 缺少 store.' + method)
@@ -307,6 +308,7 @@ export function createTavernConversationRegistry(options = {}) {
     if (!chat || str(chat.id) === '') throw new Error('不能同步没有 id 的 Tavern Chat 摘要')
     let summary
     await store.updateIndex(index => {
+      if (isDeleted(chat.id)) return undefined
       const rows = chatRows(index)
       const current = rows.find(item => item && item.id === str(chat.id))
       summary = chatSummary(chat, current && current.lastOpenedAt, current && current.preview, options)
@@ -435,7 +437,7 @@ export function createTavernConversationRegistry(options = {}) {
     const listed = new Set(chatRows(await store.readIndex()).map(item => str(item && item.id)))
     const recovered = []
     for (const id of chatIds) {
-      if (listed.has(str(id))) continue
+      if (isDeleted(id) || listed.has(str(id))) continue
       let chat
       try { chat = await store.readChat(id) } catch (error) { console.warn('dsh-tavern: 无法读取未登记的存档', id, error?.message || error); continue }
       if (!chat || str(chat.id) !== str(id)) continue

@@ -307,6 +307,7 @@ import { createTavernSkillProvider } from './domain/tavern-skill-provider.js'
 import { canonicalTavernSkillName, createTavernSkillModule } from './domain/tavern-skills.js'
 import { readZipEntries } from './domain/zip-entries.js'
 import { createGameFootprint } from './domain/game-footprint.js'
+import { createConversationDeletion } from './domain/conversation-deletion.js'
 import { createGameSaveExporter } from './domain/game-save-export.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { readdir, readFile, rm, mkdir, stat, writeFile } from 'node:fs/promises'
@@ -1379,6 +1380,7 @@ export async function apply(ctx) {
   }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
+    isDeleted: chatId => deletedChatIds.has(chatId),
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
       readLinks: async function () {
@@ -1413,6 +1415,14 @@ export async function apply(ctx) {
       removeChat: async function (chatId) { await chatPersistence.remove(chatId) }
     }
   })
+  const conversationDeletion = createConversationDeletion({
+    store: profileData, deletedChatIds, removeCore: conversationRegistry.remove, cleanup: cleanupDeletedChat
+  })
+  const pendingChatDeletions = await conversationDeletion.pendingIds().catch(error => {
+    console.warn('dsh-tavern: 读取对话删除队列失败', error?.message || error)
+    return []
+  })
+  for (const chatId of pendingChatDeletions) deletedChatIds.add(chatId)
   async function readSessionMap() { return await conversationRegistry.links() }
   // A game's session as its event log: the live one, else read from disk (a settlement resumed after a restart).
   async function readSessionLog(sessionId) {
@@ -1869,6 +1879,7 @@ export async function apply(ctx) {
     references: () => conversationRegistry.list(), archived: () => ctx.get('workspaceRegistry')?.archivedSessionIds
   })
   async function stopChatForDeletion(chatId) {
+    if (deletedChatIds.has(chatId)) return undefined
     const chat = await readChatForDeletion(str(chatId))
     if (!chat) return undefined
     const ids = new Set([chat.sessionId, ...Object.values(storyTimeline.inspect({ chat }).participants || {}).map(item => item.sessionId)])
@@ -1938,17 +1949,13 @@ export async function apply(ctx) {
         catch (error) { outcomes.set(item.chatId, { chatId: item.chatId, ok: false, error: String(error?.message || error) }) }
       }
     }
-    const deferred = []
     for (const item of prepared) {
       if (outcomes.has(item.chatId)) continue
       try {
-        await finishChatDeletion(item.chatId, item.chat, footprints.get(item.chatId) || null, deferred)
+        await conversationDeletion.remove(item.chatId, footprints.get(item.chatId))
         outcomes.set(item.chatId, { chatId: item.chatId, ok: true })
       } catch (error) { outcomes.set(item.chatId, { chatId: item.chatId, ok: false, error: String(error?.message || error) }) }
     }
-    // Two games can name the same loaded session; queue each directory once.
-    const pendingDeletions = [...new Map(deferred.map(item => [item.path, item])).values()]
-    if (pendingDeletions.length) await gameFootprint.deferSessionDeletion(pendingDeletions).catch(error => console.warn('dsh-tavern: 延迟删除队列写入失败', error?.message || error))
     return { results: unique.map(chatId => outcomes.get(chatId)) }
   }
   // A background session is this game's only if its stored parent is this game's foreground
@@ -1961,39 +1968,40 @@ export async function apply(ctx) {
       try { return handle.header?.parentSession === chat.sessionId } finally { await handle.close() }
     } catch { return false }
   }
-  // A batch hands every loaded session to one deferred queue write instead of one per game.
-  async function finishChatDeletion(chatId, chat, footprint, deferred) {
-    const result = await conversationRegistry.remove(chatId)
-    await worldbookSkillProvider?.removeChat(chat)
-    deletedChatIds.add(chatId)
-    await pluginMedia.removeChat(chatId).catch(() => console.warn('dsh-tavern: 插件媒体记录清理失败', chatId))
-    await pluginData.removeChat(chatId).catch(() => console.warn('dsh-tavern: 插件数据清理失败', chatId))
-    await displayRuntimeStore.remove(chatId).catch(() => {})
-    await sceneWorldbookArchive.forgetChat(chatId).catch(() => {})
-    pluginApi.gameRemoved(footprint?.foregroundSessionId || chat?.sessionId)
-    if (footprint) {
-      deletedSessionIds.add(footprint.foregroundSessionId)
-      await apiDiagnostics.forget(footprint.foregroundSessionId).catch(() => {})
-      await backgroundAgentRunner.releaseFor(footprint.foregroundSessionId)
+  async function cleanupDeletedChat(chatId, footprint) {
+    const sessionId = footprint?.foregroundSessionId
+    if (sessionId && !deletedSessionIds.has(sessionId)) {
+      deletedSessionIds.add(sessionId)
+      pluginApi.gameRemoved(sessionId)
+    }
+    async function cleanupFiles() {
+      if (!footprint) return
+      if (sessionId) {
+        await apiDiagnostics.forget(sessionId)
+        await backgroundAgentRunner.releaseFor(sessionId)
+      }
       // A session DSH still holds loaded would be written back; delete it on the next start.
       const live = footprint.items.filter(item => item.category === 'subsession' && agentRegistry.get(item.sessionId))
-      footprint.items = footprint.items.filter(item => !live.includes(item))
-      if (deferred) deferred.push(...live)
-      else await gameFootprint.deferSessionDeletion(live)
-      const cleanup = await gameFootprint.removeLeftovers(footprint)
-      if (cleanup.failures.length) console.warn('dsh-tavern: 删除游戏后有残留未清理', chatId, cleanup.failures.slice(0, 5))
+      if (live.length) await gameFootprint.deferSessionDeletion(live)
+      const cleanup = await gameFootprint.removeLeftovers({ ...footprint, items: footprint.items.filter(item => !live.includes(item)) })
+      if (cleanup.failures.length) throw new Error(cleanup.failures[0].error)
     }
-    return result
+    // These stores are independent. Attempt each even if another fails, keeping
+    // the journal entry until every step has succeeded or been durably deferred.
+    const results = await Promise.allSettled([
+      pluginMedia.removeChat(chatId),
+      pluginData.removeChat(chatId),
+      displayRuntimeStore.remove(chatId),
+      sceneWorldbookArchive.forgetChat(chatId),
+      cleanupFiles()
+    ])
+    const failures = results.filter(result => result.status === 'rejected')
+    if (failures.length) throw new Error(failures.map(({ reason }) => reason?.message || String(reason)).join('；'))
   }
   async function deleteChat(chatId) {
-    const chat = await stopChatForDeletion(chatId)
-    let indexSnapshot
-    const readChatIndex = async function () {
-      if (indexSnapshot === undefined) indexSnapshot = await readIndex()
-      return indexSnapshot
-    }
-    const footprint = chat ? await gameFootprint.describe(chat, { ownsSession: id => ownsBackgroundSession(chat, id, readChatIndex) }) : null
-    return await finishChatDeletion(chatId, chat, footprint)
+    const { results: [result] } = await deleteChats([chatId])
+    if (!result.ok) throw new Error(result.error)
+    return { deleted: true }
   }
   async function exportConversation(chatId, sessionId, title) {
     const chat = str(chatId) === '' ? await chatForSession(str(sessionId)) : await readChat(str(chatId))
@@ -5250,6 +5258,7 @@ export async function apply(ctx) {
 
   try {
     const startedAt = Date.now()
+    await conversationDeletion.resumePending(pendingChatDeletions)
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
     setImmediate(function () {
