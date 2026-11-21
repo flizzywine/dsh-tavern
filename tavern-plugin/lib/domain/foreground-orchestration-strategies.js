@@ -597,6 +597,12 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (knownTools) {
       assembly.tools = finalTools
     }
+    const mountedResources = input.chat?.workspace?.mountedResources
+    if (mode === 'card' && finalTools.some(tool => tool.name === 'tavern_read_play_chat') &&
+      Array.isArray(mountedResources) && mountedResources.some(resource => resource?.kind === 'play-chat')) {
+      sections.push({ name: 'tavern:play-chat-diagnostics',
+        text: '排查已关联的游玩记录时，先调用 tavern_read_play_chat，参数 layer 填 overview。存在多个引用时填对应的 ref。' })
+    }
     // The submission contract follows the tools that actually survived the
     // per-game switches and the plugin scopes. When only input replay is on, the
     // tool is declared for the history but the model must write prose directly.
