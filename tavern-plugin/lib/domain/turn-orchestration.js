@@ -246,6 +246,7 @@ function rememberFrame(chat, frame) {
 const FRAME_INSTRUCTION_KIND = Object.freeze({
   base: 'foreground.writing-rules',
   'world-book': 'foreground.active-worldbook',
+  'world-book-title-hints': 'foreground.worldbook-title-hints',
   posture: 'foreground.current-state',
   'variable-update': 'foreground.current-state',
   guide: 'foreground.guide',
@@ -830,7 +831,8 @@ export function createTurnOrchestrator(options) {
       const macroState = templateMacros && state.macroState?.userName !== plannedUserName
         ? { ...templateMacros, userName: state.macroState?.userName } : templateMacros
       return planner.plan({ purpose: 'body', card, chat: macroState ? { ...state, macroState } : state, userText: runtimeUserText,
-        sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(state), worldBookContext })
+        sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(state),
+        worldBookContext, worldBookTitleHints: foregroundWorldBook?.titleHints })
     }
     const plan = await planBody(chat)
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
