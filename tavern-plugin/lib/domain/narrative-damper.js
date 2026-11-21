@@ -119,11 +119,11 @@ export function validateNarrativeDamperConfig(value) {
     throw error('DAMPER_INVALID_CONFIG', '环境变量名称格式无效')
   }
   if (customEndpoint) {
-    if (raw.enabled === true && !validCustomBaseUrl(raw.baseUrl)) {
-      throw error('DAMPER_INVALID_CONFIG', '自定义接口地址须为有效的 HTTPS 地址或本地回环 HTTP 地址')
-    }
-    if (Object.hasOwn(raw, 'baseUrl') && raw.baseUrl !== '' && !validCustomBaseUrl(raw.baseUrl)) {
-      throw error('DAMPER_INVALID_CONFIG', '自定义接口地址须为有效的 HTTPS 地址或本地回环 HTTP 地址')
+    if (Object.hasOwn(raw, 'baseUrl')) {
+      const trimmedBaseUrl = typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : null
+      if (trimmedBaseUrl === null || (trimmedBaseUrl !== '' && !validCustomBaseUrl(trimmedBaseUrl))) {
+        throw error('DAMPER_INVALID_CONFIG', '自定义接口地址须为有效的 HTTPS 地址或本地回环 HTTP 地址')
+      }
     }
   } else if (Object.hasOwn(raw, 'baseUrl') && raw.baseUrl !== '') {
     throw error('DAMPER_INVALID_CONFIG', '官方固定端点无需填写自定义接口地址')
