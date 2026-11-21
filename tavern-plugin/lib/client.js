@@ -49839,9 +49839,10 @@ function askTavernCardPackWay(file, staged) {
 			});
 		}
 
-		function applyTavernViewTabRow(row, entries, items, { polishEnabled } = {}) {
+		function applyTavernViewTabRow(row, entries, items, { polishEnabled, galleryEnabled } = {}) {
 			const buttons = Array.from(row.querySelectorAll('button[role="tab"]'));
-			const available = polishEnabled === true ? items : items.filter(id => id !== "dsh-tavern:polish");
+			const available = items.filter(id => (id !== "dsh-tavern:polish" || polishEnabled === true)
+				&& (id !== "dsh-tavern:gallery" || galleryEnabled === true));
 			const plan = tavernViewTabPlan(buttons, entries, available);
 			if (!plan.length) return 0;
 			let visible = 0;
@@ -49878,7 +49879,8 @@ function askTavernCardPackWay(file, staged) {
 				if (!rows.size) return;
 				const preferences = displayPreferences.snapshot();
 				const entries = tavernViewTabEntries(slots), current = tavernViewTabItems(preferences?.viewTabs);
-				rows.forEach(function (_observer, row) { applyTavernViewTabRow(row, entries, current, { polishEnabled: preferences?.polishEnabled }); });
+				const availability = { polishEnabled: preferences?.polishEnabled, galleryEnabled: Boolean(tavernUiExtensions.illustrator()) };
+				rows.forEach(function (_observer, row) { applyTavernViewTabRow(row, entries, current, availability); });
 			}
 			function schedule() {
 				if (frame) return;
@@ -49911,8 +49913,10 @@ function askTavernCardPackWay(file, staged) {
 			observer.observe(doc.body, { childList: true, subtree: true });
 			discover();
 			const stopPreferences = typeof displayPreferences.subscribe === "function" ? displayPreferences.subscribe(schedule) : function () { };
+			const stopIllustrators = tavernUiExtensions.subscribe(schedule);
 			return function () {
 				stopPreferences();
+				stopIllustrators();
 				observer.disconnect();
 				rows.forEach(item => item.disconnect());
 				rows.clear();
@@ -50034,7 +50038,7 @@ function askTavernCardPackWay(file, staged) {
 				h("ul", { className: "dsh-tavern-view-tab-list" }, items.map(row)),
 				h("div", { className: "dsh-tavern-view-tab-catalog" },
 					h("strong", { className: "dsh-tavern-settings-title" }, "可添加的标签"),
-				h("p", { className: "dsh-tavern-settings-desc" }, "点击将标签加回末尾。精修在「剧情」设置开启后显示。手机端可左右滑动。"),
+				h("p", { className: "dsh-tavern-settings-desc" }, "点击将标签加回末尾。画廊随配图开启，精修在「剧情」设置开启后显示。手机端可左右滑动。"),
 					h("div", { className: "dsh-tavern-view-tab-chips" },
 						addable.length
 							? addable.map(entry => h("button", { key: entry.id, type: "button", className: "dsh-tavern-view-tab-chip", disabled: busy, onClick: function () { void toggle(entry.id); } },

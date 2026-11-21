@@ -7420,7 +7420,7 @@ function versionsOf(jobId) {
           h('span', null,
             h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用配图'),
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
-              config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
+              config.imageEnabled === false ? '已关闭配图和对话顶部的画廊。已有插图照常显示。' : '为剧情自动或手动配图，并在对话顶部显示画廊。')),
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
         h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'worldbook', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
           h('option', { value: 'worldbook' }, '世界书模式（默认）'), h('option', { value: 'workbench' }, '生图工作台（高级模式）')))),
@@ -8036,9 +8036,10 @@ function versionsOf(jobId) {
         })
       } catch (error) { reportHost('apply-report-failed', { message: String(error && error.message) }) }
       try {
-        const settings = { smartImageSelection: true, imageEnabled: true }
+        const settings = { smartImageSelection: true, imageEnabled: false }
         // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
         let refreshIllustrator = null
+        let receivedImageConfig = false
         const applyImageEnabled = value => {
           const next = value !== false
           if (next === settings.imageEnabled) return
@@ -8047,6 +8048,7 @@ function versionsOf(jobId) {
         }
         const updateImageConfig = event => {
           if (!event.detail) return
+          receivedImageConfig = true
           applyImageEnabled(event.detail.imageEnabled)
           applyImagePlacement(event.detail)
         }
@@ -8054,7 +8056,7 @@ function versionsOf(jobId) {
         ctx.effect?.(() => () => window.removeEventListener('dsh-tavern-image:config', updateImageConfig), 'dsh-tavern-image: display config')
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            applyImageEnabled(state.config.imageEnabled)
+            if (!receivedImageConfig) applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
             applyImagePlacement(state.config)

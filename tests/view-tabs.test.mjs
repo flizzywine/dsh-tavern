@@ -47,7 +47,7 @@ test('顶部标签有固定的默认顺序，保存、读取和恢复时对话�
 
 function loadModule(extra = {}) {
   const context = vm.createContext(Object.assign({ React }, extra))
-  vm.runInContext(moduleSource + '\nthis.api = { tavernViewTabItems, tavernViewTabEntries, tavernViewTabPlan, applyTavernViewTabRow, TavernViewTabsSettings, tavernViewTabCatalog };', context)
+  vm.runInContext(moduleSource + '\nthis.api = { tavernViewTabItems, tavernViewTabEntries, tavernViewTabPlan, applyTavernViewTabRow, installTavernViewTabLayout, TavernViewTabsSettings, tavernViewTabCatalog };', context)
   return context.api
 }
 
@@ -80,13 +80,13 @@ test('客户端标签行按设置的清单显示与排序，隐藏当前标签�
     const disabledRow = tabRow(dom, undefined, '精修')
     let fallbackClicks = 0
     disabledRow.querySelector('button').addEventListener('click', () => { fallbackClicks += 1 })
-    assert.equal(api.applyTavernViewTabRow(disabledRow, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items]), 3)
+    assert.equal(api.applyTavernViewTabRow(disabledRow, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items], { galleryEnabled: true }), 3)
     assert.equal(styleOf(disabledRow).find(item => item.id === 'dsh-tavern:polish').display, 'none')
     assert.equal(fallbackClicks, 1)
 
     // 开启后按保存的顺序显示精修。
     let row = tabRow(dom)
-    assert.equal(api.applyTavernViewTabRow(row, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items], { polishEnabled: true }), 4)
+    assert.equal(api.applyTavernViewTabRow(row, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items], { polishEnabled: true, galleryEnabled: true }), 4)
     assert.deepEqual(styleOf(row).map(item => [item.id, item.display, item.order]), [
       ['chat', '', '0'], ['trajectory', '', '1'], ['dsh-tavern:full-context', 'none', ''], ['dsh-tavern:gallery', '', '2'], ['dsh-tavern:polish', '', '3']
     ])
@@ -103,6 +103,45 @@ test('客户端标签行按设置的清单显示与排序，隐藏当前标签�
     api.applyTavernViewTabRow(row, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items])
     assert.deepEqual(styleOf(row).map(item => item.id), ['chat', 'dsh-tavern:full-context', 'dsh-tavern:gallery', 'dsh-tavern:polish'])
   } finally { dom.window.close() }
+})
+
+test('配图切换即时显示或隐藏画廊，关闭时从画廊回到对话', t => {
+  const dom = new JSDOM('<body></body>', { pretendToBeVisual: true })
+  t.after(() => dom.window.close())
+  const row = tabRow(dom, undefined, '对话')
+  const chat = row.querySelector('button')
+  const gallery = [...row.querySelectorAll('button')].find(button => button.textContent === '画廊')
+  let fallbackClicks = 0
+  chat.addEventListener('click', () => { fallbackClicks++ })
+  let frame, onIllustratorChange, illustrator = null
+  dom.window.requestAnimationFrame = callback => { frame = callback; return 1 }
+  const api = loadModule({
+    displayPreferences: { snapshot: () => ({ viewTabs: DEFAULT_VIEW_TABS }) },
+    tavernUiExtensions: {
+      illustrator: () => illustrator,
+      subscribe(listener) { onIllustratorChange = listener; return () => { onIllustratorChange = undefined } }
+    }
+  })
+  const dispose = api.installTavernViewTabLayout({
+    document: dom.window.document,
+    slots: { entries: () => TAB_ENTRIES.map(options => ({ options })) }
+  })
+  try {
+    frame()
+    assert.equal(gallery.style.display, 'none')
+    illustrator = { draw() {} }
+    onIllustratorChange()
+    frame()
+    assert.equal(gallery.style.display, '')
+    chat.setAttribute('aria-selected', 'false')
+    gallery.setAttribute('aria-selected', 'true')
+    illustrator = null
+    onIllustratorChange()
+    frame()
+    assert.equal(gallery.style.display, 'none')
+    assert.equal(fallbackClicks, 1)
+  } finally { dispose() }
+  assert.equal(onIllustratorChange, undefined)
 })
 
 test('客户端清单读取时也把对话补到首位，旧配置或手改配置不会把它删掉', () => {
