@@ -6172,6 +6172,44 @@ function createRuntime(ctx, overrides, logger, deps) {
       // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
       submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
+      // 单条修改：只重建目标记录，其余条目原样带过。id 不参与合并（不允许改 id）。
+      // traits 按 key 合并、outfits 按 id 合并；其余字段浅合并，未知字段照旧交给归一化丢弃。
+      patchCardDefinition: (target, item, expectedRevision) => {
+        const key = target === 'outfits' ? 'outfits' : 'characters'
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw Object.assign(new Error('item 必须是对象'), { code: 'INVALID_ARGUMENT' })
+        const id = typeof item.id === 'string' ? item.id.trim() : ''
+        if (!id) throw Object.assign(new Error('item.id 必填'), { code: 'INVALID_ARGUMENT' })
+        const patch = { ...item }
+        delete patch.id
+        const invalid = message => Object.assign(new Error(message), { code: 'INVALID_ARGUMENT' })
+        if (key === 'characters') {
+          if (Object.hasOwn(patch, 'traits') && (!patch.traits || typeof patch.traits !== 'object' || Array.isArray(patch.traits))) throw invalid('item.traits 必须是对象')
+          if (Object.hasOwn(patch, 'outfits')) {
+            if (!Array.isArray(patch.outfits) || patch.outfits.some(outfit => !outfit || typeof outfit.id !== 'string' || !outfit.id.trim())) throw invalid('item.outfits 必须是包含有效服装 ID 的数组')
+            patch.outfits = patch.outfits.map(outfit => ({ ...outfit, id: outfit.id.trim() }))
+            if (new Set(patch.outfits.map(outfit => outfit.id)).size !== patch.outfits.length) throw invalid('item.outfits 的服装 ID 不能重复')
+          }
+        }
+        return definitionStore.update(current => {
+          const list = Array.isArray(current[key]) ? current[key] : []
+          const index = list.findIndex(entry => String(entry?.id ?? '') === id)
+          if (index < 0) throw Object.assign(new Error('人物库里没有这条记录：' + id), { code: 'NOT_FOUND' })
+          const previous = list[index]
+          const merged = { ...previous, ...patch }
+          if (key === 'characters') {
+            if (patch.traits && typeof patch.traits === 'object' && !Array.isArray(patch.traits)) merged.traits = { ...previous.traits, ...patch.traits }
+            if (Array.isArray(patch.outfits)) {
+              const byId = new Map(patch.outfits.map(outfit => [String(outfit?.id ?? ''), outfit]))
+              merged.outfits = (previous.outfits ?? [])
+                .map(outfit => byId.has(String(outfit?.id ?? '')) ? { ...outfit, ...byId.get(String(outfit?.id ?? '')) } : outfit)
+                .concat(patch.outfits.filter(outfit => !(previous.outfits ?? []).some(entry => String(entry?.id ?? '') === String(outfit?.id ?? ''))))
+            }
+          }
+          const next = list.slice()
+          next[index] = merged
+          return normalizeDefinitions({ ...current, [key]: next })
+        }, { expectedRevision, requireRevision: true })
+      },
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
