@@ -72,24 +72,28 @@ test('native list, grep and read pipeline isolates files and background leases w
   function success(result) { assert.equal(result.isError, false, output(result)); return result.value }
   function failure(result) { assert.equal(result.isError, true, output(result)); return output(result) }
   async function discover(caller) {
-    const result = success(await execute(caller, 'grep_lorebook', { query: '港口' }))
-    return JSON.parse(result.result).matches[0].path
+    return (await provider.inspect({ scope: caller })).files[0].path
   }
   assert.equal(ctx.tools.get('worldbook_list', a), undefined)
   assert.equal(ctx.tools.get('worldbook_grep', a), undefined)
   const [pa, pb] = await Promise.all([discover(a), discover(b)])
   assert.notEqual(pa, pb)
-  const found = JSON.parse(success(await execute(a, 'grep_lorebook', { query: 'SECRET' })).result)
-  assert.equal(found.matches.length, 1)
-  assert.equal(found.matches[0].path, pa)
+  const found = await execute(a, 'grep_lorebook', { query: 'SECRET' })
+  success(found)
+  assert.equal(output(found), 'A 港口\nSECRET BODY A')
+  const titleOnly = await execute(a, 'grep_lorebook', { query: '港口' })
+  success(titleOnly)
+  assert.equal(output(titleOnly), 'A 港口')
+  assert.deepEqual(titleOnly.meta.lorebookGrepIds, [])
   const direct = async (caller, keyword) => {
     const result = await execute(caller, 'read_lorebook', { keyword })
     success(result)
     return result
   }
-  const directBody = await direct(a, '港口')
+  const directBody = await direct(a, 'A 港口')
   assert.equal(output(directBody), 'SECRET BODY A')
   assert.equal(directBody.meta.worldbookRead.title, 'A 港口')
+  assert.deepEqual(found.meta.lorebookGrepIds, [directBody.meta.worldbookRead.id])
   assert.equal(output(await direct(b, directBody.meta.worldbookRead.id)), '没有匹配的世界书条目。')
   assert.equal(filesystemReads, 0, 'no native file read is needed')
   const body = await read(a, pa, { offset: 3, limit: 1 })
@@ -116,11 +120,17 @@ test('native list, grep and read pipeline isolates files and background leases w
   failure(await execute(background, 'grep_lorebook', { query: 'SECRET' }))
   failure(await execute(background, 'read_lorebook', { keyword: 'A 港口' }))
   failure(await read(background, pa))
-  states.get(a).worldBook.view.entries[0].content = 'UPDATED BODY'
+  states.get(a).worldBook.view.entries[0].content = 'UPDATED BODY\nUPDATED HOURS'
   failure(await read(a, pa))
   const updated = await discover(a)
   assert.notEqual(updated, pa)
   assert.match(output(await read(a, updated)), /UPDATED BODY/)
+  const grouped = await execute(a, 'grep_lorebook', { query: 'UPDATED' })
+  success(grouped)
+  assert.equal(output(grouped), 'A 港口\nUPDATED BODY\nUPDATED HOURS')
+  const page = await execute(a, 'grep_lorebook', { query: 'UPDATED', offset: 1, limit: 1 })
+  success(page)
+  assert.equal(output(page), 'A 港口\nUPDATED HOURS')
   states.get(a).chat.worldbookStrategy = 'legacy'
   assert.match(output(await read(a, updated)), /UPDATED BODY/)
   states.get(a).worldBook.view.entries.push({ ref: 'test:more', title: '薛姨妈', enabled: true, content: '第二条正文' })

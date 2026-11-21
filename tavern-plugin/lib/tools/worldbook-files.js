@@ -48,11 +48,29 @@ export function registerWorldbookFileTools(tools, files) {
 
   tools.register(defineTool({
     name: GREP_LOREBOOK_TOOL,
-    description: '在本局世界书中全文搜索字面文本，默认忽略大小写。返回匹配片段及文件路径和行号。nextOffset 非空时可翻页。',
-    parameters: { query: { type: 'string', required: true }, caseSensitive: { type: 'boolean' }, ...pagination,
-      version: { type: 'string', description: '翻页时传上次返回的 version。' } },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { result: { type: 'string', required: true } } }, render: (_args, value) => [{ type: 'text', text: value.result }] },
+    description: '在本局世界书中搜索字面文本，返回命中条目的标题和片段。需要正文时用 read_lorebook 按标题读取。',
+    parameters: { query: { type: 'string', required: true }, caseSensitive: { type: 'boolean', description: '是否区分大小写，默认不区分' }, ...pagination },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: {
+        text: { type: 'string', required: true }, ids: { type: 'array', items: { type: 'string' }, required: true }
+      } },
+      render: (_args, value) => [{ type: 'text', text: value.text }],
+      presentationMeta: (_args, value) => ({ lorebookGrepIds: value.ids })
+    },
     isConcurrencySafe: () => true,
-    async execute(args, exec) { return { result: JSON.stringify(await files.searchFiles(args, { scope: exec.agent, signal: exec.signal })) } }
+    async execute(args, exec) {
+      const matches = await files.searchFiles(args, { scope: exec.agent, signal: exec.signal })
+      const entries = new Map()
+      const ids = new Set()
+      for (const match of matches) {
+        if (!entries.has(match.id)) entries.set(match.id, [match.title])
+        // Line one is the generated heading, which is already shown as the title.
+        if (match.line > 2 && match.text.trim()) {
+          entries.get(match.id).push(match.text)
+          ids.add(match.id)
+        }
+      }
+      return { text: [...entries.values()].map(entry => entry.join('\n')).join('\n\n') || '没有匹配的世界书条目。', ids: [...ids] }
+    }
   }))
 }

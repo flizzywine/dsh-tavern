@@ -44,8 +44,8 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
       if (directLookup && lookup === 0) {
         block = { type: 'tool-call', id: 'lookup-' + requests.length, name: 'read_lorebook', arguments: JSON.stringify({ keyword: '少林' }) }
       } else if (!directLookup && (lookup === 0 || lookup === 1)) {
-        block = { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'grep_lorebook' : 'read',
-          arguments: JSON.stringify(lookup === 0 ? { query: '少林' } : { file_path: worldbookPath }) }
+        block = { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'grep_lorebook' : 'read_lorebook',
+          arguments: JSON.stringify(lookup === 0 ? { query: '少林' } : { keyword: '少林' }) }
       }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
@@ -61,7 +61,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     },
     async searchFiles({ query }, { scope }) {
       searchCalls.push({ query, owner: runner.activeRequestContext(scope.session.id)?.parentSessionId })
-      return { matches: [{ path: worldbookPath, line: 1, text: '少林' }] }
+      return [{ id: 'shaolin', title: '少林', line: 3, text: '少林门规' }]
     }
   })
   ctx.tools.register({
@@ -153,7 +153,10 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
       assert.deepEqual(event.data.meta?.worldbookRead, { id: 'shaolin', title: '少林' })
     }
   }
-  assert.deepEqual(searchCalls, [{ keyword: '少林', owner: 'parent' }, ...Array.from({ length: 2 }, () => ({ query: '少林', owner: 'parent' }))])
+  assert.deepEqual(searchCalls, [
+    { keyword: '少林', owner: 'parent' },
+    ...Array.from({ length: 2 }, () => [{ query: '少林', owner: 'parent' }, { keyword: '少林', owner: 'parent' }]).flat()
+  ])
   searchPhase = null
   assert.ok(requests[0].tools.some(tool => tool.name === pluginTool.name))
   for (const [loaded, enabled] of [[true, false], [true, true], [false, false]]) {

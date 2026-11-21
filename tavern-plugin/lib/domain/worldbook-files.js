@@ -146,7 +146,8 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
       if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 500) throw Error('query 需要 1–500 字符的非空搜索文本')
       const { offset, limit } = page(args), view = await viewFor(args, lookup)
       const needle = args.caseSensitive ? args.query : args.query.toLowerCase()
-      const matches = []; let total = 0
+      const matches = []
+      let skipped = 0
       for (const row of view.rows) {
         lookup?.signal?.throwIfAborted()
         await files.verify(row.path, row.content)
@@ -154,14 +155,16 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
         for (let i = 0; i < lines.length; i++) {
           const position = (args.caseSensitive ? lines[i] : lines[i].toLowerCase()).indexOf(needle)
           if (position < 0) continue
-          if (total >= offset && matches.length < limit) {
-            const start = Math.max(0, position - 120), end = Math.min(lines[i].length, start + 800)
-            matches.push({ path: row.path, category: row.category, line: i + 1, text: lines[i].slice(start, end), truncated: start > 0 || end < lines[i].length })
+          if (skipped < offset) {
+            skipped++
+            continue
           }
-          total++
+          const start = Math.max(0, position - 120), end = Math.min(lines[i].length, start + 800)
+          matches.push({ id: lookupId(row), title: row.title, line: i + 1, text: lines[i].slice(start, end) })
+          if (matches.length === limit) return matches
         }
       }
-      return { directory: view.root, directories: view.directories, version: view.key, total, offset, nextOffset: offset + limit < total ? offset + limit : null, matches }
+      return matches
     },
     async refresh(scope, { signal } = {}) {
       const view = await current({ scope, signal })

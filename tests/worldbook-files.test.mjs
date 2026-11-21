@@ -75,10 +75,16 @@ test('成功查到正文的条目安静十个剧情回合，标题命中、失�
   lookupAt(10, 'read_lorebook', { keyword: '港口' }, JSON.stringify(await provider.readByKeyword({ keyword: '港口' }, lookup)))
   session.surface.nodes = [6, 7, 8, 9]
   assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b'])
+  lookupAt(12, 'grep_lorebook', { query: '秘密' }, '港口\n港口秘密', false, { lorebookGrepIds: [first.lookupId] })
+  lookupAt(14, 'grep_lorebook', { query: '港口' }, '港口', false, { lorebookGrepIds: [] })
+  session.surface.nodes = [10, 11, 12, 13]
+  const grepLookups = recentWorldbookLookups(session, messages)
+  assert.deepEqual(provider.refsForLookups(agent, grepLookups), ['a'])
 
   state.worldBook.view.entries[0].content += '\n改写'
   await provider.refresh(agent)
   assert.deepEqual(provider.refsForLookups(agent, lookups), [])
+  assert.deepEqual(provider.refsForLookups(agent, grepLookups), [])
   assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), [])
 })
 

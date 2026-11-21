@@ -20,7 +20,8 @@ test('主动查阅提示只用于有检索工具的前台续写', () => {
   assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep', 'worldbook_list'])), /read_lorebook/)
   assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'worldbook_grep', 'worldbook_list'])), undefined)
   assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'grep_lorebook', 'list_lorebook'])), undefined)
-  assert.match(instruction(withVirtualWorldbook([], '', ['read_lorebook'])), /再用 read/)
+  assert.match(instruction(withVirtualWorldbook([], '')), /需要正文时用 read_lorebook 按标题读取/)
+  assert.doesNotMatch(instruction(withVirtualWorldbook([], '', ['read_lorebook'])), /\bread\b|行号|路径/)
   assert.doesNotMatch(instruction(withWorldbookFileInstructions([])), /续写前先判断/)
 })
 

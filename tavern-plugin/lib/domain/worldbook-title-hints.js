@@ -54,6 +54,8 @@ export function recentWorldbookLookups(session, messages) {
       } else if (name === READ_LOREBOOK_TOOL) {
         const receipt = readLorebookReceipt(body, result.meta)
         if (receipt) ids.add(receipt.id)
+      } else if (Array.isArray(result.meta?.lorebookGrepIds)) {
+        for (const id of result.meta.lorebookGrepIds) if (typeof id === 'string') ids.add(id)
       } else {
         const matches = parseJson(body)?.matches
         if (!Array.isArray(matches)) continue

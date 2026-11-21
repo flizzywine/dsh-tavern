@@ -12,7 +12,7 @@ export function installWorldbookSkillRead(ctx, provider, { virtualOnly = async (
   return ctx.on('tools/execute', async (exec, next) => {
     if (exec.name !== 'read') return next()
     const requested = exec.arguments?.file_path
-    if (String(requested || '').startsWith(WORLDBOOK_SKILL_RESOURCE_ROOT)) throw Error('Use read_lorebook for entry text or grep_lorebook to locate matching files.')
+    if (String(requested || '').startsWith(WORLDBOOK_SKILL_RESOURCE_ROOT)) throw Error('Use read_lorebook to read by title or grep_lorebook to search for matching text.')
     if (!provider.ownsPath(requested)) {
       if (await virtualOnly(exec.agent)) throw Error('This game’s read tool is limited to its generated worldbook files')
       return next()
