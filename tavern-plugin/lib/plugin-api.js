@@ -168,12 +168,16 @@ function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
   })
 }
 
-function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [] } = {}) {
+// outfits: {outfit key: new name} the record renamed; release: the record's link to the figure ends (deleted or relinked).
+function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [], outfits, release } = {}) {
   const words = value => Array.isArray(value) && value.length <= 64 && value.every(word => typeof word === 'string' && word.trim() && word.length <= 64)
   if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
   if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 100)) throw new TypeError('name 必须是 1–100 字')
   if (!words(addAliases) || !words(removeAliases)) throw new TypeError('addAliases、removeAliases 必须是最多 64 个、每个不超过 64 字的词')
-  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()) }
+  if (outfits !== undefined && (!outfits || typeof outfits !== 'object' || Array.isArray(outfits) || Object.keys(outfits).length > 128 || Object.values(outfits).some(label => typeof label !== 'string' || !label.trim() || label.length > 100))) throw new TypeError('outfits 必须是服装 ID 到 1–100 字名称的对照')
+  if (release !== undefined && typeof release !== 'boolean') throw new TypeError('release 必须是布尔值')
+  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()),
+    ...(outfits ? { outfits: Object.fromEntries(Object.entries(outfits).map(([key, label]) => [key, label.trim()])) } : {}), ...(release ? { release: true } : {}) }
 }
 
 export function createTavernPluginApi(deps) {
@@ -333,7 +337,7 @@ export function createTavernPluginApi(deps) {
     log.warn?.('dsh-tavern: 插件 ' + owner + ' 在「' + stage + '」出错: ' + message)
   }
 
-  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError,
+  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError, librariesChanged: () => deps.imageLibrariesChanged?.(),
     available: async (owner, context) => {
       const scope = await accessScope(owner)
       return !scope || Boolean(context.card && scope.cards.includes(context.card))

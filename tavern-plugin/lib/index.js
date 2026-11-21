@@ -357,6 +357,7 @@ import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { followImageCharacters } from './image-character-follow.js'
+import { createFigureRecords } from './image-character-records.js'
 import { appearanceFromImageCharacter, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterExtension } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
@@ -3312,6 +3313,7 @@ export async function apply(ctx) {
     return header ? { sessionId: id, cardPath: str(header.cardPath) } : null
   }
   const gameForegroundQueues = new Map()
+  let figureRecords = null
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     replyStreamRewriters,
@@ -3324,7 +3326,15 @@ export async function apply(ctx) {
       const global = ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []
       return [...new Set([...own, ...global])]
     },
+    // A 人物库 came or went: figures shown from its records read again.
+    // Back: what was stored whole while it was away moves into the records (image-character-records.js foldWhole).
+    imageLibrariesChanged() {
+      const library = ctx.get('assetLibrary')
+      library?.figureRecordsChanged?.({}).then(() => figureRecords?.foldWhole(library)).catch(error => console.warn('dsh-tavern: 素材库人物刷新失败', str(error?.message || error)))
+    },
     async editLinkedFigures(changes, receipt, save) {
+      // A record write the pack write in progress made itself (image-character-records.js): that pack holds it already.
+      if (figureRecords?.writing()) return await save([])
       const library = ctx.get('assetLibrary')
       if (typeof library?.editFigureIdentities !== 'function') throw Object.assign(new Error('素材库未启用或版本过旧'), { code: 'NOT_CONFIGURED' })
       return await library.editFigureIdentities(changes, receipt, identities => save(identities.map(figure => ({
@@ -3562,9 +3572,13 @@ export async function apply(ctx) {
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
     regenerateWithProvider: input => regenerateWithProvider(input) })
   ctx.provide('tavern', pluginApi.service)
+  // A figure's name, 触发词 and outfit names: in its 配图 人物库 record once switched there (image-character-records.js),
+  // else in its pack with the follower below bringing the record along.
+  figureRecords = createFigureRecords({ api: pluginApi, file: path.join(dataRoot, 'figure-records.json'), recordFile: path.join(dataRoot, 'plugins', 'dsh-tavern-image', 'definitions.json'), log: text => console.warn('dsh-tavern: ' + text) })
+  ctx.provide('tavernFigureRecords', figureRecords)
   let follow = null
   ctx.inject(['assetLibrary'], scope => {
-    const current = follow = followImageCharacters({ library: scope.get('assetLibrary'), api: pluginApi, log: text => console.warn('dsh-tavern: ' + text) })
+    const current = follow = followImageCharacters({ library: scope.get('assetLibrary'), api: pluginApi, active: async () => await figureRecords.mode() === 'pack', log: text => console.warn('dsh-tavern: ' + text) })
     scope.effect(() => () => { current.dispose(); if (follow === current) follow = null })
   })
   // A pack leaving this library (export, copy) takes its figures' 配图 外貌 and 参考图 along as dsh.image-character; the
@@ -3587,7 +3601,7 @@ export async function apply(ctx) {
     return { bytes: data }
   },
   // an update confirmed with 「用导入的外貌」 for these figures (asset library applyImport adoptLooks), before it is written
-  adopt(input) { follow?.adopt(input) } })
+  adopt(input) { follow?.adopt(input); figureRecords.adopt(input) } })
   ctx.provide('tavernStContract', tavernStContract)
   cardRevisionListeners.add((cardPath, revision) => pluginApi.cardChanged(cardPath, revision))
   // Tell plugins the story line changed (informational: their turn data follows text versions

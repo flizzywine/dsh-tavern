@@ -34,19 +34,30 @@ export function apply(ctx, config = {}) {
   // figureImageExtras: a pack leaving the library (export, copy) takes its figures' 配图 外貌 from the host (figure-image-extras.js),
   // figureImageMedia: and the bytes of a 参考图 it names that the pack does not hold;
   // adoptFigureImageLooks: an update the user confirmed with 「用导入的外貌」 for some figures tells the host before it is written.
-  const transport = createAssetPackTransport({...config, mediaStore, figureImageExtras:input => ctx.get('tavernFigureImageExtras')?.forFigures(input), figureImageMedia:input => ctx.get('tavernFigureImageExtras').media(input), adoptFigureImageLooks:input => ctx.get('tavernFigureImageExtras')?.adopt(input), normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards,
+  // figureRecords: the host keeps a figure's name, 触发词 and outfit names in its 配图 人物库 record (storage.js, figure-records.js);
+  // without the host every figure is stored whole.
+  const figureExportOptions = {
+    figureImageExtras: input => ctx.get('tavernFigureImageExtras')?.forFigures(input),
+    figureImageMedia: input => ctx.get('tavernFigureImageExtras').media(input),
+    figureRecords: {
+      read: async input => (await ctx.get('tavernFigureRecords')?.read(input)) ?? null,
+      write: async input => { const owner = ctx.get('tavernFigureRecords'); return owner ? owner.write(input) : input.figure },
+      release: async input => { await ctx.get('tavernFigureRecords')?.release(input) },
+    },
+  }
+  const transport = createAssetPackTransport({...config, mediaStore, ...figureExportOptions, adoptFigureImageLooks:input => ctx.get('tavernFigureImageExtras')?.adopt(input), normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards,
     // a card's voice source maps to a configured voice service of the same kind (card-material.js).
     voiceChannels:async () => ((await ctx.get('tts')?.listServices()) || []).map(service => service.kind)})
   ctx.provide('assetLibrary',transport.service)
   // Internal rollback snapshots are not public downloads; never expose this callback in the transport.
   ctx.provide('assetLibraryCardBackup', async (file, input, consume) => {
-    const backup = createAssetPackService({...config, mediaStore, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
+    const backup = createAssetPackService({...config, mediaStore, ...figureExportOptions, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
     try { return await backup.withCardExport(input, consume) } finally { await backup.dispose() }
   })
   // An installed pack written whole to a private file ({packId, expectedRevision}): the card library keeps the version a
   // card update replaces, to put it back on 撤回. Not in the transport either.
   ctx.provide('assetLibraryPackBackup', async (file, input) => {
-    const backup = createAssetPackService({...config, mediaStore, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
+    const backup = createAssetPackService({...config, mediaStore, ...figureExportOptions, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
     try { return await backup.exportPack(input) } finally { await backup.dispose() }
   })
   ctx.provide('assetPackSettings',settings)

@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { imageAliasesFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
+import { createFigureRecords } from '../tavern-plugin/lib/image-character-records.js'
 import { createDefinitionsStore } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/definitions-store.js'
 import { createCharacterLibrary } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/character-library.js'
 import { imagePluginFixture, IMAGE_PNG } from './fixtures/image-plugin-runtime.mjs'
@@ -204,4 +205,52 @@ test('linked character settings save both packs together and use the committed f
   assert.equal(stored.characters[0].match, 'Code Name, 新别名')
   assert.equal(stored.characters[1].name, '新爱里')
   assert.equal((await runtime.request('definitions', { definitions: next })).status, 409)
+})
+
+test('with the records switched on, the 人物库 page edits a figure\'s names in its record and a deleted record gives them back to the pack', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'figure-records-page-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  let records
+  const api = createTavernPluginApi({
+    cardScope: async () => new Map(), runningUserPlugins: new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]]),
+    editLinkedFigures: async (changes, receipt, save) => records.writing() ? save([]) : assetLibrary.editFigureIdentities(changes, receipt, identities =>
+      save(identities.map(figure => ({ ...figure, match: imageAliasesFromFigure(figure).join(', ') })))),
+  })
+  records = createFigureRecords({ api, file: join(root, 'figure-records.json') })
+  await records.setMode('registry')
+  const assetLibrary = createAssetPackService({ assetRoot: join(root, 'asset-packs'), figureRecords: records })
+  t.after(() => assetLibrary.dispose())
+  const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect: setup => setup() } })
+  const files = await imagePluginFixture(t, { tavern, definitions: { characters: [] } })
+  const runtime = await files.start()
+  for (let i = 0; i < 100 && !(await api.imageCharacterLibraries()).length; i++) await new Promise(resolve => setTimeout(resolve, 5))
+  const pack = (await assetLibrary.createPack({ name: 'Pack', expectedRevision: null })).snapshot
+  const figure = { schemaVersion: 1, name: 'Alice', aliases: ['Ally', 'wonder_key'], appearance: 'avatar', outfits: [{ key: 'core', label: 'Coat', enabled: true }] }
+  const created = (await assetLibrary.createFigure({ packId: pack.manifest.id, expectedRevision: pack.revision, figure })).snapshot
+  const figureId = created.manifest.figures[0], packId = pack.manifest.id
+  const stored = async () => JSON.parse(await readFile(join(root, 'asset-packs', 'packs', packId, 'figures', figureId + '.json'), 'utf8'))
+  const shown = async () => (await assetLibrary.getPackSnapshot({ packId })).figures[figureId]
+  assert.equal((await stored()).name, undefined)
+  assert.deepEqual((await files.read('definitions.json')).characters.map(item => [item.name, item.match, item.outfits.map(outfit => outfit.name)]), [['Alice', 'Ally', ['Coat']]])
+
+  const next = structuredClone((await runtime.request('state')).body.definitions)
+  next.characters[0].name = 'Alicia'
+  next.characters[0].match = 'Ally, Lici'
+  next.characters[0].outfits[0].name = 'Winter coat'
+  const saved = await runtime.request('definitions', { definitions: next })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  assert.equal((await shown()).name, 'Alicia')
+  assert.deepEqual((await shown()).aliases, ['Ally', 'Lici', 'wonder_key'])
+  assert.equal((await shown()).outfits[0].label, 'Winter coat')
+  assert.equal((await stored()).name, undefined, 'the pack still keeps no copy')
+
+  const removed = structuredClone(saved.body.state.definitions)
+  removed.characters = []
+  removed.outfits = removed.outfits || []
+  const deleted = await runtime.request('definitions', { definitions: { ...removed, characters: [{ id: 'other', name: 'Bob', traits: {}, outfits: [] }] } })
+  assert.equal(deleted.status, 200, JSON.stringify(deleted.body))
+  const whole = await stored()
+  assert.equal(whole.name, 'Alicia', 'the figure takes its names back before its record goes')
+  assert.equal(whole.outfits[0].label, 'Winter coat')
+  assert.equal((await shown()).name, 'Alicia')
 })
