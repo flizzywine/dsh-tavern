@@ -108,6 +108,7 @@ export function createSettingsHandlers(deps) {
       const settings = await readTavernSettings()
       return {
         showPlayProcess: settings.showPlayProcess,
+        polishEnabled: settings.polishEnabled,
         showDamperStatus: settings.narrativeDamper?.showTurnStatus !== false,
         hideContextAndReasoning: settings.hideContextAndReasoning,
         headerItems: settings.headerItems,

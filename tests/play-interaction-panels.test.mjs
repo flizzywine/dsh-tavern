@@ -49,8 +49,10 @@ test('panels use the flow interface and candidate selection preserves user edits
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
   vm.runInContext(shortcutsSource + '\n' + source, context)
   const usePanel = store => () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  let polishEnabled = false
   const panels = context.createPlayInteractionPanels({ interactions, useCandidatePanel: usePanel(interactions.candidates),
     useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration),
+    usePolishEnabled: () => polishEnabled,
     usePhonePlay: () => false })
   let draft = '玩家原文'
   let running = false
@@ -75,6 +77,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelectorAll(".dsh-tavern-regen-submit").length, 1)
+  assert.equal([...dom.window.document.querySelectorAll('button')].some(button => button.textContent === '精修'), false)
   assert.equal(dom.window.document.querySelector('.dsh-tavern-candidate-shortcuts'), null)
   assert.equal(shortcutReads, 1, '正文重生成不读候选快捷提示')
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
@@ -97,6 +100,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelector('.dsh-tavern-regen'), null)
   running = false
+  polishEnabled = true
   await act(async () => interactions.regeneration.set({ sessionId: 'a', phase: 'input' }))
   await act(async () => [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '精修').click())
   assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /已修 1 处/)

@@ -1,7 +1,7 @@
 // @include-protocol candidate-tabs.cjs
 // @include features/candidate-guidance-shortcuts.js
 // Presentation and composer draft lifetime; async transitions belong to interactions.
-function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError }) {
+function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, usePolishEnabled, dismissCandidateError }) {
     const setCandidatePanel = interactions.candidates.set;
     const setRegenPanel = interactions.regeneration.set;
 		function buildCandidateTabs(items, isScript) {
@@ -223,6 +223,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		// The last guidance per game, offered again when the player regenerates once more.
 		function RegenPanel(props) {
         const panel = useRegenPanel();
+        const polishEnabled = usePolishEnabled();
         const sessionMode = useTavernSessionMode(props.sessionId);
         const running = props.useSession(function (snapshot) { return snapshot.running; });
         const [guidance, setGuidance] = React.useState(function () { return interactions.guidance(props.sessionId); });
@@ -234,7 +235,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         React.useEffect(function () {
             setReviewing(false);
             setReviewNote("");
-            if (!panel || panel.sessionId !== props.sessionId) return undefined;
+            if (!polishEnabled || !panel || panel.sessionId !== props.sessionId) return undefined;
             const stop = tavernSessionSignals?.subscribe(props.sessionId, "polish-saved", signal => {
                 const pending = polishRequest.current;
                 if (!pending || pending.panel !== panel || pending.id !== signal.version) return;
@@ -248,7 +249,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 if (polishRequest.current?.panel === panel) polishRequest.current = null;
                 stop?.();
             };
-        }, [panel, props.sessionId]);
+        }, [polishEnabled, panel, props.sessionId]);
         React.useEffect(function () {
             let disposed = false, loading = false;
             setReviewProgress(null);
@@ -370,7 +371,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 onChange: setGuidance,
                 placeholder: "指导意见（可选）",
                 submitLabel: "生成并替换正文",
-                secondary: { label: "精修", title: "按「正文精修原则」审读当前正文，直接改掉问题（一句到整段）；填了指导意见，精修后再只照意见改一次；不重新生成；前后对比、撤销和「自动精修」开关在顶部「精修」页", disabled: reviewing, onClick: runPolish },
+                secondary: polishEnabled ? { label: "精修", title: "按「正文精修原则」审读当前正文，直接改掉问题（一句到整段）；填了指导意见，精修后再只照意见改一次；不重新生成；前后对比、撤销和「自动精修」开关在顶部「精修」页", disabled: reviewing, onClick: runPolish } : null,
                 onSubmit: generate,
                 onCancel: function () { setRegenPanel(null); }
         });

@@ -82,9 +82,10 @@
 			});
 		}
 
-		function applyTavernViewTabRow(row, entries, items) {
+		function applyTavernViewTabRow(row, entries, items, { polishEnabled } = {}) {
 			const buttons = Array.from(row.querySelectorAll('button[role="tab"]'));
-			const plan = tavernViewTabPlan(buttons, entries, items);
+			const available = polishEnabled === true ? items : items.filter(id => id !== "dsh-tavern:polish");
+			const plan = tavernViewTabPlan(buttons, entries, available);
 			if (!plan.length) return 0;
 			let visible = 0;
 			for (const item of plan) {
@@ -110,10 +111,6 @@
 			if (!Observer) return function () { };
 			const rows = new Map();
 			let frame = 0;
-			function items() {
-				const preferences = displayPreferences.snapshot();
-				return tavernViewTabItems(preferences && preferences.viewTabs);
-			}
 			function apply() {
 				frame = 0;
 				for (const [row, observer] of Array.from(rows)) {
@@ -122,8 +119,9 @@
 					rows.delete(row);
 				}
 				if (!rows.size) return;
-				const entries = tavernViewTabEntries(slots), current = items();
-				rows.forEach(function (_observer, row) { applyTavernViewTabRow(row, entries, current); });
+				const preferences = displayPreferences.snapshot();
+				const entries = tavernViewTabEntries(slots), current = tavernViewTabItems(preferences?.viewTabs);
+				rows.forEach(function (_observer, row) { applyTavernViewTabRow(row, entries, current, { polishEnabled: preferences?.polishEnabled }); });
 			}
 			function schedule() {
 				if (frame) return;
@@ -279,7 +277,7 @@
 				h("ul", { className: "dsh-tavern-view-tab-list" }, items.map(row)),
 				h("div", { className: "dsh-tavern-view-tab-catalog" },
 					h("strong", { className: "dsh-tavern-settings-title" }, "可添加的标签"),
-					h("p", { className: "dsh-tavern-settings-desc" }, "移除的标签会到这里，点一下加回末尾；默认显示对话、轨迹、画廊和精修；完整上下文可按需添加。手机端放不下时可左右滑动。"),
+				h("p", { className: "dsh-tavern-settings-desc" }, "点击将标签加回末尾。精修在「剧情」设置开启后显示。手机端可左右滑动。"),
 					h("div", { className: "dsh-tavern-view-tab-chips" },
 						addable.length
 							? addable.map(entry => h("button", { key: entry.id, type: "button", className: "dsh-tavern-view-tab-chip", disabled: busy, onClick: function () { void toggle(entry.id); } },

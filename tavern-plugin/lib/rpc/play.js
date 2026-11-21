@@ -215,6 +215,7 @@ export function createPlayHandlers(deps) {
     // text, a review now otherwise); with guidance, a second edit then follows only the guidance.
     // Both land as one body edit; the record keeps the original for the comparison and its undo.
     async polishBody(args) {
+      if (!(await readTavernSettings()).polishEnabled) throw new Error('请先在酒馆设置的「剧情」中开启精修')
       const sessionId = str(args?.sessionId), guidance = str(args?.guidance).trim(), started = Date.now()
       return withForegroundTaskAgent(sessionId, async () => {
         await reconcileStory(sessionId)

@@ -1477,7 +1477,8 @@
 			return null;
 		}
         const { CandidateQuestion, CandidateGuidePanel, RegenPanel } = createPlayInteractionPanels({
-            interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError
+            interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError,
+            usePolishEnabled: () => React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot)?.polishEnabled === true
         });
         const { HeaderItems: TavernHeaderItems } = createTavernHeaderFeature({
             StatusAction: TavernConversationSettingsAction, ExportAction: TavernConversationExportAction,

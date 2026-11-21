@@ -21,7 +21,7 @@ const TAB_ENTRIES = [
   { id: 'dsh-tavern:polish', label: '精修' }
 ]
 
-test('顶部标签默认 4 个，对话固定首位；保存、读取与恢复默认都守住这条', () => {
+test('顶部标签有固定的默认顺序，保存、读取和恢复时对话始终排首位', () => {
   assert.deepEqual([...DEFAULT_VIEW_TABS.items], ['chat', 'trajectory', 'dsh-tavern:gallery', 'dsh-tavern:polish'])
   assert.equal(VIEW_TAB_RESIDENT, 'chat')
   assert.deepEqual(presentTavernSettings({}, {}).viewTabs, { items: [...DEFAULT_VIEW_TABS.items] })
@@ -76,9 +76,17 @@ test('客户端标签行按设置的清单显示与排序，隐藏当前标签�
   const api = loadModule()
   const dom = new JSDOM('<body></body>', { pretendToBeVisual: true })
   try {
-    // 默认隐藏完整上下文，其余标签按配置排序。
+    // 精修关闭时，即使已选中且在配置里，也隐藏并切回对话。
+    const disabledRow = tabRow(dom, undefined, '精修')
+    let fallbackClicks = 0
+    disabledRow.querySelector('button').addEventListener('click', () => { fallbackClicks += 1 })
+    assert.equal(api.applyTavernViewTabRow(disabledRow, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items]), 3)
+    assert.equal(styleOf(disabledRow).find(item => item.id === 'dsh-tavern:polish').display, 'none')
+    assert.equal(fallbackClicks, 1)
+
+    // 开启后按保存的顺序显示精修。
     let row = tabRow(dom)
-    assert.equal(api.applyTavernViewTabRow(row, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items]), 4)
+    assert.equal(api.applyTavernViewTabRow(row, TAB_ENTRIES, [...DEFAULT_VIEW_TABS.items], { polishEnabled: true }), 4)
     assert.deepEqual(styleOf(row).map(item => [item.id, item.display, item.order]), [
       ['chat', '', '0'], ['trajectory', '', '1'], ['dsh-tavern:full-context', 'none', ''], ['dsh-tavern:gallery', '', '2'], ['dsh-tavern:polish', '', '3']
     ])

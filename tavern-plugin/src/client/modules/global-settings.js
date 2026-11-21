@@ -140,7 +140,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                             value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
                             onCommit: value => saveDefault("storyGenerationMode", value) })),
                     sw("storyPluginOutputRegex", "插件生成正文后仍应用宿主正则", "插件处理完成后，继续应用全局、预设和人物卡正则。若两边配置相同规则，可能先后执行。", false),
-                    sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false))),
+                    sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false),
+                    sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false))),
             // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
             group("显示与交互", "",
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),

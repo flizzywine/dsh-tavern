@@ -218,8 +218,9 @@
                         ? settings.showDamperStatus !== false
                         : settings.narrativeDamper?.showTurnStatus !== false)
                     : true;
-                value = { showPlayProcess: settings.showPlayProcess === true, showDamperStatus: showDamper, hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                value = { showPlayProcess: settings.showPlayProcess === true, showDamperStatus: showDamper, hideContextAndReasoning: settings.hideContextAndReasoning === true, polishEnabled: settings.polishEnabled === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
                 document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.showPlayProcess);
+                document.documentElement.classList.toggle("dsh-tavern-polish-enabled", value.polishEnabled);
                 applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
                 listeners.forEach(listener => listener());
             }
@@ -248,7 +249,7 @@
                     window.addEventListener("focus", refresh);
                     window.addEventListener("storage", onStorage);
                     window.addEventListener("dsh-tavern-settings-changed", refresh);
-                    return () => { ++revision; window.removeEventListener("focus", refresh); window.removeEventListener("storage", onStorage); window.removeEventListener("dsh-tavern-settings-changed", refresh); document.documentElement.classList.remove("dsh-tavern-hide-process"); applyDebug(document, false); };
+                    return () => { ++revision; window.removeEventListener("focus", refresh); window.removeEventListener("storage", onStorage); window.removeEventListener("dsh-tavern-settings-changed", refresh); document.documentElement.classList.remove("dsh-tavern-hide-process", "dsh-tavern-polish-enabled"); applyDebug(document, false); };
                 }
             };
         })();

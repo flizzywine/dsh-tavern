@@ -342,6 +342,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.hideContextAndReasoning !== 'boolean') throw new Error('无效的对话显示设置')
     next.hideContextAndReasoning = input.hideContextAndReasoning
   }
+  if (Object.hasOwn(input, 'polishEnabled')) {
+    if (typeof input.polishEnabled !== 'boolean') throw new Error('无效的精修设置')
+    next.polishEnabled = input.polishEnabled
+  }
   if (Object.hasOwn(input, 'polishPrereview')) {
     if (typeof input.polishPrereview !== 'boolean') throw new Error('无效的自动精修设置')
     next.polishPrereview = input.polishPrereview
@@ -535,8 +539,8 @@ export function presentTavernSettings(document, defaults) {
     // Older games without a saved count keep their original five-choice default.
     candidateTabs: object(document).candidateTabs === true,
     candidateGuidanceShortcuts: readCandidateGuidanceShortcuts(document?.candidateGuidanceShortcuts),
-    // 自动精修: off by default, since it reviews and rewords every reply.
-    polishPrereview: object(document).polishPrereview === true,
+    polishEnabled: document?.polishEnabled === true,
+    polishPrereview: document?.polishEnabled === true && document?.polishPrereview === true,
     storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',
     storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
     storyPluginOutputRegex: document?.storyPluginOutputRegex === true,

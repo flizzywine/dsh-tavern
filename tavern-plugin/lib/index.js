@@ -3103,8 +3103,9 @@ export async function apply(ctx) {
   }, data: pluginData })
   // 自动精修 (setting polishPrereview, off by default): each reply is reviewed as soon as it is
   // written, beside settlement, and the review is written back into the reply in place.
+  const autoPolishEnabled = async () => (await readTavernSettings()).polishPrereview === true
   const polishPrereview = createPolishPrereview({
-    enabled: async () => (await readTavernSettings()).polishPrereview === true,
+    enabled: autoPolishEnabled,
     // Read-only: the review runs beside settlement, which holds the editing lock.
     readTexts: sessionId => bodyEditor.peek(sessionId),
     review: (sessionId, texts, signal) => polishReviewer.review(sessionId, texts, signal),
@@ -3132,6 +3133,7 @@ export async function apply(ctx) {
       const current = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
       // The reply changed meanwhile (an edit, a regeneration, a 精修): this review is not for it.
       if (JSON.stringify(current) !== JSON.stringify(texts)) return
+      if (!await autoPolishEnabled()) return
       signal.throwIfAborted()
       const polished = applyPolishEdits(texts, edits)
       // Settled before the write: writing the reply announces 正文写完 again, and the polished
