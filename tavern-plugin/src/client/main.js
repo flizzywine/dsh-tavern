@@ -1509,12 +1509,12 @@ function clipReplayCore() {
 				const appendMentions = function () { if (mentions) input.setDraft(withMention(String(input.state.getSnapshot().draft || ""), mentions)); };
 				if (task === "writing-skill") {
 					const references = String(input.state.getSnapshot().draft || "");
-					input.setDraft("/create-writing-skill\n\n请从已引用的素材中提炼写作 Skill，用于前台正文写作。先与我确认适用场景、禁用场景和写作要求，再编写自包含的提示词；成品不依赖原素材或参考文件。\n\n" + tagged("reference_materials", withMention(references, mentions)));
+					input.setDraft("/create-writing-skill\n\n请根据引用的素材创建前台写作 Skill。\n\n" + tagged("reference_materials", withMention(references, mentions)));
 					return;
 				}
 				if (task === "gentle") {
 					if (!targetPath) throw new Error("温和改写缺少目标人物卡");
-					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n先调用 tavern_copy_card 创建保留原卡图片的独立副本，再按温和改写 skill 完成改写，交付副本路径与改写摘要。");
+					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n请为这张卡制作保留封面的温和改写副本。");
 					appendMentions();
 					return;
 				}
@@ -1522,7 +1522,7 @@ function clipReplayCore() {
 					if (!targetPath) throw new Error("MVU 转换缺少目标人物卡");
 					input.setDraft(
 						"/card-to-mvu\n\n" + tagged("target_card", "@\"" + targetPath + "\"") + "\n\n" +
-						"先用 tavern_copy_card 建一份副本，在副本上改成 MVU 版，原卡保持不变；保留剧情设定与状态栏视觉风格。原卡自带的候选项（生成提示、按钮、正则和专用脚本）移除，统一使用 DSH Tavern 内置候选项；手机、开场主页等与状态栏和候选项无关的美化与脚本原样保留。"
+						"请为这张卡制作 MVU 副本，并改用 DSH Tavern 内置候选项。"
 					);
 					appendMentions();
 					return;
@@ -1533,30 +1533,28 @@ function clipReplayCore() {
 					return;
 				}
 				if (task === "user-profile") {
-					input.setDraft(
-						"/user-profile\n\n通过分批提问了解我的长期游玩与写作偏好。可以提供差异明确的参考选项，也允许我自由回答或跳过；信息足够后形成长期偏好草案让我核对，只有我明确确认后才保存。"
-					);
+					input.setDraft("/user-profile\n\n请帮我梳理长期游玩与写作偏好。");
 					appendMentions();
 					return;
 				}
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
+				const taskPrompt = String(result && result.text || "").trim();
 				const draft = String(input.state.getSnapshot().draft || "");
-				const supplement = draft + (taskSupplement ? "\n\n" + taskSupplement : "");
+				const supplement = [draft, taskSupplement].filter(Boolean).join("\n\n");
 				const targetSection = targetPath ? "\n\n" + tagged("target_card", "@\"" + targetPath + "\"") : "";
 				const resourceSection = mentions ? "\n\n" + tagged(task === "worldbook" || task === "preset" || task === "script" ? "edit_target" : "initial_script", mentions) : "";
 				if (task === "debug-play") {
-					input.setDraft("/debug-card" + targetSection + "\n\n" + supplement.trim() + "\n\n请结合已引用的游玩记录，检查这张人物卡的异常表现，按需读取相关日志和状态，说明原因并给出修改建议。");
+					input.setDraft(taskPrompt + targetSection + "\n\n" + supplement.trim() + "\n\n请排查引用的游玩记录，说明异常原因和修改建议。");
 					appendMentions();
 					return;
 				}
 				if (task === "edit") {
-					const editPrompt = String(result && result.text || "").trim();
 					const target = targetPath ? "\n\n目标卡：@\"" + targetPath + "\"" : "";
-					input.setDraft(editPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
+					input.setDraft(taskPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
 					return;
 				}
-				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + String(result && result.text || "").trim() + resourceSection;
-				input.setDraft(taskText + supplement);
+				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + taskPrompt + resourceSection;
+				input.setDraft(taskText + (supplement ? "\n\n" + supplement : ""));
 			}
 			registerTavernStartPage(ctx, slots);
 			registerTavernPhonePanel(ctx);

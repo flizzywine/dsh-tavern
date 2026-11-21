@@ -12,6 +12,7 @@ import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-life
 import { registerUserProfileTools } from '../tavern-plugin/lib/tools/user-profile.js'
 import { readSessionStablePrefix, ensureSessionStablePrefix } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { ensureSessionVariableDirectory } from '../tavern-plugin/lib/domain/session-variable-directory.js'
+import { resourceWorkspaceContext } from '../tavern-plugin/lib/domain/workspace-resources.js'
 
 async function profiles() {
   let value
@@ -41,7 +42,7 @@ test('读取、保存和确认工具使用管理目标，避免修改注入的�
   assert.match((await profile.read('default')).confirmed.injectionText, /固定偏好/)
 })
 
-test('真实卡片 Agent 请求：建卡 Skill 与工作台性格同时送达，偏好和附加指令各自生效', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+test('真实卡片 Agent 请求：建卡和偏好访谈沿用性格，工作区说明只提供回复语言默认值', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
   const { profile } = await profiles()
   const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { userPreferenceProfile: profile, assembleStablePrefix: false })
   t.after(() => h.dispose())
@@ -52,12 +53,14 @@ test('真实卡片 Agent 请求：建卡 Skill 与工作台性格同时送达，
   const toolSkill = await import(new URL('../../dsh-tool-skill/lib/index.js', bootUrl))
   await h.ctx.plugin(SkillRegistry).await()
   h.ctx.provide('workingDirectory', { ensure: async () => process.cwd() })
-  const skillText = await readFile(new URL('../presets/tavern/skills/create-card/SKILL.md', import.meta.url), 'utf8')
-  h.ctx.skills.register({ name: 'create-card', description: '新建人物卡', content: skillText, source: 'runtime' })
+  for (const [name, description] of [['create-card', '新建人物卡'], ['user-profile', '长期偏好访谈']]) {
+    const content = await readFile(new URL('../presets/tavern/skills/' + name + '/SKILL.md', import.meta.url), 'utf8')
+    h.ctx.skills.register({ name, description, content, source: 'runtime' })
+  }
   await h.ctx.plugin(toolSkill).await()
   let chat = await h.open().start({ ...h.input, mode: 'card', cardPath: '' })
   let append = '附加指令第一版'
-  const persona = '叫自己阿刺，称呼用户为主编。'
+  const persona = '叫自己阿刺，称呼用户为主编。回复使用英文。'
   const snapshots = createPlayCardSnapshots({ userPreferenceProfile: profile, writeChat: async next => { chat = next; return next } })
   const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
   const implementation = source.slice(source.indexOf('  async function ensureNativeSystemPrefix('), source.indexOf('  async function ensureNativeCardWorkspace('))
@@ -67,7 +70,7 @@ test('真实卡片 Agent 请求：建卡 Skill 与工作台性格同时送达，
     stablePrefixStorage: undefined, sessionStore: { flush: session => h.ctx.sessions.flush(session) }
   })
   const strategy = createNativePlayOrchestrationStrategy({ modeFor: async () => 'card', visibleTools: async () => [], controlledToolNames: new Set(),
-    cardPersonaText: () => persona, workspaceContext: () => '卡片资源工作区' })
+    cardPersonaText: () => persona, workspaceContext: cwd => resourceWorkspaceContext(cwd || '/fixture-resources') })
   registerTurnLifecycleHooks({ ctx: h.ctx, hookChatForSession: async () => chat, ensureNativeSystemPrefix: ensurePrefix,
     backgroundAgentRunner: { owns: () => false }, clearRuntimePresetRequestState() {},
     userMessageForTurn: () => null, contentText: () => '', foregroundHandoff: { end() {}, awaitOpening: async () => {} },
@@ -76,7 +79,7 @@ test('真实卡片 Agent 请求：建卡 Skill 与工作台性格同时送达，
   })
   for (const [value, input] of [
     ['附加指令第一版', '/create-card\n\n我想新建一张人物卡。'],
-    ['附加指令第二版', '继续制作人物卡'],
+    ['附加指令第二版', '/user-profile\n\n请帮我梳理长期游玩与写作偏好。'],
     ['', '继续']
   ]) {
     append = value
@@ -90,13 +93,42 @@ test('真实卡片 Agent 请求：建卡 Skill 与工作台性格同时送达，
   assert.ok(skill, '宿主展开了 /create-card')
   assert.match(skill.content[0].text, /用当前工作台性格的口吻提问并撰写选项说明/)
   assert.match(skill.content[0].text, /桌宠按此格式生成按钮/)
+  const interview = h.requests[1].messages.find(message => message.source?.kind === 'skill-invocation' && message.source.name === 'user-profile')
+  assert.ok(interview, '宿主展开了 /user-profile')
+  assert.match(interview.content[0].text, /沿用工作台性格的称呼和口吻/)
+  assert.match(interview.content[0].text, /用户明确表示可以保存/)
   for (const [index, request] of h.requests.entries()) {
     assert.equal(request.system.split('固定偏好').length - 1, 1)
-    assert.match(request.system, /<card_agent_persona>\n[^\n]+始终沿用以下身份、称呼和语气。\n\n叫自己阿刺，称呼用户为主编。\n<\/card_agent_persona>/)
-    assert.match(request.system, /卡片资源工作区/)
+    assert.match(request.system, /回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。/)
+    assert.ok(request.system.includes(persona + '\n</card_agent_persona>'))
+    assert.match(request.system, /If neither the user nor the workbench persona specifies a reply language/)
     assert.doesNotMatch(request.system, /不应自动替换|不可丢失的固定背景/)
     assert.ok(request.messages.filter(m => m.role !== 'system').every(m => !JSON.stringify(m.content).includes('固定偏好')))
     if (index < 2) assert.ok(request.system.startsWith(index ? '<system_append>\n附加指令第二版\n</system_append>\n\n' : '<system_append>\n附加指令第一版\n</system_append>\n\n'))
     else assert.doesNotMatch(request.system, /附加指令/)
   }
+})
+
+test('旧版改卡会话沿用原前缀并追加当前工作台性格，空白性格不追加', async () => {
+  const fixed = [
+    { name: 'tavern:character-card', text: '固定卡片设定' },
+    { name: 'tavern:card-system-prompt', text: '人物卡的写作指令' }
+  ]
+  let persona = '用阿刺的口吻交流。'
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'card', visibleTools: async () => [], controlledToolNames: new Set(),
+    cardPersonaText: () => persona
+  })
+  const assemble = () => strategy.assembleSystemPrompt({}, {
+    sessionId: 'legacy-card',
+    chat: { mode: 'card', cardEditContext: { version: 1 } },
+    fixedSystemSections: fixed
+  })
+  const { sections } = await assemble()
+  assert.deepEqual(sections.slice(0, -1), fixed)
+  assert.equal(sections.at(-1).name, 'tavern:card-system')
+  assert.match(sections.at(-1).text, /用阿刺的口吻交流/)
+
+  persona = ''
+  assert.deepEqual((await assemble()).sections, fixed)
 })
