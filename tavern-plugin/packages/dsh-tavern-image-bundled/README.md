@@ -76,6 +76,8 @@ Agent 角色工具支持选择卡片世界书、游玩卡片设定、最近 1–
 
 旧安装升级后保留世界书模式和已有设置；可以主动切换到工作台。升级只替换插件代码，不清空世界书、人物及服装库、参考图、渠道、密钥、任务和自定义模板。卡片世界书有独立页面，仅启用卡片生图后显示。
 
+通用服装库与角色自带服装现在使用同一套字段：`upper` / `lower` / `shoes` / `accessory` / `full` / `back` / `negative`。旧版通用服装库的 `body` / `bodyBack` / `fullBack` 在读取时自动映射到 `upper` / `back`，旧字段原样保留；升级后第一次启动会把映射结果写回 `definitions.json`，写之前自动备份到 `backups/`，所以不必手动迁移，回滚旧版本也仍能读到原数据。升级后请刷新一次浏览器，服装库编辑面板才会显示新的分部位字段。
+
 舞台与其他插件继续调用宿主的 `tavern.listImageModels()` / `tavern.generateImage()`；工作台模式的模型 ID 为 `template:<模板ID>`，默认模板为 `template:__default__`。ComfyUI 素材生成与改图共用现有队列、上传、任务恢复和结果保存；可调用图片下方的「改图」或选择图库成品作为输入。通用文本／图片节点识别和动态多图、LoRA 分配不修改原始工作流。
 
 生成结果可额外返回渠道原始 `usage` 和实际返回的 `seed`，未提供时省略。`status().transparent` 仅在能力已知时返回布尔值；自定义中转和 ComfyUI 保持未知。请求 `background: 'transparent'` 时单次任务保留 PNG，不修改用户的全局 JPEG 设置，也不保证任意工作流会自动去背景。

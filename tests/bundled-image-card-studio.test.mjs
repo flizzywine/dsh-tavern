@@ -267,6 +267,22 @@ test('workbench saves share the live definitions store and reject stale versions
   assert.equal(f.tools.size, 7)
 })
 
+test('clearing migrated outfit fields survives a save and a restart', async t => {
+  const f = await studio(t, { definitions: { characters: [], outfits: [{ id: 'coat', name: 'Coat', body: 'blue wool', bodyBack: 'belt' }] } })
+  const state = (await f.runtime.request('/dsh-tavern-gen/api/state')).body.outfits
+  const [outfit] = state.outfits
+  assert.equal(outfit.upper, 'blue wool')
+  assert.equal(outfit.back, 'belt')
+  const saved = await f.runtime.request('/dsh-tavern-gen/api/save', { target: 'outfits', content: { revision: state.revision, outfits: [{ ...outfit, upper: '', back: '' }] } })
+  assert.equal(saved.status, 200)
+  f.runtime.close()
+  const runtime = await f.start()
+  const [reloaded] = (await runtime.request('/dsh-tavern-gen/api/state')).body.outfits.outfits
+  assert.equal(reloaded.upper, '')
+  assert.equal(reloaded.back, '')
+  assert.equal(reloaded.body, 'blue wool')
+})
+
 test('single-record workbench edits preserve other fields and reject malformed collections', async t => {
   const f = await studio(t, { definitions: { characters: [
     { id: 'a', name: 'A', traits: { face: 'green eyes' }, outfits: [{ id: 'coat', name: 'Coat', upper: 'blue wool' }] },
