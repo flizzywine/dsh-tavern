@@ -1,3 +1,6 @@
+export const READ_LOREBOOK_TOOL = 'read_lorebook'
+export const WORLDBOOK_ACCESS_TOOLS = Object.freeze(['read', 'worldbook_list', 'worldbook_grep', READ_LOREBOOK_TOOL])
+
 // Foreground tools a game may switch off individually. The settings panel shows
 // this catalog; visibleTools filters the mode's list by the stored names.
 export const FOREGROUND_TOOL_CATALOG = Object.freeze([
@@ -5,8 +8,7 @@ export const FOREGROUND_TOOL_CATALOG = Object.freeze([
   { name: 'tavern_read_variables', label: '读取变量', description: '只读查询当前变量和结算状态。' },
   { name: 'skill', label: '加载 Skill', description: '按需加载写作或任务 Skill。' },
   { name: 'tavern_read_skill_reference', label: '读取 Skill 参考', description: '读取已加载 Skill 的参考文件。' },
-  // 世界书检索走真实文件，所以 worldbook_list/worldbook_grep 与宿主 read 是一组：
-  // 只给 worldbook_* 而不列 read，玩家就没有完整开关，模型也能被提示拉动去读正文。
+  { name: READ_LOREBOOK_TOOL, label: '按关键词读取世界书', description: '按标题、别名或关键词直接读取本局世界书条目。', modes: ['story', 'script'] },
   { name: 'worldbook_grep', label: '搜索世界书', description: '在本局世界书原文里全文搜索设定。', modes: ['story', 'script'] },
   { name: 'worldbook_list', label: '浏览世界书', description: '分页浏览本局世界书目录和标题。', modes: ['story', 'script'] },
   { name: 'read', label: '读取文件', description: '读取世界书、Skill 等资源的文件正文。', modes: ['story', 'script'] },

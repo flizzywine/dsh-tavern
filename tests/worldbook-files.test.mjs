@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createWorldbookFiles } from '../tavern-plugin/lib/domain/worldbook-files.js'
-import { recentWorldbookLookupPaths, worldbookTitleHints } from '../tavern-plugin/lib/domain/worldbook-title-hints.js'
+import { recentWorldbookLookups, worldbookTitleHints } from '../tavern-plugin/lib/domain/worldbook-title-hints.js'
 
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'worldbook-files-'))
@@ -63,16 +63,46 @@ test('成功查到正文的条目安静十个剧情回合，标题命中、失�
   lookupAt(6, 'read', { file_path: second.path }, '3: 另一港口')
   const session = { surface: { nodes: [0, 1, 2, 3, 4] }, eventAt: index => events[index] }
   const messages = Array.from({ length: 10 }, (_, index) => ({ role: 'assistant', turn: 2 * (index + 1) }))
-  const paths = recentWorldbookLookupPaths(session, messages)
-  assert.deepEqual(provider.refsForPaths(agent, paths), ['a'])
-  assert.deepEqual(provider.refsForPaths({}, paths), [])
-  assert.deepEqual([...recentWorldbookLookupPaths(session, [...messages, { role: 'assistant', turn: 22 }])], [])
+  const lookups = recentWorldbookLookups(session, messages)
+  assert.deepEqual(provider.refsForLookups(agent, lookups), ['a'])
+  assert.deepEqual(provider.refsForLookups({}, lookups), [])
+  assert.deepEqual(recentWorldbookLookups(session, [...messages, { role: 'assistant', turn: 22 }]), { paths: new Set(), ids: new Set() })
   session.surface.nodes.push(5)
-  assert.deepEqual(provider.refsForPaths(agent, recentWorldbookLookupPaths(session, messages)), ['b', 'a'])
+  assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b', 'a'])
+
+  const body = await provider.readByKeyword({ keyword: second.lookupId }, lookup)
+  lookupAt(8, 'read_lorebook', { keyword: second.lookupId }, JSON.stringify(body))
+  lookupAt(10, 'read_lorebook', { keyword: '港口' }, JSON.stringify(await provider.readByKeyword({ keyword: '港口' }, lookup)))
+  session.surface.nodes = [6, 7, 8, 9]
+  assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b'])
 
   state.worldBook.view.entries[0].content += '\n改写'
   await provider.refresh(agent)
-  assert.deepEqual(provider.refsForPaths(agent, paths), [])
+  assert.deepEqual(provider.refsForLookups(agent, lookups), [])
+  assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), [])
+})
+
+test('按标题、别名或正文关键词读取；同名条目按候选 ID 区分', async t => {
+  const { provider, lookup, state } = await fixture(t)
+  state.worldBook.view.entries[2].primaryKeys = ['港口', '默认规则']
+  const read = (keyword, options) => provider.readByKeyword({ keyword, ...options }, lookup)
+  const duplicate = await read(' 港口 ')
+  assert.equal(duplicate.status, 'multiple')
+  assert.equal(duplicate.total, 2, 'exact titles take precedence over aliases and body mentions')
+  assert.deepEqual(duplicate.candidates.map(row => row.title), ['港口', '港口'])
+  const second = await read(duplicate.candidates[1].id)
+  assert.equal(second.text, '另一港口')
+  assert.equal((await read('harbor')).text, 'Harbor\n港口秘密\n另一行港口')
+  assert.equal((await read('默认规则')).text, '常驻秘密')
+  for (const keyword of ['关闭秘密', '更新规则', '<%= value %>', '不存在']) {
+    assert.deepEqual(await read(keyword), { status: 'not_found' })
+  }
+  state.worldBook.view.entries[2].content = '🍵'.repeat(8001)
+  const firstPage = await read('默认规则')
+  assert.equal(firstPage.text, '🍵'.repeat(8000))
+  const nextPage = await read(firstPage.id, { offset: firstPage.nextOffset })
+  assert.equal(nextPage.text, '🍵')
+  assert.equal(nextPage.nextOffset, null)
 })
 
 test('标题提醒用一行列出至多三个近期未读的静态匹配项', () => {

@@ -1,4 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { READ_LOREBOOK_TOOL } from '../domain/foreground-tools.js'
 
 export function registerWorldbookFileTools(tools, files) {
   const pagination = {
@@ -7,6 +8,8 @@ export function registerWorldbookFileTools(tools, files) {
     version: { type: 'string', description: '翻页时传上次返回的 version，避免混用不同资料版本。' }
   }
   for (const spec of [
+    { name: READ_LOREBOOK_TOOL, description: '直接读取本局世界书条目。keyword 填标题、别名、短关键词或返回的候选 ID。唯一匹配时返回正文，多个匹配时返回候选；正文过长时用条目 ID 和 nextOffset 继续读。',
+      parameters: { keyword: { type: 'string', required: true }, offset: { type: 'integer', description: '续读时传上次返回的 nextOffset，默认 0。' } }, method: 'readByKeyword' },
     { name: 'worldbook_list', description: '分页列出本局世界书的真实文件路径、标题及类型（静态资料、常驻资料、动态快照）。不知道搜索词时浏览；需要具体资料时优先全文搜索。', parameters: pagination, method: 'listFiles' },
     { name: 'worldbook_grep', description: '在本局世界书真实文件中进行 grep 式全文搜索（字面文本，默认忽略大小写）。动态内容是最近一次运行时渲染的快照，搜索不执行代码。返回文件路径、行号和匹配片段；用 read 读取上下文或全文。零结果时尝试别名或更短的词；nextOffset 非空表示还有结果。', parameters: { query: { type: 'string', required: true }, caseSensitive: { type: 'boolean' }, ...pagination }, method: 'searchFiles' }
   ]) tools.register(defineTool({

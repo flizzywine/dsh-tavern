@@ -3,6 +3,7 @@ import { isStaticWorldbookSkillEntry } from './worldbook-entry-classification.js
 import { worldbookEntryTitle } from './worldbook-entry-title.js'
 import { promptSection } from './prompt-section.js'
 import { toolResultsOf } from './tool-result-message.js'
+import { READ_LOREBOOK_TOOL } from './foreground-tools.js'
 
 const RECENT_STORY_ROUNDS = 10
 
@@ -13,15 +14,16 @@ function parseJson(value) {
 
 /** Recent successful model-visible lookups. Native turn numbers may have gaps,
  * so count completed story replies, and use their turns only to identify results. */
-export function recentWorldbookLookupPaths(session, messages) {
-  const paths = new Set()
-  if (!session?.surface?.nodes || typeof session.eventAt !== 'function') return paths
+export function recentWorldbookLookups(session, messages) {
+  const paths = new Set(), ids = new Set()
+  const lookups = { paths, ids }
+  if (!session?.surface?.nodes || typeof session.eventAt !== 'function') return lookups
   const turns = new Set()
   for (let i = (messages?.length || 0) - 1; i >= 0 && turns.size < RECENT_STORY_ROUNDS; i--) {
     const message = messages[i]
     if (message?.role === 'assistant' && Number.isSafeInteger(message.turn)) turns.add(message.turn)
   }
-  if (!turns.size) return paths
+  if (!turns.size) return lookups
 
   const oldest = Math.min(...turns), results = new Map()
   const nodes = session.surface.nodes
@@ -38,7 +40,7 @@ export function recentWorldbookLookupPaths(session, messages) {
     }
     if (event.type !== 'assistant/message' || message?.source?.kind !== 'model') continue
     for (const call of message.content || []) {
-      if (call?.type !== 'tool-call' || !['read', 'worldbook_grep'].includes(call.name)) continue
+      if (call?.type !== 'tool-call' || !['read', 'worldbook_grep', READ_LOREBOOK_TOOL].includes(call.name)) continue
       const content = results.get(turn + ':' + call.id)
       if (!content) continue
       const body = content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
@@ -46,7 +48,10 @@ export function recentWorldbookLookupPaths(session, messages) {
       if (call.name === 'read') {
         const file = parseJson(call.arguments)?.file_path
         if (typeof file === 'string' && file) paths.add(file)
-      } else if (call.name === 'worldbook_grep') {
+      } else if (call.name === READ_LOREBOOK_TOOL) {
+        const result = parseJson(body)
+        if (result?.status === 'found' && typeof result.id === 'string' && typeof result.text === 'string' && result.text.trim()) ids.add(result.id)
+      } else {
         const matches = parseJson(body)?.matches
         if (!Array.isArray(matches)) continue
         for (const match of matches) {
@@ -56,7 +61,7 @@ export function recentWorldbookLookupPaths(session, messages) {
       }
     }
   }
-  return paths
+  return lookups
 }
 
 /** Advisory only: reuse keyword/history/secondary-key matching without recording

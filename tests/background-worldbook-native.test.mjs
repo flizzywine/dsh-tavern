@@ -28,7 +28,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     (name === 'dsh-session-persistence-jsonl' ? '\n  config:\n    root: ' + join(root, 'sessions') + '\n    compression: none' : '')).join('\n'))
   ctx = await boot('background-worldbook-native-test', config)
   const requests = []
-  let searchPhase = null
+  let searchPhase = null, directLookup = false
   const searchCalls = []
   const worldbookPath = join(root, '少林.md')
   await writeFile(worldbookPath, '少林门规原文')
@@ -38,11 +38,14 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     async *stream(input) {
       requests.push(structuredClone({ system: input.messages.filter(message => message.role === 'system').flatMap(message => message.content).map(block => block.text || '').join('\n\n'), messages: input.messages, tools: input.tools }))
       const lookup = searchPhase === null ? null : searchPhase++
-      if (lookup !== null) assert.ok(input.tools.some(tool => tool.name === 'worldbook_grep' && tool.parameters.properties.query))
-      const block = lookup === 0 || lookup === 1
-        ? { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'worldbook_grep' : 'read',
+      if (lookup !== null) assert.ok(input.tools.some(tool => tool.name === 'read_lorebook' && tool.parameters.properties.keyword))
+      let block = { type: 'text', text: '结算完成' }
+      if (directLookup && lookup === 0) {
+        block = { type: 'tool-call', id: 'lookup-' + requests.length, name: 'read_lorebook', arguments: JSON.stringify({ keyword: '少林' }) }
+      } else if (!directLookup && (lookup === 0 || lookup === 1)) {
+        block = { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'worldbook_grep' : 'read',
           arguments: JSON.stringify(lookup === 0 ? { query: '少林' } : { file_path: worldbookPath }) }
-        : { type: 'text', text: '结算完成' }
+      }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
       yield { type: 'finish', reason: { kind: block.type === 'tool-call' ? 'tool-calls' : 'stop' } }
@@ -51,6 +54,10 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   ctx.llm.registerAdapter(['filter-fixture'], new Model())
   registerWorldbookFileTools(ctx.tools, {
     listFiles: async () => ({ files: [{ path: worldbookPath }] }),
+    async readByKeyword({ keyword }, { scope }) {
+      searchCalls.push({ keyword, owner: runner.activeRequestContext(scope.session.id)?.parentSessionId })
+      return { status: 'found', title: keyword, text: '少林门规原文' }
+    },
     async searchFiles({ query }, { scope }) {
       searchCalls.push({ query, owner: runner.activeRequestContext(scope.session.id)?.parentSessionId })
       return { matches: [{ path: worldbookPath, line: 1, text: '少林' }] }
@@ -125,12 +132,13 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   console.log('script-window task bytes:', Buffer.byteLength(currentText(scriptFirst)), Buffer.byteLength(currentText(scriptSecond)))
   for (const task of ['settlement', 'candidate', 'character-design']) {
     searchPhase = 0
+    directLookup = task === 'settlement'
     await runner.run({ sessionId: 'parent', task, persistent: true, selection, persistentSessionId: first.traceSessionId,
       messages: [{ role: 'user', content: [{ type: 'text', text: '读取少林资料' }] }], tools: [] })
-    assert.ok(searchPhase >= 3)
+    assert.equal(searchPhase, directLookup ? 2 : 3)
     assert.match(JSON.stringify(requests.at(-1).messages), /少林门规原文/)
   }
-  assert.deepEqual(searchCalls, Array.from({ length: 3 }, () => ({ query: '少林', owner: 'parent' })))
+  assert.deepEqual(searchCalls, [{ keyword: '少林', owner: 'parent' }, ...Array.from({ length: 2 }, () => ({ query: '少林', owner: 'parent' }))])
   const descriptors = sessionEvents(runner.requestSession(first.traceSessionId)).filter(event => event.type === 'subagent/descriptor')
   assert.equal(descriptors.length, 1)
   assert.equal(descriptors[0].data.label, '酒馆后台 Agent')

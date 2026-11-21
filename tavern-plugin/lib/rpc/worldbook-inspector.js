@@ -1,3 +1,5 @@
+import { READ_LOREBOOK_TOOL } from '../domain/foreground-tools.js'
+
 // Only native tool events are evidence of loading/reading, never prose adoption.
 export function worldbookReadHistory(events, directory, skillNames = [], inlineEntries = []) {
   const calls = new Map()
@@ -7,15 +9,26 @@ export function worldbookReadHistory(events, directory, skillNames = [], inlineE
       let args
       try { args = typeof d.arguments === 'string' ? JSON.parse(d.arguments) : d.arguments } catch { continue }
       const navigation = ['worldbook_list', 'worldbook_grep'].includes(d.name)
-      const target = navigation ? (args?.query || '世界书文件列表') : d.name === 'skill' ? args?.name : d.name === 'read' ? args?.file_path : null
+      const direct = d.name === READ_LOREBOOK_TOOL
+      const target = direct ? args?.keyword : navigation ? (args?.query || '世界书文件列表') : d.name === 'skill' ? args?.name : d.name === 'read' ? args?.file_path : null
       const normalized = typeof target === 'string' ? target.replaceAll('\\', '/') : ''
       const physical = directory && normalized.startsWith(directory.replaceAll('\\', '/') + '/')
-      if (typeof target !== 'string' || !(navigation || d.name === 'skill' ? true : target.startsWith('/__tavern_worldbook__/') || physical)) continue
+      if (typeof target !== 'string' || !(direct || navigation || d.name === 'skill' || target.startsWith('/__tavern_worldbook__/') || physical)) continue
       calls.set(d.callId, { id: d.callId, seq: event.seq, turn: d.turn, step: d.step, kind: d.name, target, reference: (physical && !normalized.includes('/references/') || /\/(?:entries|references)\//.test(normalized)) && !normalized.endsWith('/references/资料目录.md'), offset: args.offset, limit: args.limit, status: 'pending' })
     } else if (event.type === 'tool/result' && calls.has(d.message?.toolCallId)) {
       const item = calls.get(d.message.toolCallId)
       item.status = d.message.isError ? 'error' : 'success'
       item.result = (d.message.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
+      if (item.kind === READ_LOREBOOK_TOOL && item.status === 'success') {
+        let result
+        try { result = JSON.parse(item.result) } catch {}
+        if (result?.status === 'found' && typeof result.text === 'string' && result.text.trim()) {
+          item.lookupId = result.id
+          item.title = result.title
+          item.reference = true
+          item.result = result.text
+        }
+      }
       if (!item.result && d.meta?.lines) item.result += '\n' + d.meta.lines.map(l => `${l.number}: ${l.text}`).join('\n')
       item.inlineRefs = item.kind === 'skill' ? inlineEntries.filter(entry => entry.inlineText && item.result.includes(entry.inlineText)).map(entry => entry.ref) : []
       if (item.result.length > 60000) item.result = item.result.slice(0, 60000) + '\n[排查面板显示已截断]'
@@ -42,7 +55,8 @@ export function createWorldbookInspectorHandlers({ agentRegistry, chatForSession
       const records = worldbookReadHistory(evidence.events, worldbookSkillProvider.directory, (catalog?.clusters || []).map(c => c.name), (catalog?.clusters || []).flatMap(c => c.entries))
       const labels = new Map()
       for (const entry of catalog?.files || []) {
-        entry.readCount = records.filter(r => r.target === entry.path && r.status === 'success').length
+        entry.readCount = records.filter(r => r.status === 'success' &&
+          (r.target === entry.path || (r.lookupId && r.lookupId === entry.lookupId))).length
         labels.set(entry.path, entry.title)
       }
       for (const cluster of catalog?.clusters || []) {
@@ -60,12 +74,12 @@ export function createWorldbookInspectorHandlers({ agentRegistry, chatForSession
           if (entry.legacyPath) labels.set(entry.legacyPath, entry.title)
         }
       }
-      for (const record of records) record.title = labels.get(record.target) || record.target
+      for (const record of records) record.title ??= labels.get(record.target) || record.target
       const offset = Math.max(0, Math.floor(Number(args.offset) || 0))
       return { catalog, historyLoaded: evidence.loaded, total: records.length, offset,
         counts: { skills: records.filter(r => r.kind === 'skill' && r.status === 'success').length,
           inlineEntries: records.filter(r => r.status === 'success').reduce((n, r) => n + (r.inlineRefs?.length || 0), 0),
-          entries: records.filter(r => r.kind === 'read' && r.reference && r.status === 'success').length,
+          entries: records.filter(r => r.reference && r.status === 'success' && ['read', READ_LOREBOOK_TOOL].includes(r.kind)).length,
           errors: records.filter(r => r.status === 'error').length },
         records: records.slice(offset, offset + 40) }
     },

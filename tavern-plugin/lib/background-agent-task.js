@@ -1,6 +1,7 @@
 import { createHostToolPolicy, presentNativeTools } from './host/tools.js'
 import { backgroundRequestTemperature } from './domain/background-request-temperature.js'
 import { withWorldbookFileInstructions } from './domain/worldbook-virtual-surface.js'
+import { WORLDBOOK_ACCESS_TOOLS } from './domain/foreground-tools.js'
 import { createBackgroundProgress } from './domain/background-progress.js'
 import { worldbookSnapshot } from './domain/worldbook-snapshot.js'
 import { CARD_SYSTEM_PROMPT_SECTION, cardSystemPromptSnapshot, cardSystemPromptSource } from './domain/card-system-prompt.js'
@@ -285,7 +286,7 @@ export function createBackgroundAgentTask(options) {
         }
       })
       childCtx.systemPrompt.suppressRuntimeContext()
-      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
+      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : ['skill', ...WORLDBOOK_ACCESS_TOOLS, 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
       const hostTools = createHostToolPolicy(childCtx)
       childCtx.on('system-prompt/assemble', async function (_assembly, context, next) {
         return hostTools.assemble(await next(), context, async (assembly, tools) => {
@@ -301,8 +302,8 @@ export function createBackgroundAgentTask(options) {
           prependSystemInstruction(assembly, options.systemAppend?.())
           markTavernSectionsLiteral(assembly)
           if (!state.input.worldbookSkillsEnabled) {
-            assembly.sections = (assembly.sections || []).filter(section => !['tool:read', 'tool:worldbook_list', 'tool:worldbook_grep'].includes(section?.name))
-            assembly.tools = (assembly.tools || []).filter(tool => !['read', 'worldbook_list', 'worldbook_grep'].includes(tool?.name))
+            assembly.sections = (assembly.sections || []).filter(section => !WORLDBOOK_ACCESS_TOOLS.some(name => section?.name === 'tool:' + name))
+            assembly.tools = (assembly.tools || []).filter(tool => !WORLDBOOK_ACCESS_TOOLS.includes(tool?.name))
           }
           if (state.input.webSearchEnabled === true) return assembly
           assembly.sections = (assembly.sections || []).filter(function (section) { return section && !['tool:web_search', 'tool:web_fetch'].includes(section.name) })
