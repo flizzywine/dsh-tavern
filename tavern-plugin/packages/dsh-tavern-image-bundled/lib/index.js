@@ -30,7 +30,7 @@ import { buildOutfitPrompt, clampBatchCount, mergeOutfits, parseOutfits } from '
  *   GET  /plugins/dsh-tavern-image/jobs?id=&image=1  查作业 / 取图
  */
 import { createHash, randomUUID, randomInt } from 'node:crypto'
-import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -48,6 +48,7 @@ import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from 
 import { wardrobeSection } from './wardrobe-hints.js'
 import { runCardImage, submitCardImage } from './card-app/generation.js'
 import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
+import { serialQueue } from './card-app/storage.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -1356,10 +1357,13 @@ function createRuntime(ctx, overrides, logger, deps) {
     const promptRevision = () => createHash('sha256').update(JSON.stringify([config.promptPresets, config.promptDefault, config.activePromptPreset, config.promptEntries])).digest('hex')
     let definitions = await loadDefinitions()
     const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next } })
-    const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
+    const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024, refreshUploadTime: true })
+    const referenceWrites = serialQueue()
+    const putReferenceImage = input => referenceWrites(() => referenceStore.put(input))
+    let referenceGcPreview
     const characterLibrary = createCharacterLibrary({
       getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
-      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: input => referenceStore.put(input), readImage: reference => referenceStore.read(reference),
+      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: putReferenceImage, readImage: reference => referenceStore.read(reference),
     })
     let workflows = []
     const jobs = new Map()
@@ -4141,7 +4145,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (source) {
             if (source.state !== 'done' || !source.file) throw new Error('原图尚未生成完成')
             const data = await readFile(source.file)
-            sourceImages.push(await referenceStore.put({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
+            sourceImages.push(await putReferenceImage({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
           } else if (input.jobId) throw new Error('找不到原图')
           for (const value of input.sourceImages || []) {
             const image = normalizeReferenceImage(value)
@@ -4170,9 +4174,74 @@ function createRuntime(ctx, overrides, logger, deps) {
               sendJson(response, 403, { ok: false, error: '请从配图设置上传参考图' }); return
             }
             const input = await readBody(request, 44 * 1024 * 1024)
-            const referenceImage = await referenceStore.put({ data: input.data, mediaType: input.mediaType, name: input.name })
+            const referenceImage = await putReferenceImage({ data: input.data, mediaType: input.mediaType, name: input.name })
             sendJson(response, 200, { ok: true, referenceImage })
           } else sendJson(response, 405, { ok: false, error: 'method-not-allowed' })
+        } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
+        return
+      }
+      if (action === 'reference-gc') {
+        try {
+          if (!['GET', 'POST'].includes(request.method)) {
+            sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return
+          }
+          let token
+          if (request.method === 'POST') {
+            const origin = request.headers.origin
+            if ((origin && origin !== _url.origin) || !String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+              sendJson(response, 403, { ok: false, error: '请从生图设置里清理参考图' }); return
+            }
+            token = (await readBody(request, 1024))?.token
+          }
+          await referenceWrites(async () => {
+            const preview = referenceGcPreview
+            if (request.method === 'POST') {
+              if (!preview || token !== preview.token || Date.now() >= preview.expiresAt) {
+                sendJson(response, 409, { ok: false, error: '清理预览已失效，请重新统计' }); return
+              }
+              referenceGcPreview = undefined
+            }
+            const directory = await referenceStore.prepareDirectory()
+            const cutoff = Date.now() - 24 * 60 * 60 * 1000
+            const files = new Map()
+            for (const id of await readdir(directory)) {
+              if (!/^[0-9a-f]{64}$/.test(id)) continue
+              const info = await lstat(join(directory, id)).catch(error => {
+                if (error.code !== 'ENOENT') throw error
+              })
+              if (info?.isFile() && info.nlink === 1) files.set(id, info)
+            }
+            const savedJobs = await readJson(JOBS_STORE, null)
+            const referenced = new Set()
+            const collect = value => {
+              for (const id of JSON.stringify(value).match(/\b[0-9a-f]{64}\b/g) || []) referenced.add(id)
+            }
+            collect(savedJobs)
+            collect(config)
+            collect(definitions)
+            for (const job of jobs.values()) collect(job.referenceSnapshot ?? null)
+            const unreferenced = [...files].filter(([id]) => !referenced.has(id))
+            const orphans = unreferenced.filter(([, info]) => info.mtimeMs < cutoff)
+            if (request.method === 'GET') {
+              const token = randomUUID()
+              referenceGcPreview = { token, files: new Map(orphans), expiresAt: Date.now() + 10 * 60 * 1000 }
+              sendJson(response, 200, { ok: true, token, total: files.size, totalBytes: [...files.values()].reduce((sum, info) => sum + info.size, 0),
+                referenced: files.size - unreferenced.length, protectedCount: unreferenced.length - orphans.length,
+                orphanCount: orphans.length, orphanBytes: orphans.reduce((sum, [, info]) => sum + info.size, 0) })
+              return
+            }
+            const candidates = orphans.filter(([id, info]) => {
+              const before = preview.files.get(id)
+              return before && info.dev === before.dev && info.ino === before.ino && info.mtimeMs === before.mtimeMs && info.ctimeMs === before.ctimeMs
+            })
+            // Start deletion while the live reference snapshot is still current. Uploads use the same queue.
+            const results = await Promise.allSettled(candidates.map(([id]) => rm(join(directory, id))))
+            let removed = 0, removedBytes = 0
+            results.forEach((result, index) => {
+              if (result.status === 'fulfilled') { removed += 1; removedBytes += candidates[index][1].size }
+            })
+            sendJson(response, 200, { ok: true, removed, removedBytes, kept: files.size - removed, failed: results.length - removed })
+          })
         } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
         return
       }
@@ -5071,6 +5140,12 @@ function createRuntime(ctx, overrides, logger, deps) {
               position: x.position === 'suffix' ? 'suffix' : 'prefix',
               enabled: x.enabled !== false,
               params: normalizePresetParams(x.params),
+              // 画风示例图只存 descriptor；图片字节留在本机 reference-images/，不写进 config。
+              samples: (Array.isArray(x.samples) ? x.samples : [])
+                .map(normalizeReferenceImage)
+                .filter(Boolean)
+                .slice(0, 8)
+                .map(item => ({ id: item.id, mediaType: item.mediaType, name: item.name, byteLength: item.byteLength })),
             }))
         }
         if (typeof patch.activePreset === 'string') config.activePreset = patch.activePreset.slice(0, 60)
@@ -6021,7 +6096,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         for (const [index, reference] of references.entries()) {
           signal?.throwIfAborted()
           if (!(reference?.data instanceof Uint8Array)) throw new Error('输入图片需要原始图片数据')
-          sourceImages.push(await referenceStore.put({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
+          sourceImages.push(await putReferenceImage({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
         }
         const result = await runCardImage({ config: () => generationConfig, workflows: usable,
           startJob: (params, options) => startJob(params, { ...options, jobDefinitions }), getJob, refresh, cancelJob }, {

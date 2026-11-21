@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, realpath } from 'node:fs/promises'
+import { lstat, lutimes, mkdir, open, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 /** Local-only immutable references. No URLs, caller-selected paths, or network I/O. */
@@ -188,7 +188,7 @@ function decodeUpload(value, maxBytes) {
  * its descriptor; all older descriptors keep resolving to their original bytes.
  * root is a trusted application-selected directory, never a request field.
  */
-export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES } = {}) {
+export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES, refreshUploadTime = false } = {}) {
   if (typeof root !== 'string' || !root.trim() || /^(?:https?|file|data):/i.test(root) || root.includes('\0')) throw fail('REFERENCE_STORE_INVALID', '参考图目录无效')
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw fail('REFERENCE_STORE_INVALID', '参考图大小上限必须是正整数')
   const directory = resolve(root)
@@ -260,6 +260,11 @@ export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES }
         }
         // An existing file is verified, never repaired/overwritten in place.
         await read(descriptor)
+        // A repeated upload of the same bytes can also be waiting for a draft save.
+        if (refreshUploadTime) {
+          const now = new Date()
+          await lutimes(file, now, now)
+        }
       })()
       writes.set(file, pending)
       pending.finally(() => { if (writes.get(file) === pending) writes.delete(file) }).catch(() => {})
@@ -277,7 +282,7 @@ export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES }
       throw fail('REFERENCE_STORAGE_UNAVAILABLE', '本地参考图存储不可用（' + errno + '）')
     }
   }
-  return { put: ioGuard(put), read: ioGuard(read), readById: ioGuard(readById) }
+  return { put: ioGuard(put), read: ioGuard(read), readById: ioGuard(readById), prepareDirectory: ioGuard(ready) }
 }
 
 const arr = value => Array.isArray(value) ? value : []
