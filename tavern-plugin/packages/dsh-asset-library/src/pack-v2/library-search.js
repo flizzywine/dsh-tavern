@@ -6,7 +6,7 @@ import {check, text} from '../asset-packs/common.js'
 import {figureEmotionRows} from '../asset-packs/figure-emotions.js'
 import voiceAutoCastRule from '../shared/voice-auto-cast.cjs'
 
-const {voiceAutoCast} = voiceAutoCastRule
+const {voiceAutoCast, castVoiceOrder} = voiceAutoCastRule
 
 const {normalizeCatalogueText, resolveFigureName, codepointCompare} = figureResolution
 const SUMMARY = 300
@@ -60,7 +60,7 @@ export function castingVoiceKey(voice, binding) {
   return identity ? JSON.stringify([source.provider, source.kind, identity]) : null
 }
 
-// Shared eligibility for voice search and the full casting catalogue; sorted by name, then pack name.
+// Shared eligibility for voice search and the full casting catalogue, in the 通用声音 order (castVoiceOrder).
 function voiceRows(packs, keep) {
   const voices = []
   for (const pack of packs) for (const [voiceId, voice] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
@@ -71,7 +71,7 @@ function voiceRows(packs, keep) {
     voices.push({packId:pack.manifest.id, packName:pack.manifest.name, revision:pack.revision, voiceId, name:voice.name, language:voice.language, sound,
       ...(voice.guidance ? {guidance:voice.guidance} : {}), figures:users})
   }
-  return voices.sort((a, b) => codepointCompare(a.name, b.name) || codepointCompare(a.packName, b.packName))
+  return voices.sort(castVoiceOrder)
 }
 // 全库通用声音: every installed pack's 通用声音 (the casting assistant reads them all instead of guessing keywords);
 // `more` counts what the limit left out.
