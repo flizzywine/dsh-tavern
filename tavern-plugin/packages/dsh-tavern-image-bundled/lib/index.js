@@ -1364,7 +1364,8 @@ function createRuntime(ctx, overrides, logger, deps) {
     const putReferenceImage = input => referenceWrites(() => referenceStore.put(input))
     let referenceGcPreview
     const characterLibrary = createCharacterLibrary({
-      getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
+      getDefinitions: () => definitions,
+      updateDefinitions: change => definitionStore.update(change, { failIfBusy: deps.tavern?.writingFigureRecords?.() === true }),
       normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: putReferenceImage, readImage: reference => referenceStore.read(reference),
     })
     let workflows = []

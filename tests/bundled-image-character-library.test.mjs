@@ -122,6 +122,7 @@ test('full-editor writes and shared writes stay serialized across a slow disk pu
   const first = store.update(value => ({ ...value, characters: [{ ...value.characters[0], name: '新名字' }] }))
   await writing
   assert.equal(current.characters[0].name, '林月')
+  await assert.rejects(store.update(() => old, { failIfBusy: true }), { code: 'REVISION_CONFLICT' })
   const stale = store.update(() => old, { expectedRevision: old.revision, requireRevision: true })
   release()
   await first

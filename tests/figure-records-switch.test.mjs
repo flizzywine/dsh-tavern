@@ -10,7 +10,7 @@ import {FIGURE_RECORD_UNAVAILABLE} from '../tavern-plugin/packages/dsh-asset-lib
 import {createFigureRecords} from '../tavern-plugin/lib/image-character-records.js'
 import {sealPack} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
 import {computeContentHash} from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/index.js'
-import {syntheticPack, png, digest, FIGURE_ID, PACK_ID} from './fixtures/asset-packs/pack.mjs'
+import {syntheticPack as makeSyntheticPack, png, digest, FIGURE_ID, PACK_ID} from './fixtures/asset-packs/pack.mjs'
 
 // ADR 0010: with the records switched on, a figure's name, 触发词 and outfit names live in its 配图 人物库 record only.
 // The pack stores the figure without them, every read puts them back, an export carries them whole.
@@ -52,14 +52,22 @@ function imageLibrary() {
   return {api, records, writes, set available(value) { available = value }}
 }
 
-async function setup(t, {mode = 'registry', recordFile} = {}) {
+async function syntheticPack() {
+  const pack = await makeSyntheticPack()
+  // These tests exercise figure storage. The fixture already carries authored audio metadata.
+  for (const asset of pack.manifest.assets) if (asset.kind === 'music') asset.loudness = {v:1, lufs:-20, peak:-3}
+  pack.manifest.contentHash = await computeContentHash(pack.manifest)
+  return pack
+}
+
+async function setup(t, {mode = 'registry', recordFile, fault} = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'figure-records-'))
   t.after(() => rm(root, {recursive:true, force:true}))
   const library = imageLibrary(), file = path.join(root, 'data', 'figure-records.json')
   if (mode) { await mkdir(path.dirname(file), {recursive:true}); await writeFile(file, JSON.stringify({version:1, mode})) }
   const records = createFigureRecords({api:library.api, file, ...(recordFile ? {recordFile:path.join(root, 'data', 'plugins', 'dsh-tavern-image', 'definitions.json')} : {})})
   const assetRoot = path.join(root, 'asset-packs')
-  const service = createAssetPackService({assetRoot, figureRecords:records})
+  const service = createAssetPackService({assetRoot, figureRecords:records, fault})
   t.after(() => service.dispose())
   const stored = async () => JSON.parse(await readFile(path.join(assetRoot, 'packs', PACK_ID, 'figures', FIGURE_ID + '.json'), 'utf8'))
   return {root, assetRoot, library, records, service, stored}
@@ -137,6 +145,46 @@ test('an edit of the name goes to the record; a record edit elsewhere is read on
   const written = await f.service.patchFigure({packId:PACK_ID, expectedRevision:reread.revision, figureId:FIGURE_ID, patch:{description:'改了介绍'}})
   assert.equal(written.snapshot.figures[FIGURE_ID].name, '人物库里的名字')
   assert.equal(f.library.records[0].name, '人物库里的名字')
+})
+
+test('a rolled back pack write never changes the record or the visible figure', async t => {
+  let fail = false
+  const f = await setup(t, {fault:async phase => {
+    if (fail && phase === 'pack-published') throw new Error('simulated publication failure')
+  }})
+  const pack = (await f.service.createPack({name:'Demo', expectedRevision:null})).snapshot
+  const {figureId, snapshot:before} = await f.service.createFigure({packId:pack.manifest.id, expectedRevision:pack.revision,
+    figure:{schemaVersion:1, name:'Original', appearance:'avatar', outfits:[]}})
+  const rename = () => f.service.patchFigure({packId:pack.manifest.id, expectedRevision:before.revision, figureId, patch:{name:'Renamed'}})
+  fail = true
+  await assert.rejects(rename(), /simulated publication failure/)
+  assert.equal(f.library.records[0].name, 'Original')
+  await f.service.figureRecordsChanged({packIds:[pack.manifest.id]})
+  const after = await f.service.getPackSnapshot({packId:pack.manifest.id})
+  assert.equal(after.revision, before.revision)
+  assert.equal(after.figures[figureId].name, 'Original')
+  fail = false
+  await rename()
+  assert.equal(f.library.records[0].name, 'Renamed')
+  assert.equal((await f.service.getPackSnapshot({packId:pack.manifest.id})).figures[figureId].name, 'Renamed')
+})
+
+test('a busy record store leaves the committed figure whole until sync can be retried', async t => {
+  const f = await setup(t)
+  const before = await install(f.service, await archiveOf(f.root, await syntheticPack()))
+  const write = f.records.write
+  try {
+    f.records.write = async () => { throw Object.assign(new Error('record store busy'), {code:'REVISION_CONFLICT'}) }
+    const result = await f.service.patchFigure({packId:PACK_ID, expectedRevision:before.revision, figureId:FIGURE_ID, patch:{name:'Saved in pack'}})
+    assert.equal(result.snapshot.figures[FIGURE_ID].name, 'Saved in pack')
+    assert.equal((await f.stored()).name, 'Saved in pack')
+    assert.equal(f.library.records[0].name, 'Synthetic figure')
+  } finally {
+    f.records.write = write
+  }
+  assert.deepEqual(await f.records.foldWhole(f.service), [PACK_ID])
+  assert.equal((await f.stored()).name, undefined)
+  assert.equal(f.library.records[0].name, 'Saved in pack')
 })
 
 test('an exported pack carries the whole figure, and reads whole where no 配图 人物库 exists', async t => {

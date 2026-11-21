@@ -3332,6 +3332,7 @@ export async function apply(ctx) {
       const library = ctx.get('assetLibrary')
       library?.figureRecordsChanged?.({}).then(() => figureRecords?.foldWhole(library)).catch(error => console.warn('dsh-tavern: 素材库人物刷新失败', str(error?.message || error)))
     },
+    writingFigureRecords: () => figureRecords?.writing() === true,
     async editLinkedFigures(changes, receipt, save) {
       // A record write the pack write in progress made itself (image-character-records.js): that pack holds it already.
       if (figureRecords?.writing()) return await save([])

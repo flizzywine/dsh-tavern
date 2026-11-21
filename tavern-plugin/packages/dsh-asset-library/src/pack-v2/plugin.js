@@ -43,6 +43,7 @@ export function apply(ctx, config = {}) {
       read: async input => (await ctx.get('tavernFigureRecords')?.read(input)) ?? null,
       write: async input => { const owner = ctx.get('tavernFigureRecords'); return owner ? owner.write(input) : input.figure },
       release: async input => { await ctx.get('tavernFigureRecords')?.release(input) },
+      report: error => ctx.logger.warn('素材包已保存，人物资料仍保留在包内：' + error.message),
     },
   }
   const transport = createAssetPackTransport({...config, mediaStore, ...figureExportOptions, adoptFigureImageLooks:input => ctx.get('tavernFigureImageExtras')?.adopt(input), normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards,

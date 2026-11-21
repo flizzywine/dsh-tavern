@@ -5,7 +5,7 @@ const conflict = () => Object.assign(new Error('人物库已在别处修改，�
 /** All editors share one short write gate. Publish only after the disk write succeeds. */
 // commit (previous, next, save): how every update is saved unless it names its own (Tavern's linked figures).
 export function createDefinitionsStore({ initial, persist, onCommit, commit: commitEvery }) {
-  let current, queue = Promise.resolve()
+  let current, queue = Promise.resolve(), pending = 0
   function publish(value) {
     const { revision, ...data } = value
     current = { ...data, revision: createHash('sha256').update(JSON.stringify(data)).digest('hex') }
@@ -14,12 +14,15 @@ export function createDefinitionsStore({ initial, persist, onCommit, commit: com
   }
   publish(initial)
   function serial(work) {
-    const run = queue.catch(() => {}).then(work)
+    pending++
+    const run = queue.catch(() => {}).then(work).finally(() => { pending-- })
     queue = run
     return run
   }
   return {
-    update(change, { expectedRevision, requireRevision = false, commit = commitEvery } = {}) {
+    update(change, { expectedRevision, requireRevision = false, commit = commitEvery, failIfBusy = false } = {}) {
+      // A pack-originated write already holds the pack gate, which a queued definitions edit may be waiting for.
+      if (failIfBusy && pending) return Promise.reject(conflict())
       return serial(async () => {
         if ((requireRevision || expectedRevision !== undefined) && expectedRevision !== current.revision) throw conflict()
         const previous = structuredClone(current), next = await change(previous)

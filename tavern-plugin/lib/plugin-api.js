@@ -908,6 +908,8 @@ export function createTavernPluginApi(deps) {
       return await deps.editLinkedFigure(change)
     },
 
+    writingFigureRecords() { return deps.writingFigureRecords?.() === true },
+
     async editLinkedFigures({ changes, receipt } = {}, save) {
       const owner = ownerOf(this)
       if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
