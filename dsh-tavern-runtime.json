@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d1b5a65462549c604553889d8eef5961dee47433",
-  "releaseSequence": 1891,
+  "revision": "17e9714e6e62f41edb0400a002d390960c278256",
+  "releaseSequence": 1892,
   "version": "3.4.0",
   "files": [
     {
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "d902fa773c4f945eb42ff5028ad3e45294669935f3779bd2daebecee4fcf990e",
-      "size": 6450841
+      "sha256": "60e5758048eb587a86a99fb4070c1b3e93e158e7f83667ec9efefa6bf6f8d3ca",
+      "size": 6451024
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1426,8 +1426,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-auto-reload.js",
-      "sha256": "2896338e9e5e3db8dad5c3cef7be15954710c46affe06c522ed4a7e5b4de61b3",
-      "size": 7561
+      "sha256": "219bbdf4e376c9a7e45c7c9216c453041c34e242b4ea42049f147387e9eb6286",
+      "size": 7940
     },
     {
       "path": "tavern-plugin/lib/domain/card-cover-image.js",
@@ -4211,8 +4211,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "950b3eaa5f5407e0c070182ec69ef01859098fcc850d5d964c8393d6adc99154",
-      "size": 335252
+      "sha256": "5bb77d3393318ac473d56cb7ab09f785b1c5a4c2b48807d554070f5240cd3223",
+      "size": 335290
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9671,9 +9671,9 @@
     }
   ],
   "archive": {
-    "commit": "74586ec048f45aa9f79ebf5fd9145e419e5ff3ba",
+    "commit": "3f1d8419523d25cd91aad3385124514c1549aa1c",
     "path": "runtime.zip",
-    "sha256": "2f82cbacba4ba8f464a9ad7b3ebb60914d11152a9bf1f62f0ba0b041a09d7da5",
-    "size": 17113682
+    "sha256": "dd83c28eae27aa87e892d313ae5fde9d8916f3d1edccd9f3c0dcab72e0fe061f",
+    "size": 17113843
   }
 }
