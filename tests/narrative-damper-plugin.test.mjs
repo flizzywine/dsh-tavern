@@ -219,6 +219,15 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   const { TndPanel } = exported
   let doc = {}
   const currentConfig = () => presentTavernSettings(doc, {}).narrativeDamper
+  const { damper } = memoryCredentials({ DSH_TAVERN_DAMPER_GEMINI: 'test-key' })
+  const service = createDamperSettings({
+    readTavernSettings: async () => ({ narrativeDamper: currentConfig() }),
+    updateTavernSettings: async patch => {
+      doc = applyTavernSettingsPatch(doc, patch)
+      return { narrativeDamper: currentConfig() }
+    },
+    damper
+  })
   const calls = []
   const ui = {
     apiVersion: 10,
@@ -235,12 +244,9 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
     },
     async callHost(name, args) {
       calls.push([name, args])
-      if (name === 'narrative-damper:read') return { config: currentConfig(), credential: { configured: true, source: 'stored', keyName: 'GEMINI_API_KEY' } }
-      if (name === 'narrative-damper:update') {
-        doc = applyTavernSettingsPatch(doc, { narrativeDamper: args.values })
-        return { config: currentConfig(), credential: { configured: true, source: 'stored', keyName: 'GEMINI_API_KEY' } }
-      }
-      if (name === 'narrative-damper:test') return { ok: true, latencyMs: 9, sampleProbability: 0.9 }
+      if (name === 'narrative-damper:read') return service.read()
+      if (name === 'narrative-damper:update') return service.update(args.values)
+      if (name === 'narrative-damper:test') return service.test(args.config)
       return null
     }
   }
@@ -274,7 +280,7 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
 
   // 已开启状态下切换到兼容接口，尚未填写自定义接口地址时不能被校验拦截，且应立刻展示输入框
   assert.ok([...host.querySelectorAll('.tnd-field-label')].some(node => node.textContent.includes('自定义接口地址')))
-  assert.doesNotMatch(host.textContent, /自定义接口地址须为有效的/)
+  assert.match(host.textContent, /请填写自定义接口地址/)
 
   // 切换到 Gemini 兼容接口同样立即展示自定义接口地址，且非空非法地址仍会被拦截、合法地址可保存
   await act(async () => {
@@ -285,7 +291,7 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   })
   const baseUrlInput = host.querySelector('input[aria-label="自定义接口地址"]')
   assert.ok(baseUrlInput, 'Gemini 兼容接口下应当出现自定义接口地址输入框')
-  assert.doesNotMatch(host.textContent, /自定义接口地址须为有效的/)
+  assert.equal(host.querySelector('.tnd-endpoint'), null)
 
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
@@ -296,18 +302,19 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
     baseUrlInput.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: false }))
     baseUrlInput.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true }))
   })
-  assert.match(host.textContent, /自定义接口地址须为有效的 HTTPS 地址或本地回环 HTTP 地址/)
+  assert.match(host.textContent, /HTTP 仅支持本地回环地址/)
 
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
-    setter.call(baseUrlInput, 'https://proxy.example.com/v1beta')
+    setter.call(baseUrlInput, 'proxy.example.com/gateway/v1/chat/completions')
     baseUrlInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
   })
   await act(async () => {
     baseUrlInput.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: false }))
     baseUrlInput.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true }))
   })
-  assert.equal(currentConfig().baseUrl, 'https://proxy.example.com/v1beta')
+  assert.equal(currentConfig().baseUrl, 'https://proxy.example.com/gateway/v1/chat/completions')
+  assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1beta\/decisions$/)
 
   // 切回 OpenAI 兼容接口供后续断言使用
   await act(async () => {
@@ -316,6 +323,7 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
     provider.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     provider.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
   })
+  assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1\/decisions$/)
 
   // 阈值：填 0.9 后失焦提交，面板先按 0.50–0.95 收紧。
   // 换提供方会让「自定义接口地址」那一行插进来，行的位置全变，必须重新取节点。

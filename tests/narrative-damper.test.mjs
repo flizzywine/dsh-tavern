@@ -6,7 +6,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 
-import { DAMPER_KEY_REFS, clampMvuSubmissionOperations, clampMvuSubmissionOperationsWithReport, createNarrativeDamper, defaultNarrativeDamperConfig, compileTurnRuling, normalizeDecisionRuling, nextPlainDamperState, readDamperStateSnapshot, settlementBudgetRuleText } from '../tavern-plugin/lib/domain/narrative-damper.js'
+import { DAMPER_KEY_REFS, clampMvuSubmissionOperations, clampMvuSubmissionOperationsWithReport, createNarrativeDamper, damperEndpointUrl, defaultNarrativeDamperConfig, compileTurnRuling, normalizeDecisionRuling, nextPlainDamperState, readDamperStateSnapshot, settlementBudgetRuleText, validateNarrativeDamperConfig } from '../tavern-plugin/lib/domain/narrative-damper.js'
 import { maskMvuReceipt } from '../tavern-plugin/lib/domain/mvu-visibility.js'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 import { createStoryTranscriptReader, storyTranscriptMessageFields } from '../tavern-plugin/lib/domain/story-transcript-reader.js'
@@ -97,12 +97,56 @@ test('叙事阻尼器 RPC：密钥安全存储不回显明文、环境变量引�
   assert.equal(creds.stored.has(DAMPER_KEY_REFS.gemini), false)
 })
 
+test('兼容接口统一处理网关前缀、版本路径和完整 API 地址', () => {
+  const cases = [
+    ['api.example.com', 'https://api.example.com', 'https://api.example.com/v1/decisions'],
+    ['ｈｔｔｐｓ：／／ａｐｉ．ｅｘａｍｐｌｅ．ｃｏｍ', 'https://api.example.com', 'https://api.example.com/v1/decisions'],
+    ['localhost:443/v1', 'http://localhost:443/v1', 'http://localhost:443/v1/decisions'],
+    ['[::1]:8080', 'http://[::1]:8080', 'http://[::1]:8080/v1/decisions'],
+    ['https://api.example.com/Ａ/v1beta', 'https://api.example.com/%EF%BC%A1/v1beta', 'https://api.example.com/%EF%BC%A1/v1/decisions'],
+    ['https://api.example.com/proxy/v1/v1/chat/completions/', 'https://api.example.com/proxy/v1/v1/chat/completions', 'https://api.example.com/proxy/v1/v1/decisions'],
+    ['https://api.example.com/proxy/v1/responses', 'https://api.example.com/proxy/v1/responses', 'https://api.example.com/proxy/v1/decisions'],
+    ['https://api.example.com/proxy/v1beta/decisions', 'https://api.example.com/proxy/v1beta/decisions', 'https://api.example.com/proxy/v1/decisions']
+  ]
+  for (const [baseUrl, canonical, endpoint] of cases) {
+    for (const [provider, expected] of [
+      ['openai-compatible', endpoint],
+      ['gemini-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1beta/decisions')]
+    ]) {
+      const raw = { provider, baseUrl }
+      const config = validateNarrativeDamperConfig(raw)
+      assert.equal(config.baseUrl, canonical)
+      assert.equal(damperEndpointUrl(raw), expected)
+      assert.equal(damperEndpointUrl(config), expected)
+    }
+  }
+})
+
+test('兼容接口区分地址错误，开启时仍可保存未填写的地址', () => {
+  const config = { provider: 'openai-compatible', enabled: true }
+  assert.equal(damperEndpointUrl(validateNarrativeDamperConfig({ ...config, baseUrl: '  ' })), '')
+  for (const [baseUrl, message] of [
+    ['https:/api.example.com', /地址格式无效/],
+    ['https://api.example.com:invalid', /地址格式无效/],
+    [42, /地址格式无效/],
+    ['ftp://api.example.com', /仅支持 HTTPS 和 HTTP 协议/],
+    ['http://api.example.com', /HTTP 仅支持本地回环地址/],
+    ['https://user:password@api.example.com', /不能包含用户名或密码/],
+    ['https://api.example.com?', /不能包含查询参数或片段/],
+    ['https://api.example.com/#anchor', /不能包含查询参数或片段/]
+  ]) {
+    assert.throws(() => validateNarrativeDamperConfig({ ...config, baseUrl }), {
+      code: 'DAMPER_INVALID_CONFIG', message
+    })
+  }
+})
+
 test('决策接口返回 404 或 405 时，连接测试、回合和插件判定报告端点错误', async () => {
   const config = {
     ...defaultNarrativeDamperConfig(),
     enabled: true,
     provider: 'openai-compatible',
-    baseUrl: 'https://proxy.example.com/v1',
+    baseUrl: 'https://proxy.example.com/v1beta/chat/completions',
     model: 'gpt-6-luna',
     keyName: 'OPENAI_API_KEY'
   }

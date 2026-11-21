@@ -60,12 +60,39 @@ export function defaultNarrativeDamperConfig() {
   }
 }
 
-function validCustomBaseUrl(rawUrl) {
+const CUSTOM_DAMPER_PATHS = {
+  'gemini-compatible': '/v1beta/decisions',
+  'openai-compatible': '/v1/decisions'
+}
+
+function isDamperLoopback(hostname) {
+  return hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname)
+}
+
+function parseCustomDamperUrl(rawUrl) {
+  const malformed = '自定义接口地址格式无效，请填写主机名和可选端口，例如 https://api.example.com'
+  if (typeof rawUrl !== 'string') return { message: malformed }
+  // 转换协议和主机部分的全角字符，保留已有 URL 路径中的 Unicode 字符。
+  const input = rawUrl.trim().replace(/^(?:[^:/：／]+[:：][/／]{2})?[^/]*/, prefix =>
+    prefix.replace(/[！-～]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0)))
+  if (!input) return {}
+  if (/[?#]/.test(input)) return { message: '自定义接口地址不能包含查询参数或片段（? 或 #）' }
+  const scheme = input.match(/^([a-z][a-z\d+.-]*):\/\//i)?.[1].toLowerCase()
+  if (scheme && scheme !== 'https' && scheme !== 'http') {
+    return { message: '自定义接口地址仅支持 HTTPS 和 HTTP 协议' }
+  }
+  const authority = (scheme ? input.slice(scheme.length + 3) : input).split('/', 1)[0]
+  if (authority.includes('@')) return { message: '自定义接口地址不能包含用户名或密码' }
+  if (!authority || authority.endsWith(':') || /[\\\x00-\x1f\x7f]/.test(input)) return { message: malformed }
+
   let url
-  try { url = new URL(str(rawUrl)) } catch { return false }
-  const loopback = url.hostname === 'localhost' || url.hostname === '[::1]' || /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(url.hostname)
-  return (url.protocol === 'https:' || (url.protocol === 'http:' && loopback))
-    && !url.username && !url.password && !url.search && !url.hash
+  try { url = new URL(scheme ? input : 'https://' + input) } catch { return { message: malformed } }
+  const loopback = isDamperLoopback(url.hostname)
+  if (url.protocol === 'http:' && !loopback) {
+    return { message: 'HTTP 仅支持本地回环地址，其他地址请使用 HTTPS' }
+  }
+  if (!scheme && loopback) url = new URL('http://' + input)
+  return { url }
 }
 
 export function normalizeNarrativeDamperConfig(value) {
@@ -73,7 +100,7 @@ export function normalizeNarrativeDamperConfig(value) {
   const raw = object(value)
   const provider = Object.hasOwn(DAMPER_PROVIDERS, raw.provider) ? raw.provider : defaults.provider
   const providerDefaults = DAMPER_PROVIDERS[provider]
-  const customEndpoint = provider === 'gemini-compatible' || provider === 'openai-compatible'
+  const customEndpoint = Object.hasOwn(CUSTOM_DAMPER_PATHS, provider)
   const threshold = Number(raw.godmodeThreshold)
   const timeoutMs = Number(raw.timeoutMs)
   const keyName = typeof raw.keyName === 'string' && DAMPER_KEY_NAME.test(raw.keyName.trim())
@@ -82,9 +109,7 @@ export function normalizeNarrativeDamperConfig(value) {
   const model = typeof raw.model === 'string' && raw.model.trim()
     ? raw.model.trim().slice(0, 160)
     : providerDefaults.model
-  const baseUrl = customEndpoint && typeof raw.baseUrl === 'string' && validCustomBaseUrl(raw.baseUrl.trim())
-    ? raw.baseUrl.trim()
-    : ''
+  const baseUrl = customEndpoint ? (parseCustomDamperUrl(raw.baseUrl).url?.href.replace(/\/+$/, '') ?? '') : ''
   return {
     enabled: raw.enabled === true,
     showTurnStatus: raw.showTurnStatus !== false,
@@ -111,22 +136,20 @@ export function validateNarrativeDamperConfig(value) {
   if (Object.hasOwn(raw, 'judgeMode') && !DAMPER_JUDGE_MODES.includes(raw.judgeMode)) throw error('DAMPER_INVALID_CONFIG', '判定模式无效')
   if (Object.hasOwn(raw, 'provider') && !Object.hasOwn(DAMPER_PROVIDERS, raw.provider)) throw error('DAMPER_INVALID_CONFIG', '决策模型提供方无效')
   const provider = Object.hasOwn(DAMPER_PROVIDERS, raw.provider) ? raw.provider : 'gemini'
-  const customEndpoint = provider === 'gemini-compatible' || provider === 'openai-compatible'
+  const customEndpoint = Object.hasOwn(CUSTOM_DAMPER_PATHS, provider)
   if (Object.hasOwn(raw, 'model') && (typeof raw.model !== 'string' || !raw.model.trim() || raw.model.trim().length > 160)) {
     throw error('DAMPER_INVALID_CONFIG', '决策模型名称不能为空')
   }
   if (Object.hasOwn(raw, 'keyName') && raw.keyName !== '' && (typeof raw.keyName !== 'string' || !DAMPER_KEY_NAME.test(raw.keyName))) {
     throw error('DAMPER_INVALID_CONFIG', '环境变量名称格式无效')
   }
-  if (customEndpoint) {
-    if (Object.hasOwn(raw, 'baseUrl')) {
-      const trimmedBaseUrl = typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : null
-      if (trimmedBaseUrl === null || (trimmedBaseUrl !== '' && !validCustomBaseUrl(trimmedBaseUrl))) {
-        throw error('DAMPER_INVALID_CONFIG', '自定义接口地址须为有效的 HTTPS 地址或本地回环 HTTP 地址')
-      }
+  if (Object.hasOwn(raw, 'baseUrl')) {
+    if (customEndpoint) {
+      const { message } = parseCustomDamperUrl(raw.baseUrl)
+      if (message) throw error('DAMPER_INVALID_CONFIG', message)
+    } else if (raw.baseUrl !== '') {
+      throw error('DAMPER_INVALID_CONFIG', '官方固定端点无需填写自定义接口地址')
     }
-  } else if (Object.hasOwn(raw, 'baseUrl') && raw.baseUrl !== '') {
-    throw error('DAMPER_INVALID_CONFIG', '官方固定端点无需填写自定义接口地址')
   }
   if (Object.hasOwn(raw, 'godmodeThreshold')) {
     const t = Number(raw.godmodeThreshold)
@@ -153,17 +176,12 @@ function fixedDamperUrl(provider) {
 }
 
 export function damperEndpointUrl(config) {
-  if (config.provider === 'gemini-compatible') {
-    if (!validCustomBaseUrl(config.baseUrl)) return ''
-    const base = config.baseUrl.replace(/\/+$/, '').replace(/\/v1beta(?:\/decisions)?$/, '')
-    return new URL(base + '/v1beta/decisions').href
-  }
-  if (config.provider === 'openai-compatible') {
-    if (!validCustomBaseUrl(config.baseUrl)) return ''
-    const base = config.baseUrl.replace(/\/+$/, '').replace(/\/v1(?:\/decisions)?$/, '')
-    return new URL(base + '/v1/decisions').href
-  }
-  return fixedDamperUrl(config.provider)
+  if (!Object.hasOwn(CUSTOM_DAMPER_PATHS, config.provider)) return fixedDamperUrl(config.provider)
+  const { url } = parseCustomDamperUrl(config.baseUrl)
+  if (!url) return ''
+  const prefix = url.pathname.replace(/\/+$/, '').replace(/\/v1(?:beta)?(?:\/(?:decisions|chat\/completions|responses))?$/, '')
+  url.pathname = prefix + CUSTOM_DAMPER_PATHS[config.provider]
+  return url.href
 }
 
 // Transient semantic scale projection applied ONLY to the decision model's input copy.
