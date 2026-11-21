@@ -193,7 +193,8 @@ test('control exposes provider kinds, external service status, base voices and k
   ]
   try {
     const kinds = await control('providerKinds')
-    assert.deepEqual(kinds.map(k => k.kind),['qwen','azure','fish-audio','volcengine','minimax','openai-compatible']) // add-flow order
+    assert.deepEqual(kinds.filter(k => k.category !== 'music').map(k => k.kind),['qwen','azure','fish-audio','volcengine','minimax','openai-compatible']) // add-flow order
+    assert.deepEqual(kinds.filter(k => k.category === 'music').map(k => k.kind),['lyria'])
     assert.deepEqual((await control('listModels',{serviceId:'local-service'})).models,[])
     assert.equal((await control('listVoices',{serviceId:'local-service'})).voices.length,2)
     assert.equal(kinds.find(k => k.kind === 'qwen').fields.find(f => f.secret).key,'key')
