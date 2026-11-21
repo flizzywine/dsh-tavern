@@ -47,6 +47,28 @@ function isCurrentTavernHelperContext(current, incoming) {
     return next > previous || next === previous && Number(incoming.stateRevision || 0) >= Number(current.stateRevision || 0);
 }
 
+// Which floor's variables a Helper reader gets for floor `id`. Floors at the end
+// of the chat that have no variables of their own yet (the reply is still being
+// generated, or it failed or was cancelled before it was saved) read the latest
+// floor that has them: the values the new floor starts from once it is saved.
+// Every other floor reads its own, even when they are empty.
+function tavernHelperVariablesFloor(messages, id) {
+    const rows = Array.isArray(messages) ? messages : [];
+    function own(row) {
+        if (!row || row.stub === true) return false;
+        if (Array.isArray(row.swipes_data)) return row.swipes_data[Math.max(0, Number(row.swipe_id) || 0)] !== undefined;
+        return Boolean(row.variables) && typeof row.variables === 'object' && Object.keys(row.variables).length > 0;
+    }
+    if (!Number.isInteger(id) || id < 0 || id >= rows.length || own(rows[id])) return id;
+    for (let next = id + 1; next < rows.length; next++) if (own(rows[next])) return id;
+    for (let previous = id - 1; previous >= 0; previous--) {
+        const row = rows[previous];
+        if (!row || row.stub === true) return id;
+        if (own(row)) return previous;
+    }
+    return id;
+}
+
 function createTavernHelperMessageWriter({context, copy, request}) {
     return async function (patches) {
         const {chatId, lifecycleRevision} = context();
