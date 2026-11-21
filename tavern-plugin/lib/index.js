@@ -3326,7 +3326,7 @@ export async function apply(ctx) {
       const global = ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []
       return [...new Set([...own, ...global])]
     },
-    async imagePackCharacters(packIds, selections) {
+    async imagePackCharacters(packIds, selections, includeReferences) {
       const library = ctx.get('assetLibrary')
       if (!library) return []
       const packs = await Promise.all(packIds.map(packId => library.getPackSnapshot({ packId, readOnly: true })))
@@ -3339,7 +3339,7 @@ export async function apply(ctx) {
           if (selections && !selection) return null
           const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
           const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
-          const hash = outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
+          const hash = includeReferences && outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
           const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
           return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
             ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }

@@ -414,10 +414,10 @@ test('a pack-only character supplies its stage outfit reference and registered c
   const calls = [], id = 'pack:p:f'
   globalThis.fetch = atlasMock(calls)
   const person = { id, name: 'Mira', consistencyText: 'Pale green skin and a silver spear.', outfits: [{ id: 'armor', name: 'Armor', upper: 'pink leather armor' }] }
-  const tavern = { async imagePackCharacters({ subjects }) {
+  const tavern = { async imagePackCharacters({ subjects, includeReferences }) {
     if (!subjects) return [person]
     assert.equal(subjects[0].characterId, id)
-    return [{ ...person, outfitId: 'armor', reference: { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: 'Mira armor' } }]
+    return [{ ...person, outfitId: 'armor', ...(includeReferences && { reference: { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: 'Mira armor' } }) }]
   } }
   const fixture = await imagePluginFixture(t, { tavern, config: { generationMode: 'auto', promptMode: 'structured' }, llm: { async *stream(request) {
     assert.match(JSON.stringify(request), /pink leather armor/)
@@ -432,4 +432,12 @@ test('a pack-only character supplies its stage outfit reference and registered c
   assert.equal(job.generationMode, 'reference')
   assert.equal(job.references[0].image.name, 'Mira armor')
   assert.match(job.submittedPrompt, /pink leather armor/i)
+  await runtime.request('config', { generationMode: 'text' })
+  const text = await runtime.request('plan', { text: 'Mira waits by the bridge.', messageId: 'pack-text', count: 1, manual: true, sessionId: 'game-1', turn: 2 })
+  assert.equal(text.body.plans.length, 1, JSON.stringify(text.body))
+  const textJob = await runtime.terminal(text.body.plans[0].jobId)
+  assert.equal(textJob.state, 'done', textJob.error)
+  assert.equal(textJob.generationMode, 'text')
+  assert.deepEqual(textJob.references, [])
+  assert.match(textJob.submittedPrompt, /pink leather armor/i)
 })

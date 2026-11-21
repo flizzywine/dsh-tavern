@@ -3221,7 +3221,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
             const packFacts = []
             if (selected.length) {
-              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected })
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: planningGenerationMode === 'reference' })
               for (const { id, name, consistencyText, outfitId, reference } of dressed) {
                 const person = pictureScope.characters.find(item => item.id === id)
                 const outfit = person.outfits.find(item => item.id === outfitId)
@@ -3229,7 +3229,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                 const identity = person.traits?.face || consistencyText
                 if (identity || outfit.upper) packFacts.push([name, identity && `外观：${identity}`, outfit.upper && `服装：${outfit.upper}`].filter(Boolean).join('；'))
                 if (reference && planningGenerationMode === 'reference') {
-                  const characterOutfitImage = await referenceStore.put(reference)
+                  const characterOutfitImage = await putReferenceImage(reference)
                   pictureScope.characters = pictureScope.characters.map(item => item.id === id ? { ...item, outfits: item.outfits.map(row => row.id === outfitId ? { ...row, characterOutfitImage } : row) } : item)
                 }
                 pictureSubjects = pictureSubjects.map(subject => subject.characterId === id ? { ...subject, outfitId } : subject)
