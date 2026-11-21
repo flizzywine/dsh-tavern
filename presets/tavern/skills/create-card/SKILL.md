@@ -24,7 +24,7 @@ description: "从零创建原创人物卡：补齐角色、玩家身份、世界
 ## 创建与校验
 
 - 空白工作台用 `tavern_update_card` 创建正式卡，`fields` 同时提供 `name` 与 `player`；填写描述、性格、场景、开场、示例对话、玩法说明与标签。开场给玩家留下行动空间，不替玩家决定言行。
-- 需要世界书时，`tavern_update_worldbook` 对新卡的 `cards/...` 路径添加条目；用 `comment`、`content`、`primaryKeys` 表达一个主题和准确关键词。粒度以「值得这次触发」为准：重要人物单独成条；只有一两句描写的小地点、小配角并进所属的条目，例如虚拟世界里的入口、商店街、城堡、演唱会场合成一条该世界的条目，每处一行；对剧情重要、有实质内容的地点（如主角的家）才单独成条。
+- 需要世界书时，`tavern_update_worldbook` 对新卡的 `cards/...` 路径添加条目；用 `comment`、`content`、`primaryKeys` 表达一个主题和准确关键词。游玩时多数条目要靠模型自己搜、自己读，先用 `tavern_read_skill_reference` 读取本 Skill 的 [references/worldbook-entries.md](references/worldbook-entries.md) 再写：标题用「类别·名称」，别名和外观、用途写进正文，纯资料不用宏，资料多时加常驻资料索引。重要人物单独成条；只有一两句描写的小地点、小配角并进所属的条目，每处一行；对剧情重要、有实质内容的地点（如主角的家）才单独成条。
 - 选择 MVU 时加载 `card-to-mvu`，在新卡上加入初值、更新规则与面板；采用选定草图，未选美化则做简洁字段列表。
 - 美化不用 MVU 时，开场主页放在开场 html 代码块；状态栏约定模型输出标签，通过 `/data/extensions/regex_scripts` 的展示正则替换为 HTML，并用 promptOnly 正则移除模型历史中的旧状态块。
 - 检查保存结果附带的格式校验；直接编辑文件后调用 `tavern_validate_card`。修复本次引入的问题并重新保存或校验。
