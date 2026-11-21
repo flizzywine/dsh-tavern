@@ -1,4 +1,4 @@
-import { assertJson, check, object, jsonHash, compareCodePoints, array, shape, integer, unique, validateHash, relativePath, sha256 } from './common.js'
+import { assertJson, check, object, jsonHash, compareCodePoints, array, shape, integer, unique, validateHash, relativePath, sha256, SpooledFile } from './common.js'
 export { canonicalJson, parseJson, sha256, jsonHash } from './common.js'
 // Machine state is not manifest data. Never silently strip arbitrary author fields.
 export const LOCAL_ONLY_FIELDS = Object.freeze(['revision', 'globalEnabledPackIds', 'leases', 'cache', 'calibration', 'placement', 'authorization', 'exportedAt'])
@@ -39,8 +39,8 @@ export async function verifyPackFiles(manifest, files) {
   check(files instanceof Map && files.size === manifest.files.length, '$.files', 'File closure mismatch', 'FILE_CLOSURE_MISMATCH')
   for (const file of manifest.files) {
     const bytes = files.get(file.path)
-    check(bytes instanceof Uint8Array && bytes.byteLength === file.size, '$.files.' + file.path, 'Missing file or size mismatch', 'FILE_CLOSURE_MISMATCH')
-    check(await sha256(bytes) === file.sha256, '$.files.' + file.path, 'File content hash mismatch', 'CONTENT_HASH_MISMATCH')
+    check((bytes instanceof Uint8Array || bytes instanceof SpooledFile) && bytes.length === file.size, '$.files.' + file.path, 'Missing file or size mismatch', 'FILE_CLOSURE_MISMATCH')
+    check((bytes instanceof SpooledFile ? bytes.sha256 : await sha256(bytes)) === file.sha256, '$.files.' + file.path, 'File content hash mismatch', 'CONTENT_HASH_MISMATCH')
   }
   return manifest
 }
