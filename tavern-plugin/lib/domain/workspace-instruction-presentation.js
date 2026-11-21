@@ -18,6 +18,8 @@ const blockedSections = new Set([
 ])
 const isBlockedSection = name => blockedSections.has(name) || /^tool:[^:]+:depth$/.test(name || '')
 
+// The native Skill catalogue belongs in the request: it names what the retained
+// skill tool can load, including writing Skills scoped to the current game.
 const blockedUserKinds = new Set([
   'agent-instructions',
   'user-approval',
@@ -26,7 +28,6 @@ const blockedUserKinds = new Set([
   'working-directory',
   'plan-mode',
   'repeat-tool-reminder',
-  'skill-catalog',
   'tmux-context',
   'cordis-host-runner',
   'tool-jobs',

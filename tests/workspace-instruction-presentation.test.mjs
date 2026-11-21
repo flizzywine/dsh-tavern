@@ -96,7 +96,6 @@ test('strips all DSH host synthetic notices, snapshots, tool-registry, and runti
     'working-directory',
     'plan-mode',
     'repeat-tool-reminder',
-    'skill-catalog',
     'tmux-context',
     'cordis-host-runner',
     'tool-jobs',
@@ -120,6 +119,19 @@ test('strips all DSH host synthetic notices, snapshots, tool-registry, and runti
   assert.deepEqual(result.messages[0].source.sections.map(s => s.name), ['tavern:story'])
   assert.equal(result.messages[0].content[0].text, '酒馆系统提示词')
   assert.deepEqual(result.messages.slice(1), [realUser, tavernFrame, reply])
+})
+
+test('keeps native Skill discovery, catalogue updates and explicitly loaded instructions', () => {
+  const entries = [{ name: 'writing-probe', description: 'Develop dialogue for the current scene' }]
+  const catalogue = message({ kind: 'skill-catalog', form: 'catalog', entries },
+    '<available_skills>\n- `writing-probe`: Develop dialogue for the current scene\n</available_skills>')
+  const update = message({ kind: 'skill-catalog', form: 'catalog', entries: [], update: true },
+    '<available_skills>\n</available_skills>')
+  const invocation = message({ kind: 'skill-invocation', name: 'writing-probe' }, 'Writing instructions')
+  const noise = message({ kind: 'working-directory' })
+  const request = { sessionId: 's', tools: [{ name: 'skill' }], messages: [noise, catalogue, invocation, update] }
+
+  assert.deepEqual(presentWorkspaceInstructions(request).messages, [catalogue, invocation, update])
 })
 
 test('returns the original request object when nothing needs filtering', () => {
