@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import { figureOutfitReference } from '../domain/figure-sprite-reference.js'
-import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter, putPackReference, packReferenceName, referencePatch } from '../domain/image-character-appearance.js'
+import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter, putPackReference, packReferenceName, referencePatch, setteiReferences } from '../domain/image-character-appearance.js'
 
 // The image plugin owns these records. Asset-pack edits never store a second copy.
 export function createImageCharacterHandlers({ ctx, pluginApi }) {
@@ -89,17 +89,27 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
       if (args.patch && (Object.hasOwn(args.patch, 'figureId') || Object.hasOwn(args.patch, 'figurePackId'))) throw fail('INVALID_ARGUMENT', '请通过关联操作选择人物')
       return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: args.patch })
     },
-    async copyFigureSetteiToImageCharacter(args) {
+    // The record shows the figure's 设定图 (setteiReferences), as every write of the figure leaves it: for records written
+    // before that rule (a migration). Returns the record as it now is.
+    async syncFigureSetteiToImageCharacter(args) {
       const { library, pack, figure, character } = await linkedRecord(args)
-      const outfit = args.outfitKey ? figure.outfits.find(item => item.key === args.outfitKey) : null
-      if (args.outfitKey && !outfit) throw fail('NOT_FOUND', '服装已删除，请重新载入')
-      const spriteFallback = args.spriteFallback === true
-      if (spriteFallback && (!outfit || outfit.settei || character.outfits.some(item => item.id === outfit.key && item.characterOutfitImage))) throw fail('INVALID_ARGUMENT', '已有参考图或设定图，不可覆盖')
-      const fallback = spriteFallback ? figureOutfitReference(pack, figure, outfit) : null
-      const hash = spriteFallback ? fallback?.hash : outfit ? outfit.settei : figure.identitySettei?.board
-      if (!hash) throw fail('INVALID_ARGUMENT', '还没有设定图')
-      const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash,
-        name: packReferenceName(figure, outfit, spriteFallback ? {sprite:' 立绘参考', emotion:' 差分参考', avatar:' 头像参考'}[fallback.kind] : undefined) })
+      let state = { providerId: args.providerId, character }
+      for (const { outfit, hash } of setteiReferences(character, figure)) {
+        const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash, name: packReferenceName(figure, outfit) })
+        state = await records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
+      }
+      return state
+    },
+    // An outfit with no 设定图 and no 参考图 takes its resting 立绘 (or first 差分, or 头像) as its 参考图 (link-image --sprite-fallback).
+    async copyFigureSpriteToImageCharacter(args) {
+      const { library, pack, figure, character } = await linkedRecord(args)
+      const outfit = figure.outfits.find(item => item.key === args.outfitKey)
+      if (!outfit) throw fail('NOT_FOUND', '服装已删除，请重新载入')
+      if (outfit.settei || character.outfits.some(item => item.id === outfit.key && item.characterOutfitImage)) throw fail('INVALID_ARGUMENT', '已有参考图或设定图，不可覆盖')
+      const fallback = figureOutfitReference(pack, figure, outfit)
+      if (!fallback) throw fail('INVALID_ARGUMENT', '这套服装没有可用的立绘')
+      const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash: fallback.hash,
+        name: packReferenceName(figure, outfit, {sprite:' 立绘参考', emotion:' 差分参考', avatar:' 头像参考'}[fallback.kind]) })
       return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: referencePatch(character, outfit, referenceImage) })
     },
   }
