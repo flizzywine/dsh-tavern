@@ -2363,7 +2363,7 @@ export async function apply(ctx) {
     for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
     if (scriptPath) paths.add(scriptPath)
     const versions = await Promise.all([...paths].map(file => profileData.version('resources/' + file)))
-    return [binding, [...paths], versions, scriptsVersion, stageRuntime.status()]
+    return [binding, [...paths], versions, scriptsVersion, stageRuntime.status(), cardUpdates.revision(chat.sessionId)]
   }
   const sessionProjection = createSessionViewProjection({
     readChanges: (id, revision) => chatPersistence.readChangedSlice(id, revision, 'settlement'),

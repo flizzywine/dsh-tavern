@@ -35954,7 +35954,9 @@ function bindTavernFontZoom(node, win) {
 			}
 			function sync(sessionId, view) {
 				const nextSessionId = String(sessionId || "");
-				if (!nextSessionId || !hasScriptRuntime(view)) { dispose(); return; }
+				// An automatic card reload will replace the Helper lifecycle. Wait
+				// for its committed view before scripts initialize or write variables.
+				if (!nextSessionId || view?.cardUpdate?.autoReloading || !hasScriptRuntime(view)) { dispose(); return; }
 				if (input && input.sessionId !== nextSessionId) dispose();
 				if (chatInitialization && chatInitialization.chatId !== String(view?.chatId || "")) resetChatInitialization();
 				const currentRuntime = ensureRuntime(nextSessionId);

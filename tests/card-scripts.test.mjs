@@ -95,8 +95,9 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   await assert.rejects(rpc('setCardScriptMuted', { sessionId: 'session', id: 'bgm', muted: 'false' }), /boolean/)
   const versionSource = host.slice(host.indexOf('    resourceVersion: async chat => {'), host.indexOf('    readChanges: chatPersistence.readChangedIndices,'))
   const resourceVersionsSource = host.slice(host.indexOf('  async function readCardResourceVersions('), host.indexOf('  const sessionProjection = createSessionViewProjection('))
-  const resourceVersion = new Function('fileResources', 'profileData', 'cardScripts', 'stageRuntime', 'tavernExtensionSettings', 'promptTemplateGlobalVariables', `${resourceVersionsSource}; return ({ ${versionSource} }).resourceVersion`)(
-    { worldBookBindingForCard: async () => ({}), scriptForCard: async () => null }, profileData, cardScripts, { status: () => 'ready' }, { version: async () => '' }, { version: async () => '' })
+  let reloadRevision = 0
+  const resourceVersion = new Function('fileResources', 'profileData', 'cardScripts', 'stageRuntime', 'tavernExtensionSettings', 'promptTemplateGlobalVariables', 'cardUpdates', `${resourceVersionsSource}; return ({ ${versionSource} }).resourceVersion`)(
+    { worldBookBindingForCard: async () => ({}), scriptForCard: async () => null }, profileData, cardScripts, { status: () => 'ready' }, { version: async () => '' }, { version: async () => '' }, { revision: () => reloadRevision })
   const originalVersion = await resourceVersion(chat)
   let fullReads = 0
   const views = createSessionViewReader({
@@ -127,6 +128,9 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   assert.deepEqual(await profileData.readJson(key), { version: 1, muted: ['bgm'] })
   await profileData.writeJson(resourcePath, workspace)
   assert.deepEqual((await views.read('session')).tavernHelperScripts.map(script => script.id), ['utility'])
+  const beforeReload = await resourceVersion(chat)
+  reloadRevision++
+  assert.notEqual(await resourceVersion(chat), beforeReload)
 
   assert.deepEqual(chat, before)
   assert.match(host, /hasScripts: async function \(chat\) \{ return hasTavernScriptRuntime\(chat, \(await readCardExtensions\(chat.cardPath, chat\)\)/)
