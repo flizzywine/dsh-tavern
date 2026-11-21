@@ -53,6 +53,7 @@ window.__ModuleLoader__.load({
 		// @include foreground.js
 		// @include-domain mvu-visibility.js
 		// @include tab-icons.js
+		// @include settings-nav-icons.js
 		// @include variable-bindings.cjs
 		// @include pack-transport.js
 		// @include asset-pack-binding.js
@@ -1579,6 +1580,7 @@ function clipReplayCore() {
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			if (typeof document !== "undefined") ctx.effect(() => installSettingsNavIcons(slots, document), "dsh-tavern: settings navigation icons");
 			createVertexRegionFeature({ React: React, rpc: rpc }).register(ctx);
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.
