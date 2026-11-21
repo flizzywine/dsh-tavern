@@ -134,6 +134,35 @@ test('keeps native Skill discovery, catalogue updates and explicitly loaded inst
   assert.deepEqual(presentWorkspaceInstructions(request).messages, [catalogue, invocation, update])
 })
 
+test('hides bundled Office skills in saved catalogs for Tavern requests', async () => {
+  const { ctx, sent } = middleware()
+  installWorkspaceInstructionPresentation(ctx, async id => id === 'game')
+  const offices = ['office', 'office-docx', 'office-pptx', 'office-xlsx'].map(name => ({ name, description: 'Edit Office documents' }))
+  const writing = { name: 'writing-probe', description: 'Develop dialogue for the current scene' }
+  const render = entries => '<available_skills>\n' +
+    entries.map(entry => '- `' + entry.name + '`: ' + entry.description + '\n').join('') + '</available_skills>'
+  const makeCatalog = (entries, flags = {}) => message({ kind: 'skill-catalog', form: 'catalog', entries, ...flags }, render(entries))
+  const officeOnly = makeCatalog(offices)
+  const mixed = makeCatalog([...offices, writing])
+  const update = makeCatalog(offices, { update: true })
+  const legacy = message({ kind: 'skill-catalog', form: 'catalog' }, render([writing, ...offices]))
+  const user = message({ kind: 'user' }, '- `office`: Mentioned by the player')
+  const messages = [officeOnly, mixed, update, legacy, user]
+  for (const sessionId of ['game', 'workspace']) {
+    for await (const _ of ctx.llm.stream({ sessionId, messages })) { /* drain */ }
+  }
+
+  assert.deepEqual(sent[0].messages, [
+    makeCatalog([writing]),
+    makeCatalog([], { update: true }),
+    { ...legacy, content: [{ type: 'text', text: render([writing]) }] },
+    user,
+  ])
+  assert.equal(sent[1].messages, messages)
+  assert.deepEqual(mixed.source.entries, [...offices, writing])
+  assert.equal(mixed.content[0].text, render([...offices, writing]))
+})
+
 test('returns the original request object when nothing needs filtering', () => {
   const req = {
     sessionId: 's',

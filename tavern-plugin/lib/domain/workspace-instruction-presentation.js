@@ -18,8 +18,6 @@ const blockedSections = new Set([
 ])
 const isBlockedSection = name => blockedSections.has(name) || /^tool:[^:]+:depth$/.test(name || '')
 
-// The native Skill catalogue belongs in the request: it names what the retained
-// skill tool can load, including writing Skills scoped to the current game.
 const blockedUserKinds = new Set([
   'agent-instructions',
   'user-approval',
@@ -38,6 +36,27 @@ const blockedUserPlugins = new Set([...blockedUserKinds].flatMap(name => [name, 
 
 const blockedDeveloperKinds = new Set(['tool-registry'])
 const blockedDeveloperPlugins = new Set(['tool-registry', '@deepseek-ai/dsh-tool-registry'])
+
+const officeSkillName = /^office(?:-docx|-pptx|-xlsx)?$/
+const officeCatalogLine = /^- `office(?:-docx|-pptx|-xlsx)?`: [^\n]*\n/gm
+
+// The Tavern profile disables the provider. Old sessions can still replay its catalog.
+function presentSkillCatalog(message) {
+  const { source } = message
+  let changed = false
+  const content = message.content.map(block => {
+    if (block?.type !== 'text' || typeof block.text !== 'string') return block
+    const text = block.text.replace(officeCatalogLine, '')
+    if (text === block.text) return block
+    changed = true
+    return { ...block, text }
+  })
+  if (!changed) return message
+  if (!source.update && !source.incomplete && content.length === 1 &&
+    /<available_skills>\s*<\/available_skills>/.test(content[0].text)) return null
+  const entries = Array.isArray(source.entries) ? source.entries.filter(entry => !officeSkillName.test(entry?.name)) : undefined
+  return { ...message, content, source: entries ? { ...source, entries } : source }
+}
 
 function isBlockedHostMessage(message) {
   const source = message?.source
@@ -58,6 +77,11 @@ export function presentWorkspaceInstructions(request) {
   let changed = false
   const messages = request.messages.flatMap(message => {
     const source = message?.source
+    if (message?.role === 'user' && source?.kind === 'skill-catalog' && Array.isArray(message.content)) {
+      const catalog = presentSkillCatalog(message)
+      changed ||= catalog !== message
+      return catalog ? [catalog] : []
+    }
     if (isBlockedHostMessage(message)) {
       changed = true
       return []
