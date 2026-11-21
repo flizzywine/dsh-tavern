@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cff07f6b31993e42834ca3c0f2afb4afa673c0bb",
-  "releaseSequence": 1894,
+  "revision": "d6028b677b00cc3b8f7c98ee8919d7e4223b3ee8",
+  "releaseSequence": 1895,
   "version": "3.4.0",
   "files": [
     {
@@ -1981,8 +1981,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "b891281559e725c901ddf2aaa60dcd0530ada77ace9a8a5b44c173ca41a3c12b",
-      "size": 37923
+      "sha256": "8b09234eeebd26c3866cf0092b94495c611ec0630ca9c547c9c02a9004c5c2d3",
+      "size": 38419
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3381,8 +3381,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/skill-gated-tools.js",
-      "sha256": "2cb799a1dbb07364bc2b5d4da00065d6f2ad7b73ba9232adeb7516eff7e90663",
-      "size": 2165
+      "sha256": "714460e4127f58570ce494c9c145825c216b34f23f30ff092301e55e416eaa6c",
+      "size": 2092
     },
     {
       "path": "tavern-plugin/lib/domain/skill-text-context.js",
@@ -4436,8 +4436,8 @@
     },
     {
       "path": "tavern-plugin/lib/tools/play-chat.js",
-      "sha256": "1e091a110adfb946f7361e8c1aa503acc2e18ac44d839e242c318b9d660a31b2",
-      "size": 6171
+      "sha256": "386aff3fc1bc31f90c7259ff844e6159bba0ee593dd9734fc657730dd29dd709",
+      "size": 6037
     },
     {
       "path": "tavern-plugin/lib/tools/preset.js",
@@ -9671,9 +9671,9 @@
     }
   ],
   "archive": {
-    "commit": "3f161721791f596b51ec060ba83d5a02ad1b9d3b",
+    "commit": "f1fcafd649e901b2b3cc261be1f5e83338d81d99",
     "path": "runtime.zip",
-    "sha256": "dd9e5645619a693f9bb4afaee473f9db33ea2f1563582949b0be594049068919",
-    "size": 17117048
+    "sha256": "c7b63b7c46ea8d08f950524b6a365865aae5843b25a0136bf52cb2c51e2fbef1",
+    "size": 17117158
   }
 }
