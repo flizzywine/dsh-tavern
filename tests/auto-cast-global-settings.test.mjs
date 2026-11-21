@@ -12,9 +12,9 @@ test('the global layer saves into the real native settings profile and reads bac
   export function apply(ctx){ctx.provide('testAutoCast',createAutoCastSettings(ctx,ctx,{section:AUTO_CAST_SECTION,defaults:AUTO_CAST_DEFAULTS,validateLayer:validateAutoCastLayer}));}`
   const {ctx} = await nativeSettingsProfile(t, {ownerSource, ownerId:'test-auto-cast'})
   const settings = ctx.get('testAutoCast'), before = settings.read()
-  assert.deepEqual(before.values, {enabled:false, level:'late'})
+  assert.deepEqual(before.values, {enabled:false, level:'balanced'})
   assert.equal(before.writable, true)
-  await settings.save({expectedRevision:before.revision, patch:{enabled:true, level:'eager'}})
-  assert.deepEqual(settings.read().values, {enabled:true, level:'eager'})
+  await settings.save({expectedRevision:before.revision, patch:{enabled:true, level:'saving'}})
+  assert.deepEqual(settings.read().values, {enabled:true, level:'saving'})
   await assert.rejects(settings.save({expectedRevision:settings.read().revision, patch:{level:'sometimes'}}))
 })

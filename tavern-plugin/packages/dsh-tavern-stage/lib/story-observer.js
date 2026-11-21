@@ -24,7 +24,7 @@ export function registerAutoFigureObserver({storyEvents, chatHeaderForSession, d
 
 // Stage-owned adapter. Core saves and streams know only optional observers.
 export function createStageStoryObserver({settlementQueued, modService, stageDirector, chatPersistence,
-  chatHeaderForSession, dialogueBubbles, readStageChat, readReplyPrefix, activeRoundBodies}) {
+  chatHeaderForSession, dialogueBubbles, readStageChat, readReplyPrefix, activeRoundBodies, streamed = () => {}}) {
   return {
     activity:chat => ({director:stageDirector.activity(chat)}),
     modelChanged:() => modService.invalidate(),
@@ -59,6 +59,8 @@ export function createStageStoryObserver({settlementQueued, modService, stageDir
       return {update(text) {
         const full = [prefix,text].filter(Boolean).join('\n\n')
         active.body = roundBody([{kind:'markdown',text:full}],{chatId:chat.id,branchId:chat.timeline?.branchId,turn,streaming:true})
+        // 自动素材 casts a new speaker as soon as their line is finished (it never holds up the stream)
+        void Promise.resolve().then(() => streamed(chat, active.body, turn)).catch(() => {})
         return director?.update(active.body.displayUnits,streamTailClosed(full,active.body.displayUnits))
       }, finish() {return director?.finish(active.body.displayUnits)},
       cancel() {if (activeRoundBodies.get(sessionId) === active) activeRoundBodies.delete(sessionId);return director?.cancel()}}

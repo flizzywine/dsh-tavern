@@ -2,10 +2,10 @@
 // one write before anything is drawn. Synthetic data only; ids differ from names.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { runCastingAssistant, roundStory, AUTO_CAST_TASK } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js'
+import { runCastingAssistant, runLookLender, roundStory, AUTO_CAST_TASK, AUTO_CAST_LEND_TASK } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-assistant.js'
 import {cardLorePieces as lorePieces} from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 import {castChanges, newSpeakers} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
-import {emptyAutoCastRecord, noteCasting, castDrawn} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteCasting, castDrawn, lendLooks} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
 
 const PACK = '11111111-1111-4111-8111-111111111111', OWN = '22222222-2222-4222-8222-222222222222', LIB = '33333333-3333-4333-8333-333333333333'
 const rows = [{actorKey:'o1', ref:{packId:OWN, figureId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}, name:'晓美焰·麻花辫', aliases:['眼镜焰'], enabled:true, figure:{voice:{voice:'v-homura'}}}]
@@ -21,7 +21,7 @@ test('the tools check their input and answer errors the model can fix', async ()
   const calls = [['search_lore', {query:'护士'}], ['same_as', {figure:'晓美焰', existing:'焰'}], ['same_as', {figure:'晓美焰', existing:'眼镜焰'}], ['same_as', {figure:'护士', existing:'眼镜焰'}],
     ['copy_figure', {figure:'雪乃', packId:LIB, figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}], ['search_library', {query:'雪乃'}],
     ['copy_figure', {figure:'雪乃', packId:LIB, figureId:'ffffffff-ffff-4fff-8fff-ffffffffffff'}], ['copy_figure', {figure:'雪乃', packId:LIB, figureId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}],
-    ['write_appearance', {figure:'路人', face:'x', body:'y'}], ['write_appearance', {figure:'护士', face:'圆脸短发', body:''}], ['write_appearance', {figure:'护士', about:'夜班护士，照顾主角', face:'圆脸短发', body:'微胖，白色护士服'}],
+    ['write_appearance', {figure:'路人', face:'x', body:'y'}], ['write_appearance', {figure:'护士', face:'圆脸短发', body:''}], ['write_appearance', {figure:'护士', about:'夜班护士，照顾主角', face:'圆脸短发', body:'微胖，白色护士服', importance:'recurring'}],
     ['assign_voice', {figure:'护士', packId:OWN, voiceId:'v-homura', reason:'她的声音要沉稳'}], ['assign_voice', {figure:'护士', packId:LIB, voiceId:'v-mid', reason:'说话平和的中年女声，适合耐心照料病人的护士'}], ['finish', {}]]
   const run = async input => {
     assert.equal(input.task, AUTO_CAST_TASK); assert.equal(input.ownPrefix, true); assert.match(input.system, /选角助理/)
@@ -50,6 +50,36 @@ test('the tools check their input and answer errors the model can fix', async ()
   assert.deepEqual(result.voice, {护士:{from:{packId:LIB, voiceId:'v-mid'}, revision:'lr1', reason:'说话平和的中年女声，适合耐心照料病人的护士'}})
 })
 
+test('借用形象: one short call lends every new speaker a 通用人物 立绘 from the candidates, and nothing else', async () => {
+  const TEACHER = '44444444-4444-4444-8444-444444444444', ROWDY = '55555555-5555-4555-8555-555555555555', GENERAL = '66666666-6666-4666-8666-666666666666'
+  const figures = [{packId:GENERAL, figureId:TEACHER, name:'慵懒熟女教师', heightCm:171}, {packId:GENERAL, figureId:ROWDY, name:'重义不良少年', heightCm:181}]
+  const replies = []
+  const looks = await runLookLender({selection:{}, sessionId:'s', turn:2, speakers:[{name:'老板娘', aliases:[]}, {name:'牧童', aliases:[]}], figures, story:'正文：胖胖的老板娘在擦杯子。',
+    runAgent:async input => {
+      assert.equal(input.task, AUTO_CAST_LEND_TASK); assert.equal(input.ownPrefix, true); assert.match(input.system, /通用人物的立绘/)
+      const task = JSON.parse(input.taskText)
+      assert.deepEqual(task.新人物, ['老板娘', '牧童'])
+      assert.deepEqual(task.可借的通用人物, [{figureId:TEACHER, name:'慵懒熟女教师', 身高:171}, {figureId:ROWDY, name:'重义不良少年', 身高:181}], 'by id, name and height')
+      assert.equal(task.本轮正文, '正文：胖胖的老板娘在擦杯子。')
+      assert.equal(input.maxToolCalls, 4)
+      assert.deepEqual(input.tools.map(tool => tool.name), ['lend', 'finish'], 'nothing but the lending')
+      const call = async (name, args = {}) => { const reply = JSON.parse(await input.onToolCall({name, arguments:args})); replies.push(reply); return reply }
+      assert.match((await call('lend', {figure:'路人', figureId:TEACHER})).error, /老板娘、牧童/)
+      assert.match((await call('lend', {figure:'老板娘', figureId:'x'})).error, /可借的通用人物/)
+      assert.equal((await call('lend', {figure:'老板娘', figureId:TEACHER})).ok, true)
+      assert.equal((await call('lend', {figure:'牧童', figureId:ROWDY})).ok, true)
+      await call('finish')
+    }})
+  assert.deepEqual(looks, {老板娘:{packId:GENERAL, figureId:TEACHER}, 牧童:{packId:GENERAL, figureId:ROWDY}})
+  // the lending is 自动素材's record, at once (the director of the round still streaming reads it): not a pack write
+  assert.deepEqual(lendLooks(emptyAutoCastRecord(), looks).looks, looks)
+})
+test('the 选角助理 no longer lends looks: no borrow tool, nothing of a look in its write', async () => {
+  const result = await runCastingAssistant({selection:{}, speakers:[{name:'老板娘', aliases:[]}], rows, pieces:[], search:async () => ({figures:[], voices:[]}),
+    runAgent:async ({tools}) => assert.ok(!tools.some(tool => /look|borrow/.test(tool.name)))})
+  assert.equal(result.look, undefined)
+  assert.deepEqual(castChanges([{name:'老板娘', aliases:[]}], result).changes, [{op:'create', kind:'figures', value:{name:'老板娘', aliases:[]}}])
+})
 test('every library 通用声音 is listed with its name, 使用情景, language, pack and speakers, and one of them can be assigned', async () => {
   const general = {packId:'p-system', packName:'系统设置（请勿删除）', revision:'r1', voiceId:'v-male', name:'通用男性声音的声音', language:'zh', sound:'male', figures:['通用男性声音']}
   const seen = []

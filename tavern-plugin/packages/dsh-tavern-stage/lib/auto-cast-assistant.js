@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises'
 import resolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
+import {AUTO_CAST_TIERS} from './domain/auto-cast-priority.js'
 
 const {resolveFigureName, normalizeCatalogueText} = resolution
 // 选角助理: one background model task per round with new speakers, apart from the director;
@@ -35,7 +36,8 @@ const TOOLS = [
     packId:{type:'string', description:'search_library 结果里的 packId'}, figureId:{type:'string', description:'search_library 结果里的 figureId'}}, required:['figure', 'packId', 'figureId']}},
   {name:'write_appearance', description:'写新人物的人物介绍和外貌：介绍进素材包，外貌进配图人物库，之后按它画人设图、立绘和场景配图（人物档案里已写过的项不覆盖）。', parameters:{type:'object', properties:{figure:figureArg,
     about:{type:'string', description:'人物介绍：他在这个故事里是谁（身份、和主角的关系、性格），一两句'},
-    face:{type:'string', description:'五官、发型、发色、瞳色、年龄感'}, body:{type:'string', description:'体型、身高感、常穿的服装和配饰'}}, required:['figure', 'about', 'face', 'body']}},
+    face:{type:'string', description:'五官、发型、发色、瞳色、年龄感'}, body:{type:'string', description:'体型、身高感、常穿的服装和配饰'},
+    importance:{type:'string', enum:AUTO_CAST_TIERS, description:'重要度：core 故事的主要人物，recurring 会再出场的人物，extra 只为这一场出现的路人'}}, required:['figure', 'about', 'face', 'body', 'importance']}},
   {name:'list_library_voices', description:'列出可给新人物用的通用声线。先按语言、性别、年龄感筛选，再按性格和说话风格匹配 figures 里的通用人物原型及 usage 使用情景。没有合适的原型再选通用路人声线。inUse 表示本卡或本轮已占用的实际声线。', parameters:{type:'object', properties:{}}},
   {name:'assign_voice', description:'给不复制的新人物绑定最贴合人设、尚未占用的声线；只借用通用原型的声音，不复制该原型的名字或外貌。语言和性别相符时，优先比较年龄感、性格和说话风格。', parameters:{type:'object', properties:{figure:figureArg,
     packId:{type:'string', description:'结果里声音的 packId'}, voiceId:{type:'string', description:'结果里声音的 voiceId'},
@@ -48,9 +50,9 @@ const TOOLS = [
 // ({voices, more}; null: none); pieces: cardLorePieces (card-stage.js); story: the round's text (roundStory), where a speaker
 // the card never names comes on and is first described. A voice is chosen only among the library's 通用声音 (those
 // offered to it, voiceAutoCast in voice-auto-cast.cjs; library-search.js filters): never a figure's own, nor a bare 配音后端 voice.
-// → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, voice:{[name]:{from, revision, reason}}, finished}
+// → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, importance:{[name]:tier}, voice:{[name]:{from, revision, reason}}, finished}
 export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, story = '', search, libraryVoices = null}) {
-  const result = {same:{}, copy:{}, appearance:{}, about:{}, voice:{}, finished:false}
+  const result = {same:{}, copy:{}, appearance:{}, about:{}, importance:{}, voice:{}, finished:false}
   const seen = {figures:new Map(), voices:new Map()}
   const picked = new Map()
   const speaker = name => speakers.find(row => resolveFigureName([{actorKey:'n', name:row.name, aliases:row.aliases || [], enabled:true}], {name:String(name || '')}).status === 'resolved')
@@ -93,12 +95,14 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
       result.copy[target.name] = {source:{packId, figureId}, revision:row.revision}
       return JSON.stringify({ok:true})
     },
-    write_appearance({figure, about, face, body}) {
+    write_appearance({figure, about, face, body, importance}) {
       const target = speaker(figure)
       if (!target) return unknown(figure)
       const traits = {face:String(face || '').trim(), bodySFW:String(body || '').trim()}
       if (!traits.face || !traits.bodySFW || traits.face.length > TEXT || traits.bodySFW.length > TEXT) return fail('face 和 body 都要写，各不超过 ' + TEXT + ' 字')
+      if (!AUTO_CAST_TIERS.includes(importance)) return fail('importance 只能是 ' + AUTO_CAST_TIERS.join('、') + ' 之一')
       result.appearance[target.name] = traits
+      result.importance[target.name] = importance
       if (String(about || '').trim()) result.about[target.name] = String(about).trim().slice(0, TEXT)
       return JSON.stringify({ok:true})
     },
@@ -128,4 +132,34 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
     maxToolCalls:CALLS_PER_SPEAKER * speakers.length + 2, toolLimitMessage:'工具次数用完了：已做的决定都有效，请调用 finish 结束。',
     tools:offered.map(tool => tool.name === 'finish' ? {...tool, countsTowardLimit:false} : tool), onToolCall:async call => tools[call.name] && offered.some(tool => tool.name === call.name) ? tools[call.name](call.arguments || {}) : fail('没有这个工具')})
   return result
+}
+
+// 借用形象: the 立绘 each new speaker stands in with until their own is drawn, chosen the moment their line is written (one
+// short call, apart from the 选角助理, which takes seconds per person: the round's director has finished long before it).
+// figures: the library's 通用人物原型 a look can be lent from (auto-cast-library.js lendable()). → {[name]: {packId, figureId}}.
+const LEND_PROMPT = new URL('../../../presets/auto-cast/lend.md', import.meta.url)
+export const AUTO_CAST_LEND_TASK = 'auto-cast-lend'
+export async function runLookLender({runAgent, selection, sessionId, turn, signal, speakers, story = '', figures}) {
+  const looks = {}
+  const speaker = name => speakers.find(row => resolveFigureName([{actorKey:'n', name:row.name, aliases:row.aliases || [], enabled:true}], {name:String(name || '')}).status === 'resolved')
+  const fail = message => JSON.stringify({ok:false, error:message})
+  const tools = [
+    {name:'lend', description:'给一个新人物借一个通用人物的立绘。', parameters:{type:'object', properties:{figure:figureArg, figureId:{type:'string', description:'可借的通用人物里的 figureId'}}, required:['figure', 'figureId']}},
+    {name:'finish', description:'每个新人物都借好了。', parameters:{type:'object', properties:{}}, countsTowardLimit:false},
+  ]
+  const calls = {
+    lend({figure, figureId}) {
+      const target = speaker(figure), row = figures.find(candidate => candidate.figureId === figureId)
+      if (!target) return fail('没有叫「' + figure + '」的新人物；新人物是：' + speakers.map(row => row.name).join('、'))
+      if (!row) return fail('figureId 要从「可借的通用人物」里选')
+      looks[target.name] = {packId:row.packId, figureId:row.figureId}
+      return JSON.stringify({ok:true})
+    },
+    finish:() => JSON.stringify({ok:true}),
+  }
+  const taskText = JSON.stringify({新人物:speakers.map(row => row.name), 可借的通用人物:figures.map(row => ({figureId:row.figureId, name:row.name, ...(row.heightCm ? {身高:row.heightCm} : {})})), ...(story ? {本轮正文:story} : {})})
+  await runAgent({task:AUTO_CAST_LEND_TASK, sessionId, turn, selection, ownPrefix:true, system:await readFile(LEND_PROMPT, 'utf8'), taskText, messages:[], signal,
+    maxToolCalls:speakers.length + 2, toolLimitMessage:'工具次数用完了：已借的都有效，请调用 finish 结束。',
+    tools, onToolCall:async call => calls[call.name] ? calls[call.name](call.arguments || {}) : fail('没有这个工具')})
+  return looks
 }
