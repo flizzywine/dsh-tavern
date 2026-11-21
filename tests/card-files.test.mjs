@@ -208,9 +208,28 @@ test('a pack ZIP installs a new pack, leaves an identical one, and hands a clash
   assert.match(blocked.notices[0], /脚本包.*带脚本/)
   assert.equal(applied.at(-1)[1], 'cancel')
   await assert.rejects(files.importPackArchiveFile(join(root, 'missing.zip')), /ENOENT|no such file/)
+  const notPack = () => ({ ...assetLibrary(), inspectImportFile: async () => { throw Object.assign(new Error('Missing pack manifest'), { code: 'FILE_CLOSURE_MISMATCH' }) } })
+  await assert.rejects((await library(t, { assetLibrary: notPack })).files.importPackArchiveFile(scriptedFile), /不是素材包.*导入卡 ZIP/)
   const full = () => ({ ...assetLibrary(), inspectImportFile: async () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }) } })
   const { files: onFullDisk } = await library(t, { assetLibrary: full })
   await assert.rejects(onFullDisk.importPackArchiveFile(scriptedFile), /磁盘空间不够.*没有留下半个文件/)
+})
+// A pack collection whose second pack fails to install: the first stays installed and is named, the rest are cancelled.
+test('a pack collection that fails part way names what was installed and cancels the previews left', async t => {
+  const calls = []
+  const pack = (n, name) => ({ inspectionId: 'p' + n, packId: 'id-' + n, choices: ['install', 'cancel'], scriptRisk: [], incoming: { manifest: { name } }, expectedRevision: null })
+  const set = { kind: 'pack-set', inspectionId: 'set', packs: [pack(1, '甲'), pack(2, '乙'), pack(3, '丙')] }
+  const assetLibrary = () => ({
+    async inspectImportFile() { return set },
+    async applyImport({ inspectionId, decision }) {
+      calls.push([inspectionId, decision])
+      if (inspectionId === 'p2' && decision === 'install') throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' })
+      return { status: decision }
+    },
+  })
+  const { files } = await library(t, { assetLibrary })
+  await assert.rejects(files.importPackArchiveFile('unused.zip'), error => /「乙」没有装入：磁盘空间不够.*已装入：「甲」.*其余 1 个包没有处理/.test(error.message))
+  assert.deepEqual(calls, [['p1', 'install'], ['p2', 'install'], ['p2', 'cancel'], ['p3', 'cancel']])
 })
 test('撤回 puts the card and the packs it replaced back; only the latest update can be taken back', async t => {
   const packId = '66666666-6666-4666-8666-666666666666'

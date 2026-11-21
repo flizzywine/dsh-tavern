@@ -121,13 +121,23 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const library = packLibrary()
     if (!library) throw new Error('素材库不可用，没法导入素材包')
     const installed = [], notices = []
-    try {
-      const preview = await library.inspectImportFile({ file })
-      for (const one of preview.kind === 'pack-set' ? preview.packs : [preview]) await applyPackPreview(library, one, installed, notices)
-      if (preview.kind === 'pack-set') await library.applyImport({ inspectionId: preview.inspectionId, decision: 'cancel' }).catch(() => {})
-    } catch (error) {
+    const preview = await library.inspectImportFile({ file }).catch(error => {
+      // not a pack ZIP: a card ZIP, a plain ZIP or a damaged file (the same codes the asset library's own import page maps)
+      if (!error?.code || ['INVALID_INPUT', 'INVALID_PATH', 'FILE_CLOSURE_MISMATCH'].includes(error.code)) throw new Error('这个文件不是素材包，或者已经损坏。卡 ZIP 请用「导入卡 ZIP」导入。')
       if (error?.code === 'ENOSPC') throw new Error('磁盘空间不够，没有导入这个素材包，也没有留下半个文件。腾出空间后再试一次。')
       throw error
+    })
+    // A pack collection is one preview per pack, applied one by one: a failure leaves the packs before it installed (said
+    // below), and the ones after it are cancelled so their previews do not wait for the asset library to expire them.
+    const previews = preview.kind === 'pack-set' ? preview.packs : [preview]
+    for (const [index, one] of previews.entries()) {
+      try { await applyPackPreview(library, one, installed, notices) }
+      catch (error) {
+        for (const rest of previews.slice(index)) await library.applyImport({ inspectionId: rest.inspectionId, decision: 'cancel' }).catch(() => {})
+        const reason = error?.code === 'ENOSPC' ? '磁盘空间不够，腾出空间后再试一次' : str(error?.message || error)
+        throw new Error('素材包「' + (one.incoming?.manifest?.name || one.packId) + '」没有装入：' + reason + '（没有留下半个包）'
+          + (installed.length ? '。已装入：' + installed.map(pack => '「' + pack.title + '」').join('、') : '') + (previews.length > index + 1 ? '。其余 ' + (previews.length - index - 1) + ' 个包没有处理' : ''))
+      }
     }
     return { packs: installed, ...(notices.length ? { notices } : {}) }
   }
