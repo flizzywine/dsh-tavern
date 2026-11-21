@@ -107,7 +107,7 @@ test('a committed round through the asset library plugin\'s own service: new spe
   const store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null)),
     readBytes:async k => files.get(k), writeBytes:async (k, v) => files.set(k, v), remove:async k => files.delete(k)}
   const port = createAutoCastLibrary({getLibrary:() => services.get('assetLibrary')})
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'late'}), library:port, onError:error => errors.push(error),
+  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'aggressive'}), library:port, onError:error => errors.push(error),
     images:{status:async () => ({ready:true, model:'m'}), prompt:async input => ({prompt:input.kind, output:{size:'1536x1024', background:'opaque', quality:'high'}}), check:() => ({warnings:[], hasTransparency:false}),
       generate:async input => { drawn.push(input); return {data:new Uint8Array(png([1, 2, 3])), mediaType:'image/png'} }}})
   t.after(async () => { cast.dispose(); for (const dispose of cleanup.reverse()) await dispose?.(); await rm(root, {recursive:true, force:true}) })

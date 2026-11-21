@@ -621,10 +621,12 @@ function StageModeJump({ctx}) {
 // effectiveAutoCast. It casts for the bubbles, so it is greyed while 对话气泡 is off. The 「›」 opens its page (生成策略).
 const AUTO_CAST_HELP='正文出现未准备素材的人物时，后台自动搜库或实时生成人设、立绘与声音，放进这张卡的「自动素材」包；会用到生图和后台模型。';
 const AUTO_CAST_NEED='自动素材给对话气泡里的人物配图和声音，要先打开对话气泡。';
-const AUTO_CAST_LEVELS=[['late','用到才生成'],['eager','常用预备'],['all','整卡补全']];
-const AUTO_CAST_LEVEL_HELP='控制后台什么时候为未备素材的人物生成立绘与声音。用到才生成：只生成正文用到的人物和表情，下一轮可用，最省额度。常用预备：开场白里的人物开局就生成，空闲时补齐登场人物的常用表情。整卡补全：开局梳理全卡可能出场的所有人物，空闲时一直生成到全员齐备。';
-const AUTO_CAST_DEFAULT={enabled:false,level:'late'};
-function autoCastLayers(ctx) { return {global:{...AUTO_CAST_DEFAULT,...ctx.writer.autoCast?.values},card:ctx.ext?.stage||{}}; }
+const AUTO_CAST_LEVELS=[['saving','节省'],['balanced','平衡'],['aggressive','激进']];
+const AUTO_CAST_LEVEL_HELP='没有素材的新人物先借素材库里通用角色的立绘登场，后台再按这里的策略给他画自己的立绘和表情，重要的人先画。节省：只画故事的主要人物，表情多用一张平和顶替，最省额度。平衡：也画会再出场的人物，常用的表情补齐，一次性的路人一直借着通用角色。激进：说过话的人都画，用到的表情都补齐。';
+const AUTO_CAST_DEFAULT={enabled:false,level:'balanced'};
+// The levels before (用到才生成 / 常用预备 / 整卡补全) show as the ones they now read as.
+const autoCastLevel=level=>({late:'balanced',eager:'balanced',all:'aggressive'})[level]||level;
+function autoCastLayers(ctx) { const global={...AUTO_CAST_DEFAULT,...ctx.writer.autoCast?.values}; return {global:{...global,level:autoCastLevel(global.level)},card:ctx.ext?.stage||{}}; }
 function StageAutoCastRow({ctx}) {
   const jump=React.useRef(null),blocked=!ctx.active.dialogue,{global,card}=autoCastLayers(ctx),loading=!ctx.writer.autoCast;
   React.useEffect(()=>{if(ctx.takeAutoCastFocus?.())jump.current?.focus?.();},[]);
@@ -653,7 +655,7 @@ function StageAutoCastPage({ctx,onBack}) {
   React.useEffect(()=>{let live=true;ctx.binding.rpc('getAutoCastStatus',{path:ctx.path}).then(value=>{if(live)setStatus(value);},()=>{});return ()=>{live=false;};},[ctx.path]);
   const notes=autoCastNotes(status);
   const {global,card}=autoCastLayers(ctx),own=scope==='card'?card.autoCast?.level!==undefined:global.level!==AUTO_CAST_DEFAULT.level;
-  const value=scope==='card'?card.autoCast?.level??global.level:global.level,loading=!ctx.writer.autoCast;
+  const value=autoCastLevel(scope==='card'?card.autoCast?.level??global.level:global.level),loading=!ctx.writer.autoCast;
   const writeCard=level=>ctx.writer.write(ext=>stagePatch(ext,{autoCast:level===undefined?undefined:{...(ext?.stage?.autoCast||{}),level}}));
   const set=level=>scope==='card'?writeCard(level):ctx.writer.autoCastGlobal({level});
   const reset=()=>scope==='card'?writeCard(undefined):ctx.writer.autoCastGlobal({level:AUTO_CAST_DEFAULT.level});

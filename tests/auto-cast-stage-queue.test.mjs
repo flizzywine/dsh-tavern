@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {deflateSync} from 'node:zlib'
 import {checkAssetImage} from '../tavern-plugin/lib/domain/asset-image-processing.js'
-import {emptyAutoCastRecord, noteRound, planAutoCast, jobReady, jobFailed, jobsLanded, noteDrawn, noteWriteFailure, autoCastProblem, AUTO_CAST_EMOTIONS, wantSettei, setteiGivenUp} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteRound, planAutoCast, jobReady, jobFailed, jobsLanded, noteDrawn, noteWriteFailure, autoCastProblem, AUTO_CAST_EMOTIONS, wantSettei, setteiGivenUp, pauseEnds} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js'
 import {createAutoCast, roundRequests} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 
 const PACK = '11111111-1111-4111-8111-111111111111', OWN = '22222222-2222-4222-8222-222222222222'
@@ -12,58 +12,93 @@ const A = {packId:PACK, figureId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}, B = {p
 const figure = (ref, over = {}) => ({ref, settei:false, sprites:[], ...over})
 const summary = jobs => jobs.map(job => (job.ref === A || job.ref.figureId === A.figureId ? 'A' : 'B') + ':' + (job.kind === 'sprite' ? job.emotionId : 'settei'))
 
-test('a round counts lines and the misses of emotions without a picture, for automatic figures only', () => {
-  const cast = [figure(A, {settei:true, sprites:['calm']})]
-  const record = noteRound(emptyAutoCastRecord(), [{ref:A, emotionId:'calm'}, {ref:A, emotionId:'joy'}, {ref:A, emotionId:'joy'}, {ref:A, emotionId:null}, {ref:B, emotionId:'sad'}], cast)
-  assert.deepEqual(record.lines, {[PACK + '/' + A.figureId]:4})
-  assert.deepEqual(record.misses, {[PACK + '/' + A.figureId]:{joy:2}})
+test('a round counts lines, rounds (once per turn), emotions and the misses of emotions without a picture, for automatic figures only', () => {
+  const cast = [figure(A, {settei:true, sprites:['calm'], defaultEmotion:'calm'})]
+  let record = noteRound(emptyAutoCastRecord(), [{ref:A, emotionId:'calm'}, {ref:A, emotionId:'joy'}, {ref:A, emotionId:'joy'}, {ref:A, emotionId:null}, {ref:B, emotionId:'sad'}], cast, 3)
+  const key = PACK + '/' + A.figureId
+  assert.deepEqual(record.lines, {[key]:4})
+  assert.deepEqual(record.misses, {[key]:{joy:2}})
+  assert.deepEqual(record.moods[key], {calm:2, joy:2}, 'a mood matching no emotion shows the default')
+  assert.equal(record.rounds[key], 1)
+  record = noteRound(record, [{ref:A, emotionId:'calm'}], cast, 3)
+  assert.equal(record.rounds[key], 1, 'the same turn again is the same round')
+  assert.equal(noteRound(record, [{ref:A, emotionId:'calm'}], cast, 4).rounds[key], 2)
 })
 
-test('晚一轮: a figure without any picture gets its 人设图 and first 立绘 first, then requests by misses', () => {
-  let record = emptyAutoCastRecord()
+test('平衡: a person judged core gets 人设图 then a first 立绘; a one-scene extra keeps the stand-in until they come back', () => {
   const cast = [figure(A, {settei:true, sprites:['calm']}), figure(B)]
-  record = noteRound(record, [{ref:A, emotionId:'joy'}, {ref:A, emotionId:'joy'}, {ref:A, emotionId:'joy'}, {ref:A, emotionId:'sad'}, {ref:B, emotionId:'anxious'}], cast)
-  assert.deepEqual(summary(planAutoCast(record, cast, 'late')), ['B:settei', 'A:joy', 'A:sad'], 'B has no picture: its 人设图 leads; its 立绘 waits for it')
+  let record = {...emptyAutoCastRecord(), tier:{[PACK + '/' + A.figureId]:'core', [PACK + '/' + B.figureId]:'extra'}}
+  record = noteRound(record, [...Array(30)].map(() => ({ref:A, emotionId:'joy'})).concat([{ref:A, emotionId:'sad'}, {ref:B, emotionId:'anxious'}]), cast, 1)
+  assert.deepEqual(summary(planAutoCast(record, cast, 'balanced')), ['A:joy'], 'B is an extra seen once: not drawn; A: the emotion its lines use most, a rare one shows the default')
+  const aggressive = summary(planAutoCast(record, cast, 'aggressive'))
+  assert.deepEqual(aggressive.slice(0, 2), ['A:joy', 'A:sad']); assert.ok(aggressive.includes('B:settei'), '激进 draws everyone who spoke, every emotion used')
+  // B comes back in another round: recurring by its lines, its 人设图 (then its first 立绘) is worth drawing now
+  const back = noteRound(record, [{ref:B, emotionId:'calm'}, {ref:B, emotionId:'calm'}, {ref:B, emotionId:'anxious'}], cast, 2)
+  assert.ok(summary(planAutoCast(back, cast, 'balanced')).includes('B:settei'))
   const withSettei = [cast[0], figure(B, {settei:true})]
-  assert.deepEqual(summary(planAutoCast(record, withSettei, 'late')), ['B:anxious', 'A:joy', 'A:sad'])
+  assert.ok(summary(planAutoCast(back, withSettei, 'balanced')).some(row => row.startsWith('B:') && row !== 'B:settei'), 'its first 立绘 waits for the 人设图')
   // the same picture is never planned twice: ready, in flight or failed twice recently.
-  const busy = new Set(planAutoCast(record, withSettei, 'late').slice(0, 1).map(job => JSON.stringify(['sprite', PACK, B.figureId, 'anxious'])))
-  assert.deepEqual(summary(planAutoCast(record, withSettei, 'late', {busy})), ['A:joy', 'A:sad'])
+  const busy = new Set([JSON.stringify(['sprite', PACK, A.figureId, 'joy'])])
+  assert.deepEqual(summary(planAutoCast(record, cast, 'aggressive', {busy})), aggressive.filter(row => row !== 'A:joy'))
   const ready = jobReady(record, {kind:'sprite', ref:A, emotionId:'joy'}, 'f.png', 1)
-  assert.deepEqual(summary(planAutoCast(ready, withSettei, 'late')), ['B:anxious', 'A:sad'])
-  const failed = jobFailed(jobFailed(record, {kind:'sprite', ref:A, emotionId:'sad'}, 10, null, 'old'), {kind:'sprite', ref:A, emotionId:'sad'}, 20, Object.assign(new Error('渠道忙'), {code:'BUSY'}), 'old')
-  assert.equal(Object.values(failed.jobs).find(job => job.emotionId === 'sad').error, 'BUSY', 'why it failed stays with the job')
-  assert.deepEqual(summary(planAutoCast(failed, withSettei, 'late', {now:30, channel:'old'})), ['B:anxious', 'A:joy'])
-  assert.deepEqual(summary(planAutoCast(failed, withSettei, 'late', {now:30, channel:'new'})), ['B:anxious', 'A:joy', 'A:sad'], 'another channel or model tries at once')
-  assert.equal(Object.values(jobFailed(failed, {kind:'sprite', ref:A, emotionId:'sad'}, 40, null, 'new').jobs).find(job => job.emotionId === 'sad').failures, 1, 'and counts its own failures')
-  assert.deepEqual(summary(planAutoCast(failed, withSettei, 'late', {now:20 + 31 * 60_000, channel:'old'})), ['B:anxious', 'A:joy', 'A:sad'], 'tried again after a pause')
+  assert.deepEqual(summary(planAutoCast(ready, cast, 'balanced')), [])
+  const failed = jobFailed(jobFailed(record, {kind:'sprite', ref:A, emotionId:'joy'}, 10, null, 'old'), {kind:'sprite', ref:A, emotionId:'joy'}, 20, Object.assign(new Error('渠道忙'), {code:'BUSY'}), 'old')
+  assert.equal(Object.values(failed.jobs).find(job => job.emotionId === 'joy').error, 'BUSY', 'why it failed stays with the job')
+  assert.deepEqual(summary(planAutoCast(failed, cast, 'balanced', {now:30, channel:'old'})), [])
+  assert.deepEqual(summary(planAutoCast(failed, cast, 'balanced', {now:30, channel:'new'})), ['A:joy'], 'another channel or model tries at once')
+  assert.equal(Object.values(jobFailed(failed, {kind:'sprite', ref:A, emotionId:'joy'}, 40, null, 'new').jobs).find(job => job.emotionId === 'joy').failures, 1, 'and counts its own failures')
+  assert.deepEqual(summary(planAutoCast(failed, cast, 'balanced', {now:20 + 31 * 60_000, channel:'old'})), ['A:joy'], 'tried again after a pause')
   const landed = jobsLanded(record, [{kind:'sprite', ref:A, emotionId:'joy'}])
   assert.equal(landed.misses[PACK + '/' + A.figureId].joy, undefined)
 })
 
+test('an extra keeps the borrowed 通用角色 立绘 however much they say in their one scene (节省 and 平衡); the queue goes by importance first', () => {
+  // the retest's 赶羊的牧童: judged extra, ten lines in one round, all of them asking for a 立绘 — drawn before (value 5 > bar 4)
+  const cast = [figure(A), figure(B)]
+  let record = {...emptyAutoCastRecord(), tier:{[PACK + '/' + A.figureId]:'recurring', [PACK + '/' + B.figureId]:'extra'}}
+  record = noteRound(record, [...Array(10)].map(() => ({ref:B, emotionId:'joy'})).concat([{ref:A, emotionId:'calm'}]), cast, 1)
+  for (const level of ['saving', 'balanced']) assert.ok(!summary(planAutoCast(record, cast, level)).some(row => row.startsWith('B:')), level + ': the extra is never drawn')
+  assert.ok(summary(planAutoCast(record, cast, 'aggressive')).includes('B:settei'), '激进 still draws everyone who spoke')
+  assert.deepEqual(summary(planAutoCast(record, cast, 'aggressive')).slice(0, 1), ['A:settei'], 'the recurring person goes first though the extra asked for more')
+  // coming back in a second round is what makes them recurring (tierOf): then they are drawn
+  const back = noteRound(record, [{ref:B, emotionId:'calm'}], cast, 2)
+  assert.ok(summary(planAutoCast(back, cast, 'balanced')).includes('B:settei'))
+})
+
 test('a CG waiting for a figure puts its 人设图 first, even when it never spoke; two failures in a row give it up for the pause', () => {
   const cast = [figure(A, {settei:true, sprites:['calm']}), figure(B)]
-  const record = wantSettei(noteRound(emptyAutoCastRecord(), [{ref:A, emotionId:'joy'}], cast), [B])
-  assert.deepEqual(summary(planAutoCast(record, cast, 'late')), ['B:settei', 'A:joy'], 'B never spoke: only its 人设图, no 立绘')
-  assert.deepEqual(summary(planAutoCast(record, [cast[0], figure(B, {settei:true})], 'late')), ['A:joy'], 'once it has one, nothing more for B')
+  const record = wantSettei(noteRound({...emptyAutoCastRecord(), tier:{[PACK + '/' + A.figureId]:'core'}}, [{ref:A, emotionId:'joy'}], cast, 1), [B])
+  assert.deepEqual(summary(planAutoCast(record, cast, 'aggressive')).slice(0, 2), ['B:settei', 'A:joy'], 'B never spoke: its 人设图 first')
+  assert.ok(!summary(planAutoCast(record, [cast[0], figure(B, {settei:true})], 'balanced')).some(row => row.startsWith('B:')), 'once it has one, nothing more for B (never spoke)')
   const once = jobFailed(record, {kind:'identity-settei', ref:B}, 10, null, 'm')
   assert.equal(setteiGivenUp(once, B, 20), false)
   const twice = jobFailed(once, {kind:'identity-settei', ref:B}, 20, null, 'm')
   assert.equal(setteiGivenUp(twice, B, 30), true)
   assert.equal(setteiGivenUp(twice, B, 20 + 31 * 60_000), false, 'tried again after the pause')
+  assert.equal(pauseEnds(once, 'm'), null, 'one failure is no pause')
+  assert.equal(pauseEnds(twice, 'm'), 20 + 30 * 60_000, 'the runtime tries again when the pause ends, not at the next round')
+  assert.equal(pauseEnds(twice, 'other'), null, 'another channel is not paused')
 })
 
-test('积极: the common three for each figure in turn (more lines first), then the rest; 全部 reaches figures who never spoke', () => {
-  const cast = [figure(A, {settei:true, sprites:['calm']}), figure(B, {settei:true, sprites:[]})]
-  const record = noteRound(emptyAutoCastRecord(), [{ref:B, emotionId:null}, {ref:B, emotionId:null}, {ref:A, emotionId:null}], cast)
-  const eager = summary(planAutoCast(record, cast, 'eager'))
-  assert.deepEqual(eager.slice(0, 5), ['B:calm', 'B:anxious', 'B:joy', 'A:anxious', 'A:joy'])
-  assert.deepEqual(eager.slice(5, 7), ['B:sad', 'B:shy'])
-  assert.equal(eager.length, 5 + 6 + 6)
-  const quiet = emptyAutoCastRecord()
-  assert.deepEqual(planAutoCast(quiet, cast, 'eager'), [], 'nobody spoke')
-  assert.equal(summary(planAutoCast(quiet, cast, 'all'))[0], 'A:anxious')
-  assert.deepEqual(AUTO_CAST_EMOTIONS.slice(0, 3), ['calm', 'anxious', 'joy'])
+test('the three levels are one function: 节省 the story\'s own people, 激进 every emotion used; the old levels read as the new', () => {
+  const cast = [figure(A, {settei:true, sprites:['calm']}), figure(B, {settei:true, sprites:['calm']})]
+  const record = noteRound({...emptyAutoCastRecord(), tier:{[PACK + '/' + A.figureId]:'core', [PACK + '/' + B.figureId]:'recurring'}},
+    [{ref:A, emotionId:'love'}, {ref:B, emotionId:'love'}, {ref:B, emotionId:'joy'}], cast, 1)
+  const saving = summary(planAutoCast(record, cast, 'saving')), balanced = summary(planAutoCast(record, cast, 'balanced')), aggressive = summary(planAutoCast(record, cast, 'aggressive'))
+  assert.ok(saving.every(row => row.startsWith('A:')), '节省: only the core person')
+  assert.ok(!balanced.includes('B:love') && aggressive.includes('B:love'), 'a rare emotion asked once: 激进 draws it, 平衡 shows the default')
+  assert.ok(saving.length <= balanced.length && balanced.length <= aggressive.length)
+  assert.deepEqual(summary(planAutoCast(record, cast, 'late')), balanced, '用到才生成 reads as 平衡')
+  assert.deepEqual(summary(planAutoCast(record, cast, 'all')), aggressive, '整卡补全 reads as 激进')
+  assert.deepEqual(AUTO_CAST_EMOTIONS.slice(0, 3), ['calm', 'joy', 'anxious'])
+})
+
+test('a reply still streaming: its finished lines count for the queue already', () => {
+  const cast = [figure(A)]
+  const record = {...emptyAutoCastRecord(), tier:{[PACK + '/' + A.figureId]:'recurring'}}
+  assert.deepEqual(planAutoCast(record, cast, 'balanced'), [], 'nothing said yet')
+  const streaming = {...record, streaming:{turn:2, requests:[{ref:A, emotionId:'calm'}, {ref:A, emotionId:'calm'}, {ref:A, emotionId:'anxious'}]}}
+  assert.deepEqual(summary(planAutoCast(streaming, cast, 'balanced')), ['A:settei'])
 })
 
 // ---------- runtime ----------
@@ -84,8 +119,9 @@ const settei = () => png(768, 512, (x, y) => [x % 255, y % 255, 90, 255])
 const sprite = ({edge = false, opaque = false} = {}) => png(512, 768, (x, y) => opaque || (edge ? x < 300 : x > 100 && x < 400 && y > 40 && y < 700) ? [200, 100, 50, 255] : [0, 0, 0, 0])
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 async function settle(predicate) { for (let i = 0; i < 200 && !predicate(); i++) await tick() }
+async function settleAsync(predicate) { for (let i = 0; i < 200 && !await predicate(); i++) await tick() }
 
-function harness({replies, transparent, cost, refuse, failDraw} = {}) {
+function harness({replies, transparent, cost, refuse, failDraw, assistant = null, lend = null} = {}) {
   const files = new Map(), writes = [], prompts = [], generated = []
   const store = {readJson:async key => files.has(key) ? structuredClone(files.get(key)) : null, writeJson:async (key, value) => files.set(key, structuredClone(value)),
     updateJson:async (key, fn) => files.set(key, fn(files.get(key) ?? null)), readBytes:async key => files.get(key) ?? null, writeBytes:async (key, data) => files.set(key, Buffer.from(data)), remove:async key => files.delete(key)}
@@ -103,8 +139,9 @@ function harness({replies, transparent, cost, refuse, failDraw} = {}) {
     check:(data, kind) => checkAssetImage(data, kind),
     generate:async input => { generated.push(input); if (failDraw) throw Object.assign(new Error('渠道拒绝'), {code:'GENERATION_FAILED'}); const next = queue.shift() || (input.background === 'transparent' ? sprite() : settei()); return {data:new Uint8Array(next), mediaType:'image/png', ...(cost ? {cost} : {})} },
     status:async () => ({ready:true, model:'m', ...(transparent === undefined ? {} : {transparent})})}
-  const settings = {enabled:true, level:'late'}
-  const cast = createAutoCast({store, settings:async () => settings, library, images, now:() => 1000})
+  // 激进: whatever the story asks for is drawn (the runtime's tests; the levels' choices are tested above)
+  const settings = {enabled:true, level:'aggressive'}
+  const cast = createAutoCast({store, settings:async () => settings, library, images, cast:assistant, lend, now:() => 1000})
   // holdWrites(): pack writes wait (never released) — the pictures stay drawn and not landed, as a restart finds them.
   return {cast, files, writes, prompts, generated, state, settings, holdWrites() { held = new Promise(() => {}) }}
 }
@@ -132,6 +169,26 @@ test('a new figure: 人设图 then its first 立绘 from it, each landed at once
   assert.deepEqual([...h.files.keys()].filter(key => key.endsWith('.png')), [], 'landed pictures leave the disk')
 })
 
+test('借用形象: a new speaker is lent a 通用人物 立绘 the moment their line is written, apart from their casting, kept by name card by card', async () => {
+  const LOOK = {packId:OWN, figureId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'}, asked = []
+  let castDone
+  const casting = new Promise(resolve => { castDone = resolve })
+  const h = harness({assistant:async () => { await casting; return {same:{}, copy:{}, appearance:{}, about:{}, importance:{}, voice:{}, finished:true} },
+    lend:async ({speakers}) => { asked.push(speakers.map(row => row.name)); return Object.fromEntries(speakers.map(row => [row.name, LOOK])) }})
+  assert.deepEqual(await h.cast.standInLooks('cards/c.json'), {}, 'nobody lent anything yet')
+  const early = h.cast.streamed('cards/c.json', body([['乙', '喜悦']]), chat, 2)
+  await settleAsync(async () => Object.keys(await h.cast.standInLooks('cards/c.json')).length === 1)
+  assert.deepEqual(await h.cast.standInLooks('cards/c.json'), {乙:LOOK}, 'lent while the casting of 乙 still runs')
+  // a second speaker's line while the first is still being cast: lent at once too (the casting waits its turn)
+  void h.cast.streamed('cards/c.json', body([['乙', '喜悦'], ['丙', '']]), chat, 2)
+  await settleAsync(async () => Object.keys(await h.cast.standInLooks('cards/c.json')).length === 2)
+  assert.deepEqual(asked, [['乙'], ['丙']], 'each speaker asked once')
+  castDone(); await early
+  await h.cast.round('cards/c.json', body([['乙', '喜悦'], ['丙', '']]), chat)
+  assert.deepEqual(asked, [['乙'], ['丙']], 'the commit asks nobody lent already')
+  assert.deepEqual(await h.cast.standInLooks('cards/c.json'), {乙:LOOK, 丙:LOOK})
+  assert.deepEqual(await h.cast.standInLooks('cards/other.json'), {}, 'another card lends its own')
+})
 test('a CG of the image plugin waits for the round’s casting, then for the 人设图 of the figures in it; a 人设图 that fails twice is unavailable', async () => {
   const h = harness()
   let cast = false
@@ -189,7 +246,7 @@ test('switched off, nothing is counted or drawn; after a restart the record land
   // a new runtime over the same files (a restart) lands what was drawn.
   const again = createAutoCast({store:{readJson:async k => h.files.get(k) ?? null, writeJson:async (k, v) => h.files.set(k, v), updateJson:async (k, fn) => h.files.set(k, fn(h.files.get(k) ?? null)),
     readBytes:async k => h.files.get(k) ?? null, writeBytes:async (k, d) => h.files.set(k, d), remove:async k => h.files.delete(k)},
-    settings:async () => ({enabled:true, level:'late'}), library:{...h, writable:() => true, readCast:async () => ({cardId:'card-1', packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
+    settings:async () => ({enabled:true, level:'aggressive'}), library:{...h, writable:() => true, readCast:async () => ({cardId:'card-1', packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
       write:async input => { h.writes.push(input); return {refs:[]} }}, images:{status:async () => ({ready:false})}})
   await again.resume()
   await settle(() => h.writes.length > 0)
@@ -234,7 +291,7 @@ test('the 外貌 waiting in the record reaches the 人物库 record: with the pi
   h.writes.length = 0
   const again = createAutoCast({store:{readJson:async k => structuredClone(h.files.get(k) ?? null), writeJson:async (k, v) => h.files.set(k, v), updateJson:async (k, fn) => h.files.set(k, fn(h.files.get(k) ?? null)),
     readBytes:async k => h.files.get(k) ?? null, writeBytes:async (k, d) => h.files.set(k, d), remove:async k => h.files.delete(k)},
-    settings:async () => ({enabled:true, level:'late'}), library:{writable:() => true, readCast:async () => ({cardId:key, missingPackIds:[], packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
+    settings:async () => ({enabled:true, level:'aggressive'}), library:{writable:() => true, readCast:async () => ({cardId:key, missingPackIds:[], packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
       write:async input => { h.writes.push(input); return {refs:[]} }}, images:{status:async () => ({ready:false})}})
   await again.resume()
   await settle(() => h.writes.length > 0)
