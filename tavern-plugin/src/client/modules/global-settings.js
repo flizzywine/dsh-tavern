@@ -10,7 +10,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
         return h(TavernSettingRow, { title: "恢复所有已隐藏的确认", help: "在删除等确认框里勾过「以后不再显示」的那几类操作会直接执行；恢复后它们重新先问一次。", note: notice },
             h("button", { type: "button", className: "dsh-tavern-btn", disabled: !hidden, onClick: () => { hiddenConfirms.restoreAll(); setNotice("已恢复"); } }, "恢复"));
     }
-    function GlobalPlayDefaults({ settings }) {
+    function GlobalPlayDefaults({ settings, children }) {
         const h = React.createElement;
         const [data, setData] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
         React.useEffect(() => {
@@ -55,12 +55,13 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     value => save(null, "selectPreset", { path: value })),
                 menu("默认长期偏好", data?.profile.defaultProfileId || "", [{ value: "", label: "不启用" }].concat((data?.profile.profiles || []).filter(item => item.hasConfirmed).map(item => ({ value: item.id, label: item.name }))),
                     value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
-            h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
+            h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                 toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
                 menu("候选项数量", data?.candidateTabs === true ? "expanded" : "compact", [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
                     value => save({ candidateTabs: value === "expanded" }), "新开的自由故事继承此设置。少量候选为 4 条行动和 1 条场景切换，大量候选按角色和全局事件分组，另有精选。剧本模式固定生成 1 条。"),
+                children,
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
                 toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),
             message ? h("p", { role: "status", className: "dsh-tavern-gs-notice" }, message) : null);
@@ -123,10 +124,12 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             null),
                 // the core's own slots; the stage's and its mods' (手机 · 通话模型) are on 舞台配置 › 舞台模型.
                 h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.owner === 'core'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
-            group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",
-                state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
+            group("开局默认", "新对局继承开局设置。自动生成候选项和精修适用于所有对局。",
+                state.settings ? h(GlobalPlayDefaults, { settings: state.settings },
+                    sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false),
+                    sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false)) : null,
                 h(TavernConversationWritingSkills, { globalDefaults: true })),
-            group("剧情", "所有游戏都按这些设置，下一轮生效。",
+            group("正文生成", "所有游戏都按这些设置，下一轮生效。",
                 card(
                     h(TavernSettingRow, { title: "正文生成插件", help: "先选择插件，再启用插件生成。插件需已加载并完成自身配置。" },
                         h(InlineField, { kind: "menu", label: "正文生成插件", hideLabel: true, disabled: state.loading || state.busy,
@@ -139,9 +142,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                         h(InlineField, { kind: "menu", label: "正文生成方式", hideLabel: true, disabled: state.loading || state.busy,
                             value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
                             onCommit: value => saveDefault("storyGenerationMode", value) })),
-                    sw("storyPluginOutputRegex", "插件生成正文后仍应用宿主正则", "插件处理完成后，继续应用全局、预设和人物卡正则。若两边配置相同规则，可能先后执行。", false),
-                    sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false),
-                    sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false))),
+                    sw("storyPluginOutputRegex", "插件生成正文后仍应用宿主正则", "插件处理完成后，继续应用全局、预设和人物卡正则。若两边配置相同规则，可能先后执行。", false))),
             // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
             group("显示与交互", "",
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),

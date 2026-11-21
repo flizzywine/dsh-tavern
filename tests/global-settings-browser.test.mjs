@@ -122,14 +122,19 @@ test('全局皮肤覆盖大 PR 视觉变量，移除插件后回到基础样式'
 })
 
 
-test('恢复剧情自动候选开关，只保存对应配置', async t => {
+test('功能区分别保存自动候选和精修，正文生成有独立分组', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
-  const toggle = page.getByRole('switch', {name:'自动生成候选项', exact:true})
-  await toggle.waitFor()
-  await toggle.press('Space')
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="自动生成候选项"]')?.checked === true)
-  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {candidateAutoGenerate:true})
+  const features = page.getByRole('region', {name:'开局默认', exact:true}).getByRole('region', {name:'功能', exact:true})
+  for (const [name, key] of [['自动生成候选项', 'candidateAutoGenerate'], ['启用精修', 'polishEnabled']]) {
+    const toggle = features.getByRole('switch', {name, exact:true})
+    await toggle.waitFor()
+    await toggle.press('Space')
+    await features.getByRole('switch', {name, exact:true, checked:true}).waitFor()
+    assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {[key]:true})
+  }
+  await page.getByRole('region', {name:'正文生成', exact:true}).getByRole('switch', {name:'插件生成正文后仍应用宿主正则', exact:true}).waitFor()
+  assert.equal(await page.getByRole('region', {name:'剧情', exact:true}).count(),0)
   assert.equal(await page.getByRole('heading', {name:'插件', exact:true}).count(),0)
   assert.equal(await page.getByRole('heading', {name:'运行库', exact:true}).count(),0)
 })
