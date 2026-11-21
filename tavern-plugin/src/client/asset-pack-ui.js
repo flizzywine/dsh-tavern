@@ -1336,7 +1336,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           return {snapshot:c};
         } catch(error) { latest.current=c;state.setValue(c);throw error; }
       }),
-      remove:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
+      // 「一起删除」 deletes the record first, which may write this pack (the figure's name goes back into it): remove on the newest revision.
+      remove:()=>work.task(async()=>{await enqueue(async c=>{try{return await binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id});}catch(error){if(error?.code!=='REVISION_CONFLICT')throw error;const fresh=await binding.service.getPackSnapshot({packId});latest.current=fresh;return binding.service.removeFigure({packId,expectedRevision:fresh.revision,figureId:id});}});setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
     const automaticChanged=()=>{changed.current=true;setSel(null);setDetail(false);state.reload();onPacksChanged?.();};
     const actions=usePackActions(binding,{onRemoved:()=>{changed.current=true;close();},onChanged:()=>onPacksChanged?.()});
     const menu=pack&&h(Popover,{label:name+' 操作',trigger:({toggle:t,open})=>h(IconButton,{icon:'more',label:'更多操作 '+name,'aria-expanded':open,disabled:actions.work.busy,onClick:t}),content:closeMenu=>h(React.Fragment,null,

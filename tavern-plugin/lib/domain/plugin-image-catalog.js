@@ -38,7 +38,8 @@ function libraryItem(kind, item) {
   return { ...common, aliases: strings(item.aliases), group: text(item.group, 40), traits, outfitIds: strings(item.outfitIds) }
 }
 
-export function createPluginImageCatalog({ imageProviders, available, reportError }) {
+// librariesChanged: a 人物库 came or went (the figures the asset library shows from records read again).
+export function createPluginImageCatalog({ imageProviders, available, reportError, librariesChanged = () => {} }) {
   const libraries = new Map()
   const current = (registry, entry) => registry.get(entry.id) === entry
   const visible = async (registry, context) => {
@@ -73,7 +74,8 @@ export function createPluginImageCatalog({ imageProviders, available, reportErro
       const entry = { id: key, owner, label: label.trim(), characters, outfits,
         ...(schemaVersion === undefined ? {} : { records: { schemaVersion, ...Object.fromEntries([...RECORD_OPS, ...OPTIONAL_RECORD_OPS].filter(op => typeof records[op] === 'function').map(op => [op, records[op]])) } }) }
       libraries.set(key, entry)
-      return () => { if (current(libraries, entry)) libraries.delete(key) }
+      if (entry.records) librariesChanged()
+      return () => { if (current(libraries, entry)) { libraries.delete(key); if (entry.records) librariesChanged() } }
     },
 
     async listModels(context) {

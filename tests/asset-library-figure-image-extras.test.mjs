@@ -4,6 +4,8 @@ import {mkdtemp, rm, readFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
+import {withFigureImageExtras} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/figure-image-extras.js'
+import {FIGURE_RECORD_UNAVAILABLE} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/figure-records.js'
 import {jsonBytes} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
 import {writeZip, openZip} from '../tavern-plugin/packages/dsh-asset-library/src/zip.js'
 import {createCardBundleAdapter} from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js'
@@ -16,7 +18,8 @@ const look = {traits:{face:'红色马尾', bodySFW:'高挑'}, outfits:[{id:'core
 
 async function installed(t, extras, media = () => assert.fail('the pack holds every picture'), options = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'figure-image-extras-')), asked = []
-  const service = createAssetPackService({...options, assetRoot:path.join(root, 'library'), figureImageExtras:async input => { asked.push(input); return extras(input) }, figureImageMedia:async input => media(input)})
+  const service = createAssetPackService({...options, assetRoot:path.join(root, 'library'), measureAudio:async () => ({v:1, lufs:-20, peak:-3}),
+    figureImageExtras:async input => { asked.push(input); return extras(input) }, figureImageMedia:async input => media(input)})
   t.after(async () => { await service.dispose(); await rm(root, {recursive:true, force:true}) })
   const pack = await syntheticPack(), input = path.join(root, 'input.zip')
   await writeZip(input, [{path:'manifest.json', data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([name, data]) => ({path:name, data}))])
@@ -24,6 +27,14 @@ async function installed(t, extras, media = () => assert.fail('the pack holds ev
   const {snapshot} = await service.applyImport({inspectionId:preview.inspectionId, expectedRevision:null, decision:'install', acceptScriptRisk:true})
   return {service, snapshot, asked}
 }
+
+test('a figure shown without its record cannot leave the library', async () => {
+  const pack = await syntheticPack()
+  const file = `figures/${FIGURE_ID}.json`
+  const figure = JSON.parse(pack.files.get(file).toString('utf8'))
+  pack.files.set(file, jsonBytes({...figure, extensions:{...figure.extensions, [FIGURE_RECORD_UNAVAILABLE]:true}}))
+  await assert.rejects(withFigureImageExtras(pack, {}), {code:'ASSET_UNAVAILABLE'})
+})
 
 for (const route of ['withCardExport', 'exportCardBundle']) {
   test(`${route} carries a reference image held only by the figure library`, async t => {

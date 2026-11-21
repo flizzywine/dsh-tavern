@@ -1373,13 +1373,16 @@ function createRuntime(ctx, overrides, logger, deps) {
     config.workflows = await scanWorkflows(config)
     const promptRevision = () => createHash('sha256').update(JSON.stringify([config.promptPresets, config.promptDefault, config.activePromptPreset, config.promptEntries])).digest('hex')
     let definitions = await loadDefinitions()
-    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next } })
+    // Every save goes through Tavern's linked figures first: a linked record's name, 触发词 and outfit names are that figure's.
+    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next },
+      commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save) })
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024, refreshUploadTime: true })
     const referenceWrites = serialQueue()
     const putReferenceImage = input => referenceWrites(() => referenceStore.put(input))
     let referenceGcPreview
     const characterLibrary = createCharacterLibrary({
-      getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
+      getDefinitions: () => definitions,
+      updateDefinitions: change => definitionStore.update(change, { failIfBusy: deps.tavern?.writingFigureRecords?.() === true }),
       normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: putReferenceImage, readImage: reference => referenceStore.read(reference),
     })
     let workflows = []
@@ -5622,7 +5625,6 @@ function createRuntime(ctx, overrides, logger, deps) {
         try {
           await definitionStore.update(() => normalized, {
             expectedRevision: next.revision, requireRevision: true,
-            commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save),
           })
         } catch (error) {
           sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'FIGURE_EDIT_FAILED' ? 400 : 500, { ok: false, code: error.code, error: error.message })
@@ -7112,10 +7114,12 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-// The figure owns linked names and aliases. Save their canonical projection with the page.
+// A linked record's name, aliases and outfit names are its figure's: every save tells Tavern what changed for each linked
+// figure, and which links end (the record deleted or linked elsewhere), and saves the canonical projection it returns.
 async function saveLinkedNames(tavern, previous, next, save) {
   if (typeof tavern?.editLinkedFigures !== 'function') return await save(next)
   const oldById = new Map(previous.characters.map(item => [item.id, item]))
+  const nextById = new Map(next.characters.map(item => [item.id, item]))
   const changes = []
   for (const character of next.characters) {
     const old = oldById.get(character.id)
@@ -7123,12 +7127,22 @@ async function saveLinkedNames(tavern, previous, next, save) {
     const was = new Set(splitTags(old.match)), now = new Set(splitTags(character.match))
     const addAliases = [...now].filter(word => !was.has(word))
     const removeAliases = [...was].filter(word => !now.has(word))
-    if (old.name === character.name && !addAliases.length && !removeAliases.length) {
+    const outfits = Object.fromEntries((character.outfits || []).filter(outfit => {
+      const before = (old.outfits || []).find(item => item.id === outfit.id)
+      return before && String(outfit.name ?? '').trim() && String(outfit.name).trim() !== String(before.name ?? '').trim()
+    }).map(outfit => [outfit.id, String(outfit.name).trim()]))
+    if (old.name === character.name && !addAliases.length && !removeAliases.length && !Object.keys(outfits).length) {
       character.match = old.match
       continue
     }
     changes.push({ packId: character.figurePackId, figureId: character.figureId,
-      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases })
+      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases, ...(Object.keys(outfits).length ? { outfits } : {}) })
+  }
+  for (const old of previous.characters) {
+    if (!old.figureId || !old.figurePackId) continue
+    const now = nextById.get(old.id)
+    if (now?.figureId === old.figureId && now.figurePackId === old.figurePackId) continue
+    changes.push({ packId: old.figurePackId, figureId: old.figureId, addAliases: [], removeAliases: [], release: true })
   }
   if (!changes.length) return await save(next)
   const receipt = { file: DEFS_PATH, id: randomUUID() }

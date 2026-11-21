@@ -140,8 +140,8 @@ export async function putPackReference(api, library, { providerId, packId, revis
 }
 
 /** A figure UUID can appear in copied packs. Look up the pair, across explicit writable sources. */
-export async function findFigureImageCharacter(api, { packId, figureId }) {
-  const libraries = await api.imageCharacterLibraries()
+export async function findFigureImageCharacter(api, { packId, figureId }, sources) {
+  const libraries = sources ?? await api.imageCharacterLibraries()
   if (!libraries.length) return { status: 'unavailable' }
   const reads = await Promise.all(libraries.map(async ({ providerId }) => {
     try { return await api.imageCharacters('getCharacter', { providerId, figureId, figurePackId: packId }) }
