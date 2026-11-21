@@ -114,11 +114,15 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
       const view = await current({ scope, signal })
       const snapshot = view ? { directory: view.root, entries: view.rows.map(row => ({ ref: row.identity, title: row.title, category: row.category, hash: worldbookFileDigest(row.content) })) } : { directory: '', entries: [] }
       snapshot.version = worldbookFileDigest(JSON.stringify(snapshot))
-      const changed = snapshots.get(scope)?.version !== snapshot.version
-      snapshots.set(scope, snapshot)
+      const changed = snapshots.get(scope)?.snapshot.version !== snapshot.version
+      snapshots.set(scope, { snapshot, refsByPath: new Map((view?.rows || []).map(row => [row.path, row.ref])) })
       return changed
     },
-    changeSnapshot(scope) { return snapshots.get(scope) },
+    changeSnapshot(scope) { return snapshots.get(scope)?.snapshot },
+    refsForPaths(scope, paths) {
+      const refs = snapshots.get(scope)?.refsByPath
+      return refs ? [...new Set([...paths].map(file => refs.get(file)).filter(Boolean))] : []
+    },
     async removeChat() {}, // Other games and saved versions may still use these derived files.
     async inspect(lookup) {
       const view = await current(lookup)

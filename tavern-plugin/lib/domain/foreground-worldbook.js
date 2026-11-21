@@ -49,7 +49,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
   const requests = new Map()
   // `preparationKey` 只影响上游整书预处理的复用：历史迁移一轮一个 requestKey，
   // 但一本书在同一段迁移里并不变，预处理没必要每轮重跑一遍。
-  const project = async function project({ requestKey, preparationKey, chat, card, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, selectedRefs = [] }) {
+  const project = async function project({ requestKey, preparationKey, chat, card, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, selectedRefs = [], recentlyReadRefs = [] }) {
     try {
       // No bound book is an empty projection, including its request preparation cache.
       let worldBook = snapshot || await bound(chat.cardPath, card, chat, {purpose,userText}) || { view: { entries: [] } }
@@ -61,7 +61,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
       const preparationScope = String(preparationKey ?? executionKey)
       const scope = virtualScope(chat)
       const resolvedScanText = await scanText(chat)
-      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText])
+      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs, resolvedScanText, recentlyReadRefs])
       const previous = requests.get(scope)
       if (previous?.version === version) return await previous.result
       // Upstream preprocessing is an effectful whole-book batch without a
@@ -98,7 +98,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
         const preparedActivations = [...(worldBook?.templateActivationRequests || []), ...unreadCharacterDesigns(worldBook, chat), ...(worldBook?.pluginActivationRequests || []), ...selectedRefs.map(ref => ({ ref, force: false, sourceRef: '[STRATEGY]' }))]
         const previousState = previous?.requestKey === executionKey ? (await previous.result).virtualState : undefined
         const executionChat = previousState ? { ...chat, worldBookVirtualState: previousState } : chat
-        const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: resolvedScanText })
+        const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: resolvedScanText, recentlyReadRefs })
         if (initial.sources.some(entry => entry.decorated)) projected.virtualState.preprocessing = {
           requestKey: preparationScope, sources: initial.sources,
           prepared: initial.snapshot
@@ -122,7 +122,7 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
 /** Native strategy: static optional content is available only through file search/read;
  * dynamic optional entries retain native conditions. Each controller executes at
  * most once per request, including activation convergence and empty outputs. */
-async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey, userText, userTextInHistory, scanText }) {
+async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey, userText, userTextInHistory, scanText, recentlyReadRefs }) {
   const original = new Map(sourceEntries.map(entry => [entry.ref, entry]))
   const classify = entry => {
     const type = classifyWorldbookEntry(original.get(entry.ref) || entry)
@@ -189,7 +189,7 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
         if (contextText && previous?.renderHash !== renderHash) changed.push({ ...output, ref: entry.ref, text: contextText, renderHash })
       }
       const refs = changed.filter(output => !original.get(output.ref)?.constant).map(output => output.ref)
-      const hints = worldbookTitleHints({ worldBook: { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill') } }, chat, turn, userText, userTextInHistory, scanText, random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') })
+      const hints = worldbookTitleHints({ worldBook: { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill') } }, chat, turn, userText, userTextInHistory, scanText, recentlyReadRefs, random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') })
       const runtimeChanged = changed.filter(output => isWorldbookRuntimeEntry(original.get(output.ref) || {}))
       // File-version notifications are emitted once by the shared pre-step hook,
       // for both foreground and background agents; do not duplicate them here.

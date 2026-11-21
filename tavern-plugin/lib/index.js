@@ -323,6 +323,7 @@ import { createWorldbookRecallLog } from './domain/worldbook-recall-log.js'
 import { createForegroundWorldbook } from './domain/foreground-worldbook.js'
 import { createWorldbookStrategies } from './domain/worldbook-strategies.js'
 import { createWorldbookFiles } from './domain/worldbook-files.js'
+import { recentWorldbookLookupPaths } from './domain/worldbook-title-hints.js'
 import { registerWorldbookFileTools } from './tools/worldbook-files.js'
 import { projectVirtualWorldbookPrefix } from './domain/worldbook-virtual-state.js'
 import { installWorldbookSkillRead, nativeWorldbookReadAvailable } from './domain/worldbook-skill-read.js'
@@ -2581,8 +2582,9 @@ export async function apply(ctx) {
     nativeSkills: projectBuiltinWorldbook
   })
   const projectForegroundWorldbook = async input => {
-    const projected = await worldbookStrategies.project(input)
-    return projected
+    const agent = input.purpose === 'history-import' ? null : agentRegistry.get(input.chat.sessionId)
+    const paths = recentWorldbookLookupPaths(agent?.session, input.chat.messages)
+    return await worldbookStrategies.project({ ...input, recentlyReadRefs: worldbookSkillProvider.refsForPaths(agent, paths) })
   }
   const worldbookSkillProvider = createWorldbookFiles({
     directory: path.join(dataRoot, 'worldbook-files'),
