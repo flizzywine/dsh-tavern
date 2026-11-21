@@ -798,8 +798,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   const packFilter=(byId,query,kind)=>id=>{const p=byId.get(id),q=query.trim().toLowerCase();return p?(!kind||packCount(p,kind)>0)&&(!q||p.manifest.name.toLowerCase().includes(q)):!kind&&!q;};
   // one flat list, no group heads. Whatever the sort, 全局 comes first,
   // then 本卡 (only with a card), then 关闭; the chosen sort orders each band. `rank` is frozen per load by the caller
-  // so a row never jumps while its state changes. Sort: 名称 (default), 数量 (items of the selected kind), 时间 (latest commit).
-  const PACK_SORTS=[['name','名称'],['count','数量'],['time','时间']],PACK_SORT_KEY='dsh-tavern:pack-sort';
+  // so a row never jumps while its state changes. Sort: 名称 (default), 数量 (items of the selected kind), 时间 (latest commit),
+  // 来源 (ordinary packs, then automatic packs; names inside each group).
+  const PACK_SORTS=[['name','名称'],['count','数量'],['time','时间'],['source','来源']],PACK_SORT_KEY='dsh-tavern:pack-sort';
   function usePackSort() {
     const read=()=>{try{const v=localStorage.getItem(PACK_SORT_KEY);return PACK_SORTS.some(([k])=>k===v)?v:'name';}catch(_){return 'name';}};
     const [sort,setSort]=React.useState(read);
@@ -810,7 +811,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const name=id=>byId.get(id)?.manifest.name||'',count=id=>{const p=byId.get(id);return p?packCount(p,kind):-1;};
     const byName=(a,b)=>packCollator?packCollator.compare(name(a),name(b)):name(a).localeCompare(name(b));
     // commit time, newest first within each fixed state band; name breaks ties.
-    return [...ids].sort((a,b)=>(rank(a)-rank(b))||(sort==='time'?byId.get(b).updatedAt-byId.get(a).updatedAt:sort==='count'?count(b)-count(a):0)||byName(a,b));
+    const automatic=id=>byId.get(id)?.automatic?1:0;
+    return [...ids].sort((a,b)=>(rank(a)-rank(b))||(sort==='time'?byId.get(b).updatedAt-byId.get(a).updatedAt:sort==='count'?count(b)-count(a):sort==='source'?automatic(a)-automatic(b):0)||byName(a,b));
   }
   // `empty`: the caller's ListEmpty (it knows the search / kind filter and how to clear them).
   function PackList({ids,render,label='素材包',empty}) {
