@@ -327,7 +327,15 @@ export function createConversationInitialization(options) {
     const group = groupOfMode(chat.mode)
     const defaultModel = group === 'play' ? currentSettings.defaultForegroundModel
       : group === 'card' ? currentSettings.defaultWorkbenchModel || currentSettings.defaultForegroundModel : null
-    if (openingTarget && defaultModel) await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel))
+    if (openingTarget && defaultModel) {
+      try { await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel)) }
+      catch (error) {
+        if (error?.code !== 'NO_ADAPTER') throw error
+        // This Tavern default still points to a removed host provider. Creating
+        // the opening needs no model call, so keep the host's session selection.
+        logger.warn('dsh-tavern: 新对话跳过已不可用的默认模型渠道', { sessionId, provider: defaultModel.provider })
+      }
+    }
     await trace.stage('publish', () => chats.publish(chat))
     if (group === 'play' && options.pluginDataStore?.updateSettings) {
       const defaultPluginValues = normalizeDefaultPluginGameSettings(currentSettings.defaultPluginGameSettings)

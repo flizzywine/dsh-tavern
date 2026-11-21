@@ -2533,9 +2533,9 @@ export async function apply(ctx) {
       flush: function (session) { return sessionStore.flush(session) },
       selection: modelSelection,
       async selectModel(target, selection) {
+        const resolved = await llm.resolveCallConfig(selection)
         const controller = ctx.get('sessionController')
         if (!target.agent) throw new Error('无法设置新游戏默认前台模型')
-        const resolved = await llm.resolveCallConfig(selection)
         selectSessionModel({ agent: target.agent, controller, unsupported: '无法设置新游戏默认前台模型',
           selection: { provider: resolved.provider, model: resolved.model, ...(resolved.reasoningEffort ? { reasoningEffort: resolved.reasoningEffort } : {}) } })
         await sessionStore.flush(target.session)
