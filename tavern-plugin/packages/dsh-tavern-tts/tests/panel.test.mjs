@@ -422,7 +422,7 @@ test('语音后端 page: section order, 浏览器朗读 first and fixed, no 朗�
       assert.equal(document.querySelector('.dtts-head h2').textContent,'语音后端')
       assert.ok(byLabel('语音后端 说明'))
       const headings = [...document.querySelectorAll('section h3')].map(h => h.querySelector('span')?.textContent || h.textContent)
-      assert.deepEqual(headings,['语音合成','发音字典','合成缓存'])
+      assert.deepEqual(headings,['语音合成','音乐生成','发音字典','合成缓存'])
       const first = document.querySelector('.dtts-list > li')
       assert.equal(first.querySelector('.dtts-line-title').textContent,'浏览器朗读')
       assert.equal(first.querySelector('.dtts-state').textContent,'可用')
