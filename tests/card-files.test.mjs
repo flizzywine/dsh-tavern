@@ -1,3 +1,5 @@
+import { syntheticPack } from './fixtures/asset-packs/pack.mjs'
+import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -177,10 +179,40 @@ test('the preview lists only the packs to decide about; merge is applied as chos
   await writeFile(card, writeZipEntries([...dshCard('示例卡', [[fresh, 'new', '新包'], [same, 'same', '同包'], [changed, 'old', '旧包']], '11-17'), ...packEntries(fresh, 'new'), ...packEntries(same, 'same'), ...packEntries(changed, 'old')]))
   const preview = await files.previewCardArchiveFile(card, 'merge.dshcard')
   assert.deepEqual(preview, { card: { name: '示例卡', version: '11-17' }, packs: [{ packId: changed, title: '旧包', choices: ['update', 'merge', 'keep-both', 'cancel'], removed }] })
-  assert.deepEqual(applied, [[changed, 'cancel']], 'a preview inspects only an installed pack with other content, and changes nothing')
+  assert.deepEqual(applied, [], 'preview changes nothing and retains inspections for commit')
   applied.length = 0
   await files.importCardArchiveFile(card, 'merge.dshcard', { packDecisions: { [changed]: 'merge' } })
   assert.deepEqual(applied, [[fresh, 'install'], [same, 'noop'], [changed, 'merge']])
+})
+
+test('a damaged audio file rejects the whole attached pack and requires consent before importing the card', async t => {
+  let service
+  const { root, files, fileResources } = await library(t, { assetLibrary: () => service })
+  service = createAssetPackService({ assetRoot: join(root, 'library') })
+  t.after(() => service.dispose())
+  const { manifest, files: media } = await syntheticPack()
+  const bell = manifest.assets.find(asset => asset.kind === 'sfx')
+  const missing = `media/${bell.media}.${manifest.blobs[bell.media].ext}`
+  media.set(missing, Buffer.alloc(media.get(missing).length, 42))
+  const file = join(root, 'ambience.dshcard'), title = '通用环境音'
+  const entries = dshCard('环境音卡', [[manifest.id, 'ambience', title]])
+  entries.push({ path: 'assets/ambience/manifest.json', content: JSON.stringify(manifest) },
+    ...[...media].map(([path, content]) => ({ path: 'assets/ambience/' + path, content })))
+  await writeFile(file, writeZipEntries(entries))
+  const stage = await files.previewCardArchiveFile(file, 'ambience.dshcard')
+  assert.match(stage.packNotices[0], /通用环境音.*文件内容与清单不符.*请重新获取卡包/);
+  assert.ok(stage.packNotices[0].includes(missing), stage.packNotices[0])
+  await files.discardCardArchivePreview(file)
+  assert.deepEqual(await fileResources.list('card'), [])
+  assert.equal(await service.getPackSnapshot({ packId: manifest.id, readOnly: true }), null)
+  await files.previewCardArchiveFile(file, 'ambience.dshcard')
+  const result = await files.importCardArchiveFile(file, 'ambience.dshcard', { previewed: true, acceptMissingPacks: true })
+  assert.equal(result.status, 'partial')
+  assert.deepEqual(result.libraryNotices, stage.packNotices)
+  const duplicate = await files.importCardArchiveFile(file, 'ambience.dshcard')
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.status, 'partial')
+  assert.deepEqual(duplicate.libraryNotices, stage.packNotices)
 })
 
 test('撤回 puts the card and the packs it replaced back; only the latest update can be taken back', async t => {
