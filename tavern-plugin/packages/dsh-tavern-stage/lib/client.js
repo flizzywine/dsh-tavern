@@ -28288,7 +28288,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
-            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+            const {useFigureLook, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
                 EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
@@ -29811,14 +29811,15 @@ function StageAutoCastPage({ctx,onBack}) {
     notes.map((text,index)=>h('p',{key:index,className:'ap-reading-note',role:'status'},h('span',null,text))));
 }
 // 可选声音: the voices the casting assistant may give a new figure. Preset 「默认」: every installed
-// voice with a 使用情景 or 「通用」 in its name (defaultCastVoices → voiceAutoCast, the one rule library-search.js also reads). A row: ▶ · name +
+// voice with a 使用情景 and every voice of the packs 通用声音 / 旁白 point at (defaultCastVoices → voiceAutoCast, the one rule
+// library-search.js also reads). A row: ▶ · name +
 // 语言 · its 使用情景 on a second line, edited in place (R23; one not written is a grey placeholder). The 使用情景 is the voice's
 // own `guidance` (≤ 60 字), saved in its pack.
-const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音和名字带「通用」的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
+const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音，以及通用声音、旁白声音所在素材包里的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
 function AutoCastVoices({ctx}) {
   const {binding}=ctx,[error,setError]=React.useState('');
   const list=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding],{keep:true}),preview=useVoicePreview(binding,null);
-  const rows=list.value?defaultCastVoices(list.value):null;
+  const systemPacks=useSystemVoicePacks(binding),rows=list.value?defaultCastVoices(list.value,systemPacks):null;
   // Two voices of one name (each pack may have its own 「通用男性声音」) are told apart by their pack.
   const shared=new Set((rows||[]).map(v=>v.name).filter((name,i,all)=>all.indexOf(name)!==i));
   const save=async(v,text)=>{
@@ -29843,7 +29844,7 @@ function AutoCastVoices({ctx}) {
     error&&h('p',{className:'ap-alert',role:'alert'},error),
     list.error&&!list.value?h(VoiceLoadError,{error:voiceErrorText(list.error),retry:list.reload}):
     rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):
-      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景，或在名字里带「通用」'}),
+      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景'}),
     preview.dialog);
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same

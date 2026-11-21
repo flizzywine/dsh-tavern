@@ -305,14 +305,15 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
           })
         },
         // 全库搜索: every installed pack, read only (library-search.js).
-        searchLibrary({query, limit}) {
+        // systemPacks: the packs 通用声音 / 旁白 point at (their voices are 通用声音 too, voice-auto-cast.cjs).
+        searchLibrary({query, limit, systemPacks}) {
           live()
-          return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit}))
+          return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit, systemPacks}))
         },
         // 全库声音: every installed pack's voices, read only (library-search.js).
-        listLibraryVoices({limit} = {}) {
+        listLibraryVoices({limit, systemPacks} = {}) {
           live()
-          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit}))
+          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks}))
         },
         authorize(input, source, context) {
           live()

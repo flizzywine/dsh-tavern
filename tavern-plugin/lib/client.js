@@ -10162,10 +10162,14 @@ window.__ModuleLoader__.load({
 		    return ttsErrorMessage(code) || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查语音后端中的服务状态后重试。')
 		  }
 		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { describeTtsError, ttsErrorMessage }
-		  // 通用声音: a voice with a 使用情景 (`guidance`) or 「通用」 in its name, wherever it is installed. The old per-voice
-		  // `autoCast` switch is no longer read. The one rule and the one order: the casting assistant picks only from these
-		  // (library-search.js), 舞台设置 › 自动素材's 「可选声音」 lists them, and every 选择声音 list shows them first.
-		  const voiceAutoCast = voice => Boolean(voice.guidance) || String(voice.name || '').includes('通用')
+		  // 通用声音: the voices any figure may speak with, read from the data only (never from names or fixed ids):
+		  // - a voice with a 使用情景 (`guidance`: what kind of person it suits; every voice of the 通用角色 archetypes has one);
+		  // - every voice of a pack 通用声音 or 旁白 points at (tts.reading's figures: the system voices, `systemPacks`).
+		  // The old per-voice `autoCast` switch is not read. The one rule and the one order: the casting assistant picks only from
+		  // these (library-search.js), 舞台设置 › 自动素材's 「可选声音」 lists them, and every 选择声音 list shows them first.
+		  const voiceAutoCast = (voice, packId, systemPacks = []) => Boolean(voice.guidance) || systemPacks.includes(packId)
+		  // The packs 通用声音 / 旁白 point at, from tts.reading() ({general, narrator}: {figure: {packId, figureId} | null}).
+		  const readingPackIds = reading => [...new Set([reading?.general?.figure?.packId, reading?.narrator?.figure?.packId].filter(Boolean))]
 		  // Their order: by name, then by pack name (rows {name, packName}), in code points so server and client agree.
 		  const castVoiceOrder = (a, b) => {
 		    for (const key of ['name', 'packName']) {
@@ -10175,7 +10179,7 @@ window.__ModuleLoader__.load({
 		    }
 		    return 0
 		  }
-		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast, castVoiceOrder};
+		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast, readingPackIds, castVoiceOrder};
 		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎',minimax:'MiniMax','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
 		  const FIGURE_VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语'],['ko','韩语'],['yue','粤语']];
 		  const VOICE_SAMPLES={ja:'こんにちは。今日もよろしくお願いします。',zh:'你好，今天也请多关照。',en:'Hello. It is good to see you today.',ko:'안녕하세요. 오늘도 잘 부탁해요.',yue:'你好，今日都請多多指教。'};
@@ -10248,22 +10252,25 @@ window.__ModuleLoader__.load({
 		  const figureVoiceLanguage=(spec,voice)=>effectiveVoiceLanguage(voice?.language,spec?.language);
 		  // The 通用声音 of a voice catalogue (listVoiceCatalogue): the installed pack voices voiceAutoCast offers, in castVoiceOrder —
 		  // 自动素材's 「可选声音」 (preset 「默认」) and the first group of every 选择声音 list (voicePickerGroups).
-		  const defaultCastVoices=catalogue=>(catalogue?.voices||[]).filter(v=>v.ref.packId&&voiceAutoCast(v.voiceSpec)).sort(castVoiceOrder);
+		  // `systemPacks`: the packs 通用声音 / 旁白 point at (readingPackIds of tts.reading; useSystemVoicePacks).
+		  const defaultCastVoices=(catalogue,systemPacks)=>(catalogue?.voices||[]).filter(v=>v.ref.packId&&voiceAutoCast(v.voiceSpec,v.ref.packId,systemPacks)).sort(castVoiceOrder);
+		  const useSystemVoicePacks=binding=>readingPackIds(useReadingPointers(binding).value);
 		  // 选择声音's groups, the one grouping every voice picker shows (人物声音页, 舞台设置 › 配音): 通用声音 (defaultCastVoices,
 		  // whichever pack holds them — the same voices the casting assistant picks from), then 本包's other voices, then the other
 		  // packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own.
 		  // This pack's voices come from `pack` (current), the others' from the catalogue (null while it loads). Rows: this pack's
 		  // {id, spec, users}, another's the catalogue entry.
-		  function voicePickerGroups(catalogue,pack){
+		  function voicePickerGroups(catalogue,pack,systemPacks){
 		    const packId=pack.manifest.id,packName=pack.manifest.name;
 		    const mine=Object.entries(pack.manifest.voiceLibrary?.voices||{}).map(([id,spec])=>({id,spec,users:voiceUsers(pack,id),name:spec.name,packName}));
 		    const theirs=(catalogue?.voices||[]).filter(v=>v.ref.packId&&v.ref.packId!==packId);
-		    const general=[...mine.filter(v=>voiceAutoCast(v.spec)),...theirs.filter(v=>voiceAutoCast(v.voiceSpec))].sort(castVoiceOrder);
+		    const isGeneral=v=>v.ref?voiceAutoCast(v.voiceSpec,v.ref.packId,systemPacks):voiceAutoCast(v.spec,packId,systemPacks);
+		    const general=[...mine,...theirs].filter(isGeneral).sort(castVoiceOrder);
 		    const byPack=new Map();
-		    for(const v of theirs)if(!voiceAutoCast(v.voiceSpec)){
+		    for(const v of theirs)if(!isGeneral(v)){
 		      if(!byPack.has(v.ref.packId))byPack.set(v.ref.packId,{id:v.ref.packId,name:v.packName||'',items:[]});
 		      byPack.get(v.ref.packId).items.push(v);}
-		    return {general,own:mine.filter(v=>!voiceAutoCast(v.spec)),others:[...byPack.values()]};
+		    return {general,own:mine.filter(v=>!isGeneral(v)),others:[...byPack.values()]};
 		  }
 		  const voiceSourceId=(spec,binding)=>binding?.source===null?null:binding?.source??spec.defaultSource;
 		  const voiceUsers=(pack,voiceId)=>Object.values(pack.figures||{}).filter(f=>f.voice?.voice===voiceId);
@@ -10748,7 +10755,7 @@ window.__ModuleLoader__.load({
 		    const [query,setQuery]=React.useState(''),[open,setOpen]=React.useState({}),[wanted,setWanted]=React.useState(false);
 		    const catalogue=useVoiceLoad(()=>wanted?binding.service.listVoiceCatalogue():null,[binding,wanted,pack.revision],{keep:true});
 		    const q=query.trim(),needle=voiceNeedle(q),packId=pack.manifest.id;
-		    const {general:shared,own,others}=voicePickerGroups(catalogue.value,pack);
+		    const {general:shared,own,others}=voicePickerGroups(catalogue.value,pack,useSystemVoicePacks(binding));
 		    const hit=(name,spec)=>voiceMatches(needle,[name,spec?.guidance]);
 		    const rowPlay=(spec,key,request,name)=>{
 		      const src=spec?.sources?.[spec.defaultSource];
@@ -13621,7 +13628,7 @@ window.__ModuleLoader__.load({
 		    const notify=()=>{for(const fn of [...listeners])fn();};
 		    const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
 		    // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-		    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+		    const names={useFigureLook, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
 		      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
 		    return {names, get views(){return views;}, bound:()=>views!==null,
 		      bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
