@@ -3,6 +3,7 @@ import path from 'node:path'
 import { patchPiAiAdapterSource, patchPiAiOpenAICompletionsSource } from '../tavern-plugin/lib/domain/pi-ai-nonstream.js'
 import { patchPiAiOpenAIStoreSource } from '../tavern-plugin/lib/domain/pi-ai-openai-store.js'
 import { patchPiAiGoogleStopReasonSource } from '../tavern-plugin/lib/domain/pi-ai-google-stop-reason.js'
+import { patchPiAiGoogleToolModeSource } from '../tavern-plugin/lib/domain/pi-ai-google-tool-mode.js'
 
 /** One pi-ai dist file through one source patch: true when written, false when already patched, null when this pi-ai shape is unknown. */
 function patchPiAiFile(sdkDirectory, file, patchSource) {
@@ -21,6 +22,7 @@ function patchPiAiFile(sdkDirectory, file, patchSource) {
 
 export const patchPiAiOpenAIStore = ({ sdkDirectory }) => patchPiAiFile(sdkDirectory, 'openai-completions.js', patchPiAiOpenAIStoreSource)
 export const patchPiAiGoogleStopReason = ({ sdkDirectory }) => patchPiAiFile(sdkDirectory, 'google-shared.js', patchPiAiGoogleStopReasonSource)
+export const patchPiAiGoogleToolMode = ({ sdkDirectory }) => patchPiAiFile(sdkDirectory, 'google-shared.js', patchPiAiGoogleToolModeSource)
 
 /** true when written, false when both files are already patched, null when this host shape is unknown. */
 export function patchPiAiNonStream({ adapterDirectory, sdkDirectory }) {

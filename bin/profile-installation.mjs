@@ -21,7 +21,7 @@ import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
-import { patchPiAiGoogleStopReason, patchPiAiNonStream, patchPiAiOpenAIStore } from './pi-ai-nonstream-patch.mjs'
+import { patchPiAiGoogleStopReason, patchPiAiGoogleToolMode, patchPiAiNonStream, patchPiAiOpenAIStore } from './pi-ai-nonstream-patch.mjs'
 import { patchPiAiVertexStream, resolveVertexProject } from './pi-ai-vertex-stream-patch.mjs'
 import { patchWebViewportMeta } from './web-viewport-patch.mjs'
 import { installPluginDependencies, resolveHostAnchor, resolveHostDependencies } from './plugin-dependencies.mjs'
@@ -490,6 +490,9 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         const stopReason = patchPiAiGoogleStopReason({ sdkDirectory: piAi.sdkDirectory })
         if (stopReason === null) console.log('当前 DSH 的 pi-ai 与 Gemini 结束原因补丁不符，已跳过。')
         else if (stopReason) console.log('已让 pi-ai 把 Gemini 新增的结束原因当作普通报错。')
+        const toolMode = patchPiAiGoogleToolMode({ sdkDirectory: piAi.sdkDirectory })
+        if (toolMode === null) console.log('当前 DSH 的 pi-ai 与 Gemini 工具调用约束补丁不符，已跳过。')
+        else if (toolMode) console.log('已让 pi-ai 对 Gemini 3 以上的工具调用默认按定义约束生成。')
       }
       if (piAi && !isAsarPath(piAi.sdkDirectory)) {
         // Gemini 3/4 answer only at `locations/global`, a resource path: the catalog can
