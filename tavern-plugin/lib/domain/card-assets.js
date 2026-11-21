@@ -14,8 +14,9 @@ function mainCharacter(characters, mainName) {
 // `data.assets` in CHARX (`embeded://`), RisuAI PNG chunks (`chara-ext-asset_:N` → `__asset:N`),
 // `data:` URIs in JSON, RisuAI's own `extensions.risuai.emotions`, and Tavern's `extensions.dsh_tavern.cast`.
 
-const MAX_ASSETS = 300
-const MAX_ASSET_BYTES = 20 * 1024 * 1024
+export const MAX_CARD_ASSETS = 300
+export const MAX_CARD_ASSET_BYTES = 32 * 1024 * 1024
+export const MAX_CARD_JSON_BYTES = 32 * 1024 * 1024
 
 // Names card authors give expressions, mapped to SillyTavern's 28 emotions.
 const EMOTION_WORDS = {
@@ -210,8 +211,8 @@ export function collectCardAssets(card, resolve) {
     if (typeof uri !== 'string') return undefined
     if (resolved.has(uri)) return resolved.get(uri)
     const bytes = resolve(uri)
-    if (!bytes?.length || bytes.length > MAX_ASSET_BYTES) return undefined
-    if (resolved.size >= MAX_ASSETS) throw new Error('人物卡素材超过 ' + MAX_ASSETS + ' 个，导入已停止，请减少素材后重试')
+    if (!bytes?.length || bytes.length > MAX_CARD_ASSET_BYTES) return undefined
+    if (resolved.size >= MAX_CARD_ASSETS) throw new Error('人物卡素材超过 ' + MAX_CARD_ASSETS + ' 个，导入已停止，请减少素材后重试')
     const copy = Buffer.from(bytes)
     resolved.set(uri, copy)
     return copy
@@ -370,7 +371,7 @@ export function buildCharxContents({ document, cover, manifest, characterName, r
   if (cast.length) data.extensions.dsh_tavern.cast = { version: 1, characters: cast }
   else delete data.extensions.dsh_tavern.cast
   if (!Object.keys(data.extensions.dsh_tavern).length) delete data.extensions.dsh_tavern
-  if (files.length > MAX_ASSETS) throw new Error('人物卡素材超过 ' + MAX_ASSETS + ' 个，无法生成可完整导入的 CHARX')
+  if (files.length > MAX_CARD_ASSETS) throw new Error('人物卡素材超过 ' + MAX_CARD_ASSETS + ' 个，无法生成可完整导入的 CHARX')
   return { card, files }
 }
 

@@ -2,6 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
+import {Readable} from 'node:stream'
+import {createUploads} from '../tavern-plugin/lib/domain/uploads.js'
+import {authoredPackage,fixture} from './helpers/mod-system-production-host.mjs'
 // cordis is the DSH host's: load it from the runtime the test runner names (DSH_BOOT_MODULE), else beside the plugin.
 const hostRequire=createRequire(process.env.DSH_BOOT_MODULE ? pathToFileURL(process.env.DSH_BOOT_MODULE) : new URL('../tavern-plugin/package.json',import.meta.url))
 const {Context}=await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/cordis')).href)
@@ -26,6 +29,20 @@ function setup() {
   return {host,dispose,session}
 }
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done});return {promise,resolve}}
+
+test('the authenticated mod manager previews an uploaded archive and removes the upload', async t => {
+  let uploads
+  const f=await fixture(t,{uploads:{take:id=>uploads.take(id)}})
+  uploads=createUploads({root:f.root})
+  const {bytes}=await authoredPackage(f.root)
+  const {id}=await uploads.receive(Readable.from([bytes]))
+  const refused=await f.request('managedModInspect',{uploadId:id},{origin:'http://localhost:3081'})
+  assert.equal(refused.status,401)
+  await uploads.take(id)
+  const plan=await f.rpc('managedModInspect',{uploadId:id})
+  assert.ok(plan.token)
+  await assert.rejects(uploads.take(id),{code:'TAVERN_NOT_FOUND'})
+})
 
 test('concurrent cards resolve their own choices and source frames without the pending queue',async()=>{
   const {host,session}=setup(),gate=deferred(),started=deferred();let reads=0

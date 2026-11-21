@@ -2,7 +2,7 @@ import { MAX_PLUGIN_DATA } from '../domain/plugin-data-store.js'
 import { listLegacyPlugins } from '../domain/legacy-plugins.js'
 import { userPluginPaths } from '../domain/user-plugins.js'
 import { spawn } from 'node:child_process'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 
 // User plugin management and plugin runtime requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -44,7 +44,7 @@ export function createPluginHandlers(deps) {
     },
     async installUserPluginUpload(args) {
       const upload = await uploads.take(args && args.uploadId)
-      try { return { plugin: await userPluginInstaller.installFromZip(await readFile(upload.file), args && args.name) } }
+      try { return { plugin: await userPluginInstaller.installFromZipFile(upload.file, args && args.name) } }
       finally { await upload.remove() }
     },
     async updateUserPlugin(args) {

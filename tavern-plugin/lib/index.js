@@ -3037,7 +3037,7 @@ export async function apply(ctx) {
   })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  await stageRuntime.start({hostLibrary, contextHost, dataRoot, activeStageSkin, workbenchAuthority,
+  await stageRuntime.start({hostLibrary, contextHost, dataRoot, uploads, activeStageSkin, workbenchAuthority,
     // the one reader of variable conditions (an asset's recall.when, revealWhen), for the stage's recall.
     variableConditionHolds: mvuConditionHolds,
     presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,

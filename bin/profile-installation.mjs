@@ -36,17 +36,19 @@ import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { assertProfileBundlesLoad } from './profile-bundle-check.mjs'
 import { nextUpdatePreparation } from './prepared-next-profile.mjs'
 import { swap as swapApp, rollback as rollbackApp, commit as commitApp } from './staged-app-install.mjs'
-import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, BACKUP_ROOT, writeInstallationFile, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
+import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, BACKUP_ROOT, writeInstallationFile, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, argsBeforeOptionTerminator, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
 
 // Own installation transaction and legacy-source discovery. Desktop never installs a CLI shim.
 export { extractDshVersion } from './dsh-compatibility.mjs'
 
 export function parseInstallHost(args = []) {
+  const options = argsBeforeOptionTerminator(args)
+  if (args.length > options.length + 1) throw new Error(`无法识别的安装参数：${args[options.length + 1]}`)
   let host = RUNTIME_HOST
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]
+  for (let index = 0; index < options.length; index += 1) {
+    const argument = options[index]
     if (argument === '--host') {
-      host = args[index + 1]
+      host = options[index + 1]
       index += 1
     } else if (argument.startsWith('--host=')) {
       host = argument.slice('--host='.length)

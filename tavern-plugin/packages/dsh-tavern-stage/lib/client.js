@@ -24450,14 +24450,14 @@ function GalConfigText(props) {
             galConfigRow("跳过标题页", h(GalConfigSwitch, { label: "跳过标题页", checked: reading.skipTitlePage === true, onChange: on => stageReading.set({ skipTitlePage: on }) }), "进入舞台时不显示卡的标题页，直接继续；新聊天的开场页照常出现。"),
             fonts ? null : preview),
         fonts ? galConfigGroup("字体", null,
-            // no context, so 「跟随样式」 follows the active stage's skin declaration
+            // no context, so 「跟随皮肤」 follows the active stage's skin declaration
             // (fonts.js) and updates when the skin switches. 千禧晴空 (aero) declares no stage font: system 微软雅黑.
-            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随样式", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
+            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随皮肤", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
                 h(React.Fragment, null, h("span", null, "文本框、姓名牌、候选项和这个设置画面用的字体，选中立刻生效。"),
-                    h("span", null, "跟随样式：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
+                    h("span", null, "跟随皮肤：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
             props.textSkin ? h(GalConfigTextScale, { skin: props.textSkin, reading }) : null,
-            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随样式", theme, variant: "stage" }),
-                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随样式：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
+            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随皮肤", theme, variant: "stage" }),
+                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随皮肤：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
             preview) : null);
 }
 function GalConfigPreview(props) {
@@ -26118,7 +26118,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
-                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id})) : null,
+                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id, stagePageId:pageId})) : null,
             h('div', {ref: body, className: 'fork-gal-status-body', style:pluginPanel ? {display:'none'} : undefined},
                 state.phase === 'loading' && !entry ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,
                 state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有这个页面') : null,
@@ -26522,7 +26522,7 @@ function musicLoop(buffer, points = {}) {
         restore() { channels.forEach((channel, i) => channel.set(tails[i], end - overlap)); }};
 }
 async function musicBytes(response) {
-    const limit = 60 * 1024 * 1024, reader = response.body?.getReader();
+    const limit = 96 * 1024 * 1024, reader = response.body?.getReader();
     if (!reader) {
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength > limit) throw new Error('Music exceeds decode limit');
@@ -31801,14 +31801,12 @@ function ModManager({ rpc, onClose }) {
   const mods = useManagedMods(rpc), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans);
   const [openId, setOpenId] = React.useState(null), back = React.useRef(null), importInput = React.useRef(null);
   const importFile = file => plans.execute(async () => {
-    if (file.size > 48 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 48 MiB'), { code: 'MOD_INVALID' });
-    const bytesBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1]);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    const plan = await rpc('managedModInspect', { bytesBase64 });
+    if (!/\.dshmod$/i.test(file.name)) throw Object.assign(new Error('请选择 .dshmod 模组文件'), { code: 'MOD_INVALID' });
+    if (file.size > 128 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 128 MiB'), { code: 'MOD_INVALID' });
+    const response = await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    const upload = await response.json().catch(() => null);
+    if (!response.ok || !upload?.ok) throw Object.assign(new Error(upload?.error || '模组上传失败（HTTP ' + response.status + '）'), { code: 'MOD_INVALID' });
+    const plan = await rpc('managedModInspect', { uploadId: upload.uploadId });
     await mods.reload();
     return plan;
   });
@@ -31826,7 +31824,7 @@ function ModManager({ rpc, onClose }) {
             h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
           h('span', { className: 'ap-subhead-tools' },
             h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
-            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, accept: '.dshmod', onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
+            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
             h(IconButton, { icon: 'close', label: '关闭', onClick: onClose }))),
         h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
         !mods.data ? !mods.error && h(Loading) : h(React.Fragment, null,

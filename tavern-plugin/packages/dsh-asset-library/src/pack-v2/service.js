@@ -14,7 +14,7 @@ import {migrateRecallPriorityManifest, migrateRecallPriorityFigure, migrateRecal
 import {BLOB_MIME_TYPES,verifyPackFiles,verifyPackHashes} from '../asset-packs/index.js'
 import { randomUUID, createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { publicNetwork, readBounded } from '../pack-catalogue/network.js'
+import { publicNetwork, downloadBounded } from '../pack-catalogue/network.js'
 import { httpsUrl } from '../pack-catalogue/catalogue.js'
 import { createCatalogueManager } from '../pack-catalogue/manager.js'
 import { baseMetadata, mergeMetadata } from '../pack-catalogue/merge.js'
@@ -35,7 +35,7 @@ import { mergePackContents } from './merge-packs.js'
 import { moveFigureContents } from './move-figures.js'
 import {createStageSetupMethods} from './stage-setup.js'
 import {createAutomaticWriteMethods, patchFigureDocument} from './automatic-writes.js'
-import { stat, writeFile } from 'node:fs/promises'
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { createPackStorage } from './storage.js'
 import {createModPrivateMethods,isModConfigPack} from './mod-private.js'
 import { isMetadataEdit } from './metadata-edit.js'
@@ -597,26 +597,33 @@ export function createAssetPackService(options) {
     inspectCardBundleUrl({path, url}) {
       alive(); httpsUrl(url);
       check(!cardUrlTask, '$.url', 'A card download is already running', 'ASSET_UNAVAILABLE');
-      const maximum = Math.min(256 * 1024 ** 2, Math.floor(limits.spoolBytes / 3));
+      const maximum = Math.min(1024 ** 3, limits.totalSize, Math.floor(limits.spoolBytes / 3));
       check(maximum + previewBytes + cardBundleUsage().bytes + externalUsage() <= limits.spoolBytes, '$', 'Shared spool budget exceeded', 'LIMIT_EXCEEDED');
       cardUrlBytes = maximum; const controller = cardUrlController = new AbortController();
       // a whole-download deadline, not a stall timer (the request already drops a connection
       // idle for 30 s). 3 minutes cut a 206 MB GitHub Release bundle below ~9 Mbit/s; 20 minutes allows ~1.4 Mbit/s.
       const timer = setTimeout(() => controller.abort(), CARD_URL_DEADLINE_MS); timer.unref?.();
       cardUrlTask = (async () => {
+        const directory = await storage.locate('downloads')
+        await mkdir(directory, {recursive:true})
+        const file = await storage.locate('downloads/card-' + randomUUID() + '.part')
         try {
-          let bytes
-          try { bytes = await readBounded(options.catalogueNetwork || publicNetwork, url, maximum, controller.signal) }
+          try { await downloadBounded(options.catalogueNetwork || publicNetwork, url, maximum, controller.signal, file) }
           catch (error) {
             // a download failure is always DOWNLOAD_FAILED with a reason the UI can word
-            // (HTTP status from readBounded, timeout, or the network error code), never a raw socket error.
+            // (HTTP status, timeout, or the network error code), never a raw socket error.
             if (disposed || ['DOWNLOAD_FAILED','LIMIT_EXCEEDED'].includes(error?.code)) throw error
+            if (error?.code === 'ENOSPC') throw Object.assign(new Error('Not enough disk space for card download'), {code:'LIMIT_EXCEEDED', path:'$.url'})
             throw Object.assign(new Error(controller.signal.aborted ? 'Download timed out' : 'Network request failed' + (/^E[A-Z_]+$/.test(error?.code || '') ? ' (' + error.code + ')' : '')), {code:'DOWNLOAD_FAILED', path:'$.url'})
           }
           alive();
-          return await bundleMethods.inspectCardBundle({path, bytes});
-        } finally { clearTimeout(timer); cardUrlBytes = 0; cardUrlTask = null; cardUrlController = null; }
-      })();
+          return await service.inspectCardBundleFile({path, file});
+        } finally {
+          await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error })
+        }
+      })().finally(() => {
+        clearTimeout(timer); cardUrlBytes = 0; cardUrlTask = null; cardUrlController = null;
+      });
       return cardUrlTask;
     },
     capabilities:Object.freeze(['layered-face-v1', 'packs', 'figures', 'blobs', 'bundles', 'pack-zip', 'card-bundle', 'leases', 'widget-risk-data', 'pack-catalogue-v1', 'url-install', 'pack-set', 'stage-setup-v1']),
@@ -1561,14 +1568,14 @@ export function createAssetPackService(options) {
   }
   catalogue = createCatalogueManager({assetRoot:options.assetRoot, limits, settings:options.catalogueSettings, network:options.catalogueNetwork, now,
     maxArchiveBytes:options.maxArchiveBytes,
-    resourceUsage:() => {sweep();return archiveBytes() + ingressBytes + previewBytes + cardBundleUsage().bytes + (options.externalSpoolUsage?.() || 0)},
+    resourceUsage:() => {sweep();return archiveBytes() + cardUrlBytes + ingressBytes + previewBytes + cardBundleUsage().bytes + (options.externalSpoolUsage?.() || 0)},
     listInstalled:() => run([], all),
     inspectFile:(file, info) => service.inspectImport({[REMOTE_ARCHIVE]:{file,...info}}),
     discardInspection:id => run([], () => {const entry=previews.get(id);if(entry) {previews.delete(id);previewBytes-=entry.size} else dropSet(id)})
   })
   const applyImport = service.applyImport
   return Object.freeze({...service,...catalogue.methods,
-    spoolUsage:() => archiveBytes() + ingressBytes + previewBytes + cardBundleUsage().bytes + catalogue.usage(),
+    spoolUsage:() => archiveBytes() + cardUrlBytes + ingressBytes + previewBytes + cardBundleUsage().bytes + catalogue.usage(),
     async applyImport(input) {
       catalogue.applying(input.inspectionId)
       try {const result=await applyImport(input);catalogue.applied(input.inspectionId,result);return result}

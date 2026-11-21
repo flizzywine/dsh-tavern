@@ -226,9 +226,14 @@ test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', as
 
 test('new card is created and bound before tool returns; next write updates the same file', async () => {
   const run = harness('card', { draft: true })
-  await run.orchestrator.saveChanges({ sessionId: 'session-1', turn: 1, fields: { name: '新角色', player: '旅人' } })
+  const systemPrompt = '你是本故事的叙事者，负责描写角色与玩家的互动。'
+  await run.orchestrator.saveChanges({
+    sessionId: 'session-1', turn: 1,
+    fields: { name: '新角色', player: '旅人', system_prompt: systemPrompt }
+  })
   assert.equal(run.chat().cardPath, 'cards/新角色.json')
   assert.equal(run.createdCards.length, 1)
+  assert.equal(run.createdCards[0].card.system_prompt, systemPrompt)
   assert.deepEqual(run.chat().lastCardSave, { turn: 1, path: 'cards/新角色.json', createsCard: true, changed: true })
   await run.orchestrator.saveChanges({ sessionId: 'session-1', turn: 1, fields: { description: '第二次修改' } })
   assert.equal(run.card().description, '第二次修改')

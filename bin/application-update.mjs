@@ -12,7 +12,7 @@ import { closeSync, copyFileSync, existsSync, openSync, readFileSync, renameSync
 import { StringDecoder } from 'node:string_decoder'
 import os from 'node:os'
 import path from 'node:path'
-import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, RUNTIME_HOST, runtimeEnvironment, commandExists, sleep } from './launcher-environment.mjs'
+import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, RUNTIME_HOST, argsBeforeOptionTerminator, runtimeEnvironment, commandExists, sleep } from './launcher-environment.mjs'
 import { startupTimeoutMs } from './service-startup.mjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
 import { processAlive, relaunchApp } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
@@ -92,25 +92,29 @@ export function createInstallStageReporter({ onStage, onProgress, now = Date.now
 
 
 export function parseUpdateOptions(args) {
+  const options = argsBeforeOptionTerminator(args)
+  if (args.length > options.length + 1) throw new Error(`无法识别的更新参数：${args[options.length + 1]}`)
   let host = RUNTIME_HOST
   let statusFile = ''
   let delay = 0
   let targetCommit = ''
   let attemptId = ''
   let desktopPids
-  for (let index = 0; index < args.length; index += 1) {
-    const value = args[index]
-    if (value === '--host') host = args[++index]
+  for (let index = 0; index < options.length; index += 1) {
+    const value = options[index]
+    if (value === '--host') host = options[++index]
     else if (value.startsWith('--host=')) host = value.slice('--host='.length)
-    else if (value === '--status-file') statusFile = args[++index]
+    else if (value === '--status-file') statusFile = options[++index]
     else if (value.startsWith('--status-file=')) statusFile = value.slice('--status-file='.length)
-    else if (value === '--delay') delay = Number(args[++index])
+    else if (value === '--delay') delay = Number(options[++index])
     else if (value.startsWith('--delay=')) delay = Number(value.slice('--delay='.length))
-    else if (value === '--attempt-id') attemptId = args[++index]
-    else if (value.startsWith('--attempt-id=')) attemptId = value.slice('--attempt-id='.length)
-    else if (value === '--target-commit') targetCommit = args[++index]
+    else if (value === '--attempt-id') {
+      attemptId = options[++index]
+      if (attemptId === undefined) throw new Error('缺少更新参数值：--attempt-id')
+    } else if (value.startsWith('--attempt-id=')) attemptId = value.slice('--attempt-id='.length)
+    else if (value === '--target-commit') targetCommit = options[++index]
     else if (value.startsWith('--target-commit=')) targetCommit = value.slice('--target-commit='.length)
-    else if (value === '--desktop-pids') desktopPids = (args[++index] || '').split(',').map(Number)
+    else if (value === '--desktop-pids') desktopPids = (options[++index] || '').split(',').map(Number)
     else throw new Error(`无法识别的更新参数：${value}`)
   }
   if (!INSTALL_HOSTS.has(host)) throw new Error(`不支持的安装宿主：${host}`)

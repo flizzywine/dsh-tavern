@@ -5,6 +5,7 @@ import {coverImageAsPng} from './card-cover-image.js'
 import {withoutPlayerChoices} from './card-export-settings.js'
 import {projectDshCard, packArchiveEntries} from './dsh-card-export-projection.js'
 import {exportStageDeclaration} from '../../packages/dsh-presentation-protocol/src/card-stage-export.js'
+import {MAX_CARD_JSON_BYTES} from './card-assets.js'
 
 // dependencies: bound packs the archive does not carry (withCardExport); the card keeps those bindings.
 export async function exportDshCardSnapshot({card, packs = [], excludeFigures = [], dependencies = [], ...options}) {
@@ -39,6 +40,8 @@ export async function writeDshCard({file, card, packs = [], dependencies = [], p
     data.assets = [{type:'icon', name:'main', ext:'png', uri:'embeded://assets/icon/images/main.png'}, ...(data.assets || []).filter(asset => !(asset.type === 'icon' && asset.name === 'main'))]
     files.push({path:'assets/icon/images/main.png', data:cover})
   }
-  const result = await writeZip(file, [{path:'card.json', data:cardArchiveJson(document)}, {path:'dsh.json', data:cardArchiveJson(manifest)}, ...files])
+  const cardJson = cardArchiveJson(document)
+  if (cardJson.length > MAX_CARD_JSON_BYTES) throw new Error('人物卡 card.json 超过 ' + MAX_CARD_JSON_BYTES / 1024 ** 2 + ' MiB')
+  const result = await writeZip(file, [{path:'card.json', data:cardJson}, {path:'dsh.json', data:cardArchiveJson(manifest)}, ...files])
   return {...result, size:(await stat(file)).size, file, card:document, manifest}
 }

@@ -45,7 +45,7 @@ async function prepareFigureSpine(entries) {
   }
   const renamed=Object.keys(rename);
   out.set(atlasOf(entry),renamed.length?new TextEncoder().encode(spineAtlasEdit(atlasText,rename).text):atlasBytes);
-  if([...out.values()].reduce((n,b)=>n+b.length,0)>256*1024*1024)throw new Error('模型文件过大（上限 256 MB）');
+  if([...out.values()].reduce((n,b)=>n+b.length,0)>384*1024*1024)throw new Error('模型文件过大（上限 384 MiB）');
   return {entry,files:out,renamed,descriptor:{kind:'spine',entry}};
 }
 const spineBundleIdentity=(pack,outfit)=>JSON.stringify([pack?.manifest.id,outfit?.spine?.bundleKey,pack?.manifest.bundles?.[outfit?.spine?.bundleKey]?.contentHash]);

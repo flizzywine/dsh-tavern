@@ -21,6 +21,7 @@ const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
 let uploads = 0, libraryRevision = 1, promptRevision = 1, cardEnabled = false
+let releaseSampleUpload
 let playDeleted = false, failGalleryDelete = false
 let extraGalleryJobs = [], failGalleryExport = false
 const exportRequests = []
@@ -167,7 +168,11 @@ try {
     else if (path === '/image-edit') response = { ok: true, jobId: 'edited-image', job: { id: 'edited-image', state: 'done' } }
     else if (path === '/image-channel-test') response = { ok: true, status: 'reachable', message: 'mock connection' }
     else if (path === '/comfy-test') response = { ok: true, version: 'mock' }
-    else if (path === '/reference-image') { uploads++; response.referenceImage = { id: uploads.toString(16).repeat(64), name: body.name, mediaType: body.mediaType, byteLength: png.length } }
+    else if (path === '/reference-image') {
+      if (body.name === 'slow-style-sample.png') await new Promise(resolve => { releaseSampleUpload = resolve })
+      uploads++
+      response.referenceImage = { id: uploads.toString(16).repeat(64), name: body.name, mediaType: body.mediaType, byteLength: png.length }
+    }
     else if (path === '/definitions') {
       if (body.definitions.revision !== state.definitions.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '人物库已在别处修改，请重新载入；当前草稿仍保留' }) })
       state.definitions = { ...clone(body.definitions), revision: String(++libraryRevision) }
@@ -332,6 +337,21 @@ try {
     buffer: Buffer.from(JSON.stringify(oldBackup)) })
   await page.getByText('已导入 1 套画风', { exact: true }).waitFor()
   assert.deepEqual(state.config.stylePresets.map(item => item.id), ['preset-fold', 'backup-style'])
+  const styleCard = page.locator('[data-preset-card="preset-fold"]')
+  await styleCard.locator('summary').filter({ hasText: /^这套的画风示例图/ }).click()
+  const uploadStarted = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/reference-image'))
+  await styleCard.getByLabel(/上传示例图$/).setInputFiles({ name: 'slow-style-sample.png', mimeType: 'image/png', buffer: png })
+  await uploadStarted
+  const styleName = styleCard.getByLabel('这套画风的名字', { exact: true })
+  await styleName.fill('上传期间改名')
+  const styleMoved = page.waitForResponse(response => response.url().endsWith('/config') && response.request().postDataJSON()?.config?.stylePresets?.[0]?.id === 'backup-style')
+  await styleCard.getByRole('button', { name: /^下移 / }).click()
+  await styleMoved
+  releaseSampleUpload()
+  await styleCard.getByRole('button', { name: '查看示例图 slow-style-sample.png', exact: true }).waitFor()
+  assert.deepEqual(state.config.stylePresets.map(item => item.id), ['backup-style', 'preset-fold'])
+  assert.equal(state.config.stylePresets[1].name, '上传期间改名')
+  assert.equal(state.config.stylePresets[1].samples[0].name, 'slow-style-sample.png')
   await styleLibrary.click()
 
   await ensureDisclosure('生图词条库')

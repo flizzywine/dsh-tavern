@@ -7,7 +7,7 @@ const outfitMedia = outfit => new Set([...Object.values(outfit?.avatars || {}), 
 // (dsh.avatar-heads, per state with its media) — retire with that picture: when this write took a picture the figure had
 // out of it (删除差分, 删除这张立绘, a replacement), they go in the same write. A measurement of media the figure never had is
 // new input and stays for validation to judge.
-function retireMediaMeasurements(figure, previous) {
+export function retireMediaMeasurements(figure, previous) {
   if (!previous) return figure
   const had = figureMedia(previous), has = figureMedia(figure), gone = hash => had.has(hash) && !has.has(hash)
   let changed = false

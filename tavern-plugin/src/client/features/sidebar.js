@@ -860,7 +860,7 @@
 				finally { setBusy(false); }
 			}
 			async function readChatImportFile(file) {
-				if (file.size > 8 * 1024 * 1024) throw new Error("聊天文件最大支持 8 MB");
+				if (file.size > 24 * 1024 * 1024) throw new Error("聊天文件最大支持 24 MiB");
 				return await file.text();
 			}
 			// 多份记录共用这张人物卡与同一个玩家称呼，预览合并成一次确认。
@@ -925,10 +925,8 @@
 					const hint = misplacedFileHint(file, true);
 					if (hint) throw new Error(hint);
 					if (file.size > 256 * 1024 * 1024) throw new Error("存档文件太大（上限 256 MB）。");
-					const bytes = new Uint8Array(await file.arrayBuffer());
-					let binary = "";
-					for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-					const imported = await call("importGameSave", { fileB64: btoa(binary) });
+					const uploadId = await uploadTavernCardFile(file, () => {});
+					const imported = await call("importGameSave", { uploadId });
 					notifyDataChanged(["cards", "sessions"]);
 					closePicker();
 					await finishPendingOpen({ sessionId: imported.sessionId, targetMode: "story" });
@@ -1789,8 +1787,12 @@
 			const latestBuildLabel = (updateStatus.latestCommit || "").slice(0, 7) || updateStatus.latestVersion || "";
 			const updateAvailableQuiet = updateStatus.phase === "update-available" && !updateStatus.checkWarning && Boolean(latestBuildLabel);
 			const updateTargetLabel = updateAvailableQuiet ? " → " + latestBuildLabel : "";
+			// 移动端详情行仅在更新过程/结果态显示，非更新态（含带 checkWarning 的检查结果）隐藏；
+			// 发现新构建时缩短版版本行始终附带目标构建，避免隐藏详情行后看不到目标构建。
+			const updateTargetCompactLabel = updateStatus.phase === "update-available" && Boolean(latestBuildLabel) ? " → " + latestBuildLabel : "";
+			const mobileUpdateDetailVisible = ["running", "cancelling", "blocked", "completed", "failed", "repair-required", "installed-restart-required", "restart-required"].includes(updateStatus.phase);
 			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel + updateTargetLabel;
-			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : currentVersionLabel + " · " + currentCommitLabel + updateTargetLabel;
+			const updateIdentityCompactText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : currentVersionLabel + " · " + currentCommitLabel + updateTargetCompactLabel;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? false;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
@@ -1841,7 +1843,7 @@
 							h("span", { className: "dsh-tavern-update-identity-compact" }, updateIdentityCompactText)),
 						updateActions),
                     h(TavernHostCompatibility),
-					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet || updateAvailableQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
+					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet || updateAvailableQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status", "data-mobile-update-detail": mobileUpdateDetailVisible ? "visible" : "hidden" }, updateMessage)
 				),
 				!collapsed ? portalOverlay(historyManagerPanel) : null,
 				!collapsed && (openingPicker || (picking && uiMode === "play")) ? portalOverlay(h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !cardUpdate.open ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker)) : null,

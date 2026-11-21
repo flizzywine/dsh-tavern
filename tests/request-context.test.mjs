@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { computeRequestCacheDiff, extractPrefixSlots } from '../tavern-plugin/lib/domain/request-cache-diff.js'
 
 
@@ -138,6 +140,66 @@ test('缓存对比：系统段内世界书变动精确定位到破坏源头与�
   assert.equal(diff.breakPoint.diff.addedLines, 1)
   assert.ok(diff.breakPoint.diff.lines.some(l => l.type === 'del' && l.text.includes('世界书旧条目A')))
   assert.ok(diff.breakPoint.diff.lines.some(l => l.type === 'add' && l.text.includes('世界书新条目B')))
+  // 同一段内破坏点之前的「固定设定」仍计入 hitTokens，不归入 breakTokens
+  assert.ok(diff.estimated.hitTokens > 0)
+  assert.equal(
+    diff.estimated.hitTokens + diff.estimated.breakTokens + diff.estimated.cascadeTokens + diff.estimated.appendedTokens,
+    diff.estimated.totalTokens
+  )
+})
+
+test('缓存对比：同一消息段内中部子块变动时，前置子块计入 hit、中段计入 break、后置子块计入 cascade', () => {
+  const partA = '前置固定正文内容，用于验证仍然命中缓存前缀。'
+  const partB1 = '掷骰结果: 2d6 骰出 [3 + 6] = 9'
+  const partB2 = '掷骰结果: 2d6 骰出 [4 + 4] = 8'
+  const partC = '后置候选项列表内容，受前面差异波及而失效。'
+  const makeMsg = mid => ({
+    role: 'user',
+    content: partA + '\n\n' + mid + '\n\n' + partC,
+    source: {
+      sections: [
+        { name: 'tavern:turn', text: partA },
+        { name: 'tavern:currentStateProjection:1', text: mid },
+        { name: 'tavern:currentStateProjection:2', text: partC }
+      ]
+    }
+  })
+  const prev = { id: 'r1', turn: 1, step: 1, createdAt: 1000, request: { model: 'claude-sonnet', messages: [makeMsg(partB1)] } }
+  const cur = { id: 'r2', turn: 2, step: 1, createdAt: 2000, request: { model: 'claude-sonnet', messages: [makeMsg(partB2)] } }
+  const diff = computeRequestCacheDiff(cur, prev, { id: 'r1', turn: 1, step: 1, createdAt: 1000 })
+  assert.equal(diff.sectionStatus['msg:0'], 'break')
+  assert.equal(diff.breakPoint.partIndex, 1)
+  assert.equal(diff.breakPoint.partLabel, '当前状态')
+  assert.ok(diff.estimated.hitTokens > 0)
+  assert.ok(diff.estimated.breakTokens > 0)
+  assert.ok(diff.estimated.cascadeTokens > 0)
+  assert.equal(
+    diff.estimated.hitTokens + diff.estimated.breakTokens + diff.estimated.cascadeTokens + diff.estimated.appendedTokens,
+    diff.estimated.totalTokens
+  )
+  assert.equal(diff.breakPoint.affectedTokens, diff.estimated.cascadeTokens)
+})
+
+test('实际命中率优先展示，本地前缀差异仍可定位，估算 token 不混入实际用量', () => {
+  const previous = { id: 'r1', turn: 1, step: 1, request: { model: 'm', system: '原系统提示' } }
+  const current = { id: 'r2', status: 'completed', request: { model: 'm', system: '汉'.repeat(26213) } }
+  const render = usage => {
+    const record = { ...current, usage }
+    record.cacheDiff = computeRequestCacheDiff(record, previous, previous)
+    return renderToStaticMarkup(client.renderCacheDiffSummary(createElement, record, () => {}))
+  }
+
+  const actual = render({ inputTokens: 215, cacheReadTokens: 25344 })
+  assert.match(actual, /实际命中 99\.2%/)
+  assert.ok(actual.includes('总输入 ' + (25559).toLocaleString()))
+  assert.match(actual, /定位前缀差异/)
+  assert.match(actual, /本地前缀差异/)
+  assert.doesNotMatch(actual, /破坏命中|连带失效|tokens/)
+
+  const estimated = render(undefined)
+  assert.match(estimated, /预估一致前缀 0\.0%/)
+  assert.ok(estimated.includes('本地估算共约 ' + (39320).toLocaleString() + ' tokens'))
+  assert.match(estimated, /定位前缀差异/)
 })
 
 test('缓存对比：模型变更、TTL 零命中与基线已清理场景', () => {
