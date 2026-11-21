@@ -318,8 +318,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.
       const preview = input.preview === true
-      const source = preview ? null : imageProvider()
-      const status = source ? await source.status() : null
+      const source = imageProvider()
+      const status = source ? (preview ? await Promise.resolve().then(() => source.status()).catch(() => null) : await source.status()) : null
       if (!preview) {
         assert(source, 'NOT_CONFIGURED', '素材生图由「配图」插件出图；请先安装并启用配图插件')
         assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
@@ -392,13 +392,13 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > 4 && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '设定图与补充参考合计最多四张')
       // A channel of fewer pictures loses the second settei sheets first, whatever is drawn (an eight-face sheet too).
-      if (!preview && !input.redrawOf) for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
+      if (status?.ready && !input.redrawOf) for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       // The identity board, the outfit 设定图 and a 头像's own 立绘 are references, not prerequisites: a channel that takes
       // fewer pictures (none, for a text-only one) draws from the 设定文字 instead — the identity board is left out first, then
       // the outfit 设定图, then the 立绘. What the user added stays. A settei of two sheets loses its second sheet (eye and
       // accessories) before its four views, so a channel of one picture gets the four views; the outfit's own two sheets
       // outlast the identity board, as its first sheet always did.
-      if (!preview && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identityParts, roles.identity, roles.setteiParts, roles.settei, roles.emotionSprite]) {
+      if (status?.ready && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.settei, roles.emotionSprite]) {
         const at = refs.findIndex(ref => ref.role === role)
         if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) }
       }
@@ -441,7 +441,6 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
           prompt += `\nImage ${images.length}: rejected candidate, use only with the user correction above.`
         }
       }
-      await readKept()
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '全部参考合计最多四张')
       if (!preview) assert(images.length <= status.maxReferences, 'UNSUPPORTED_CHANNEL', status.maxReferences
         ? `当前生图渠道最多带 ${status.maxReferences} 张参考图，这次需要 ${images.length} 张；可在对话框里少选几张参考`
@@ -449,6 +448,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
       if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),style:{id:style,use},references:refs,output})
+      await readKept()
       const key = output.background === 'transparent' ? await keyFor(status, prompt) : null
       if (key) { prompt = keyedPrompt(prompt, key); output.background = 'opaque'; output.key = key }
       const planId = randomUUID(), provider = {label:source.label, model:status.model, ...(status.transparent === true ? {transparent:true} : {})}

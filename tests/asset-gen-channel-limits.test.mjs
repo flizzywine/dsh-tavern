@@ -122,6 +122,9 @@ test('single-picture sprites and two-picture avatar sheets skip an installed acc
   const sheets = await f.addSettei(png)
   f.channel.maxReferences = 1
   f.reads.length = 0
+  const preview = await f.prepare('sprite', {emotionId:'calm', preview:true})
+  assert.deepEqual(preview.references.map(r => r.hash), [sheets.views])
+  assert.deepEqual(f.reads, [], 'preview only needs the reference list')
   assert.deepEqual((await f.prepare('sprite', {emotionId:'calm'})).references.map(r => r.hash), [sheets.views])
   assert.ok(!f.reads.includes(sheets.parts), 'the parts sheet left out is not read')
   // four views and the calm 立绘 fit a channel of two; the parts sheet gives way instead of refusing the sheet.
