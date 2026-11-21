@@ -1921,8 +1921,8 @@ function versionsOf(jobId) {
      */
     function normalizeOutfitParts(outfit = {}) {
       const source = outfit ?? {}
-      const upper = text(source.upper) || text(source.body)
-      const back = text(source.back) || [source.bodyBack, source.fullBack].map(text).filter(Boolean).join('\n')
+      const upper = text(source.upper ?? source.body)
+      const back = source.back == null ? [source.bodyBack, source.fullBack].map(text).filter(Boolean).join('\n') : text(source.back)
       return { ...source, upper, back }
     }
 
@@ -1934,8 +1934,8 @@ function versionsOf(jobId) {
     function needsOutfitMigration(outfit, { shared = false } = {}) {
       const item = outfit ?? {}
       if (!item || typeof item !== 'object' || Array.isArray(item)) return false
-      const upperStale = !text(item.upper) && Boolean(text(item.body))
-      const backStale = !text(item.back) && Boolean(text(item.fullBack) || (shared && text(item.bodyBack)))
+      const upperStale = item.upper == null && Boolean(text(item.body))
+      const backStale = item.back == null && Boolean(text(item.fullBack) || (shared && text(item.bodyBack)))
       return upperStale || backStale
     }
 
