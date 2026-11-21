@@ -2993,9 +2993,15 @@ function createRuntime(ctx, overrides, logger, deps) {
       const card = await currentCard(sessionId, turn)
       const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
       let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
+      const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
+      const registered = scopeCharacters(timelineDefinitions.characters, card)
+      const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
+        ? (await deps.tavern?.imagePackCharacters?.({ gameId: sessionId, turn }) ?? []).filter(person =>
+          !registered.some(record => record.figureId === person.figureId && record.figurePackId === person.figurePackId || norm(record.name) === norm(person.name)))
+        : []
       const scoped = {
         ...timelineDefinitions,
-        characters: scopeCharacters(timelineDefinitions.characters, card),
+        characters: [...registered, ...packCharacters],
       }
       const plannerMaterials = selectPromptMaterials(plannerInputs.structure, scoped, { usage: trial?.usage,
         subjects: trial?.subjects, mode: plannerMode, traitMode: cfg.traitMode })
@@ -3021,7 +3027,6 @@ function createRuntime(ctx, overrides, logger, deps) {
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
-        const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
         return [...unmatchedCharacters.values()].map(({ asked, ambiguous }) => {
           if (ambiguous) return '「' + asked + '」在人物库里对上了不止一个人，没有补外貌；把其中一位的英文触发名改得更具体'
           const elsewhere = (timelineDefinitions.characters ?? []).find(c => c && c.enabled !== false && !usableOnCard(c, card)
@@ -3061,7 +3066,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         roster, rosterIndex: plannerContext.rosterIndex, count: want, visualEntries: [promptEntryGuidance(entryMatches), plannerMaterials.selected.length
           ? '本次明确选择的主体与服装，只用于这次画面：\n' + JSON.stringify(plannerMaterials.selected.map(({ characterId, characterName, outfitId, outfitName, angle, state }) =>
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
-        extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [cfg.plannerExtra, guidance, packCharacters.length ? '画到已登记人物时，写出可见的标志物和服装主色；肤色、各件服装的颜色与环境色调分别描述。沿用当前服装时省略 outfitId。' : '', needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
         referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
@@ -3206,7 +3211,30 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
-            const pictureScope = latest ? { ...latest, characters: scopeCharacters(latest.characters, card) } : scoped
+            const pictureScope = latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }
+            const subjectsWithPackIds = image.subjects?.map(subject => {
+              if (subject.characterId || !subject.name || subject.outfitId) return subject
+              const matches = packCharacters.filter(person => [person.name, ...splitTags(person.match)].some(alias => norm(alias) === norm(subject.name)))
+              return matches.length === 1 ? { characterId: matches[0].id } : subject
+            })
+            let pictureSubjects = packCharacters.length ? resolveImageReferences({ text: sceneText, characters: planCharacters, subjects: subjectsWithPackIds, definitions: pictureScope }).subjects : image.subjects
+            const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
+            const packFacts = []
+            if (selected.length) {
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: planningGenerationMode === 'reference' })
+              for (const { id, name, consistencyText, outfitId, reference } of dressed) {
+                const person = pictureScope.characters.find(item => item.id === id)
+                const outfit = person.outfits.find(item => item.id === outfitId)
+                if (!outfit) continue
+                const identity = person.traits?.face || consistencyText
+                if (identity || outfit.upper) packFacts.push([name, identity && `外观：${identity}`, outfit.upper && `服装：${outfit.upper}`].filter(Boolean).join('；'))
+                if (reference && planningGenerationMode === 'reference') {
+                  const characterOutfitImage = await putReferenceImage(reference)
+                  pictureScope.characters = pictureScope.characters.map(item => item.id === id ? { ...item, outfits: item.outfits.map(row => row.id === outfitId ? { ...row, characterOutfitImage } : row) } : item)
+                }
+                pictureSubjects = pictureSubjects.map(subject => subject.characterId === id ? { ...subject, outfitId } : subject)
+              }
+            }
             const key = ('plan|' + planningGenerationMode + '|' + (manualBatch ? 'manual:' + manualBatch + '|' : '') + (messageId ?? '') + '|' + image.mount + '|' + promptIdentity).slice(0, 3800)
             const imageIndex = ++traceImageIndex
             const macros = traceId ? [] : null
@@ -3219,7 +3247,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
-            const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
+            const groundedScene = packFacts.length ? sceneText + '\n\n【已登记的人物外观与服装】\n' + packFacts.join('\n') : sceneText
+            const normalizedTag = planningGenerationMode === 'reference' ? groundedScene : expandOne(groundedScene, true)
             const ambiguous = ambiguousAliases(pictureScope.characters)
             for (const [key, alias] of ambiguous) {
               // A shared short name inside a unique full name isn't an unresolved mention.
@@ -3240,8 +3269,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const job = await startJob({
               tag: normalizedTag,
-              rawTag: sceneText, negative: image.negative || '', characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
-            }, { label: 'agent 规划', jobConfig: planningJobConfig, diagTrace: traceId ? { traceId, imageIndex } : null })
+              rawTag: groundedScene, negative: image.negative || '', characters, subjects: pictureSubjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
+            }, { label: 'agent 规划', jobConfig: planningJobConfig, jobDefinitions: selected.length ? pictureScope : undefined, diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
             const item = { ...image, jobId: job.id, status: job.status, sizeText: sizeLabel(job.size) }
