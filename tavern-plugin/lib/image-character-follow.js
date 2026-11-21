@@ -1,4 +1,4 @@
-import { appearanceMove, findFigureImageCharacter, identityPatchFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, packReferenceName, putPackReference, referencePatch } from './domain/image-character-appearance.js'
+import { appearanceMove, findFigureImageCharacter, identityPatchFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, packReferenceName, putPackReference, referencePatch, setteiReferences } from './domain/image-character-appearance.js'
 
 // 方案甲: a figure's name and 触发词 live in its pack; its linked 配图 人物库 record shows them. After every pack write the
 // records of that pack's figures are brought along;
@@ -21,7 +21,7 @@ export function followImageCharacters({ library, api, active = async () => true,
     const groups = Map.groupBy(figuresOf(packs), item => item.packId)
     for (const [packId, items] of groups) remember(packId, items.map(item => item.figure))
     if (!await active()) return
-    // a pack with a 人设图 or 服装设定图 that may not be its record's 参考图 yet (drawn or installed before this follow set them) is followed once
+    // a pack with a 人设图 or 服装设定图 that may not be its record's 参考图 (drawn or installed before this follow set them) is followed once
     for (const [packId, items] of groups) if (items.some(item => item.figure.identitySettei?.board || item.figure.outfits?.some(outfit => outfit.settei))) await follow(packId)
   }).catch(error => log('配图人物库跟随素材包失败：' + (error?.message || error)))
   async function release(packId, figureId) {
@@ -57,11 +57,8 @@ export function followImageCharacters({ library, api, active = async () => true,
         state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
       }
       // Any figure with a 人设图 (自动素材's, the owner's, an installed pack's alike) has it as its record's 参考图, and each
-      // outfit with a 服装设定图 has it as that outfit's (as 「设定图→参考图」 would), so 场景配图 draws the person of its 立绘
-      // in the clothes of its 立绘. A record, or an outfit, that has one keeps it.
-      const sheets = [...(item.figure.identitySettei?.board && !state.character.referenceImage ? [{ outfit: null, hash: item.figure.identitySettei.board }] : []),
-        ...(item.figure.outfits || []).filter(outfit => outfit.settei && !state.character.outfits?.some(row => row.id === outfit.key && row.characterOutfitImage)).map(outfit => ({ outfit, hash: outfit.settei }))]
-      for (const { outfit, hash } of sheets) {
+      // outfit with a 服装设定图 has it as that outfit's, so 场景配图 draws the person of its 立绘 in the clothes of its 立绘.
+      for (const { outfit, hash } of setteiReferences(state.character, item.figure)) {
         const referenceImage = await putPackReference(api, library, { providerId: state.providerId, packId, revision, hash, name: packReferenceName(item.figure, outfit) })
         state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
       }

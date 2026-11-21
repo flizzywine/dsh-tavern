@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch } from './domain/image-character-appearance.js'
+import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch, setteiReferences } from './domain/image-character-appearance.js'
 
 // Where a figure's name, 触发词 and outfit names live (ADR 0010). 'registry': in its linked 配图 人物库 record; the asset
 // library stores the figure without them and puts them back on every read (asset library pack-v2/figure-records.js).
@@ -68,7 +68,7 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
   const reference = async (state, name, { bytes, mime }) => (await api.imageCharacters('putReferenceImage', { providerId: state.providerId, data: new Uint8Array(bytes), mediaType: mime, name })).referenceImage
 
   // The record takes the figure's identity, then (as the follower did after a write) the 外貌 and 参考图 the figure carries
-  // and the 设定图 it has where the record has no 参考图. Returns the figure without what moved into the record.
+  // and its 设定图 as the record's (setteiReferences). Returns the figure without what moved into the record.
   async function keep(state, packId, figure, media) {
     const replace = !!figure.extensions?.[IMAGE_CHARACTER_EXTENSION] && !!adopting.get(packId)?.delete(figure.id)
     const move = appearanceMove(state.character, figure, { replace })
@@ -78,9 +78,7 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
       const referenceImage = await reference(state, row.name || packReferenceName(figure, outfit, ' 参考图'), await media(row.media))
       state = await patch(state, referencePatch(state.character, outfit, referenceImage))
     }
-    const sheets = [...(figure.identitySettei?.board && !state.character.referenceImage ? [{ outfit: null, hash: figure.identitySettei.board }] : []),
-      ...figure.outfits.filter(outfit => outfit.settei && !state.character.outfits?.some(row => row.id === outfit.key && row.characterOutfitImage)).map(outfit => ({ outfit, hash: outfit.settei }))]
-    for (const { outfit, hash } of sheets) state = await patch(state, referencePatch(state.character, outfit, await reference(state, packReferenceName(figure, outfit), await media(hash))))
+    for (const { outfit, hash } of setteiReferences(state.character, figure)) state = await patch(state, referencePatch(state.character, outfit, await reference(state, packReferenceName(figure, outfit), await media(hash))))
     if (move?.record) state = await patch(state, move.record)
     if (move?.dropped.length) log('「' + figure.name + '」素材包里的外貌文字与配图人物库不同，以人物库为准：' + move.dropped.map(row => row.text).join(' / ').slice(0, 200))
     const rest = move ? { ...figure, ...move.figure } : figure
