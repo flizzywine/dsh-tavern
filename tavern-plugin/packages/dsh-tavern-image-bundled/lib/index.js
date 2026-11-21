@@ -45,6 +45,7 @@ import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 import { createDefinitionsStore } from './definitions-store.js'
 import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
+import { OUTFIT_FIELDS, collectOutfitParts, needsOutfitMigration, normalizeOutfitParts } from './outfit-parts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
 import { runCardImage, submitCardImage } from './card-app/generation.js'
 import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
@@ -317,8 +318,7 @@ const stripMacros = text => repairMacros(text).replace(MACRO_BLOCK, ' ')
 /** 「当前穿着」记录写的是没穿（全脱了）：什么衣服都不补，也不写 "is wearing naked" 这种句子。 */
 const NOTHING_WORN = /^(?:nude|naked|nothing|no clothes|completely (?:nude|naked))\b|^(?:全裸|裸体|赤裸|一丝不挂|没穿|什么都没穿)/i
 
-/** 通用服装库的字段（跨角色复用的一套衣服）。 */
-const OUTFIT_FIELDS = ['body', 'full', 'bodyBack', 'fullBack', 'negative']
+/** 服装字段（新字段与旧通用库字段）统一由 outfit-parts.js 定义。 */
 
 function referenceFields(raw) {
   const fields = {}
@@ -328,6 +328,7 @@ function referenceFields(raw) {
 }
 
 export function normalizeOutfit(raw, index) {
+  const merged = normalizeOutfitParts(raw ?? {})
   const item = {
     ...referenceFields(raw),
     ...libraryPromptFields(raw),
@@ -336,19 +337,29 @@ export function normalizeOutfit(raw, index) {
     enabled: raw?.enabled !== false,
     ...(raw?.nsfw === true ? { nsfw: true } : {}),
   }
-  for (const key of OUTFIT_FIELDS) item[key] = String(raw?.[key] ?? '')
+  for (const key of OUTFIT_FIELDS) item[key] = String(merged[key] ?? '')
   return item
 }
 
 function sharedOutfitParts(outfit) {
-  return { ...outfit, upper: outfit.upper || outfit.body, back: outfit.back || outfit.fullBack || outfit.bodyBack }
+  // 通用服装与角色服装同构：旧 body/fullBack/bodyBack 在归一化时映射到 upper/back。
+  return normalizeOutfitParts(outfit)
 }
 
-function characterOutfits(person, definitions) {
+// 服装名去掉括号里的这一刻状态：「黑白女仆装（裙摆挽起）」和「黑白女仆装」是同一套。
+const outfitBareName = (value) => String(value ?? '').replace(/[（(][^（）()]*[）)]/g, '').replace(/\s+/g, '')
+
+// 这个人能穿的通用库服装：绑在 outfitRefs 上的，加上宏里点名的那一套。
+// 宏只写服装名时也要能取到通用库；否则名字对不上人物自己的服装，就被当成库外名字整块丢掉。
+function characterOutfits(person, definitions, asked) {
   const owned = person.outfits ?? []
-  if (!person.outfitRefs?.length || !definitions?.outfits?.length) return owned
-  return [...owned, ...definitions.outfits.filter(outfit => outfit?.enabled !== false &&
-    person.outfitRefs.includes(outfit?.id) && !owned.some(item => item.id === outfit.id))
+  const refs = person.outfitRefs ?? []
+  const shared = definitions?.outfits ?? []
+  if (!shared.length) return owned
+  const key = outfitBareName(asked)
+  return [...owned, ...shared.filter(outfit => outfit?.enabled !== false &&
+    (refs.includes(outfit?.id) || (key && outfitBareName(outfit?.name) === key)) &&
+    !owned.some(item => item.id === outfit.id))
     .map(sharedOutfitParts)]
 }
 
@@ -526,7 +537,10 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 「服装名（状态）」：括号前是服装库里的名字，括号里是这一刻的临时状态（袖子挽起、赤足、沾了土）。
           // 整串拿去对服装库会对不上，于是被当成一句自写描述，模型不知道「常服」长什么样，衣服每张都变。
           const outfitAsked = stripUsualSuffix(parsed.outfit ?? parsed.clothes ?? parsed['服装'])
-          const promptPerson = outfitAsked && person.outfitRefs?.length ? { ...person, outfits: characterOutfits(person, scoped) } : person
+          // 人物自带的服装优先，名字对不上时到通用服装库里找同一套（宏只写服装名的常见写法）。
+          const promptPerson = outfitAsked && (person.outfitRefs?.length || scoped?.outfits?.length)
+            ? { ...person, outfits: characterOutfits(person, scoped, outfitAsked) }
+            : person
           const enabledOutfits = (promptPerson.outfits ?? []).filter((o) => o && o.enabled !== false)
           const exactHit = enabledOutfits.some((o) => o.name === outfitAsked)
           const stated = exactHit ? null : /^(.+?)\s*[（(]([^（()）]*)[）)]\s*$/.exec(outfitAsked)
@@ -558,8 +572,8 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             if (macroText) wear = outfitName
             else if (!outfitName && !autoOff && person.current?.outfit) {
               // 这一轮正文里换过衣服：按这张图的画面描述判断是换之前还是换之后。
-              const afterWear = resolveWearText(person, person.current.outfit)
-              const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous) : ''
+              const afterWear = resolveWearText(person, person.current.outfit, false, scoped?.outfits)
+              const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous, false, scoped?.outfits) : ''
               const moment = person.current.previous ? pickOutfitForScene(sceneText, beforeWear || person.current.previous, afterWear) : 'after'
               wear = moment === 'before' ? beforeWear : afterWear
               wearMoment = person.current.previous ? moment : ''
@@ -578,7 +592,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 宏里明确标了下身 nsfw 的照常写。
           const closeShot = natural && closeShotScene(personScene || globalFraming) && lower !== 'nsfw' && !lowerShot
           if (closeShot && wear) {
-            if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true)
+            if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true, scoped?.outfits)
             wear = dropFootwear(wear, false)
           }
           const picked = characterTags(promptPerson, {
@@ -1039,11 +1053,19 @@ function outfitDescription(outfit, cropped = false) {
 }
 
 /** 「当前穿着」记录可能是英文描述，也可能是服装库里的名字；是名字就展开成那套衣服。 */
-function resolveWearText(person, text, cropped = false) {
+function resolveWearText(person, text, cropped = false, sharedOutfits = []) {
   const value = String(text ?? '').trim()
   if (!value || NOTHING_WORN.test(value) || unknownOutfit(value)) return ''
   const n = v => String(v ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '').replace(/常穿$/, '')
-  const find = piece => (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === n(piece))
+  // 先找他自己的服装，再找通用服装库：正文里写「换上黑白女仆装」这种通用库名字也要能展开。
+  const find = piece => {
+    const key = n(piece)
+    if (!key) return null
+    const owned = (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === key)
+    if (owned) return owned
+    const external = (sharedOutfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === key)
+    return external ? sharedOutfitParts(external) : null
+  }
   const whole = find(value)
   if (whole) return outfitDescription(whole, cropped) || (!cropped && libraryPromptOverride(whole) === null ? value : '')
   // 中文人物的「当前穿着」记录本身就是一句中文描述：整句保留，不按逗号拆。
@@ -1118,24 +1140,19 @@ function characterTags(character, options = {}) {
       tags.push(outfitPrompt)
       origins.push({ field: 'outfit.imagePrompt', outfitId: outfit.id, text: outfitPrompt })
     }
-    for (const key of outfitPrompt === null ? ['upper', 'lower', 'shoes', 'accessory', 'full'] : []) {
-      // 宏里标了 hidden 或 nsfw 的部位，对应的衣服不写：hidden 是出了画框，nsfw 是那个部位露着，
-      // 写上衣或裤子会让模型把衣服画回去。半身、近景（只有下身 hidden）照样写下装，
-      // 不写的话模型常把下摆画到大腿、下面却什么都没穿；鞋照旧不写。
-      if (key === 'shoes' && (lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
-      if (key === 'lower' && (lowerPart === 'nsfw' || (lowerPart === 'hidden' && upperPart === 'hidden'))) continue
-      if (key === 'upper' && (upperPart === 'hidden' || upperPart === 'nsfw')) continue
-      // full 是整套打扮的总述，任何一个部位裸露或出框都不能再用它，否则会画出「裸体但穿着夏日休闲装」。
-      if (key === 'full' && (upperPart === 'hidden' || upperPart === 'nsfw' || lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
-      if (options.croppedOutfit && ['lower', 'shoes', 'full'].includes(key)) continue
-      if (options.barefoot && !options.keepSocks && key === 'shoes') continue
-      if (key === 'full' && options.tags && (String(outfit.upper ?? '').trim() || String(outfit.lower ?? '').trim())) continue
-      const value = options.barefoot ? dropFootwear(outfit[key], options.keepSocks) : String(outfit[key] ?? '').trim()
-      if (value && !PLACEHOLDER_VALUE.test(value)) { tags.push(value); origins.push({ field: 'outfit.' + key, outfitId: outfit.id, text: value }) }
-    }
-    if (!options.croppedOutfit && outfitPrompt === null && options.back === true && String(outfit.back ?? '').trim()) {
-      tags.push(String(outfit.back).trim())
-      origins.push({ field: 'outfit.back', outfitId: outfit.id, text: String(outfit.back).trim() })
+    // 部位规则只有一份（lib/outfit-parts.js）：通用服装和角色自带服装走完全相同的展开路径。
+    if (outfitPrompt === null) for (const piece of collectOutfitParts(outfit, {
+      mode: options.tags ? 'tags' : 'natural',
+      upper: upperPart,
+      lower: lowerPart,
+      back: options.back === true,
+      cropped: options.croppedOutfit === true,
+      barefoot: options.barefoot === true,
+      keepSocks: options.keepSocks === true,
+      dropFootwear,
+    })) {
+      tags.push(piece.text)
+      origins.push({ field: 'outfit.' + piece.field, outfitId: outfit.id, text: piece.text })
     }
     if ([upperPart, lowerPart].includes('sfw')) for (const text of libraryImageDetails(outfit)) {
       tags.push(text)
@@ -2996,9 +3013,15 @@ function createRuntime(ctx, overrides, logger, deps) {
       const card = await currentCard(sessionId, turn)
       const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
       let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
+      const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
+      const registered = scopeCharacters(timelineDefinitions.characters, card)
+      const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
+        ? (await deps.tavern?.imagePackCharacters?.({ gameId: sessionId, turn }) ?? []).filter(person =>
+          !registered.some(record => record.figureId === person.figureId && record.figurePackId === person.figurePackId || norm(record.name) === norm(person.name)))
+        : []
       const scoped = {
         ...timelineDefinitions,
-        characters: scopeCharacters(timelineDefinitions.characters, card),
+        characters: [...registered, ...packCharacters],
       }
       const plannerMaterials = selectPromptMaterials(plannerInputs.structure, scoped, { usage: trial?.usage,
         subjects: trial?.subjects, mode: plannerMode, traitMode: cfg.traitMode })
@@ -3024,7 +3047,6 @@ function createRuntime(ctx, overrides, logger, deps) {
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
-        const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
         return [...unmatchedCharacters.values()].map(({ asked, ambiguous }) => {
           if (ambiguous) return '「' + asked + '」在人物库里对上了不止一个人，没有补外貌；把其中一位的英文触发名改得更具体'
           const elsewhere = (timelineDefinitions.characters ?? []).find(c => c && c.enabled !== false && !usableOnCard(c, card)
@@ -3064,7 +3086,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         roster, rosterIndex: plannerContext.rosterIndex, count: want, visualEntries: [promptEntryGuidance(entryMatches), plannerMaterials.selected.length
           ? '本次明确选择的主体与服装，只用于这次画面：\n' + JSON.stringify(plannerMaterials.selected.map(({ characterId, characterName, outfitId, outfitName, angle, state }) =>
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
-        extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [cfg.plannerExtra, guidance, packCharacters.length ? '画到已登记人物时，写出可见的标志物和服装主色；肤色、各件服装的颜色与环境色调分别描述。沿用当前服装时省略 outfitId。' : '', needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
         referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
@@ -3209,7 +3231,30 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
-            const pictureScope = latest ? { ...latest, characters: scopeCharacters(latest.characters, card) } : scoped
+            const pictureScope = latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }
+            const subjectsWithPackIds = image.subjects?.map(subject => {
+              if (subject.characterId || !subject.name || subject.outfitId) return subject
+              const matches = packCharacters.filter(person => [person.name, ...splitTags(person.match)].some(alias => norm(alias) === norm(subject.name)))
+              return matches.length === 1 ? { characterId: matches[0].id } : subject
+            })
+            let pictureSubjects = packCharacters.length ? resolveImageReferences({ text: sceneText, characters: planCharacters, subjects: subjectsWithPackIds, definitions: pictureScope }).subjects : image.subjects
+            const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
+            const packFacts = []
+            if (selected.length) {
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: planningGenerationMode === 'reference' })
+              for (const { id, name, consistencyText, outfitId, reference } of dressed) {
+                const person = pictureScope.characters.find(item => item.id === id)
+                const outfit = person.outfits.find(item => item.id === outfitId)
+                if (!outfit) continue
+                const identity = person.traits?.face || consistencyText
+                if (identity || outfit.upper) packFacts.push([name, identity && `外观：${identity}`, outfit.upper && `服装：${outfit.upper}`].filter(Boolean).join('；'))
+                if (reference && planningGenerationMode === 'reference') {
+                  const characterOutfitImage = await putReferenceImage(reference)
+                  pictureScope.characters = pictureScope.characters.map(item => item.id === id ? { ...item, outfits: item.outfits.map(row => row.id === outfitId ? { ...row, characterOutfitImage } : row) } : item)
+                }
+                pictureSubjects = pictureSubjects.map(subject => subject.characterId === id ? { ...subject, outfitId } : subject)
+              }
+            }
             const key = ('plan|' + planningGenerationMode + '|' + (manualBatch ? 'manual:' + manualBatch + '|' : '') + (messageId ?? '') + '|' + image.mount + '|' + promptIdentity).slice(0, 3800)
             const imageIndex = ++traceImageIndex
             const macros = traceId ? [] : null
@@ -3222,7 +3267,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
-            const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
+            const groundedScene = packFacts.length ? sceneText + '\n\n【已登记的人物外观与服装】\n' + packFacts.join('\n') : sceneText
+            const normalizedTag = planningGenerationMode === 'reference' ? groundedScene : expandOne(groundedScene, true)
             const ambiguous = ambiguousAliases(pictureScope.characters)
             for (const [key, alias] of ambiguous) {
               // A shared short name inside a unique full name isn't an unresolved mention.
@@ -3243,8 +3289,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const job = await startJob({
               tag: normalizedTag,
-              rawTag: sceneText, negative: image.negative || '', characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
-            }, { label: 'agent 规划', jobConfig: planningJobConfig, diagTrace: traceId ? { traceId, imageIndex } : null })
+              rawTag: groundedScene, negative: image.negative || '', characters, subjects: pictureSubjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
+            }, { label: 'agent 规划', jobConfig: planningJobConfig, jobDefinitions: selected.length ? pictureScope : undefined, diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
             const item = { ...image, jobId: job.id, status: job.status, sizeText: sizeLabel(job.size) }
@@ -6174,6 +6220,44 @@ function createRuntime(ctx, overrides, logger, deps) {
       // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
       submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
+      // 单条修改：只重建目标记录，其余条目原样带过。id 不参与合并（不允许改 id）。
+      // traits 按 key 合并、outfits 按 id 合并；其余字段浅合并，未知字段照旧交给归一化丢弃。
+      patchCardDefinition: (target, item, expectedRevision) => {
+        const key = target === 'outfits' ? 'outfits' : 'characters'
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw Object.assign(new Error('item 必须是对象'), { code: 'INVALID_ARGUMENT' })
+        const id = typeof item.id === 'string' ? item.id.trim() : ''
+        if (!id) throw Object.assign(new Error('item.id 必填'), { code: 'INVALID_ARGUMENT' })
+        const patch = { ...item }
+        delete patch.id
+        const invalid = message => Object.assign(new Error(message), { code: 'INVALID_ARGUMENT' })
+        if (key === 'characters') {
+          if (Object.hasOwn(patch, 'traits') && (!patch.traits || typeof patch.traits !== 'object' || Array.isArray(patch.traits))) throw invalid('item.traits 必须是对象')
+          if (Object.hasOwn(patch, 'outfits')) {
+            if (!Array.isArray(patch.outfits) || patch.outfits.some(outfit => !outfit || typeof outfit.id !== 'string' || !outfit.id.trim())) throw invalid('item.outfits 必须是包含有效服装 ID 的数组')
+            patch.outfits = patch.outfits.map(outfit => ({ ...outfit, id: outfit.id.trim() }))
+            if (new Set(patch.outfits.map(outfit => outfit.id)).size !== patch.outfits.length) throw invalid('item.outfits 的服装 ID 不能重复')
+          }
+        }
+        return definitionStore.update(current => {
+          const list = Array.isArray(current[key]) ? current[key] : []
+          const index = list.findIndex(entry => String(entry?.id ?? '') === id)
+          if (index < 0) throw Object.assign(new Error('人物库里没有这条记录：' + id), { code: 'NOT_FOUND' })
+          const previous = list[index]
+          const merged = { ...previous, ...patch }
+          if (key === 'characters') {
+            if (patch.traits && typeof patch.traits === 'object' && !Array.isArray(patch.traits)) merged.traits = { ...previous.traits, ...patch.traits }
+            if (Array.isArray(patch.outfits)) {
+              const byId = new Map(patch.outfits.map(outfit => [String(outfit?.id ?? ''), outfit]))
+              merged.outfits = (previous.outfits ?? [])
+                .map(outfit => byId.has(String(outfit?.id ?? '')) ? { ...outfit, ...byId.get(String(outfit?.id ?? '')) } : outfit)
+                .concat(patch.outfits.filter(outfit => !(previous.outfits ?? []).some(entry => String(entry?.id ?? '') === String(outfit?.id ?? ''))))
+            }
+          }
+          const next = list.slice()
+          next[index] = merged
+          return normalizeDefinitions({ ...current, [key]: next })
+        }, { expectedRevision, requireRevision: true })
+      },
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -6466,25 +6550,31 @@ function normalizeCharacter(raw, index) {
   for (const [key] of CHARACTER_TRAITS) item.traits[key] = String(traits[key] ?? '')
   const outfits = Array.isArray(raw?.outfits) ? raw.outfits.slice() : []
   if (!outfits.length && raw?.outfit) outfits.push({ id: 'o1', name: '常服', body: String(raw.outfit), default: true })
-  item.outfits = outfits.map((outfit, j) => ({
-    ...referenceFields(outfit),
-    ...libraryPromptFields(outfit),
-    ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
-      characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
-    } : {}),
-    id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
-    name: String(outfit?.name ?? `服装 ${j + 1}`),
-    upper: String(outfit?.upper ?? outfit?.body ?? ''),
-    lower: String(outfit?.lower ?? ''),
-    shoes: String(outfit?.shoes ?? ''),
-    accessory: String(outfit?.accessory ?? outfit?.bodyBack ?? ''),
-    full: String(outfit?.full ?? ''),
-    back: String(outfit?.back ?? outfit?.fullBack ?? ''),
-    negative: String(outfit?.negative ?? ''),
-    enabled: outfit?.enabled !== false,
-    default: outfit?.default === true,
-    ...(outfit?.nsfw === true ? { nsfw: true } : {}),
-  }))
+  item.outfits = outfits.map((outfit, j) => {
+    // 与通用服装库同一套字段：旧 body/bodyBack/fullBack 只做读入兼容（body→upper、fullBack/bodyBack→back）。
+    const parts = normalizeOutfitParts(outfit)
+    return {
+      ...referenceFields(outfit),
+      ...libraryPromptFields(outfit),
+      ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
+        characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
+      } : {}),
+      id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
+      name: String(outfit?.name ?? `服装 ${j + 1}`),
+      upper: String(parts.upper ?? ''),
+      lower: String(outfit?.lower ?? ''),
+      shoes: String(outfit?.shoes ?? ''),
+      // 角色服装的老字段 bodyBack 以前被当成配饰（旧版就是 accessory ?? bodyBack），保持这个读法，
+      // 背面只认 back / fullBack，免得老的配饰升级后跑到背面去。
+      accessory: String(outfit?.accessory ?? outfit?.bodyBack ?? ''),
+      full: String(outfit?.full ?? ''),
+      back: String(outfit?.back ?? outfit?.fullBack ?? ''),
+      negative: String(outfit?.negative ?? ''),
+      enabled: outfit?.enabled !== false,
+      default: outfit?.default === true,
+      ...(outfit?.nsfw === true ? { nsfw: true } : {}),
+    }
+  })
   return item
 }
 
@@ -6499,8 +6589,25 @@ function normalizeDefinition(kind, raw, index) {
   return item
 }
 
+/** 旧版通用服装库只有 body/full/bodyBack/fullBack；人物条目里的旧字段同理。 */
+function definitionsNeedOutfitMigration(raw) {
+  if (!raw || typeof raw !== 'object') return false
+  const list = (value) => Array.isArray(value) ? value : []
+  if (list(raw.outfits).some(outfit => needsOutfitMigration(outfit, { shared: true }))) return true
+  return list(raw.characters).some(character => list(character?.outfits).some(outfit => needsOutfitMigration(outfit)))
+}
+
 async function loadDefinitions() {
-  return normalizeDefinitions(await readJson(DEFS_PATH, null))
+  const raw = await readJson(DEFS_PATH, null)
+  const definitions = normalizeDefinitions(raw)
+  // 旧服装数据在读取时已经归一，出图不受影响；这里再把归一结果写回磁盘一次，
+  // 让升级后即使不点保存、磁盘上也是统一字段。旧字段原样保留，回滚旧版本仍能读。
+  if (definitionsNeedOutfitMigration(raw)) {
+    try {
+      await writeJsonSafe(DEFS_PATH, { ...raw, ...definitions }, join(ROOT, 'backups'))
+    } catch { /* 写不回去也不影响使用：内存里已经是归一后的数据 */ }
+  }
+  return definitions
 }
 
 function normalizeDefinitions(raw) {
@@ -7329,13 +7436,13 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // 规划已经在画面里写了这个人穿什么（没用人物宏、直接写衣服）时，不再补「当前穿着」或常穿：
     // 两套衣服同时进提示词会打架（brown leather boots 对上 black leather boots）。
     const dressedByPlanner = !natural && PLANNER_GARMENT.test(footText)
-    const recordedRaw = bare || dressedByPlanner ? '' : resolveWearText(character, character.current?.outfit)
+    const recordedRaw = bare || dressedByPlanner ? '' : resolveWearText(character, character.current?.outfit, false, definitions?.outfits)
     const footwearScene = footwearSceneFor(character)
     const personBarefoot = isBarefoot(footwearScene)
     const shoesOff = !personBarefoot && footwearOverridden(footwearScene, personWearText(character, recordedRaw))
     const noShoes = personBarefoot || shoesOff
     const closeShot = natural && closeShotScene(footwearScene || (sceneCharacters.length <= 1 ? footText : ''))
-    const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true) : recordedRaw
+    const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true, definitions?.outfits) : recordedRaw
     const recorded = noShoes || closeShot ? dropFootwear(visibleWear, shoesOff && !closeShot) : visibleWear
     const picked = characterTags(character, { nsfw, back, full: full && !closeShot, croppedOutfit: closeShot,
       mode: config.traitMode, barefoot: noShoes || closeShot, keepSocks: shoesOff && !closeShot,

@@ -30,7 +30,7 @@
         {
           "id": "save",
           "title": "通过保存接口改库",
-          "content": "先 GET /dsh-tavern-gen/api/state 读取最新 characters 或 outfits，保留 revision，再 POST /dsh-tavern-gen/api/save，target 为 characters 或 outfits，content 带对应数组和 revision。只提交自己修改的部分，不直写 definitions.json。收到 REVISION_CONFLICT 时重新读取并由用户核对修改，不能自动覆盖。卡片世界书同样保留 worldbook.revision。",
+          "content": "先 GET /dsh-tavern-gen/api/state 读取最新 characters 或 outfits，保留 revision，再 POST /dsh-tavern-gen/api/save。只改一条记录时 content 传 { revision, item: { id, ...要改的字段 } }：item 里的 traits 按 key 合并、outfits 按 id 合并，没提到的字段和其余记录原样保留；要整体替换或删条目时才传对应数组。保存后按 item.id 复核，不直写 definitions.json。收到 REVISION_CONFLICT 时重新读取并由用户核对修改，不能自动覆盖。卡片世界书同样保留 worldbook.revision。",
           "mode": "manual",
           "enabled": true
         }

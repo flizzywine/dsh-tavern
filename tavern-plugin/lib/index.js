@@ -358,7 +358,8 @@ import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { followImageCharacters } from './image-character-follow.js'
 import { createFigureRecords } from './image-character-records.js'
-import { appearanceFromImageCharacter, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterExtension } from './domain/image-character-appearance.js'
+import { figureOutfitReference } from './domain/figure-sprite-reference.js'
+import { appearanceFromImageCharacter, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -3333,6 +3334,25 @@ export async function apply(ctx) {
       library?.figureRecordsChanged?.({}).then(() => figureRecords?.foldWhole(library)).catch(error => console.warn('dsh-tavern: 素材库人物刷新失败', str(error?.message || error)))
     },
     writingFigureRecords: () => figureRecords?.writing() === true,
+    async imagePackCharacters(packIds, selections, includeReferences) {
+      const library = ctx.get('assetLibrary')
+      if (!library) return []
+      const packs = await Promise.all(packIds.map(packId => library.getPackSnapshot({ packId, readOnly: true })))
+      return (await Promise.all(packs.filter(Boolean).flatMap(pack => Object.values(pack.figures)
+        .filter(figure => figure.enabled !== false)
+        .map(async figure => {
+          const character = imageCharacterFromFigure(figure, pack.manifest.id)
+          const id = `pack:${pack.manifest.id}:${figure.id}`
+          const selection = selections?.find(item => item.characterId === id)
+          if (selections && !selection) return null
+          const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
+          const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
+          const hash = includeReferences && outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
+          const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
+          return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
+            ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }
+        })))).filter(Boolean)
+    },
     async editLinkedFigures(changes, receipt, save) {
       // A record write the pack write in progress made itself (image-character-records.js): that pack holds it already.
       if (figureRecords?.writing()) return await save([])

@@ -18,7 +18,8 @@ const look = {traits:{face:'红色马尾', bodySFW:'高挑'}, outfits:[{id:'core
 
 async function installed(t, extras, media = () => assert.fail('the pack holds every picture'), options = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'figure-image-extras-')), asked = []
-  const service = createAssetPackService({...options, assetRoot:path.join(root, 'library'), figureImageExtras:async input => { asked.push(input); return extras(input) }, figureImageMedia:async input => media(input)})
+  const service = createAssetPackService({...options, assetRoot:path.join(root, 'library'), measureAudio:async () => ({v:1, lufs:-20, peak:-3}),
+    figureImageExtras:async input => { asked.push(input); return extras(input) }, figureImageMedia:async input => media(input)})
   t.after(async () => { await service.dispose(); await rm(root, {recursive:true, force:true}) })
   const pack = await syntheticPack(), input = path.join(root, 'input.zip')
   await writeZip(input, [{path:'manifest.json', data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([name, data]) => ({path:name, data}))])

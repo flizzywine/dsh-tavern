@@ -6276,8 +6276,9 @@ window.__ModuleLoader__.load({
 		      const media=await imageClosure(image);
 		      return enqueue(async c=>{const patch=await make(c,media.hash,media.files);return binding.service.patchPack(assetImagePublication.publish(c,media,patch));});
 		    });
+		    // an uploaded 设定图 is one sheet: the old layout's second sheet (setteiParts) goes with the sheet it replaces.
 		    const importSettei=(figureId,outfitKey,file)=>putThen(file,'settei',(s,hash,files)=>{
-		      const figure=s.figures[figureId];files.set('figures/'+figureId+'.json',jsonBytes({...figure,outfits:figure.outfits.map(o=>o.key===outfitKey?{...o,settei:hash}:o)}));return {};
+		      const figure=s.figures[figureId];files.set('figures/'+figureId+'.json',jsonBytes({...figure,outfits:figure.outfits.map(o=>{if(o.key!==outfitKey)return o;const{setteiParts,...rest}=o;return {...rest,settei:hash};})}));return {};
 		    });
 		    // the figure's 人物设定图 (Figure.identitySettei) takes the same full
 		    // resource write — image intake, then the figure document and its blob in one CAS patchPack (never the metadata fast
@@ -6304,7 +6305,7 @@ window.__ModuleLoader__.load({
 		    const removeFigureImage=(figureId,outfitKey,emotion,kind)=>enqueue(c=>{
 		      const figure=c.figures[figureId],outfit=figure?.outfits.find(o=>o.key===outfitKey);if(!outfit)throw new Error('服装已被删除，请重新载入');
 		      const files=new Map(),patch={};let next;
-		      if(kind==='settei'){next={...outfit};delete next.settei;delete next.setteiParentVersion;}
+		      if(kind==='settei'){next={...outfit};delete next.settei;delete next.setteiParts;delete next.setteiParentVersion;}
 		      else if(kind==='avatar'){if(outfit.sprite?.imagePools)throw new Error('已发布头像保留在历史中；请上传新头像以创建新图片身份');const avatars={...(outfit.avatars||{})};delete avatars[emotion];next={...outfit,avatars};if(!Object.keys(avatars).length)delete next.avatars;}
 		      else{
 		        const spriteKey=outfit.sprite?.manifestKey,made=removeSpriteEmotion(outfit,spriteKey&&c.sprites[spriteKey],emotion);
@@ -8303,7 +8304,7 @@ window.__ModuleLoader__.load({
 		  // Explicit whole-art framing is independent of height: tall non-humans need not have a human face crop.
 		  function thumbnailHead(bust,figure) {
 		    const F=FIGURE_FIT,head=bust.head,cm=figure?.heightCm;
-		    const whole=figure?.extensions?.['dsh.thumbnail']?.framing==='whole'||figure?.extensions?.['dsh.height']?.heightSource==='none'||cm>0&&cm/F.refCm<=F.smallShare||bust.sure&&head.fig>0&&(head.chin-head.top)/head.fig>=F.chibiHead;
+		    const whole=figure?.extensions?.['dsh.thumbnail']?.framing==='whole'||figure?.extensions?.['dsh.height']?.heightSource==='none'||cm>0&&cm<=F.smallCm||bust.sure&&head.fig>0&&(head.chin-head.top)/head.fig>=F.chibiHead;
 		    return whole?{...head,whole:true}:head;
 		  }
 		  function BustArt({binding,packId,bust,figure,frame=OUTFIT_BUST}) {
@@ -8888,30 +8889,28 @@ window.__ModuleLoader__.load({
 		  // One deterministic rule for every sprite, on its opaque bounding box (never the canvas), computed once per picture
 		  // (pictureInk is cached) and applied by CSS against the card's live size. Inputs: the drawn aspect a = ink width / ink
 		  // height (px), whether the drawing is cut by the canvas's bottom edge, the figure's declared height (cm), its head share
-		  // (head ÷ figure height, calibrated anatomy only) and the ink's natural height in px. Output:
-		  //   share  — the figure's height on the card (1 = the full card; r7: no headroom, the controls float). A declared height
-		  //            counts against a 160 cm adult (clamped 0.6–1: a 120 cm chibi stands at 0.75); without one, a chibi /
-		  //            SD build (head ≥ 0.28 of the figure, ≈ 3.5 heads or fewer) stands at 0.78; anything else at 1.
+		  // (head ÷ figure height, calibrated anatomy only) and the ink's natural height in px. Every figure is scaled by its own
+		  // drawn box to fill the card (r7: no headroom, the controls float; the ink box keeps a 2% margin all round): a declared
+		  // height never shrinks the preview — comparing heights is the stage's job, where figures share a scene. Output:
 		  //   spill  — how wide the drawing may be against the card (1 = exactly the card's width): 1.5 (a quarter cropped each
 		  //            side) for a ≤ 0.7 aspect — normal, tall / slim, long robes; easing linearly to 1 at a ≥ 1.1 — wings, capes,
 		  //            props, seated poses, mascots: the wider, the less is cropped, and landscape / lying / group sprites fit
 		  //            whole. A drawing cut by the bottom edge (bust, half-body) always spills 1.5: it fills the height. A small
-		  //            figure (share ≤ 0.8 — ≤ 128 cm declared — or a chibi / SD build) never spills (r4b): it is shown whole at its
-		  //            smaller height, so a wide chibi (big tail, spread arms) is not blown up to crop at the sides — even when
+		  //            figure (≤ 128 cm declared, or a chibi / SD build: head ≥ 0.28 of the figure, ≈ 3.5 heads or fewer) never
+		  //            spills (r4b): it is shown whole (contain), so a wide chibi (big tail, spread arms) is not blown up to crop at the sides — even when
 		  //            its feet touch the canvas edge (a tightly cropped full body reads as `cut`; small wins).
 		  //   maxPx  — crispness: never more than 2× the ink's own pixels (a tiny source stays small instead of blurring).
-		  // Displayed height = min(share × card height, spill × card width ÷ a, maxPx); width = height × a; standing on the floor,
+		  // Displayed height = min(card height, spill × card width ÷ a, maxPx); width = height × a; standing on the floor,
 		  // centred on the ink box. The user zooms / pans from there. figureBox mirrors the CSS for tests.
-		  const FIGURE_FIT={refCm:160,minShare:0.6,chibiHead:0.28,chibiShare:0.78,smallShare:0.8,spillMax:1.5,spillFrom:0.7,spillTo:1.1,maxUpscale:2};
+		  const FIGURE_FIT={smallCm:128,chibiHead:0.28,spillMax:1.5,spillFrom:0.7,spillTo:1.1,maxUpscale:2};
 		  function figureFit({aspect,cut=false,heightCm,headShare,inkPx}={}) {
 		    const F=FIGURE_FIT,a=aspect>0&&Number.isFinite(aspect)?aspect:0.5,cm=Number(heightCm);
-		    const share=cm>0?Math.min(1,Math.max(F.minShare,cm/F.refCm)):headShare>=F.chibiHead?F.chibiShare:1;
-		    const small=share<=F.smallShare||headShare>=F.chibiHead;
+		    const small=cm>0&&cm<=F.smallCm||headShare>=F.chibiHead;
 		    const spill=small?1:cut?F.spillMax:F.spillMax-(F.spillMax-1)*Math.min(1,Math.max(0,(a-F.spillFrom)/(F.spillTo-F.spillFrom)));
-		    return {share,spill:+spill.toFixed(4),maxPx:inkPx>0?Math.round(inkPx*F.maxUpscale):null};
+		    return {spill:+spill.toFixed(4),maxPx:inkPx>0?Math.round(inkPx*F.maxUpscale):null};
 		  }
 		  function figureBox(fit,aspect,W,H) {
-		    const height=Math.min(fit.share*H,fit.spill*W/aspect,fit.maxPx??Infinity),width=height*aspect;
+		    const height=Math.min(H,fit.spill*W/aspect,fit.maxPx??Infinity),width=height*aspect;
 		    return {width,height,cropEachSide:Math.max(0,(width-W)/2/W),heightShare:height/H};
 		  }
 		  // The head share of a calibrated anatomy (an estimated / derived head says nothing about the build).
@@ -8929,7 +8928,7 @@ window.__ModuleLoader__.load({
 		    const rule=ready?figureFit({aspect,cut:!!r.cut,heightCm,headShare,inkPx:fit.h*sh}):null,place={left:pct(-r.left/sw),top:pct(-r.top/sh),width:pct(1/sw),height:pct(1/sh)};
 		    return h('span',{className:'ap-stand ap-stand-fit',role:'img','aria-label':label},
 		      !ready&&h(Spinner,{key:hash,fill:true}),
-		      url&&h('span',{className:'ap-stand-box',style:ready?{'--fit-a':aspect.toFixed(4),'--fit-share':rule.share.toFixed(3),'--fit-spill':String(rule.spill),...(rule.maxPx?{'--fit-max':rule.maxPx+'px'}:{})}:{visibility:'hidden'}},
+		      url&&h('span',{className:'ap-stand-box',style:ready?{'--fit-a':aspect.toFixed(4),'--fit-spill':String(rule.spill),...(rule.maxPx?{'--fit-max':rule.maxPx+'px'}:{})}:{visibility:'hidden'}},
 		        // the big picture decodes off the main thread (decoding async, then decode) before its
 		        // ink box is measured, so the measuring canvas never forces a synchronous decode of a full-size sprite.
 		        h(RevealImg,{src:url,alt:'',draggable:false,decoding:'async',style:place,onError:broken,
@@ -9141,7 +9140,7 @@ window.__ModuleLoader__.load({
 		    const empty=h(SlotMissing,{className:'ap-stand is-empty',mark:!emptyGen&&!drawing&&!isModelKind(kind)},drawing?h(GenStageWait,{cell:pickedCell}):
 		      emptyGen?h('button',{type:'button',className:'ap-slot-gen',tabIndex:-1,'aria-hidden':true,title:'生成…',onClick:()=>openDialog(kind,picked.id,'gen')},h(Glyph,{name:'spark'})):null);
 		    const candidatePreview=pickedCell?.state==='candidate'?h(GenStageCandidate,{gen,binding,packId,cell:pickedCell,kind,emotionId:picked.id,settei:outfit?.settei}):null;
-		    const headShare=anatomyHeadShare(outfit?.sprite?.anatomy?.[state?.id]||outfit?.sprite?.anatomy?.[outfit.defaultEmotion]),liveFit={share:figureFit({heightCm:figure.heightCm,headShare}).share,spill:aspect=>figureFit({aspect,heightCm:figure.heightCm,headShare}).spill};
+		    const headShare=anatomyHeadShare(outfit?.sprite?.anatomy?.[state?.id]||outfit?.sprite?.anatomy?.[outfit.defaultEmotion]),liveFit={spill:aspect=>figureFit({aspect,heightCm:figure.heightCm,headShare}).spill};
 		    // a talking 立绘 (its 差分 has mouth frames: !takes) moves its mouth over the still
 		    // while the 声音 page is open and a voice plays; Live2D does it on its model. Anything else has no mouth to move.
 		    const talking=voiceOpen&&kind==='sprite'&&!!state&&!takes(picked.id),lipSynced=talking||kind==='live2d'&&!!live;

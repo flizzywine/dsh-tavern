@@ -671,6 +671,16 @@ export function createTavernPluginApi(deps) {
       // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
       await deps.imageCharactersSettled?.()
     },
+    async imagePackCharacters({ gameId, turn, anchor, subjects, includeReferences = true } = {}) {
+      if (!deps.imagePackCharacters) return []
+      await guardScope(ownerOf(this), { gameId })
+      const material = await requireTurn(gameId, turn)
+      const packIds = await deps.cardAssetPacks(material.card.path)
+      const worn = subjects && imageGateProvider ? await imageGateProvider.wearing({ gameId, turn, anchor }) : []
+      return deps.imagePackCharacters(packIds, subjects?.map(subject => ({
+        ...subject, outfitId: subject.outfitId || worn.find(row => subject.characterId === `pack:${row.packId}:${row.figureId}`)?.outfitKey,
+      })), includeReferences === true)
+    },
     async beforeImageGenerate({ gameId, turn, anchor, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
       if (!imageGateProvider) return {}

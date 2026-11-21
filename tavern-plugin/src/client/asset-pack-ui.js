@@ -1100,8 +1100,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       const media=await imageClosure(image);
       return enqueue(async c=>{const patch=await make(c,media.hash,media.files);return binding.service.patchPack(assetImagePublication.publish(c,media,patch));});
     });
+    // an uploaded 设定图 is one sheet: the old layout's second sheet (setteiParts) goes with the sheet it replaces.
     const importSettei=(figureId,outfitKey,file)=>putThen(file,'settei',(s,hash,files)=>{
-      const figure=s.figures[figureId];files.set('figures/'+figureId+'.json',jsonBytes({...figure,outfits:figure.outfits.map(o=>o.key===outfitKey?{...o,settei:hash}:o)}));return {};
+      const figure=s.figures[figureId];files.set('figures/'+figureId+'.json',jsonBytes({...figure,outfits:figure.outfits.map(o=>{if(o.key!==outfitKey)return o;const{setteiParts,...rest}=o;return {...rest,settei:hash};})}));return {};
     });
     // the figure's 人物设定图 (Figure.identitySettei) takes the same full
     // resource write — image intake, then the figure document and its blob in one CAS patchPack (never the metadata fast
@@ -1128,7 +1129,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const removeFigureImage=(figureId,outfitKey,emotion,kind)=>enqueue(c=>{
       const figure=c.figures[figureId],outfit=figure?.outfits.find(o=>o.key===outfitKey);if(!outfit)throw new Error('服装已被删除，请重新载入');
       const files=new Map(),patch={};let next;
-      if(kind==='settei'){next={...outfit};delete next.settei;delete next.setteiParentVersion;}
+      if(kind==='settei'){next={...outfit};delete next.settei;delete next.setteiParts;delete next.setteiParentVersion;}
       else if(kind==='avatar'){if(outfit.sprite?.imagePools)throw new Error('已发布头像保留在历史中；请上传新头像以创建新图片身份');const avatars={...(outfit.avatars||{})};delete avatars[emotion];next={...outfit,avatars};if(!Object.keys(avatars).length)delete next.avatars;}
       else{
         const spriteKey=outfit.sprite?.manifestKey,made=removeSpriteEmotion(outfit,spriteKey&&c.sprites[spriteKey],emotion);
