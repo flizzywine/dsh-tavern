@@ -244,7 +244,7 @@ export function normalizePlayDefaults(value, legacyCandidateTabs) {
   return { playerName: typeof input.playerName === 'string' ? input.playerName.trim().slice(0, 80) || '你' : '你',
     worldbookStrategy: 'native-skills',
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
-    candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs !== false,
+    candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs === true,
     backgroundTasks: normalizeConfiguredBackgroundTasks(input.backgroundTasks),
     webSearchEnabled: input.webSearchEnabled === true }
 }

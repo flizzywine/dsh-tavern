@@ -69,9 +69,10 @@ test('空设置文件允许启动、读会话、保存错误可见性及重新�
     assert.equal((await readSession()).view.chatId, 'chat')
     const { view } = await host.rpc('setAllFailedErrorVisibility', { sessionId: 'session', hidden: true })
     assert.equal(view.chatId, 'chat')
-    assert.equal((await host.rpc('getTavernSettings', {})).settings.defaultPlaySettings.candidateTabs, true)
+    assert.equal((await host.rpc('getTavernSettings', {})).settings.defaultPlaySettings.candidateTabs, false)
     const saved = await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { playerName: '旅客', candidateTabs: true } } })
     assert.equal(saved.settings.defaultPlaySettings.playerName, '旅客')
+    assert.equal(saved.settings.defaultPlaySettings.candidateTabs, true)
     assert.equal(JSON.parse(await readFile(settings, 'utf8')).defaultPlaySettings.playerName, '旅客')
     const sessionId = 'session'
     assert.equal((await host.rpc('getConversationBackgroundConfig', { sessionId })).candidateTabs, false, '旧局保留少量候选')

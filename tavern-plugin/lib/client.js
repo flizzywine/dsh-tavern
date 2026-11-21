@@ -50696,7 +50696,7 @@ function askTavernCardPackWay(file, staged) {
                         toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
                         toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                         toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
-                        menu("候选项数量", data?.candidateTabs === false ? "compact" : "expanded", [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+                        menu("候选项数量", data?.candidateTabs === true ? "expanded" : "compact", [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
                             value => save({ candidateTabs: value === "expanded" }), "新开的自由故事继承此设置。少量候选为 4 条行动和 1 条场景切换，大量候选按角色和全局事件分组，另有精选。剧本模式固定生成 1 条。"),
                         toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
                         toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),
