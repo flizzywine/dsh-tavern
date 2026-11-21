@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "30cb72432e1a1965034f5649503c6e9852216103",
-  "releaseSequence": 1877,
+  "revision": "842c7198e63d65d5e701380c0138fd0471fd1dbe",
+  "releaseSequence": 1878,
   "version": "3.3.0",
   "files": [
     {
@@ -4086,8 +4086,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-surface.js",
-      "sha256": "cc50afecc0bc7db7cabc9a6c81ac4f47f69fa9b0ee6a28c9f88c2c0ae3104be4",
-      "size": 4500
+      "sha256": "8e0542dacbed0c48fad4a56d4474c4dfee32f217c277aba79afd2c8f5a5f0bdb",
+      "size": 5047
     },
     {
       "path": "tavern-plugin/lib/domain/zip-entries.js",
@@ -9641,9 +9641,9 @@
     }
   ],
   "archive": {
-    "commit": "7c587b516d240951850db7c0d309338c70b6ee4d",
+    "commit": "80ba02985b9b8b2f9cd40955e77020d2d60b6996",
     "path": "runtime.zip",
-    "sha256": "ff4f3281acf4bbbd5324eb8cbc9278183e292364be637689ad14783403922ed9",
-    "size": 17084598
+    "sha256": "a4c614fa6612cd92a60c6ba9036eb12ee199178d34b28cdf50c4a57d558e9326",
+    "size": 17084886
   }
 }
