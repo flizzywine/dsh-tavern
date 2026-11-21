@@ -190,7 +190,18 @@
 					const column = area ? area.parentElement : null;
 					// 桌面端侧栏不是 fixed（宿主 regionArea 自己让出了底栏），这时不需要让位。
 					if (!own || !area || !column || window.getComputedStyle(own).position !== "fixed") { settle(0); return; }
-					const areaBottom = area.getBoundingClientRect().bottom;
+					const ownBox = own.getBoundingClientRect();
+					const areaBox = area.getBoundingClientRect();
+					// 抽屉在屏外挂载帧（content-visibility: hidden）尚无几何尺寸，保留上次缓存的让位高度，避免误删根变量触发整页样式重算与动画中途跳动。
+					if (ownBox.height <= 0 || areaBox.height <= 0) {
+						if (observer && watching !== column) {
+							if (watching) observer.unobserve(watching);
+							watching = column;
+							observer.observe(column);
+						}
+						return;
+					}
+					const areaBottom = areaBox.bottom;
 					// 要避开的是底栏里的「设置」那一行（宿主的 sidebar.settings 槽，槽是空盒子，
 					// 取它第一个有高度的祖先）。它上面那条 footerActions 在整屏侧栏铺开时画在
 					// 侧栏之下、看不见，也跟着一起让就会空出一块。找不到那一行时退回 regionArea 下沿。
@@ -200,7 +211,7 @@
 						const box = node.getBoundingClientRect();
 						if (box.height > 0 && box.top >= areaBottom - 1) { anchor = box.top; break; }
 					}
-					settle(Math.max(0, Math.round(own.getBoundingClientRect().bottom - (anchor === null ? areaBottom : anchor))));
+					settle(Math.max(0, Math.round(ownBox.bottom - (anchor === null ? areaBottom : anchor))));
 					if (observer && watching !== column) {
 						if (watching) observer.unobserve(watching);
 						watching = column;
@@ -1481,11 +1492,12 @@
 				growHistoryWindow();
 			}
 			// 窗口还没填满容器时列表不滚动，滚动事件永远不来：补一次成屏。
+			// 抽屉在屏外挂载帧（content-visibility: hidden）里 clientHeight 为 0，不能误判为未填满而把全部历史一次性灌进 DOM。
 			React.useEffect(function () {
 				if (collapsed) return;
 				const el = sideListRef.current;
 				if (!el || historyWindow >= historyCeiling) return;
-				if (el.scrollHeight > el.clientHeight + 4) return;
+				if (el.clientHeight <= 0 || el.scrollHeight > el.clientHeight + 4) return;
 				growHistoryWindow();
 			}, [collapsed, historyWindow, historyCeiling, uiMode, archiveExpanded, historyGroupState, history.length]);
 			// 侧栏收起时不构建整张历史 VDOM 树，避免流式输出期间每次状态变化都白算全部会话行。

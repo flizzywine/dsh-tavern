@@ -3628,8 +3628,8 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
   transition: transform .24s cubic-bezier(.22, 1, .36, 1), visibility 0s linear .24s;
 }
 body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar-drawer]:not([data-sidebar-collapsed]) > [class*="_sidebarCol"] {
-  position: fixed !important; inset: 0 !important; z-index: 1300 !important;
-  width: 100vw !important; max-width: none !important; height: auto !important; border-right: 0 !important; box-shadow: none !important;
+  position: fixed !important; inset: 0 auto 0 0 !important; z-index: 1300 !important;
+  width: 100vw !important; max-width: none !important; border-right: 0 !important; box-shadow: none !important;
   transform: none !important; visibility: visible !important; pointer-events: auto !important;
   transition: transform .24s cubic-bezier(.22, 1, .36, 1), visibility 0s;
 }
@@ -3652,9 +3652,10 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
     transition: none !important;
   }
 }
-/* 侧栏会话分组与历史行在视口外跳过布局与绘制，减少移动端展开侧栏时的全列表排版开销；打开行内操作菜单时不裁切。 */
-.dsh-tavern-side-list > .dsh-tavern-history-group:not(:has(.dsh-tavern-side-row-menu)),
-.dsh-tavern-side-list > .dsh-tavern-side-row:not(:has(.dsh-tavern-side-row-menu)) {
+/* 首屏前 15 项在抽屉屏外成帧拍即完成排版与绘制，避免滑入视口首帧才同步解冻掉帧；
+   第 16 项及之后的视口下方长列表仍启用 content-visibility: auto 跳过布局绘制，打开行内操作菜单时不裁切。 */
+.dsh-tavern-side-list > .dsh-tavern-history-group:nth-child(n + 16):not(:has(.dsh-tavern-side-row-menu)),
+.dsh-tavern-side-list > .dsh-tavern-side-row:nth-child(n + 16):not(:has(.dsh-tavern-side-row-menu)) {
   content-visibility: auto;
   contain-intrinsic-size: auto 56px;
 }
