@@ -8,6 +8,7 @@ import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-age
 import { SCRIPT_READ_TOOL } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { registerWorldbookFileTools } from '../tavern-plugin/lib/tools/worldbook-files.js'
+import { createSettlementItems } from '../tavern-plugin/lib/domain/background-pipeline.js'
 
 test('原生后台按需检索与重启保持缓存前缀且不复制前台召回正文', { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }, async t => {
   const bootUrl = pathToFileURL(process.env.DSH_BOOT_MODULE)
@@ -79,7 +80,17 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   })
   const selection = { provider: 'filter-fixture', model: 'scripted' }
   parent = await ctx.agents.create({ sessionId: 'parent', agentOptions: selection })
+  let pluginAvailable = true, pluginLoaded = true
+  const pluginTool = { name: 'plugin_fixture_sync', description: 'Fixture settlement tool', parameters: { type: 'object', properties: {} } }
+  const settlementItems = createSettlementItems({ plugins: () => pluginLoaded ? {
+    tools: () => [pluginTool],
+    sections: async () => [],
+    toolNames: async () => ({ available: pluginAvailable ? [pluginTool.name] : [], unavailable: pluginAvailable ? [] : [pluginTool.name] }),
+    calls: () => async () => '{"ok":true}',
+    has: name => name === pluginTool.name
+  } : null })
   const makeRunner = () => createBackgroundAgentRunner({ agents: ctx.agents, backgroundTools: [],
+    settlementItems: () => settlementItems,
     resolveWorldbookSkills: async () => true,
     resolveCurrentWorldbook: async input => { worldbookProjections.push(input.task); return { prefixContext: '常驻：旅店规矩', foregroundContext: '' } },
     resolveForegroundWorldbookReads: async input => input.task === 'settlement' ? '【前台本轮完整查阅的世界书资料】\n少林门规只读快照' : '',
@@ -139,6 +150,14 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     assert.match(JSON.stringify(requests.at(-1).messages), /少林门规原文/)
   }
   assert.deepEqual(searchCalls, [{ keyword: '少林', owner: 'parent' }, ...Array.from({ length: 2 }, () => ({ query: '少林', owner: 'parent' }))])
+  searchPhase = null
+  assert.ok(requests[0].tools.some(tool => tool.name === pluginTool.name))
+  for (const [loaded, enabled] of [[true, false], [true, true], [false, false]]) {
+    pluginLoaded = loaded
+    pluginAvailable = enabled
+    assert.equal((await run(first.traceSessionId)).traceSessionId, first.traceSessionId)
+    assert.equal(requests.at(-1).tools.some(tool => tool.name === pluginTool.name), enabled)
+  }
   const descriptors = sessionEvents(runner.requestSession(first.traceSessionId)).filter(event => event.type === 'subagent/descriptor')
   assert.equal(descriptors.length, 1)
   assert.equal(descriptors[0].data.label, '酒馆后台 Agent')

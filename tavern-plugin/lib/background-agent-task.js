@@ -299,6 +299,13 @@ export function createBackgroundAgentTask(options) {
             return assembly
           }
           if (director && !usesSharedBackgroundContext(state.input)) return markTavernSectionsLiteral(assembly)
+          if (state.pluginToolNames?.size) {
+            const { available } = await settlementItems().pluginToolNames({ gameId: state.input.sessionId, turn: state.input.turn })
+            const enabled = new Set(available)
+            const allowed = name => !state.pluginToolNames.has(name) || enabled.has(name)
+            assembly.sections = (assembly.sections || []).filter(section => !section?.name?.startsWith('tool:') || allowed(section.name.slice(5)))
+            assembly.tools = (assembly.tools || []).filter(tool => allowed(tool?.name))
+          }
           prependSystemInstruction(assembly, options.systemAppend?.())
           markTavernSectionsLiteral(assembly)
           if (!state.input.worldbookSkillsEnabled) {
@@ -313,11 +320,12 @@ export function createBackgroundAgentTask(options) {
       })
       state.refreshConfiguredTools = function () {
         if (director || ownsPrefix(state.input) || state.stableToolDisposers) return
-        // Every task sharing this Session sees one fixed tool list: tool definitions sit in the
-        // cached request prefix. What a task may call is enforced when the tool executes.
-        // Plugin tools join the list when the Session is set up; a plugin loaded later
-        // reaches Sessions set up after it.
-        state.baseToolCatalog ??= structuredClone(stableBackgroundTools.concat(pluginTools()))
+        // Keep the registrations stable. The request exposes only currently available plugin tools.
+        if (!state.baseToolCatalog) {
+          const plugins = pluginTools()
+          state.pluginToolNames = new Set(plugins.map(tool => tool.name))
+          state.baseToolCatalog = structuredClone(stableBackgroundTools.concat(plugins))
+        }
         state.stableToolDisposers = state.baseToolCatalog.concat(state.readCapability?.tool || []).map(function (tool) {
           return childCtx.tools.register({
             name: tool.name,

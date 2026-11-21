@@ -1744,14 +1744,15 @@ export function createTavernPluginApi(deps) {
       return register.call(this, compactionSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.compactionSection()', '压缩说明段落 ' + name + ' 已注册')
     },
 
-    settlementTool({ name, description, parameters, execute } = {}) {
+    settlementTool({ name, description, parameters, enabledFor, execute } = {}) {
       const owner = ownerOf(this)
       if (typeof name !== 'string' || !TOOL_NAME.test(name)) throw new Error('工具名只能用小写字母、数字和下划线，以字母开头，3–48 个字符')
       if (reservedToolNames.has(name)) throw new Error('工具名 ' + name + ' 是 Tavern 自己的工具，请换一个名字')
       if (typeof description !== 'string' || !description.trim() || description.length > 2000) throw new Error('description 必须是 1–2000 字的说明')
       if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters) || parameters.type !== 'object') throw new Error('parameters 必须是 type 为 object 的 JSON Schema')
+      if (enabledFor !== undefined && typeof enabledFor !== 'function') throw new TypeError('enabledFor 必须是函数')
       if (typeof execute !== 'function') throw new TypeError('execute 必须是函数')
-      const entry = { owner, name, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
+      const entry = { owner, name, enabledFor, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
       return register.call(this, settlementTools, name, entry, 'tavern.settlementTool()', '结算工具 ' + name + ' 已被注册')
     },
 
@@ -2316,16 +2317,28 @@ export function createTavernPluginApi(deps) {
     return result
   }
 
+  async function settlementToolEnabled(entry, context, disabled) {
+    if (disabled.has(entry.owner)) return false
+    if (!entry.enabledFor) return true
+    try {
+      return await bounded(entry.enabledFor(context), '结算工具开关 ' + entry.name) === true
+    } catch (error) {
+      recordError(context.gameId, entry.owner, '结算工具开关 ' + entry.name, error)
+      return false
+    }
+  }
+
   /** Seam: what the background settlement task offers the model on behalf of plugins. */
   const settlement = Object.freeze({
     /** Tool definitions, in a stable order: they sit in the cached request prefix. */
     tools() { return Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name)).map(entry => entry.tool) },
     has(name) { return settlementTools.has(name) },
     /** This game's plugin tools, split by whether the player has their plugin on. */
-    async toolNames({ gameId }) {
-      const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
+    async toolNames({ gameId, turn }) {
+      const { disabled } = await choicesFor(gameId)
       const names = Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name))
-      return { available: names.filter(entry => !disabled.has(entry.owner)).map(entry => entry.name), unavailable: names.filter(entry => disabled.has(entry.owner)).map(entry => entry.name) }
+      const enabled = await Promise.all(names.map(entry => settlementToolEnabled(entry, { gameId, turn }, disabled)))
+      return { available: names.filter((_, index) => enabled[index]).map(entry => entry.name), unavailable: names.filter((_, index) => !enabled[index]).map(entry => entry.name) }
     },
     // Sections see the turn being settled: its text is not readable through getTurn until settlement ends.
     async sections({ gameId, turn }) {
@@ -2336,13 +2349,14 @@ export function createTavernPluginApi(deps) {
     /** One settlement run's dispatcher: bounded calls, errors returned to the model, never thrown. */
     calls({ gameId, turn }) {
       let count = 0
-      const choices = choicesFor(gameId).catch(() => ({ disabled: new Set() }))
       return async function call(name, args) {
         const entry = settlementTools.get(name)
         if (!entry) return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 已不可用' })
-        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '玩家在本局关闭了插件 ' + entry.owner + '，本轮不要调用它的工具；以后各轮以结算任务里列出的可用插件工具为准' })
-        if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
         try {
+          if (!await settlementToolEnabled(entry, { gameId, turn }, (await choicesFor(gameId)).disabled) || settlementTools.get(name) !== entry) {
+            return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 当前未启用' })
+          }
+          if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
           const value = await bounded(entry.execute({ gameId, turn, arguments: structuredClone(args ?? {}) }), '插件工具 ' + name)
           const text = typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })
           return text.slice(0, MAX_TOOL_RESULT)

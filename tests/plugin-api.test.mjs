@@ -341,6 +341,7 @@ test('tavern 服务：读取接口与错误隔离', { skip: !cordis }, async t =
 test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结算工具，出错只丢自己这一份，卸载后撤销', { skip: !cordis }, async t => {
   const h = await harness(t, { reservedToolNames: ['posture_submit'] })
   const calls = []
+  let enabled = true
   let tavern
   const fiber = await h.root.plugin({ name: 'memory-plugin', inject: ['tavern'], apply(ctx) {
     tavern = ctx.tavern
@@ -350,6 +351,7 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
     ctx.tavern.worldbookSource({ name: 'session', entries: ({ input }) => [{ title: '支线', content: '与' + input + '有关的线索' }, { content: '  ' }] })
     ctx.tavern.settlementSection({ name: 'anchor', text: ({ turn }) => '第 ' + turn + ' 轮请记录叙事锚点' })
     ctx.tavern.settlementTool({ name: 'anchor_submit', description: '提交叙事锚点', parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      enabledFor: async ({ gameId }) => enabled && gameId === 'game-1',
       execute: async ({ gameId, turn, arguments: args }) => { calls.push([gameId, turn, args.text]); if (args.text === 'bad') throw new Error('写入失败'); return { ok: true } } })
   } })
   await tick()
@@ -367,6 +369,13 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.deepEqual(h.api.settlement.tools().map(tool => tool.name), ['anchor_submit'])
   assert.deepEqual((await h.api.settlement.sections({ gameId: 'game-1', turn: 4 })).map(section => section.text), ['第 4 轮请记录叙事锚点'])
   const call = h.api.settlement.calls({ gameId: 'game-1', turn: 4 })
+  const availability = () => h.api.settlement.toolNames({ gameId: 'game-1', turn: 4 })
+  assert.deepEqual(await availability(), { available: ['anchor_submit'], unavailable: [] })
+  enabled = false
+  assert.deepEqual(await availability(), { available: [], unavailable: ['anchor_submit'] })
+  assert.match(JSON.parse(await call('anchor_submit', { text: '关闭后' })).error, /未启用/)
+  assert.deepEqual(calls, [])
+  enabled = true
   assert.deepEqual(JSON.parse(await call('anchor_submit', { text: '门' })), { ok: true })
   assert.match(JSON.parse(await call('anchor_submit', { text: 'bad' })).error, /写入失败/, 'a plugin error is returned to the model, not thrown')
   assert.deepEqual(calls, [['game-1', 4, '门'], ['game-1', 4, 'bad']])

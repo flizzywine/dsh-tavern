@@ -186,6 +186,49 @@ test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停�
   await assert.rejects(api.callHandler('fate-dice:free-roll', { expression: '1d20' }), /没有名为 fate-dice:free-roll 的插件处理函数/)
 })
 
+test('关闭命运之骰会撤下画像工具并丢弃待结算的画像', async t => {
+  const games = new Map(), handlers = new Map()
+  let tool, section, settle
+  const tavern = {
+    handle: (name, handler) => handlers.set(name, handler),
+    settlementSection: value => { section = value },
+    settlementTool: value => { tool = value },
+    onTurnSettled: handler => { settle = handler },
+    readPluginData: async () => ({ settings: { enabled: false, autoCheck: true } }),
+    savePluginData: async () => {},
+    readGameData: async ({ gameId }) => games.get(gameId),
+    saveGameData: async ({ gameId, data }) => games.set(gameId, data)
+  }
+  const dispose = applyFateDicePlugin({ tavern, inject() {}, effect: run => run() })
+  if (typeof dispose === 'function') t.after(dispose)
+  const game = { gameId: 'current', turn: 2, textVersion: 'test-v2' }
+  const call = { ...game, arguments: { gameId: 'foreign', characterName: '主角' } }
+  const configure = settings => handlers.get('fate-dice:save-global-settings')({ settings })
+
+  assert.equal(await tool.enabledFor(game), false)
+  assert.equal(await section.text(game), '')
+  assert.equal((await tool.execute(call)).ok, false)
+  await settle(game)
+  assert.equal(games.size, 0)
+
+  await configure({ enabled: true })
+  assert.equal(await tool.enabledFor(game), true)
+  assert.match(await section.text(game), /fate_dice_profile_sync/)
+  assert.equal((await tool.execute(call)).gameId, 'current')
+  await configure({ enabled: false })
+  await settle(game)
+  assert.equal(games.size, 0)
+
+  await configure({ enabled: true })
+  await tool.execute(call)
+  await settle(game)
+  assert.equal(games.get('current')?.characterProfile?.characterName, '主角')
+  assert.equal(games.has('foreign'), false)
+  await configure({ autoCheck: false })
+  assert.equal(await tool.enabledFor(game), false)
+  assert.equal((await tool.execute(call)).ok, false)
+})
+
 test('服务端 fate-dice:read-turns：空局零历史扫描，开启态命中内存锁与正负缓存并在时间线变更时精准失效', async () => {
   const gameStore = new Map()
   const turnStore = new Map()
