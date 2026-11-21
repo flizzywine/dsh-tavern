@@ -44,7 +44,8 @@
             if (name === "tavern:worldbook-skills") return { category: "worldbook", label: "世界书 Skill" };
             if (name.includes(":activeWorldbook:")) return { category: "worldbook", label: "本轮世界书" };
             if (name === "tavern:character-card") return { category: "card", label: "人物卡" };
-            if (name === "tavern:card-system-prompt" || name === "tavern:card-system") return { category: "card", label: "人物卡系统提示" };
+            if (name === "tavern:card-system-prompt") return { category: "card", label: "人物卡系统提示" };
+            if (name === "tavern:card-system") return { category: "preset", label: "卡片工作台性格" };
             if (name === "tavern:card-reference") return { category: "card", label: "人物卡参考" };
             if (name === "tavern:user-preference") return { category: "preset", label: "长期偏好" };
             if (name === "tavern:variable-directory") return { category: "state", label: "变量目录" };

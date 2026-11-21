@@ -66316,7 +66316,8 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             if (name === "tavern:worldbook-skills") return { category: "worldbook", label: "世界书 Skill" };
             if (name.includes(":activeWorldbook:")) return { category: "worldbook", label: "本轮世界书" };
             if (name === "tavern:character-card") return { category: "card", label: "人物卡" };
-            if (name === "tavern:card-system-prompt" || name === "tavern:card-system") return { category: "card", label: "人物卡系统提示" };
+            if (name === "tavern:card-system-prompt") return { category: "card", label: "人物卡系统提示" };
+            if (name === "tavern:card-system") return { category: "preset", label: "卡片工作台性格" };
             if (name === "tavern:card-reference") return { category: "card", label: "人物卡参考" };
             if (name === "tavern:user-preference") return { category: "preset", label: "长期偏好" };
             if (name === "tavern:variable-directory") return { category: "state", label: "变量目录" };
@@ -68899,7 +68900,7 @@ function clipReplayCore() {
 					return;
 				}
 				if (task === "create") {
-					input.setDraft("/create-card\n\n我想新建一张人物卡。请逐题问我，每次一个问题并给参考选项；问清角色、玩家身份、世界和开场，再问我是否需要 MVU 变量和前端美化。选了美化先给 HTML 草图让我挑，确认设定后再创建。\n\n我的初步想法：");
+					input.setDraft("/create-card\n\n我想新建一张人物卡。\n\n我的初步想法：");
 					appendMentions();
 					return;
 				}

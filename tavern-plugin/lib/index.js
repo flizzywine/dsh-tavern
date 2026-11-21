@@ -4997,7 +4997,7 @@ export async function apply(ctx) {
         foregroundExtraTools.set(String(sessionId), extra)
         if (foregroundExtraTools.size > 300) foregroundExtraTools.delete(foregroundExtraTools.keys().next().value)
       },
-      cardSystemPrompt: function () { return activeCardPersonaText(tavernSettingsDocument) },
+      cardPersonaText: function () { return activeCardPersonaText(tavernSettingsDocument) },
       cardReferencePrompt: function () { return runtimePrompt('card-reference') },
       workspaceContext: function (cwd, projection) { return resourceWorkspaceContext(cwd, projection, runtimePrompt('card-workspace')) },
       ensureSessionPrefix: async function (input) {
