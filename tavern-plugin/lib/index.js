@@ -1377,6 +1377,8 @@ export async function apply(ctx) {
   }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
+    // History lists each game under its card's current name (the cached catalogue summary).
+    cardName: async cardPath => (await cardSummaries.read(cardPath)).name,
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
       readLinks: async function () {
