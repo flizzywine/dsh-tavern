@@ -18,6 +18,18 @@ function entryIdentity(state, entry) {
 const lookupId = row => worldbookFileDigest(row.path)
 const normalizeKeyword = value => String(value).normalize('NFKC').trim().toLowerCase()
 
+/** New receipts travel outside model-facing text; old traces stored JSON. */
+export function readLorebookReceipt(text, meta) {
+  const receipt = meta?.worldbookRead
+  if (typeof receipt?.id === 'string' && text.trim()) return { ...receipt, text }
+  if (!text.startsWith('{')) return undefined
+  let legacy
+  try { legacy = JSON.parse(text) } catch { return undefined }
+  if (legacy?.status === 'found' && typeof legacy.id === 'string' && typeof legacy.text === 'string' && legacy.text.trim()) {
+    return { id: legacy.id, title: legacy.title, text: legacy.text }
+  }
+}
+
 function titleMatchRank(row, keys, keyword) {
   const title = normalizeKeyword(row.title)
   if (title === keyword) return 0

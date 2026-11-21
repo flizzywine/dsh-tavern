@@ -57,7 +57,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     listFiles: async () => ({ files: [{ path: worldbookPath }] }),
     async readByKeyword({ keyword }, { scope }) {
       searchCalls.push({ keyword, owner: runner.activeRequestContext(scope.session.id)?.parentSessionId })
-      return { status: 'found', title: keyword, text: '少林门规原文' }
+      return { status: 'found', id: 'shaolin', title: keyword, text: '少林门规原文' }
     },
     async searchFiles({ query }, { scope }) {
       searchCalls.push({ query, owner: runner.activeRequestContext(scope.session.id)?.parentSessionId })
@@ -148,6 +148,10 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
       messages: [{ role: 'user', content: [{ type: 'text', text: '读取少林资料' }] }], tools: [] })
     assert.equal(searchPhase, directLookup ? 2 : 3)
     assert.match(JSON.stringify(requests.at(-1).messages), /少林门规原文/)
+    if (directLookup) {
+      const event = sessionEvents(runner.requestSession(first.traceSessionId)).findLast(event => event.type === 'tool/result')
+      assert.deepEqual(event.data.meta?.worldbookRead, { id: 'shaolin', title: '少林' })
+    }
   }
   assert.deepEqual(searchCalls, [{ keyword: '少林', owner: 'parent' }, ...Array.from({ length: 2 }, () => ({ query: '少林', owner: 'parent' }))])
   searchPhase = null

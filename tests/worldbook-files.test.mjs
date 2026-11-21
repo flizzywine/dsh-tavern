@@ -47,12 +47,12 @@ test('成功查到正文的条目安静十个剧情回合，标题命中、失�
   await provider.refresh(agent)
 
   const events = []
-  function lookupAt(turn, name, args, text, isError = false) {
+  function lookupAt(turn, name, args, text, isError = false, meta = undefined) {
     const id = 'call-' + events.length
     events.push(
       { type: 'assistant/message', data: { turn, message: { role: 'assistant', source: { kind: 'model' },
         content: [{ type: 'tool-call', id, name, arguments: JSON.stringify(args) }] } } },
-      { type: 'tool/result', data: { turn, message: { role: 'tool', toolCallId: id, isError, content: [{ type: 'text', text }] } } }
+      { type: 'tool/result', data: { turn, meta, message: { role: 'tool', toolCallId: id, isError, content: [{ type: 'text', text }] } } }
     )
   }
   lookupAt(2, 'worldbook_grep', { query: '港口' }, JSON.stringify({ matches: [
@@ -71,7 +71,7 @@ test('成功查到正文的条目安静十个剧情回合，标题命中、失�
   assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b', 'a'])
 
   const body = await provider.readByKeyword({ keyword: second.lookupId }, lookup)
-  lookupAt(8, 'read_lorebook', { keyword: second.lookupId }, JSON.stringify(body))
+  lookupAt(8, 'read_lorebook', { keyword: second.lookupId }, body.text, false, { worldbookRead: { id: body.id, title: body.title } })
   lookupAt(10, 'read_lorebook', { keyword: '港口' }, JSON.stringify(await provider.readByKeyword({ keyword: '港口' }, lookup)))
   session.surface.nodes = [6, 7, 8, 9]
   assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b'])

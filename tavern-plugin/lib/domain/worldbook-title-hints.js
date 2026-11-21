@@ -4,6 +4,7 @@ import { worldbookEntryTitle } from './worldbook-entry-title.js'
 import { promptSection } from './prompt-section.js'
 import { toolResultsOf } from './tool-result-message.js'
 import { READ_LOREBOOK_TOOL } from './foreground-tools.js'
+import { readLorebookReceipt } from './worldbook-files.js'
 
 const RECENT_STORY_ROUNDS = 10
 
@@ -30,27 +31,27 @@ export function recentWorldbookLookups(session, messages) {
   for (let i = nodes.length - 1; i >= 0; i--) {
     const event = session.eventAt(nodes[i])
     if (!['assistant/message', 'tool/result'].includes(event?.type)) continue
-    const { turn, message, error } = event.data || {}
+    const { turn, message, error, meta } = event.data || {}
     if (turn < oldest) break
     if (!turns.has(turn)) continue
     if (event.type === 'tool/result' && !error) {
       for (const result of toolResultsOf(message)) {
-        if (!result.isError) results.set(turn + ':' + result.toolCallId, result.content)
+        if (!result.isError) results.set(turn + ':' + result.toolCallId, { content: result.content, meta })
       }
     }
     if (event.type !== 'assistant/message' || message?.source?.kind !== 'model') continue
     for (const call of message.content || []) {
       if (call?.type !== 'tool-call' || !['read', 'worldbook_grep', READ_LOREBOOK_TOOL].includes(call.name)) continue
-      const content = results.get(turn + ':' + call.id)
-      if (!content) continue
-      const body = content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
+      const result = results.get(turn + ':' + call.id)
+      if (!result) continue
+      const body = result.content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
       if (!body.trim()) continue
       if (call.name === 'read') {
         const file = parseJson(call.arguments)?.file_path
         if (typeof file === 'string' && file) paths.add(file)
       } else if (call.name === READ_LOREBOOK_TOOL) {
-        const result = parseJson(body)
-        if (result?.status === 'found' && typeof result.id === 'string' && typeof result.text === 'string' && result.text.trim()) ids.add(result.id)
+        const receipt = readLorebookReceipt(body, result.meta)
+        if (receipt) ids.add(receipt.id)
       } else {
         const matches = parseJson(body)?.matches
         if (!Array.isArray(matches)) continue

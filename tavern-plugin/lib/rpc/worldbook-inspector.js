@@ -1,4 +1,5 @@
 import { READ_LOREBOOK_TOOL } from '../domain/foreground-tools.js'
+import { readLorebookReceipt } from '../domain/worldbook-files.js'
 
 // Only native tool events are evidence of loading/reading, never prose adoption.
 export function worldbookReadHistory(events, directory, skillNames = [], inlineEntries = []) {
@@ -20,9 +21,8 @@ export function worldbookReadHistory(events, directory, skillNames = [], inlineE
       item.status = d.message.isError ? 'error' : 'success'
       item.result = (d.message.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
       if (item.kind === READ_LOREBOOK_TOOL && item.status === 'success') {
-        let result
-        try { result = JSON.parse(item.result) } catch {}
-        if (result?.status === 'found' && typeof result.text === 'string' && result.text.trim()) {
+        const result = readLorebookReceipt(item.result, d.meta)
+        if (result) {
           item.lookupId = result.id
           item.title = result.title
           item.reference = true
