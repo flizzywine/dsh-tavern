@@ -1,6 +1,22 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { patchPiAiAdapterSource, patchPiAiOpenAICompletionsSource } from '../tavern-plugin/lib/domain/pi-ai-nonstream.js'
+import { patchPiAiOpenAIStoreSource } from '../tavern-plugin/lib/domain/pi-ai-openai-store.js'
+
+/** true when written, false when already patched, null when this pi-ai shape is unknown. */
+export function patchPiAiOpenAIStore({ sdkDirectory }) {
+  const apiFile = path.join(sdkDirectory, 'dist', 'api', 'openai-completions.js')
+  let api
+  try {
+    if (JSON.parse(readFileSync(path.join(sdkDirectory, 'package.json'), 'utf8')).name !== '@earendil-works/pi-ai') return null
+    api = readFileSync(apiFile, 'utf8')
+  } catch { return null }
+  const result = patchPiAiOpenAIStoreSource(api)
+  if (result.status === 'unmatched') return null
+  if (result.status === 'patched') return false
+  writeFileSync(apiFile, result.text)
+  return true
+}
 
 /** true when written, false when both files are already patched, null when this host shape is unknown. */
 export function patchPiAiNonStream({ adapterDirectory, sdkDirectory }) {
