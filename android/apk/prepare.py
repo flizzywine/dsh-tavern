@@ -64,9 +64,10 @@ def patch_web_upload_limits(java, tests):
 
 
 def patch_web_fullscreen_ui(web_ui):
-    """输入法弹出/收起是动画：只在动画结束跳一次内边距，WebView 里的酒馆就会「键盘先到、页面后到」。
+    """输入法弹出/收起是动画：逐帧改 WebView padding 会导致每帧跨进程重排卡顿。
 
-    改为按 WindowInsetsAnimation 的进度逐帧改，网页跟着窗口同帧重排。
+    动画期间保持 WebView 尺寸不动，通过子 View 的 GPU translationY 与 WindowInsetsAnimation
+    同帧同步弹出/收回；仅在收回起帧和弹出终帧各做一次 padding 落位，既不卡顿也不露白。
     """
     replace(web_ui, 'import androidx.core.view.WindowInsetsControllerCompat;',
             '''import androidx.core.view.WindowInsetsAnimationCompat;
@@ -93,19 +94,38 @@ import androidx.core.view.WindowInsetsControllerCompat;''')
           return WindowInsetsCompat.CONSUMED;
         });
     applySystemBars(activity);''',
-            '''    final int[] keyboard = {0};
+            '''    if (content instanceof android.view.ViewGroup) {
+      ((android.view.ViewGroup) content).setClipToPadding(true);
+    }
+    final int[] keyboard = {0};
     final boolean[] animating = {false};
     ViewCompat.setOnApplyWindowInsetsListener(
         content,
         (view, insets) -> {
           if (PictureInPictureActivity.showing(activity)) {
+            keyboard[0] = 0;
             view.setPadding(0, 0, 0, 0);
+            setChildrenTranslationY(view, 0f);
             return WindowInsetsCompat.CONSUMED;
           }
           Insets safe = safeInsets(insets);
-          // 动画开始时 insets 直接是终点值；逐帧值由 onProgress 给，这里不能先按终点铺一次。
-          if (!animating[0]) keyboard[0] = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
-          view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard[0]));
+          int ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+          if (!animating[0]) {
+            keyboard[0] = ime;
+            view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard[0]));
+            setChildrenTranslationY(view, 0f);
+          } else if (ime < keyboard[0]) {
+            // 收回/变矮动画开始时先一次性扩回终点高度并用 translationY 保持底部紧贴键盘顶边，
+            // 避免收回过程中顶部露出空白，后续动画帧只需纯 GPU 平移归零。
+            int prevApplied = Math.max(safe.bottom, keyboard[0]);
+            keyboard[0] = ime;
+            int nextApplied = Math.max(safe.bottom, keyboard[0]);
+            view.setPadding(safe.left, safe.top, safe.right, nextApplied);
+            setChildrenTranslationY(view, -(prevApplied - nextApplied));
+          } else {
+            // 弹出/变高动画期间保持当前 padding 不变，避免 WebView 提前跳位或逐帧重排。
+            view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard[0]));
+          }
           return WindowInsetsCompat.CONSUMED;
         });
     if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -123,14 +143,20 @@ import androidx.core.view.WindowInsetsControllerCompat;''')
             public WindowInsetsCompat onProgress(
                 WindowInsetsCompat insets,
                 java.util.List<WindowInsetsAnimationCompat> running) {
-              boolean ime = false;
+              boolean imeRunning = false;
               for (WindowInsetsAnimationCompat animation : running) {
-                if ((animation.getTypeMask() & WindowInsetsCompat.Type.ime()) != 0) ime = true;
+                if ((animation.getTypeMask() & WindowInsetsCompat.Type.ime()) != 0) imeRunning = true;
               }
-              if (!ime) return insets;
+              if (!imeRunning) return insets;
+              if (PictureInPictureActivity.showing(activity)) {
+                setChildrenTranslationY(content, 0f);
+                return insets;
+              }
               Insets safe = safeInsets(insets);
-              keyboard[0] = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
-              content.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard[0]));
+              int ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+              int applied = Math.max(safe.bottom, keyboard[0]);
+              int target = Math.max(safe.bottom, ime);
+              setChildrenTranslationY(content, -(target - applied));
               return insets;
             }
 
@@ -144,7 +170,15 @@ import androidx.core.view.WindowInsetsControllerCompat;''')
     }
     applySystemBars(activity);''')
     replace(web_ui, '  public static void applySystemBars(Activity activity) {',
-            '''  private static Insets safeInsets(WindowInsetsCompat insets) {
+            '''  private static void setChildrenTranslationY(View container, float dy) {
+    if (!(container instanceof android.view.ViewGroup)) return;
+    android.view.ViewGroup group = (android.view.ViewGroup) container;
+    for (int i = 0; i < group.getChildCount(); i++) {
+      group.getChildAt(i).setTranslationY(dy);
+    }
+  }
+
+  private static Insets safeInsets(WindowInsetsCompat insets) {
     Insets bars =
         insets.getInsets(
             WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
