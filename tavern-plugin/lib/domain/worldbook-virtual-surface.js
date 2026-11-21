@@ -29,7 +29,7 @@ export function virtualWorldbookRestoreRefs(session, state, pending = []) {
 
 // 玩家在「本局设置 → 高级 → 前台工具」里关掉的工具不会进请求；指令正文必须跟着
 // 工具走，否则提示还在教模型调用一个本轮不存在的工具，模型就会空调用。
-function worldbookFileInstruction(disabled) {
+function worldbookFileInstruction(disabled, beforeStory) {
   const canGrep = !disabled.has('worldbook_grep')
   const canList = !disabled.has('worldbook_list')
   const canRead = !disabled.has('read')
@@ -37,6 +37,12 @@ function worldbookFileInstruction(disabled) {
   const lines = [canRead
     ? '世界书静态资料、常驻资料及已渲染的动态快照可通过真实 Markdown 文件查阅。'
     : '世界书静态资料、常驻资料及已渲染的动态快照可通过检索工具查阅，本轮不能读取文件正文。']
+  if (beforeStory) {
+    lines.push(
+      '续写前先判断：玩家这一步的结果是否可能受本局设定约束？进出地点、使用物品、交易、交接或参与仪式时，若动作可能有既定规矩而你还缺少相关设定，先查清再写它的结果。' +
+      '即使玩家没提条目名，也从动作、对象、外观或用途提取短词查找。闲聊、无关动作或已掌握适用设定时，直接续写。'
+    )
+  }
   if (canGrep) {
     lines.push('需要设定时用 worldbook_grep 搜索原文' +
       (canRead ? '，再用 read 按返回的绝对路径和行号读取上下文。' : '。') +
@@ -54,10 +60,10 @@ function worldbookFileInstruction(disabled) {
 }
 
 /** Request-only sections preserve source whitespace and never enter chat history. */
-export function withWorldbookFileInstructions(sections, disabledForegroundTools) {
+export function withWorldbookFileInstructions(sections, disabledForegroundTools, { beforeStory = false } = {}) {
   const fixed = sections.filter(section => section.name !== 'tavern:worldbook-skills')
   const disabled = new Set(normalizeDisabledForegroundTools(disabledForegroundTools))
-  const text = worldbookFileInstruction(disabled)
+  const text = worldbookFileInstruction(disabled, beforeStory)
   if (text) fixed.push({ name: 'tavern:worldbook-skills', text })
   return fixed
 }
@@ -66,6 +72,8 @@ export const VIRTUAL_WORLDBOOK_SECTION = 'tavern:constant-worldbook'
 export const virtualWorldbookPromptText = context => context ? promptSection('lorebook_constant', context) : ''
 
 export function withVirtualWorldbook(sections, context, disabledForegroundTools, { defer = false } = {}) {
-  const fixed = withWorldbookFileInstructions(sections.filter(section => section.name !== VIRTUAL_WORLDBOOK_SECTION), disabledForegroundTools)
+  const fixed = withWorldbookFileInstructions(
+    sections.filter(section => section.name !== VIRTUAL_WORLDBOOK_SECTION), disabledForegroundTools, { beforeStory: true }
+  )
   return context || defer ? [{ name: VIRTUAL_WORLDBOOK_SECTION, text: virtualWorldbookPromptText(context) }, ...fixed] : fixed
 }
