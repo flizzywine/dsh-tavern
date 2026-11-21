@@ -245,8 +245,7 @@ export function normalizePlayDefaults(value, legacyCandidateTabs) {
     worldbookStrategy: 'native-skills',
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
     candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs !== false,
-    // New games get 文风联想 unless the defaults turn it off; an existing game without the key stays off.
-    backgroundTasks: { ...normalizeConfiguredBackgroundTasks(input.backgroundTasks), styleReference: object(input.backgroundTasks).styleReference !== false },
+    backgroundTasks: normalizeConfiguredBackgroundTasks(input.backgroundTasks),
     webSearchEnabled: input.webSearchEnabled === true }
 }
 

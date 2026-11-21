@@ -28,6 +28,9 @@ test('全局写作 Skill 逐项保存，恢复开启不改动其他 Skill', () =
 
 test('本局默认模板保存、恢复与新局继承覆盖全部本局设置字段', async () => {
   let settingsDoc = {}
+  assert.equal(presentTavernSettings(settingsDoc, {}).defaultPlaySettings.backgroundTasks.styleReference, false)
+  const optedIn = applyTavernSettingsPatch(settingsDoc, { defaultPlaySettings: { backgroundTasks: { styleReference: true } } })
+  assert.equal(presentTavernSettings(optedIn, {}).defaultPlaySettings.backgroundTasks.styleReference, true)
   let activePresetPath = ''
   let defaultProfileId = ''
   let pluginResetCalls = []
