@@ -423,6 +423,11 @@ export function apply(ctx, { ready, data, gallery }) {
         if (payload.target === 'config') return forward(engine, 'config', { config: content }, request, response, url)
         if (payload.target === 'characters' || payload.target === 'outfits') {
           const key = payload.target === 'characters' ? 'characters' : 'outfits'
+          // 带 item 的是单条修改：只动目标记录，不重写整个库。没有 item 仍走整包。
+          if (Object.hasOwn(content, 'item')) {
+            const next = await engine.patchCardDefinition(payload.target, content.item, content.revision)
+            return send(response, 200, { ok: true, revision: next.revision, characters: structuredClone(next) })
+          }
           if (!Array.isArray(content[key])) throw fail('INVALID_ARGUMENT', key + ' 必须是数组')
           const next = await engine.saveCardDefinitions({ [key]: content[key] }, content.revision)
           return send(response, 200, { ok: true, revision: next.revision, characters: structuredClone(next) })
@@ -434,7 +439,7 @@ export function apply(ctx, { ready, data, gallery }) {
       if (method === 'POST' && route === 'test-channel') return forward(await ready(), 'image-channel-test', await body(request), request, response, url)
       if (method === 'GET' && route === 'comfy-state') return forward(await ready(), 'comfy-test', {}, request, response, url)
       return send(response, 404, { ok: false, error: '没有这个工作台接口' })
-    } catch (error) { send(response, error.code === 'FORBIDDEN' ? 403 : error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'INVALID_ARGUMENT' ? 400 : 500, { ok: false, code: error.code, error: error.message }) }
+    } catch (error) { send(response, error.code === 'FORBIDDEN' ? 403 : error.code === 'NOT_FOUND' ? 404 : error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'INVALID_ARGUMENT' ? 400 : 500, { ok: false, code: error.code, error: error.message }) }
   }
   const image = async (request, response) => {
     try {

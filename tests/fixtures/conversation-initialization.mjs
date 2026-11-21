@@ -60,7 +60,7 @@ export function initializationFixture(options = {}) {
         async ensurePrefix(target, text) { trace.push('prefix'); await fail('prefix'); target.prefix ||= text },
         async flush(target) { trace.push('flush'); await fail('flush', target); target.durable = structuredClone(target.events) },
         async ensureCardWorkspace(target) { trace.push('workspace'); ensureCardWorkspaceMessage(target, '工作区说明') },
-        async selectModel(target, selection) { target.session.selectedModel = structuredClone(selection); trace.push('model.select') },
+        async selectModel(target, selection) { await fail('selectModel', selection); target.session.selectedModel = structuredClone(selection); trace.push('model.select') },
         selection: () => ({ provider: 'fixture', model: 'text' })
       },
       present: async chat => { await fail('present'); return structuredClone(chat) }, logger: { warn() {} }

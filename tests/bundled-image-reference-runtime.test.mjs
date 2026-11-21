@@ -409,3 +409,35 @@ test('structured reference submission shares identities across prose and charact
   assert.match(replaced.submittedPrompt, /撑着伞/)
   assert.doesNotMatch(replaced.submittedPrompt, /坐在身后|正在递伞|未匹配人物/)
 })
+
+test('a pack-only character supplies its stage outfit reference and registered colors', async t => {
+  const calls = [], id = 'pack:p:f'
+  globalThis.fetch = atlasMock(calls)
+  const person = { id, name: 'Mira', consistencyText: 'Pale green skin and a silver spear.', outfits: [{ id: 'armor', name: 'Armor', upper: 'pink leather armor' }] }
+  const tavern = { async imagePackCharacters({ subjects, includeReferences }) {
+    if (!subjects) return [person]
+    assert.equal(subjects[0].characterId, id)
+    return [{ ...person, outfitId: 'armor', ...(includeReferences && { reference: { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: 'Mira armor' } }) }]
+  } }
+  const fixture = await imagePluginFixture(t, { tavern, config: { generationMode: 'auto', promptMode: 'structured' }, llm: { async *stream(request) {
+    assert.match(JSON.stringify(request), /pink leather armor/)
+    yield { type: 'text-delta', text: '<images><image><regex>Mira waits by the bridge.</regex><prompts>Mira waits by the bridge.</prompts><subjects>[{"name":"Mira"}]</subjects></image></images>' }
+  } } })
+  const runtime = await fixture.start()
+  const result = await runtime.request('plan', { text: 'Mira waits by the bridge.', messageId: 'pack-reference', count: 1, manual: true, sessionId: 'game-1', turn: 2 })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  assert.equal(result.body.plans.length, 1, JSON.stringify(result.body))
+  const job = await runtime.terminal(result.body.plans[0].jobId)
+  assert.equal(job.state, 'done', job.error)
+  assert.equal(job.generationMode, 'reference')
+  assert.equal(job.references[0].image.name, 'Mira armor')
+  assert.match(job.submittedPrompt, /pink leather armor/i)
+  await runtime.request('config', { generationMode: 'text' })
+  const text = await runtime.request('plan', { text: 'Mira waits by the bridge.', messageId: 'pack-text', count: 1, manual: true, sessionId: 'game-1', turn: 2 })
+  assert.equal(text.body.plans.length, 1, JSON.stringify(text.body))
+  const textJob = await runtime.terminal(text.body.plans[0].jobId)
+  assert.equal(textJob.state, 'done', textJob.error)
+  assert.equal(textJob.generationMode, 'text')
+  assert.deepEqual(textJob.references, [])
+  assert.match(textJob.submittedPrompt, /pink leather armor/i)
+})

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { computeRequestCacheDiff, extractPrefixSlots } from '../tavern-plugin/lib/domain/request-cache-diff.js'
 
 
@@ -176,6 +178,28 @@ test('缓存对比：同一消息段内中部子块变动时，前置子块计�
     diff.estimated.totalTokens
   )
   assert.equal(diff.breakPoint.affectedTokens, diff.estimated.cascadeTokens)
+})
+
+test('实际命中率优先展示，本地前缀差异仍可定位，估算 token 不混入实际用量', () => {
+  const previous = { id: 'r1', turn: 1, step: 1, request: { model: 'm', system: '原系统提示' } }
+  const current = { id: 'r2', status: 'completed', request: { model: 'm', system: '汉'.repeat(26213) } }
+  const render = usage => {
+    const record = { ...current, usage }
+    record.cacheDiff = computeRequestCacheDiff(record, previous, previous)
+    return renderToStaticMarkup(client.renderCacheDiffSummary(createElement, record, () => {}))
+  }
+
+  const actual = render({ inputTokens: 215, cacheReadTokens: 25344 })
+  assert.match(actual, /实际命中 99\.2%/)
+  assert.ok(actual.includes('总输入 ' + (25559).toLocaleString()))
+  assert.match(actual, /定位前缀差异/)
+  assert.match(actual, /本地前缀差异/)
+  assert.doesNotMatch(actual, /破坏命中|连带失效|tokens/)
+
+  const estimated = render(undefined)
+  assert.match(estimated, /预估一致前缀 0\.0%/)
+  assert.ok(estimated.includes('本地估算共约 ' + (39320).toLocaleString() + ' tokens'))
+  assert.match(estimated, /定位前缀差异/)
 })
 
 test('缓存对比：模型变更、TTL 零命中与基线已清理场景', () => {

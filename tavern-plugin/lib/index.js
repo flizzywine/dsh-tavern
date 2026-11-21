@@ -357,6 +357,8 @@ import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { followImageCharacters } from './image-character-follow.js'
+import { figureOutfitReference } from './domain/figure-sprite-reference.js'
+import { imageCharacterFromFigure } from './domain/image-character-appearance.js'
 import { appearanceFromImageCharacter, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterExtension } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
@@ -2533,9 +2535,9 @@ export async function apply(ctx) {
       flush: function (session) { return sessionStore.flush(session) },
       selection: modelSelection,
       async selectModel(target, selection) {
+        const resolved = await llm.resolveCallConfig(selection)
         const controller = ctx.get('sessionController')
         if (!target.agent) throw new Error('无法设置新游戏默认前台模型')
-        const resolved = await llm.resolveCallConfig(selection)
         selectSessionModel({ agent: target.agent, controller, unsupported: '无法设置新游戏默认前台模型',
           selection: { provider: resolved.provider, model: resolved.model, ...(resolved.reasoningEffort ? { reasoningEffort: resolved.reasoningEffort } : {}) } })
         await sessionStore.flush(target.session)
@@ -3323,6 +3325,25 @@ export async function apply(ctx) {
       const own = (await cardStageExtension(cardPath))?.assetBindings.boundPackIds || []
       const global = ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []
       return [...new Set([...own, ...global])]
+    },
+    async imagePackCharacters(packIds, selections, includeReferences) {
+      const library = ctx.get('assetLibrary')
+      if (!library) return []
+      const packs = await Promise.all(packIds.map(packId => library.getPackSnapshot({ packId, readOnly: true })))
+      return (await Promise.all(packs.filter(Boolean).flatMap(pack => Object.values(pack.figures)
+        .filter(figure => figure.enabled !== false)
+        .map(async figure => {
+          const character = imageCharacterFromFigure(figure, pack.manifest.id)
+          const id = `pack:${pack.manifest.id}:${figure.id}`
+          const selection = selections?.find(item => item.characterId === id)
+          if (selections && !selection) return null
+          const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
+          const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
+          const hash = includeReferences && outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
+          const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
+          return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
+            ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }
+        })))).filter(Boolean)
     },
     async editLinkedFigures(changes, receipt, save) {
       const library = ctx.get('assetLibrary')
@@ -4997,7 +5018,7 @@ export async function apply(ctx) {
         foregroundExtraTools.set(String(sessionId), extra)
         if (foregroundExtraTools.size > 300) foregroundExtraTools.delete(foregroundExtraTools.keys().next().value)
       },
-      cardSystemPrompt: function () { return activeCardPersonaText(tavernSettingsDocument) },
+      cardPersonaText: function () { return activeCardPersonaText(tavernSettingsDocument) },
       cardReferencePrompt: function () { return runtimePrompt('card-reference') },
       workspaceContext: function (cwd, projection) { return resourceWorkspaceContext(cwd, projection, runtimePrompt('card-workspace')) },
       ensureSessionPrefix: async function (input) {

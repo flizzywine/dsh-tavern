@@ -97,6 +97,53 @@ test('叙事阻尼器 RPC：密钥安全存储不回显明文、环境变量引�
   assert.equal(creds.stored.has(DAMPER_KEY_REFS.gemini), false)
 })
 
+test('决策接口返回 404 或 405 时，连接测试、回合和插件判定报告端点错误', async () => {
+  const config = {
+    ...defaultNarrativeDamperConfig(),
+    enabled: true,
+    provider: 'openai-compatible',
+    baseUrl: 'https://proxy.example.com/v1',
+    model: 'gpt-6-luna',
+    keyName: 'OPENAI_API_KEY'
+  }
+  const creds = createMemoryCredentials({ OPENAI_API_KEY: 'test-key' })
+  let status = 404
+  const calls = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (url, init) => {
+      calls.push([url, init.method])
+      return new Response('Not a Decisions endpoint', { status })
+    }
+  })
+
+  for (const httpStatus of [404, 405]) {
+    status = httpStatus
+    const probe = await damper.test()
+    assert.equal(probe.ok, false)
+    assert.equal(probe.error.code, 'DAMPER_ENDPOINT_ERROR')
+    assert.match(probe.error.message, new RegExp('HTTP ' + httpStatus + '.*决策 API.*POST 路径和模型名称'))
+
+    const { ruling, outcome } = await damper.evaluateTurn({
+      chat: { id: 'proxy-chat', mode: 'story', messages: [] },
+      turn: httpStatus,
+      userText: '我轻轻敲门。'
+    })
+    assert.equal(ruling, null)
+    assert.equal(outcome.status, 'bypassed')
+    assert.equal(outcome.code, probe.error.code)
+    assert.equal(outcome.message, probe.error.message)
+
+    await assert.rejects(damper.judge({
+      input: '我轻轻敲门。',
+      questions: [{ id: 'knock', instructions: '玩家敲了门吗？' }]
+    }), { code: probe.error.code, message: probe.error.message })
+  }
+
+  assert.deepEqual(calls, Array.from({ length: 6 }, () => ['https://proxy.example.com/v1/decisions', 'POST']))
+})
+
 test('gemini-decision-1 前置裁定：R18 送审脱敏投影、400 敏感词二次骨架兜底、场景变化直通与缓存复用', async () => {
   const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-abc' })
   let config = { ...defaultNarrativeDamperConfig(), enabled: true }
@@ -435,6 +482,18 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
           model: 'gemini-decision-1',
           latencyMs: 2
         }]
+      },
+      { role: 'user', text: '决策接口未找到回合' },
+      {
+        role: 'assistant',
+        turn: 6,
+        text: '正文照常生成。',
+        narrativeDamper: [{
+          status: 'bypassed',
+          code: 'DAMPER_ENDPOINT_ERROR',
+          message: '决策服务返回 HTTP 404。请确认服务支持所选决策 API，并检查 POST 路径和模型名称',
+          model: 'gpt-6-luna'
+        }]
       }
     ]
   }
@@ -529,21 +588,23 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   })
 
   const pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
-  // Floor 1 greeting has no pill; Floors 2, 3, 4, 5 each have one pill!
-  assert.equal(pills.length, 4)
+  // Floor 1 greeting has no pill. Floors 2–6 each have one.
+  assert.equal(pills.length, 5)
   assert.match(pills[0].textContent, /阻尼 · 越权剥离/)
   assert.match(pills[1].textContent, /阻尼 · 防线受阻 0\.6 · 钳制 2 项/)
   assert.match(pills[2].textContent, /阻尼 · 半步拉扯 1\.9/)
   assert.match(pills[3].textContent, /阻尼 · 未配密钥/)
+  assert.match(pills[4].textContent, /阻尼 · 决策接口错误/)
 
-  // Click Floor 3 pill (MVU clamped) + Floor 4 pill (plain 4D state) + Floor 5 pill (bypassed)
+  // Expand the clamped, plain-state and bypassed results.
   await act(async () => {
     pills[1].click()
     pills[2].click()
     pills[3].click()
+    pills[4].click()
   })
   const panels = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-panel')]
-  assert.equal(panels.length, 3)
+  assert.equal(panels.length, 4)
   // Floor 3 panel shows visible clamped stat numbers and masks hidden stat numbers!
   assert.match(panels[0].textContent, /配额：防线冻结（±1）/)
   assert.match(panels[0].textContent, /15 → 16/)
@@ -555,6 +616,7 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   assert.match(panels[1].textContent, /\+5/)
   // Floor 5 panel shows clear missing API Key guidance
   assert.match(panels[2].textContent, /尚未配置 API Key/)
+  assert.match(panels[3].textContent, /HTTP 404.*决策 API.*POST 路径和模型名称.*正文照常生成/)
 
   // Turning showDamperStatus off hides all pills and panels
   await act(async () => {

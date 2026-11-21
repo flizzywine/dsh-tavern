@@ -283,6 +283,29 @@ test('clearing migrated outfit fields survives a save and a restart', async t =>
   assert.equal(reloaded.body, 'blue wool')
 })
 
+test('single-record workbench edits preserve other fields and reject malformed collections', async t => {
+  const f = await studio(t, { definitions: { characters: [
+    { id: 'a', name: 'A', traits: { face: 'green eyes' }, outfits: [{ id: 'coat', name: 'Coat', upper: 'blue wool' }] },
+    { id: 'b', name: 'B' },
+  ] } })
+  const state = async () => (await f.runtime.request('/dsh-tavern-gen/api/state')).body.characters
+  const before = await state()
+  const save = (item, revision = before.revision) => f.runtime.request('/dsh-tavern-gen/api/save', { target: 'characters', content: { item, revision } })
+  for (const item of [{ id: 'a', traits: null }, { id: 'a', outfits: {} }, { id: 'a', outfits: [{}] }]) {
+    assert.equal((await save(item)).status, 400)
+  }
+  assert.deepEqual(await state(), before)
+  const updated = await save({ id: 'a', traits: { faceBack: 'long hair' }, outfits: [{ id: 'coat', lower: 'black trousers' }] })
+  assert.equal(updated.status, 200)
+  const [person, other] = updated.body.characters.characters
+  assert.equal(person.traits.face, 'green eyes')
+  assert.equal(person.traits.faceBack, 'long hair')
+  assert.equal(person.outfits[0].upper, 'blue wool')
+  assert.equal(person.outfits[0].lower, 'black trousers')
+  assert.deepEqual(other, before.characters[1])
+  assert.equal((await save({ id: 'a', note: 'stale' })).status, 409)
+})
+
 test('read_character gives the macro instead of traits and full traits only on request', async t => {
   const definitions = {
     characters: [{ id: 'c1', name: '春雪', match: 'Chun Xue', traits: { face: '银白长发，蓝绿色眼睛' }, outfits: [{ id: 'o1', name: '白裙', default: true, upper: '白色吊带', lower: '白色长裙摆' }] }],

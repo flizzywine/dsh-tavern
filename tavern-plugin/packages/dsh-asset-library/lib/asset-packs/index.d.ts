@@ -55,6 +55,8 @@ export interface Outfit { key: string; defaultEmotion?: string; fallbackEmotions
   guidance?: string;
   outfitAppearance?: string;
   settei?: Sha256;
+  /** The second settei sheet: the eye and the pieces over the colour card (the four views are settei). */
+  setteiParts?: Sha256;
   setteiParentVersion?: string;
   avatars?: Record<string, Sha256>;
 }
@@ -65,7 +67,7 @@ export function figureSingleImage(figure?: Pick<Figure, 'emotions'>): string | n
 export function figureEmotionRows(figure?: Pick<Figure, 'emotions'>): Array<FigureEmotion & {label: string; color?: string}>;
 export function figureOutfitEmotionRows(figure: Pick<Figure, 'emotions'>, outfit: Figure['outfits'][number], sprites?: Record<string, SpriteManifest>): ReturnType<typeof figureEmotionRows>;
 // board versions belong to the identity, never to outfit accessories.
-export interface IdentitySettei { board: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
+export interface IdentitySettei { board: Sha256; parts?: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
 export interface Figure { schemaVersion: 1; id: UUID; name: string; aliases?: string[]; description?: string; guidance?: string; remark?: string; enabled: boolean; recall: FigureRecall; appearance: 'live2d' | 'spine' | 'sprite' | 'avatar'; identityAppearance?: string; identitySettei?: IdentitySettei; heightCm?: number; heightBasis?: 'standing' | 'seated'; elevationCm?: number; imageColor?: string; autoColor?: string; emotions?: FigureEmotion[]; voice?: Voice; outfits: Outfit[]; extensions?: Extensions }
 export interface Rect { x: number; y: number; w: number; h: number }
 export type MouthEvent = 'closed' | 'small' | 'mid' | 'open';

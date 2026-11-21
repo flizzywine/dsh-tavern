@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {createSettingsHandlers} from '../tavern-plugin/lib/rpc/settings.js'
+import { mkdtemp } from './helpers/temp-directory.mjs'
 
 function harness({settingsDelay = 0} = {}){
   let reads = 0, catalogCalls = 0
@@ -83,6 +84,5 @@ test('空设置文件允许启动、读会话、保存错误可见性及重新�
     globalThis.fetch = previousFetch
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
-    await rm(home, { recursive: true, force: true })
   }
 })

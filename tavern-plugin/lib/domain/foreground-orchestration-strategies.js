@@ -26,6 +26,7 @@ import { frameUserInput } from './agent-input-frame.js'
 import { hasProviderContent } from './provider-message-content.js'
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
+const CARD_PERSONA_SCOPE = '起始任务和 Skill 规定任务步骤、交付物与必要格式。人物卡的设定与提示词用于理解和编辑目标。向用户提问、介绍选项和汇报时，始终沿用以下身份、称呼和语气。回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。'
 // The card Agent resends its system prompt on every tool step and reads live
 // files anyway; a large card's reference material would dominate each request.
 export const CARD_REFERENCE_WORLDBOOK_LIMIT = 8000
@@ -545,9 +546,11 @@ export function createNativePlayOrchestrationStrategy(options) {
     const cardEdit = mode === 'card' && input.chat?.cardEditContext?.version === 1
     const fixed = input.fixedSystemSections || []
     const sections = mode === 'card' && !cardEdit ? fixed.filter(section => section.name === 'tavern:user-preference') : fixed.slice()
+    if (mode === 'card') {
+      const text = typeof options.cardPersonaText === 'function' ? options.cardPersonaText().trim() : ''
+      if (text) sections.push({ name: 'tavern:card-system', text: promptSection('card_agent_persona', CARD_PERSONA_SCOPE + '\n\n' + text) })
+    }
     if (mode === 'card' && !cardEdit) {
-      const text = typeof options.cardSystemPrompt === 'function' ? options.cardSystemPrompt().trim() : ''
-      if (text) sections.push({ name: 'tavern:card-system', text: promptSection('card_agent_persona', text) })
       // Card material is reference data for the card Agent, not its persona.
       const reference = fixed.filter(section => CARD_REFERENCE_SECTIONS.has(section.name))
       if (reference.length) {
