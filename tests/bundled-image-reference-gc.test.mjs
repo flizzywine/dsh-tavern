@@ -1,19 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { imagePluginFixture } from './fixtures/image-plugin-runtime.mjs'
+import { imagePluginFixture, IMAGE_PNG } from './fixtures/image-plugin-runtime.mjs'
 
 // 参考图文件名就是内容的 SHA-256；只有这种名字才算参考图文件。
 const KEPT = 'a'.repeat(64)
 const ORPHAN = 'b'.repeat(64)
+const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
 
 async function seed(f) {
   const directory = join(f.pluginRoot, 'reference-images')
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, KEPT), Buffer.alloc(2048))
   await writeFile(join(directory, ORPHAN), Buffer.alloc(4096))
+  await utimes(join(directory, ORPHAN), old, old)
   await writeFile(join(directory, 'not-a-hash.png'), Buffer.alloc(512))
   return directory
 }
@@ -38,7 +40,8 @@ test('清理删掉孤儿并保留仍被引用的图，重复清理不再删任�
   const f = await imagePluginFixture(t, { config: fixtureConfig })
   const runtime = await f.start()
   const directory = await seed(f)
-  const done = await runtime.request('reference-gc', {})
+  const preview = await runtime.request('reference-gc')
+  const done = await runtime.request('reference-gc', { token: preview.body.token })
   assert.equal(done.status, 200)
   assert.equal(done.body.removed, 1)
   assert.equal(done.body.removedBytes, 4096)
@@ -49,4 +52,38 @@ test('清理删掉孤儿并保留仍被引用的图，重复清理不再删任�
   const again = await runtime.request('reference-gc')
   assert.equal(again.body.orphanCount, 0, '第二次清理没有可删的东西')
   assert.equal(again.body.total, 1)
+})
+
+test('清理只删已预览的孤儿，保留待保存的上传和预览后绑定的图', async t => {
+  const f = await imagePluginFixture(t)
+  const runtime = await f.start()
+  const directory = await seed(f)
+  const upload = () => runtime.request('reference-image', { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png' })
+  const initial = await upload()
+  assert.equal(initial.status, 200)
+  const sample = initial.body.referenceImage
+  const freshPreview = await runtime.request('reference-gc')
+  assert.equal(freshPreview.body.protectedCount, 2)
+  assert.equal(freshPreview.body.orphanCount, 1)
+
+  await utimes(join(directory, sample.id), old, old)
+  await utimes(join(directory, KEPT), old, old)
+  const preview = await runtime.request('reference-gc')
+  assert.equal(preview.body.orphanCount, 3)
+  const lateOrphan = join(directory, 'c'.repeat(64))
+  await writeFile(lateOrphan, Buffer.alloc(512))
+  await utimes(lateOrphan, old, old)
+  assert.equal((await upload()).status, 200, '上传相同内容也要重新进入保护期')
+  assert.equal((await runtime.request('config', { stylePresets: [{ id: 'p1', name: '画风', samples: [
+    { id: KEPT, mediaType: 'image/png', name: 'k.png', byteLength: 2048 },
+  ] }] })).status, 200)
+
+  assert.equal((await runtime.request('reference-gc', {})).status, 409)
+  const done = await runtime.request('reference-gc', { token: preview.body.token })
+  assert.equal(done.status, 200)
+  assert.equal(done.body.removed, 1)
+  assert.equal(existsSync(join(directory, ORPHAN)), false)
+  assert.ok(existsSync(lateOrphan))
+  assert.ok(existsSync(join(directory, KEPT)))
+  assert.equal((await runtime.request('reference-image?id=' + sample.id)).status, 200)
 })

@@ -193,10 +193,11 @@
           const stats = await jsonFetch(BASE + '/reference-gc')
           if (!stats?.ok) throw new Error(stats?.error || '读取参考图占用失败')
           const mb = value => (Number(value || 0) / 1048576).toFixed(2)
-          if (!stats.orphanCount) { setReferenceGcNote('没有可清理的图：' + stats.total + ' 张全部仍被引用，共 ' + mb(stats.totalBytes) + ' MB'); return }
-          if (!window.confirm('参考图目录共 ' + stats.total + ' 张、' + mb(stats.totalBytes) + ' MB。\n其中 ' + stats.orphanCount + ' 张已无引用，可释放 ' + mb(stats.orphanBytes) + ' MB；被人物库、画风示例图或旧作业引用的会保留。\n\n删除这 ' + stats.orphanCount + ' 张？')) return
+          const protectedNote = stats.protectedCount ? '最近 24 小时上传的 ' + stats.protectedCount + ' 张未绑定图片会保留。' : ''
+          if (!stats.orphanCount) { setReferenceGcNote('没有可清理的图。' + protectedNote); return }
+          if (!window.confirm('参考图目录共 ' + stats.total + ' 张、' + mb(stats.totalBytes) + ' MB。\n其中 ' + stats.orphanCount + ' 张可清理，可释放 ' + mb(stats.orphanBytes) + ' MB。' + protectedNote + '\n\n删除这 ' + stats.orphanCount + ' 张？')) { setReferenceGcNote(''); return }
           setReferenceGcNote('正在清理…')
-          const result = await jsonFetch(BASE + '/reference-gc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+          const result = await post('/reference-gc', { token: stats.token })
           if (!result?.ok) throw new Error(result?.error || '清理失败')
           setReferenceGcNote('已删除 ' + result.removed + ' 张，释放 ' + mb(result.removedBytes) + ' MB；保留 ' + result.kept + ' 张' + (result.failed ? '（' + result.failed + ' 张删除失败）' : ''))
         } catch (error) {
@@ -359,10 +360,12 @@
       }
       async function save(patch) {
         const operation = configSaveQueue.current.catch(() => {}).then(async () => {
+          const next = typeof patch === 'function' ? patch(dataRef.current?.config || {}) : patch
+          if (!next) return null
           setNote('保存中…')
           const revision = libraryRevision.current
           try {
-            const r = await post('/config', { config: patch })
+            const r = await post('/config', { config: next })
             receiveState(r.state, revision)
             try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: r.state?.config })) } catch {}
             setNote('已保存')
