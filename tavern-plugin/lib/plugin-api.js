@@ -2301,16 +2301,17 @@ export function createTavernPluginApi(deps) {
   }
 
   /** Seam: what the background settlement task offers the model on behalf of plugins. */
+  // The plugin tools of one game: a card plugin's tools exist only in its own card's games.
+  async function settlementToolsFor(gameId) {
+    const { disabled } = await choicesFor(gameId)
+    return Array.from(settlementTools.values()).filter(entry => !disabled.has(entry.owner)).sort((a, b) => a.name.localeCompare(b.name))
+  }
   const settlement = Object.freeze({
-    /** Tool definitions, in a stable order: they sit in the cached request prefix. */
-    tools() { return Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name)).map(entry => entry.tool) },
+    /** This game's tool definitions, in a stable order: they sit in its cached request prefix. */
+    async tools({ gameId }) { return (await settlementToolsFor(gameId)).map(entry => entry.tool) },
     has(name) { return settlementTools.has(name) },
-    /** This game's plugin tools, split by whether the player has their plugin on. */
-    async toolNames({ gameId }) {
-      const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
-      const names = Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name))
-      return { available: names.filter(entry => !disabled.has(entry.owner)).map(entry => entry.name), unavailable: names.filter(entry => disabled.has(entry.owner)).map(entry => entry.name) }
-    },
+    /** The names of this game's plugin tools, for the per-turn task text. */
+    async toolNames({ gameId }) { return (await settlementToolsFor(gameId)).map(entry => entry.name) },
     // Sections see the turn being settled: its text is not readable through getTurn until settlement ends.
     async sections({ gameId, turn }) {
       const pending = deps.readPendingTurn ? await deps.readPendingTurn(gameId).catch(() => null) : null
@@ -2324,7 +2325,7 @@ export function createTavernPluginApi(deps) {
       return async function call(name, args) {
         const entry = settlementTools.get(name)
         if (!entry) return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 已不可用' })
-        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '玩家在本局关闭了插件 ' + entry.owner + '，本轮不要调用它的工具；以后各轮以结算任务里列出的可用插件工具为准' })
+        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '插件 ' + entry.owner + ' 不在本局生效，不要调用它的工具；以结算任务里列出的可用插件工具为准' })
         if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
         try {
           const value = await bounded(entry.execute({ gameId, turn, arguments: structuredClone(args ?? {}) }), '插件工具 ' + name)

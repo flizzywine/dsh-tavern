@@ -420,12 +420,12 @@ test('stage-director isolates native tools/persona and preserves correction hist
 
 test('插件结算工具：随后台会话固定注册，只在结算任务里可调用，说明附在本轮任务后', async () => {
   const registered = new Map(), texts = [], results = []
-  const pluginCalls = []
+  const pluginCalls = [], toolGames = []
   let work = Promise.resolve(), script = async () => {}
   const pluginSettlement = {
-    tools: () => [{ name: 'anchor_submit', description: '提交锚点', parameters: { type: 'object' }, countsTowardLimit: false }],
+    tools: async ({ gameId }) => { toolGames.push(gameId); return [{ name: 'anchor_submit', description: '提交锚点', parameters: { type: 'object' }, countsTowardLimit: false }] },
     has: name => name === 'anchor_submit',
-    toolNames: async () => ({ available: ['anchor_submit'], unavailable: ['old_tool'] }),
+    toolNames: async () => ['anchor_submit'],
     sections: async ({ gameId, turn }) => [{ text: gameId + ' 第 ' + turn + ' 轮记录锚点' }],
     calls: context => async (name, args) => { pluginCalls.push([context, name, args]); return JSON.stringify({ ok: true }) }
   }
@@ -460,10 +460,11 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
       stopToolsWhen: () => submitted, acceptWithoutText: () => submitted,
       onToolCall: async call => { if (call.name === 'posture_submit') submitted = true; return JSON.stringify({ ok: true }) } })
     assert.ok(registered.has('anchor_submit'), 'plugin tools sit in the fixed tool list')
+    assert.deepEqual(toolGames, ['parent'], 'the list is this game\'s own, read once when the session is set up')
     assert.deepEqual(pluginCalls, [[{ gameId: 'parent', turn: 4 }, 'anchor_submit', { text: '门' }]])
     assert.match(results[2], /提交结算之前/, 'after the final submission a plugin tool is refused')
     assert.match(texts[0], /<plugin_settlement>[\s\S]*Plugin tools available this turn: anchor_submit\. This list is current[\s\S]*parent 第 4 轮记录锚点/)
-    assert.match(texts[0], /Plugin tools unavailable this turn \(the player turned off their plugins for this game\): old_tool\. Don't call them this turn/)
+    assert.doesNotMatch(texts[0], /unavailable/)
 
     script = async () => { results.push(await registered.get('anchor_submit').execute({ text: '候选里' })) }
     await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' },

@@ -1,17 +1,16 @@
 // The background task pipeline (Wiki「设计：background-task-pipeline」).
 //
 // Settlement items: work that rides on the main settlement's single model call. Tavern's own
-// items come first, then the plugins' tools and notes. Tool definitions
-// sit in the background session's cached prefix and never change; which may be called this
-// turn is stated in the per-turn task text.
+// items come first, then the plugins' tools and notes. Tool definitions are the game's own
+// (a card plugin's tools only in its card's games) and sit in that game's background session
+// prefix unchanged; which may be called this turn is stated in the per-turn task text.
 
 import { promptSection } from './prompt-section.js'
 
 function pluginText(names, notes) {
-  if (!notes.length && !names.available.length && !names.unavailable.length) return ''
+  if (!notes.length && !names.length) return ''
   return promptSection('plugin_task', promptSection('plugin_settlement', [
-    ...(names.available.length ? ['Plugin tools available this turn: ' + names.available.join('、') + ". This list is current; earlier turns where they were off or failed no longer apply. Call them as needed before submitting this turn's settlement; a plugin tool failure doesn't affect it."] : []),
-    ...(names.unavailable.length ? ['Plugin tools unavailable this turn (the player turned off their plugins for this game): ' + names.unavailable.join('、') + ". Don't call them this turn."] : []),
+    ...(names.length ? ['Plugin tools available this turn: ' + names.join('、') + ". This list is current; earlier turns where they were off or failed no longer apply. Call them as needed before submitting this turn's settlement; a plugin tool failure doesn't affect it."] : []),
     ...notes.map(note => note.text)].join('\n\n')))
 }
 
@@ -24,8 +23,8 @@ export function createSettlementItems({ items = () => [], plugins = () => null }
   const own = () => (items() || []).filter(Boolean)
 
   return Object.freeze({
-    /** Every item's tools, in the fixed order of the cached prefix. */
-    tools() { return [...own().flatMap(item => item.tools()), ...(plugins()?.tools() || [])] },
+    /** One game's item tools, in the fixed order of its cached prefix. */
+    async tools(context) { return [...own().flatMap(item => item.tools()), ...(await plugins()?.tools(context) || [])] },
     has(name) { return own().some(item => item.has(name)) || Boolean(plugins()?.has(name)) },
     /** Whether an item needs the settlement to run although posture and variables are off. */
     async wanted(context = {}) {
@@ -50,7 +49,7 @@ export function createSettlementItems({ items = () => [], plugins = () => null }
       const notes = group ? await group.sections(context) : []
       const parts = []
       for (const item of own()) parts.push(await item.section(context).catch(() => ''))
-      const names = group ? await group.toolNames(context) : { available: [], unavailable: [] }
+      const names = group ? await group.toolNames(context) : []
       parts.push(pluginText(names, notes))
       return parts.filter(Boolean).join('\n\n')
     }

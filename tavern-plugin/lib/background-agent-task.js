@@ -179,8 +179,9 @@ export function createBackgroundAgentTask(options) {
 
   // Settlement items (domain/background-pipeline.js): Tavern's optional items and the plugins' tools and notes.
   const settlementItems = () => typeof options.settlementItems === 'function' ? options.settlementItems() : null
-  function pluginTools() {
-    const tools = settlementItems()?.tools() || []
+  // The plugin tools of the game this background session belongs to.
+  async function pluginTools(gameId) {
+    const tools = await settlementItems()?.tools({ gameId: str(gameId) }) || []
     return tools.filter(tool => tool && !stableNames.has(tool.name) && !sharedByName.has(tool.name))
   }
   function completedBoundary(events) {
@@ -310,13 +311,14 @@ export function createBackgroundAgentTask(options) {
           return assembly
         })
       })
+      // Plugin tools join the list when the Session is set up; a plugin loaded later
+      // reaches Sessions set up after it. The Session serves one game, so it gets that game's.
+      if (!director && !ownsPrefix(state.input)) state.pluginToolCatalog ??= await pluginTools(state.input.sessionId)
       state.refreshConfiguredTools = function () {
         if (director || ownsPrefix(state.input) || state.stableToolDisposers) return
         // Every task sharing this Session sees one fixed tool list: tool definitions sit in the
         // cached request prefix. What a task may call is enforced when the tool executes.
-        // Plugin tools join the list when the Session is set up; a plugin loaded later
-        // reaches Sessions set up after it.
-        state.baseToolCatalog ??= structuredClone(stableBackgroundTools.concat(pluginTools()))
+        state.baseToolCatalog ??= structuredClone(stableBackgroundTools.concat(state.pluginToolCatalog || []))
         state.stableToolDisposers = state.baseToolCatalog.concat(state.readCapability?.tool || []).map(function (tool) {
           return childCtx.tools.register({
             name: tool.name,

@@ -364,7 +364,8 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
     ['tavern-plugin:memory-plugin:session', true, '[支线] 与推门有关的线索']
   ], 'the failing section is skipped, the others stay')
 
-  assert.deepEqual(h.api.settlement.tools().map(tool => tool.name), ['anchor_submit'])
+  assert.deepEqual((await h.api.settlement.tools({ gameId: 'game-1' })).map(tool => tool.name), ['anchor_submit'])
+  assert.deepEqual(await h.api.settlement.toolNames({ gameId: 'game-1' }), ['anchor_submit'])
   assert.deepEqual((await h.api.settlement.sections({ gameId: 'game-1', turn: 4 })).map(section => section.text), ['第 4 轮请记录叙事锚点'])
   const call = h.api.settlement.calls({ gameId: 'game-1', turn: 4 })
   assert.deepEqual(JSON.parse(await call('anchor_submit', { text: '门' })), { ok: true })
@@ -381,9 +382,31 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   await fiber.dispose()
   await tick()
   assert.deepEqual(await h.api.turnContext({ gameId: 'game-1', turn: 4, input: '推门' }), [])
-  assert.deepEqual(h.api.settlement.tools(), [])
+  assert.deepEqual(await h.api.settlement.tools({ gameId: 'game-1' }), [])
   assert.deepEqual(await h.api.compactionNotes({ gameId: 'game-1' }), [])
   assert.match(JSON.parse(await call('anchor_submit', {})).error, /不可用/)
+})
+
+test('卡内插件的结算工具只出现在它那张卡的局里，全局插件的工具每局都有', { skip: !cordis }, async t => {
+  const cards = { 'game-a': '/cards/a.json', 'game-b': '/cards/b.json', 'game-c': '/cards/c.json' }
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-a', { cards: ['/cards/a.json'] }], ['card-b', { cards: ['/cards/b.json'] }]]),
+    resolveGame: async sessionId => cards[sessionId] ? { chatId: 'chat-' + sessionId, sessionId } : null,
+    cardPathOf: async sessionId => cards[sessionId] ?? null
+  })
+  const tool = name => ({ name, description: name, parameters: { type: 'object' }, execute: async () => ({ ok: true }) })
+  await h.root.plugin({ name: 'card-a', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('alpha_trust')) } })
+  await h.root.plugin({ name: 'card-b', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('beta_trust')) } })
+  await h.root.plugin({ name: 'global-memory', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('memory_submit')) } })
+  await tick()
+  const names = async gameId => (await h.api.settlement.tools({ gameId })).map(entry => entry.name)
+  assert.deepEqual(await names('game-a'), ['alpha_trust', 'memory_submit'])
+  assert.deepEqual(await names('game-b'), ['beta_trust', 'memory_submit'])
+  assert.deepEqual(await names('game-c'), ['memory_submit'], 'a card without a plugin sees only the global tools')
+  assert.deepEqual(await h.api.settlement.toolNames({ gameId: 'game-a' }), ['alpha_trust', 'memory_submit'], 'the task text names the same tools')
+  const call = h.api.settlement.calls({ gameId: 'game-a', turn: 1 })
+  assert.match(JSON.parse(await call('beta_trust', {})).error, /不在本局生效/, 'another card\'s tool is refused if called anyway')
+  assert.deepEqual(JSON.parse(await call('alpha_trust', {})), { ok: true })
 })
 
 test('插件存档数据：按轮数据绑定正文版本，回退与重新生成后自然读不到旧版本，撤销后恢复；整局数据不随剧情变', { skip: !cordis }, async t => {
