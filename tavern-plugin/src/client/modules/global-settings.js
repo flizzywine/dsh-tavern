@@ -46,7 +46,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 h(InlineField, { kind: "menu", label: title, hideLabel: true, disabled, value, options, onCommit: commit }));
         }
         const loading = !data && !message;
-        return h("div", { className: "dsh-tavern-settings-section dsh-local-settings dsh-tavern-global-defaults", "aria-busy": loading || undefined },
+        return h("div", { className: "dsh-tavern-settings-section dsh-tavern-global-defaults", "aria-busy": loading || undefined },
             h("section", { className: "dsh-local-section" }, h("h3", null, "基本信息"),
                 h(TavernSettingRow, { title: "默认玩家称呼" },
                     h(InlineField, { kind: "text", label: "默认玩家称呼", hideLabel: true, disabled, maxLength: 80, value: data?.playerName || "", placeholder: "你", onCommit: value => save({ playerName: value }) })),

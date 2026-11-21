@@ -2786,6 +2786,10 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .dsh-tavern-global-settings .dsh-tavern-gs-notice { margin: 0; padding: 0 2px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .dsh-tavern-global-settings .dsh-tavern-gs-notice.is-alert { color: var(--fork-warn); }
 .dsh-tavern-global-settings .dsh-tavern-global-defaults { gap: 8px; }
+/* A folding entry inside a card (自定义顶栏 in 显示与交互) is one more row of that card, never a card in the card (R2):
+   its summary is the row, hairline above it like the rest. */
+.dsh-tavern-global-settings .dsh-tavern-gs-card > .dsh-tavern-settings-group { padding: 0; border: 0; border-top: 1px solid var(--fork-hairline); border-radius: 0; background: none; }
+.dsh-tavern-global-settings .dsh-tavern-gs-card > .dsh-tavern-settings-group > summary.dsh-tavern-header-summary { min-height: 44px; box-sizing: border-box; padding: 6px 0; color: var(--fork-ink); font-size: var(--fork-fs-body); }
 .dsh-tavern-global-settings :is(.dsh-tavern-gs-card, .dsh-local-section) { padding: 2px 16px; border-color: var(--fork-hairline); border-radius: var(--fork-radius-lg); }
 .dsh-tavern-global-settings :is(.dsh-local-section > h3, .dsh-tavern-gs-subhead) { display: flex; align-items: center; gap: 4px; margin: 0; padding: 12px 0 2px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); font-weight: 500; line-height: 1.5; }
 .dsh-tavern-global-settings .dsh-tavern-settings-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 24px; min-height: 44px; margin: 0; padding: 6px 0; box-sizing: border-box; cursor: default; }
