@@ -76,22 +76,25 @@ const figureVoiceSpec=(pack,figure)=>figure.voice?pack.manifest.voiceLibrary?.vo
 const figureVoiceLanguage=(spec,voice)=>effectiveVoiceLanguage(voice?.language,spec?.language);
 // The 通用声音 of a voice catalogue (listVoiceCatalogue): the installed pack voices voiceAutoCast offers, in castVoiceOrder —
 // 自动素材's 「可选声音」 (preset 「默认」) and the first group of every 选择声音 list (voicePickerGroups).
-const defaultCastVoices=catalogue=>(catalogue?.voices||[]).filter(v=>v.ref.packId&&voiceAutoCast(v.voiceSpec)).sort(castVoiceOrder);
+// `systemPacks`: the packs 通用声音 / 旁白 point at (readingPackIds of tts.reading; useSystemVoicePacks).
+const defaultCastVoices=(catalogue,systemPacks)=>(catalogue?.voices||[]).filter(v=>v.ref.packId&&voiceAutoCast(v.voiceSpec,v.ref.packId,systemPacks)).sort(castVoiceOrder);
+const useSystemVoicePacks=binding=>readingPackIds(useReadingPointers(binding).value);
 // 选择声音's groups, the one grouping every voice picker shows (人物声音页, 舞台设置 › 配音): 通用声音 (defaultCastVoices,
 // whichever pack holds them — the same voices the casting assistant picks from), then 本包's other voices, then the other
 // packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own.
 // This pack's voices come from `pack` (current), the others' from the catalogue (null while it loads). Rows: this pack's
 // {id, spec, users}, another's the catalogue entry.
-function voicePickerGroups(catalogue,pack){
+function voicePickerGroups(catalogue,pack,systemPacks){
   const packId=pack.manifest.id,packName=pack.manifest.name;
   const mine=Object.entries(pack.manifest.voiceLibrary?.voices||{}).map(([id,spec])=>({id,spec,users:voiceUsers(pack,id),name:spec.name,packName}));
   const theirs=(catalogue?.voices||[]).filter(v=>v.ref.packId&&v.ref.packId!==packId);
-  const general=[...mine.filter(v=>voiceAutoCast(v.spec)),...theirs.filter(v=>voiceAutoCast(v.voiceSpec))].sort(castVoiceOrder);
+  const isGeneral=v=>v.ref?voiceAutoCast(v.voiceSpec,v.ref.packId,systemPacks):voiceAutoCast(v.spec,packId,systemPacks);
+  const general=[...mine,...theirs].filter(isGeneral).sort(castVoiceOrder);
   const byPack=new Map();
-  for(const v of theirs)if(!voiceAutoCast(v.voiceSpec)){
+  for(const v of theirs)if(!isGeneral(v)){
     if(!byPack.has(v.ref.packId))byPack.set(v.ref.packId,{id:v.ref.packId,name:v.packName||'',items:[]});
     byPack.get(v.ref.packId).items.push(v);}
-  return {general,own:mine.filter(v=>!voiceAutoCast(v.spec)),others:[...byPack.values()]};
+  return {general,own:mine.filter(v=>!isGeneral(v)),others:[...byPack.values()]};
 }
 const voiceSourceId=(spec,binding)=>binding?.source===null?null:binding?.source??spec.defaultSource;
 const voiceUsers=(pack,voiceId)=>Object.values(pack.figures||{}).filter(f=>f.voice?.voice===voiceId);
@@ -576,7 +579,7 @@ function VoicePicker({binding,pack,figure,current,general=false,generalVoice,pre
   const [query,setQuery]=React.useState(''),[open,setOpen]=React.useState({}),[wanted,setWanted]=React.useState(false);
   const catalogue=useVoiceLoad(()=>wanted?binding.service.listVoiceCatalogue():null,[binding,wanted,pack.revision],{keep:true});
   const q=query.trim(),needle=voiceNeedle(q),packId=pack.manifest.id;
-  const {general:shared,own,others}=voicePickerGroups(catalogue.value,pack);
+  const {general:shared,own,others}=voicePickerGroups(catalogue.value,pack,useSystemVoicePacks(binding));
   const hit=(name,spec)=>voiceMatches(needle,[name,spec?.guidance]);
   const rowPlay=(spec,key,request,name)=>{
     const src=spec?.sources?.[spec.defaultSource];
