@@ -419,7 +419,7 @@ export function apply(ctx, { ready, data, gallery }) {
         if (payload.target === 'characters' || payload.target === 'outfits') {
           const key = payload.target === 'characters' ? 'characters' : 'outfits'
           // 带 item 的是单条修改：只动目标记录，不重写整个库。没有 item 仍走整包。
-          if (content.item !== undefined && content.item !== null) {
+          if (Object.hasOwn(content, 'item')) {
             const next = await engine.patchCardDefinition(payload.target, content.item, content.revision)
             return send(response, 200, { ok: true, revision: next.revision, characters: structuredClone(next) })
           }

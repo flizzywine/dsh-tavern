@@ -6177,10 +6177,19 @@ function createRuntime(ctx, overrides, logger, deps) {
       patchCardDefinition: (target, item, expectedRevision) => {
         const key = target === 'outfits' ? 'outfits' : 'characters'
         if (!item || typeof item !== 'object' || Array.isArray(item)) throw Object.assign(new Error('item 必须是对象'), { code: 'INVALID_ARGUMENT' })
-        const id = String(item.id ?? '').trim()
+        const id = typeof item.id === 'string' ? item.id.trim() : ''
         if (!id) throw Object.assign(new Error('item.id 必填'), { code: 'INVALID_ARGUMENT' })
         const patch = { ...item }
         delete patch.id
+        const invalid = message => Object.assign(new Error(message), { code: 'INVALID_ARGUMENT' })
+        if (key === 'characters') {
+          if (Object.hasOwn(patch, 'traits') && (!patch.traits || typeof patch.traits !== 'object' || Array.isArray(patch.traits))) throw invalid('item.traits 必须是对象')
+          if (Object.hasOwn(patch, 'outfits')) {
+            if (!Array.isArray(patch.outfits) || patch.outfits.some(outfit => !outfit || typeof outfit.id !== 'string' || !outfit.id.trim())) throw invalid('item.outfits 必须是包含有效服装 ID 的数组')
+            patch.outfits = patch.outfits.map(outfit => ({ ...outfit, id: outfit.id.trim() }))
+            if (new Set(patch.outfits.map(outfit => outfit.id)).size !== patch.outfits.length) throw invalid('item.outfits 的服装 ID 不能重复')
+          }
+        }
         return definitionStore.update(current => {
           const list = Array.isArray(current[key]) ? current[key] : []
           const index = list.findIndex(entry => String(entry?.id ?? '') === id)
