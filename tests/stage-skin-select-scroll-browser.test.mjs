@@ -1,6 +1,6 @@
 // CONFIG › 画面 › 本卡皮肤 with many skins (a player could not reach the skins below the fold): the open list stays
-// inside the viewport on a 1920 / 1280 screen, an iPad and a 390 phone, scrolls by wheel to its last skin without moving the
-// CONFIG page behind it, and the arrow keys bring the focused skin into view.
+// inside the viewport, preserves scroll on re-placement, and keeps keyboard focus visible. The tablet and phone
+// cases emulate touch-capable viewports but exercise only wheel and keyboard input, not touch swipes.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -64,19 +64,32 @@ test('a long 本卡皮肤 list stays in the viewport, scrolls to its end and kee
     await page.locator('.fork-gal-skin-trigger').click()
     await page.waitForSelector('.fork-gal-skin-pop[data-placed]')
     await page.waitForTimeout(250)
+    const panel = page.locator('.fork-gal-skin-pop'); await panel.hover()
     const geometry = () => page.evaluate(() => {
       const pop = document.querySelector('.fork-gal-skin-pop'), r = pop.getBoundingClientRect(), scroller = pop
       const options = [...pop.querySelectorAll('[role="option"]')], last = options.at(-1).getBoundingClientRect()
       const page = document.querySelector('.fork-gal-config-page')
-      return { top: r.top, bottom: r.bottom, scrollTop: scroller.scrollTop, scrollable: scroller.scrollHeight - scroller.clientHeight, lastTop: last.top, lastBottom: last.bottom,
+      return { top: r.top, bottom: r.bottom, maxHeight: pop.style.maxHeight, scrollTop: scroller.scrollTop, scrollable: scroller.scrollHeight - scroller.clientHeight, lastTop: last.top, lastBottom: last.bottom,
         listBottom: scroller.getBoundingClientRect().bottom, pageScroll: page ? page.scrollTop : 0, focused: document.activeElement?.textContent || '' }
     })
     const before = await geometry()
     assert.ok(before.top >= 0 && before.bottom <= height, `${name}: the list is inside the viewport ${JSON.stringify(before)}`)
     assert.ok(before.scrollable > 0, `${name}: the long list scrolls inside itself ${JSON.stringify(before)}`)
+    // Resize at an interior scroll position and require a changed placement constraint, not just a scroll event.
+    await panel.evaluate(node => { node.scrollTop = (node.scrollHeight - node.clientHeight) / 2 })
+    await page.waitForFunction(() => document.querySelector('.fork-gal-skin-pop').scrollTop > 0)
+    const middle = await geometry()
+    assert.ok(middle.scrollTop > 0 && middle.scrollTop < middle.scrollable, `${name}: starting at an interior scroll position`)
+    await page.setViewportSize({ width, height: height + 160 })
+    await page.waitForFunction(maxHeight => document.querySelector('.fork-gal-skin-pop').style.maxHeight !== maxHeight, middle.maxHeight)
+    const resized = await geometry()
+    const expectedScrollTop = Math.min(middle.scrollTop, resized.scrollable)
+    assert.ok(expectedScrollTop > 0 && Math.abs(resized.scrollTop - expectedScrollTop) <= 1,
+      `${name}: resize preserves or clamps scroll from ${middle.scrollTop} to ${expectedScrollTop}: ${JSON.stringify(resized)}`)
+    await page.setViewportSize({ width, height })
+    await page.waitForFunction(maxHeight => document.querySelector('.fork-gal-skin-pop').style.maxHeight !== maxHeight, resized.maxHeight)
+    await panel.hover()
     // wheel over the list to its end
-    const box = await page.locator('.fork-gal-skin-pop').boundingBox()
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     for (let i = 0; i < 30; i++) await page.mouse.wheel(0, 200)
     await page.waitForTimeout(400)
     const wheeled = await geometry()
