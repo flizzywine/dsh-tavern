@@ -597,33 +597,25 @@ function createAchievementRecorder(tavern, dataRoot, snapshot) {
     return result
   }
 
-  async function highestIndexedRounds(highest) {
-    const index = await readIndex(dataRoot).catch(error => {
-      if (error.cause?.code === 'ENOENT') return []
-      throw error
-    })
-    for (const row of index) {
-      if (!achievementChat(row) || !(row.preview?.turnCount > highest) || await isAutomationTestChat(dataRoot, row)) continue
-      highest = displayTurns(row, row.preview).turnCount
-    }
-    return highest
-  }
-
   async function loadLedger() {
     if (ledger) return ledger
     const stored = await tavern.readPluginData()
     if (stored != null && (stored.version !== 1 || !Array.isArray(stored.achievements))) throw new Error('无法读取该版本的成就库')
     const records = new Map((stored?.achievements || []).filter(tier => tier?.id).map(tier => [tier.id, tier]))
-    const missing = ACHIEVEMENTS.filter(tier => !records.has(tier.id))
-    let highest = Math.max(0, ...ACHIEVEMENTS.filter(tier => records.get(tier.id)?.earned === true).map(tier => tier.rounds))
-    if (missing.some(tier => tier.rounds > highest)) highest = await highestIndexedRounds(highest)
+    let needsSave = false
     const achievements = ACHIEVEMENTS.map(tier => {
       const record = records.get(tier.id)
       records.delete(tier.id)
-      return record ? { ...record, ...tier } : { ...tier, earned: highest >= tier.rounds, unlockedAt: null }
+      // Earlier versions could grant a tier at startup without recording an unlock.
+      if (!record || (record.earned === true && (!Number.isSafeInteger(record.unlockedAt)
+        || record.unlockedAt <= 0 || record.unlockedAt > 8.64e15))) {
+        needsSave = true
+        return { ...tier, earned: false, unlockedAt: null }
+      }
+      return { ...record, ...tier }
     }).concat([...records.values()])
     const updated = { ...stored, version: 1, achievements }
-    if (missing.length) await tavern.savePluginData({ data: updated })
+    if (needsSave) await tavern.savePluginData({ data: updated })
     ledger = updated
     return ledger
   }

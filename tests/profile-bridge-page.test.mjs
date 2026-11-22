@@ -52,7 +52,7 @@ const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tave
 const coverA = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEALmk0mk0iIiIiIgBoSygABc6zbAAA'
 const coverB = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA='
 
-test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全隐藏', async t => {
+test('原版 Profile 隐藏旧版补记的空白卡，成就库只展示有真实解锁记录的卡', async t => {
   const home = await mkdtemp(join(tmpdir(), 'launcher-achievements-'))
   t.after(() => rm(home, { recursive: true, force: true }))
   assert.deepEqual(await readAchievementLibrary(home), [])
@@ -60,24 +60,26 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
   await mkdir(data, { recursive: true })
   const unlockedAt = Date.UTC(2026, 9, 22)
   const locked = { id: 'silver', title: '传奇冒险者', rounds: 300, earned: false, unlockedAt: null }
+  const backfill = { id: 'starter', title: '佳作', rounds: 50, earned: true, unlockedAt: null }
   const write = achievements => writeFile(join(data, 'dsh-tavern-adventure-medal.json'), JSON.stringify({ version: 1, achievements }))
   const status = { activeName: 'desktop', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
   const options = {
     rpc: async endpoint => ({ ok: true, value: endpoint === 'achievements' ? await readAchievementLibrary(home) : status }),
   }
-  await write([locked])
+  await write([backfill, locked])
+  assert.deepEqual(await readAchievementLibrary(home), [])
   const emptyPage = await mount(status, [], options)
   try {
     assert.equal(emptyPage.calls.some(([endpoint]) => endpoint === 'achievements'), true)
-    assert.doesNotMatch(emptyPage.text(), /成就库|传奇冒险者/)
+    assert.doesNotMatch(emptyPage.text(), /成就库|佳作|传奇冒险者/)
   } finally {
     await emptyPage.dispose()
   }
 
-  const historical = { ...locked, id: 'gold', title: '故事收藏家', rounds: 500, earned: true, cover: 'https://external.example/art.webp' }
+  const historical = { ...locked, id: 'gold', title: '故事收藏家', rounds: 500, earned: true, unlockedAt, cover: 'https://external.example/art.webp' }
   const bronze = { id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt, cardName: '测试卡甲', cover: coverA,
     contextChars: 1263067, startedAt: Date.UTC(2026, 9, 20, 12), turnCount: 105 }
-  await write([bronze, locked, historical])
+  await write([backfill, bronze, locked, historical])
   const page = await mount(status, [], options)
   try {
     const library = page.dom.window.document.querySelector('section[aria-label="成就库"]')
