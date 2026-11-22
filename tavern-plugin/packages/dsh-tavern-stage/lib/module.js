@@ -304,6 +304,12 @@ export async function createStageModule(core) {
         const raw = (await deps.readCardWorkspace(cardPath))?.raw, extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
         return effectiveAutoCast(extension, autoCastSettings.read().values, effectiveCardStage(extension, core.assetEngineSettings.read().values).dialogue)
       }
+      // Whether each part's service is set up, for 自动素材's page (「⚠ 未配置」 beside its switch): 配图's image channel, a voice
+      // service other than the browser's own (a key filled in).
+      const autoCastServices = async () => {
+        const [image, voices] = await Promise.all([deps.pluginApi.imageProviders()[0]?.status(), ctx.get('tts')?.listVoiceServices()])
+        return {sprites:image?.ready === true, voices:!!voices?.services.some(row => row.kind !== 'browser' && row.state !== 'needs-key')}
+      }
       const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary'), getReading:() => ctx.get('tts')?.reading?.() ?? null})
       autoCast = createAutoCast({store:deps.profileData, settings:castSettings,
         library:autoCastLibrary,
@@ -311,7 +317,7 @@ export async function createStageModule(core) {
         images:{prompt:input => deps.assetGeneration.autoPrompt(input), generate:input => deps.assetGeneration.image(input), check:(data, kind) => deps.assetGeneration.autoCheck(data, kind),
           status:async () => (await deps.pluginApi.imageProviders()[0]?.status()) || null},
         // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
-        cast:async ({chat, body, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
+        cast:async ({chat, body, speakers, cast, voices}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input), voices,
           selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
           speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), story:roundStory(chat, body), search:query => autoCastLibrary.search(query), libraryVoices:language => autoCastLibrary.libraryVoices(language)}),
         // 借用形象: one short call of the same model, the moment a new speaker's line is written
@@ -338,7 +344,7 @@ export async function createStageModule(core) {
         }
       }), 'dsh-tavern: CG waits for 自动素材, dressed as the stage')
       const requests = createStageRequests(Object.create(deps, {sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport,autoCastSettings,
-        autoCastStatus:async path => path && autoCast ? autoCast.status(path) : null})
+        autoCastStatus:async path => ({...(path && autoCast ? await autoCast.status(path) : {}), services:await autoCastServices()})})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       return requests

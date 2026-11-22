@@ -93,24 +93,30 @@ export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key =>
 // aggressive.
 export const AUTO_CAST_LEVELS = Object.freeze(['saving', 'balanced', 'aggressive'])
 const OLD_AUTO_CAST_LEVELS = Object.freeze({late:'balanced', eager:'balanced', all:'aggressive'})
-export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'balanced'})
+// Its parts, each a switch of its own under the main one (主人 11-22): sprites = 自动立绘 (a new person's 人设图 and 立绘),
+// voices = 自动配音 (a new person is given a library 通用声音). Both start on.
+export const AUTO_CAST_PARTS = Object.freeze(['sprites', 'voices'])
+export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'balanced', sprites:true, voices:true})
 const autoCastLevelOf = level => OLD_AUTO_CAST_LEVELS[level] || level
 // The global layer's settings section in dsh-tavern's profile entry (settings-config.js declares it writable).
 export const AUTO_CAST_SECTION = 'tavern-auto-cast'
-// One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level) or a card's
-// stage.autoCast (level only; the card's switch is stage.switches.autoCast).
-export function validateAutoCastLayer(value, path, keys = ['level']) {
+// One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level + parts) or a card's
+// stage.autoCast (level and parts; the card's switch is stage.switches.autoCast).
+export function validateAutoCastLayer(value, path, keys = ['level', ...AUTO_CAST_PARTS]) {
   shape(value, keys, [], path)
-  if (value.enabled !== undefined) bool(value.enabled, path + '.enabled')
+  for (const key of ['enabled', ...AUTO_CAST_PARTS]) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   if (value.level !== undefined) check(AUTO_CAST_LEVELS.includes(autoCastLevelOf(value.level)), path + '.level')
   return value
 }
 
-// 自动选角 in effect for a card: its switch four-state like the others (resolveSwitch), its level the card's over the global
-// one. It casts for the bubbles, so it also needs 对话气泡 in effect (`dialogue`, from effectiveCardStage).
+// 自动选角 in effect for a card: its switch four-state like the others (resolveSwitch), its level and each part the card's
+// over the global one. It casts for the bubbles, so it also needs 对话气泡 in effect (`dialogue`, from effectiveCardStage); a
+// part is on only while the whole is.
 export function effectiveAutoCast(extension, global, dialogue) {
   const layer = {...AUTO_CAST_DEFAULTS, ...global}, card = extension?.stage || {}
-  return {enabled:dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast), level:autoCastLevelOf(card.autoCast?.level ?? layer.level)}
+  const enabled = dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast)
+  return {enabled, level:autoCastLevelOf(card.autoCast?.level ?? layer.level),
+    ...Object.fromEntries(AUTO_CAST_PARTS.map(key => [key, enabled && (card.autoCast?.[key] ?? layer[key]) === true]))}
 }
 
 // The card layer of 对话气泡 / 舞台模式: the card's declaration as cardStageMode reads it (stage.enabled for both, or an

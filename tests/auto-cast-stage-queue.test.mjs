@@ -140,7 +140,7 @@ function harness({replies, transparent, cost, refuse, failDraw, assistant = null
     generate:async input => { generated.push(input); if (failDraw) throw Object.assign(new Error('渠道拒绝'), {code:'GENERATION_FAILED'}); const next = queue.shift() || (input.background === 'transparent' ? sprite() : settei()); return {data:new Uint8Array(next), mediaType:'image/png', ...(cost ? {cost} : {})} },
     status:async () => ({ready:true, model:'m', ...(transparent === undefined ? {} : {transparent})})}
   // 激进: whatever the story asks for is drawn (the runtime's tests; the levels' choices are tested above)
-  const settings = {enabled:true, level:'aggressive'}
+  const settings = {enabled:true, level:'aggressive', sprites:true, voices:true}
   const cast = createAutoCast({store, settings:async () => settings, library, images, cast:assistant, lend, now:() => 1000})
   // holdWrites(): pack writes wait (never released) — the pictures stay drawn and not landed, as a restart finds them.
   return {cast, files, writes, prompts, generated, state, settings, holdWrites() { held = new Promise(() => {}) }}
@@ -233,6 +233,28 @@ test('a channel without transparency still draws 立绘: they are asked for tran
   assert.deepEqual(kinds(h.writes), ['identity-settei', 'sprite'])
   assert.equal(h.generated[1].background, 'transparent')
 })
+// 自动素材 › 自动立绘 / 自动配音: each part read from the one setting in effect (effectiveAutoCast).
+test('自动立绘 off: the new person is still cast, nothing is drawn, and a CG of them is told at once they have no 人设图', async () => {
+  const asked = [], h = harness({assistant:async input => { asked.push(input.voices); return {same:{}, copy:{}, appearance:{}, about:{}, importance:{}, voice:{}, finished:true} }})
+  h.settings.sprites = false
+  await h.cast.round('cards/c.json', body([['甲', '喜悦'], ['乙', '']]), chat)
+  await tick(); await tick()
+  assert.equal(h.generated.length, 0, 'no picture')
+  assert.deepEqual(asked, [true], 'the casting ran, with voices')
+  assert.deepEqual(await h.cast.awaitSettei('cards/c.json', [A]), {unavailable:[A]}, 'no wait for a picture that will not come')
+  h.settings.sprites = true
+  await h.cast.round('cards/c.json', body([['甲', '喜悦']]), {...chat, messages:[{role:'assistant', turn:3, id:'m3'}]})
+  await settle(() => kinds(h.writes).includes('sprite'))
+  assert.deepEqual([...new Set(kinds(h.writes))], ['identity-settei', 'sprite'], 'on again: drawn')
+})
+
+test('自动配音 off: the casting assistant is asked without voices', async () => {
+  const asked = [], h = harness({assistant:async input => { asked.push(input.voices); return {same:{}, copy:{}, appearance:{}, about:{}, importance:{}, voice:{}, finished:true} }})
+  h.settings.voices = false
+  await h.cast.round('cards/c.json', body([['乙', '']]), chat)
+  assert.deepEqual(asked, [false])
+})
+
 test('switched off, nothing is counted or drawn; after a restart the record lands and continues', async () => {
   const h = harness()
   h.settings.enabled = false
@@ -246,7 +268,7 @@ test('switched off, nothing is counted or drawn; after a restart the record land
   // a new runtime over the same files (a restart) lands what was drawn.
   const again = createAutoCast({store:{readJson:async k => h.files.get(k) ?? null, writeJson:async (k, v) => h.files.set(k, v), updateJson:async (k, fn) => h.files.set(k, fn(h.files.get(k) ?? null)),
     readBytes:async k => h.files.get(k) ?? null, writeBytes:async (k, d) => h.files.set(k, d), remove:async k => h.files.delete(k)},
-    settings:async () => ({enabled:true, level:'aggressive'}), library:{...h, writable:() => true, readCast:async () => ({cardId:'card-1', packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
+    settings:async () => ({enabled:true, level:'aggressive', sprites:true, voices:true}), library:{...h, writable:() => true, readCast:async () => ({cardId:'card-1', packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
       write:async input => { h.writes.push(input); return {refs:[]} }}, images:{status:async () => ({ready:false})}})
   await again.resume()
   await settle(() => h.writes.length > 0)
@@ -269,7 +291,7 @@ test('automatic prompts come from the same templates as the asset pictures', asy
 test('a refused write is kept for the player and the round stops there; the status names it until a picture lands after it', async () => {
   const h = harness({refuse:'ASSET_UNAVAILABLE'})
   await h.cast.round('cards/c.json', body([['路人', '']]), chat)
-  assert.deepEqual(await h.cast.status('cards/c.json'), {missingPacks:0, problem:{at:1000, kind:'write', error:'ASSET_UNAVAILABLE'}})
+  assert.deepEqual(await h.cast.status('cards/c.json'), {problem:{at:1000, kind:'write', error:'ASSET_UNAVAILABLE'}})
   assert.deepEqual(h.writes, [])
   const failed = noteWriteFailure(emptyAutoCastRecord(), {at:5, error:'REVISION_CONFLICT'})
   assert.deepEqual(autoCastProblem(noteDrawn(failed, {kind:'sprite', at:4})), autoCastProblem(failed), 'a picture before it does not clear it')
@@ -291,7 +313,7 @@ test('the 外貌 waiting in the record reaches the 人物库 record: with the pi
   h.writes.length = 0
   const again = createAutoCast({store:{readJson:async k => structuredClone(h.files.get(k) ?? null), writeJson:async (k, v) => h.files.set(k, v), updateJson:async (k, fn) => h.files.set(k, fn(h.files.get(k) ?? null)),
     readBytes:async k => h.files.get(k) ?? null, writeBytes:async (k, d) => h.files.set(k, d), remove:async k => h.files.delete(k)},
-    settings:async () => ({enabled:true, level:'aggressive'}), library:{writable:() => true, readCast:async () => ({cardId:key, missingPackIds:[], packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
+    settings:async () => ({enabled:true, level:'aggressive', sprites:true, voices:true}), library:{writable:() => true, readCast:async () => ({cardId:key, missingPackIds:[], packId:PACK, revision:'r', rows:[], figures:structuredClone(h.state.figures)}),
       write:async input => { h.writes.push(input); return {refs:[]} }}, images:{status:async () => ({ready:false})}})
   await again.resume()
   await settle(() => h.writes.length > 0)

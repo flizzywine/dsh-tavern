@@ -63,9 +63,10 @@ const TOOLS = [
 // ({voices, more}; null: none); pieces: cardLorePieces (card-stage.js); story: the round's text (roundStory), where a speaker
 // the card never names comes on and is first described. A voice is chosen only among the library's 通用声音 (those
 // offered to it, voiceAutoCast in voice-auto-cast.cjs; library-search.js filters): never a figure's own, nor a bare 配音后端 voice.
+// voices: false (自动配音 off) offers no voice tools and lists no voices: new people are created without one.
 // → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, importance:{[name]:tier}, voice:{[name]:{from, revision, reason}},
 //    language:{[name]:tag} (only another language than 中文), unvoiced:{[name]:tag} (its language has no 通用声音), finished}
-export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, story = '', search, libraryVoices = null}) {
+export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, story = '', search, libraryVoices = null, voices = true}) {
   const result = {same:{}, copy:{}, appearance:{}, about:{}, importance:{}, voice:{}, language:{}, unvoiced:{}, finished:false}
   const seen = {figures:new Map(), voices:new Map()}
   const picked = new Map()
@@ -88,7 +89,7 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
       for (const row of found.figures) seen.figures.set(row.packId + '/' + row.ref.figureId, row)
       return JSON.stringify({ok:true,
         figures:found.figures.map(row => ({packId:row.packId, figureId:row.ref.figureId, name:row.name, aliases:row.aliases, pack:row.packName, ...(row.description ? {description:row.description} : {}), canCopy:row.copyable, voice:row.voice ? {name:row.voice.name, language:row.voice.language} : null})),
-        voices:found.voices.map(voiceRow)})
+        ...(voices ? {voices:found.voices.map(voiceRow)} : {})})
     },
     same_as({figure, existing}) {
       const target = speaker(figure)
@@ -161,7 +162,8 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
     },
     finish() { result.finished = true; return JSON.stringify({ok:true}) },
   }
-  const offered = TOOLS.filter(tool => (search || !['search_library', 'copy_figure'].includes(tool.name)) && (libraryVoices || tool.name !== 'list_library_voices') && (search || libraryVoices || !['assign_voice', 'speaks_language'].includes(tool.name)))
+  const offered = TOOLS.filter(tool => (search || !['search_library', 'copy_figure'].includes(tool.name))
+    && (voices && libraryVoices || tool.name !== 'list_library_voices') && (voices && (search || libraryVoices) || !['assign_voice', 'speaks_language'].includes(tool.name)))
   const taskText = JSON.stringify({新人物:speakers.map(row => row.name), 本卡已有人物:rows.map(row => [row.name, ...row.aliases].join(' / ')), ...(story ? {本轮正文:story} : {})})
   // Each speaker takes a few searches and decisions (lore, library, appearance, voices): the runner's call budget grows with them.
   await runAgent({task:AUTO_CAST_TASK, sessionId, turn, selection, ownPrefix:true, system:await readFile(PROMPT, 'utf8'), taskText, messages:[], signal,
@@ -169,7 +171,7 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
     tools:offered.map(tool => tool.name === 'finish' ? {...tool, countsTowardLimit:false} : tool), onToolCall:async call => tools[call.name] && offered.some(tool => tool.name === call.name) ? tools[call.name](call.arguments || {}) : fail('没有这个工具')})
   // Said plainly, never filled with another language's voice: a new speaker left without a voice because its language has
   // no 通用声音 at all.
-  if (libraryVoices) {
+  if (voices && libraryVoices) {
     const none = new Map()
     for (const {name} of speakers) {
       if (result.same[name] || result.copy[name] || result.voice[name]) continue

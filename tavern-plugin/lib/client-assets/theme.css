@@ -2378,9 +2378,16 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
    switch row (mark + chip only, the state is the tooltip). Never an indented grey note. */
 .ap-hint-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; color: var(--fork-ink); font-size: var(--fork-fs-meta); }
 .ap-hint-line.is-compact { display: inline-flex; flex-wrap: nowrap; margin: 0; font-weight: 400; }
+.ap-hint-line.is-link { display: inline-flex; flex-wrap: nowrap; margin: 0; min-height: 30px; padding: 0 8px; border: 0; border-radius: 8px; background: none; color: var(--fork-warn); font: inherit; font-size: var(--fork-fs-meta); cursor: pointer; }
+.ap-hint-line.is-link:hover, .ap-hint-line.is-link:focus-visible { background: var(--fork-hover); }
+/* 自动素材 › 自动立绘 / 自动配音: the switch, its reset, then the way to its service (› or ⚠ 未配置) */
+.ap-auto-cast-part > .fork-inline-value { display: inline-flex; align-items: center; gap: 10px; }
 /* 「智能判断 未设置」's ⚠ sits right after the heading, wrapping under it when narrow. */
 .ap-engine-judge > .ap-section-head { flex-wrap: wrap; row-gap: 4px; }
 .ap-engine-judge > .ap-section-head > .ap-hint-line { margin: 0 auto 0 0; }
+/* 自动素材 › 可选声音 empty: 「⚠ 未配置」 right after the title's (?) */
+.ap-vx-auto > .ap-section-head > h3 { flex: 0 1 auto; }
+.ap-vx-auto > .ap-section-head > .ap-hint-line.is-link { margin: 0 auto 0 0; }
 .ap-hint-mark { display: inline-flex; flex: none; color: var(--fork-warn); }
 .ap-hint-mark .ap-glyph { width: 15px; height: 15px; }
 /* a panel that failed to render — ⚠ + one line + 重试 in its own place

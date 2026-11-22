@@ -8,8 +8,8 @@ import { createHash } from 'node:crypto'
 // (card-stage-settings.js effectiveAutoCast decides; its section name, defaults and layer check come in as section / defaults /
 // validateLayer: settings-config.js declares the same section writable).
 export const AUTO_CAST_METHODS = Object.freeze(['getAutoCastSettings', 'saveAutoCastSettings', 'getAutoCastStatus'])
-const AUTO_CAST_KEYS = ['enabled', 'level']
 export function createAutoCastSettings(ctx, owner, {section, defaults, validateLayer}) {
+  const AUTO_CAST_KEYS = Object.keys(defaults)
   const validate = value => ({...defaults, ...validateLayer(structuredClone(value), '$', AUTO_CAST_KEYS)})
   const revisionOf = values => createHash('sha256').update(canonicalJson(values)).digest('hex')
   const schema = z.object(Object.fromEntries(AUTO_CAST_KEYS.map(key => [key, z.any().default(defaults[key])])))
@@ -25,7 +25,7 @@ export function createAutoCastSettings(ctx, owner, {section, defaults, validateL
   return Object.freeze({
     read,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
-    // patch: {enabled?, level?}; the write is checked against the revision the caller read.
+    // patch: {enabled?, level?, sprites?, voices?}; the write is checked against the revision the caller read.
     save({patch, expectedRevision}) {
       const pending = chain.then(async () => {
         const current = read(), settings = provider()
