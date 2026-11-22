@@ -121,12 +121,12 @@ try {
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).first().click()
     await dismissNotice()
     await page.getByRole('dialog', { name: '选择人物卡开始游玩' }).getByText('E2E 奖励验收', { exact: true }).first().click()
-    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
     await storyVisible('欢迎领取奖励。')
   })
   await step('发送一轮并看到正文', async () => {
     const start = Date.now()
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill('领取任务奖励'); await composer.press('Enter')
     await storyVisible('你获得了十枚金币。')
     return { turnMs: Date.now() - start }

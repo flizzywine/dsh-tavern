@@ -14,8 +14,8 @@ JAR=${ANDROID_JAR:-$SDK/platforms/android-36/android.jar}
 JDK=${JAVA_HOME:-$HOME/devtools/jdk-17.0.20.1+1}
 PKG=io.github.flizzywine.dshtavern.bionic
 DEVICE_ROOT=/data/user/0/$PKG/files/t
-VERSION_CODE=${VERSION_CODE:-3}
-VERSION_NAME=${VERSION_NAME:-0.3.0-proto+$(git -C "$REPO" rev-parse --short HEAD)}
+VERSION_CODE=${VERSION_CODE:-4}
+VERSION_NAME=${VERSION_NAME:-0.4.0-proto+$(git -C "$REPO" rev-parse --short HEAD)}
 TERMUX=$REPO/output/native-proto
 mkdir -p "$OUT"
 

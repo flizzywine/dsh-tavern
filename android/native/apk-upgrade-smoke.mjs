@@ -104,6 +104,11 @@ try {
     before.chats = runAs(`ls ${DATA}/chats`).trim().split(/\s+/).filter(Boolean)
     before.sessions = runAs(`find ${H}/profile-data/tavern/sessions -type f | wc -l`).trim()
     before.indexSize = runAs(`wc -c < ${DATA}/index.json`).trim()
+    // 新版安装包里有、旧版用户数据里还没有的内置插件：升级后应被播种并注册。
+    const oldPlugins = runAs(`ls ${DATA}/plugins`).trim().split(/\s+/)
+    const newPlugins = execFileSync('tar', ['-tzf', join(dirname(TO), 'payload/payload.tar.gz'), '--wildcards', './home/.dsh-tavern/profile-data/tavern/data/plugins/*/package.json'], { encoding: 'utf8' })
+      .split('\n').map(l => l.split('/')[7]).filter(Boolean)
+    before.newPlugins = [...new Set(newPlugins)].filter(name => !oldPlugins.includes(name))
     // 旧版程序里放一个新版不该保留的文件，用来确认程序目录确实整体替换了。
     runAs(`echo stale > ${T}/src/stale-from-v1.txt`)
     if (!before.chats.length) throw new Error('旧版没有留下对局')
@@ -143,6 +148,22 @@ try {
     if (bad.length) throw new Error(bad.join('；') + '\n' + JSON.stringify(checks))
     return checks
   })
+  await step('新版新增的内置插件（不在旧版用户数据里）被播种并注册', async () => {
+    const missingBefore = report.steps.find(s => s.name.startsWith('旧版：留下'))?.newPlugins || []
+    const deadline = Date.now() + 60000
+    let patch = ''
+    while (Date.now() < deadline) {
+      patch = runAs(`cat ${H}/profiles/tavern/cordis.patch.yml`)
+      if (missingBefore.every(name => patch.includes('tavern-user-plugin-' + name))) break
+      await sleep(1000)
+    }
+    const missing = missingBefore.filter(name => !patch.includes('tavern-user-plugin-' + name))
+    if (missing.length) throw new Error('没注册：' + missing.join(', '))
+    const status = Object.fromEntries(missingBefore.map(name => {
+      try { return [name, JSON.parse(runAs(`cat ${DATA}/plugins/${name}/.tavern-status.json`)).ok] } catch { return [name, 'no-status'] }
+    }))
+    return { newPlugins: missingBefore, status }
+  })
   await step('新版日志：没有 Invalid namespace', () => {
     const log = runAs('cat files/logs/node.log')
     if (/Invalid namespace/.test(log)) throw new Error('仍有 Invalid namespace')
@@ -163,7 +184,7 @@ try {
     await storyVisible('你获得了十枚金币。')
     const floors = async () => (await page.locator('body').innerText()).match(/第 \d+ 楼/g)?.length || 0
     const before = await floors()
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ }).filter({ visible: true }).first()
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).filter({ visible: true }).first()
     await composer.fill('领取任务奖励'); await composer.press('Enter')
     // 固定输出模型的正文随变量状态变化，这里只认「多出一层且有正文」。
     const deadline = Date.now() + 60000
