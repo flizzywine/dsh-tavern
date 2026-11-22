@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "670d993c1a24569ed1a705267bd77b3ee724cece",
-  "releaseSequence": 1908,
+  "revision": "e2e8d1cc800e28f2cb7269aeaffdc3a7ffb61455",
+  "releaseSequence": 1910,
   "version": "3.4.0",
   "files": [
     {
@@ -8405,6 +8405,11 @@
       "size": 4055
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/auto-music-library.js",
+      "sha256": "3382dbbcbe4ddd9029e7965093cecbc07325ba747336f49f9a83db73edda5f3b",
+      "size": 3535
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-assets.js",
       "sha256": "ea40ea9b65c520aaa1218eeb1d0ae8a9bbc6946684dcc568d87ef28420571ef9",
       "size": 3546
@@ -8558,6 +8563,11 @@
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-figure.js",
       "sha256": "3ca84bb3348d1bcc5fb4c92c63d56bf96fc131f8da3c5a799cbf8708fcc36d7b",
       "size": 1786
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-music.js",
+      "sha256": "4dd64a979e17bbf4ae7d710725e38754ca12be57ce36ad18d52e97328e766e4a",
+      "size": 3983
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/card-page-assets.js",
@@ -8901,8 +8911,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/client.js",
-      "sha256": "7abb5eeedf1fb388fd2467bdecc26b580f206a5a3b732ea6f008bcbf9a6276e7",
-      "size": 96020
+      "sha256": "e59e6f58d5495f6456658954580bfaa53804b081de5151eb15983b929e55d36c",
+      "size": 96620
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/core.js",
@@ -9671,9 +9681,9 @@
     }
   ],
   "archive": {
-    "commit": "2269e19af23a819659144cd1282e1fce40f7a534",
+    "commit": "d9c8b0b35cc85e8e7c768bdfef01486ed2c07f08",
     "path": "runtime.zip",
-    "sha256": "848b729df27c896b35758bb3ba6af09f96af4e7a096eeb4c88707386d4d6757a",
-    "size": 17122678
+    "sha256": "01f490f37b20f3fd8045393311bf0cc1f697e9df2c47e91c8210b2fe3480b74e",
+    "size": 17126647
   }
 }
