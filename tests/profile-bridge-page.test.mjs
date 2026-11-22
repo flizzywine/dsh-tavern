@@ -74,7 +74,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     await emptyPage.dispose()
   }
 
-  const historical = { ...locked, id: 'gold', title: '酒馆传说', rounds: 500, earned: true, cover: 'https://external.example/art.webp' }
+  const historical = { ...locked, id: 'gold', title: '故事收藏家', rounds: 500, earned: true, cover: 'https://external.example/art.webp' }
   const bronze = { id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt, cardName: '测试卡甲', cover: coverA,
     contextChars: 1263067, startedAt: Date.UTC(2026, 9, 20, 12), turnCount: 105 }
   await write([bronze, locked, historical])
@@ -86,8 +86,8 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     const earned = cards[0]
     assert.equal(earned.dataset.tier, 'bronze')
     assert.match(earned.textContent, /渐入佳境.*100 轮/)
-    assert.match(cards[1].textContent, /故事收藏家/)
-    assert.doesNotMatch(library.textContent, /冒险|小有名气|酒馆传说/)
+    assert.match(cards[1].textContent, /名场面制造机/)
+    assert.doesNotMatch(library.textContent, /冒险|小有名气|故事收藏家/)
     assert.equal(earned.querySelector('.achievement-art-badge').textContent, '100')
     assert.equal(earned.querySelector('.achievement-art-badge').getAttribute('aria-hidden'), 'true')
     assert.equal(earned.querySelector('.achievement-art-cover').getAttribute('src'), coverA)
@@ -98,7 +98,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.equal(cards[1].querySelector('.achievement-art-cover'), null)
     assert.equal(cards[1].querySelector('[data-stat="words"] b').textContent, '—')
     assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
-    assert.doesNotMatch(library.textContent, /酒馆熟客|未解锁/)
+    assert.doesNotMatch(library.textContent, /全程高能|未解锁/)
   } finally {
     await page.dispose()
   }
@@ -106,7 +106,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
 
 test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
   let tiers = [
-    ['bronze', '渐入佳境', 100], ['silver', '酒馆熟客', 300], ['gold', '故事收藏家', 500], ['rainbow', '千轮留名', 1000],
+    ['bronze', '渐入佳境', 100], ['silver', '全程高能', 300], ['gold', '名场面制造机', 500], ['rainbow', '这局直接封神', 1000],
   ].map(([id, title, rounds]) => ({ id, title, rounds, earned: false, unlockedAt: null }))
   const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true,
