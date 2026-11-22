@@ -250,7 +250,7 @@ public final class TavernService extends Service {
     /** 程序文件：每次换 APK 整体替换。其余（存档、凭据、模型设置 cordis.patch.yml 等）只在缺失时播种。 */
     static final String PROFILE = "home/.dsh-tavern/profiles/tavern/";
     static final String USER_CONFIG = PROFILE + "cordis.patch.yml";
-    static final String[] PROGRAM_DIRS = {"src/", "usr/", "home/.dsh-tavern/runtime/"};
+    static final String[] PROGRAM_DIRS = {"src/", "usr/", "home/.dsh-tavern/runtime/", "pnpm-cache/"};
 
     static boolean isProgram(String path) {
         if (path.startsWith(".payload-")) return true;
@@ -307,6 +307,8 @@ public final class TavernService extends Service {
                 deleteTree(new File(root, dir));
             }
             deleteTree(new File(root, "src.next"));
+            deleteTree(new File(root, "pnpm-store"));
+            deleteTree(new File(root, "update-backup"));
             if (!keepSource) deleteTree(new File(root, "src.prev"));
             File profile = new File(root, PROFILE);
             File[] children = profile.listFiles();
@@ -616,13 +618,18 @@ public final class TavernService extends Service {
             String latestText = latest == null ? "" : "v" + latest.optString("version") + " · " + latest.optString("revision").substring(0, 7);
             if ("available".equals(source)) {
                 updateState = "source";
-                updateMessage = "有新版酒馆 " + latestText + "：依赖没变，可以直接更新源码（约 17 MB，存档和设置保留）";
+                String deps = r.optString("deps");
+                updateMessage = "true".equals(deps)
+                        ? "有新版酒馆 " + latestText + "：依赖有变化，更新时会在手机上补装变化的包（需联网，几分钟，存档和设置保留）"
+                        : "maybe".equals(deps)
+                        ? "有新版酒馆 " + latestText + "：依赖可能有变化，更新时会在手机上补装变化的包（存档和设置保留）"
+                        : "有新版酒馆 " + latestText + "：依赖没变，可以直接更新源码（约 17 MB，存档和设置保留）";
             } else if (apkRelease != null) {
                 updateState = "apk";
                 updateMessage = "有新版安装包 " + apkRelease.optString("versionName") + "（" + apkRelease.optLong("size") / 1048576 + " MB）";
             } else if ("needs-apk".equals(source)) {
                 updateState = "needs-apk";
-                updateMessage = "有新版酒馆 " + latestText + "，但依赖有变化，需要新版安装包；对应的安装包还没发布";
+                updateMessage = "有新版酒馆 " + latestText + "，但更换了 DSH 运行时，需要新版安装包；对应的安装包还没发布";
             } else if ("error".equals(source)) {
                 updateState = "error";
                 updateMessage = "检查失败：" + r.optString("sourceError");
@@ -652,24 +659,44 @@ public final class TavernService extends Service {
             updateMessage = "已是最新";
             return;
         }
-        updateMessage = "正在切换到新源码";
+        boolean deps = staged.optBoolean("deps");
         wantRunning = true;
         stopServer();
-        tool("swap");
-        startServer();
-        if (waitRunning(180_000)) {
+        // 与命令行版更新相同：换源码后跑一遍安装器（补装变化的依赖、刷新内置插件与配置）。
+        // 依赖有变化时 node_modules 先整份备份，任何一步失败都能原样换回。
+        boolean ok = false;
+        String failure = null;
+        try {
+            updateMessage = "正在切换到新源码";
+            if (deps) tool("swap", "--copy-modules");
+            else tool("swap");
+            updateMessage = "正在备份当前配置";
+            if (deps) tool("backup", "--modules");
+            else tool("backup");
+            updateMessage = deps ? "正在补装变化的依赖" : "正在刷新配置";
+            JSONObject installed = tool("install");
+            log("安装器完成，用时 " + installed.optLong("ms") / 1000 + " 秒");
+            updateMessage = "正在启动新版本";
+            startServer();
+            ok = waitRunning(180_000);
+            if (!ok) failure = "新版本启动失败（" + lastExit + "）";
+        } catch (Throwable t) {
+            failure = t.getMessage() != null ? t.getMessage() : String.valueOf(t);
+        }
+        if (ok) {
+            tool("commit");
             updateState = "up-to-date";
-            updateMessage = "已更新到 " + describeSource();
+            updateMessage = "已更新到 " + describeSource() + (deps ? "（依赖已在手机上补装）" : "");
             log(updateMessage);
             return;
         }
-        // 新源码起不来：换回旧的，别让用户卡在打不开的状态。
-        log("新源码启动失败，正在回退");
+        // 新版本装不上或起不来：换回旧的，别让用户卡在打不开的状态。
+        log("更新失败，正在回退：" + failure);
         stopServer();
         tool("rollback");
         startServer();
         updateState = "error";
-        updateMessage = "新版本启动失败，已回退到原来的版本（" + lastExit + "）";
+        updateMessage = "更新失败，已回退到原来的版本：" + failure + "（详情见日志 update.log）";
     }
 
     /** 流式下载并边下边算 SHA-256：安装包四百多 MB，不能整个读进内存。系统代理由 HttpURLConnection 自动使用。 */

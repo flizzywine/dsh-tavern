@@ -62,11 +62,68 @@ const withShell = (options) => {
   if (options && typeof options === 'object' && (options.shell === true)) return { ...options, shell: SHELL };
   return options;
 };
+
+// 2b) 应用数据目录里的 Node 脚本（如 runtime/bin/dsh → bin.js）：Android 禁止执行应用自己写出的文件，
+//     改为 `node --expose-internals 脚本`。node 命令本身直接换成当前可执行文件。
+const PNPM_CLI = process.env.DSH_ANDROID_PNPM_CLI || path.join(__dirname, 'pnpm', 'bin', 'pnpm.cjs');
+const nodeScripts = new Map();
+function nodeScript(file, env) {
+  if (typeof file !== 'string' || file === '') return null;
+  let candidates;
+  if (file.includes('/')) candidates = [path.resolve(file)];
+  else {
+    const dirs = String((env && env.PATH) || process.env.PATH || '').split(':').filter(Boolean);
+    candidates = dirs.map((dir) => path.join(dir, file));
+  }
+  for (const candidate of candidates) {
+    if (nodeScripts.has(candidate)) return nodeScripts.get(candidate);
+    let resolved = null;
+    try {
+      const real = fs.realpathSync(candidate);
+      if (fs.statSync(real).isFile()) {
+        const fd = fs.openSync(real, 'r');
+        const head = Buffer.alloc(128);
+        const n = fs.readSync(fd, head, 0, 128, 0);
+        fs.closeSync(fd);
+        const line = head.subarray(0, n).toString('utf8').split('\n')[0];
+        resolved = line.startsWith('#!') && /\bnode\b/.test(line) ? real : false;
+      }
+    } catch {
+      continue; // 该候选不存在：继续找 PATH 里的下一个
+    }
+    nodeScripts.set(candidate, resolved);
+    return resolved;
+  }
+  return null;
+}
+function rewrite(file, args, options) {
+  if (file === 'node' || file === process.execPath) {
+    // 直接用 node 跑 DSH（如安装器的版本探测）：bionic 替身要求 --expose-internals，又不能放进 NODE_OPTIONS。
+    const list = args || [];
+    const at = list.findIndex((a) => !String(a).startsWith('-'));
+    if (at >= 0 && /[\\/]@deepseek-ai[\\/]dsh[\\/]lib[\\/]bin\.js$/.test(String(list[at])) && !list.includes('--expose-internals')) {
+      return [process.execPath, [...list.slice(0, at), '--expose-internals', ...list.slice(at)]];
+    }
+    return [process.execPath, list];
+  }
+  if (file === 'pnpm') return [process.execPath, [PNPM_CLI, ...(args || [])]];
+  // 安装器用 `sh -c 'command -v node'` 检查命令：两者在 APK 里不在 PATH 上（也不能放可执行文件），由上面的映射提供。
+  if ((file === 'sh' || file === SHELL) && args && args[0] === '-c' && /^command -v (node|pnpm)$/.test(String(args[1]))) {
+    return [file, ['-c', 'true']];
+  }
+  const script = nodeScript(file, options && options.env);
+  if (script) return [process.execPath, ['--expose-internals', script, ...(args || [])]];
+  return [file, args];
+}
 for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
   const fn = childProcess[name];
   childProcess[name] = function (file, args, options, ...rest) {
-    if (Array.isArray(args)) return fn.call(this, file, args, withShell(options), ...rest);
-    return fn.call(this, file, withShell(args), options, ...rest);
+    if (Array.isArray(args)) {
+      const [f, a] = options && options.shell ? [file, args] : rewrite(file, args, options);
+      return fn.call(this, f, a, withShell(options), ...rest);
+    }
+    const [f, a] = args && args.shell ? [file, []] : rewrite(file, [], args);
+    return a.length ? fn.call(this, f, a, withShell(args), options, ...rest) : fn.call(this, f, withShell(args), options, ...rest);
   };
 }
 for (const name of ['exec', 'execSync']) {

@@ -19,7 +19,8 @@ rm -rf "$H/logs" "$H/backups"; mkdir -p "$H/logs"
 
 # 0) 手机布局：安装器只在 host=android（DSHA）时选 dsh-web-mobile，命令行版不带。
 #    它只有对 DSH 运行时的 peer 依赖；用仓库里已打补丁的同版本包，插到 dsh-web-app 之后。
-if [ -n "${PAYLOAD_MOBILE_LAYOUT:-}" ]; then
+#    现在由安装器在 DSH_TAVERN_MOBILE_LAYOUT=1 时正式装进 profile（锁文件里有）；这里只给旧的隔离安装兜底。
+if [ -n "${PAYLOAD_MOBILE_LAYOUT:-}" ] && ! grep -q "dsh-web-mobile" "$H/profiles/tavern/pnpm-lock.yaml" 2>/dev/null; then
   P="$H/profiles/tavern"
   rm -rf "$P/node_modules/dsh-web-mobile"
   cp -rL "$PAYLOAD_MOBILE_LAYOUT" "$P/node_modules/dsh-web-mobile"
@@ -64,6 +65,43 @@ cp -f "$HERE/shims/android-preload.cjs" "$STAGE/usr/lib/dsh-android/preload.cjs"
 # 源码热更新工具：放在 usr（只随 APK 更新），不受热更新替换 src 的影响。
 cp -f "$HERE/shims/source-update.mjs" "$STAGE/usr/lib/dsh-android/source-update.mjs"
 cp -f "$STAGE/src/bin/download.cjs" "$STAGE/usr/lib/dsh-android/download.cjs"
+
+# 2a) 应用内依赖更新用的 pnpm：与打包时装 node_modules 的版本一致，否则 pnpm 会判定布局不同、整体重装。
+PNPM_VERSION=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["packageManager"].split("@")[1])' "$H/profiles/tavern/node_modules/.modules.yaml")
+PNPM_DIR=${PAYLOAD_PNPM_DIR:-$HOME/.cache/node/corepack/v1/pnpm/$PNPM_VERSION}
+[ -f "$PNPM_DIR/bin/pnpm.cjs" ] || { echo "找不到 pnpm $PNPM_VERSION（$PNPM_DIR），可用 PAYLOAD_PNPM_DIR 指定" >&2; exit 1; }
+cp -a "$PNPM_DIR" "$STAGE/usr/lib/dsh-android/pnpm"
+pnpm_host() { node "$PNPM_DIR/bin/pnpm.cjs" "$@"; }
+PNPM_FLAGS=(--ignore-scripts --config.minimum-release-age=0 --config.package-import-method=copy --config.confirm-modules-purge=false
+  --config.store-dir="${PAYLOAD_PNPM_STORE:-$(pnpm_host store path 2>/dev/null | xargs dirname)}" --reporter=append-only)
+# 2b) 根依赖（安装器自己要用，如 yaml）离线内置；平台参数与手机上更新时相同：sharp 只装 wasm 版。
+rm -rf "$STAGE/src/node_modules"
+( cd "$STAGE/src" && pnpm_host install --prod --frozen-lockfile --os=android --cpu=arm64 --cpu=x64 --cpu=wasm32 "${PNPM_FLAGS[@]}" ) | tail -1
+# 2c) 预置 npm 元数据缓存：手机上更新时 pnpm 以 prefer-offline 解析，缓存命中就不联网，只为新增/变化的包取元数据。
+#     在临时副本里只做解析（--lockfile-only），不改载荷里的锁文件。
+META=$(mktemp -d)
+mkdir -p "$META/home/.dsh-tavern/profiles" "$STAGE/pnpm-cache"
+cp -a "$H/profiles/tavern" "$META/home/.dsh-tavern/profiles/tavern"; rm -rf "$META/home/.dsh-tavern/profiles/tavern/node_modules"
+ln -s "$STAGE/src" "$META/src"
+mkdir -p "$META/plugin/packages"
+cp "$STAGE/src/tavern-plugin/package.json" "$META/plugin/"; [ -f "$STAGE/src/tavern-plugin/pnpm-workspace.yaml" ] && cp "$STAGE/src/tavern-plugin/pnpm-workspace.yaml" "$META/plugin/"
+for d in "$STAGE"/src/tavern-plugin/packages/*/; do [ -f "$d/package.json" ] || continue; mkdir -p "$META/plugin/packages/$(basename "$d")"; cp "$d/package.json" "$META/plugin/packages/$(basename "$d")/"; done
+python3 - "$META/plugin/package.json" <<'PY'
+# 宿主 DSH 包在手机上链接到运行时，不需要元数据。
+import json, sys
+p = sys.argv[1]; doc = json.load(open(p))
+for field in ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'):
+    for name in list(doc.get(field, {})):
+        if name.startswith('@deepseek-ai/dsh'): doc[field].pop(name)
+json.dump(doc, open(p, 'w'), indent=2)
+PY
+for dir in "$META/home/.dsh-tavern/profiles/tavern" "$META/plugin"; do
+  ( cd "$dir" && pnpm_host install --lockfile-only --no-frozen-lockfile --config.cache-dir="$STAGE/pnpm-cache" \
+      --config.registry=https://registry.npmmirror.com/ "${PNPM_FLAGS[@]}" 2>&1 | grep -E "^(Done|ERR)" ) || echo "警告：预置元数据（$dir）失败，手机上会联网获取" >&2
+done
+rm -rf "$META"
+find "$STAGE/pnpm-cache" -mindepth 1 -maxdepth 2 ! -path '*/v11*' -exec rm -rf {} + 2>/dev/null || true
+echo "pnpm $PNPM_VERSION；根依赖 $(du -sm "$STAGE/src/node_modules" | cut -f1) MB；预置元数据 $(du -sm "$STAGE/pnpm-cache" | cut -f1) MB"
 
 # 2b) RUNPATH 改成 $ORIGIN：子进程即使被清空环境（模板 worker 只传 NODE_ENV）也能找到自己的 .so。
 python3 "$HERE/patch-runpath.py" '$ORIGIN/../lib' "$STAGE/usr/bin/node" >/dev/null

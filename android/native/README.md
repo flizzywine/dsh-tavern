@@ -68,24 +68,42 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
 - **图片处理**：sharp 没有 Android 预编译，打包时装上同版本的官方 `@img/sharp-wasm32`（`fetch-npm-packages.py`，
   校验 npm integrity），sharp 的加载器在 `android-*` 平台上会落到 wasm 版。
 - **两档更新**（`shims/source-update.mjs`，用仓库现成的 `bin/download.cjs` 读运行清单、下载 `runtime.zip`）：
-  1. **源码热更新**：清单里有更新的 `releaseSequence`，且依赖指纹不变（`package.json` 的依赖字段、各锁文件、补丁、
-     `config/dsh-compatibility.json`）→ 下载到 `src.next`，停服 → 换上（旧的留作 `src.prev`）→ 启动；
-     新版本 3 分钟内起不来自动回退。安装器生成的 `.dsh-tavern-local.json` 和 `tavern-plugin` 的 `node_modules` 搬到新目录。
-  2. **整包更新**：依赖变了，或有 versionCode 更大的安装包 → 读发布信息 `dsh-tavern-native.json`（`build-apk.sh` 生成，
+  1. **应用内更新**（v5 起依赖变化也走这一档）：清单里有更大的 `releaseSequence`，且 DSH 运行时（`config/cli-runtime`）没变 →
+     下载到 `src.next` → 停服 → 换上（旧的留作 `src.prev`）→ 备份 profile 配置 → 跑一遍与命令行版相同的两步安装
+     （`pnpm install --prod` 装根依赖 + `bin/dsh-tavern.mjs install --host cli`）→ 启动。安装用 APK 自带的 pnpm 11.24
+     （`usr/lib/dsh-android/pnpm`，与打包时装 node_modules 的版本一致），已装好的包原样复用，只下载新增和变化的包。
+     - 依赖指纹（`package.json` 的依赖字段、各锁文件、补丁、`config/dsh-compatibility.json`）变了时，`node_modules`
+       先整份复制给新源码、profile 的 `node_modules` 也整份备份，任何一步失败都能原样换回；没变时直接搬过去。
+     - 安装失败或新版本 3 分钟内起不来 → 自动回退源码与 profile；完整输出在 `files/logs/update.log`。
+     - pnpm 参数：`package-import-method=copy`（不能硬链接）、`ignore-scripts`、`prefer-offline`、默认镜像 npmmirror
+       （`DSH_TAVERN_NPM_REGISTRY` 可改）；pnpm 11 只读 `pnpm_config_*` 环境变量，`npm_config_*` 不生效。
+       各 `.modules.yaml` 里打包机的 store 路径会先改成手机上的，否则 pnpm 会清空整个目录重装。
+     - 平台：根依赖用 `--os=android --cpu=arm64 --cpu=x64 --cpu=wasm32`，sharp 只装 wasm 版。
+     - 预加载补的平台差异：应用数据目录里的文件不能执行，`dsh` 之类 `#!/usr/bin/env node` 脚本改成用 libnode.so 运行，
+       `pnpm` 命令映射到自带的 pnpm，`command -v node|pnpm` 探测直接放行，直接跑 DSH 的 `bin.js` 时补 `--expose-internals`。
+     - 安装器在 `DSH_TAVERN_MOBILE_LAYOUT=1` 时与 Android 宿主一样装 `dsh-web-mobile`（`bin/profile-configuration.mjs`）。
+  2. **整包更新**：DSH 运行时变了，或有 versionCode 更大的安装包 → 读发布信息 `dsh-tavern-native.json`（`build-apk.sh` 生成，
      随 APK 上传到 GitHub Release，默认地址 `releases/latest/download/dsh-tavern-native.json`）→ 流式下载并校验 SHA-256
      → PackageInstaller 覆盖安装。覆盖安装时，热更新过、比安装包自带的新、且依赖指纹相同的源码会保留。
   源码版本记录在 `src/.native-source.json`（打包时由 `stage-payload.sh` 写入，同一份放在 `assets/payload-source.json`）。
-- 验收：`apk-launcher-smoke.mjs`（本机起 HTTP 服务充当更新源，`make-test-release.sh` 生成清单、`runtime.zip` 与发布信息）。
+- **离线内置**：运行需要的东西全部在 APK 里，首次启动不联网。v5 起额外内置：根依赖 `src/node_modules`（安装器自己要用，
+  65 MB）、pnpm（21 MB）、预置 npm 元数据缓存 `pnpm-cache`（57 MB，打包时 `--lockfile-only` 解析得到），APK 由 416 MB 增至 444 MB。
+  因此应用内更新只为新增/变化的包联网。仍需联网的：模型 API；卡片脚本从 jsDelivr 等 CDN 加载的库（经酒馆静态资源缓存，
+  首次加载后离线可用）；更新本身。
+- 验收：`apk-launcher-smoke.mjs`（本机起 HTTP 服务充当更新源，`make-test-release.sh` 生成清单、`runtime.zip` 与发布信息）、
+  `apk-deps-update-smoke.mjs`（依赖变化的应用内更新与失败回退）。
   模拟器上全流程通过：sharp wasm 缩放 1600×1200→400×300 WebP 约 0.3 秒；`kill -9` 后约 8 秒自动重启；退到后台 + 强制 Doze
-  30 秒服务仍在；源码热更新约 30 秒（含重启）；依赖变化时提示新安装包，下载校验后 PackageInstaller 覆盖安装，
-  热更新过的源码与存档都保留。依赖指纹的单测：`tests/android-native-source-update.test.mjs`。
+  30 秒服务仍在；依赖没变的源码更新约 50 秒（含重启；v5 起也会跑一遍安装器）；插件新增依赖时应用内更新 37 秒（含重启；有预置元数据缓存时只下载 14 个包，没有时 59 个），新依赖可解析，
+  存档与手机布局保留；依赖装不上（404）时 15 秒内回退到原版本、服务照常；更换 DSH 运行时提示新安装包，下载校验后覆盖安装，
+  热更新过的源码与存档都保留。单测：`tests/android-native-source-update.test.mjs`（指纹、运行时指纹、换源码/备份/回退/清理）。
 
 已知限制：
 
-- 内置插件（`profile-data/tavern/data/plugins/` 下的命运骰等）由安装器播种，属于用户数据目录，热更新和覆盖安装都不会刷新它们。
+- 依赖有变化的更新期间要额外占用约一份 node_modules 的空间（复制 + 备份，约 450 MB），完成后清掉。
 - 发布信息默认读 `releases/latest/download/dsh-tavern-native.json`：仓库的「最新 Release」必须带这个资产，否则显示「还没有发布」。
   与 DSHA 版 APK 共用一个仓库发布时，需要改成固定标签或单独的发布信息地址（`DSH_NATIVE_APK_FEED`）。
-- 打包时源码的 `releaseSequence` 取仓库里 `dsh-tavern-runtime.json` 的值，只有 CI 发布了更大的序号才会提示热更新。
+- 打包时源码的 `releaseSequence` 取仓库里 `dsh-tavern-runtime.json` 的值，只有 CI 发布了更大的序号才会提示更新。
+- 预检查只能从清单比对锁文件与补丁；只改了 `package.json` 时显示「依赖可能有变化」，下载后才最终判定。
 - 模拟器上的发现：强制 Doze 后 `uiautomator` 有时看不到应用窗口；启动页曾因每 0.5 秒无条件刷新文字而一直不空闲，已改为只在变化时更新。
 
 ## 命令行验证（2026-11-22，同一模拟器）

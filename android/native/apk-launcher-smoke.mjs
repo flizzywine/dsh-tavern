@@ -156,7 +156,9 @@ const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1600" he
     for (const t of [tree1, tree2]) { rmSync(t, { recursive: true, force: true }); cpSync(stageSrc, t, { recursive: true, verbatimSymlinks: true }) }
     appendFileSync(join(tree1, 'tavern-plugin/lib/index.js'), '\n// hot-update-marker\n')
     appendFileSync(join(tree2, 'tavern-plugin/lib/index.js'), '\n// hot-update-marker\n')
-    appendFileSync(join(tree2, 'pnpm-lock.yaml'), '\n# deps-changed\n')
+    // 更换 DSH 运行时（config/cli-runtime）才需要新安装包；其余依赖变化在手机上补装（见 apk-deps-update-smoke.mjs）。
+    const runtimeManifest = join(tree2, 'config/cli-runtime/package.json')
+    writeFileSync(runtimeManifest, JSON.stringify({ ...JSON.parse(readFileSync(runtimeManifest, 'utf8')), description: 'runtime-changed' }, null, 2) + '\n')
     const make = (tree, seq, dir, extra = []) => execFileSync('bash', [join(repo, 'android/native/make-test-release.sh'), tree, String(seq), join(fixtures, dir), ...extra], { encoding: 'utf8' })
     make(tree1, 3001, 'release-src')
     make(tree2, 3002, 'release-deps', NEXT_APK ? [NEXT_APK, NEXT_CODE, 'next-test'] : [])
@@ -188,12 +190,12 @@ const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1600" he
     return { sequence: source.sequence, kept: kept.trim().split('\n')[0] + ' node_modules 条目' }
   })
 
-  await step('依赖变化：检查 → 提示新安装包', async () => {
+  await step('更换 DSH 运行时：检查 → 提示新安装包', async () => {
     await useRelease('release-deps')
     await openLauncher()
     await scrollTo(/检查更新/)
     await tap(/^检查更新$/)
-    const hit = await waitFor(NEXT_APK ? /有新版安装包/ : /依赖有变化/, 90000)
+    const hit = await waitFor(NEXT_APK ? /有新版安装包/ : /更换了 DSH 运行时/, 90000)
     return { message: hit.text }
   })
 
