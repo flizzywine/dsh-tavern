@@ -17,6 +17,24 @@ cp -a "$DSH_HOME" "$STAGE/home/.dsh-tavern"
 H="$STAGE/home/.dsh-tavern"
 rm -rf "$H/logs" "$H/backups"; mkdir -p "$H/logs"
 
+# 0) 手机布局：安装器只在 host=android（DSHA）时选 dsh-web-mobile，命令行版不带。
+#    它只有对 DSH 运行时的 peer 依赖；用仓库里已打补丁的同版本包，插到 dsh-web-app 之后。
+if [ -n "${PAYLOAD_MOBILE_LAYOUT:-}" ]; then
+  P="$H/profiles/tavern"
+  rm -rf "$P/node_modules/dsh-web-mobile"
+  cp -rL "$PAYLOAD_MOBILE_LAYOUT" "$P/node_modules/dsh-web-mobile"
+  python3 - "$P/package.json" <<'PY'
+import json, sys
+path = sys.argv[1]; doc = json.load(open(path))
+for holder, key in ((doc['dsh']['profile'], 'bundles'), (doc.setdefault('dshTavern', {}), 'managedBundles')):
+    items = holder.get(key) or []
+    if 'dsh-web-mobile' in items: continue
+    at = items.index('@deepseek-ai/dsh-web-app') + 1 if '@deepseek-ai/dsh-web-app' in items else len(items)
+    holder[key] = items[:at] + ['dsh-web-mobile'] + items[at:]
+json.dump(doc, open(path, 'w'), indent=2, ensure_ascii=False)
+PY
+fi
+
 # 1) 删掉其他平台的预编译包：bionic 上一个都加载不了，只占体积。
 NM="$H/runtime/lib/node_modules"
 before=$(du -sm "$STAGE" | cut -f1)
@@ -64,15 +82,21 @@ cat > "$STAGE/run.sh" <<EOF
 R=$DEVICE_ROOT
 export HOME=\$R/home TMPDIR=\$R/tmp LD_LIBRARY_PATH=\$R/usr/lib
 export DSH_HOME=\$HOME/.dsh-tavern DSH_TAVERN_CLI_HOME=\$HOME/.dsh-tavern DSH_TAVERN_RUNTIME_HOST=cli
-export PORT=\${PORT:-3081}
+export PORT=\${PORT:-3081} NODE_OPTIONS=--use-bundled-ca
 mkdir -p \$TMPDIR
 # 打包机文件系统可能不保留权限（如 NTFS 全是 755）；DSH 要求凭据文件仅属主可读。
 [ -f \$DSH_HOME/.credentials.yaml ] && chmod 600 \$DSH_HOME/.credentials.yaml
 cd \$R/src
-exec \$R/usr/bin/node --max-old-space-size=\${DSH_TAVERN_MAX_OLD_SPACE_MB:-1024} --expose-internals --require \$R/usr/lib/dsh-android/preload.cjs \\
+exec \$R/usr/bin/node --max-old-space-size=\${DSH_TAVERN_MAX_OLD_SPACE_MB:-1024} --use-bundled-ca --expose-internals --require \$R/usr/lib/dsh-android/preload.cjs \\
   \$DSH_HOME/runtime/lib/node_modules/@deepseek-ai/dsh/lib/bin.js --profile tavern --host 127.0.0.1 --port \$PORT --no-open
 EOF
 chmod +x "$STAGE/run.sh"
+# APK 模式：node 和 .so 走 jniLibs（pack-jnilibs.py），载荷里只留预加载脚本。
+if [ "${PAYLOAD_SKIP_NATIVE:-0}" = 1 ]; then
+  find "$STAGE/usr" -mindepth 1 -maxdepth 1 ! -name lib -exec rm -rf {} +
+  find "$STAGE/usr/lib" -mindepth 1 -maxdepth 1 ! -name dsh-android -exec rm -rf {} +
+  rm -f "$STAGE/run.sh"
+fi
 after=$(du -sm "$STAGE" | cut -f1)
 # Android SELinux 不允许应用创建硬链接（link(2) 被拒），pnpm 的硬链接一律存成普通文件。
 tar -C "$STAGE" --hard-dereference -czf "$OUT/payload.tar.gz" .

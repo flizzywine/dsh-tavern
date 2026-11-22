@@ -166,7 +166,7 @@ try {
   report.apiFailures = apiFailures
   await page.screenshot({ path: join(OUT, 'failure.png') }).catch(() => {})
   report.pageText = await page.locator('body').innerText().then(t => t.slice(0, 3000)).catch(() => '')
-  report.textboxes = await page.$eval('textarea,[contenteditable=true],input', els => els.map(e => [e.tagName, e.getAttribute('aria-label'), e.getAttribute('placeholder')].join(':'))).catch(() => [])
+  report.textboxes = await page.$$eval('textarea,[contenteditable=true],input', els => els.map(e => [e.tagName, e.getAttribute('aria-label'), e.getAttribute('placeholder')].join(':'))).catch(() => [])
   report.serverLogTail = (server && first) ? first.log().slice(-6000) : ''
   console.error(error)
   process.exitCode = 1
