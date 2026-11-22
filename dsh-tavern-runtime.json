@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a535ad52a5bef702b4070da0e7b501796c2e86bf",
-  "releaseSequence": 1923,
+  "revision": "6a13d6c234dcc18f306719d277295f64ef6b1446",
+  "releaseSequence": 1924,
   "version": "3.4.0",
   "files": [
     {
@@ -2201,8 +2201,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/image-character-appearance.js",
-      "sha256": "3c1598ac0e200440dc46adf5f4885469194699e4c3141ec365f771b507ae564a",
-      "size": 12504
+      "sha256": "1ba7c252df3fb38f77b250b002f12fce19dec5185a73a63303a5ff99b0df16cb",
+      "size": 13186
     },
     {
       "path": "tavern-plugin/lib/domain/immutable-json-projection.js",
@@ -4201,13 +4201,13 @@
     },
     {
       "path": "tavern-plugin/lib/image-character-follow.js",
-      "sha256": "94cf3c200a3d738125bd0f8d70bf96d5345e0f5bcf1e20805acc391801f7baad",
-      "size": 7284
+      "sha256": "28b63cbcf9726057b639168a4ef1bc84596e32ebba2e3db05f3cfbba59bbf8e4",
+      "size": 7298
     },
     {
       "path": "tavern-plugin/lib/image-character-records.js",
-      "sha256": "1de925768b5f906f5efd6c24e587cffa954ce868f0315d4e0a3f22752430e423",
-      "size": 10940
+      "sha256": "c291614b310df1fa71ede730964bef5214a5978490ef823798ef066d29e3827e",
+      "size": 10954
     },
     {
       "path": "tavern-plugin/lib/index.js",
@@ -4316,8 +4316,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/image-characters.js",
-      "sha256": "50a37ff634c8f6036a7268042146ae099663a8b9ab820d03b817bb2d777e625d",
-      "size": 8912
+      "sha256": "bc5c15d631e1221e2e9494f7e20d21809e432362b561bdbec3c09df752f5d8ef",
+      "size": 8926
     },
     {
       "path": "tavern-plugin/lib/rpc/maintenance.js",
@@ -9701,9 +9701,9 @@
     }
   ],
   "archive": {
-    "commit": "2675e8606593d8c008d694b48d14370b4a6584cd",
+    "commit": "ddd04a2e144d9e79627641db60c63153998d8d41",
     "path": "runtime.zip",
-    "sha256": "19e96e8e08943dc5df12f290b9cff57f3b95980adc4d264f6690bf7473b4e146",
-    "size": 17162983
+    "sha256": "4d8d90e213c62523568649188d57d90a011838dc00aeb9392a698aa69f92f4b6",
+    "size": 17163280
   }
 }
