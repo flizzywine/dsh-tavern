@@ -96,8 +96,8 @@
 .fork-gal-mount { position: fixed; inset: 0; z-index: 2147483000; }
 .fork-gal-handover { position: fixed; inset: 0; z-index: 2147483000; background: #000; }
 [data-fork-gal-stage] body { overflow: hidden; }
-/* The opaque stage is a body portal. galCoverChat marks only the covered session roots
-   and pins their boxes: content-visibility keeps the transcript's styles, boxes and scroll
+/* The opaque stage is a body portal. galCoverChat marks only the covered session roots (on a phone or tablet also the host
+   app's other regions, navigation.cjs) and pins their boxes: content-visibility keeps the transcript's styles, boxes and scroll
    offsets while skipping its rendering, focus and accessibility, so leaving the stage is a
    repaint rather than a ~20k-node restyle/relayout (gal-entry.js). */
 [data-fork-gal-covered] { content-visibility: hidden !important; }
